@@ -7,6 +7,7 @@ import json
 import zipfile
 from dataclasses import asdict
 
+from .canonical import semantic_dict, semantic_hash
 from .model import GPO, RegistrySetting
 from .registry_pol import serialize
 from .validation import validate_gpo
@@ -114,10 +115,12 @@ def export_bundle(gpo: GPO) -> bytes:
     """Return a deterministic ZIP containing manifest, PReg files, and plan."""
     issues = validate_gpo(gpo)
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "gpo-studio-publication-bundle",
         "gpo": gpo.to_dict(),
         "validation": [asdict(issue) for issue in issues],
+        "semantic_sha256": semantic_hash(gpo),
+        "canonical_model": semantic_dict(gpo),
     }
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
