@@ -13,3 +13,6 @@ exports/
 
 # never commit the local denylist (identifier gate)
 .identifiers-denylist.local
+
+# local agent wiring
+.claude/
