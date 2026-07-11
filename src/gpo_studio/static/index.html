@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPO Studio</title>
+  <link rel="stylesheet" href="/assets/studio.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><span class="brand-mark">GS</span><div><strong>GPO Studio</strong><small>Local workspace</small></div></div>
+      <button class="primary full" id="new-gpo">＋ New GPO</button>
+      <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Filter policies"></label>
+      <nav id="gpo-list" aria-label="Group Policy objects"></nav>
+      <footer><span class="dot"></span> Offline authoring mode</footer>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div><p class="eyebrow">Group Policy authoring workspace</p><h1 id="title">Choose a policy</h1></div>
+        <div class="top-actions" id="top-actions" hidden>
+          <span class="revision" id="revision"></span>
+          <a class="button" id="plan" target="_blank">Review PowerShell</a>
+          <a class="button primary" id="export">Export bundle</a>
+        </div>
+      </header>
+
+      <section id="empty" class="empty-state">
+        <div class="empty-glyph">⌘</div>
+        <h2>Policy authoring, with a paper trail</h2>
+        <p>Create a draft GPO, edit registry policy and link intent, validate it, then export a reviewable publication bundle.</p>
+        <button class="primary" id="empty-new">Create your first GPO</button>
+      </section>
+
+      <section id="workspace" hidden>
+        <div id="issue-strip"></div>
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="overview">Overview</button>
+          <button class="tab" data-tab="settings">Policy settings <span id="setting-count"></span></button>
+          <button class="tab" data-tab="links">Scope & links <span id="link-count"></span></button>
+          <button class="tab" data-tab="history">History</button>
+        </div>
+
+        <div class="panel active" id="panel-overview">
+          <div class="grid two">
+            <article class="card">
+              <div class="card-heading"><div><p class="eyebrow">Identity</p><h2>Policy details</h2></div><button class="quiet" id="edit-metadata">Edit</button></div>
+              <dl class="details" id="metadata"></dl>
+            </article>
+            <article class="card">
+              <div class="card-heading"><div><p class="eyebrow">Readiness</p><h2>Preflight</h2></div><span id="readiness-pill"></span></div>
+              <div id="validation-list" class="validation-list"></div>
+            </article>
+          </div>
+          <article class="card safety">
+            <div class="safety-icon">◇</div>
+            <div><h3>Review boundary</h3><p>GPO Studio never connects to AD or writes SYSVOL. Exports include deterministic Registry.pol files and a PowerShell plan for an administrator to review and execute with delegated rights.</p></div>
+          </article>
+        </div>
+
+        <div class="panel" id="panel-settings">
+          <div class="section-head"><div><p class="eyebrow">Computer and User configuration</p><h2>Registry policy</h2></div><button class="primary" id="add-setting">＋ Add setting</button></div>
+          <div class="filter-row"><button class="chip active" data-side="all">All</button><button class="chip" data-side="computer">Computer</button><button class="chip" data-side="user">User</button></div>
+          <div class="table-card"><table><thead><tr><th>Side</th><th>Registry path</th><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead><tbody id="settings-table"></tbody></table><div class="table-empty" id="settings-empty">No registry policy settings yet.</div></div>
+        </div>
+
+        <div class="panel" id="panel-links">
+          <div class="section-head"><div><p class="eyebrow">Scope of management</p><h2>Link intent</h2></div><button class="primary" id="add-link">＋ Add link</button></div>
+          <div class="table-card"><table><thead><tr><th>Order</th><th>Target</th><th>State</th><th>Enforced</th><th></th></tr></thead><tbody id="links-table"></tbody></table><div class="table-empty" id="links-empty">No domain or OU links staged.</div></div>
+        </div>
+
+        <div class="panel" id="panel-history">
+          <div class="section-head"><div><p class="eyebrow">Immutable audit trail</p><h2>Revision history</h2></div></div>
+          <div class="timeline" id="history-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="gpo-dialog">
+    <form method="dialog" id="gpo-form">
+      <div class="dialog-head"><div><p class="eyebrow">Draft policy</p><h2 id="gpo-dialog-title">New GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Name<input name="name" required maxlength="255" placeholder="Workstation security baseline"></label>
+      <label>Description<textarea name="description" rows="3" maxlength="2000" placeholder="Purpose, owner, and rollout notes"></textarea></label>
+      <div id="metadata-options" hidden>
+        <div class="switch-row"><span><strong>Computer configuration</strong><small>Apply machine-side policy</small></span><input name="computer_enabled" type="checkbox" checked></div>
+        <div class="switch-row"><span><strong>User configuration</strong><small>Apply user-side policy</small></span><input name="user_enabled" type="checkbox" checked></div>
+        <label>Status<select name="status"><option value="draft">Draft</option><option value="ready">Ready for publication</option><option value="archived">Archived</option></select></label>
+      </div>
+      <label>Change reason<input name="reason" required value="Create draft"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" id="gpo-submit" value="default">Create policy</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="setting-dialog">
+    <form method="dialog" id="setting-form">
+      <div class="dialog-head"><div><p class="eyebrow">Administrative Templates / Registry</p><h2 id="setting-dialog-title">Add policy setting</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="grid two compact"><label>Configuration<select name="side"><option value="computer">Computer</option><option value="user">User</option></select></label><label>Action<select name="action"><option value="set">Set value</option><option value="delete">Delete value</option></select></label></div>
+      <label>Registry key<div class="path-input"><span id="hive-prefix">HKLM\</span><input name="key" required placeholder="Software\Policies\Example"></div></label>
+      <div class="grid two compact"><label>Value name<input name="value_name" placeholder="PolicyValue"></label><label>Type<select name="registry_type"><option>REG_SZ</option><option>REG_EXPAND_SZ</option><option>REG_DWORD</option><option>REG_QWORD</option><option>REG_MULTI_SZ</option><option>REG_BINARY</option></select></label></div>
+      <label>Value<textarea name="value" rows="3" placeholder="Value (one line per item for REG_MULTI_SZ)"></textarea><small id="value-help">Enter text.</small></label>
+      <label>Comment<input name="comment" maxlength="1000" placeholder="Why this setting exists"></label>
+      <label>Change reason<input name="reason" required value="Update registry policy"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save setting</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="link-dialog">
+    <form method="dialog" id="link-form">
+      <div class="dialog-head"><div><p class="eyebrow">Scope of management</p><h2 id="link-dialog-title">Add link</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Domain or OU distinguished name<input name="target" required placeholder="OU=Workstations,DC=example,DC=test"></label>
+      <div class="grid two compact"><label>Link order<input name="order" type="number" min="1" max="999" value="1"></label><div class="toggle-stack"><label><input name="enabled" type="checkbox" checked> Link enabled</label><label><input name="enforced" type="checkbox"> Enforced</label></div></div>
+      <label>Change reason<input name="reason" required value="Update link intent"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save link</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script src="/assets/studio.js"></script>
+</body>
+</html>
