@@ -1,0 +1,346 @@
+from __future__ import annotations
+
+from dataclasses import replace
+
+from gpo_studio.diff import (
+    diff_gpos,
+    diff_links,
+    diff_settings,
+    three_way_diff,
+)
+from gpo_studio.model import GPO, GPOLink, RegistrySetting
+
+
+def _setting(
+    id: str = "s1",
+    side: str = "computer",
+    hive: str = "HKLM",
+    key: str = r"Software\Policies\Synthetic",
+    value_name: str = "Enabled",
+    registry_type: str = "REG_DWORD",
+    value: str | int | list[str] = 1,
+    action: str = "set",
+    comment: str = "",
+) -> RegistrySetting:
+    return RegistrySetting(
+        id=id,
+        side=side,  # type: ignore[arg-type]
+        hive=hive,  # type: ignore[arg-type]
+        key=key,
+        value_name=value_name,
+        registry_type=registry_type,  # type: ignore[arg-type]
+        value=value,
+        action=action,  # type: ignore[arg-type]
+        comment=comment,
+    )
+
+
+def _link(
+    id: str = "l1",
+    target: str = "OU=Lab,DC=example,DC=test",
+    enabled: bool = True,
+    enforced: bool = False,
+    order: int = 1,
+) -> GPOLink:
+    return GPOLink(id=id, target=target, enabled=enabled, enforced=enforced, order=order)
+
+
+def _gpo(
+    settings: tuple[RegistrySetting, ...] = (),
+    links: tuple[GPOLink, ...] = (),
+    guid: str = "11111111-2222-3333-4444-555555555555",
+    name: str = "Test Policy",
+) -> GPO:
+    return GPO(guid=guid, name=name, settings=settings, links=links)
+
+
+def test_identical_gpos_empty_diff() -> None:
+    gpo = _gpo(
+        settings=(_setting(),),
+        links=(_link(),),
+    )
+    result = diff_gpos(gpo, gpo)
+    assert result.settings == ()
+    assert result.links == ()
+
+
+def test_setting_added() -> None:
+    old = _gpo(settings=())
+    new = _gpo(settings=(_setting(),))
+    result = diff_gpos(old, new)
+    assert len(result.settings) == 1
+    change = result.settings[0]
+    assert change.kind == "added"
+    assert change.old is None
+    assert change.new == _setting()
+
+
+def test_setting_removed() -> None:
+    old = _gpo(settings=(_setting(),))
+    new = _gpo(settings=())
+    result = diff_gpos(old, new)
+    assert len(result.settings) == 1
+    change = result.settings[0]
+    assert change.kind == "removed"
+    assert change.old == _setting()
+    assert change.new is None
+
+
+def test_setting_modified() -> None:
+    old_setting = _setting(value=1)
+    new_setting = _setting(value=2)
+    old = _gpo(settings=(old_setting,))
+    new = _gpo(settings=(new_setting,))
+    result = diff_gpos(old, new)
+    assert len(result.settings) == 1
+    change = result.settings[0]
+    assert change.kind == "modified"
+    assert change.old == old_setting
+    assert change.new == new_setting
+
+
+def test_setting_modified_other_fields() -> None:
+    old_setting = _setting(comment="old")
+    new_setting = _setting(comment="new")
+    old = _gpo(settings=(old_setting,))
+    new = _gpo(settings=(new_setting,))
+    result = diff_gpos(old, new)
+    assert len(result.settings) == 1
+    change = result.settings[0]
+    assert change.kind == "modified"
+
+
+def test_setting_reorder_no_false_diff() -> None:
+    s1 = _setting(id="s1", value_name="A")
+    s2 = _setting(id="s2", value_name="B")
+    old = _gpo(settings=(s1, s2))
+    new = _gpo(settings=(s2, s1))
+    result = diff_gpos(old, new)
+    assert result.settings == ()
+
+
+def test_setting_identity_casefold() -> None:
+    old_setting = _setting(key=r"Software\Policies\Synthetic", value_name="Enabled")
+    new_setting = _setting(key=r"software\policies\synthetic", value_name="enabled")
+    old = _gpo(settings=(old_setting,))
+    new = _gpo(settings=(new_setting,))
+    result = diff_gpos(old, new)
+    assert result.settings == ()
+
+
+def test_setting_type_change_is_modified() -> None:
+    old_setting = _setting(registry_type="REG_DWORD", value=1)
+    new_setting = _setting(registry_type="REG_QWORD", value=1)
+    old = _gpo(settings=(old_setting,))
+    new = _gpo(settings=(new_setting,))
+    result = diff_gpos(old, new)
+    assert len(result.settings) == 1
+    assert result.settings[0].kind == "modified"
+
+
+def test_setting_action_change_is_modified() -> None:
+    old_setting = _setting(action="set")
+    new_setting = _setting(action="delete")
+    old = _gpo(settings=(old_setting,))
+    new = _gpo(settings=(new_setting,))
+    result = diff_gpos(old, new)
+    assert len(result.settings) == 1
+    assert result.settings[0].kind == "modified"
+
+
+def test_link_added_removed_modified() -> None:
+    old = _gpo(
+        links=(
+            _link(id="l1", target="OU=A,DC=test"),
+            _link(id="l2", target="OU=B,DC=test", order=1),
+        )
+    )
+    new = _gpo(
+        links=(
+            _link(id="l3", target="OU=B,DC=test", order=2),
+            _link(id="l4", target="OU=C,DC=test"),
+        )
+    )
+    result = diff_gpos(old, new)
+    assert len(result.links) == 3
+    by_target = {c.target: c for c in result.links}
+    assert by_target["OU=A,DC=test"].kind == "removed"
+    assert by_target["OU=B,DC=test"].kind == "modified"
+    assert by_target["OU=C,DC=test"].kind == "added"
+
+
+def test_link_match_by_target() -> None:
+    old = _gpo(links=(_link(id="link-old", target="OU=A,DC=test", order=1),))
+    new = _gpo(links=(_link(id="link-new", target="OU=A,DC=test", order=2),))
+    result = diff_gpos(old, new)
+    assert len(result.links) == 1
+    change = result.links[0]
+    assert change.kind == "modified"
+    assert change.old.id == "link-old"
+    assert change.new.id == "link-new"
+
+
+def test_link_target_casefold_match() -> None:
+    old = _gpo(links=(_link(target="OU=A,DC=Test"),))
+    new = _gpo(links=(_link(target="ou=a,dc=test"),))
+    result = diff_gpos(old, new)
+    assert result.links == ()
+
+
+def test_three_way_no_conflict() -> None:
+    baseline = _gpo(
+        settings=(
+            _setting(id="s1", value_name="A", value=1),
+            _setting(id="s2", value_name="B", value=1),
+        )
+    )
+    draft = _gpo(
+        settings=(
+            _setting(id="s1", value_name="A", value=2),
+            _setting(id="s2", value_name="B", value=1),
+        )
+    )
+    observed = _gpo(
+        settings=(
+            _setting(id="s1", value_name="A", value=1),
+            _setting(id="s2", value_name="B", value=2),
+        )
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.conflicts) == 0
+    assert len(result.settings) == 1
+
+
+def test_three_way_conflict() -> None:
+    baseline = _gpo(settings=(_setting(id="s1", value_name="A", value=1),))
+    draft = _gpo(settings=(_setting(id="s1", value_name="A", value=2),))
+    observed = _gpo(settings=(_setting(id="s1", value_name="A", value=3),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.conflicts) == 1
+    conflict = result.conflicts[0]
+    assert conflict.baseline == _setting(value_name="A", value=1)
+    assert conflict.draft == _setting(value_name="A", value=2)
+    assert conflict.observed == _setting(value_name="A", value=3)
+
+
+def test_three_way_convergent_change() -> None:
+    baseline = _gpo(settings=(_setting(id="s1", value_name="A", value=1),))
+    draft = _gpo(settings=(_setting(id="s1", value_name="A", value=2),))
+    observed = _gpo(settings=(_setting(id="s1", value_name="A", value=2),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.conflicts) == 0
+
+
+def test_three_way_both_added_same_no_conflict() -> None:
+    baseline = _gpo(settings=())
+    draft = _gpo(settings=(_setting(id="s1", value_name="A", value=1),))
+    observed = _gpo(settings=(_setting(id="s1", value_name="A", value=1),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.conflicts) == 0
+
+
+def test_three_way_both_added_different_conflict() -> None:
+    baseline = _gpo(settings=())
+    draft = _gpo(settings=(_setting(id="s1", value_name="A", value=1),))
+    observed = _gpo(settings=(_setting(id="s1", value_name="A", value=2),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.conflicts) == 1
+    assert result.conflicts[0].baseline is None
+    assert result.conflicts[0].draft == _setting(value_name="A", value=1)
+    assert result.conflicts[0].observed == _setting(value_name="A", value=2)
+
+
+def test_three_way_draft_removed_observed_modified_conflict() -> None:
+    baseline = _gpo(settings=(_setting(id="s1", value_name="A", value=1),))
+    draft = _gpo(settings=())
+    observed = _gpo(settings=(_setting(id="s1", value_name="A", value=2),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.conflicts) == 1
+    assert result.conflicts[0].draft is None
+    assert result.conflicts[0].observed == _setting(value_name="A", value=2)
+
+
+def test_diff_is_deterministic() -> None:
+    s1 = _setting(id="s1", value_name="Z", value=1)
+    s2 = _setting(id="s2", value_name="A", value=2)
+    s3 = _setting(id="s3", value_name="M", value=3)
+    old = _gpo(settings=(s1, s2, s3))
+    new = _gpo(settings=())
+    result1 = diff_gpos(old, new)
+    result2 = diff_gpos(old, new)
+    assert result1 == result2
+    identities = [c.identity for c in result1.settings]
+    assert identities == sorted(identities)
+
+
+def test_diff_links_deterministic() -> None:
+    l1 = _link(id="l1", target="OU=Z,DC=test")
+    l2 = _link(id="l2", target="OU=A,DC=test")
+    l3 = _link(id="l3", target="OU=M,DC=test")
+    old = _gpo(links=(l1, l2, l3))
+    new = _gpo(links=())
+    result1 = diff_links(old.links, new.links)
+    result2 = diff_links(old.links, new.links)
+    assert result1 == result2
+    targets = [c.target.casefold() for c in result1]
+    assert targets == sorted(targets)
+
+
+def test_diff_settings_empty_inputs() -> None:
+    assert diff_settings([], []) == []
+
+
+def test_diff_links_empty_inputs() -> None:
+    assert diff_links([], []) == []
+
+
+def test_diff_gpos_both_empty() -> None:
+    result = diff_gpos(_gpo(), _gpo())
+    assert result.settings == ()
+    assert result.links == ()
+
+
+def test_three_way_links_included() -> None:
+    baseline = _gpo(links=(_link(id="l1", target="OU=A,DC=test", order=1),))
+    draft = _gpo(links=(_link(id="l1", target="OU=A,DC=test", order=2),))
+    observed = _gpo(links=(_link(id="l1", target="OU=A,DC=test", order=1),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.links) == 1
+    assert result.links[0].kind == "modified"
+    assert result.conflicts == ()
+
+
+def test_setting_with_list_value_modified() -> None:
+    old_setting = _setting(registry_type="REG_MULTI_SZ", value=["a", "b"])
+    new_setting = _setting(registry_type="REG_MULTI_SZ", value=["a", "c"])
+    old = _gpo(settings=(old_setting,))
+    new = _gpo(settings=(new_setting,))
+    result = diff_gpos(old, new)
+    assert len(result.settings) == 1
+    assert result.settings[0].kind == "modified"
+
+
+def test_setting_with_list_value_unchanged() -> None:
+    old_setting = _setting(registry_type="REG_MULTI_SZ", value=["a", "b"])
+    new_setting = _setting(registry_type="REG_MULTI_SZ", value=["a", "b"])
+    old = _gpo(settings=(old_setting,))
+    new = _gpo(settings=(new_setting,))
+    result = diff_gpos(old, new)
+    assert result.settings == ()
+
+
+def test_link_no_change_when_equal() -> None:
+    link = _link(id="l1", target="OU=A,DC=test", enabled=True, enforced=False, order=1)
+    old = _gpo(links=(link,))
+    new = _gpo(links=(replace(link, id="l2"),))
+    result = diff_gpos(old, new)
+    assert result.links == ()
+
+
+def test_three_way_both_delete_no_conflict() -> None:
+    s = _setting(value=1)
+    baseline = _gpo(settings=(s,))
+    draft = _gpo(settings=())
+    observed = _gpo(settings=())
+    result = three_way_diff(baseline, draft, observed)
+    assert result.conflicts == ()
