@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pyc
+*.db
+*.sqlite3
+dist/
+build/
+exports/
+
+
+# never commit the local denylist (identifier gate)
+.identifiers-denylist.local

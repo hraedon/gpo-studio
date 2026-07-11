@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpo-studio.invalid/schemas/publisher-job-v1.json",
+  "title": "GPO Studio publisher job v1 (design contract)",
+  "description": "A closed, typed envelope for an optionally managed Windows publisher. This schema is not yet accepted by executable code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "created_at",
+    "target",
+    "precondition",
+    "operations",
+    "approval"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "job_id": { "$ref": "#/$defs/identifier" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "change_ticket": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "target": { "$ref": "#/$defs/target" },
+    "precondition": { "$ref": "#/$defs/precondition" },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/operation" }
+    },
+    "approval": { "$ref": "#/$defs/approval" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "guid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publisher_audience", "forest", "domain", "intent"],
+      "properties": {
+        "publisher_audience": { "$ref": "#/$defs/identifier" },
+        "forest": { "type": "string", "format": "hostname", "maxLength": 253 },
+        "domain": { "type": "string", "format": "hostname", "maxLength": 253 },
+        "intent": { "enum": ["existing", "create"] },
+        "gpo_guid": { "$ref": "#/$defs/guid" },
+        "requested_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "dc_selector": { "type": "string", "minLength": 1, "maxLength": 255 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "intent": { "const": "existing" } } },
+          "then": { "required": ["gpo_guid"] }
+        },
+        {
+          "if": { "properties": { "intent": { "const": "create" } } },
+          "then": { "required": ["requested_name"] }
+        }
+      ]
+    },
+    "version_pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ad", "sysvol"],
+      "properties": {
+        "ad": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "sysvol": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      }
+    },
+    "precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collected_at",
+        "semantic_sha256",
+        "user_version",
+        "computer_version",
+        "links_sha256",
+        "acl_sha256"
+      ],
+      "properties": {
+        "collected_at": { "$ref": "#/$defs/timestamp" },
+        "source_dc": { "type": "string", "format": "hostname", "maxLength": 253 },
+        "semantic_sha256": { "$ref": "#/$defs/sha256" },
+        "user_version": { "$ref": "#/$defs/version_pair" },
+        "computer_version": { "$ref": "#/$defs/version_pair" },
+        "links_sha256": { "$ref": "#/$defs/sha256" },
+        "acl_sha256": { "$ref": "#/$defs/sha256" },
+        "wmi_filter_sha256": { "$ref": "#/$defs/sha256" },
+        "som_inheritance_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "registry_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operation_id",
+        "reason",
+        "side",
+        "key",
+        "name",
+        "registry_type",
+        "value"
+      ],
+      "properties": {
+        "kind": { "const": "registry.set" },
+        "operation_id": { "$ref": "#/$defs/identifier" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "side": { "enum": ["computer", "user"] },
+        "key": {
+          "type": "string",
+          "pattern": "^HK(LM|CU)\\\\[^\\u0000]+$",
+          "maxLength": 1024
+        },
+        "name": { "type": "string", "maxLength": 255 },
+        "registry_type": {
+          "enum": ["String", "ExpandString", "Binary", "DWord", "MultiString", "QWord"]
+        },
+        "value": {}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "registry_type": { "enum": ["String", "ExpandString"] } }
+          },
+          "then": {
+            "properties": { "value": { "type": "string", "maxLength": 1048576 } }
+          }
+        },
+        {
+          "if": { "properties": { "registry_type": { "const": "Binary" } } },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "pattern": "^(?:[0-9A-F]{2})*$",
+                "maxLength": 2097152
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "registry_type": { "const": "DWord" } } },
+          "then": {
+            "properties": {
+              "value": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "registry_type": { "const": "QWord" } } },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,19})$",
+                "maxLength": 20
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "registry_type": { "const": "MultiString" } } },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "maxItems": 10000,
+                "items": { "type": "string", "maxLength": 65535 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "registry_delete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "operation_id", "reason", "side", "key", "name"],
+      "properties": {
+        "kind": { "const": "registry.delete" },
+        "operation_id": { "$ref": "#/$defs/identifier" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "side": { "enum": ["computer", "user"] },
+        "key": {
+          "type": "string",
+          "pattern": "^HK(LM|CU)\\\\[^\\u0000]+$",
+          "maxLength": 1024
+        },
+        "name": { "type": "string", "maxLength": 255 }
+      }
+    },
+    "gpo_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "operation_id", "reason", "status"],
+      "properties": {
+        "kind": { "const": "gpo.status.set" },
+        "operation_id": { "$ref": "#/$defs/identifier" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "status": {
+          "enum": [
+            "AllSettingsEnabled",
+            "AllSettingsDisabled",
+            "ComputerSettingsDisabled",
+            "UserSettingsDisabled"
+          ]
+        }
+      }
+    },
+    "link_upsert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operation_id",
+        "reason",
+        "target_dn",
+        "enabled",
+        "enforced",
+        "order"
+      ],
+      "properties": {
+        "kind": { "const": "link.upsert" },
+        "operation_id": { "$ref": "#/$defs/identifier" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "target_dn": { "type": "string", "minLength": 3, "maxLength": 2048 },
+        "enabled": { "type": "boolean" },
+        "enforced": { "type": "boolean" },
+        "order": { "type": "integer", "minimum": 1, "maximum": 999 }
+      }
+    },
+    "link_delete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "operation_id", "reason", "target_dn"],
+      "properties": {
+        "kind": { "const": "link.delete" },
+        "operation_id": { "$ref": "#/$defs/identifier" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "target_dn": { "type": "string", "minLength": 3, "maxLength": 2048 }
+      }
+    },
+    "operation": {
+      "oneOf": [
+        { "$ref": "#/$defs/registry_set" },
+        { "$ref": "#/$defs/registry_delete" },
+        { "$ref": "#/$defs/gpo_status" },
+        { "$ref": "#/$defs/link_upsert" },
+        { "$ref": "#/$defs/link_delete" }
+      ]
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "approver_subject", "algorithm", "value"],
+      "properties": {
+        "key_id": { "$ref": "#/$defs/identifier" },
+        "approver_subject": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "algorithm": { "enum": ["Ed25519", "ES256"] },
+        "value": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "minLength": 32,
+          "maxLength": 4096
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "payload_sha256",
+        "policy_version",
+        "not_before",
+        "expires_at",
+        "signatures"
+      ],
+      "properties": {
+        "payload_sha256": { "$ref": "#/$defs/sha256" },
+        "policy_version": { "$ref": "#/$defs/identifier" },
+        "not_before": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "signatures": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/signature" }
+        }
+      }
+    }
+  }
+}
