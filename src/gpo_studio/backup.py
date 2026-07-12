@@ -45,6 +45,7 @@ class BackupSecurityFilter:
     permission: str
     inheritable: bool
     target_type: str
+    sid: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,12 +199,12 @@ def parse_bkup_info(data: bytes) -> GpmcBackup:
         elif local == "BackupType":
             backup_type = _text_or_empty(child)
         elif local == "GPO":
-            guid_elem = child.find(f".//{{{_ADMX_NS}}}Identifier")
-            guid = _text_or_empty(guid_elem) if guid_elem is not None else ""
-            name_elem = child.find(f".//{{{_ADMX_NS}}}DisplayName")
-            display_name = _text_or_empty(name_elem) if name_elem is not None else ""
-            domain_elem = child.find(f".//{{{_ADMX_NS}}}Domain")
-            domain = _text_or_empty(domain_elem) if domain_elem is not None else ""
+            guid_elem = child.find(f"./{{{_ADMX_NS}}}Identifier")
+            guid = _text_or_empty(guid_elem).strip("{}").lower()
+            name_elem = child.find(f"./{{{_ADMX_NS}}}DisplayName")
+            display_name = _text_or_empty(name_elem)
+            domain_elem = child.find(f"./{{{_ADMX_NS}}}Domain")
+            domain = _text_or_empty(domain_elem)
 
     gpo = BackupGpo(guid=guid, display_name=display_name, domain=domain)
     return GpmcBackup(
@@ -224,28 +225,28 @@ def parse_manifest(data: bytes) -> GpmcBackup:
 
     for inst in root.iter():
         if _local_name(inst.tag) == "BackupInstance":
-            bt_elem = inst.find(f".//{{{_ADMX_NS}}}BackupTime")
+            bt_elem = inst.find(f"./{{{_ADMX_NS}}}BackupTime")
             backup_time = _text_or_empty(bt_elem)
-            id_elem = inst.find(f".//{{{_ADMX_NS}}}ID")
+            id_elem = inst.find(f"./{{{_ADMX_NS}}}ID")
             backup_id = _text_or_empty(id_elem)
 
             for gpo_elem in inst.iter():
                 if _local_name(gpo_elem.tag) != "GPO":
                     continue
-                guid_elem = gpo_elem.find(f".//{{{_ADMX_NS}}}Identifier")
-                guid = _text_or_empty(guid_elem) if guid_elem is not None else ""
+                guid_elem = gpo_elem.find(f"./{{{_ADMX_NS}}}Identifier")
+                guid = _text_or_empty(guid_elem).strip("{}").lower()
                 if not guid:
-                    guid_elem2 = gpo_elem.find(f".//{{{_ADMX_NS}}}Guid")
-                    guid = _text_or_empty(guid_elem2) if guid_elem2 is not None else ""
+                    guid_elem2 = gpo_elem.find(f"./{{{_ADMX_NS}}}Guid")
+                    guid = _text_or_empty(guid_elem2).strip("{}").lower()
 
-                name_elem = gpo_elem.find(f".//{{{_ADMX_NS}}}DisplayName")
-                display_name = _text_or_empty(name_elem) if name_elem is not None else ""
+                name_elem = gpo_elem.find(f"./{{{_ADMX_NS}}}DisplayName")
+                display_name = _text_or_empty(name_elem)
 
-                domain_elem = gpo_elem.find(f".//{{{_ADMX_NS}}}Domain")
-                domain = _text_or_empty(domain_elem) if domain_elem is not None else ""
+                domain_elem = gpo_elem.find(f"./{{{_ADMX_NS}}}Domain")
+                domain = _text_or_empty(domain_elem)
 
-                machine_ext_elem = gpo_elem.find(f".//{{{_ADMX_NS}}}MachineExtensionGuids")
-                user_ext_elem = gpo_elem.find(f".//{{{_ADMX_NS}}}UserExtensionGuids")
+                machine_ext_elem = gpo_elem.find(f"./{{{_ADMX_NS}}}MachineExtensionGuids")
+                user_ext_elem = gpo_elem.find(f"./{{{_ADMX_NS}}}UserExtensionGuids")
 
                 machine_guids = _parse_extension_guids(
                     machine_ext_elem.text if machine_ext_elem is not None else None
@@ -263,23 +264,46 @@ def parse_manifest(data: bytes) -> GpmcBackup:
                 )
 
                 sf_list: list[BackupSecurityFilter] = []
-                sf_container = gpo_elem.find(f".//{{{_ADMX_NS}}}SecurityFilters")
+                sf_container = gpo_elem.find(f"./{{{_ADMX_NS}}}SecurityFilters")
                 if sf_container is not None:
                     for sf_elem in sf_container:
                         if _local_name(sf_elem.tag) != "SecurityFilter":
                             continue
-                        principal = sf_elem.get("principal", "")
-                        perm_raw = sf_elem.get("permission", "GpoApply")
-                        if perm_raw == "GpoApply":
+                        trustee_elem = sf_elem.find(f"./{{{_ADMX_NS}}}Trustee")
+                        if trustee_elem is not None:
+                            sid_elem = trustee_elem.find(f"./{{{_ADMX_NS}}}Sid")
+                            sid = _text_or_empty(sid_elem)
+                            name_elem = trustee_elem.find(f"./{{{_ADMX_NS}}}Name")
+                            principal = _text_or_empty(name_elem)
+                            type_elem = trustee_elem.find(f"./{{{_ADMX_NS}}}Type")
+                            target_type_raw = (
+                                _text_or_empty(type_elem).lower()
+                                if type_elem is not None
+                                else "group"
+                            )
+                        else:
+                            sid = ""
+                            principal = sf_elem.get("principal", "")
+                            target_type_raw = sf_elem.get("target_type", "group").lower()
+                        perm_elem = sf_elem.find(f"./{{{_ADMX_NS}}}Permission")
+                        if perm_elem is not None:
+                            perm_raw = _text_or_empty(perm_elem).lower()
+                        else:
+                            perm_raw = sf_elem.get("permission", "GpoApply").lower()
+                        if perm_raw == "gpoapply":
                             permission = "apply"
-                        elif perm_raw == "GpoRead":
+                        elif perm_raw == "gporead":
                             permission = "read"
                         else:
                             raise BackupError(
                                 f"Unsupported permission in security filter: {perm_raw!r}"
                             )
-                        inheritable = sf_elem.get("inheritable", "true").lower() == "true"
-                        target_type = sf_elem.get("target_type", "group")
+                        inh_elem = sf_elem.find(f"./{{{_ADMX_NS}}}Inheritable")
+                        if inh_elem is not None:
+                            inheritable = _text_or_empty(inh_elem).lower() == "true"
+                        else:
+                            inheritable = sf_elem.get("inheritable", "true").lower() == "true"
+                        target_type = target_type_raw
                         if target_type not in _VALID_TARGET_TYPES:
                             raise BackupError(
                                 f"Unsupported target_type in security filter: {target_type!r}"
@@ -290,11 +314,12 @@ def parse_manifest(data: bytes) -> GpmcBackup:
                                 permission=permission,
                                 inheritable=inheritable,
                                 target_type=target_type,
+                                sid=sid,
                             )
                         )
 
                 wmi: BackupWmiFilter | None = None
-                wmi_elem = gpo_elem.find(f".//{{{_ADMX_NS}}}WmiFilter")
+                wmi_elem = gpo_elem.find(f"./{{{_ADMX_NS}}}WmiFilter")
                 if wmi_elem is not None:
                     wmi = BackupWmiFilter(
                         name=wmi_elem.get("name", ""),

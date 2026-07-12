@@ -129,6 +129,7 @@ def test_gpmc_backup_includes_security_filters() -> None:
                 principal="DOMAIN\\Admins",
                 permission="apply",
                 inheritable=True,
+                sid="S-1-5-32-544",
             ),
         ),
     )
@@ -137,9 +138,11 @@ def test_gpmc_backup_includes_security_filters() -> None:
         manifest = archive.read("manifest.xml").decode()
     assert "SecurityFilters" in manifest
     assert "SecurityFilter" in manifest
-    assert 'principal="DOMAIN\\Admins"' in manifest
-    assert 'permission="GpoApply"' in manifest
-    assert 'inheritable="true"' in manifest
+    assert "<Trustee>" in manifest
+    assert "<Sid>S-1-5-32-544</Sid>" in manifest
+    assert "<Name>DOMAIN\\Admins</Name>" in manifest
+    assert "<Permission>GpoApply</Permission>" in manifest
+    assert "<Inheritable>true</Inheritable>" in manifest
 
 
 def test_gpmc_backup_omits_security_filters_when_empty() -> None:
@@ -147,6 +150,33 @@ def test_gpmc_backup_omits_security_filters_when_empty() -> None:
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         manifest = archive.read("manifest.xml").decode()
     assert "SecurityFilters" not in manifest
+
+
+def test_gpmc_backup_gpreport_contains_security_filter_children() -> None:
+    gpo = replace(
+        sample_gpo(),
+        security_filters=(
+            SecurityFilter(
+                id="sf-1",
+                principal="DOMAIN\\Admins",
+                permission="apply",
+                inheritable=True,
+                target_type="user",
+                sid="S-1-5-32-544",
+            ),
+        ),
+    )
+    bundle = gpmc_backup_bundle(gpo)
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        gpreport = archive.read(f"{gpo.guid}/gpreport.xml").decode()
+    assert "<SecurityFilters>" in gpreport
+    assert "<SecurityFilter>" in gpreport
+    assert "<Trustee>" in gpreport
+    assert "<Sid>S-1-5-32-544</Sid>" in gpreport
+    assert "<Name>DOMAIN\\Admins</Name>" in gpreport
+    assert "<Type>User</Type>" in gpreport
+    assert "<Permission>GpoApply</Permission>" in gpreport
+    assert "<Inheritable>true</Inheritable>" in gpreport
 
 
 def test_export_bundle_deterministic_with_security_filters() -> None:
@@ -206,8 +236,8 @@ def test_gpmc_backup_includes_security_filter_target_type() -> None:
     bundle = gpmc_backup_bundle(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         manifest = archive.read("manifest.xml").decode()
-    assert 'target_type="user"' in manifest
-    assert 'target_type="computer"' in manifest
+    assert "<Type>User</Type>" in manifest
+    assert "<Type>Computer</Type>" in manifest
 
 
 def test_gpmc_backup_round_trip_security_filters_and_wmi() -> None:
@@ -220,6 +250,7 @@ def test_gpmc_backup_round_trip_security_filters_and_wmi() -> None:
                 permission="apply",
                 inheritable=True,
                 target_type="user",
+                sid="S-1-5-32-544",
             ),
             SecurityFilter(
                 id="sf-2",
@@ -227,6 +258,7 @@ def test_gpmc_backup_round_trip_security_filters_and_wmi() -> None:
                 permission="read",
                 inheritable=False,
                 target_type="group",
+                sid="S-1-5-32-545",
             ),
         ),
         wmi_filter=WmiFilter(
@@ -250,10 +282,12 @@ def test_gpmc_backup_round_trip_security_filters_and_wmi() -> None:
     assert parsed_sfs[0].permission == "apply"
     assert parsed_sfs[0].inheritable is True
     assert parsed_sfs[0].target_type == "user"
+    assert parsed_sfs[0].sid == "S-1-5-32-544"
     assert parsed_sfs[1].principal == "DOMAIN\\Users"
     assert parsed_sfs[1].permission == "read"
     assert parsed_sfs[1].inheritable is False
     assert parsed_sfs[1].target_type == "group"
+    assert parsed_sfs[1].sid == "S-1-5-32-545"
 
     parsed_wmi = backup_wmi_filter_to_model(parsed_gpo.wmi_filter)
     assert parsed_wmi is not None

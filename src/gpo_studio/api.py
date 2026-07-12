@@ -101,6 +101,7 @@ class SecurityFilterData(BaseModel):
     permission: Literal["apply", "read"] = "apply"
     inheritable: bool = True
     target_type: Literal["user", "group", "computer"] = "group"
+    sid: str = Field(default="", max_length=255)
 
 
 class SecurityFilterMutation(Audit):
@@ -134,6 +135,7 @@ class ThreeWayDiffRequest(BaseModel):
 
 class BackupImportRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
+    migration_table_path: str | None = Field(default=None, max_length=4096)
     actor: str = Field(default="local-operator", min_length=1, max_length=120)
     reason: str = Field(default="Import GPMC backup", min_length=1, max_length=500)
 
@@ -179,7 +181,26 @@ def _gpo_payload(gpo: Any) -> dict[str, Any]:
 def _validate_inbox_path(path: str) -> Path:
     inbox = os.getenv("GPO_STUDIO_INBOX_DIR")
     if not inbox:
-        return Path(path)
+        p = Path(path)
+        if p.is_absolute():
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="absolute_path_not_allowed",
+                    message="Absolute paths are not allowed without inbox configuration.",
+                    path="path",
+                )
+            ])
+        if ".." in p.parts:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="path_traversal_detected",
+                    message="Path traversal is not allowed.",
+                    path="path",
+                )
+            ])
+        return p
     try:
         inbox_resolved = Path(inbox).resolve()
         requested_resolved = Path(path).resolve()
@@ -642,6 +663,22 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
 
     security_filters = backup_security_filters_to_model(backup_gpo.security_filters)
     wmi_filter = backup_wmi_filter_to_model(backup_gpo.wmi_filter)
+
+    if body.migration_table_path is not None:
+        from .migration import apply_migration, parse_migration_table
+
+        mig_path = _validate_inbox_path(body.migration_table_path)
+        if not mig_path.is_file():
+            raise StudioError(f"Migration table is not a file: {body.migration_table_path}")
+        table = parse_migration_table(mig_path)
+        temp_gpo_for_migration = GPO(
+            guid="import-preview",
+            name=backup_gpo.display_name or "Imported GPO",
+            security_filters=security_filters,
+            domain=backup_gpo.domain or "studio.local",
+        )
+        migrated_gpo = apply_migration(temp_gpo_for_migration, table)
+        security_filters = migrated_gpo.security_filters
 
     temp_gpo = GPO(
         guid="import-preview",

@@ -73,6 +73,39 @@ _MANIFEST_WITH_FILTERS = b"""<?xml version="1.0" encoding="utf-8"?>
   </BackupInstance>
 </BackupInstances>"""
 
+_MANIFEST_WITH_GPMC_FILTERS = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types">
+  <BackupInstance>
+    <BackupTime>2026-01-01T00:00:00</BackupTime>
+    <ID>backup-gpmc-filters</ID>
+    <GPO>
+      <Identifier>11111111-2222-3333-4444-555555555555</Identifier>
+      <DisplayName>GPMC Filtered Policy</DisplayName>
+      <Domain>example.test</Domain>
+      <SecurityFilters>
+        <SecurityFilter>
+          <Trustee>
+            <Sid>S-1-5-32-544</Sid>
+            <Name>DOMAIN\\Admins</Name>
+            <Type>Group</Type>
+          </Trustee>
+          <Permission>GpoApply</Permission>
+          <Inheritable>true</Inheritable>
+        </SecurityFilter>
+        <SecurityFilter>
+          <Trustee>
+            <Sid>S-1-5-32-545</Sid>
+            <Name>DOMAIN\\Users</Name>
+            <Type>Group</Type>
+          </Trustee>
+          <Permission>GpoRead</Permission>
+          <Inheritable>false</Inheritable>
+        </SecurityFilter>
+      </SecurityFilters>
+    </GPO>
+  </BackupInstance>
+</BackupInstances>"""
+
 
 def test_parse_manifest_minimal() -> None:
     backup = parse_manifest(_MANIFEST_XML)
@@ -398,10 +431,29 @@ def test_parse_manifest_security_filters() -> None:
     assert sfs[0].permission == "apply"
     assert sfs[0].inheritable is True
     assert sfs[0].target_type == "group"
+    assert sfs[0].sid == ""
     assert sfs[1].principal == "DOMAIN\\Users"
     assert sfs[1].permission == "read"
     assert sfs[1].inheritable is False
     assert sfs[1].target_type == "group"
+    assert sfs[1].sid == ""
+
+
+def test_parse_manifest_gpmc_security_filters() -> None:
+    backup = parse_manifest(_MANIFEST_WITH_GPMC_FILTERS)
+    assert len(backup.gpos) == 1
+    sfs = backup.gpos[0].security_filters
+    assert len(sfs) == 2
+    assert sfs[0].principal == "DOMAIN\\Admins"
+    assert sfs[0].permission == "apply"
+    assert sfs[0].inheritable is True
+    assert sfs[0].target_type == "group"
+    assert sfs[0].sid == "S-1-5-32-544"
+    assert sfs[1].principal == "DOMAIN\\Users"
+    assert sfs[1].permission == "read"
+    assert sfs[1].inheritable is False
+    assert sfs[1].target_type == "group"
+    assert sfs[1].sid == "S-1-5-32-545"
 
 
 def test_parse_manifest_wmi_filter() -> None:
@@ -459,6 +511,48 @@ def test_parse_manifest_rejects_unknown_permission() -> None:
     )
     with pytest.raises(BackupError, match="Unsupported permission"):
         parse_manifest(manifest)
+
+
+_MANIFEST_CAPITALIZED_ATTRS = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types">
+  <BackupInstance>
+    <BackupTime>2026-01-01T00:00:00</BackupTime>
+    <ID>backup-cap-attrs</ID>
+    <GPO>
+      <Identifier>11111111-2222-3333-4444-555555555555</Identifier>
+      <DisplayName>Capitalized Attrs Policy</DisplayName>
+      <Domain>example.test</Domain>
+      <SecurityFilters>
+        <SecurityFilter
+          principal="DOMAIN\\Admins"
+          permission="GpoApply"
+          inheritable="True"
+          target_type="Group"/>
+        <SecurityFilter
+          principal="DOMAIN\\Users"
+          permission="GpoRead"
+          inheritable="False"
+          target_type="User"/>
+      </SecurityFilters>
+    </GPO>
+  </BackupInstance>
+</BackupInstances>"""
+
+
+def test_parse_manifest_capitalized_attribute_values() -> None:
+    """Old attribute-based XML with capitalized target_type parses correctly."""
+    backup = parse_manifest(_MANIFEST_CAPITALIZED_ATTRS)
+    assert len(backup.gpos) == 1
+    sfs = backup.gpos[0].security_filters
+    assert len(sfs) == 2
+    assert sfs[0].principal == "DOMAIN\\Admins"
+    assert sfs[0].permission == "apply"
+    assert sfs[0].inheritable is True
+    assert sfs[0].target_type == "group"
+    assert sfs[1].principal == "DOMAIN\\Users"
+    assert sfs[1].permission == "read"
+    assert sfs[1].inheritable is False
+    assert sfs[1].target_type == "user"
 
 
 def test_parse_manifest_wmi_filter_description() -> None:

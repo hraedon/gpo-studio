@@ -53,7 +53,7 @@ function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
   $("#configure-dialog").showModal();
 }
 export function initAdmx(){
-$("#configure-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget;const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
+$("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;const policyId=f.dataset.policyId;const policyClass=f.dataset.policyClass;
   const targetGuid=$("#configure-target-gpo").value;if(!targetGuid){toast("Select a target GPO");return}
   const targetGpo=state.gpos.find(g=>g.guid===targetGuid);if(!targetGpo){toast("Target GPO not found");return}
   let side=policyClass==="Machine"?"computer":policyClass==="User"?"user":$("#configure-side").value;
