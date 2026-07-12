@@ -1,4 +1,4 @@
-const state={gpos:[],current:null,validation:[],semanticHash:"",side:"all",editingSetting:null,editingLink:null};
+const state={gpos:[],current:null,validation:[],semanticHash:"",side:"all",editingSetting:null,editingLink:null,editingFilter:null};
 const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
 const escapeHtml=value=>String(value??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -32,13 +32,13 @@ async function selectGpo(guid){
 function renderAll(){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
   $("#plan").href=`/api/gpos/${g.guid}/plan.ps1`;$("#export").href=`/api/gpos/${g.guid}/export.zip`;$("#gpmc-backup").href=`/api/gpos/${g.guid}/gpmc-backup`;
-  $("#setting-count").textContent=g.settings.length;$("#link-count").textContent=g.links.length;
-  const metaParts=[`<dt>GUID</dt><dd class="mono">${escapeHtml(g.guid)}</dd><dt>Description</dt><dd>${escapeHtml(g.description)||"—"}</dd><dt>Status</dt><dd><span class="pill ${g.status==='ready'?'ok':'warn'}">${escapeHtml(g.status)}</span></dd><dt>Computer</dt><dd>${g.computer_enabled?"Enabled":"Disabled"}</dd><dt>User</dt><dd>${g.user_enabled?"Enabled":"Disabled"}</dd>`];
+  $("#setting-count").textContent=g.settings.length;$("#link-count").textContent=g.links.length;$("#filter-count").textContent=g.security_filters?g.security_filters.length:0;
+  const metaParts=[`<dt>GUID</dt><dd class="mono">${escapeHtml(g.guid)}</dd><dt>Description</dt><dd>${escapeHtml(g.description)||"—"}</dd><dt>Status</dt><dd><span class="pill ${g.status==='ready'?'ok':'warn'}">${escapeHtml(g.status)}</span></dd><dt>Computer</dt><dd>${g.computer_enabled?"Enabled":"Disabled"}</dd><dt>User</dt><dd>${g.user_enabled?"Enabled":"Disabled"}</dd><dt>Domain</dt><dd>${escapeHtml(g.domain||"studio.local")}</dd>`];
   if(g.source_guid)metaParts.push(`<dt>Source GUID</dt><dd class="mono">${escapeHtml(g.source_guid)}</dd>`);
   if(g.cse_metadata&&g.cse_metadata.length)metaParts.push(`<dt>CSE extensions</dt><dd>${g.cse_metadata.length} extension${g.cse_metadata.length===1?'':'s'}</dd>`);
   metaParts.push(`<dt>Semantic hash</dt><dd class="mono" title="${escapeHtml(state.semanticHash)}">${escapeHtml(state.semanticHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
   $("#metadata").innerHTML=metaParts.join("");
-  renderValidation();renderSettings();renderLinks();
+  renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();
   if($("#panel-history").classList.contains("active"))loadHistory();
 }
 function renderValidation(){
@@ -60,6 +60,18 @@ function renderLinks(){
   const items=state.current.links;$("#links-table").innerHTML=items.map(l=>`<tr><td><strong>${l.order}</strong></td><td class="mono">${escapeHtml(l.target)}</td><td><span class="pill ${l.enabled?'ok':'warn'}">${l.enabled?'Enabled':'Disabled'}</span></td><td>${l.enforced?'Yes':'No'}</td><td><div class="row-actions"><button data-edit-link="${l.id}">Edit</button><button data-delete-link="${l.id}">×</button></div></td></tr>`).join("");
   $("#links-empty").hidden=items.length>0;$$('[data-edit-link]').forEach(el=>el.onclick=()=>openLink(items.find(l=>l.id===el.dataset.editLink)));$$('[data-delete-link]').forEach(el=>el.onclick=()=>deleteLink(el.dataset.deleteLink));
 }
+function renderFilters(){
+  const items=state.current.security_filters||[];
+  $("#filters-table").innerHTML=items.map(f=>`<tr><td class="mono">${escapeHtml(f.principal)}</td><td>${escapeHtml(f.permission)}</td><td>${f.inheritable?"Yes":"No"}</td><td><div class="row-actions"><button data-edit-filter="${f.id}">Edit</button><button data-delete-filter="${f.id}">×</button></div></td></tr>`).join("");
+  $("#filters-empty").hidden=items.length>0;
+  $$('[data-edit-filter]').forEach(el=>el.onclick=()=>openFilter(items.find(f=>f.id===el.dataset.editFilter)));
+  $$('[data-delete-filter]').forEach(el=>el.onclick=()=>deleteFilter(el.dataset.deleteFilter));
+}
+function renderWmi(){
+  const w=state.current.wmi_filter;
+  if(!w){$("#wmi-display").innerHTML='<div class="table-empty">No WMI filter set.</div>';return}
+  $("#wmi-display").innerHTML=`<dl class="details"><dt>Name</dt><dd>${escapeHtml(w.name)}</dd><dt>Language</dt><dd>${escapeHtml(w.language)}</dd><dt>Query</dt><dd class="mono">${escapeHtml(w.query)}</dd>${w.description?`<dt>Description</dt><dd>${escapeHtml(w.description)}</dd>`:""}</dl>`;
+}
 async function loadHistory(){
   const data=await api(`/api/gpos/${state.current.guid}/revisions`);$("#history-list").innerHTML=data.items.map((r,index)=>`<div class="revision-item"><div><p><strong>Revision ${r.revision}</strong> · ${escapeHtml(r.reason)}</p><small>${escapeHtml(r.actor)} · ${new Date(r.created_at).toLocaleString()}</small></div>${index?`<button data-restore="${r.revision}">Restore</button>`:'<span class="pill ok">Current</span>'}</div>`).join("");
   $$('[data-restore]').forEach(el=>el.onclick=()=>restoreRevision(Number(el.dataset.restore)));
@@ -68,7 +80,7 @@ async function loadHistory(){
 function openGpo(edit=false){
   const form=$("#gpo-form");form.reset();form.dataset.edit=edit?"true":"false";$("#metadata-options").hidden=!edit;
   $("#gpo-dialog-title").textContent=edit?"Edit policy details":"New GPO";$("#gpo-submit").textContent=edit?"Save changes":"Create policy";
-  if(edit){const g=state.current;form.name.value=g.name;form.description.value=g.description;form.computer_enabled.checked=g.computer_enabled;form.user_enabled.checked=g.user_enabled;form.status.value=g.status;form.reason.value="Update policy metadata"}else form.reason.value="Create draft";
+  if(edit){const g=state.current;form.name.value=g.name;form.description.value=g.description;form.computer_enabled.checked=g.computer_enabled;form.user_enabled.checked=g.user_enabled;form.status.value=g.status;form.domain.value=g.domain||"studio.local";form.reason.value="Update policy metadata"}else form.reason.value="Create draft";
   $("#gpo-dialog").showModal();
 }
 function openSetting(setting=null){
@@ -85,13 +97,26 @@ function openLink(link=null){
   const form=$("#link-form");form.reset();state.editingLink=link;$("#link-dialog-title").textContent=link?"Edit link":"Add link";
   if(link){form.target.value=link.target;form.order.value=link.order;form.enabled.checked=link.enabled;form.enforced.checked=link.enforced;form.reason.value="Update link intent"}$("#link-dialog").showModal();
 }
+function openFilter(filter=null){
+  const form=$("#filter-form");form.reset();state.editingFilter=filter;$("#filter-dialog-title").textContent=filter?"Edit security filter":"Add security filter";
+  if(filter){form.principal.value=filter.principal;form.permission.value=filter.permission;form.inheritable.checked=filter.inheritable;form.reason.value="Update security filter"}$("#filter-dialog").showModal();
+}
+function openWmi(){
+  const form=$("#wmi-form");form.reset();
+  const w=state.current.wmi_filter;
+  if(w){form.name.value=w.name;form.description.value=w.description;form.language.value=w.language;form.query.value=w.query;form.reason.value="Update WMI filter"}
+  $("#wmi-dialog").showModal();
+}
 
-$("#gpo-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget;try{let data;if(f.dataset.edit==="true"){data=await api(`/api/gpos/${state.current.guid}`,{method:"PATCH",body:JSON.stringify({...audit(f.reason.value),name:f.name.value,description:f.description.value,computer_enabled:f.computer_enabled.checked,user_enabled:f.user_enabled.checked,status:f.status.value})})}else{data=await api("/api/gpos",{method:"POST",body:JSON.stringify({name:f.name.value,description:f.description.value,actor:"local-operator",reason:f.reason.value})})}$("#gpo-dialog").close();await loadList(data.gpo.guid);toast(f.dataset.edit==="true"?"Policy details saved":"Draft policy created")}catch(error){toast(error.message)}};
+$("#gpo-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget;try{let data;if(f.dataset.edit==="true"){data=await api(`/api/gpos/${state.current.guid}`,{method:"PATCH",body:JSON.stringify({...audit(f.reason.value),name:f.name.value,description:f.description.value,computer_enabled:f.computer_enabled.checked,user_enabled:f.user_enabled.checked,status:f.status.value,domain:f.domain.value})})}else{data=await api("/api/gpos",{method:"POST",body:JSON.stringify({name:f.name.value,description:f.description.value,actor:"local-operator",reason:f.reason.value})})}$("#gpo-dialog").close();await loadList(data.gpo.guid);toast(f.dataset.edit==="true"?"Policy details saved":"Draft policy created")}catch(error){toast(error.message)}};
 $("#setting-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,type=f.registry_type.value;let value=f.value.value;if(type==="REG_DWORD"||type==="REG_QWORD")value=Number(value);else if(type==="REG_MULTI_SZ")value=value.split(/\r?\n/).filter(Boolean);const setting={side:f.side.value,hive:f.side.value==="computer"?"HKLM":"HKCU",key:f.key.value.replace(/^\\+|\\+$/g,""),value_name:f.value_name.value,registry_type:type,value,action:f.action.value,comment:f.comment.value};const path=state.editingSetting?`/api/gpos/${state.current.guid}/settings/${state.editingSetting.id}`:`/api/gpos/${state.current.guid}/settings`;try{const data=await api(path,{method:state.editingSetting?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),setting})});$("#setting-dialog").close();state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Registry policy saved")}catch(error){toast(error.message)}};
 $("#link-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,link={target:f.target.value,order:Number(f.order.value),enabled:f.enabled.checked,enforced:f.enforced.checked};const path=state.editingLink?`/api/gpos/${state.current.guid}/links/${state.editingLink.id}`:`/api/gpos/${state.current.guid}/links`;try{const data=await api(path,{method:state.editingLink?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),link})});$("#link-dialog").close();state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Link intent saved")}catch(error){toast(error.message)}};
+$("#filter-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,filter={principal:f.principal.value,permission:f.permission.value,inheritable:f.inheritable.checked};const path=state.editingFilter?`/api/gpos/${state.current.guid}/security-filters/${state.editingFilter.id}`:`/api/gpos/${state.current.guid}/security-filters`;try{const data=await api(path,{method:state.editingFilter?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),filter})});$("#filter-dialog").close();state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Security filter saved")}catch(error){toast(error.message)}};
+$("#wmi-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,wmi_filter={name:f.name.value,description:f.description.value,language:f.language.value,query:f.query.value};try{const data=await api(`/api/gpos/${state.current.guid}/wmi-filter`,{method:"PUT",body:JSON.stringify({...audit(f.reason.value),wmi_filter})});$("#wmi-dialog").close();state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("WMI filter saved")}catch(error){toast(error.message)}};
 
 async function deleteSetting(id){if(!confirm("Remove this setting from the draft?"))return;try{const data=await api(`/api/gpos/${state.current.guid}/settings/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove registry policy")})});state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Setting removed")}catch(error){toast(error.message)}}
 async function deleteLink(id){if(!confirm("Remove this link from the draft?"))return;try{const data=await api(`/api/gpos/${state.current.guid}/links/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove link intent")})});state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Link removed")}catch(error){toast(error.message)}}
+async function deleteFilter(id){if(!confirm("Remove this security filter?"))return;try{const data=await api(`/api/gpos/${state.current.guid}/security-filters/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove security filter")})});state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Security filter removed")}catch(error){toast(error.message)}}
 async function restoreRevision(revision){if(!confirm(`Restore revision ${revision} as a new revision?`))return;try{const data=await api(`/api/gpos/${state.current.guid}/revisions/${revision}/restore`,{method:"POST",body:JSON.stringify({...audit(`Restore revision ${revision}`)})});state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();await loadHistory();toast(`Revision ${revision} restored`)}catch(error){toast(error.message)}}
 
 let admxLoaded=null,admxTimer=null,admxCatsLoaded=false;
@@ -115,7 +140,13 @@ async function loadAdmxDetail(id){
       if(e.kind==="text")return `<label class="config-field">${label}<input type="text" data-elem-id="${escapeHtml(e.id)}" data-kind="text"></label>`;
       if(e.kind==="multitext")return `<label class="config-field">${label}<textarea rows="3" data-elem-id="${escapeHtml(e.id)}" data-kind="multitext" placeholder="One item per line"></textarea></label>`;
       if(e.kind==="list")return `<label class="config-field">${label}<textarea rows="3" data-elem-id="${escapeHtml(e.id)}" data-kind="list" placeholder="One item per line"></textarea></label>`;
-      if(e.kind==="enum")return `<label class="config-field">${label}<input type="text" data-elem-id="${escapeHtml(e.id)}" data-kind="enum" placeholder="Enter enum value"></label>`;
+      if(e.kind==="enum"){
+        if(e.enum_items&&e.enum_items.length){
+          const opts=e.enum_items.map(it=>`<option value="${escapeHtml(it.id)}">${escapeHtml(it.display_name)}</option>`).join("");
+          return `<label class="config-field">${label}<select data-elem-id="${escapeHtml(e.id)}" data-kind="enum"><option value="">— Select —</option>${opts}</select></label>`;
+        }
+        return `<label class="config-field">${label}<input type="text" data-elem-id="${escapeHtml(e.id)}" data-kind="enum" placeholder="Enter enum value"></label>`;
+      }
       return `<div class="config-field"><small>Unsupported element kind: ${escapeHtml(e.kind)}</small></div>`;
     }).join("");
     $("#admx-detail").innerHTML=`<div class="admx-detail-head"><button class="quiet" id="admx-back">← Back</button><h3>${escapeHtml(p.display_name)}</h3></div><dl class="details"><dt>ID</dt><dd class="mono">${escapeHtml(p.id)}</dd><dt>Class</dt><dd>${escapeHtml(p.class_)}</dd><dt>Key</dt><dd class="mono">${escapeHtml(p.key)}</dd><dt>Category</dt><dd>${escapeHtml(p.parent_category)||"—"}</dd><dt>Supported on</dt><dd>${escapeHtml(p.supported_on)||"—"}</dd><dt>Explanation</dt><dd>${escapeHtml(p.explain_text)||"—"}</dd>${p.elements&&p.elements.length?`<dt>Elements</dt><dd>${p.elements.map(e=>`<div class="mono">${escapeHtml(e.kind)}: ${escapeHtml(e.id)}</div>`).join("")}</dd>`:""}${p.presentation&&p.presentation.length?`<dt>Presentation</dt><dd>${p.presentation.map(e=>`<div>${escapeHtml(e.kind)}: ${escapeHtml(e.label||e.id)}</div>`).join("")}</dd>`:""}</dl>`;
@@ -160,6 +191,6 @@ $("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>l
 
 $$(".tab").forEach(tab=>tab.onclick=()=>{$$(".tab").forEach(x=>x.classList.toggle("active",x===tab));$$(".panel").forEach(x=>x.classList.toggle("active",x.id===`panel-${tab.dataset.tab}`));if(tab.dataset.tab==="history")loadHistory();if(tab.dataset.tab==="admx")checkAdmx()});
 $$(".chip").forEach(chip=>chip.onclick=()=>{$$(".chip").forEach(x=>x.classList.toggle("active",x===chip));state.side=chip.dataset.side;renderSettings()});
-$("#new-gpo").onclick=()=>openGpo();$("#empty-new").onclick=()=>openGpo();$("#edit-metadata").onclick=()=>openGpo(true);$("#add-setting").onclick=()=>openSetting();$("#add-link").onclick=()=>openLink();$("#search").oninput=renderList;
+$("#new-gpo").onclick=()=>openGpo();$("#empty-new").onclick=()=>openGpo();$("#edit-metadata").onclick=()=>openGpo(true);$("#add-setting").onclick=()=>openSetting();$("#add-link").onclick=()=>openLink();$("#add-filter").onclick=()=>openFilter();$("#edit-wmi").onclick=()=>openWmi();$("#search").oninput=renderList;
 for(const name of ["side","action","registry_type"])$("#setting-form")[name].onchange=syncSettingForm;
 loadList().catch(error=>toast(error.message));

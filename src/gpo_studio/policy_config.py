@@ -123,6 +123,20 @@ def _resolve_value(
     if element.kind == "enum":
         if not isinstance(value, str):
             raise _type_error(element.id, "enum", "str")
+        if element.enum_items:
+            for item in element.enum_items:
+                if item.id == value:
+                    return item.registry_type, item.value
+            raise ValidationError(
+                [
+                    ValidationIssue(
+                        "error",
+                        "invalid_enum_value",
+                        f"Value {value!r} is not a valid enum item for element {element.id!r}.",
+                        f"elements/{element.id}",
+                    )
+                ]
+            )
         return "REG_SZ", value
     if element.kind == "unknown":
         raise ValidationError(

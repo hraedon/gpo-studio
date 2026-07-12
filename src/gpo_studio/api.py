@@ -58,6 +58,7 @@ class MetadataMutation(Audit):
     computer_enabled: bool = True
     user_enabled: bool = True
     status: Literal["draft", "ready", "archived"] = "draft"
+    domain: str = Field(default="studio.local", max_length=255)
 
 
 class SettingData(BaseModel):
@@ -86,6 +87,27 @@ class LinkData(BaseModel):
 
 class LinkMutation(Audit):
     link: LinkData
+
+
+class SecurityFilterData(BaseModel):
+    principal: str = Field(min_length=1, max_length=255)
+    permission: Literal["apply", "read"] = "apply"
+    inheritable: bool = True
+
+
+class SecurityFilterMutation(Audit):
+    filter: SecurityFilterData
+
+
+class WmiFilterData(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str = Field(default="", max_length=2000)
+    query: str = Field(default="", max_length=4000)
+    language: str = Field(default="WQL", max_length=50)
+
+
+class WmiFilterMutation(Audit):
+    wmi_filter: WmiFilterData
 
 
 class DeleteMutation(Audit):
@@ -132,6 +154,34 @@ def _gpo_payload(gpo: Any) -> dict[str, Any]:
         "validation": [asdict(item) for item in validate_gpo(gpo)],
         "semantic_sha256": semantic_hash(gpo),
     }
+
+
+def _validate_inbox_path(path: str) -> Path:
+    inbox = os.getenv("GPO_STUDIO_INBOX_DIR")
+    if not inbox:
+        return Path(path)
+    try:
+        inbox_resolved = Path(inbox).resolve()
+        requested_resolved = Path(path).resolve()
+    except OSError:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="inbox_path_unresolvable",
+                message=f"Cannot resolve backup path or inbox directory: {path}",
+                path="path",
+            )
+        ]) from None
+    if not requested_resolved.is_relative_to(inbox_resolved):
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="path_outside_inbox",
+                message=f"Backup path is outside the configured inbox directory: {path}",
+                path="path",
+            )
+        ])
+    return requested_resolved
 
 
 @asynccontextmanager
@@ -400,6 +450,73 @@ def delete_link(request: Request, guid: str, link_id: str, body: DeleteMutation)
     return _gpo_payload(gpo)
 
 
+@app.post("/api/gpos/{guid}/security-filters", status_code=201)
+def add_security_filter(
+    request: Request, guid: str, body: SecurityFilterMutation
+) -> dict[str, Any]:
+    gpo = _store(request).put_security_filter(
+        guid,
+        body.expected_revision,
+        body.filter.model_dump(),
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.put("/api/gpos/{guid}/security-filters/{filter_id}")
+def edit_security_filter(
+    request: Request, guid: str, filter_id: str, body: SecurityFilterMutation
+) -> dict[str, Any]:
+    gpo = _store(request).put_security_filter(
+        guid,
+        body.expected_revision,
+        body.filter.model_dump(),
+        filter_id=filter_id,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.delete("/api/gpos/{guid}/security-filters/{filter_id}")
+def delete_security_filter(
+    request: Request, guid: str, filter_id: str, body: DeleteMutation
+) -> dict[str, Any]:
+    gpo = _store(request).delete_security_filter(
+        guid,
+        filter_id,
+        body.expected_revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.put("/api/gpos/{guid}/wmi-filter")
+def set_wmi_filter(request: Request, guid: str, body: WmiFilterMutation) -> dict[str, Any]:
+    gpo = _store(request).set_wmi_filter(
+        guid,
+        body.expected_revision,
+        body.wmi_filter.model_dump(),
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.delete("/api/gpos/{guid}/wmi-filter")
+def clear_wmi_filter(request: Request, guid: str, body: DeleteMutation) -> dict[str, Any]:
+    gpo = _store(request).set_wmi_filter(
+        guid,
+        body.expected_revision,
+        None,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
 @app.get("/api/gpos/{guid}/revisions")
 def revisions(request: Request, guid: str) -> dict[str, Any]:
     items = _store(request).revisions(guid)
@@ -474,7 +591,7 @@ def ad_hoc_diff(request: Request, body: ThreeWayDiffRequest) -> dict[str, Any]:
 
 @app.post("/api/backups/import", status_code=201)
 def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]:
-    backup_dir = Path(body.path)
+    backup_dir = _validate_inbox_path(body.path)
     if not backup_dir.is_dir():
         raise StudioError(f"Backup path is not a directory: {body.path}")
     backup = read_backup(backup_dir)

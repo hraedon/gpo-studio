@@ -40,6 +40,7 @@
           <button class="tab active" data-tab="overview">Overview</button>
           <button class="tab" data-tab="settings">Policy settings <span id="setting-count"></span></button>
           <button class="tab" data-tab="links">Scope & links <span id="link-count"></span></button>
+          <button class="tab" data-tab="security">Security <span id="filter-count"></span></button>
           <button class="tab" data-tab="history">History</button>
           <button class="tab" data-tab="admx">ADMX</button>
         </div>
@@ -70,6 +71,13 @@
         <div class="panel" id="panel-links">
           <div class="section-head"><div><p class="eyebrow">Scope of management</p><h2>Link intent</h2></div><button class="primary" id="add-link">＋ Add link</button></div>
           <div class="table-card"><table><thead><tr><th>Order</th><th>Target</th><th>State</th><th>Enforced</th><th></th></tr></thead><tbody id="links-table"></tbody></table><div class="table-empty" id="links-empty">No domain or OU links staged.</div></div>
+        </div>
+
+        <div class="panel" id="panel-security">
+          <div class="section-head"><div><p class="eyebrow">Security filtering</p><h2>Security filters & WMI</h2></div><button class="primary" id="add-filter">＋ Add filter</button></div>
+          <div class="table-card"><table><thead><tr><th>Principal</th><th>Permission</th><th>Inheritable</th><th></th></tr></thead><tbody id="filters-table"></tbody></table><div class="table-empty" id="filters-empty">No security filters configured.</div></div>
+          <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">WMI filter</p><h2>WMI filtering</h2></div><button class="quiet" id="edit-wmi">Edit</button></div>
+          <div id="wmi-display" class="wmi-display"></div>
         </div>
 
         <div class="panel" id="panel-history">
@@ -103,6 +111,7 @@
         <div class="switch-row"><span><strong>Computer configuration</strong><small>Apply machine-side policy</small></span><input name="computer_enabled" type="checkbox" checked></div>
         <div class="switch-row"><span><strong>User configuration</strong><small>Apply user-side policy</small></span><input name="user_enabled" type="checkbox" checked></div>
         <label>Status<select name="status"><option value="draft">Draft</option><option value="ready">Ready for publication</option><option value="archived">Archived</option></select></label>
+        <label>Domain<input name="domain" maxlength="255" placeholder="studio.local"></label>
       </div>
       <label>Change reason<input name="reason" required value="Create draft"></label>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" id="gpo-submit" value="default">Create policy</button></div>
@@ -139,6 +148,29 @@
       <div id="configure-fields"></div>
       <label>Change reason<input name="reason" required value="Configure ADMX policy"></label>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Apply policy</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="filter-dialog">
+    <form method="dialog" id="filter-form">
+      <div class="dialog-head"><div><p class="eyebrow">Security filtering</p><h2 id="filter-dialog-title">Add security filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Principal (SID or account)<input name="principal" required maxlength="255" placeholder="S-1-5-32-544 or DOMAIN\Admins"></label>
+      <label>Permission<select name="permission"><option value="apply">Apply policy</option><option value="read">Read only</option></select></label>
+      <div class="switch-row"><span><strong>Inheritable</strong><small>Apply to child containers</small></span><input name="inheritable" type="checkbox" checked></div>
+      <label>Change reason<input name="reason" required value="Add security filter"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="wmi-dialog">
+    <form method="dialog" id="wmi-form">
+      <div class="dialog-head"><div><p class="eyebrow">WMI filtering</p><h2>WMI filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Name<input name="name" required maxlength="255" placeholder="Workstation WMI filter"></label>
+      <label>Description<input name="description" maxlength="2000" placeholder="Filter purpose"></label>
+      <label>Language<input name="language" maxlength="50" value="WQL"></label>
+      <label>Query<textarea name="query" rows="4" maxlength="4000" placeholder="SELECT * FROM Win32_OperatingSystem WHERE ProductType = 1"></textarea></label>
+      <label>Change reason<input name="reason" required value="Update WMI filter"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
     </form>
   </dialog>
 

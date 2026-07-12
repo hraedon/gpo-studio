@@ -4,6 +4,7 @@ import pytest
 
 from gpo_studio.admx import (
     AdmxError,
+    EnumItem,
     build_catalogue,
     load_catalogue,
     parse_adml,
@@ -192,3 +193,212 @@ def test_load_catalogue_nonexistent_dir(tmp_path) -> None:
     assert cat.policies == ()
     assert cat.categories == ()
     assert cat.supported_on == ()
+
+
+_ADMX_ENUM = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <categories>
+    <category name="EnumCat" displayName="$(string.EnumCat)">
+      <parentCategory ref="ParentCat" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="Supported_Synthetic" displayName="$(string.Supported_Synthetic)" />
+  </supportedOn>
+  <policies>
+    <policy name="EnumPolicy" class="Machine" key="Software\\Policies\\Test"
+            displayName="$(string.EnumPolicy)" explainText="$(string.EnumPolicy_Explain)"
+            supportedOn="Supported_Synthetic" presentation="$(presentation.EnumPolicy)">
+      <parentCategory ref="EnumCat" />
+      <supportedOn ref="Supported_Synthetic" />
+      <elements>
+        <enum id="Mode" key="Software\\Policies\\Test" valueName="Mode">
+          <item displayName="$(string.ModeStandard)">
+            <decimal value="0" />
+          </item>
+          <item displayName="$(string.ModeAdvanced)">
+            <decimal value="1" />
+          </item>
+          <item displayName="$(string.ModeCustom)">
+            <string value="custom" />
+          </item>
+        </enum>
+      </elements>
+      <presentation />
+    </policy>
+    <policy name="EmptyEnumPolicy" class="Machine" key="Software\\Policies\\Test2"
+            displayName="$(string.EmptyEnumPolicy)" explainText="$(string.EmptyEnumPolicy_Explain)"
+            supportedOn="Supported_Synthetic" presentation="$(presentation.EmptyEnumPolicy)">
+      <parentCategory ref="EnumCat" />
+      <supportedOn ref="Supported_Synthetic" />
+      <elements>
+        <enum id="EmptyMode" key="Software\\Policies\\Test2" valueName="EmptyMode" />
+      </elements>
+      <presentation />
+    </policy>
+    <policy name="UnknownEnumPolicy" class="Machine" key="Software\\Policies\\Test3"
+            displayName="$(string.UnknownEnumPolicy)"
+            explainText="$(string.UnknownEnumPolicy_Explain)"
+            supportedOn="Supported_Synthetic" presentation="$(presentation.UnknownEnumPolicy)">
+      <parentCategory ref="EnumCat" />
+      <supportedOn ref="Supported_Synthetic" />
+      <elements>
+        <enum id="UnknownMode" key="Software\\Policies\\Test3" valueName="UnknownMode">
+          <item displayName="$(string.UnknownItem1)">
+            <customValue value="42" />
+          </item>
+          <item displayName="$(string.UnknownItem2)">
+            <decimal value="7" />
+          </item>
+        </enum>
+      </elements>
+      <presentation />
+    </policy>
+    <policy name="LongDecimalEnumPolicy" class="Machine" key="Software\\Policies\\Test4"
+            displayName="$(string.LongDecimalEnumPolicy)"
+            explainText="$(string.LongDecimalEnumPolicy_Explain)"
+            supportedOn="Supported_Synthetic" presentation="$(presentation.LongDecimalEnumPolicy)">
+      <parentCategory ref="EnumCat" />
+      <supportedOn ref="Supported_Synthetic" />
+      <elements>
+        <enum id="QwordMode" key="Software\\Policies\\Test4" valueName="QwordMode">
+          <item displayName="$(string.QwordStandard)">
+            <longDecimal value="0" />
+          </item>
+          <item displayName="$(string.QwordBig)">
+            <longDecimal value="4294967296" />
+          </item>
+        </enum>
+      </elements>
+      <presentation />
+    </policy>
+  </policies>
+</policyDefinitions>"""
+
+_AML_ENUM = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <resources>
+    <stringTable>
+      <string id="EnumCat">Enum Category</string>
+      <string id="Supported_Synthetic">Synthetic OS Support</string>
+      <string id="EnumPolicy">Enum Policy</string>
+      <string id="EnumPolicy_Explain">Policy with enum items.</string>
+      <string id="EmptyEnumPolicy">Empty Enum Policy</string>
+      <string id="EmptyEnumPolicy_Explain">Policy with empty enum.</string>
+      <string id="UnknownEnumPolicy">Unknown Enum Policy</string>
+      <string id="UnknownEnumPolicy_Explain">Policy with unknown enum item types.</string>
+      <string id="LongDecimalEnumPolicy">Long Decimal Enum Policy</string>
+      <string id="LongDecimalEnumPolicy_Explain">Policy with longDecimal enum items.</string>
+      <string id="ModeStandard">Standard Mode</string>
+      <string id="ModeAdvanced">Advanced Mode</string>
+      <string id="ModeCustom">Custom Mode</string>
+      <string id="UnknownItem1">Unknown Item 1</string>
+      <string id="UnknownItem2">Unknown Item 2</string>
+      <string id="QwordStandard">Standard Qword</string>
+      <string id="QwordBig">Big Qword</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>"""
+
+
+def _get_enum_element(cat, policy_name: str, enum_id: str):
+    policy = [p for p in cat.policies if p.id == policy_name][0]
+    return [e for e in policy.elements if e.id == enum_id][0]
+
+
+def test_enum_decimal_items_produce_dword() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "EnumPolicy", "Mode")
+    decimal_items = [i for i in elem.enum_items if i.registry_type == "REG_DWORD"]
+    assert len(decimal_items) == 2
+    assert decimal_items[0].value == 0
+    assert decimal_items[1].value == 1
+    assert all(isinstance(i.value, int) for i in decimal_items)
+    assert decimal_items[0].id == "0"
+    assert decimal_items[1].id == "1"
+
+
+def test_enum_string_items_produce_reg_sz() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "EnumPolicy", "Mode")
+    string_items = [i for i in elem.enum_items if i.registry_type == "REG_SZ"]
+    assert len(string_items) == 1
+    assert string_items[0].value == "custom"
+    assert isinstance(string_items[0].value, str)
+    assert string_items[0].id == "custom"
+
+
+def test_enum_mixed_decimal_and_string_items() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "EnumPolicy", "Mode")
+    assert len(elem.enum_items) == 3
+    types = {i.registry_type for i in elem.enum_items}
+    assert types == {"REG_DWORD", "REG_SZ"}
+    values = [i.value for i in elem.enum_items]
+    assert 0 in values
+    assert 1 in values
+    assert "custom" in values
+
+
+def test_enum_with_no_items_produces_empty_tuple() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "EmptyEnumPolicy", "EmptyMode")
+    assert elem.enum_items == ()
+
+
+def test_enum_skips_unknown_value_type_items() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "UnknownEnumPolicy", "UnknownMode")
+    assert len(elem.enum_items) == 1
+    assert elem.enum_items[0].registry_type == "REG_DWORD"
+    assert elem.enum_items[0].value == 7
+
+
+def test_enum_long_decimal_items_produce_qword() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "LongDecimalEnumPolicy", "QwordMode")
+    assert len(elem.enum_items) == 2
+    assert all(i.registry_type == "REG_QWORD" for i in elem.enum_items)
+    assert elem.enum_items[0].value == 0
+    assert elem.enum_items[1].value == 4294967296
+    assert all(isinstance(i.value, int) for i in elem.enum_items)
+
+
+def test_enum_item_display_names_resolved_from_adml() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "EnumPolicy", "Mode")
+    names = [i.display_name for i in elem.enum_items]
+    assert names == ["Standard Mode", "Advanced Mode", "Custom Mode"]
+
+
+def test_enum_item_type_annotation() -> None:
+    cat = build_catalogue(_ADMX_ENUM, _AML_ENUM)
+    elem = _get_enum_element(cat, "EnumPolicy", "Mode")
+    assert all(isinstance(i, EnumItem) for i in elem.enum_items)
+
+
+def test_enum_malformed_decimal_value_skipped() -> None:
+    admx = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <policies>
+    <policy name="MalformedEnum" class="Machine" key="Software\\Policies\\Test"
+            displayName="Malformed" explainText="Test" supportedOn="S"
+            presentation="$(presentation.MalformedEnum)">
+      <elements>
+        <enum id="BadMode" key="Software\\Policies\\Test" valueName="BadMode">
+          <item displayName="Bad">
+            <decimal value="not-a-number" />
+          </item>
+          <item displayName="Good">
+            <decimal value="42" />
+          </item>
+        </enum>
+      </elements>
+      <presentation />
+    </policy>
+  </policies>
+</policyDefinitions>"""
+    policies, _, _ = parse_admx(admx)
+    elem = policies[0].elements[0]
+    assert len(elem.enum_items) == 1
+    assert elem.enum_items[0].value == 42

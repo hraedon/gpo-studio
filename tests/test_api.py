@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -638,3 +639,276 @@ def test_typed_cse_metadata_round_trip(tmp_path) -> None:
         assert cse_data[0]["files"][0]["relative_path"] == "Custom/custom.xml"
         assert cse_data[0]["files"][0]["content_hash"] == "abc123"
         assert cse_data[0]["files"][0]["size"] == 100
+
+
+def _create_minimal_backup(backup_dir: Path) -> None:
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    user_dir = gpo_dir / "User"
+    machine_dir.mkdir(parents=True)
+    user_dir.mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    machine_pol = serialize([
+        PolRecord(key=r"Software\Policies\Test", value_name="Enabled",
+                  registry_type="REG_DWORD", value=1),
+    ])
+    (machine_dir / "Registry.pol").write_bytes(machine_pol)
+    (user_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+
+
+def test_backup_import_within_inbox(tmp_path: Path, monkeypatch) -> None:
+    inbox_dir = tmp_path / "inbox"
+    inbox_dir.mkdir()
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox_dir))
+    backup_dir = inbox_dir / "backup"
+    _create_minimal_backup(backup_dir)
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "Import from inbox",
+        })
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert gpo["name"] == "Imported Policy"
+        assert gpo["source_guid"] == "11111111-2222-3333-4444-555555555555"
+
+
+def test_backup_import_outside_inbox_rejected(tmp_path: Path, monkeypatch) -> None:
+    inbox_dir = tmp_path / "inbox"
+    inbox_dir.mkdir()
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox_dir))
+    backup_dir = tmp_path / "outside" / "backup"
+    _create_minimal_backup(backup_dir)
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+        })
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert issues[0]["code"] == "path_outside_inbox"
+
+
+def test_backup_import_no_inbox_configured(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("GPO_STUDIO_INBOX_DIR", raising=False)
+    backup_dir = tmp_path / "backup"
+    _create_minimal_backup(backup_dir)
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+        })
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert gpo["name"] == "Imported Policy"
+
+
+def test_backup_import_path_traversal_rejected(tmp_path: Path, monkeypatch) -> None:
+    inbox_dir = tmp_path / "inbox"
+    inbox_dir.mkdir()
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox_dir))
+    backup_dir = tmp_path / "outside" / "backup"
+    _create_minimal_backup(backup_dir)
+    traversal_path = str(inbox_dir / ".." / "outside" / "backup")
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": traversal_path,
+        })
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert issues[0]["code"] == "path_outside_inbox"
+
+
+def test_security_filter_add_edit_delete(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "Security filter policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/security-filters",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "grant apply",
+                "filter": {
+                    "principal": "Domain Admins",
+                    "permission": "apply",
+                    "inheritable": True,
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert gpo["revision"] == 2
+        assert len(gpo["security_filters"]) == 1
+        assert gpo["security_filters"][0]["principal"] == "Domain Admins"
+        assert gpo["security_filters"][0]["permission"] == "apply"
+
+        filter_id = gpo["security_filters"][0]["id"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/security-filters/{filter_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "downgrade to read",
+                "filter": {
+                    "principal": "Domain Admins",
+                    "permission": "read",
+                    "inheritable": True,
+                },
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert gpo["revision"] == 3
+        assert len(gpo["security_filters"]) == 1
+        assert gpo["security_filters"][0]["permission"] == "read"
+
+        resp = client.request(
+            "DELETE",
+            f"/api/gpos/{gpo['guid']}/security-filters/{filter_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "remove filter",
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert gpo["revision"] == 4
+        assert len(gpo["security_filters"]) == 0
+
+
+def test_security_filter_creates_revision(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "Revision test"}
+        ).json()["gpo"]
+        initial_revision = gpo["revision"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/security-filters",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add filter",
+                "filter": {"principal": "Domain Users"},
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert gpo["revision"] == initial_revision + 1
+        revisions = client.get(
+            f"/api/gpos/{gpo['guid']}/revisions"
+        ).json()["items"]
+        assert len(revisions) == 2
+
+
+def test_security_filter_stale_revision_returns_409(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "Conflict test"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/security-filters",
+            json={
+                "expected_revision": 999,
+                "actor": "tester",
+                "reason": "stale",
+                "filter": {"principal": "Domain Admins"},
+            },
+        )
+        assert resp.status_code == 409
+
+
+def test_wmi_filter_set_and_clear(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "WMI filter policy"}
+        ).json()["gpo"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/wmi-filter",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "scope to workstations",
+                "wmi_filter": {
+                    "name": "Workstations",
+                    "description": "Workstation filter",
+                    "query": "SELECT * FROM Win32_ComputerSystem",
+                    "language": "WQL",
+                },
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert gpo["revision"] == 2
+        assert gpo["wmi_filter"] is not None
+        assert gpo["wmi_filter"]["name"] == "Workstations"
+        assert gpo["wmi_filter"]["query"] == "SELECT * FROM Win32_ComputerSystem"
+
+        resp = client.request(
+            "DELETE",
+            f"/api/gpos/{gpo['guid']}/wmi-filter",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "clear filter",
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert gpo["revision"] == 3
+        assert gpo["wmi_filter"] is None
+
+
+def test_domain_update_via_api(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "domain.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/gpos",
+            json={"name": "Domain test", "actor": "t", "reason": "test"},
+        )
+        gpo = resp.json()["gpo"]
+        assert gpo["domain"] == "studio.local"
+        resp = client.patch(
+            f"/api/gpos/{gpo['guid']}",
+            json={
+                "name": "Domain test",
+                "description": "",
+                "computer_enabled": True,
+                "user_enabled": True,
+                "status": "draft",
+                "domain": "corp.example.test",
+                "actor": "t",
+                "reason": "set domain",
+                "expected_revision": gpo["revision"],
+            },
+        )
+        assert resp.status_code == 200
+        updated = resp.json()["gpo"]
+        assert updated["domain"] == "corp.example.test"

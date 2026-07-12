@@ -54,6 +54,23 @@ class CseMetadataEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class SecurityFilter:
+    id: str
+    principal: str
+    permission: Literal["apply", "read"] = "apply"
+    inheritable: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class WmiFilter:
+    id: str
+    name: str
+    description: str = ""
+    query: str = ""
+    language: str = "WQL"
+
+
+@dataclass(frozen=True, slots=True)
 class GPO:
     guid: str
     name: str
@@ -66,6 +83,9 @@ class GPO:
     links: tuple[GPOLink, ...] = field(default_factory=tuple)
     source_guid: str = ""
     cse_metadata: tuple[CseMetadataEntry, ...] = field(default_factory=tuple)
+    security_filters: tuple[SecurityFilter, ...] = field(default_factory=tuple)
+    wmi_filter: WmiFilter | None = None
+    domain: str = "studio.local"
     created_at: str = ""
     updated_at: str = ""
 

@@ -22,6 +22,8 @@ from .model import (
     NotFoundError,
     RegistrySetting,
     Revision,
+    SecurityFilter,
+    WmiFilter,
 )
 
 
@@ -78,6 +80,25 @@ def _cse_metadata_entry(data: dict[str, Any]) -> CseMetadataEntry:
     )
 
 
+def _security_filter(data: dict[str, Any]) -> SecurityFilter:
+    return SecurityFilter(
+        id=str(data["id"]),
+        principal=str(data["principal"]),
+        permission=data.get("permission", "apply"),
+        inheritable=bool(data.get("inheritable", True)),
+    )
+
+
+def _wmi_filter(data: dict[str, Any]) -> WmiFilter:
+    return WmiFilter(
+        id=str(data["id"]),
+        name=str(data["name"]),
+        description=str(data.get("description", "")),
+        query=str(data.get("query", "")),
+        language=str(data.get("language", "WQL")),
+    )
+
+
 def gpo_from_dict(data: dict[str, Any]) -> GPO:
     return GPO(
         guid=str(data["guid"]),
@@ -93,6 +114,11 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         cse_metadata=tuple(
             _cse_metadata_entry(item) for item in data.get("cse_metadata", [])
         ),
+        security_filters=tuple(
+            _security_filter(item) for item in data.get("security_filters", [])
+        ),
+        wmi_filter=_wmi_filter(data["wmi_filter"]) if data.get("wmi_filter") else None,
+        domain=str(data.get("domain", "studio.local")),
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
     )
@@ -244,7 +270,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
     ) -> GPO:
-        allowed = {"name", "description", "computer_enabled", "user_enabled", "status"}
+        allowed = {"name", "description", "computer_enabled", "user_enabled", "status", "domain"}
         unknown = set(values) - allowed
         if unknown:
             raise ValueError(f"unknown metadata fields: {', '.join(sorted(unknown))}")
@@ -346,6 +372,63 @@ class WorkspaceStore:
             if len(links) == len(gpo.links):
                 raise NotFoundError(f"Link {link_id} was not found")
             return replace(gpo, links=links)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def put_security_filter(
+        self,
+        guid: str,
+        expected_revision: int,
+        values: dict[str, Any],
+        *,
+        identity: Identity | str,
+        reason: str,
+        filter_id: str | None = None,
+    ) -> GPO:
+        new_filter = _security_filter({"id": filter_id or str(uuid.uuid4()), **values})
+
+        def mutate(gpo: GPO) -> GPO:
+            filters = [item for item in gpo.security_filters if item.id != new_filter.id]
+            filters.append(new_filter)
+            filters.sort(key=lambda item: item.principal.casefold())
+            return replace(gpo, security_filters=tuple(filters))
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def delete_security_filter(
+        self,
+        guid: str,
+        filter_id: str,
+        expected_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        def mutate(gpo: GPO) -> GPO:
+            filters = tuple(
+                item for item in gpo.security_filters if item.id != filter_id
+            )
+            if len(filters) == len(gpo.security_filters):
+                raise NotFoundError(f"Security filter {filter_id} was not found")
+            return replace(gpo, security_filters=filters)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def set_wmi_filter(
+        self,
+        guid: str,
+        expected_revision: int,
+        values: dict[str, Any] | None,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if values and "id" not in values:
+            values = {"id": str(uuid.uuid4()), **values}
+        new_wmi = _wmi_filter(values) if values else None
+
+        def mutate(gpo: GPO) -> GPO:
+            return replace(gpo, wmi_filter=new_wmi)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 

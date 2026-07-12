@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gpo_studio.admx import PolicyDefinition, PolicyElement
+from gpo_studio.admx import EnumItem, PolicyDefinition, PolicyElement
 from gpo_studio.model import ValidationError
 from gpo_studio.policy_config import PolicyConfiguration, resolve_policy
 
@@ -34,6 +34,19 @@ def _element(
         id=id,
         registry_key=key,
         registry_value_name=value_name,
+    )
+
+
+def _enum_element(
+    items: tuple[EnumItem, ...],
+    id: str = "Mode",
+    value_name: str = "Mode",
+) -> PolicyElement:
+    return PolicyElement(
+        kind="enum",
+        id=id,
+        registry_value_name=value_name,
+        enum_items=items,
     )
 
 
@@ -229,3 +242,80 @@ def test_both_class_ids_include_side() -> None:
     assert settings_c[0].id != settings_u[0].id
     assert settings_c[0].id == "admx-TestPolicy-Enabled-computer"
     assert settings_u[0].id == "admx-TestPolicy-Enabled-user"
+
+
+def test_enum_decimal_items_produce_dword() -> None:
+    items = (
+        EnumItem(id="standard", display_name="Standard", value=0, registry_type="REG_DWORD"),
+        EnumItem(id="advanced", display_name="Advanced", value=1, registry_type="REG_DWORD"),
+    )
+    policy = _policy((_enum_element(items),))
+    config = PolicyConfiguration(side="computer", values={"Mode": "advanced"})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_DWORD"
+    assert settings[0].value == 1
+
+
+def test_enum_string_items_produce_sz() -> None:
+    items = (
+        EnumItem(id="plain", display_name="Plain", value="plaintext", registry_type="REG_SZ"),
+        EnumItem(id="ssl", display_name="SSL", value="tls", registry_type="REG_SZ"),
+    )
+    policy = _policy((_enum_element(items),))
+    config = PolicyConfiguration(side="computer", values={"Mode": "ssl"})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_SZ"
+    assert settings[0].value == "tls"
+
+
+def test_enum_mixed_items_produce_correct_types() -> None:
+    items = (
+        EnumItem(id="off", display_name="Off", value=0, registry_type="REG_DWORD"),
+        EnumItem(id="custom", display_name="Custom", value="custom-path", registry_type="REG_SZ"),
+    )
+    policy = _policy((_enum_element(items),))
+    config_dword = PolicyConfiguration(side="computer", values={"Mode": "off"})
+    settings_dword = resolve_policy(policy, config_dword)
+    assert settings_dword[0].registry_type == "REG_DWORD"
+    assert settings_dword[0].value == 0
+    config_sz = PolicyConfiguration(side="computer", values={"Mode": "custom"})
+    settings_sz = resolve_policy(policy, config_sz)
+    assert settings_sz[0].registry_type == "REG_SZ"
+    assert settings_sz[0].value == "custom-path"
+
+
+def test_enum_long_decimal_items_produce_qword() -> None:
+    items = (
+        EnumItem(
+            id="huge",
+            display_name="Huge",
+            value=5000000000,
+            registry_type="REG_QWORD",
+        ),
+    )
+    policy = _policy((_enum_element(items),))
+    config = PolicyConfiguration(side="computer", values={"Mode": "huge"})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_QWORD"
+    assert settings[0].value == 5000000000
+
+
+def test_enum_unknown_value_raises() -> None:
+    items = (
+        EnumItem(id="standard", display_name="Standard", value=0, registry_type="REG_DWORD"),
+    )
+    policy = _policy((_enum_element(items),))
+    config = PolicyConfiguration(side="computer", values={"Mode": "bogus"})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "invalid_enum_value"
+    assert "bogus" in exc_info.value.issues[0].message
+    assert "Mode" in exc_info.value.issues[0].message
+
+
+def test_enum_empty_items_falls_back_to_sz() -> None:
+    policy = _policy((_enum_element(()),))
+    config = PolicyConfiguration(side="computer", values={"Mode": "Standard"})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_SZ"
+    assert settings[0].value == "Standard"
