@@ -5,17 +5,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from .backup import BackupGpo
+from .backup import (
+    BackupGpo,
+    BackupSecurityFilter,
+    BackupWmiFilter,
+    read_file_bytes,
+)
 from .model import (
     GPO,
     CseFileEntry,
     CseMetadataEntry,
     RegistrySetting,
     RegistryType,
+    SecurityFilter,
     Side,
     StudioError,
     ValidationError,
     ValidationIssue,
+    WmiFilter,
 )
 from .registry_pol import parse as parse_pol
 from .store import WorkspaceStore, gpo_from_dict
@@ -31,7 +38,7 @@ _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 def extract_settings(pol_path: Path, side: Side) -> list[RegistrySetting]:
     if not pol_path.exists():
         return []
-    data = pol_path.read_bytes()
+    data = read_file_bytes(pol_path)
     records = parse_pol(data)
     hive: Literal["HKLM", "HKCU"] = "HKLM" if side == "computer" else "HKCU"
     settings: list[RegistrySetting] = []
@@ -107,3 +114,30 @@ def resolve_gpo(store: WorkspaceStore, ref: str | dict[str, Any]) -> GPO:
         return gpo_from_dict(ref)
     except (KeyError, TypeError, ValueError) as error:
         raise StudioError(f"Invalid inline GPO reference: {error}") from error
+
+
+def backup_security_filters_to_model(
+    filters: tuple[BackupSecurityFilter, ...],
+) -> tuple[SecurityFilter, ...]:
+    return tuple(
+        SecurityFilter(
+            id=f"imported-sf-{i}",
+            principal=f.principal,
+            permission=cast(Literal["apply", "read"], f.permission),
+            inheritable=f.inheritable,
+            target_type=cast(Literal["user", "group", "computer"], f.target_type),
+        )
+        for i, f in enumerate(filters)
+    )
+
+
+def backup_wmi_filter_to_model(wmi: BackupWmiFilter | None) -> WmiFilter | None:
+    if wmi is None:
+        return None
+    return WmiFilter(
+        id="imported-wmi-0",
+        name=wmi.name,
+        description=wmi.description,
+        query=wmi.query,
+        language=wmi.language,
+    )

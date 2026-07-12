@@ -40,12 +40,30 @@ class CseExtension:
 
 
 @dataclass(frozen=True, slots=True)
+class BackupSecurityFilter:
+    principal: str
+    permission: str
+    inheritable: bool
+    target_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class BackupWmiFilter:
+    name: str
+    query: str
+    language: str
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class BackupGpo:
     guid: str
     display_name: str
     domain: str
     machine_extensions: tuple[CseExtension, ...] = field(default_factory=tuple)
     user_extensions: tuple[CseExtension, ...] = field(default_factory=tuple)
+    security_filters: tuple[BackupSecurityFilter, ...] = field(default_factory=tuple)
+    wmi_filter: BackupWmiFilter | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,35 +98,73 @@ def _safe_parse(data: bytes) -> ET.Element:
     return root
 
 
+_VALID_TARGET_TYPES = {"user", "group", "computer"}
+
+
 def _safe_path(base: Path, relative: str) -> Path:
     if ".." in Path(relative).parts:
         raise BackupError(f"Path traversal detected: {relative}")
     if Path(relative).is_absolute():
         raise BackupError(f"Absolute path not allowed: {relative}")
-    resolved = (base / relative).resolve()
+    candidate = base / relative
+    current = base
+    for part in Path(relative).parts:
+        current = current / part
+        if current.is_symlink():
+            raise BackupError(f"Symlinks are not allowed: {current}")
+    resolved = candidate.resolve()
     base_resolved = base.resolve()
     try:
         resolved.relative_to(base_resolved)
     except ValueError:
         raise BackupError(f"Path escapes base directory: {relative}") from None
-    if resolved.is_symlink():
-        raise BackupError(f"Symlinks are not allowed: {resolved}")
     return resolved
 
 
-def _hash_file(path: Path) -> tuple[str, int]:
-    hasher = hashlib.sha256()
-    size = 0
-    with path.open("rb") as f:
+def read_file_bytes(path: Path) -> bytes:
+    try:
+        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        raise BackupError(f"Cannot open file (symlink or inaccessible): {path}") from None
+    try:
+        data = bytearray()
         while True:
-            chunk = f.read(65536)
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                raise BackupError(f"Cannot read file: {path}") from None
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) > _MAX_FILE_SIZE:
+                raise BackupError(f"File exceeds {_MAX_FILE_SIZE} bytes: {path}")
+        return bytes(data)
+    finally:
+        os.close(fd)
+
+
+def _hash_file(path: Path) -> tuple[str, int]:
+    try:
+        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        raise BackupError(f"Cannot open file (symlink or inaccessible): {path}") from None
+    try:
+        hasher = hashlib.sha256()
+        size = 0
+        while True:
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                raise BackupError(f"Cannot read file: {path}") from None
             if not chunk:
                 break
             size += len(chunk)
             if size > _MAX_FILE_SIZE:
                 raise BackupError(f"File exceeds {_MAX_FILE_SIZE} bytes: {path}")
             hasher.update(chunk)
-    return hasher.hexdigest(), size
+        return hasher.hexdigest(), size
+    finally:
+        os.close(fd)
 
 
 def _parse_extension_guids(text: str | None) -> list[str]:
@@ -206,6 +262,47 @@ def parse_manifest(data: bytes) -> GpmcBackup:
                     CseExtension(guid=g, side="user", files=()) for g in user_guids
                 )
 
+                sf_list: list[BackupSecurityFilter] = []
+                sf_container = gpo_elem.find(f".//{{{_ADMX_NS}}}SecurityFilters")
+                if sf_container is not None:
+                    for sf_elem in sf_container:
+                        if _local_name(sf_elem.tag) != "SecurityFilter":
+                            continue
+                        principal = sf_elem.get("principal", "")
+                        perm_raw = sf_elem.get("permission", "GpoApply")
+                        if perm_raw == "GpoApply":
+                            permission = "apply"
+                        elif perm_raw == "GpoRead":
+                            permission = "read"
+                        else:
+                            raise BackupError(
+                                f"Unsupported permission in security filter: {perm_raw!r}"
+                            )
+                        inheritable = sf_elem.get("inheritable", "true").lower() == "true"
+                        target_type = sf_elem.get("target_type", "group")
+                        if target_type not in _VALID_TARGET_TYPES:
+                            raise BackupError(
+                                f"Unsupported target_type in security filter: {target_type!r}"
+                            )
+                        sf_list.append(
+                            BackupSecurityFilter(
+                                principal=principal,
+                                permission=permission,
+                                inheritable=inheritable,
+                                target_type=target_type,
+                            )
+                        )
+
+                wmi: BackupWmiFilter | None = None
+                wmi_elem = gpo_elem.find(f".//{{{_ADMX_NS}}}WmiFilter")
+                if wmi_elem is not None:
+                    wmi = BackupWmiFilter(
+                        name=wmi_elem.get("name", ""),
+                        query=wmi_elem.get("query", ""),
+                        language=wmi_elem.get("language", "WQL"),
+                        description=wmi_elem.get("description", ""),
+                    )
+
                 gpos.append(
                     BackupGpo(
                         guid=guid,
@@ -213,6 +310,8 @@ def parse_manifest(data: bytes) -> GpmcBackup:
                         domain=domain,
                         machine_extensions=machine_exts,
                         user_extensions=user_exts,
+                        security_filters=tuple(sf_list),
+                        wmi_filter=wmi,
                     )
                 )
 
@@ -232,20 +331,22 @@ def _text_or_empty(elem: ET.Element | None) -> str:
 
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
+    if backup_dir.is_symlink():
+        raise BackupError(f"Symlinks are not allowed: {backup_dir}")
     manifest_path = backup_dir / "manifest.xml"
     if manifest_path.is_symlink():
         raise BackupError(f"Symlinks are not allowed: {manifest_path}")
     if not manifest_path.exists():
         raise BackupError(f"Missing manifest.xml in {backup_dir}")
 
-    manifest_data = manifest_path.read_bytes()
+    manifest_data = read_file_bytes(manifest_path)
     backup = parse_manifest(manifest_data)
 
     bkup_info_path = backup_dir / "bkupInfo.xml"
     if bkup_info_path.is_symlink():
         raise BackupError(f"Symlinks are not allowed: {bkup_info_path}")
     if bkup_info_path.exists():
-        bkup = parse_bkup_info(bkup_info_path.read_bytes())
+        bkup = parse_bkup_info(read_file_bytes(bkup_info_path))
         backup_time = bkup.backup_time or backup.backup_time
         backup_id = bkup.backup_id or backup.backup_id
         backup_type = bkup.backup_type or backup.backup_type
@@ -283,6 +384,8 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                     domain=domain,
                     machine_extensions=gpo.machine_extensions,
                     user_extensions=gpo.user_extensions,
+                    security_filters=gpo.security_filters,
+                    wmi_filter=gpo.wmi_filter,
                 )
             )
             continue
@@ -297,6 +400,8 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                 domain=domain,
                 machine_extensions=machine_exts,
                 user_extensions=user_exts,
+                security_filters=gpo.security_filters,
+                wmi_filter=gpo.wmi_filter,
             )
         )
 
@@ -403,7 +508,4 @@ def read_cse_content(
     file_path = _safe_path(backup_dir / gpo_guid / side_dir_name, relative_path)
     if not file_path.exists():
         raise BackupError(f"File not found: {file_path}")
-    data = file_path.read_bytes()
-    if len(data) > _MAX_FILE_SIZE:
-        raise BackupError(f"File exceeds {_MAX_FILE_SIZE} bytes")
-    return data
+    return read_file_bytes(file_path)

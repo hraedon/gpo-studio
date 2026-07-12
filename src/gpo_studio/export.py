@@ -21,6 +21,10 @@ def _ps_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _ps_sanitize_comment(text: str) -> str:
+    return text.replace("\r", " ").replace("\n", " ")
+
+
 def _ps_value(setting: RegistrySetting) -> str:
     if isinstance(setting.value, int):
         return str(setting.value)
@@ -98,19 +102,22 @@ def powershell_plan(gpo: GPO) -> str:
         )
     if gpo.security_filters:
         lines.append("")
-        lines.append("# Security filtering (-TargetType may need adjustment per principal).")
+        lines.append("# Security filtering")
         for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
             perm = "GpoApply" if sf.permission == "apply" else "GpoRead"
+            target_type_ps = sf.target_type.title()
             lines.append(
                 f"Set-GPPermission -Guid $gpo.Id -PermissionLevel {perm}"
-                f" -TargetName {_ps_quote(sf.principal)} -TargetType Group -Replace"
+                f" -TargetName {_ps_quote(sf.principal)} -TargetType {target_type_ps} -Replace"
                 " | Out-Null"
             )
     if gpo.wmi_filter is not None:
+        wmi_name = _ps_sanitize_comment(gpo.wmi_filter.name)
+        wmi_query = _ps_sanitize_comment(gpo.wmi_filter.query)
         lines.append("")
-        lines.append(f"# WMI filter: {gpo.wmi_filter.name} ({gpo.wmi_filter.query})")
+        lines.append(f"# WMI filter: {wmi_name} ({wmi_query})")
         lines.append(
-            f"# Assign WMI filter '{gpo.wmi_filter.name}' to this GPO via GPMC or the"
+            f"# Assign WMI filter '{wmi_name}' to this GPO via GPMC or the"
             f" GPMC COM API (domain: {gpo.domain})."
         )
     status_value: str
@@ -198,6 +205,12 @@ def _build_manifest_xml(gpo: GPO) -> bytes:
     if has_user:
         ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}UserExtensionGuids").text = _REGISTRY_CSE_GUID
     _append_security_filters(gpo_elem, gpo)
+    if gpo.wmi_filter is not None:
+        wmi_elem = ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}WmiFilter")
+        wmi_elem.set("name", gpo.wmi_filter.name)
+        wmi_elem.set("query", gpo.wmi_filter.query)
+        wmi_elem.set("language", gpo.wmi_filter.language)
+        wmi_elem.set("description", gpo.wmi_filter.description)
     return _xml_to_bytes(root)
 
 
@@ -210,6 +223,7 @@ def _append_security_filters(parent: ET.Element, gpo: GPO) -> None:
         child.set("principal", sf.principal)
         child.set("permission", "GpoApply" if sf.permission == "apply" else "GpoRead")
         child.set("inheritable", "true" if sf.inheritable else "false")
+        child.set("target_type", sf.target_type)
 
 
 def _build_bkup_info_xml(gpo: GPO) -> bytes:
@@ -230,6 +244,12 @@ def _build_gpreport_xml(gpo: GPO) -> bytes:
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
     _append_security_filters(gpo_elem, gpo)
+    if gpo.wmi_filter is not None:
+        wmi_elem = ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}WmiFilter")
+        wmi_elem.set("name", gpo.wmi_filter.name)
+        wmi_elem.set("query", gpo.wmi_filter.query)
+        wmi_elem.set("language", gpo.wmi_filter.language)
+        wmi_elem.set("description", gpo.wmi_filter.description)
     return _xml_to_bytes(root)
 
 

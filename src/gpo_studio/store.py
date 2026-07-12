@@ -86,6 +86,7 @@ def _security_filter(data: dict[str, Any]) -> SecurityFilter:
         principal=str(data["principal"]),
         permission=data.get("permission", "apply"),
         inheritable=bool(data.get("inheritable", True)),
+        target_type=data.get("target_type", "group"),
     )
 
 
@@ -190,6 +191,8 @@ class WorkspaceStore:
         source_guid: str = "",
         cse_metadata: tuple[CseMetadataEntry, ...] = (),
         domain: str = "studio.local",
+        security_filters: tuple[SecurityFilter, ...] = (),
+        wmi_filter: WmiFilter | None = None,
     ) -> GPO:
         actor = _resolve_actor(identity)
         timestamp = _now()
@@ -203,6 +206,8 @@ class WorkspaceStore:
             source_guid=source_guid,
             cse_metadata=cse_metadata,
             domain=domain,
+            security_filters=security_filters,
+            wmi_filter=wmi_filter,
             created_at=timestamp,
             updated_at=timestamp,
         )

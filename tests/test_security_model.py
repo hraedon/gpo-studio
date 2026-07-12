@@ -87,7 +87,9 @@ def test_semantic_dict_includes_security_filters() -> None:
     principals = [sf["principal"] for sf in sd["security_filters"]]
     assert principals == ["domain admins", "help desk"]
     assert sd["security_filters"][0]["permission"] == "apply"
+    assert sd["security_filters"][0]["target_type"] == "group"
     assert sd["security_filters"][1]["permission"] == "read"
+    assert sd["security_filters"][1]["target_type"] == "group"
 
 
 def test_semantic_dict_includes_domain() -> None:

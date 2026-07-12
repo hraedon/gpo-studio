@@ -51,12 +51,14 @@ def _sf(
     principal: str = r"DOMAIN\User",
     permission: str = "apply",
     inheritable: bool = True,
+    target_type: str = "group",
 ) -> SecurityFilter:
     return SecurityFilter(
         id=id,
         principal=principal,
         permission=permission,  # type: ignore[arg-type]
         inheritable=inheritable,
+        target_type=target_type,  # type: ignore[arg-type]
     )
 
 

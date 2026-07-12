@@ -12,7 +12,7 @@ from gpo_studio.canonical import (
     semantic_hash_setting,
 )
 from gpo_studio.export import export_bundle
-from gpo_studio.model import GPO, GPOLink, RegistrySetting
+from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter
 
 
 def sample_gpo() -> GPO:
@@ -211,3 +211,18 @@ def test_bundle_v2_includes_semantic_hash() -> None:
         assert manifest["semantic_sha256"] == semantic_hash(gpo)
         assert "canonical_model" in manifest
         assert manifest["canonical_model"] == semantic_dict(gpo)
+
+
+def test_semantic_dict_security_filters_include_target_type() -> None:
+    gpo = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="Target type test",
+        security_filters=(
+            SecurityFilter(id="sf-1", principal="Domain Admins", target_type="user"),
+            SecurityFilter(id="sf-2", principal="Domain Computers", target_type="computer"),
+        ),
+    )
+    sd = semantic_dict(gpo)
+    assert all("target_type" in sf for sf in sd["security_filters"])
+    assert sd["security_filters"][0]["target_type"] == "user"
+    assert sd["security_filters"][1]["target_type"] == "computer"
