@@ -866,6 +866,33 @@ def test_security_filter_stale_revision_returns_409(tmp_path) -> None:
         assert resp.status_code == 409
 
 
+def test_security_filter_with_target_type_user(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "Target type policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/security-filters",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "grant to user",
+                "filter": {
+                    "principal": "DOMAIN\\SvcAccount",
+                    "permission": "apply",
+                    "inheritable": True,
+                    "target_type": "user",
+                },
+            },
+        )
+        assert resp.status_code == 201
+        sf = resp.json()["gpo"]["security_filters"][0]
+        assert sf["target_type"] == "user"
+
+
 def test_wmi_filter_set_and_clear(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
@@ -938,3 +965,61 @@ def test_domain_update_via_api(tmp_path) -> None:
         assert resp.status_code == 200
         updated = resp.json()["gpo"]
         assert updated["domain"] == "corp.example.test"
+
+
+def test_gpmc_backup_roundtrip_with_filters(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Filter roundtrip"}).json()["gpo"]
+        client.post(
+            f"/api/gpos/{gpo['guid']}/security-filters",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "t",
+                "reason": "add filter",
+                "filter": {
+                    "principal": "DOMAIN\\Admins",
+                    "permission": "apply",
+                    "inheritable": True,
+                    "target_type": "group",
+                },
+            },
+        )
+        gpo = client.get(f"/api/gpos/{gpo['guid']}").json()["gpo"]
+        client.put(
+            f"/api/gpos/{gpo['guid']}/wmi-filter",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "t",
+                "reason": "set wmi",
+                "wmi_filter": {
+                    "name": "WorkstationFilter",
+                    "query": "select * from Win32_OperatingSystem",
+                    "language": "WQL",
+                },
+            },
+        )
+        resp = client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup")
+        assert resp.status_code == 200
+        backup_dir = tmp_path / "gpmc_backup"
+        backup_dir.mkdir()
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as archive:
+            archive.extractall(backup_dir)
+        store.close()
+        app.state.store = WorkspaceStore(tmp_path / "api2.db")
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "Round-trip with filters",
+        })
+        assert resp.status_code == 201
+        imported = resp.json()["gpo"]
+        assert len(imported["security_filters"]) == 1
+        assert imported["security_filters"][0]["principal"] == "DOMAIN\\Admins"
+        assert imported["security_filters"][0]["permission"] == "apply"
+        assert imported["security_filters"][0]["target_type"] == "group"
+        assert imported["wmi_filter"] is not None
+        assert imported["wmi_filter"]["name"] == "WorkstationFilter"
+        assert imported["wmi_filter"]["query"] == "select * from Win32_OperatingSystem"

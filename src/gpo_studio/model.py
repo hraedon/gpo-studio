@@ -53,12 +53,16 @@ class CseMetadataEntry:
     files: tuple[CseFileEntry, ...] = field(default_factory=tuple)
 
 
+TargetType = Literal["user", "group", "computer"]
+
+
 @dataclass(frozen=True, slots=True)
 class SecurityFilter:
     id: str
     principal: str
     permission: Literal["apply", "read"] = "apply"
     inheritable: bool = True
+    target_type: TargetType = "group"
 
 
 @dataclass(frozen=True, slots=True)

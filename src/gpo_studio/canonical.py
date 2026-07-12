@@ -122,7 +122,7 @@ def semantic_dict(gpo: GPO) -> dict[str, Any]:
     links_sorted = sorted(gpo.links, key=lambda link: (link.target.casefold(), link.order))
     security_filters_sorted = sorted(
         gpo.security_filters,
-        key=lambda sf: (sf.principal.casefold(), sf.permission, sf.inheritable),
+        key=lambda sf: (sf.principal.casefold(), sf.permission, sf.inheritable, sf.target_type),
     )
     wmi = gpo.wmi_filter
     return {
@@ -139,6 +139,7 @@ def semantic_dict(gpo: GPO) -> dict[str, Any]:
                 "principal": sf.principal.casefold(),
                 "permission": sf.permission,
                 "inheritable": sf.inheritable,
+                "target_type": sf.target_type,
             }
             for sf in security_filters_sorted
         ],

@@ -23,7 +23,13 @@ from .canonical import semantic_hash
 from .diff import diff_gpos, three_way_diff
 from .export import export_bundle, gpmc_backup_bundle, powershell_plan
 from .identity import ClaimedIdentity, claimed_identity
-from .import_export import collect_cse_metadata, extract_settings, resolve_gpo
+from .import_export import (
+    backup_security_filters_to_model,
+    backup_wmi_filter_to_model,
+    collect_cse_metadata,
+    extract_settings,
+    resolve_gpo,
+)
 from .model import (
     GPO,
     ConflictError,
@@ -93,6 +99,7 @@ class SecurityFilterData(BaseModel):
     principal: str = Field(min_length=1, max_length=255)
     permission: Literal["apply", "read"] = "apply"
     inheritable: bool = True
+    target_type: Literal["user", "group", "computer"] = "group"
 
 
 class SecurityFilterMutation(Audit):
@@ -620,6 +627,9 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     all_settings = tuple(machine_settings + user_settings)
     cse_metadata = collect_cse_metadata(backup_gpo)
 
+    security_filters = backup_security_filters_to_model(backup_gpo.security_filters)
+    wmi_filter = backup_wmi_filter_to_model(backup_gpo.wmi_filter)
+
     temp_gpo = GPO(
         guid="import-preview",
         name=backup_gpo.display_name or "Imported GPO",
@@ -638,6 +648,8 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         source_guid=backup_gpo.guid,
         cse_metadata=cse_metadata,
         domain=backup_gpo.domain or "studio.local",
+        security_filters=security_filters,
+        wmi_filter=wmi_filter,
     )
     return _gpo_payload(gpo)
 

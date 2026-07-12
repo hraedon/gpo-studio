@@ -44,6 +44,35 @@ _MANIFEST_MULTI_GPO = b"""<?xml version="1.0" encoding="utf-8"?>
   </BackupInstance>
 </BackupInstances>"""
 
+_MANIFEST_WITH_FILTERS = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types">
+  <BackupInstance>
+    <BackupTime>2026-01-01T00:00:00</BackupTime>
+    <ID>backup-filters</ID>
+    <GPO>
+      <Identifier>11111111-2222-3333-4444-555555555555</Identifier>
+      <DisplayName>Filtered Policy</DisplayName>
+      <Domain>example.test</Domain>
+      <SecurityFilters>
+        <SecurityFilter
+          principal="DOMAIN\\Admins"
+          permission="GpoApply"
+          inheritable="true"
+          target_type="group"/>
+        <SecurityFilter
+          principal="DOMAIN\\Users"
+          permission="GpoRead"
+          inheritable="false"
+          target_type="group"/>
+      </SecurityFilters>
+      <WmiFilter
+        name="WorkstationFilter"
+        query="select * from Win32_OperatingSystem"
+        language="WQL"/>
+    </GPO>
+  </BackupInstance>
+</BackupInstances>"""
+
 
 def test_parse_manifest_minimal() -> None:
     backup = parse_manifest(_MANIFEST_XML)
@@ -300,3 +329,173 @@ def test_scan_side_rejects_symlinked_subdirectory(tmp_path: Path) -> None:
 
     with pytest.raises(BackupError, match="Symlinks are not allowed"):
         _scan_side(side_dir, ())
+
+
+def test_safe_path_rejects_symlink_within_base(tmp_path: Path) -> None:
+    from gpo_studio.backup import _safe_path
+
+    base = tmp_path / "base"
+    base.mkdir()
+    real_file = base / "real.txt"
+    real_file.write_bytes(b"data")
+    (base / "link.txt").symlink_to(real_file)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        _safe_path(base, "link.txt")
+
+
+def test_safe_path_rejects_symlink_pointing_outside(tmp_path: Path) -> None:
+    from gpo_studio.backup import _safe_path
+
+    base = tmp_path / "base"
+    base.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"secret")
+    (base / "link.txt").symlink_to(outside)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        _safe_path(base, "link.txt")
+
+
+def test_hash_file_rejects_symlink(tmp_path: Path) -> None:
+    from gpo_studio.backup import _hash_file
+
+    real_file = tmp_path / "real.txt"
+    real_file.write_bytes(b"data")
+    link = tmp_path / "link.txt"
+    link.symlink_to(real_file)
+
+    with pytest.raises(BackupError, match="Cannot open file"):
+        _hash_file(link)
+
+
+def test_read_cse_content_rejects_symlink(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    real_file = machine_dir / "real.pol"
+    real_file.write_bytes(b"PReg\x01\x00\x00\x00")
+    (machine_dir / "Registry.pol").symlink_to(real_file)
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        read_cse_content(
+            backup_dir,
+            "11111111-2222-3333-4444-555555555555",
+            "machine",
+            "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}",
+            "Registry.pol",
+        )
+
+
+def test_parse_manifest_security_filters() -> None:
+    backup = parse_manifest(_MANIFEST_WITH_FILTERS)
+    assert len(backup.gpos) == 1
+    sfs = backup.gpos[0].security_filters
+    assert len(sfs) == 2
+    assert sfs[0].principal == "DOMAIN\\Admins"
+    assert sfs[0].permission == "apply"
+    assert sfs[0].inheritable is True
+    assert sfs[0].target_type == "group"
+    assert sfs[1].principal == "DOMAIN\\Users"
+    assert sfs[1].permission == "read"
+    assert sfs[1].inheritable is False
+    assert sfs[1].target_type == "group"
+
+
+def test_parse_manifest_wmi_filter() -> None:
+    backup = parse_manifest(_MANIFEST_WITH_FILTERS)
+    assert len(backup.gpos) == 1
+    wmi = backup.gpos[0].wmi_filter
+    assert wmi is not None
+    assert wmi.name == "WorkstationFilter"
+    assert wmi.query == "select * from Win32_OperatingSystem"
+    assert wmi.language == "WQL"
+
+
+def test_parse_manifest_no_security_filters() -> None:
+    backup = parse_manifest(_MANIFEST_XML)
+    assert len(backup.gpos) == 1
+    assert backup.gpos[0].security_filters == ()
+    assert backup.gpos[0].wmi_filter is None
+
+
+def test_read_backup_preserves_security_filters(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    user_dir = gpo_dir / "User"
+    machine_dir.mkdir(parents=True)
+    user_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (user_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_WITH_FILTERS)
+
+    backup = read_backup(backup_dir)
+    assert len(backup.gpos) == 1
+    sfs = backup.gpos[0].security_filters
+    assert len(sfs) == 2
+    assert sfs[0].principal == "DOMAIN\\Admins"
+    assert sfs[0].permission == "apply"
+    wmi = backup.gpos[0].wmi_filter
+    assert wmi is not None
+    assert wmi.name == "WorkstationFilter"
+
+
+def test_parse_manifest_rejects_invalid_target_type() -> None:
+    manifest = _MANIFEST_WITH_FILTERS.replace(
+        b'target_type="group"',
+        b'target_type="evil_injection"',
+    )
+    with pytest.raises(BackupError, match="Unsupported target_type"):
+        parse_manifest(manifest)
+
+
+def test_parse_manifest_rejects_unknown_permission() -> None:
+    manifest = _MANIFEST_WITH_FILTERS.replace(
+        b'permission="GpoApply"',
+        b'permission="GpoEdit"',
+    )
+    with pytest.raises(BackupError, match="Unsupported permission"):
+        parse_manifest(manifest)
+
+
+def test_parse_manifest_wmi_filter_description() -> None:
+    manifest = _MANIFEST_WITH_FILTERS.replace(
+        b'language="WQL"',
+        b'language="WQL" description="Important filter"',
+    )
+    backup = parse_manifest(manifest)
+    wmi = backup.gpos[0].wmi_filter
+    assert wmi is not None
+    assert wmi.description == "Important filter"
+
+
+def test_safe_path_rejects_intermediate_symlink(tmp_path: Path) -> None:
+    from gpo_studio.backup import _safe_path
+
+    base = tmp_path / "base"
+    base.mkdir()
+    real_dir = base / "real_dir"
+    real_dir.mkdir()
+    (real_dir / "file.txt").write_bytes(b"data")
+    (base / "link_dir").symlink_to(real_dir)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        _safe_path(base, "link_dir/file.txt")
+
+
+def test_read_backup_rejects_symlinked_backup_dir(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    link_dir = tmp_path / "link_to_backup"
+    link_dir.symlink_to(backup_dir)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        read_backup(link_dir)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gpo_studio.model import ConflictError
+from gpo_studio.model import ConflictError, SecurityFilter, WmiFilter
 from gpo_studio.store import WorkspaceStore
 
 
@@ -67,3 +67,41 @@ def test_setting_link_and_restore_workflow(tmp_path) -> None:
     assert restored.revision == 4
     assert restored.settings == ()
     assert restored.links == ()
+
+
+def test_create_gpo_with_security_filters_and_wmi_filter(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    security_filters = (
+        SecurityFilter(
+            id="sf-1",
+            principal="Domain Admins",
+            permission="apply",
+            inheritable=True,
+            target_type="group",
+        ),
+        SecurityFilter(
+            id="sf-2",
+            principal="DOMAIN\\SvcAccount",
+            permission="read",
+            inheritable=False,
+            target_type="user",
+        ),
+    )
+    wmi_filter = WmiFilter(
+        id="wmi-1",
+        name="WorkstationFilter",
+        description="Lab machines only",
+        query="SELECT * FROM Win32_OperatingSystem",
+    )
+    gpo = store.create_gpo(
+        "Filter policy",
+        identity="alice",
+        reason="create with filters",
+        security_filters=security_filters,
+        wmi_filter=wmi_filter,
+    )
+    assert gpo.security_filters == security_filters
+    assert gpo.wmi_filter == wmi_filter
+    fetched = store.get_gpo(gpo.guid)
+    assert fetched.security_filters == security_filters
+    assert fetched.wmi_filter == wmi_filter
