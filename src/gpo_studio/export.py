@@ -68,7 +68,6 @@ def powershell_plan(gpo: GPO) -> str:
                 " -ErrorAction SilentlyContinue"
             )
         else:
-            type_name = setting.registry_type.removeprefix("REG_").replace("_SZ", "String").title()
             type_map = {
                 "REG_SZ": "String",
                 "REG_EXPAND_SZ": "ExpandString",
@@ -80,7 +79,7 @@ def powershell_plan(gpo: GPO) -> str:
             lines.append(
                 "Set-GPRegistryValue -Guid $gpo.Id"
                 f" -Key {_ps_quote(key)} -ValueName {_ps_quote(setting.value_name)}"
-                f" -Type {type_map.get(setting.registry_type, type_name)}"
+                f" -Type {type_map[setting.registry_type]}"
                 f" -Value {_ps_value(setting)}"
             )
     if gpo.links:

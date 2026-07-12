@@ -7,6 +7,8 @@ import re
 from .model import GPO, RegistrySetting, ValidationIssue
 
 _DN = re.compile(r"^(?:OU|DC)=[^,=]+(?:,(?:OU|DC)=[^,=]+)+$", re.IGNORECASE)
+_WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
+_WQL_FROM = re.compile(r"\bfrom\b", re.IGNORECASE)
 
 
 def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
@@ -22,12 +24,39 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                 f"{path}/hive",
             )
         )
-    if not setting.key or setting.key.startswith("\\") or setting.key.endswith("\\"):
+    if not setting.key.strip() or setting.key.startswith("\\") or setting.key.endswith("\\"):
         issues.append(
             ValidationIssue(
                 "error",
                 "invalid_registry_key",
                 "Use a non-empty relative registry key.",
+                f"{path}/key",
+            )
+        )
+    if len(setting.key) > 255:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "registry_key_too_long",
+                "Registry key exceeds 255 characters.",
+                f"{path}/key",
+            )
+        )
+    if any(ord(c) < 0x20 for c in setting.key):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_key",
+                "Registry key contains control characters.",
+                f"{path}/key",
+            )
+        )
+    if "\\\\" in setting.key:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "consecutive_backslashes_in_key",
+                "Registry key contains consecutive backslashes.",
                 f"{path}/key",
             )
         )
@@ -146,4 +175,78 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 "user_enabled",
             )
         )
+    seen_principals: set[str] = set()
+    for sf in gpo.security_filters:
+        principal = sf.principal
+        sf_path = f"security_filters/{sf.id}/principal"
+        stripped = principal.strip()
+        if not stripped:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "empty_principal",
+                    "Security filter principal is required.",
+                    sf_path,
+                )
+            )
+        if any(ord(c) < 0x20 for c in principal):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "control_character_in_principal",
+                    "Principal contains control characters.",
+                    sf_path,
+                )
+            )
+        if len(principal) > 255:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "principal_too_long",
+                    "Principal exceeds 255 characters.",
+                    sf_path,
+                )
+            )
+        folded = stripped.casefold()
+        if stripped and folded in seen_principals:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_principal",
+                    "Duplicate security filter principal.",
+                    sf_path,
+                )
+            )
+        if stripped:
+            seen_principals.add(folded)
+    if gpo.wmi_filter is not None:
+        wf = gpo.wmi_filter
+        if not wf.name.strip():
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "empty_wmi_filter_name",
+                    "WMI filter name is required.",
+                    "wmi_filter/name",
+                )
+            )
+        query = wf.query
+        if not query.strip():
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "empty_wmi_query",
+                    "WMI filter query is empty.",
+                    "wmi_filter/query",
+                )
+            )
+        elif not _WQL_SELECT.search(query) or not _WQL_FROM.search(query):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "invalid_wmi_query",
+                    "WMI query must contain SELECT and FROM.",
+                    "wmi_filter/query",
+                )
+            )
     return issues

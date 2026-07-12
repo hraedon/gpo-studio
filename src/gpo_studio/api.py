@@ -634,6 +634,8 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         guid="import-preview",
         name=backup_gpo.display_name or "Imported GPO",
         settings=all_settings,
+        security_filters=security_filters,
+        wmi_filter=wmi_filter,
     )
     gpo_issues = [i for i in validate_gpo(temp_gpo) if i.severity == "error"]
     if gpo_issues:

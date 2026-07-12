@@ -433,6 +433,33 @@ def test_security_filter_unchanged() -> None:
     assert result.security_filters == ()
 
 
+def test_security_filter_target_type_change_is_modified() -> None:
+    old = _gpo(security_filters=(_sf(target_type="group"),))
+    new = _gpo(security_filters=(_sf(target_type="user"),))
+    result = diff_gpos(old, new)
+    assert len(result.security_filters) == 1
+    change = result.security_filters[0]
+    assert change.kind == "modified"
+    assert change.old == _sf(target_type="group")
+    assert change.new == _sf(target_type="user")
+
+
+def test_security_filter_permission_change_is_modified() -> None:
+    old = _gpo(security_filters=(_sf(target_type="group", permission="apply"),))
+    new = _gpo(security_filters=(_sf(target_type="group", permission="read"),))
+    result = diff_gpos(old, new)
+    assert len(result.security_filters) == 1
+    change = result.security_filters[0]
+    assert change.kind == "modified"
+
+
+def test_security_filter_identical_fields_no_change() -> None:
+    old = _gpo(security_filters=(_sf(target_type="group", permission="apply", inheritable=True),))
+    new = _gpo(security_filters=(_sf(target_type="group", permission="apply", inheritable=True),))
+    result = diff_gpos(old, new)
+    assert result.security_filters == ()
+
+
 def test_security_filter_principal_casefold() -> None:
     old = _gpo(security_filters=(_sf(principal=r"DOMAIN\User"),))
     new = _gpo(security_filters=(_sf(principal=r"domain\user"),))
