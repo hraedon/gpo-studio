@@ -28,6 +28,7 @@ from .import_export import (
     backup_security_filters_to_model,
     backup_wmi_filter_to_model,
     collect_cse_metadata,
+    collect_gpp_collections,
     extract_settings,
     resolve_gpo,
 )
@@ -42,6 +43,7 @@ from .model import (
 from .policy_config import PolicyConfiguration, resolve_policy
 from .store import WorkspaceStore, gpo_from_dict
 from .validation import validate_gpo, validate_setting
+from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
 
 STATIC = Path(__file__).with_name("static")
 
@@ -166,6 +168,10 @@ def _catalogue(request: Request) -> AdmxCatalogue:
     return cast(AdmxCatalogue, getattr(request.app.state, "admx_catalogue", AdmxCatalogue()))
 
 
+def _wmi_catalogue(request: Request) -> WmiCatalogue:
+    return cast(WmiCatalogue, getattr(request.app.state, "wmi_catalogue", WmiCatalogue()))
+
+
 def _identity(actor: str) -> ClaimedIdentity:
     return claimed_identity(actor)
 
@@ -239,6 +245,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "Failed to load ADMX catalogue: %s", error
             )
             app.state.admx_catalogue = AdmxCatalogue()
+    if not hasattr(app.state, "wmi_catalogue"):
+        wmi_catalogue_path = os.getenv("GPO_STUDIO_WMI_CATALOGUE", "")
+        if wmi_catalogue_path:
+            try:
+                app.state.wmi_catalogue = load_wmi_catalogue(Path(wmi_catalogue_path))
+            except WmiCatalogueError as error:
+                logging.getLogger("gpo_studio.api").warning(
+                    "Failed to load WMI catalogue: %s", error
+                )
+                app.state.wmi_catalogue = WmiCatalogue()
+        else:
+            app.state.wmi_catalogue = WmiCatalogue()
     yield
     if getattr(app.state, "owns_store", False):
         app.state.store.close()
@@ -283,11 +301,13 @@ def index() -> FileResponse:
 @app.get("/api/health")
 def health(request: Request) -> dict[str, Any]:
     catalogue = _catalogue(request)
+    wmi_cat = _wmi_catalogue(request)
     return {
         "status": "ok",
         "version": __version__,
         "mode": "offline-workspace",
         "admx_loaded": len(catalogue.policies) > 0,
+        "wmi_catalogue_loaded": len(wmi_cat.filters) > 0,
     }
 
 
@@ -558,6 +578,31 @@ def clear_wmi_filter(request: Request, guid: str, body: DeleteMutation) -> dict[
     return _gpo_payload(gpo)
 
 
+@app.get("/api/wmi-filters")
+def list_wmi_filters(request: Request) -> dict[str, Any]:
+    catalogue = _wmi_catalogue(request)
+    items = [
+        {
+            "id": f.id,
+            "name": f.name,
+            "query": f.query,
+            "language": f.language,
+            "description": f.description,
+        }
+        for f in catalogue.filters
+    ]
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/api/wmi-filters/{filter_id}")
+def get_wmi_filter(request: Request, filter_id: str) -> dict[str, Any]:
+    catalogue = _wmi_catalogue(request)
+    for f in catalogue.filters:
+        if f.id == filter_id:
+            return asdict(f)
+    raise NotFoundError(f"WMI filter '{filter_id}' not found")
+
+
 @app.get("/api/gpos/{guid}/revisions")
 def revisions(request: Request, guid: str) -> dict[str, Any]:
     items = _store(request).revisions(guid)
@@ -605,6 +650,9 @@ def bundle(request: Request, guid: str) -> Response:
 @app.get("/api/gpos/{guid}/plan.ps1")
 def plan(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
+    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
+    if errors:
+        raise ValidationError(errors)
     return Response(powershell_plan(gpo), media_type="text/plain; charset=utf-8")
 
 
@@ -660,6 +708,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     user_settings = extract_settings(gpo_dir / "User" / "Registry.pol", "user")
     all_settings = tuple(machine_settings + user_settings)
     cse_metadata = collect_cse_metadata(backup_gpo)
+    gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
 
     security_filters = backup_security_filters_to_model(backup_gpo.security_filters)
     wmi_filter = backup_wmi_filter_to_model(backup_gpo.wmi_filter)
@@ -703,6 +752,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         domain=backup_gpo.domain or "studio.local",
         security_filters=security_filters,
         wmi_filter=wmi_filter,
+        gpp_collections=gpp_collections,
     )
     return _gpo_payload(gpo)
 
@@ -710,6 +760,9 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
 @app.get("/api/gpos/{guid}/gpmc-backup")
 def gpmc_backup(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
+    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
+    if errors:
+        raise ValidationError(errors)
     if gpo.cse_metadata:
         raise ValidationError([
             ValidationIssue(

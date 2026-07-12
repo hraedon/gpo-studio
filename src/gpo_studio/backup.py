@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from .gpp import contains_cpassword
 from .model import StudioError
 
 _MAX_FILE_SIZE = 50 * 1024 * 1024
@@ -354,6 +355,21 @@ def _text_or_empty(elem: ET.Element | None) -> str:
     return (elem.text or "").strip()
 
 
+def _check_cpassword_in_preferences(gpo_dir: Path) -> None:
+    for side in ("Machine", "User"):
+        prefs_dir = gpo_dir / side / "Preferences"
+        if not prefs_dir.exists():
+            continue
+        if prefs_dir.is_symlink():
+            raise BackupError(
+                f"Symlinks are not allowed in backup content: {prefs_dir}"
+            )
+        for path, rel in _scan_directory_for_files(prefs_dir, prefs_dir):
+            data = read_file_bytes(path)
+            if contains_cpassword(data):
+                raise BackupError(f"cpassword detected in backup file: {rel}")
+
+
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
     if backup_dir.is_symlink():
@@ -417,6 +433,8 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
 
         machine_exts = _scan_side(gpo_dir / "Machine", gpo.machine_extensions)
         user_exts = _scan_side(gpo_dir / "User", gpo.user_extensions)
+
+        _check_cpassword_in_preferences(gpo_dir)
 
         enriched_gpos.append(
             BackupGpo(

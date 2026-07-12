@@ -190,6 +190,48 @@ def test_import_baseline_gpos_creates_revision(tmp_path) -> None:
     assert revisions[0].reason == "import baseline"
 
 
+def test_import_baseline_gpos_name_collision_counts_as_conflict(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "estate.db")
+    store.create_gpo(
+        "Workstation Baseline",
+        "pre-existing",
+        identity="tester",
+        reason="seed",
+    )
+    estate = {
+        "kind": "gpo-lens-estate",
+        "domain": "corp.example.test",
+        "gpos": [
+            {
+                "guid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "display_name": "Workstation Baseline",
+                "domain": "corp.example.test",
+                "settings": [],
+                "links": [],
+                "security_filters": [],
+                "wmi_filter": None,
+            },
+            {
+                "guid": "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb",
+                "display_name": "Server Baseline",
+                "domain": "corp.example.test",
+                "settings": [],
+                "links": [],
+                "security_filters": [],
+                "wmi_filter": None,
+            },
+        ],
+    }
+    gpos = parse_estate(estate)
+    summary = store.import_baseline_gpos(
+        gpos, identity="tester", reason="import with collision"
+    )
+    assert summary["conflicts"] == 1
+    assert summary["imported"] == 1
+    assert summary["skipped"] == 0
+    assert summary["total"] == 2
+
+
 def test_fork_gpo(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "estate.db")
     gpos = parse_estate(_VALID_ESTATE)
@@ -228,6 +270,76 @@ def test_fork_gpo_with_wmi_filter(tmp_path) -> None:
     assert forked.wmi_filter is not None
     assert forked.wmi_filter.id == "forked-wf1"
     assert forked.wmi_filter.name == "ServerFilter"
+
+
+def test_cse_metadata_round_trip_through_parse_and_fork(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "estate.db")
+    estate = {
+        "kind": "gpo-lens-estate",
+        "domain": "corp.example.test",
+        "gpos": [
+            {
+                "guid": "33333333-4444-5555-6666-777777777777",
+                "display_name": "CSE Policy",
+                "domain": "corp.example.test",
+                "settings": [],
+                "links": [],
+                "security_filters": [],
+                "wmi_filter": None,
+                "cse_metadata": [
+                    {
+                        "guid": "{35378EAC-683F-11D2-A89E-00C04FBBCFA2}",
+                        "side": "machine",
+                        "files": [
+                            {
+                                "relative_path": "Machine/Preferences/Settings/settings.xml",
+                                "content_hash": "abc123",
+                                "size": 1024,
+                            }
+                        ],
+                    },
+                    {
+                        "guid": "{3265B299-5C44-49DD-B83D-9A79A9F9B9D2}",
+                        "side": "user",
+                        "files": [],
+                    },
+                ],
+            }
+        ],
+    }
+    gpos = parse_estate(estate)
+    assert len(gpos) == 1
+    gpo = gpos[0]
+    assert len(gpo.cse_metadata) == 2
+    assert gpo.cse_metadata[0].guid == "{35378EAC-683F-11D2-A89E-00C04FBBCFA2}"
+    assert gpo.cse_metadata[0].side == "machine"
+    assert len(gpo.cse_metadata[0].files) == 1
+    assert gpo.cse_metadata[0].files[0].relative_path == "Machine/Preferences/Settings/settings.xml"
+    assert gpo.cse_metadata[1].guid == "{3265B299-5C44-49DD-B83D-9A79A9F9B9D2}"
+    assert gpo.cse_metadata[1].side == "user"
+
+    store.import_baseline_gpos(gpos, identity="tester", reason="import")
+    fetched = store.get_gpo("33333333-4444-5555-6666-777777777777")
+    assert len(fetched.cse_metadata) == 2
+    assert fetched.cse_metadata[0].guid == "{35378EAC-683F-11D2-A89E-00C04FBBCFA2}"
+    assert fetched.cse_metadata[0].side == "machine"
+
+    forked = store.fork_gpo(
+        "33333333-4444-5555-6666-777777777777",
+        "Forked CSE Policy",
+        identity="tester",
+        reason="fork for editing",
+    )
+    assert len(forked.cse_metadata) == 2
+    assert forked.cse_metadata[0].guid == "{35378EAC-683F-11D2-A89E-00C04FBBCFA2}"
+    assert forked.cse_metadata[0].side == "machine"
+    assert len(forked.cse_metadata[0].files) == 1
+    assert (
+        forked.cse_metadata[0].files[0].relative_path
+        == "Machine/Preferences/Settings/settings.xml"
+    )
+    assert forked.cse_metadata[1].guid == "{3265B299-5C44-49DD-B83D-9A79A9F9B9D2}"
+    assert forked.cse_metadata[1].side == "user"
 
 
 def test_fork_gpo_nonexistent(tmp_path) -> None:
