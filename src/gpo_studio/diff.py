@@ -96,7 +96,11 @@ def _links_equal(a: GPOLink, b: GPOLink) -> bool:
 
 
 def _security_filters_equal(a: SecurityFilter, b: SecurityFilter) -> bool:
-    return a.permission == b.permission and a.inheritable == b.inheritable
+    return (
+        a.permission == b.permission
+        and a.inheritable == b.inheritable
+        and a.target_type == b.target_type
+    )
 
 
 def _wmi_filters_equal(a: WmiFilter, b: WmiFilter) -> bool:

@@ -211,6 +211,7 @@ def test_validate_long_key_name() -> None:
     )
     issues = validate_gpo(gpo)
     assert not any(issue.code == "invalid_registry_key" for issue in issues)
+    assert any(issue.code == "registry_key_too_long" for issue in issues)
 
 
 def test_validate_special_chars_in_value() -> None:
