@@ -9,10 +9,20 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .identity import Identity
-from .model import GPO, ConflictError, GPOLink, NotFoundError, RegistrySetting, Revision
+from .model import (
+    GPO,
+    ConflictError,
+    CseFileEntry,
+    CseMetadataEntry,
+    CseSide,
+    GPOLink,
+    NotFoundError,
+    RegistrySetting,
+    Revision,
+)
 
 
 def _now() -> str:
@@ -49,6 +59,25 @@ def _link(data: dict[str, Any]) -> GPOLink:
     )
 
 
+def _cse_file_entry(data: dict[str, Any]) -> CseFileEntry:
+    return CseFileEntry(
+        relative_path=str(data["relative_path"]),
+        content_hash=str(data["content_hash"]),
+        size=int(data["size"]),
+    )
+
+
+def _cse_metadata_entry(data: dict[str, Any]) -> CseMetadataEntry:
+    side_raw = str(data["side"])
+    if side_raw not in ("machine", "user"):
+        raise ValueError(f"Invalid CSE side: {side_raw!r}")
+    return CseMetadataEntry(
+        guid=str(data["guid"]),
+        side=cast(CseSide, side_raw),
+        files=tuple(_cse_file_entry(f) for f in data.get("files", [])),
+    )
+
+
 def gpo_from_dict(data: dict[str, Any]) -> GPO:
     return GPO(
         guid=str(data["guid"]),
@@ -61,7 +90,9 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         settings=tuple(_setting(item) for item in data.get("settings", [])),
         links=tuple(_link(item) for item in data.get("links", [])),
         source_guid=str(data.get("source_guid", "")),
-        cse_metadata=tuple(data.get("cse_metadata", [])),
+        cse_metadata=tuple(
+            _cse_metadata_entry(item) for item in data.get("cse_metadata", [])
+        ),
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
     )
@@ -131,7 +162,7 @@ class WorkspaceStore:
         settings: tuple[RegistrySetting, ...] = (),
         links: tuple[GPOLink, ...] = (),
         source_guid: str = "",
-        cse_metadata: tuple[dict[str, Any], ...] = (),
+        cse_metadata: tuple[CseMetadataEntry, ...] = (),
     ) -> GPO:
         actor = _resolve_actor(identity)
         timestamp = _now()
@@ -240,6 +271,27 @@ class WorkspaceStore:
             settings.append(new_setting)
             settings.sort(key=lambda item: item.identity())
             return replace(gpo, settings=tuple(settings))
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def put_settings(
+        self,
+        guid: str,
+        expected_revision: int,
+        new_settings: list[RegistrySetting],
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not new_settings:
+            return self.get_gpo(guid)
+        new_ids = {s.id for s in new_settings}
+
+        def mutate(gpo: GPO) -> GPO:
+            existing = [s for s in gpo.settings if s.id not in new_ids]
+            combined = existing + new_settings
+            combined.sort(key=lambda item: item.identity())
+            return replace(gpo, settings=tuple(combined))
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 

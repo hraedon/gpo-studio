@@ -115,6 +115,8 @@ def semantic_dict_link(link: GPOLink) -> dict[str, Any]:
 
 
 def semantic_dict(gpo: GPO) -> dict[str, Any]:
+    # Excludes source_guid, cse_metadata, created_at, updated_at, and revision:
+    # the hash reflects policy content, not import provenance or metadata.
     settings_sorted = sorted(gpo.settings, key=lambda s: s.identity())
     links_sorted = sorted(gpo.links, key=lambda link: (link.target.casefold(), link.order))
     return {

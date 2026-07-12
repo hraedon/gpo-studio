@@ -22,6 +22,7 @@
         <div class="top-actions" id="top-actions" hidden>
           <span class="revision" id="revision"></span>
           <a class="button" id="plan" target="_blank">Review PowerShell</a>
+          <a class="button" id="gpmc-backup">GPMC backup</a>
           <a class="button primary" id="export">Export bundle</a>
         </div>
       </header>
@@ -128,6 +129,16 @@
       <div class="grid two compact"><label>Link order<input name="order" type="number" min="1" max="999" value="1"></label><div class="toggle-stack"><label><input name="enabled" type="checkbox" checked> Link enabled</label><label><input name="enforced" type="checkbox"> Enforced</label></div></div>
       <label>Change reason<input name="reason" required value="Update link intent"></label>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save link</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="configure-dialog">
+    <form method="dialog" id="configure-form">
+      <div class="dialog-head"><div><p class="eyebrow">ADMX policy configuration</p><h2 id="configure-title">Configure policy</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Target GPO<select name="target_gpo" id="configure-target-gpo" required></select></label>
+      <div id="configure-fields"></div>
+      <label>Change reason<input name="reason" required value="Configure ADMX policy"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Apply policy</button></div>
     </form>
   </dialog>
 
