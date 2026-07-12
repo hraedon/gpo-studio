@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <resources>
+    <stringTable>
+      <string id="SyntheticSecurity">Synthetic Security</string>
+      <string id="Supported_SyntheticSecure_v1">Synthetic Secure OS v1</string>
+      <string id="SyntheticPasswordPolicy">Synthetic Password Policy</string>
+      <string id="SyntheticPasswordPolicy_Explain">Configures the synthetic password complexity mode.</string>
+      <string id="SyntheticUserTextPolicy">Synthetic User Text Policy</string>
+      <string id="SyntheticUserTextPolicy_Explain">Sets a synthetic banner text for user sessions.</string>
+      <string id="SyntheticBlockListPolicy">Synthetic Block List Policy</string>
+      <string id="SyntheticBlockListPolicy_Explain">Manages a synthetic list of blocked applications and notes.</string>
+      <string id="PasswordModeBasic">Basic Password Mode</string>
+      <string id="PasswordModeStandard">Standard Password Mode</string>
+      <string id="PasswordModeStrict">Strict Password Mode</string>
+      <string id="PasswordModeCustom">Custom Password Mode</string>
+      <string id="PasswordModeLabel">Password Complexity Mode</string>
+      <string id="UserBannerLabel">User Banner Text</string>
+      <string id="BlockedAppsLabel">Blocked Applications</string>
+      <string id="BlockNotesLabel">Block List Notes</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>

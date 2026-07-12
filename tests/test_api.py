@@ -730,6 +730,32 @@ def test_backup_import_path_traversal_rejected(tmp_path: Path, monkeypatch) -> N
         assert issues[0]["code"] == "path_outside_inbox"
 
 
+def test_import_backup_rejects_symlinked_manifest(tmp_path: Path, monkeypatch) -> None:
+    inbox_dir = tmp_path / "inbox"
+    inbox_dir.mkdir()
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox_dir))
+    backup_dir = inbox_dir / "backup"
+    _create_minimal_backup(backup_dir)
+
+    target = tmp_path / "fake_manifest.xml"
+    target.write_bytes(b"evil")
+    (backup_dir / "manifest.xml").unlink()
+    (backup_dir / "manifest.xml").symlink_to(target)
+
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "Import symlinked backup",
+        })
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert issues[0]["code"] == "symlink_in_backup"
+
+
 def test_security_filter_add_edit_delete(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store

@@ -189,6 +189,7 @@ class WorkspaceStore:
         links: tuple[GPOLink, ...] = (),
         source_guid: str = "",
         cse_metadata: tuple[CseMetadataEntry, ...] = (),
+        domain: str = "studio.local",
     ) -> GPO:
         actor = _resolve_actor(identity)
         timestamp = _now()
@@ -201,6 +202,7 @@ class WorkspaceStore:
             links=links,
             source_guid=source_guid,
             cse_metadata=cse_metadata,
+            domain=domain,
             created_at=timestamp,
             updated_at=timestamp,
         )

@@ -96,6 +96,23 @@ def powershell_plan(gpo: GPO) -> str:
                 f"else {{ New-GPLink {common} | Out-Null }}",
             ]
         )
+    if gpo.security_filters:
+        lines.append("")
+        lines.append("# Security filtering (-TargetType may need adjustment per principal).")
+        for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
+            perm = "GpoApply" if sf.permission == "apply" else "GpoRead"
+            lines.append(
+                f"Set-GPPermission -Guid $gpo.Id -PermissionLevel {perm}"
+                f" -TargetName {_ps_quote(sf.principal)} -TargetType Group -Replace"
+                " | Out-Null"
+            )
+    if gpo.wmi_filter is not None:
+        lines.append("")
+        lines.append(f"# WMI filter: {gpo.wmi_filter.name} ({gpo.wmi_filter.query})")
+        lines.append(
+            f"# Assign WMI filter '{gpo.wmi_filter.name}' to this GPO via GPMC or the"
+            f" GPMC COM API (domain: {gpo.domain})."
+        )
     status_value: str
     if gpo.computer_enabled and gpo.user_enabled:
         status_value = "AllSettingsEnabled"
@@ -180,7 +197,19 @@ def _build_manifest_xml(gpo: GPO) -> bytes:
         ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}MachineExtensionGuids").text = _REGISTRY_CSE_GUID
     if has_user:
         ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}UserExtensionGuids").text = _REGISTRY_CSE_GUID
+    _append_security_filters(gpo_elem, gpo)
     return _xml_to_bytes(root)
+
+
+def _append_security_filters(parent: ET.Element, gpo: GPO) -> None:
+    if not gpo.security_filters:
+        return
+    sf_elem = ET.SubElement(parent, f"{{{_GPMC_NS}}}SecurityFilters")
+    for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
+        child = ET.SubElement(sf_elem, f"{{{_GPMC_NS}}}SecurityFilter")
+        child.set("principal", sf.principal)
+        child.set("permission", "GpoApply" if sf.permission == "apply" else "GpoRead")
+        child.set("inheritable", "true" if sf.inheritable else "false")
 
 
 def _build_bkup_info_xml(gpo: GPO) -> bytes:
@@ -200,6 +229,7 @@ def _build_gpreport_xml(gpo: GPO) -> bytes:
     gpo_elem = ET.SubElement(root, f"{{{_GPMC_NS}}}GPO")
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
+    _append_security_filters(gpo_elem, gpo)
     return _xml_to_bytes(root)
 
 

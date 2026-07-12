@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <categories>
+    <category name="SyntheticSecurity" displayName="$(string.SyntheticSecurity)">
+      <parentCategory ref="SyntheticTopLevel" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="Supported_SyntheticSecure_v1" displayName="$(string.Supported_SyntheticSecure_v1)" />
+  </supportedOn>
+  <policies>
+    <policy name="SyntheticPasswordPolicy" class="Machine" key="Software\Policies\Synthetic\Security"
+            displayName="$(string.SyntheticPasswordPolicy)" explainText="$(string.SyntheticPasswordPolicy_Explain)"
+            supportedOn="Supported_SyntheticSecure_v1" presentation="$(presentation.SyntheticPasswordPolicy)">
+      <parentCategory ref="SyntheticSecurity" />
+      <supportedOn ref="Supported_SyntheticSecure_v1" />
+      <elements>
+        <enum id="PasswordMode" key="Software\Policies\Synthetic\Security" valueName="PasswordMode">
+          <item displayName="$(string.PasswordModeBasic)">
+            <decimal value="0" />
+          </item>
+          <item displayName="$(string.PasswordModeStandard)">
+            <decimal value="1" />
+          </item>
+          <item displayName="$(string.PasswordModeStrict)">
+            <decimal value="2" />
+          </item>
+          <item displayName="$(string.PasswordModeCustom)">
+            <string value="custom" />
+          </item>
+        </enum>
+      </elements>
+      <presentation>
+        <dropdownList id="PasswordMode" refId="PasswordMode" label="$(string.PasswordModeLabel)" />
+      </presentation>
+    </policy>
+    <policy name="SyntheticUserTextPolicy" class="User" key="Software\Policies\Synthetic\UserText"
+            displayName="$(string.SyntheticUserTextPolicy)" explainText="$(string.SyntheticUserTextPolicy_Explain)"
+            supportedOn="Supported_SyntheticSecure_v1" presentation="$(presentation.SyntheticUserTextPolicy)">
+      <parentCategory ref="SyntheticSecurity" />
+      <supportedOn ref="Supported_SyntheticSecure_v1" />
+      <elements>
+        <text id="UserBanner" key="Software\Policies\Synthetic\UserText" valueName="Banner" />
+      </elements>
+      <presentation>
+        <textBox id="UserBanner" refId="UserBanner" label="$(string.UserBannerLabel)" />
+      </presentation>
+    </policy>
+    <policy name="SyntheticBlockListPolicy" class="Both" key="Software\Policies\Synthetic\BlockList"
+            displayName="$(string.SyntheticBlockListPolicy)" explainText="$(string.SyntheticBlockListPolicy_Explain)"
+            supportedOn="Supported_SyntheticSecure_v1" presentation="$(presentation.SyntheticBlockListPolicy)">
+      <parentCategory ref="SyntheticSecurity" />
+      <supportedOn ref="Supported_SyntheticSecure_v1" />
+      <elements>
+        <list id="BlockedApps" key="Software\Policies\Synthetic\BlockList" valueName="BlockedApps" />
+        <multitext id="BlockNotes" key="Software\Policies\Synthetic\BlockList" valueName="BlockNotes" />
+      </elements>
+      <presentation>
+        <listBox id="BlockedApps" refId="BlockedApps" label="$(string.BlockedAppsLabel)" />
+        <multiTextBox id="BlockNotes" refId="BlockNotes" label="$(string.BlockNotesLabel)" />
+      </presentation>
+    </policy>
+  </policies>
+</policyDefinitions>

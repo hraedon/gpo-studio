@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <using prefix="studio" namespace="http://studio.local/GroupPolicy/PolicyDefinitions" />
+  <categories>
+    <category name="SyntheticNetwork" displayName="$(string.SyntheticNetwork)">
+      <parentCategory ref="SyntheticTopLevel" />
+    </category>
+    <category name="SyntheticNetworkAdvanced" displayName="$(string.SyntheticNetworkAdvanced)">
+      <parentCategory ref="SyntheticNetwork" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="Supported_SyntheticNet_v1" displayName="$(string.Supported_SyntheticNet_v1)" />
+  </supportedOn>
+  <policies>
+    <policy name="SyntheticQwordPolicy" class="Machine" key="Software\Policies\Synthetic\Network\Qword"
+            displayName="$(string.SyntheticQwordPolicy)" explainText="$(string.SyntheticQwordPolicy_Explain)"
+            supportedOn="Supported_SyntheticNet_v1" presentation="$(presentation.SyntheticQwordPolicy)">
+      <parentCategory ref="SyntheticNetwork" />
+      <supportedOn ref="Supported_SyntheticNet_v1" />
+      <elements>
+        <enum id="QwordMode" key="Software\Policies\Synthetic\Network\Qword" valueName="QwordMode">
+          <item displayName="$(string.QwordModeStandard)">
+            <longDecimal value="0" />
+          </item>
+          <item displayName="$(string.QwordModeLarge)">
+            <longDecimal value="4294967296" />
+          </item>
+        </enum>
+      </elements>
+      <presentation>
+        <dropdownList id="QwordMode" refId="QwordMode" label="$(string.QwordModeLabel)" />
+      </presentation>
+    </policy>
+    <policy name="SyntheticMultiElementPolicy" class="Both" key="Software\Policies\Synthetic\Network\Multi"
+            displayName="$(string.SyntheticMultiElementPolicy)" explainText="$(string.SyntheticMultiElementPolicy_Explain)"
+            supportedOn="Supported_SyntheticNet_v1" presentation="$(presentation.SyntheticMultiElementPolicy)">
+      <parentCategory ref="SyntheticNetworkAdvanced" />
+      <supportedOn ref="Supported_SyntheticNet_v1" />
+      <elements>
+        <boolean id="NetworkEnabled" key="Software\Policies\Synthetic\Network\Multi" valueName="Enabled" />
+        <decimal id="NetworkTimeout" key="Software\Policies\Synthetic\Network\Multi" valueName="Timeout" />
+        <text id="NetworkGateway" key="Software\Policies\Synthetic\Network\Multi" valueName="Gateway" />
+      </elements>
+      <presentation>
+        <checkBox id="NetworkEnabled" refId="NetworkEnabled" label="$(string.NetworkEnabledLabel)" />
+        <decimalTextBox id="NetworkTimeout" refId="NetworkTimeout" label="$(string.NetworkTimeoutLabel)" />
+        <textBox id="NetworkGateway" refId="NetworkGateway" label="$(string.NetworkGatewayLabel)" />
+        <dropdownList id="NetworkMode" refId="NetworkMode" label="$(string.NetworkModeLabel)" />
+      </presentation>
+    </policy>
+  </policies>
+</policyDefinitions>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -232,6 +233,8 @@ def _text_or_empty(elem: ET.Element | None) -> str:
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
     manifest_path = backup_dir / "manifest.xml"
+    if manifest_path.is_symlink():
+        raise BackupError(f"Symlinks are not allowed: {manifest_path}")
     if not manifest_path.exists():
         raise BackupError(f"Missing manifest.xml in {backup_dir}")
 
@@ -239,6 +242,8 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
     backup = parse_manifest(manifest_data)
 
     bkup_info_path = backup_dir / "bkupInfo.xml"
+    if bkup_info_path.is_symlink():
+        raise BackupError(f"Symlinks are not allowed: {bkup_info_path}")
     if bkup_info_path.exists():
         bkup = parse_bkup_info(bkup_info_path.read_bytes())
         backup_time = bkup.backup_time or backup.backup_time
@@ -256,6 +261,13 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         if not _GUID_RE.match(gpo.guid):
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
         gpo_dir = backup_dir / gpo.guid
+        # A symlinked GPO directory would let a backup escape the inbox: the
+        # per-side scan only rejects symlinks *within* the side dir, and checks
+        # ``(gpo_dir / "Machine").is_symlink()`` — not gpo_dir itself. Guard it
+        # here so the whole subtree (and the later Registry.pol read) stays
+        # inside the validated backup directory.
+        if gpo_dir.is_symlink():
+            raise BackupError(f"Symlinks are not allowed in backup content: {gpo_dir}")
 
         display_name = gpo.display_name
         domain = gpo.domain
@@ -296,6 +308,29 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
     )
 
 
+def _scan_directory_for_files(
+    dir_path: Path, base: Path, depth: int = 0
+) -> list[tuple[Path, str]]:
+    if depth > _MAX_DEPTH:
+        raise BackupError(f"Directory nesting depth exceeds {_MAX_DEPTH}")
+    results: list[tuple[Path, str]] = []
+    try:
+        entries = list(os.scandir(dir_path))
+    except OSError as error:
+        raise BackupError(f"Cannot scan directory: {dir_path}") from error
+    for entry in entries:
+        if entry.is_symlink():
+            raise BackupError(f"Symlinks are not allowed in backup content: {entry.path}")
+        if entry.is_dir(follow_symlinks=False):
+            results.extend(
+                _scan_directory_for_files(Path(entry.path), base, depth + 1)
+            )
+        elif entry.is_file(follow_symlinks=False):
+            rel = str(Path(entry.path).relative_to(base))
+            results.append((Path(entry.path), rel))
+    return sorted(results)
+
+
 def _scan_side(side_dir: Path, extensions: tuple[CseExtension, ...]) -> tuple[CseExtension, ...]:
     if not side_dir.exists():
         return extensions
@@ -303,12 +338,7 @@ def _scan_side(side_dir: Path, extensions: tuple[CseExtension, ...]) -> tuple[Cs
         raise BackupError(f"Symlinks are not allowed in backup content: {side_dir}")
 
     all_files: dict[str, CseFile] = {}
-    for path in sorted(side_dir.rglob("*")):
-        if path.is_symlink():
-            raise BackupError(f"Symlinks are not allowed in backup content: {path}")
-        if not path.is_file():
-            continue
-        rel = str(path.relative_to(side_dir))
+    for path, rel in _scan_directory_for_files(side_dir, side_dir):
         if ".." in Path(rel).parts:
             raise BackupError(f"Path traversal detected: {rel}")
         content_hash, size = _hash_file(path)

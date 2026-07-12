@@ -5,10 +5,11 @@ from dataclasses import replace
 from gpo_studio.diff import (
     diff_gpos,
     diff_links,
+    diff_security_filters,
     diff_settings,
     three_way_diff,
 )
-from gpo_studio.model import GPO, GPOLink, RegistrySetting
+from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
 
 
 def _setting(
@@ -45,13 +46,52 @@ def _link(
     return GPOLink(id=id, target=target, enabled=enabled, enforced=enforced, order=order)
 
 
+def _sf(
+    id: str = "sf1",
+    principal: str = r"DOMAIN\User",
+    permission: str = "apply",
+    inheritable: bool = True,
+) -> SecurityFilter:
+    return SecurityFilter(
+        id=id,
+        principal=principal,
+        permission=permission,  # type: ignore[arg-type]
+        inheritable=inheritable,
+    )
+
+
+def _wmi(
+    id: str = "wmi1",
+    name: str = "WMI Filter",
+    description: str = "",
+    query: str = "select * from Win32_OperatingSystem",
+    language: str = "WQL",
+) -> WmiFilter:
+    return WmiFilter(
+        id=id,
+        name=name,
+        description=description,
+        query=query,
+        language=language,
+    )
+
+
 def _gpo(
     settings: tuple[RegistrySetting, ...] = (),
     links: tuple[GPOLink, ...] = (),
     guid: str = "11111111-2222-3333-4444-555555555555",
     name: str = "Test Policy",
+    security_filters: tuple[SecurityFilter, ...] = (),
+    wmi_filter: WmiFilter | None = None,
 ) -> GPO:
-    return GPO(guid=guid, name=name, settings=settings, links=links)
+    return GPO(
+        guid=guid,
+        name=name,
+        settings=settings,
+        links=links,
+        security_filters=security_filters,
+        wmi_filter=wmi_filter,
+    )
 
 
 def test_identical_gpos_empty_diff() -> None:
@@ -294,6 +334,10 @@ def test_diff_links_empty_inputs() -> None:
     assert diff_links([], []) == []
 
 
+def test_diff_security_filters_empty_inputs() -> None:
+    assert diff_security_filters([], []) == []
+
+
 def test_diff_gpos_both_empty() -> None:
     result = diff_gpos(_gpo(), _gpo())
     assert result.settings == ()
@@ -344,3 +388,189 @@ def test_three_way_both_delete_no_conflict() -> None:
     observed = _gpo(settings=())
     result = three_way_diff(baseline, draft, observed)
     assert result.conflicts == ()
+
+
+def test_security_filter_added() -> None:
+    old = _gpo(security_filters=())
+    new = _gpo(security_filters=(_sf(),))
+    result = diff_gpos(old, new)
+    assert len(result.security_filters) == 1
+    change = result.security_filters[0]
+    assert change.kind == "added"
+    assert change.old is None
+    assert change.new == _sf()
+
+
+def test_security_filter_removed() -> None:
+    old = _gpo(security_filters=(_sf(),))
+    new = _gpo(security_filters=())
+    result = diff_gpos(old, new)
+    assert len(result.security_filters) == 1
+    change = result.security_filters[0]
+    assert change.kind == "removed"
+    assert change.old == _sf()
+    assert change.new is None
+
+
+def test_security_filter_modified() -> None:
+    old = _gpo(security_filters=(_sf(permission="apply"),))
+    new = _gpo(security_filters=(_sf(permission="read"),))
+    result = diff_gpos(old, new)
+    assert len(result.security_filters) == 1
+    change = result.security_filters[0]
+    assert change.kind == "modified"
+    assert change.old == _sf(permission="apply")
+    assert change.new == _sf(permission="read")
+
+
+def test_security_filter_unchanged() -> None:
+    sf = _sf()
+    old = _gpo(security_filters=(sf,))
+    new = _gpo(security_filters=(sf,))
+    result = diff_gpos(old, new)
+    assert result.security_filters == ()
+
+
+def test_security_filter_principal_casefold() -> None:
+    old = _gpo(security_filters=(_sf(principal=r"DOMAIN\User"),))
+    new = _gpo(security_filters=(_sf(principal=r"domain\user"),))
+    result = diff_gpos(old, new)
+    assert result.security_filters == ()
+
+
+def test_wmi_filter_added() -> None:
+    old = _gpo()
+    new = _gpo(wmi_filter=_wmi())
+    result = diff_gpos(old, new)
+    assert result.wmi_filter is not None
+    assert result.wmi_filter.kind == "added"
+    assert result.wmi_filter.old is None
+    assert result.wmi_filter.new == _wmi()
+
+
+def test_wmi_filter_removed() -> None:
+    old = _gpo(wmi_filter=_wmi())
+    new = _gpo()
+    result = diff_gpos(old, new)
+    assert result.wmi_filter is not None
+    assert result.wmi_filter.kind == "removed"
+    assert result.wmi_filter.old == _wmi()
+    assert result.wmi_filter.new is None
+
+
+def test_wmi_filter_modified() -> None:
+    old = _gpo(wmi_filter=_wmi(query="select * from Win32_Service"))
+    new = _gpo(wmi_filter=_wmi(query="select * from Win32_Process"))
+    result = diff_gpos(old, new)
+    assert result.wmi_filter is not None
+    assert result.wmi_filter.kind == "modified"
+    assert result.wmi_filter.old == _wmi(query="select * from Win32_Service")
+    assert result.wmi_filter.new == _wmi(query="select * from Win32_Process")
+
+
+def test_wmi_filter_unchanged() -> None:
+    wmi = _wmi()
+    old = _gpo(wmi_filter=wmi)
+    new = _gpo(wmi_filter=wmi)
+    result = diff_gpos(old, new)
+    assert result.wmi_filter is None
+
+
+def test_diff_gpos_includes_security_filters() -> None:
+    old = _gpo(security_filters=(_sf(),))
+    new = _gpo(security_filters=())
+    result = diff_gpos(old, new)
+    assert hasattr(result, "security_filters")
+    assert len(result.security_filters) == 1
+
+
+def test_diff_gpos_includes_wmi_filter() -> None:
+    old = _gpo()
+    new = _gpo(wmi_filter=_wmi())
+    result = diff_gpos(old, new)
+    assert hasattr(result, "wmi_filter")
+    assert result.wmi_filter is not None
+
+
+def test_three_way_diff_includes_security_filters() -> None:
+    baseline = _gpo(security_filters=(_sf(),))
+    draft = _gpo(security_filters=())
+    observed = _gpo(security_filters=(_sf(),))
+    result = three_way_diff(baseline, draft, observed)
+    assert hasattr(result, "security_filters")
+    assert len(result.security_filters) == 1
+
+
+def test_diff_is_deterministic_with_security_filters() -> None:
+    sf1 = _sf(principal=r"DOMAIN\ZUser", permission="apply")
+    sf2 = _sf(principal=r"DOMAIN\AUser", permission="read")
+    sf3 = _sf(principal=r"DOMAIN\MUser", inheritable=False)
+    old = _gpo(security_filters=(sf1, sf2, sf3))
+    new = _gpo(security_filters=())
+    result1 = diff_gpos(old, new)
+    result2 = diff_gpos(old, new)
+    assert result1 == result2
+    principals = [c.principal.casefold() for c in result1.security_filters]
+    assert principals == sorted(principals)
+
+
+def test_three_way_security_filter_conflict() -> None:
+    baseline = _gpo(security_filters=(_sf(principal="DOMAIN\\User", permission="apply"),))
+    draft = _gpo(security_filters=(_sf(principal="DOMAIN\\User", permission="read"),))
+    observed = _gpo(
+        security_filters=(_sf(principal="DOMAIN\\User", permission="apply", inheritable=False),)
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.security_filter_conflicts) == 1
+    conflict = result.security_filter_conflicts[0]
+    assert conflict.principal == "DOMAIN\\User"
+    assert conflict.draft is not None
+    assert conflict.observed is not None
+    assert conflict.draft.permission == "read"
+    assert conflict.observed.inheritable is False
+
+
+def test_three_way_security_filter_no_conflict_convergent() -> None:
+    sf = _sf(principal="DOMAIN\\User", permission="read")
+    baseline = _gpo(security_filters=(_sf(principal="DOMAIN\\User", permission="apply"),))
+    draft = _gpo(security_filters=(sf,))
+    observed = _gpo(security_filters=(sf,))
+    result = three_way_diff(baseline, draft, observed)
+    assert result.security_filter_conflicts == ()
+
+
+def test_three_way_security_filter_no_conflict_draft_only() -> None:
+    baseline = _gpo(security_filters=(_sf(principal="DOMAIN\\User", permission="apply"),))
+    draft = _gpo(security_filters=(_sf(principal="DOMAIN\\User", permission="read"),))
+    observed = _gpo(security_filters=(_sf(principal="DOMAIN\\User", permission="apply"),))
+    result = three_way_diff(baseline, draft, observed)
+    assert result.security_filter_conflicts == ()
+
+
+def test_three_way_wmi_filter_conflict() -> None:
+    baseline = _gpo(wmi_filter=_wmi(query="select * from Win32_Service"))
+    draft = _gpo(wmi_filter=_wmi(query="select * from Win32_Process"))
+    observed = _gpo(wmi_filter=_wmi(query="select * from Win32_LogicalDisk"))
+    result = three_way_diff(baseline, draft, observed)
+    assert result.wmi_filter_conflict is not None
+    assert result.wmi_filter_conflict.draft is not None
+    assert result.wmi_filter_conflict.observed is not None
+    assert result.wmi_filter_conflict.draft.query == "select * from Win32_Process"
+    assert result.wmi_filter_conflict.observed.query == "select * from Win32_LogicalDisk"
+
+
+def test_three_way_wmi_filter_no_conflict_convergent() -> None:
+    wmi = _wmi(query="select * from Win32_Service")
+    baseline = _gpo(wmi_filter=_wmi(query="select * from Win32_Process"))
+    draft = _gpo(wmi_filter=wmi)
+    observed = _gpo(wmi_filter=wmi)
+    result = three_way_diff(baseline, draft, observed)
+    assert result.wmi_filter_conflict is None
+
+
+def test_three_way_wmi_filter_no_conflict_draft_only() -> None:
+    baseline = _gpo(wmi_filter=_wmi(query="select * from Win32_Service"))
+    draft = _gpo(wmi_filter=_wmi(query="select * from Win32_Process"))
+    observed = _gpo(wmi_filter=_wmi(query="select * from Win32_Service"))
+    result = three_way_diff(baseline, draft, observed)
+    assert result.wmi_filter_conflict is None

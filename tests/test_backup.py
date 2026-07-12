@@ -221,3 +221,82 @@ def test_read_backup_registry_attributed_to_registry_cse(tmp_path: Path) -> None
     other_files = {f.relative_path for f in ext_map[other_guid].files}
     assert "Registry.pol" in registry_files
     assert "Registry.pol" not in other_files
+
+
+def test_read_backup_rejects_symlinked_manifest(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    target = tmp_path / "fake_manifest.xml"
+    target.write_bytes(b"evil")
+    (backup_dir / "manifest.xml").unlink()
+    (backup_dir / "manifest.xml").symlink_to(target)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_rejects_symlinked_gpo_directory(tmp_path: Path) -> None:
+    """A symlinked GPO (GUID) directory must not let a backup escape the inbox.
+
+    The per-side scan only checks ``(gpo_dir / "Machine").is_symlink()``, so a
+    symlinked gpo_dir would read/hash content from outside the backup directory.
+    """
+    outside = tmp_path / "outside"
+    (outside / "Machine").mkdir(parents=True)
+    (outside / "Machine" / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00SECRET")
+
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    (backup_dir / "11111111-2222-3333-4444-555555555555").symlink_to(outside)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_rejects_symlinked_bkupinfo(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    target = tmp_path / "fake_bkupinfo.xml"
+    target.write_bytes(b"evil")
+    (backup_dir / "bkupInfo.xml").symlink_to(target)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        read_backup(backup_dir)
+
+
+def test_scan_side_rejects_symlinked_file(tmp_path: Path) -> None:
+    from gpo_studio.backup import _scan_side
+
+    side_dir = tmp_path / "Machine"
+    side_dir.mkdir()
+    target = tmp_path / "evil.txt"
+    target.write_bytes(b"evil")
+    (side_dir / "link.txt").symlink_to(target)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        _scan_side(side_dir, ())
+
+
+def test_scan_side_rejects_symlinked_subdirectory(tmp_path: Path) -> None:
+    from gpo_studio.backup import _scan_side
+
+    side_dir = tmp_path / "Machine"
+    side_dir.mkdir()
+    real_dir = tmp_path / "real_subdir"
+    real_dir.mkdir()
+    (real_dir / "file.txt").write_bytes(b"data")
+    (side_dir / "link_dir").symlink_to(real_dir)
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        _scan_side(side_dir, ())

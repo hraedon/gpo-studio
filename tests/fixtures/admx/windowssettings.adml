@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <resources>
+    <stringTable>
+      <string id="SyntheticWindowsSettings">Synthetic Windows Settings</string>
+      <string id="SyntheticWindowsSettingsChild">Synthetic Windows Settings (Advanced)</string>
+      <string id="Supported_SyntheticOS_v1">Synthetic OS Version 1</string>
+      <string id="Supported_SyntheticOS_v2">Synthetic OS Version 2</string>
+      <string id="SyntheticAuditPolicy">Synthetic Audit Policy</string>
+      <string id="SyntheticAuditPolicy_Explain">Enables synthetic auditing for the synthetic subsystem.</string>
+      <string id="SyntheticThresholdPolicy">Synthetic Threshold Policy</string>
+      <string id="SyntheticThresholdPolicy_Explain">Sets the synthetic threshold value between 0 and 100.</string>
+      <string id="AuditEnabledLabel">Enable Synthetic Auditing</string>
+      <string id="ThresholdLabel">Threshold Value</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>
