@@ -9,15 +9,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from .model import StudioError
+
 _MAX_FILE_SIZE = 50 * 1024 * 1024
 _MAX_DEPTH = 100
 _ADMX_NS = "http://www.microsoft.com/GroupPolicy/Types"
+_REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 _GUID_RE = re.compile(
     r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
 )
 
 
-class BackupError(ValueError):
+class BackupError(StudioError):
     """Malformed or unsupported GPMC backup content."""
 
 
@@ -48,6 +51,7 @@ class BackupGpo:
 class GpmcBackup:
     backup_time: str
     backup_id: str
+    backup_type: str = ""
     gpos: tuple[BackupGpo, ...] = field(default_factory=tuple)
 
 
@@ -117,6 +121,42 @@ def _parse_extension_guids(text: str | None) -> list[str]:
     return guids
 
 
+def parse_bkup_info(data: bytes) -> GpmcBackup:
+    """Parse bkupInfo.xml from a GPMC backup directory."""
+    root = _safe_parse(data)
+
+    backup_time = ""
+    backup_id = ""
+    backup_type = ""
+    guid = ""
+    display_name = ""
+    domain = ""
+
+    for child in root:
+        local = _local_name(child.tag)
+        if local == "BackupTime":
+            backup_time = _text_or_empty(child)
+        elif local == "ID":
+            backup_id = _text_or_empty(child)
+        elif local == "BackupType":
+            backup_type = _text_or_empty(child)
+        elif local == "GPO":
+            guid_elem = child.find(f".//{{{_ADMX_NS}}}Identifier")
+            guid = _text_or_empty(guid_elem) if guid_elem is not None else ""
+            name_elem = child.find(f".//{{{_ADMX_NS}}}DisplayName")
+            display_name = _text_or_empty(name_elem) if name_elem is not None else ""
+            domain_elem = child.find(f".//{{{_ADMX_NS}}}Domain")
+            domain = _text_or_empty(domain_elem) if domain_elem is not None else ""
+
+    gpo = BackupGpo(guid=guid, display_name=display_name, domain=domain)
+    return GpmcBackup(
+        backup_time=backup_time,
+        backup_id=backup_id,
+        backup_type=backup_type,
+        gpos=(gpo,),
+    )
+
+
 def parse_manifest(data: bytes) -> GpmcBackup:
     """Parse manifest.xml from a GPMC backup directory."""
     root = _safe_parse(data)
@@ -178,7 +218,9 @@ def parse_manifest(data: bytes) -> GpmcBackup:
     if not gpos:
         raise BackupError("No GPO entries found in manifest")
 
-    return GpmcBackup(backup_time=backup_time, backup_id=backup_id, gpos=tuple(gpos))
+    return GpmcBackup(
+        backup_time=backup_time, backup_id=backup_id, backup_type="", gpos=tuple(gpos)
+    )
 
 
 def _text_or_empty(elem: ET.Element | None) -> str:
@@ -196,13 +238,41 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
     manifest_data = manifest_path.read_bytes()
     backup = parse_manifest(manifest_data)
 
+    bkup_info_path = backup_dir / "bkupInfo.xml"
+    if bkup_info_path.exists():
+        bkup = parse_bkup_info(bkup_info_path.read_bytes())
+        backup_time = bkup.backup_time or backup.backup_time
+        backup_id = bkup.backup_id or backup.backup_id
+        backup_type = bkup.backup_type or backup.backup_type
+        bkup_gpo = bkup.gpos[0] if bkup.gpos else None
+    else:
+        backup_time = backup.backup_time
+        backup_id = backup.backup_id
+        backup_type = backup.backup_type
+        bkup_gpo = None
+
     enriched_gpos: list[BackupGpo] = []
     for gpo in backup.gpos:
         if not _GUID_RE.match(gpo.guid):
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
         gpo_dir = backup_dir / gpo.guid
+
+        display_name = gpo.display_name
+        domain = gpo.domain
+        if bkup_gpo is not None and bkup_gpo.guid == gpo.guid:
+            display_name = bkup_gpo.display_name or display_name
+            domain = bkup_gpo.domain or domain
+
         if not gpo_dir.exists():
-            enriched_gpos.append(gpo)
+            enriched_gpos.append(
+                BackupGpo(
+                    guid=gpo.guid,
+                    display_name=display_name,
+                    domain=domain,
+                    machine_extensions=gpo.machine_extensions,
+                    user_extensions=gpo.user_extensions,
+                )
+            )
             continue
 
         machine_exts = _scan_side(gpo_dir / "Machine", gpo.machine_extensions)
@@ -211,16 +281,17 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         enriched_gpos.append(
             BackupGpo(
                 guid=gpo.guid,
-                display_name=gpo.display_name,
-                domain=gpo.domain,
+                display_name=display_name,
+                domain=domain,
                 machine_extensions=machine_exts,
                 user_extensions=user_exts,
             )
         )
 
     return GpmcBackup(
-        backup_time=backup.backup_time,
-        backup_id=backup.backup_id,
+        backup_time=backup_time,
+        backup_id=backup_id,
+        backup_type=backup_type,
         gpos=tuple(enriched_gpos),
     )
 
@@ -228,8 +299,10 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
 def _scan_side(side_dir: Path, extensions: tuple[CseExtension, ...]) -> tuple[CseExtension, ...]:
     if not side_dir.exists():
         return extensions
+    if side_dir.is_symlink():
+        raise BackupError(f"Symlinks are not allowed in backup content: {side_dir}")
 
-    all_files: list[CseFile] = []
+    all_files: dict[str, CseFile] = {}
     for path in sorted(side_dir.rglob("*")):
         if path.is_symlink():
             raise BackupError(f"Symlinks are not allowed in backup content: {path}")
@@ -239,29 +312,49 @@ def _scan_side(side_dir: Path, extensions: tuple[CseExtension, ...]) -> tuple[Cs
         if ".." in Path(rel).parts:
             raise BackupError(f"Path traversal detected: {rel}")
         content_hash, size = _hash_file(path)
-        all_files.append(
-            CseFile(relative_path=rel, content_hash=content_hash, size=size)
+        all_files[rel] = CseFile(
+            relative_path=rel, content_hash=content_hash, size=size
         )
 
+    if not all_files:
+        return extensions
+
+    side_lit: Literal["machine", "user"] = (
+        "machine" if side_dir.name == "Machine" else "user"
+    )
+
     if not extensions:
-        if all_files:
-            side_lit: Literal["machine", "user"] = (
-                "machine" if side_dir.name == "Machine" else "user"
-            )
-            return (
-                CseExtension(
-                    guid="unknown", side=side_lit, files=tuple(all_files)
-                ),
-            )
-        return ()
+        return (
+            CseExtension(
+                guid="unknown", side=side_lit, files=tuple(all_files.values())
+            ),
+        )
+
+    ext_map = {ext.guid: ext for ext in extensions}
+    files_by_ext: dict[str, list[CseFile]] = {ext.guid: [] for ext in extensions}
+    unknown_files: list[CseFile] = []
+
+    for rel, cse_file in all_files.items():
+        rel_path = Path(rel)
+        if rel_path.name == "Registry.pol" and _REGISTRY_CSE_GUID in ext_map:
+            files_by_ext[_REGISTRY_CSE_GUID].append(cse_file)
+            continue
+        first_part = rel_path.parts[0] if rel_path.parts else ""
+        if first_part in ext_map:
+            files_by_ext[first_part].append(cse_file)
+            continue
+        unknown_files.append(cse_file)
+
+    if unknown_files:
+        first_guid = extensions[0].guid
+        files_by_ext[first_guid].extend(unknown_files)
 
     result: list[CseExtension] = []
     for ext in extensions:
-        side_literal: Literal["machine", "user"] = (
-            "machine" if side_dir.name == "Machine" else "user"
-        )
         result.append(
-            CseExtension(guid=ext.guid, side=side_literal, files=tuple(all_files))
+            CseExtension(
+                guid=ext.guid, side=side_lit, files=tuple(files_by_ext[ext.guid])
+            )
         )
     return tuple(result)
 
@@ -274,6 +367,8 @@ def read_cse_content(
     relative_path: str,
 ) -> bytes:
     """Read the raw bytes of a specific CSE file."""
+    if not _GUID_RE.match(gpo_guid):
+        raise BackupError(f"Invalid GPO GUID: {gpo_guid!r}")
     side_dir_name = "Machine" if side == "machine" else "User"
     file_path = _safe_path(backup_dir / gpo_guid / side_dir_name, relative_path)
     if not file_path.exists():

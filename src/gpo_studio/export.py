@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import io
 import json
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import asdict
 
 from .canonical import semantic_dict, semantic_hash
 from .model import GPO, RegistrySetting
-from .registry_pol import serialize
+from .registry_pol import PolRecord, serialize
 from .validation import validate_gpo
+
+_GPMC_NS = "http://www.microsoft.com/GroupPolicy/Types"
+_REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 
 
 def _ps_quote(value: str) -> str:
@@ -92,20 +96,21 @@ def powershell_plan(gpo: GPO) -> str:
                 f"else {{ New-GPLink {common} | Out-Null }}",
             ]
         )
+    status_value: str
+    if gpo.computer_enabled and gpo.user_enabled:
+        status_value = "AllSettingsEnabled"
+    elif gpo.computer_enabled:
+        status_value = "UserSettingsDisabled"
+    elif gpo.user_enabled:
+        status_value = "ComputerSettingsDisabled"
+    else:
+        status_value = "AllSettingsDisabled"
+
     lines.extend(
         [
             "",
             "# Side enablement is explicit in the draft.",
-            "$gpo.GpoStatus = [Microsoft.GroupPolicy.GpoStatus]::"
-            + (
-                "AllSettingsEnabled"
-                if gpo.computer_enabled and gpo.user_enabled
-                else "UserSettingsDisabled"
-                if gpo.computer_enabled
-                else "ComputerSettingsDisabled"
-                if gpo.user_enabled
-                else "AllSettingsDisabled"
-            ),
+            f"Set-GPO -Guid $gpo.Id -Status {status_value} | Out-Null",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -137,4 +142,89 @@ def export_bundle(gpo: GPO) -> bytes:
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o600 << 16
             archive.writestr(info, content)
+    return output.getvalue()
+
+
+def _gpmc_preg_bytes(settings: list[RegistrySetting]) -> bytes:
+    records = [
+        PolRecord(
+            key=f"{s.hive}\\{s.key}",
+            value_name=s.value_name,
+            registry_type=s.registry_type,
+            value=s.value,
+            action=s.action,
+        )
+        for s in settings
+    ]
+    return serialize(records)
+
+
+def _xml_to_bytes(root: ET.Element) -> bytes:
+    ET.register_namespace("", _GPMC_NS)
+    xml_str = ET.tostring(root, encoding="unicode")
+    return b'<?xml version="1.0" encoding="utf-8"?>\n' + xml_str.encode("utf-8")
+
+
+def _build_manifest_xml(gpo: GPO) -> bytes:
+    root = ET.Element(f"{{{_GPMC_NS}}}BackupInstances")
+    inst = ET.SubElement(root, f"{{{_GPMC_NS}}}BackupInstance")
+    ET.SubElement(inst, f"{{{_GPMC_NS}}}BackupTime").text = "1980-01-01T00:00:00"
+    ET.SubElement(inst, f"{{{_GPMC_NS}}}ID").text = f"{{{gpo.guid}}}"
+    gpo_elem = ET.SubElement(inst, f"{{{_GPMC_NS}}}GPO")
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Domain").text = "studio.local"
+    has_computer = any(s.side == "computer" for s in gpo.settings)
+    has_user = any(s.side == "user" for s in gpo.settings)
+    if has_computer:
+        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}MachineExtensionGuids").text = _REGISTRY_CSE_GUID
+    if has_user:
+        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}UserExtensionGuids").text = _REGISTRY_CSE_GUID
+    return _xml_to_bytes(root)
+
+
+def _build_bkup_info_xml(gpo: GPO) -> bytes:
+    root = ET.Element(f"{{{_GPMC_NS}}}BackupInfo")
+    ET.SubElement(root, f"{{{_GPMC_NS}}}BackupTime").text = "1980-01-01T00:00:00"
+    ET.SubElement(root, f"{{{_GPMC_NS}}}ID").text = f"{{{gpo.guid}}}"
+    ET.SubElement(root, f"{{{_GPMC_NS}}}BackupType").text = "GPO"
+    gpo_elem = ET.SubElement(root, f"{{{_GPMC_NS}}}GPO")
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
+    return _xml_to_bytes(root)
+
+
+def _build_gpreport_xml(gpo: GPO) -> bytes:
+    root = ET.Element(f"{{{_GPMC_NS}}}GroupPolicyReport")
+    gpo_elem = ET.SubElement(root, f"{{{_GPMC_NS}}}GPO")
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
+    return _xml_to_bytes(root)
+
+
+def _build_dc_xml() -> bytes:
+    root = ET.Element(f"{{{_GPMC_NS}}}DomainController")
+    ET.SubElement(root, f"{{{_GPMC_NS}}}Name").text = "UNKNOWN"
+    return _xml_to_bytes(root)
+
+
+def gpmc_backup_bundle(gpo: GPO) -> bytes:
+    """Return a deterministic GPMC backup ZIP for a registry-only GPO."""
+    computer = [item for item in gpo.settings if item.side == "computer"]
+    user = [item for item in gpo.settings if item.side == "user"]
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        entries: dict[str, bytes] = {
+            "manifest.xml": _build_manifest_xml(gpo),
+            "bkupInfo.xml": _build_bkup_info_xml(gpo),
+            f"{gpo.guid}/Machine/Registry.pol": _gpmc_preg_bytes(computer),
+            f"{gpo.guid}/User/Registry.pol": _gpmc_preg_bytes(user),
+            f"{gpo.guid}/gpreport.xml": _build_gpreport_xml(gpo),
+            f"{gpo.guid}/DomainController.xml": _build_dc_xml(),
+        }
+        for name in sorted(entries):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o600 << 16
+            archive.writestr(info, entries[name])
     return output.getvalue()

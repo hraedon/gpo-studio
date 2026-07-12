@@ -106,8 +106,8 @@ def test_parse_unicode_key_names() -> None:
     assert parsed[0].key == unicode_key
 
 
-def test_serialize_empty_key_rejected() -> None:
-    # Gap: serialize does not currently reject empty key strings.
+def test_serialize_empty_key_allowed() -> None:
+    # Documents current behavior: empty key strings are allowed, not rejected.
     record = PolRecord("", "Value", "REG_SZ", "data")
     result = serialize([record])
     assert parse(result)[0].key == ""

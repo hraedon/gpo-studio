@@ -11,11 +11,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .identity import Identity
 from .model import GPO, ConflictError, GPOLink, NotFoundError, RegistrySetting, Revision
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _resolve_actor(identity: Identity | str) -> str:
+    if isinstance(identity, str):
+        return identity
+    return identity.actor
 
 
 def _setting(data: dict[str, Any]) -> RegistrySetting:
@@ -53,6 +60,8 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         revision=int(data.get("revision", 0)),
         settings=tuple(_setting(item) for item in data.get("settings", [])),
         links=tuple(_link(item) for item in data.get("links", [])),
+        source_guid=str(data.get("source_guid", "")),
+        cse_metadata=tuple(data.get("cse_metadata", [])),
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
     )
@@ -116,16 +125,25 @@ class WorkspaceStore:
         name: str,
         description: str = "",
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
         guid: str | None = None,
+        settings: tuple[RegistrySetting, ...] = (),
+        links: tuple[GPOLink, ...] = (),
+        source_guid: str = "",
+        cse_metadata: tuple[dict[str, Any], ...] = (),
     ) -> GPO:
+        actor = _resolve_actor(identity)
         timestamp = _now()
         gpo = GPO(
             guid=(guid or str(uuid.uuid4())).lower().strip("{}"),
             name=name.strip(),
             description=description.strip(),
             revision=1,
+            settings=settings,
+            links=links,
+            source_guid=source_guid,
+            cse_metadata=cse_metadata,
             created_at=timestamp,
             updated_at=timestamp,
         )
@@ -151,9 +169,10 @@ class WorkspaceStore:
         expected_revision: int,
         mutation: Callable[[GPO], GPO],
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
     ) -> GPO:
+        actor = _resolve_actor(identity)
         current = self.get_gpo(guid)
         if current.revision != expected_revision:
             raise ConflictError(
@@ -191,7 +210,7 @@ class WorkspaceStore:
         expected_revision: int,
         values: dict[str, Any],
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
     ) -> GPO:
         allowed = {"name", "description", "computer_enabled", "user_enabled", "status"}
@@ -202,7 +221,7 @@ class WorkspaceStore:
         def mutate(gpo: GPO) -> GPO:
             return replace(gpo, **values)
 
-        return self._mutate(guid, expected_revision, mutate, actor=actor, reason=reason)
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def put_setting(
         self,
@@ -210,7 +229,7 @@ class WorkspaceStore:
         expected_revision: int,
         values: dict[str, Any],
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
         setting_id: str | None = None,
     ) -> GPO:
@@ -222,7 +241,7 @@ class WorkspaceStore:
             settings.sort(key=lambda item: item.identity())
             return replace(gpo, settings=tuple(settings))
 
-        return self._mutate(guid, expected_revision, mutate, actor=actor, reason=reason)
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def delete_setting(
         self,
@@ -230,7 +249,7 @@ class WorkspaceStore:
         setting_id: str,
         expected_revision: int,
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
     ) -> GPO:
         def mutate(gpo: GPO) -> GPO:
@@ -239,7 +258,7 @@ class WorkspaceStore:
                 raise NotFoundError(f"Setting {setting_id} was not found")
             return replace(gpo, settings=settings)
 
-        return self._mutate(guid, expected_revision, mutate, actor=actor, reason=reason)
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def put_link(
         self,
@@ -247,7 +266,7 @@ class WorkspaceStore:
         expected_revision: int,
         values: dict[str, Any],
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
         link_id: str | None = None,
     ) -> GPO:
@@ -259,7 +278,7 @@ class WorkspaceStore:
             links.sort(key=lambda item: (item.target.casefold(), item.order))
             return replace(gpo, links=tuple(links))
 
-        return self._mutate(guid, expected_revision, mutate, actor=actor, reason=reason)
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def delete_link(
         self,
@@ -267,7 +286,7 @@ class WorkspaceStore:
         link_id: str,
         expected_revision: int,
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
     ) -> GPO:
         def mutate(gpo: GPO) -> GPO:
@@ -276,7 +295,7 @@ class WorkspaceStore:
                 raise NotFoundError(f"Link {link_id} was not found")
             return replace(gpo, links=links)
 
-        return self._mutate(guid, expected_revision, mutate, actor=actor, reason=reason)
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def revisions(self, guid: str) -> list[Revision]:
         self.get_gpo(guid)
@@ -318,7 +337,7 @@ class WorkspaceStore:
         revision: int,
         expected_revision: int,
         *,
-        actor: str,
+        identity: Identity | str,
         reason: str,
     ) -> GPO:
         historical = gpo_from_dict(self.get_revision(guid, revision).snapshot)
@@ -331,4 +350,4 @@ class WorkspaceStore:
                 updated_at=current.updated_at,
             )
 
-        return self._mutate(guid, expected_revision, mutate, actor=actor, reason=reason)
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)

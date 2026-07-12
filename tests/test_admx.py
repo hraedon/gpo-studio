@@ -5,6 +5,7 @@ import pytest
 from gpo_studio.admx import (
     AdmxError,
     build_catalogue,
+    load_catalogue,
     parse_adml,
     parse_admx,
 )
@@ -124,6 +125,10 @@ def test_unknown_element_preserved() -> None:
     )
     policies, _, _ = parse_admx(admx_with_unknown)
     assert len(policies[0].elements) == 7
+    unknown = [e for e in policies[0].elements if e.id == "customElement"][0]
+    assert unknown.kind == "unknown"
+    assert unknown.tag_name == "customElement"
+    assert unknown.attributes == (("id", "Unknown"), ("key", "Software\\Policies\\Synthetic"))
 
 
 def test_malformed_xml_raises_admx_error() -> None:
@@ -163,3 +168,27 @@ def test_invalid_class_raises_admx_error() -> None:
 def test_entity_declaration_rejected() -> None:
     with pytest.raises(AdmxError, match="entity"):
         parse_admx(b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions"/>')
+
+
+def test_load_catalogue_from_directory(tmp_path) -> None:
+    (tmp_path / "test.admx").write_bytes(_ADMX_MINIMAL)
+    (tmp_path / "test.adml").write_bytes(_ADML_MINIMAL)
+    cat = load_catalogue(tmp_path)
+    assert len(cat.policies) == 2
+    assert cat.policies[0].display_name == "Synthetic Policy"
+    assert len(cat.categories) == 1
+    assert len(cat.supported_on) == 1
+
+
+def test_load_catalogue_empty_dir(tmp_path) -> None:
+    cat = load_catalogue(tmp_path)
+    assert cat.policies == ()
+    assert cat.categories == ()
+    assert cat.supported_on == ()
+
+
+def test_load_catalogue_nonexistent_dir(tmp_path) -> None:
+    cat = load_catalogue(tmp_path / "nonexistent")
+    assert cat.policies == ()
+    assert cat.categories == ()
+    assert cat.supported_on == ()

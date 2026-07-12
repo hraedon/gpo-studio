@@ -40,6 +40,7 @@
           <button class="tab" data-tab="settings">Policy settings <span id="setting-count"></span></button>
           <button class="tab" data-tab="links">Scope & links <span id="link-count"></span></button>
           <button class="tab" data-tab="history">History</button>
+          <button class="tab" data-tab="admx">ADMX</button>
         </div>
 
         <div class="panel active" id="panel-overview">
@@ -73,6 +74,20 @@
         <div class="panel" id="panel-history">
           <div class="section-head"><div><p class="eyebrow">Immutable audit trail</p><h2>Revision history</h2></div></div>
           <div class="timeline" id="history-list"></div>
+        </div>
+
+        <div class="panel" id="panel-admx">
+          <div class="section-head"><div><p class="eyebrow">Administrative Templates</p><h2>Policy catalogue</h2></div></div>
+          <div id="admx-empty" class="table-empty">No ADMX directory configured. Set GPO_STUDIO_ADMX_DIR to enable policy browsing.</div>
+          <div id="admx-content" hidden>
+            <input id="admx-search" type="search" placeholder="Search policies by name, key, or description" class="admx-search-input">
+            <div id="admx-detail" hidden></div>
+            <div id="admx-results"></div>
+            <details class="admx-tree">
+              <summary>Categories</summary>
+              <div id="admx-categories"></div>
+            </details>
+          </div>
         </div>
       </section>
     </main>

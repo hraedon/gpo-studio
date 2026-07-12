@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -16,10 +17,32 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .export import export_bundle, powershell_plan
-from .model import ConflictError, NotFoundError, StudioError, ValidationError
-from .store import WorkspaceStore
+from .admx import AdmxCatalogue, AdmxError, load_catalogue
+from .backup import BackupGpo, read_backup
+from .canonical import semantic_hash
+from .diff import diff_gpos, three_way_diff
+from .export import export_bundle, gpmc_backup_bundle, powershell_plan
+from .identity import ClaimedIdentity, claimed_identity
+from .model import (
+    GPO,
+    ConflictError,
+    NotFoundError,
+    RegistrySetting,
+    RegistryType,
+    Side,
+    StudioError,
+    ValidationError,
+    ValidationIssue,
+)
+from .registry_pol import parse as parse_pol
+from .store import WorkspaceStore, gpo_from_dict
 from .validation import validate_gpo, validate_setting
+
+_VALID_REGISTRY_TYPES = {
+    "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY",
+    "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD",
+}
+_VALID_ACTIONS = {"set", "delete"}
 
 STATIC = Path(__file__).with_name("static")
 
@@ -81,12 +104,36 @@ class RestoreMutation(Audit):
     pass
 
 
+class ThreeWayDiffRequest(BaseModel):
+    baseline: str | dict[str, Any]
+    draft: str | dict[str, Any]
+    observed: str | dict[str, Any]
+
+
+class BackupImportRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+    actor: str = Field(default="local-operator", min_length=1, max_length=120)
+    reason: str = Field(default="Import GPMC backup", min_length=1, max_length=500)
+
+
 def _store(request: Request) -> WorkspaceStore:
     return cast(WorkspaceStore, request.app.state.store)
 
 
+def _catalogue(request: Request) -> AdmxCatalogue:
+    return cast(AdmxCatalogue, getattr(request.app.state, "admx_catalogue", AdmxCatalogue()))
+
+
+def _identity(actor: str) -> ClaimedIdentity:
+    return claimed_identity(actor)
+
+
 def _gpo_payload(gpo: Any) -> dict[str, Any]:
-    return {"gpo": gpo.to_dict(), "validation": [asdict(item) for item in validate_gpo(gpo)]}
+    return {
+        "gpo": gpo.to_dict(),
+        "validation": [asdict(item) for item in validate_gpo(gpo)],
+        "semantic_sha256": semantic_hash(gpo),
+    }
 
 
 @asynccontextmanager
@@ -94,6 +141,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "store"):
         app.state.store = WorkspaceStore(os.getenv("GPO_STUDIO_DB", "gpo-studio.db"))
         app.state.owns_store = True
+    if not hasattr(app.state, "admx_catalogue"):
+        admx_dir = os.getenv("GPO_STUDIO_ADMX_DIR", "./admx")
+        try:
+            app.state.admx_catalogue = load_catalogue(Path(admx_dir))
+        except AdmxError as error:
+            logging.getLogger("gpo_studio.api").warning(
+                "Failed to load ADMX catalogue: %s", error
+            )
+            app.state.admx_catalogue = AdmxCatalogue()
     yield
     if getattr(app.state, "owns_store", False):
         app.state.store.close()
@@ -136,8 +192,65 @@ def index() -> FileResponse:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "version": __version__, "mode": "offline-workspace"}
+def health(request: Request) -> dict[str, Any]:
+    catalogue = _catalogue(request)
+    return {
+        "status": "ok",
+        "version": __version__,
+        "mode": "offline-workspace",
+        "admx_loaded": len(catalogue.policies) > 0,
+    }
+
+
+@app.get("/api/admx/search")
+def admx_search(request: Request, q: str = "") -> dict[str, Any]:
+    catalogue = _catalogue(request)
+    query = q.lower()
+    if query:
+        policies = [
+            p
+            for p in catalogue.policies
+            if query in p.id.lower()
+            or query in p.display_name.lower()
+            or query in p.explain_text.lower()
+            or query in p.parent_category.lower()
+            or query in p.key.lower()
+        ]
+    else:
+        policies = list(catalogue.policies)
+    policies = policies[:50]
+    items = [
+        {
+            "id": p.id,
+            "class_": p.class_,
+            "key": p.key,
+            "display_name": p.display_name,
+            "explain_text": p.explain_text,
+            "supported_on": p.supported_on,
+            "parent_category": p.parent_category,
+        }
+        for p in policies
+    ]
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/api/admx/policies/{policy_id}")
+def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
+    catalogue = _catalogue(request)
+    for policy in catalogue.policies:
+        if policy.id == policy_id:
+            return asdict(policy)
+    raise NotFoundError(f"Policy '{policy_id}' not found")
+
+
+@app.get("/api/admx/categories")
+def admx_categories(request: Request) -> dict[str, Any]:
+    catalogue = _catalogue(request)
+    items = [
+        {"id": c.id, "parent_id": c.parent_id, "display_name": c.display_name}
+        for c in catalogue.categories
+    ]
+    return {"items": items, "count": len(items)}
 
 
 @app.get("/api/gpos")
@@ -149,7 +262,7 @@ def list_gpos(request: Request) -> dict[str, Any]:
 @app.post("/api/gpos", status_code=201)
 def create_gpo(request: Request, body: CreateGPO) -> dict[str, Any]:
     gpo = _store(request).create_gpo(
-        body.name, body.description, actor=body.actor, reason=body.reason
+        body.name, body.description, identity=_identity(body.actor), reason=body.reason
     )
     return _gpo_payload(gpo)
 
@@ -166,7 +279,7 @@ def update_gpo(request: Request, guid: str, body: MetadataMutation) -> dict[str,
         guid,
         body.expected_revision,
         values,
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -188,7 +301,7 @@ def add_setting(request: Request, guid: str, body: SettingMutation) -> dict[str,
         guid,
         body.expected_revision,
         _validated_setting(body),
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -203,7 +316,7 @@ def edit_setting(
         body.expected_revision,
         _validated_setting(body),
         setting_id=setting_id,
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -217,7 +330,7 @@ def delete_setting(
         guid,
         setting_id,
         body.expected_revision,
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -229,7 +342,7 @@ def add_link(request: Request, guid: str, body: LinkMutation) -> dict[str, Any]:
         guid,
         body.expected_revision,
         body.link.model_dump(),
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -242,7 +355,7 @@ def edit_link(request: Request, guid: str, link_id: str, body: LinkMutation) -> 
         body.expected_revision,
         body.link.model_dump(),
         link_id=link_id,
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -254,7 +367,7 @@ def delete_link(request: Request, guid: str, link_id: str, body: DeleteMutation)
         guid,
         link_id,
         body.expected_revision,
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -288,7 +401,7 @@ def restore(request: Request, guid: str, revision: int, body: RestoreMutation) -
         guid,
         revision,
         body.expected_revision,
-        actor=body.actor,
+        identity=_identity(body.actor),
         reason=body.reason,
     )
     return _gpo_payload(gpo)
@@ -308,3 +421,162 @@ def bundle(request: Request, guid: str) -> Response:
 def plan(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     return Response(powershell_plan(gpo), media_type="text/plain; charset=utf-8")
+
+
+def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
+    if isinstance(ref, str):
+        return _store(request).get_gpo(ref)
+    try:
+        return gpo_from_dict(ref)
+    except (KeyError, TypeError, ValueError) as error:
+        raise StudioError(f"Invalid inline GPO reference: {error}") from error
+
+
+@app.get("/api/gpos/{guid}/diff")
+def diff_gpo(request: Request, guid: str, against_revision: int) -> dict[str, Any]:
+    current = _store(request).get_gpo(guid)
+    old_revision = _store(request).get_revision(guid, against_revision)
+    old_gpo = gpo_from_dict(old_revision.snapshot)
+    result = diff_gpos(old_gpo, current)
+    return asdict(result)
+
+
+@app.post("/api/diff")
+def ad_hoc_diff(request: Request, body: ThreeWayDiffRequest) -> dict[str, Any]:
+    baseline = _resolve_gpo(request, body.baseline)
+    draft = _resolve_gpo(request, body.draft)
+    observed = _resolve_gpo(request, body.observed)
+    result = three_way_diff(baseline, draft, observed)
+    return asdict(result)
+
+
+_REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
+
+
+def _extract_settings(pol_path: Path, side: Side) -> list[RegistrySetting]:
+    if not pol_path.exists():
+        return []
+    data = pol_path.read_bytes()
+    records = parse_pol(data)
+    hive: Literal["HKLM", "HKCU"] = "HKLM" if side == "computer" else "HKCU"
+    settings: list[RegistrySetting] = []
+    for i, record in enumerate(records):
+        key = record.key
+        for prefix in ("HKLM\\", "HKCU\\", "HKLM/", "HKCU/"):
+            if key.casefold().startswith(prefix.casefold()):
+                key = key[len(prefix):]
+                break
+        if record.registry_type not in _VALID_REGISTRY_TYPES:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_registry_type",
+                    message=f"Unknown registry type from PReg: {record.registry_type}",
+                    path=f"imported/{side}/{i}",
+                )
+            ])
+        if record.action not in _VALID_ACTIONS:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_action",
+                    message=f"Unknown action from PReg: {record.action}",
+                    path=f"imported/{side}/{i}",
+                )
+            ])
+        settings.append(
+            RegistrySetting(
+                id=f"imported-{side}-{i}",
+                side=side,
+                hive=hive,
+                key=key,
+                value_name=record.value_name,
+                registry_type=cast(RegistryType, record.registry_type),
+                value=record.value,
+                action=cast(Literal["set", "delete"], record.action),
+            )
+        )
+    return settings
+
+
+def _collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[dict[str, Any], ...]:
+    metadata: list[dict[str, Any]] = []
+    for ext in (*backup_gpo.machine_extensions, *backup_gpo.user_extensions):
+        if ext.guid == _REGISTRY_CSE_GUID:
+            continue
+        if ext.guid == "unknown" and all(
+            f.relative_path == "Registry.pol" for f in ext.files
+        ):
+            continue
+        metadata.append(
+            {
+                "guid": ext.guid,
+                "side": ext.side,
+                "files": [
+                    {
+                        "relative_path": f.relative_path,
+                        "content_hash": f.content_hash,
+                        "size": f.size,
+                    }
+                    for f in ext.files
+                ],
+            }
+        )
+    return tuple(metadata)
+
+
+@app.post("/api/backups/import", status_code=201)
+def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]:
+    backup_dir = Path(body.path)
+    if not backup_dir.is_dir():
+        raise StudioError(f"Backup path is not a directory: {body.path}")
+    backup = read_backup(backup_dir)
+    if not backup.gpos:
+        raise StudioError("No GPOs found in backup")
+    if len(backup.gpos) > 1:
+        raise StudioError(
+            f"Multi-GPO backups are not supported (found {len(backup.gpos)} GPOs)"
+        )
+    backup_gpo = backup.gpos[0]
+    gpo_dir = backup_dir / backup_gpo.guid
+
+    machine_settings = _extract_settings(gpo_dir / "Machine" / "Registry.pol", "computer")
+    user_settings = _extract_settings(gpo_dir / "User" / "Registry.pol", "user")
+    all_settings = tuple(machine_settings + user_settings)
+    cse_metadata = _collect_cse_metadata(backup_gpo)
+
+    temp_gpo = GPO(
+        guid="import-preview",
+        name=backup_gpo.display_name or "Imported GPO",
+        settings=all_settings,
+    )
+    gpo_issues = [i for i in validate_gpo(temp_gpo) if i.severity == "error"]
+    if gpo_issues:
+        raise ValidationError(gpo_issues)
+
+    gpo = _store(request).create_gpo(
+        name=backup_gpo.display_name or "Imported GPO",
+        description=f"Imported from GPMC backup {backup.backup_id}",
+        identity=_identity(body.actor),
+        reason=body.reason,
+        settings=all_settings,
+        source_guid=backup_gpo.guid,
+        cse_metadata=cse_metadata,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.get("/api/gpos/{guid}/gpmc-backup")
+def gpmc_backup(request: Request, guid: str) -> Response:
+    gpo = _store(request).get_gpo(guid)
+    if gpo.cse_metadata:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="unknown_cse_content",
+                message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
+                path="cse_metadata",
+            )
+        ])
+    headers = {"Content-Disposition": f'attachment; filename="{gpo.guid}-gpmc-backup.zip"'}
+    return Response(gpmc_backup_bundle(gpo), media_type="application/zip", headers=headers)
