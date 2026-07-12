@@ -5,11 +5,12 @@ brings the useful shape of GPMC—GPO inventory, Computer/User configuration,
 link intent, validation, and revision history—to a browser without giving that
 browser a privileged connection to Active Directory.
 
-The current milestone edits registry-based policy, which covers a large and
-important part of Administrative Templates and Group Policy Preferences. It
-creates deterministic native `Registry.pol` files plus a reviewable PowerShell
-publication plan. It does **not** claim full GPMC parity yet; see
-[`docs/roadmap.md`](docs/roadmap.md) for the compatibility map.
+The 1.0 product edits raw and ADMX-backed registry policy, GPO links, security
+filters, WMI filters, and the GPP Groups and Registry subsets with six ILT
+predicates. It creates deterministic native `Registry.pol` files, GPMC backup
+and Studio bundle exports, and a reviewable PowerShell publication plan. The
+full capability contract — including per-action fidelity, states, and
+limitations — is in [`docs/capability-matrix.md`](docs/capability-matrix.md).
 The optional live-write architecture is deliberately separate and documented
 in [`docs/live-publication.md`](docs/live-publication.md), with its threat model
 in [`docs/publisher-threat-model.md`](docs/publisher-threat-model.md).
@@ -26,22 +27,37 @@ write-oriented behavior into it would weaken a boundary that operators can
 currently trust. GPO Studio is the authoring counterpart: a local draft and
 review surface with publication kept at an explicit adapter boundary.
 
-## Included in v0.1
+## Capabilities
 
-- Browser inventory and creation of draft GPOs.
-- GPO name, description, lifecycle state, and Computer/User side enablement.
-- Registry settings for `REG_SZ`, `REG_EXPAND_SZ`, `REG_BINARY`, `REG_DWORD`,
-  `REG_QWORD`, and `REG_MULTI_SZ`, including delete operations.
-- Domain/OU link intent with enabled, enforced, and order fields.
-- Deterministic validation, including side/hive mismatch, duplicate setting,
-  invalid DN, value range, and disabled-but-populated warnings.
-- Optimistic concurrency so a stale browser cannot silently overwrite work.
-- Immutable actor/reason revision history and restore-as-new-revision.
-- Deterministic ZIP export containing:
-  - `manifest.json` — complete, versioned draft and validation result;
-  - `Machine/Registry.pol` and `User/Registry.pol` — native PReg files;
-  - `apply.ps1` — a human-reviewable GroupPolicy-module publication plan.
-- Local-only default binding (`127.0.0.1`) and no AD/SYSVOL write code.
+GPO Studio 1.0 (in development) supports the following areas as a single-operator
+offline authoring workbench. See
+[`docs/capability-matrix.md`](docs/capability-matrix.md) for the full contract
+with per-action fidelity, capability states, and known limitations.
+
+- **Registry policy** — raw `REG_SZ`, `REG_EXPAND_SZ`, `REG_BINARY`,
+  `REG_DWORD`, `REG_MULTI_SZ`, `REG_QWORD` with set/delete actions, plus
+  ADMX-backed policy configuration via a searchable catalogue.
+- **GPO links** — target, enabled, enforced, and order.
+- **Security filters** — principal, permission, inheritable, target type, SID.
+- **WMI filters** — name, query, description, language, with a reusable filter
+  catalogue.
+- **GPP Groups and Registry** — action, members, values, type-aware, with
+  six ILT predicate types (ou, group, registry, ip\_range, environment,
+  wmi\_query).
+- **Side enablement** — independent computer/user toggles.
+- **Revision history** — immutable actor/reason revisions and restore.
+- **Import** — gpo-lens estate snapshots, single-GPO GPMC backups, optional
+  migration tables (preview).
+- **Export** — deterministic Studio bundle (manifest, PReg, PowerShell plan,
+  GPP XML) and GPMC backup.
+- **Safety gates** — cpassword blocked at every boundary; unknown CSE content
+  inventoried and hashed but not re-emittable.
+
+The PowerShell plan applies registry values, links, security filtering, and
+side status. It does **not** apply WMI filter assignment or GPP content —
+those are included in GPMC backup export only.
+
+Windows-lab verification has not yet been performed.
 
 ## Run it
 
@@ -94,8 +110,22 @@ GPO permissions. Native Windows behavior and CSE-specific details still apply.
 | `src/gpo_studio/store.py` | SQLite snapshots, revisions, concurrency |
 | `src/gpo_studio/validation.py` | Deterministic preflight checks |
 | `src/gpo_studio/registry_pol.py` | Native PReg parser/serializer |
-| `src/gpo_studio/export.py` | Publication bundle and PowerShell plan |
+| `src/gpo_studio/export.py` | Publication bundle, GPMC backup, and PowerShell plan |
 | `src/gpo_studio/api.py` | FastAPI delivery layer |
+| `src/gpo_studio/admx.py` | ADMX/ADML catalogue ingestion |
+| `src/gpo_studio/policy_config.py` | ADMX policy-to-registry resolution |
+| `src/gpo_studio/gpp.py` | GPP Groups and Registry XML framework |
+| `src/gpo_studio/ilt.py` | Item-Level Targeting predicates |
+| `src/gpo_studio/sddl.py` | SDDL parser and formatter |
+| `src/gpo_studio/estate.py` | gpo-lens estate import |
+| `src/gpo_studio/migration.py` | GPMC migration table parsing and application |
+| `src/gpo_studio/backup.py` | GPMC backup reader with CSE inventory |
+| `src/gpo_studio/canonical.py` | Canonical serialization and semantic hashing |
+| `src/gpo_studio/diff.py` | Two-way and three-way GPO diff |
+| `src/gpo_studio/identity.py` | Actor identity abstraction |
+| `src/gpo_studio/payload.py` | Publisher payload canonicalization |
+| `src/gpo_studio/wmi_catalogue.py` | WMI filter catalogue |
+| `src/gpo_studio/import_export.py` | Backup import/export domain logic |
 | `src/gpo_studio/static/` | Dependency-free browser application |
 
 ## License

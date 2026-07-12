@@ -158,7 +158,13 @@ def test_import_baseline_gpos(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "estate.db")
     gpos = parse_estate(_VALID_ESTATE)
     summary = store.import_baseline_gpos(gpos, identity="tester", reason="import baseline")
-    assert summary == {"imported": 1, "skipped": 0, "conflicts": 0, "total": 1}
+    assert summary == {
+        "imported": 1,
+        "skipped": 0,
+        "conflicts": 0,
+        "rejected": 0,
+        "total": 1,
+    }
     fetched = store.get_gpo("11111111-2222-3333-4444-555555555555")
     assert fetched.name == "Workstation Baseline"
     assert fetched.status == "archived"
@@ -171,13 +177,25 @@ def test_import_baseline_gpos_skips_existing(tmp_path) -> None:
     gpos = parse_estate(_VALID_ESTATE)
     store.import_baseline_gpos(gpos, identity="tester", reason="first import")
     summary = store.import_baseline_gpos(gpos, identity="tester", reason="second import")
-    assert summary == {"imported": 0, "skipped": 1, "conflicts": 0, "total": 1}
+    assert summary == {
+        "imported": 0,
+        "skipped": 1,
+        "conflicts": 0,
+        "rejected": 0,
+        "total": 1,
+    }
 
 
 def test_import_baseline_gpos_empty(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "estate.db")
     summary = store.import_baseline_gpos([], identity="tester", reason="empty import")
-    assert summary == {"imported": 0, "skipped": 0, "conflicts": 0, "total": 0}
+    assert summary == {
+        "imported": 0,
+        "skipped": 0,
+        "conflicts": 0,
+        "rejected": 0,
+        "total": 0,
+    }
 
 
 def test_import_baseline_gpos_creates_revision(tmp_path) -> None:

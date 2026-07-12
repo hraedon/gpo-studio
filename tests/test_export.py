@@ -46,6 +46,9 @@ def test_bundle_contains_manifest_plan_and_native_policy_files() -> None:
         ]
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["kind"] == "gpo-studio-publication-bundle"
+        assert "semantic_sha256" not in manifest
+        assert manifest["policy_semantic_sha256"]
+        assert manifest["review_model_sha256"]
         records = parse(archive.read("Machine/Registry.pol"))
         assert records[0].value == 1
         assert parse(archive.read("User/Registry.pol")) == []

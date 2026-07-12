@@ -9,7 +9,12 @@ import zipfile
 from dataclasses import asdict
 from typing import assert_never
 
-from .canonical import semantic_dict, semantic_hash
+from .canonical import (
+    CANONICAL_SCHEMA_VERSION,
+    policy_semantic_dict,
+    policy_semantic_sha256,
+    review_model_sha256,
+)
 from .gpp import contains_cpassword, serialize_gpp
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
@@ -169,8 +174,10 @@ def export_bundle(gpo: GPO) -> bytes:
         "kind": "gpo-studio-publication-bundle",
         "gpo": gpo.to_dict(),
         "validation": [asdict(issue) for issue in issues],
-        "semantic_sha256": semantic_hash(gpo),
-        "canonical_model": semantic_dict(gpo),
+        "policy_semantic_sha256": policy_semantic_sha256(gpo),
+        "review_model_sha256": review_model_sha256(gpo),
+        "canonical_schema_version": CANONICAL_SCHEMA_VERSION,
+        "canonical_model": policy_semantic_dict(gpo),
     }
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]

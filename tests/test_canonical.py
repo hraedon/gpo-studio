@@ -3,16 +3,37 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from dataclasses import replace
 
 from gpo_studio.canonical import (
+    CANONICAL_SCHEMA_VERSION,
     canonical_json,
+    policy_semantic_dict,
+    policy_semantic_sha256,
+    review_model_sha256,
     semantic_dict,
     semantic_hash,
     semantic_hash_link,
     semantic_hash_setting,
 )
 from gpo_studio.export import export_bundle
-from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter
+from gpo_studio.gpp import (
+    GppCollection,
+    GppGroup,
+    GppGroupMember,
+    GppRegistry,
+    GppRegistryValue,
+)
+from gpo_studio.ilt import IltFilter, IltPredicate
+from gpo_studio.model import (
+    GPO,
+    CseFileEntry,
+    CseMetadataEntry,
+    GPOLink,
+    RegistrySetting,
+    SecurityFilter,
+    WmiFilter,
+)
 
 
 def sample_gpo() -> GPO:
@@ -202,15 +223,16 @@ def test_semantic_hash_link() -> None:
     assert semantic_hash_link(link) != semantic_hash_link(link_diff_order)
 
 
-def test_bundle_v2_includes_semantic_hash() -> None:
+def test_bundle_includes_split_hashes() -> None:
     gpo = sample_gpo()
     with zipfile.ZipFile(io.BytesIO(export_bundle(gpo))) as archive:
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["schema_version"] == 2
-        assert "semantic_sha256" in manifest
-        assert manifest["semantic_sha256"] == semantic_hash(gpo)
+        assert manifest["policy_semantic_sha256"] == policy_semantic_sha256(gpo)
+        assert manifest["review_model_sha256"] == review_model_sha256(gpo)
+        assert manifest["canonical_schema_version"] == CANONICAL_SCHEMA_VERSION
         assert "canonical_model" in manifest
-        assert manifest["canonical_model"] == semantic_dict(gpo)
+        assert manifest["canonical_model"] == policy_semantic_dict(gpo)
 
 
 def test_semantic_dict_security_filters_include_target_type() -> None:
@@ -242,3 +264,527 @@ def test_semantic_dict_security_filters_include_sid() -> None:
     )
     sd = semantic_dict(gpo)
     assert sd["security_filters"][0]["sid"] == "s-1-5-32-544"
+
+
+def _base_gpo() -> GPO:
+    return GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="Base policy",
+        description="Base",
+        computer_enabled=True,
+        user_enabled=True,
+        status="draft",
+        revision=1,
+        settings=(
+            RegistrySetting(
+                id="s1",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\Studio\Base",
+                value_name="Enabled",
+                registry_type="REG_DWORD",
+                value=1,
+            ),
+        ),
+        links=(
+            GPOLink(id="l1", target="OU=Workstations,DC=studio,DC=local", order=1),
+        ),
+        security_filters=(
+            SecurityFilter(
+                id="sf1",
+                principal="STUDIO\\TestAdmin",
+                permission="apply",
+                inheritable=True,
+                target_type="user",
+                sid="S-1-5-21-1-2-3-1001",
+            ),
+        ),
+        wmi_filter=WmiFilter(
+            id="wf1",
+            name="WorkstationFilter",
+            query="SELECT * FROM Win32_OperatingSystem",
+        ),
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="StudioAdmins",
+                        sid="S-1-5-21-1-2-3-1002",
+                        action="update",
+                        members=(
+                            GppGroupMember(
+                                sid="S-1-5-21-1-2-3-1001",
+                                name="TestAdmin",
+                                action="add",
+                            ),
+                        ),
+                        ilt_filter=IltFilter(
+                            predicates=(
+                                IltPredicate(
+                                    type="ou",
+                                    value="OU=Workstations,DC=studio,DC=local",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                registry=(
+                    GppRegistry(
+                        key=r"Software\Studio\GPP",
+                        action="update",
+                        values=(
+                            GppRegistryValue(
+                                name="Setting",
+                                value="configured",
+                                registry_type="REG_SZ",
+                                action="create",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        domain="studio.local",
+    )
+
+
+def test_policy_hash_changes_on_setting_value() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        settings=(
+            RegistrySetting(
+                id="s1",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\Studio\Base",
+                value_name="Enabled",
+                registry_type="REG_DWORD",
+                value=2,
+            ),
+        ),
+    )
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_link_order() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        links=(GPOLink(id="l1", target="OU=Workstations,DC=studio,DC=local", order=2),),
+    )
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_security_filter_sid() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        security_filters=(
+            SecurityFilter(
+                id="sf1",
+                principal="STUDIO\\TestAdmin",
+                permission="apply",
+                inheritable=True,
+                target_type="user",
+                sid="S-1-5-21-1-2-3-9999",
+            ),
+        ),
+    )
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_wmi_query() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        wmi_filter=WmiFilter(
+            id="wf1",
+            name="WorkstationFilter",
+            query="SELECT * FROM Win32_ComputerSystem",
+        ),
+    )
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_gpp_group_addition() -> None:
+    base = _base_gpo()
+    new_group = GppGroup(name="StudioUsers", sid="S-1-5-21-1-2-3-1003", action="update")
+    changed = replace(
+        base,
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(new_group,),
+            ),
+        ),
+    )
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_gpp_registry_value() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                registry=(
+                    GppRegistry(
+                        key=r"Software\Studio\GPP",
+                        action="update",
+                        values=(
+                            GppRegistryValue(
+                                name="Setting",
+                                value="changed",
+                                registry_type="REG_SZ",
+                                action="create",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_ilt_predicate() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="StudioAdmins",
+                        sid="S-1-5-21-1-2-3-1002",
+                        action="update",
+                        ilt_filter=IltFilter(
+                            predicates=(
+                                IltPredicate(
+                                    type="ou",
+                                    negate=True,
+                                    value="OU=Servers,DC=studio,DC=local",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_computer_enabled_toggle() -> None:
+    base = _base_gpo()
+    changed = replace(base, computer_enabled=False)
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_changes_on_domain() -> None:
+    base = _base_gpo()
+    changed = replace(base, domain="corp.studio.local")
+    assert policy_semantic_sha256(base) != policy_semantic_sha256(changed)
+
+
+def test_policy_hash_stable_across_timestamps() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        revision=99,
+        created_at="2026-07-12T00:00:00Z",
+        updated_at="2026-07-12T12:00:00Z",
+    )
+    assert policy_semantic_sha256(base) == policy_semantic_sha256(changed)
+    assert review_model_sha256(base) == review_model_sha256(changed)
+
+
+def test_review_model_differs_from_policy_on_name() -> None:
+    base = _base_gpo()
+    changed = replace(base, name="Renamed policy")
+    assert policy_semantic_sha256(base) == policy_semantic_sha256(changed)
+    assert review_model_sha256(base) != review_model_sha256(changed)
+
+
+def test_review_model_differs_from_policy_on_source_guid() -> None:
+    base = _base_gpo()
+    changed = replace(base, source_guid="imported-guid-0000")
+    assert policy_semantic_sha256(base) == policy_semantic_sha256(changed)
+    assert review_model_sha256(base) != review_model_sha256(changed)
+
+
+def test_review_model_differs_from_policy_on_cse_metadata() -> None:
+    base = _base_gpo()
+    changed = replace(
+        base,
+        cse_metadata=(
+            CseMetadataEntry(
+                guid="{35378EAC-683F-11D2-A89A-00C04FBBCFA2}",
+                side="machine",
+                files=(
+                    CseFileEntry(relative_path="Machine/Registry.pol", content_hash="abc", size=10),
+                ),
+            ),
+        ),
+    )
+    assert policy_semantic_sha256(base) == policy_semantic_sha256(changed)
+    assert review_model_sha256(base) != review_model_sha256(changed)
+
+
+def test_policy_hash_deterministic_across_insertion_order() -> None:
+    group_a = GppGroup(name="Alpha", sid="S-1-5-21-1-2-3-1001", action="update")
+    group_b = GppGroup(name="Beta", sid="S-1-5-21-1-2-3-1002", action="update")
+    value_a = GppRegistryValue(name="Zeta", value="z", registry_type="REG_SZ", action="create")
+    value_b = GppRegistryValue(name="Alpha", value="a", registry_type="REG_SZ", action="create")
+    reg_ab = GppRegistry(
+        key=r"Software\Studio\GPP",
+        action="update",
+        values=(value_a, value_b),
+    )
+    reg_ba = GppRegistry(
+        key=r"Software\Studio\GPP",
+        action="update",
+        values=(value_b, value_a),
+    )
+    gpo_ab = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="order-test",
+        gpp_collections=(
+            GppCollection(scope="computer", groups=(group_a, group_b), registry=(reg_ab,)),
+        ),
+    )
+    gpo_ba = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="order-test",
+        gpp_collections=(
+            GppCollection(scope="computer", groups=(group_b, group_a), registry=(reg_ba,)),
+        ),
+    )
+    assert policy_semantic_sha256(gpo_ab) == policy_semantic_sha256(gpo_ba)
+
+
+def _golden_gpo() -> GPO:
+    return GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="Golden vector policy",
+        description="Freeze-point fixture",
+        computer_enabled=True,
+        user_enabled=False,
+        status="ready",
+        revision=7,
+        settings=(
+            RegistrySetting(
+                id="s1",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\Studio\Golden",
+                value_name="Enabled",
+                registry_type="REG_DWORD",
+                value=1,
+            ),
+        ),
+        links=(
+            GPOLink(id="l1", target="OU=Workstations,DC=studio,DC=local", order=1),
+        ),
+        security_filters=(
+            SecurityFilter(
+                id="sf1",
+                principal="STUDIO\\TestAdmin",
+                permission="apply",
+                inheritable=True,
+                target_type="user",
+                sid="S-1-5-21-1-2-3-1001",
+            ),
+        ),
+        wmi_filter=WmiFilter(
+            id="wf1",
+            name="WorkstationFilter",
+            description="Lab workstations",
+            query="SELECT * FROM Win32_OperatingSystem",
+            language="WQL",
+        ),
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="StudioAdmins",
+                        sid="S-1-5-21-1-2-3-1002",
+                        action="update",
+                        members=(
+                            GppGroupMember(
+                                sid="S-1-5-21-1-2-3-1001",
+                                name="TestAdmin",
+                                action="add",
+                            ),
+                        ),
+                        description="Local admins group",
+                        ilt_filter=IltFilter(
+                            predicates=(
+                                IltPredicate(
+                                    type="ou",
+                                    value="OU=Workstations,DC=studio,DC=local",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                registry=(
+                    GppRegistry(
+                        key=r"Software\Studio\GPP",
+                        action="update",
+                        values=(
+                            GppRegistryValue(
+                                name="Setting",
+                                value="configured",
+                                registry_type="REG_SZ",
+                                action="create",
+                            ),
+                        ),
+                        ilt_filter=IltFilter(
+                            predicates=(
+                                IltPredicate(
+                                    type="group",
+                                    value="S-1-5-21-1-2-3-1003",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        domain="studio.local",
+        source_guid="source-guid-0000",
+        cse_metadata=(
+            CseMetadataEntry(
+                guid="{35378EAC-683F-11D2-A89A-00C04FBBCFA2}",
+                side="machine",
+                files=(
+                    CseFileEntry(
+                        relative_path="Machine/Registry.pol",
+                        content_hash="abc123",
+                        size=42,
+                    ),
+                ),
+            ),
+        ),
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-02T00:00:00Z",
+    )
+
+
+GOLDEN_POLICY_SEMANTIC_SHA256 = "20097fc4da07bc174c6e0d42f5c2b55ad66eb92475f264a8aa98c3d079d93d75"
+GOLDEN_REVIEW_MODEL_SHA256 = "07e1c0e8b2ec8599a6f3ad7257a29ff3418b1a3dac77d0b2667afbe69d9313ec"
+
+
+def test_golden_policy_semantic_sha256() -> None:
+    assert policy_semantic_sha256(_golden_gpo()) == GOLDEN_POLICY_SEMANTIC_SHA256
+
+
+def test_golden_review_model_sha256() -> None:
+    assert review_model_sha256(_golden_gpo()) == GOLDEN_REVIEW_MODEL_SHA256
+
+
+def test_policy_hash_changes_on_gpp_group_member() -> None:
+    gpo_without_member = GPO(
+        guid="g-member-001",
+        name="Member test",
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(name="Admins", sid="S-1-5-32-544"),
+                ),
+            ),
+        ),
+    )
+    gpo_with_member = GPO(
+        guid="g-member-001",
+        name="Member test",
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="Admins",
+                        sid="S-1-5-32-544",
+                        members=(
+                            GppGroupMember(sid="S-1-5-32-545", name="Users"),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert (
+        policy_semantic_sha256(gpo_without_member)
+        != policy_semantic_sha256(gpo_with_member)
+    )
+
+
+def test_policy_hash_stable_on_gpp_group_name_case() -> None:
+    gpo_a = GPO(
+        guid="g-case-001",
+        name="Group case test",
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="Admins",
+                        sid="S-1-5-32-544",
+                        action="update",
+                        members=(
+                            GppGroupMember(
+                                sid="S-1-5-21-1-2-3-1001",
+                                name="TestAdmin",
+                                action="add",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    gpo_b = GPO(
+        guid="g-case-001",
+        name="Group case test",
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="ADMINS",
+                        sid="S-1-5-32-544",
+                        action="update",
+                        members=(
+                            GppGroupMember(
+                                sid="S-1-5-21-1-2-3-1001",
+                                name="TESTADMIN",
+                                action="add",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert policy_semantic_sha256(gpo_a) == policy_semantic_sha256(gpo_b)
+
+
+def test_policy_hash_stable_on_domain_case() -> None:
+    gpo_a = GPO(
+        guid="g-case-002",
+        name="Domain case test",
+        domain="Studio.Local",
+    )
+    gpo_b = GPO(
+        guid="g-case-002",
+        name="Domain case test",
+        domain="studio.local",
+    )
+    assert policy_semantic_sha256(gpo_a) == policy_semantic_sha256(gpo_b)

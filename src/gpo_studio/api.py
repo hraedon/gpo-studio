@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -14,12 +15,12 @@ from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from . import __version__
 from .admx import AdmxCatalogue, AdmxError, load_catalogue
 from .backup import read_backup
-from .canonical import semantic_hash
+from .canonical import policy_semantic_sha256, review_model_sha256
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
 from .export import export_bundle, gpmc_backup_bundle, powershell_plan
@@ -40,6 +41,7 @@ from .model import (
     ValidationError,
     ValidationIssue,
 )
+from .numeric import coerce_dword_qword
 from .policy_config import PolicyConfiguration, resolve_policy
 from .store import WorkspaceStore, gpo_from_dict
 from .validation import validate_gpo, validate_setting
@@ -49,6 +51,15 @@ STATIC = Path(__file__).with_name("static")
 
 
 class Audit(BaseModel):
+    """Base model for audited mutation requests.
+
+    Optimistic concurrency uses the JSON-body ``expected_revision`` field rather
+    than HTTP ``If-Match`` headers.  This is a deliberate choice for the
+    browser-first, single-operator deployment model where every mutation is an
+    explicit, auditable request body rather than a side-effect of transport
+    metadata.
+    """
+
     actor: str = Field(default="local-operator", min_length=1, max_length=120)
     reason: str = Field(default="Interactive edit", min_length=1, max_length=500)
     expected_revision: int = Field(ge=1)
@@ -81,6 +92,16 @@ class SettingData(BaseModel):
     value: str | int | list[str]
     action: Literal["set", "delete"] = "set"
     comment: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def _normalize_numeric_value(self) -> SettingData:
+        if self.registry_type in ("REG_DWORD", "REG_QWORD"):
+            if isinstance(self.value, bool) or not isinstance(self.value, (str, int)):
+                raise ValueError(
+                    f"{self.registry_type} requires a decimal string or integer value"
+                )
+            self.value = coerce_dword_qword(self.value, self.registry_type)
+        return self
 
 
 class SettingMutation(Audit):
@@ -176,11 +197,29 @@ def _identity(actor: str) -> ClaimedIdentity:
     return claimed_identity(actor)
 
 
+def _stringify_numeric_settings(settings: list[dict[str, Any]]) -> None:
+    for setting in settings:
+        value = setting.get("value")
+        if (
+            setting.get("registry_type") in ("REG_DWORD", "REG_QWORD")
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+        ):
+            setting["value"] = str(value)
+
+
+def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
+    gpo_dict: dict[str, Any] = gpo.to_dict()
+    _stringify_numeric_settings(gpo_dict["settings"])
+    return gpo_dict
+
+
 def _gpo_payload(gpo: Any) -> dict[str, Any]:
     return {
-        "gpo": gpo.to_dict(),
+        "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validate_gpo(gpo)],
-        "semantic_sha256": semantic_hash(gpo),
+        "policy_semantic_sha256": policy_semantic_sha256(gpo),
+        "review_model_sha256": review_model_sha256(gpo),
     }
 
 
@@ -286,10 +325,42 @@ async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
     return JSONResponse({"error": detail}, status_code=status)
 
 
+def _json_safe_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
+    try:
+        safe = json.loads(json.dumps(ctx, default=str))
+    except (TypeError, ValueError):
+        return {str(k): str(v) for k, v in ctx.items()}
+    if isinstance(safe, dict):
+        return cast(dict[str, Any], safe)
+    return {str(k): str(v) for k, v in ctx.items()}
+
+
+def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for issue in issues:
+        if not isinstance(issue, dict):
+            sanitized.append({"issue": str(issue)})
+            continue
+        clean: dict[str, Any] = {}
+        for key, value in issue.items():
+            if key == "ctx" and isinstance(value, dict):
+                clean[key] = _json_safe_ctx(value)
+            else:
+                clean[key] = value
+        sanitized.append(clean)
+    return sanitized
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation(_request: Request, error: RequestValidationError) -> JSONResponse:
     return JSONResponse(
-        {"error": {"message": "Invalid request", "issues": error.errors()}}, status_code=422
+        {
+            "error": {
+                "message": "Invalid request",
+                "issues": _sanitize_validation_issues(error.errors()),
+            }
+        },
+        status_code=422,
     )
 
 
@@ -394,7 +465,7 @@ def admx_categories(request: Request) -> dict[str, Any]:
 @app.get("/api/gpos")
 def list_gpos(request: Request) -> dict[str, Any]:
     gpos = _store(request).list_gpos()
-    return {"items": [gpo.to_dict() for gpo in gpos], "count": len(gpos)}
+    return {"items": [_gpo_to_api_dict(gpo) for gpo in gpos], "count": len(gpos)}
 
 
 @app.post("/api/gpos", status_code=201)

@@ -5,7 +5,11 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
+from .ilt import IltFilter, IltPredicate
 from .model import GPO, GPOLink, RegistrySetting
+
+CANONICAL_SCHEMA_VERSION = 1
 
 
 def _escape_string(s: str) -> str:
@@ -114,10 +118,88 @@ def semantic_dict_link(link: GPOLink) -> dict[str, Any]:
     }
 
 
-def semantic_dict(gpo: GPO) -> dict[str, Any]:
-    # Excludes source_guid, cse_metadata, created_at, updated_at,
-    # and revision: the hash reflects policy content and reach, not import
-    # provenance or metadata.
+def gpp_member_identity(member: GppGroupMember) -> tuple[str, str]:
+    return (member.sid.lower(), member.action)
+
+
+def gpp_group_identity(group: GppGroup) -> tuple[str, str]:
+    return (group.name.casefold(), group.sid.lower())
+
+
+def gpp_registry_identity(reg: GppRegistry) -> str:
+    return reg.key.casefold()
+
+
+def gpp_registry_value_identity(value: GppRegistryValue) -> tuple[str, str]:
+    return (value.name.casefold(), value.registry_type)
+
+
+def semantic_dict_ilt_predicate(pred: IltPredicate) -> dict[str, Any]:
+    return {
+        "type": pred.type,
+        "negate": pred.negate,
+        "value": pred.value,
+    }
+
+
+def semantic_dict_ilt(f: IltFilter | None) -> list[dict[str, Any]] | None:
+    if f is None:
+        return None
+    return [semantic_dict_ilt_predicate(p) for p in f.predicates]
+
+
+def semantic_dict_gpp_member(member: GppGroupMember) -> dict[str, Any]:
+    return {
+        "sid": member.sid.lower(),
+        "name": member.name.casefold(),
+        "action": member.action,
+    }
+
+
+def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
+    members_sorted = sorted(group.members, key=gpp_member_identity)
+    return {
+        "name": group.name.casefold(),
+        "sid": group.sid.lower(),
+        "action": group.action,
+        "description": group.description,
+        "remove_all_users": group.remove_all_users,
+        "remove_all_groups": group.remove_all_groups,
+        "members": [semantic_dict_gpp_member(m) for m in members_sorted],
+        "ilt_filter": semantic_dict_ilt(group.ilt_filter),
+    }
+
+
+def semantic_dict_gpp_registry_value(value: GppRegistryValue) -> dict[str, Any]:
+    return {
+        "name": value.name.casefold(),
+        "value": value.value,
+        "registry_type": value.registry_type,
+        "action": value.action,
+    }
+
+
+def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
+    values_sorted = sorted(reg.values, key=gpp_registry_value_identity)
+    return {
+        "key": reg.key.casefold(),
+        "action": reg.action,
+        "values": [semantic_dict_gpp_registry_value(v) for v in values_sorted],
+        "ilt_filter": semantic_dict_ilt(reg.ilt_filter),
+    }
+
+
+def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
+    groups_sorted = sorted(collection.groups, key=gpp_group_identity)
+    registry_sorted = sorted(collection.registry, key=gpp_registry_identity)
+    return {
+        "scope": collection.scope,
+        "groups": [semantic_dict_gpp_group(g) for g in groups_sorted],
+        "registry": [semantic_dict_gpp_registry(r) for r in registry_sorted],
+    }
+
+
+def policy_semantic_dict(gpo: GPO) -> dict[str, Any]:
     settings_sorted = sorted(gpo.settings, key=lambda s: s.identity())
     links_sorted = sorted(gpo.links, key=lambda link: (link.target.casefold(), link.order))
     security_filters_sorted = sorted(
@@ -131,13 +213,11 @@ def semantic_dict(gpo: GPO) -> dict[str, Any]:
         ),
     )
     wmi = gpo.wmi_filter
+    gpp_sorted = sorted(gpo.gpp_collections, key=lambda c: c.scope)
     return {
         "guid": gpo.guid,
-        "name": gpo.name,
-        "description": gpo.description,
         "computer_enabled": gpo.computer_enabled,
         "user_enabled": gpo.user_enabled,
-        "status": gpo.status,
         "settings": [semantic_dict_setting(s) for s in settings_sorted],
         "links": [semantic_dict_link(link) for link in links_sorted],
         "security_filters": [
@@ -160,12 +240,53 @@ def semantic_dict(gpo: GPO) -> dict[str, Any]:
             if wmi is not None
             else None
         ),
-        "domain": gpo.domain,
+        "gpp_collections": [semantic_dict_gpp_collection(c) for c in gpp_sorted],
+        "domain": gpo.domain.casefold(),
     }
 
 
+def review_model_dict(gpo: GPO) -> dict[str, Any]:
+    base = policy_semantic_dict(gpo)
+    cse_sorted = sorted(gpo.cse_metadata, key=lambda c: (c.guid, c.side))
+    cse_canonical = [
+        {
+            "guid": c.guid,
+            "side": c.side,
+            "files": [
+                {
+                    "relative_path": f.relative_path,
+                    "content_hash": f.content_hash,
+                    "size": f.size,
+                }
+                for f in sorted(c.files, key=lambda f: f.relative_path)
+            ],
+        }
+        for c in cse_sorted
+    ]
+    return {
+        **base,
+        "name": gpo.name,
+        "description": gpo.description,
+        "status": gpo.status,
+        "source_guid": gpo.source_guid,
+        "cse_metadata": cse_canonical,
+    }
+
+
+def policy_semantic_sha256(gpo: GPO) -> str:
+    return hashlib.sha256(canonical_json_bytes(policy_semantic_dict(gpo))).hexdigest()
+
+
+def review_model_sha256(gpo: GPO) -> str:
+    return hashlib.sha256(canonical_json_bytes(review_model_dict(gpo))).hexdigest()
+
+
+def semantic_dict(gpo: GPO) -> dict[str, Any]:
+    return policy_semantic_dict(gpo)
+
+
 def semantic_hash(gpo: GPO) -> str:
-    return hashlib.sha256(canonical_json_bytes(semantic_dict(gpo))).hexdigest()
+    return policy_semantic_sha256(gpo)
 
 
 def semantic_hash_setting(setting: RegistrySetting) -> str:
