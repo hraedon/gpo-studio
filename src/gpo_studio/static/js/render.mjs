@@ -9,7 +9,7 @@ export async function loadList(selectGuid){
 }
 export function renderList(){
   const query=$("#search").value.toLowerCase();
-  $("#gpo-list").innerHTML=state.gpos.filter(g=>g.name.toLowerCase().includes(query)).map(g=>`<button class="gpo-item ${state.current?.guid===g.guid?"active":""}" data-guid="${g.guid}"><strong>${escapeHtml(g.name)}</strong><small>${g.status} · r${g.revision}</small></button>`).join("");
+  $("#gpo-list").innerHTML=state.gpos.filter(g=>g.name.toLowerCase().includes(query)).map(g=>`<button class="gpo-item ${state.current?.guid===g.guid?"active":""}" data-guid="${escapeHtml(g.guid)}"><strong>${escapeHtml(g.name)}</strong><small>${g.status} · r${g.revision}</small></button>`).join("");
   $$(".gpo-item").forEach(el=>el.onclick=()=>selectGpo(el.dataset.guid));
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
@@ -41,18 +41,18 @@ export function renderValidation(){
 export function formatValue(setting){if(setting.action==="delete")return "Delete value";if(Array.isArray(setting.value))return setting.value.join(" · ");return String(setting.value)}
 export function renderSettings(){
   const items=state.current.settings.filter(s=>state.side==="all"||s.side===state.side);
-  $("#settings-table").innerHTML=items.map(s=>`<tr><td><span class="side ${s.side}">${s.side}</span></td><td><div class="mono truncate" title="${escapeHtml(s.hive+'\\'+s.key)}">${escapeHtml(s.hive+'\\'+s.key)}</div></td><td>${escapeHtml(s.value_name)||"(Default)"}</td><td class="mono">${escapeHtml(s.registry_type)}</td><td><div class="truncate" title="${escapeHtml(formatValue(s))}">${escapeHtml(formatValue(s))}</div></td><td><div class="row-actions"><button data-edit-setting="${s.id}">Edit</button><button data-delete-setting="${s.id}">×</button></div></td></tr>`).join("");
+  $("#settings-table").innerHTML=items.map(s=>`<tr><td><span class="side ${s.side}">${s.side}</span></td><td><div class="mono truncate" title="${escapeHtml(s.hive+'\\'+s.key)}">${escapeHtml(s.hive+'\\'+s.key)}</div></td><td>${escapeHtml(s.value_name)||"(Default)"}</td><td class="mono">${escapeHtml(s.registry_type)}</td><td><div class="truncate" title="${escapeHtml(formatValue(s))}">${escapeHtml(formatValue(s))}</div></td><td><div class="row-actions"><button data-edit-setting="${escapeHtml(s.id)}">Edit</button><button data-delete-setting="${escapeHtml(s.id)}">×</button></div></td></tr>`).join("");
   $("#settings-empty").hidden=items.length>0;
   $$('[data-edit-setting]').forEach(el=>el.onclick=()=>openSetting(state.current.settings.find(s=>s.id===el.dataset.editSetting)));
   $$('[data-delete-setting]').forEach(el=>el.onclick=()=>deleteSetting(el.dataset.deleteSetting));
 }
 export function renderLinks(){
-  const items=state.current.links;$("#links-table").innerHTML=items.map(l=>`<tr><td><strong>${l.order}</strong></td><td class="mono">${escapeHtml(l.target)}</td><td><span class="pill ${l.enabled?'ok':'warn'}">${l.enabled?'Enabled':'Disabled'}</span></td><td>${l.enforced?'Yes':'No'}</td><td><div class="row-actions"><button data-edit-link="${l.id}">Edit</button><button data-delete-link="${l.id}">×</button></div></td></tr>`).join("");
+  const items=state.current.links;$("#links-table").innerHTML=items.map(l=>`<tr><td><strong>${l.order}</strong></td><td class="mono">${escapeHtml(l.target)}</td><td><span class="pill ${l.enabled?'ok':'warn'}">${l.enabled?'Enabled':'Disabled'}</span></td><td>${l.enforced?'Yes':'No'}</td><td><div class="row-actions"><button data-edit-link="${escapeHtml(l.id)}">Edit</button><button data-delete-link="${escapeHtml(l.id)}">×</button></div></td></tr>`).join("");
   $("#links-empty").hidden=items.length>0;$$('[data-edit-link]').forEach(el=>el.onclick=()=>openLink(items.find(l=>l.id===el.dataset.editLink)));$$('[data-delete-link]').forEach(el=>el.onclick=()=>deleteLink(el.dataset.deleteLink));
 }
 export function renderFilters(){
   const items=state.current.security_filters||[];
-  $("#filters-table").innerHTML=items.map(f=>`<tr><td class="mono">${escapeHtml(f.principal)}</td><td>${escapeHtml(f.permission)}</td><td>${escapeHtml(f.target_type||"group")}</td><td>${f.inheritable?"Yes":"No"}</td><td><div class="row-actions"><button data-edit-filter="${f.id}">Edit</button><button data-delete-filter="${f.id}">×</button></div></td></tr>`).join("");
+  $("#filters-table").innerHTML=items.map(f=>`<tr><td class="mono">${escapeHtml(f.principal)}</td><td>${escapeHtml(f.permission)}</td><td>${escapeHtml(f.target_type||"group")}</td><td>${f.inheritable?"Yes":"No"}</td><td><div class="row-actions"><button data-edit-filter="${escapeHtml(f.id)}">Edit</button><button data-delete-filter="${escapeHtml(f.id)}">×</button></div></td></tr>`).join("");
   $("#filters-empty").hidden=items.length>0;
   $$('[data-edit-filter]').forEach(el=>el.onclick=()=>openFilter(items.find(f=>f.id===el.dataset.editFilter)));
   $$('[data-delete-filter]').forEach(el=>el.onclick=()=>deleteFilter(el.dataset.deleteFilter));

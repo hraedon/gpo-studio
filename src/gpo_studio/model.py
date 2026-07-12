@@ -63,6 +63,7 @@ class SecurityFilter:
     permission: Literal["apply", "read"] = "apply"
     inheritable: bool = True
     target_type: TargetType = "group"
+    sid: str = ""
 
 
 @dataclass(frozen=True, slots=True)

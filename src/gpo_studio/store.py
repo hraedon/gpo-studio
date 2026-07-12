@@ -81,12 +81,19 @@ def _cse_metadata_entry(data: dict[str, Any]) -> CseMetadataEntry:
 
 
 def _security_filter(data: dict[str, Any]) -> SecurityFilter:
+    permission = data.get("permission", "apply")
+    if permission not in ("apply", "read"):
+        raise ValueError(f"Invalid permission: {permission!r}")
+    target_type = data.get("target_type", "group")
+    if target_type not in ("user", "group", "computer"):
+        raise ValueError(f"Invalid target_type: {target_type!r}")
     return SecurityFilter(
         id=str(data["id"]),
         principal=str(data["principal"]),
-        permission=data.get("permission", "apply"),
+        permission=permission,
         inheritable=bool(data.get("inheritable", True)),
-        target_type=data.get("target_type", "group"),
+        target_type=target_type,
+        sid=str(data.get("sid", "")),
     )
 
 

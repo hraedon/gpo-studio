@@ -1,6 +1,6 @@
 # Plan 013 — GPMC-compliant XML, migration tables, estate diff UI
 
-Status: proposed
+Status: implemented
 Scope: complete Plan 012's remaining WPs (GPMC-compliant SecurityFilter XML,
 migration table support), add estate diff visualization UI, and file upload
 for estate import

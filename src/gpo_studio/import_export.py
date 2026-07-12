@@ -126,6 +126,7 @@ def backup_security_filters_to_model(
             permission=cast(Literal["apply", "read"], f.permission),
             inheritable=f.inheritable,
             target_type=cast(Literal["user", "group", "computer"], f.target_type),
+            sid=f.sid,
         )
         for i, f in enumerate(filters)
     )

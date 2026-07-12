@@ -256,7 +256,8 @@ _MANIFEST_XML = b"""<?xml version="1.0" encoding="utf-8"?>
 </BackupInstances>"""
 
 
-def test_backup_import(tmp_path) -> None:
+def test_backup_import(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
     backup_dir = tmp_path / "backup"
     gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
     machine_dir = gpo_dir / "Machine"
@@ -337,7 +338,8 @@ def test_gpmc_backup_export(tmp_path) -> None:
             assert backup.gpos[0].display_name == "Export test"
 
 
-def test_gpmc_backup_roundtrip(tmp_path) -> None:
+def test_gpmc_backup_roundtrip(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False
@@ -514,7 +516,8 @@ def test_ad_hoc_diff_malformed_dict(tmp_path) -> None:
         assert resp.status_code == 422
 
 
-def test_backup_import_no_registry_pol(tmp_path) -> None:
+def test_backup_import_no_registry_pol(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
     backup_dir = tmp_path / "backup"
     gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
     gpo_dir.mkdir(parents=True)
@@ -702,9 +705,10 @@ def test_backup_import_no_inbox_configured(tmp_path: Path, monkeypatch) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False
+    monkeypatch.chdir(tmp_path)
     with TestClient(app) as client:
         resp = client.post("/api/backups/import", json={
-            "path": str(backup_dir),
+            "path": "backup",
         })
         assert resp.status_code == 201
         gpo = resp.json()["gpo"]
@@ -967,7 +971,8 @@ def test_domain_update_via_api(tmp_path) -> None:
         assert updated["domain"] == "corp.example.test"
 
 
-def test_gpmc_backup_roundtrip_with_filters(tmp_path) -> None:
+def test_gpmc_backup_roundtrip_with_filters(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False

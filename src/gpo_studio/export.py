@@ -7,6 +7,7 @@ import json
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import asdict
+from typing import assert_never
 
 from .canonical import semantic_dict, semantic_hash
 from .model import GPO, RegistrySetting
@@ -115,7 +116,13 @@ def powershell_plan(gpo: GPO) -> str:
         lines.append("    }")
         lines.append("}")
         for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
-            perm = "GpoApply" if sf.permission == "apply" else "GpoRead"
+            match sf.permission:
+                case "apply":
+                    perm = "GpoApply"
+                case "read":
+                    perm = "GpoRead"
+                case _:
+                    assert_never(sf.permission)
             target_type_ps = sf.target_type.title()
             lines.append(
                 f"Set-GPPermission -Guid $gpo.Id -PermissionLevel {perm}"
@@ -231,10 +238,21 @@ def _append_security_filters(parent: ET.Element, gpo: GPO) -> None:
     sf_elem = ET.SubElement(parent, f"{{{_GPMC_NS}}}SecurityFilters")
     for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
         child = ET.SubElement(sf_elem, f"{{{_GPMC_NS}}}SecurityFilter")
-        child.set("principal", sf.principal)
-        child.set("permission", "GpoApply" if sf.permission == "apply" else "GpoRead")
-        child.set("inheritable", "true" if sf.inheritable else "false")
-        child.set("target_type", sf.target_type)
+        trustee = ET.SubElement(child, f"{{{_GPMC_NS}}}Trustee")
+        ET.SubElement(trustee, f"{{{_GPMC_NS}}}Sid").text = sf.sid
+        ET.SubElement(trustee, f"{{{_GPMC_NS}}}Name").text = sf.principal
+        ET.SubElement(trustee, f"{{{_GPMC_NS}}}Type").text = sf.target_type.title()
+        match sf.permission:
+            case "apply":
+                perm_text = "GpoApply"
+            case "read":
+                perm_text = "GpoRead"
+            case _:
+                assert_never(sf.permission)
+        ET.SubElement(child, f"{{{_GPMC_NS}}}Permission").text = perm_text
+        ET.SubElement(child, f"{{{_GPMC_NS}}}Inheritable").text = (
+            "true" if sf.inheritable else "false"
+        )
 
 
 def _build_bkup_info_xml(gpo: GPO) -> bytes:

@@ -236,6 +236,26 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     sf_path,
                 )
             )
+        if sf.sid:
+            sf_sid_path = f"security_filters/{sf.id}/sid"
+            if any(ord(c) < 0x20 for c in sf.sid):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "control_character_in_sid",
+                        "Security filter SID contains control characters.",
+                        sf_sid_path,
+                    )
+                )
+            if not _PRINCIPAL_SID.match(sf.sid):
+                issues.append(
+                    ValidationIssue(
+                        "warning",
+                        "invalid_sid_format",
+                        "SID does not match expected format (S-1-5-...).",
+                        sf_sid_path,
+                    )
+                )
     if gpo.wmi_filter is not None:
         wf = gpo.wmi_filter
         if not wf.name.strip():

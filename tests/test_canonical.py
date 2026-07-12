@@ -226,3 +226,19 @@ def test_semantic_dict_security_filters_include_target_type() -> None:
     assert all("target_type" in sf for sf in sd["security_filters"])
     assert sd["security_filters"][0]["target_type"] == "user"
     assert sd["security_filters"][1]["target_type"] == "computer"
+
+
+def test_semantic_dict_security_filters_include_sid() -> None:
+    gpo = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="SID test",
+        security_filters=(
+            SecurityFilter(
+                id="sf-1",
+                principal="Domain Admins",
+                sid="S-1-5-32-544",
+            ),
+        ),
+    )
+    sd = semantic_dict(gpo)
+    assert sd["security_filters"][0]["sid"] == "s-1-5-32-544"

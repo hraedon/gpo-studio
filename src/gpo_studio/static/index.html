@@ -43,6 +43,7 @@
           <button class="tab" data-tab="links">Scope & links <span id="link-count"></span></button>
           <button class="tab" data-tab="security">Security <span id="filter-count"></span></button>
           <button class="tab" data-tab="history">History</button>
+          <button class="tab" data-tab="diff">Diff</button>
           <button class="tab" data-tab="admx">ADMX</button>
         </div>
 
@@ -84,6 +85,19 @@
         <div class="panel" id="panel-history">
           <div class="section-head"><div><p class="eyebrow">Immutable audit trail</p><h2>Revision history</h2></div></div>
           <div class="timeline" id="history-list"></div>
+        </div>
+
+        <div class="panel" id="panel-diff">
+          <div class="section-head">
+            <div><p class="eyebrow">Three-way comparison</p><h2>Estate diff</h2></div>
+            <button class="primary" id="run-diff">Run diff</button>
+          </div>
+          <div class="diff-selector">
+            <label>Baseline<select id="diff-baseline"></select></label>
+            <label>Draft<select id="diff-draft"></select></label>
+            <label>Observed<select id="diff-observed"></select></label>
+          </div>
+          <div id="diff-results"></div>
         </div>
 
         <div class="panel" id="panel-admx">
@@ -179,7 +193,20 @@
   <dialog id="estate-dialog">
     <form method="dialog" id="estate-form">
       <div class="dialog-head"><div><p class="eyebrow">Estate import</p><h2>Import gpo-lens estate</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
-      <label>Paste estate JSON<textarea name="json" rows="12" placeholder='{"kind": "gpo-lens-estate", ...}'></textarea></label>
+      <div class="estate-toggle">
+        <button type="button" class="chip active" data-mode="upload">Upload file</button>
+        <button type="button" class="chip" data-mode="paste">Paste JSON</button>
+      </div>
+      <div id="estate-upload-section">
+        <label class="file-upload">
+          <input type="file" id="estate-file" accept=".json,application/json">
+          <span class="file-upload-label">Choose a .json file…</span>
+        </label>
+        <div id="estate-file-info" class="file-info" hidden></div>
+      </div>
+      <div id="estate-paste-section" hidden>
+        <textarea name="json" rows="12" placeholder='{"kind": "gpo-lens-estate", ...}'></textarea>
+      </div>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Import</button></div>
     </form>
   </dialog>
