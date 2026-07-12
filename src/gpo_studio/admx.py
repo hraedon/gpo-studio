@@ -5,7 +5,9 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, assert_never, cast
+
+from .model import RegistryType
 
 _MAX_FILE_SIZE = 10 * 1024 * 1024
 _MAX_DEPTH = 100
@@ -30,6 +32,14 @@ class Category:
 
 
 @dataclass(frozen=True, slots=True)
+class EnumItem:
+    id: str
+    display_name: str
+    value: str | int
+    registry_type: RegistryType
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyElement:
     kind: Literal["boolean", "decimal", "text", "enum", "list", "multitext", "unknown"]
     id: str
@@ -37,6 +47,7 @@ class PolicyElement:
     registry_value_name: str = ""
     tag_name: str = ""
     attributes: tuple[tuple[str, str], ...] = ()
+    enum_items: tuple[EnumItem, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +170,77 @@ def _parse_supported_on(
     return defs
 
 
-def _parse_elements(policy_elem: ET.Element) -> tuple[PolicyElement, ...]:
+def _parse_enum_items(
+    enum_elem: ET.Element, strings: dict[str, str]
+) -> tuple[EnumItem, ...]:
+    items: list[EnumItem] = []
+    for item_elem in enum_elem:
+        if _local_name(item_elem.tag) != "item":
+            continue
+        item_id = item_elem.get("id", "")
+        display_ref = item_elem.get("displayName", "")
+        display_name = _resolve_string_ref(display_ref, strings)
+        value_kind: Literal["decimal", "string", "longDecimal"] | None = None
+        value_raw = ""
+        for child in item_elem:
+            child_local = _local_name(child.tag)
+            if child_local == "decimal":
+                value_kind = "decimal"
+                value_raw = child.get("value", "")
+                break
+            if child_local == "string":
+                value_kind = "string"
+                value_raw = child.get("value", "")
+                break
+            if child_local == "longDecimal":
+                value_kind = "longDecimal"
+                value_raw = child.get("value", "")
+                break
+        if value_kind is None:
+            continue
+        if value_kind == "decimal":
+            try:
+                parsed_value: str | int = int(value_raw)
+            except ValueError:
+                continue
+            items.append(
+                EnumItem(
+                    id=item_id or value_raw,
+                    display_name=display_name,
+                    value=parsed_value,
+                    registry_type="REG_DWORD",
+                )
+            )
+        elif value_kind == "string":
+            items.append(
+                EnumItem(
+                    id=item_id or value_raw,
+                    display_name=display_name,
+                    value=value_raw,
+                    registry_type="REG_SZ",
+                )
+            )
+        elif value_kind == "longDecimal":
+            try:
+                parsed_value = int(value_raw)
+            except ValueError:
+                continue
+            items.append(
+                EnumItem(
+                    id=item_id or value_raw,
+                    display_name=display_name,
+                    value=parsed_value,
+                    registry_type="REG_QWORD",
+                )
+            )
+        else:
+            assert_never(value_kind)
+    return tuple(items)
+
+
+def _parse_elements(
+    policy_elem: ET.Element, strings: dict[str, str]
+) -> tuple[PolicyElement, ...]:
     elements: list[PolicyElement] = []
     elem_container = policy_elem.find(f"{{{_ADMX_NS}}}elements")
     if elem_container is None:
@@ -192,9 +273,16 @@ def _parse_elements(policy_elem: ET.Element) -> tuple[PolicyElement, ...]:
         elem_id = child.get("id", "")
         reg_key = child.get("key", "")
         reg_val = child.get("valueName", "")
+        enum_items: tuple[EnumItem, ...] = ()
+        if kind == "enum":
+            enum_items = _parse_enum_items(child, strings)
         elements.append(
             PolicyElement(
-                kind=kind, id=elem_id, registry_key=reg_key, registry_value_name=reg_val
+                kind=kind,
+                id=elem_id,
+                registry_key=reg_key,
+                registry_value_name=reg_val,
+                enum_items=enum_items,
             )
         )
     return tuple(elements)
@@ -263,7 +351,7 @@ def _parse_policies(
         explain_ref = pol_elem.get("explainText", "")
         explain_text = _resolve_string_ref(explain_ref, strings)
 
-        elements = _parse_elements(pol_elem)
+        elements = _parse_elements(pol_elem, strings)
         presentation = _parse_presentation(pol_elem, strings)
 
         policies.append(

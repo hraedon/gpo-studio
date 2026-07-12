@@ -115,10 +115,16 @@ def semantic_dict_link(link: GPOLink) -> dict[str, Any]:
 
 
 def semantic_dict(gpo: GPO) -> dict[str, Any]:
-    # Excludes source_guid, cse_metadata, created_at, updated_at, and revision:
-    # the hash reflects policy content, not import provenance or metadata.
+    # Excludes source_guid, cse_metadata, created_at, updated_at,
+    # and revision: the hash reflects policy content and reach, not import
+    # provenance or metadata.
     settings_sorted = sorted(gpo.settings, key=lambda s: s.identity())
     links_sorted = sorted(gpo.links, key=lambda link: (link.target.casefold(), link.order))
+    security_filters_sorted = sorted(
+        gpo.security_filters,
+        key=lambda sf: (sf.principal.casefold(), sf.permission, sf.inheritable),
+    )
+    wmi = gpo.wmi_filter
     return {
         "guid": gpo.guid,
         "name": gpo.name,
@@ -128,6 +134,24 @@ def semantic_dict(gpo: GPO) -> dict[str, Any]:
         "status": gpo.status,
         "settings": [semantic_dict_setting(s) for s in settings_sorted],
         "links": [semantic_dict_link(link) for link in links_sorted],
+        "security_filters": [
+            {
+                "principal": sf.principal.casefold(),
+                "permission": sf.permission,
+                "inheritable": sf.inheritable,
+            }
+            for sf in security_filters_sorted
+        ],
+        "wmi_filter": (
+            {
+                "name": wmi.name,
+                "query": wmi.query,
+                "language": wmi.language,
+            }
+            if wmi is not None
+            else None
+        ),
+        "domain": gpo.domain,
     }
 
 

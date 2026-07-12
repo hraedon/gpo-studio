@@ -173,7 +173,7 @@ def _build_manifest_xml(gpo: GPO) -> bytes:
     gpo_elem = ET.SubElement(inst, f"{{{_GPMC_NS}}}GPO")
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Domain").text = "studio.local"
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Domain").text = gpo.domain
     has_computer = any(s.side == "computer" for s in gpo.settings)
     has_user = any(s.side == "user" for s in gpo.settings)
     if has_computer:
@@ -191,6 +191,7 @@ def _build_bkup_info_xml(gpo: GPO) -> bytes:
     gpo_elem = ET.SubElement(root, f"{{{_GPMC_NS}}}GPO")
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
+    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Domain").text = gpo.domain
     return _xml_to_bytes(root)
 
 
