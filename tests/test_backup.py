@@ -6,6 +6,7 @@ import pytest
 
 from gpo_studio.backup import (
     BackupError,
+    parse_bkup_info,
     parse_manifest,
     read_backup,
     read_cse_content,
@@ -141,3 +142,82 @@ def test_entity_declaration_rejected(tmp_path: Path) -> None:
     manifest = b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types"/>'
     with pytest.raises(BackupError, match="entity"):
         parse_manifest(manifest)
+
+
+_BKUP_INFO_XML = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInfo xmlns="http://www.microsoft.com/GroupPolicy/Types">
+  <BackupTime>2026-06-01T00:00:00</BackupTime>
+  <ID>bkup-override</ID>
+  <BackupType>GPO</BackupType>
+  <GPO>
+    <Identifier>11111111-2222-3333-4444-555555555555</Identifier>
+    <DisplayName>Bkup Display Name</DisplayName>
+    <Domain>bkup.example.test</Domain>
+  </GPO>
+</BackupInfo>"""
+
+_MANIFEST_MULTI_EXT = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types">
+  <BackupInstance>
+    <BackupTime>2026-01-01T00:00:00</BackupTime>
+    <ID>backup-003</ID>
+    <GPO>
+      <Identifier>11111111-2222-3333-4444-555555555555</Identifier>
+      <DisplayName>Synthetic Policy</DisplayName>
+      <Domain>example.test</Domain>
+      <MachineExtensionGuids>
+        {35378EAC-683F-11D2-A89A-00C04FBBCFA2}
+        {AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}
+      </MachineExtensionGuids>
+    </GPO>
+  </BackupInstance>
+</BackupInstances>"""
+
+
+def test_parse_bkup_info() -> None:
+    backup = parse_bkup_info(_BKUP_INFO_XML)
+    assert backup.backup_time == "2026-06-01T00:00:00"
+    assert backup.backup_id == "bkup-override"
+    assert backup.backup_type == "GPO"
+    assert len(backup.gpos) == 1
+    assert backup.gpos[0].guid == "11111111-2222-3333-4444-555555555555"
+    assert backup.gpos[0].display_name == "Bkup Display Name"
+    assert backup.gpos[0].domain == "bkup.example.test"
+
+
+def test_read_backup_bkup_info_overrides(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    (backup_dir / "bkupInfo.xml").write_bytes(_BKUP_INFO_XML)
+
+    backup = read_backup(backup_dir)
+    assert backup.backup_time == "2026-06-01T00:00:00"
+    assert backup.backup_id == "bkup-override"
+    assert backup.backup_type == "GPO"
+    assert backup.gpos[0].display_name == "Bkup Display Name"
+    assert backup.gpos[0].domain == "bkup.example.test"
+
+
+def test_read_backup_registry_attributed_to_registry_cse(tmp_path: Path) -> None:
+    registry_guid = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
+    other_guid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}"
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (machine_dir / "UnknownCSE.xml").write_bytes(b"<unknown>data</unknown>")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_MULTI_EXT)
+
+    backup = read_backup(backup_dir)
+    machine_exts = backup.gpos[0].machine_extensions
+    assert len(machine_exts) == 2
+    ext_map = {ext.guid: ext for ext in machine_exts}
+    registry_files = {f.relative_path for f in ext_map[registry_guid].files}
+    other_files = {f.relative_path for f in ext_map[other_guid].files}
+    assert "Registry.pol" in registry_files
+    assert "Registry.pol" not in other_files

@@ -1,4 +1,4 @@
-const state={gpos:[],current:null,validation:[],side:"all",editingSetting:null,editingLink:null};
+const state={gpos:[],current:null,validation:[],semanticHash:"",side:"all",editingSetting:null,editingLink:null};
 const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
 const escapeHtml=value=>String(value??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -25,7 +25,7 @@ function renderList(){
 }
 function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 async function selectGpo(guid){
-  const data=await api(`/api/gpos/${guid}`);state.current=data.gpo;state.validation=data.validation;
+  const data=await api(`/api/gpos/${guid}`);state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";
   $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
   renderAll();renderList();
 }
@@ -33,7 +33,7 @@ function renderAll(){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
   $("#plan").href=`/api/gpos/${g.guid}/plan.ps1`;$("#export").href=`/api/gpos/${g.guid}/export.zip`;
   $("#setting-count").textContent=g.settings.length;$("#link-count").textContent=g.links.length;
-  $("#metadata").innerHTML=`<dt>GUID</dt><dd class="mono">${escapeHtml(g.guid)}</dd><dt>Description</dt><dd>${escapeHtml(g.description)||"—"}</dd><dt>Status</dt><dd><span class="pill ${g.status==='ready'?'ok':'warn'}">${escapeHtml(g.status)}</span></dd><dt>Computer</dt><dd>${g.computer_enabled?"Enabled":"Disabled"}</dd><dt>User</dt><dd>${g.user_enabled?"Enabled":"Disabled"}</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`;
+  $("#metadata").innerHTML=`<dt>GUID</dt><dd class="mono">${escapeHtml(g.guid)}</dd><dt>Description</dt><dd>${escapeHtml(g.description)||"—"}</dd><dt>Status</dt><dd><span class="pill ${g.status==='ready'?'ok':'warn'}">${escapeHtml(g.status)}</span></dd><dt>Computer</dt><dd>${g.computer_enabled?"Enabled":"Disabled"}</dd><dt>User</dt><dd>${g.user_enabled?"Enabled":"Disabled"}</dd><dt>Semantic hash</dt><dd class="mono" title="${escapeHtml(state.semanticHash)}">${escapeHtml(state.semanticHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`;
   renderValidation();renderSettings();renderLinks();
   if($("#panel-history").classList.contains("active"))loadHistory();
 }
@@ -83,14 +83,37 @@ function openLink(link=null){
 }
 
 $("#gpo-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget;try{let data;if(f.dataset.edit==="true"){data=await api(`/api/gpos/${state.current.guid}`,{method:"PATCH",body:JSON.stringify({...audit(f.reason.value),name:f.name.value,description:f.description.value,computer_enabled:f.computer_enabled.checked,user_enabled:f.user_enabled.checked,status:f.status.value})})}else{data=await api("/api/gpos",{method:"POST",body:JSON.stringify({name:f.name.value,description:f.description.value,actor:"local-operator",reason:f.reason.value})})}$("#gpo-dialog").close();await loadList(data.gpo.guid);toast(f.dataset.edit==="true"?"Policy details saved":"Draft policy created")}catch(error){toast(error.message)}};
-$("#setting-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,type=f.registry_type.value;let value=f.value.value;if(type==="REG_DWORD"||type==="REG_QWORD")value=Number(value);else if(type==="REG_MULTI_SZ")value=value.split(/\r?\n/).filter(Boolean);const setting={side:f.side.value,hive:f.side.value==="computer"?"HKLM":"HKCU",key:f.key.value.replace(/^\\+|\\+$/g,""),value_name:f.value_name.value,registry_type:type,value,action:f.action.value,comment:f.comment.value};const path=state.editingSetting?`/api/gpos/${state.current.guid}/settings/${state.editingSetting.id}`:`/api/gpos/${state.current.guid}/settings`;try{const data=await api(path,{method:state.editingSetting?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),setting})});$("#setting-dialog").close();state.current=data.gpo;state.validation=data.validation;renderAll();renderList();toast("Registry policy saved")}catch(error){toast(error.message)}};
-$("#link-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,link={target:f.target.value,order:Number(f.order.value),enabled:f.enabled.checked,enforced:f.enforced.checked};const path=state.editingLink?`/api/gpos/${state.current.guid}/links/${state.editingLink.id}`:`/api/gpos/${state.current.guid}/links`;try{const data=await api(path,{method:state.editingLink?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),link})});$("#link-dialog").close();state.current=data.gpo;state.validation=data.validation;renderAll();renderList();toast("Link intent saved")}catch(error){toast(error.message)}};
+$("#setting-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,type=f.registry_type.value;let value=f.value.value;if(type==="REG_DWORD"||type==="REG_QWORD")value=Number(value);else if(type==="REG_MULTI_SZ")value=value.split(/\r?\n/).filter(Boolean);const setting={side:f.side.value,hive:f.side.value==="computer"?"HKLM":"HKCU",key:f.key.value.replace(/^\\+|\\+$/g,""),value_name:f.value_name.value,registry_type:type,value,action:f.action.value,comment:f.comment.value};const path=state.editingSetting?`/api/gpos/${state.current.guid}/settings/${state.editingSetting.id}`:`/api/gpos/${state.current.guid}/settings`;try{const data=await api(path,{method:state.editingSetting?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),setting})});$("#setting-dialog").close();state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Registry policy saved")}catch(error){toast(error.message)}};
+$("#link-form").onsubmit=async event=>{event.preventDefault();const f=event.currentTarget,link={target:f.target.value,order:Number(f.order.value),enabled:f.enabled.checked,enforced:f.enforced.checked};const path=state.editingLink?`/api/gpos/${state.current.guid}/links/${state.editingLink.id}`:`/api/gpos/${state.current.guid}/links`;try{const data=await api(path,{method:state.editingLink?"PUT":"POST",body:JSON.stringify({...audit(f.reason.value),link})});$("#link-dialog").close();state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Link intent saved")}catch(error){toast(error.message)}};
 
-async function deleteSetting(id){if(!confirm("Remove this setting from the draft?"))return;try{const data=await api(`/api/gpos/${state.current.guid}/settings/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove registry policy")})});state.current=data.gpo;state.validation=data.validation;renderAll();renderList();toast("Setting removed")}catch(error){toast(error.message)}}
-async function deleteLink(id){if(!confirm("Remove this link from the draft?"))return;try{const data=await api(`/api/gpos/${state.current.guid}/links/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove link intent")})});state.current=data.gpo;state.validation=data.validation;renderAll();renderList();toast("Link removed")}catch(error){toast(error.message)}}
-async function restoreRevision(revision){if(!confirm(`Restore revision ${revision} as a new revision?`))return;try{const data=await api(`/api/gpos/${state.current.guid}/revisions/${revision}/restore`,{method:"POST",body:JSON.stringify({...audit(`Restore revision ${revision}`)})});state.current=data.gpo;state.validation=data.validation;renderAll();renderList();await loadHistory();toast(`Revision ${revision} restored`)}catch(error){toast(error.message)}}
+async function deleteSetting(id){if(!confirm("Remove this setting from the draft?"))return;try{const data=await api(`/api/gpos/${state.current.guid}/settings/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove registry policy")})});state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Setting removed")}catch(error){toast(error.message)}}
+async function deleteLink(id){if(!confirm("Remove this link from the draft?"))return;try{const data=await api(`/api/gpos/${state.current.guid}/links/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove link intent")})});state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();toast("Link removed")}catch(error){toast(error.message)}}
+async function restoreRevision(revision){if(!confirm(`Restore revision ${revision} as a new revision?`))return;try{const data=await api(`/api/gpos/${state.current.guid}/revisions/${revision}/restore`,{method:"POST",body:JSON.stringify({...audit(`Restore revision ${revision}`)})});state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";renderAll();renderList();await loadHistory();toast(`Revision ${revision} restored`)}catch(error){toast(error.message)}}
 
-$$(".tab").forEach(tab=>tab.onclick=()=>{$$(".tab").forEach(x=>x.classList.toggle("active",x===tab));$$(".panel").forEach(x=>x.classList.toggle("active",x.id===`panel-${tab.dataset.tab}`));if(tab.dataset.tab==="history")loadHistory()});
+let admxLoaded=null,admxTimer=null,admxCatsLoaded=false;
+async function checkAdmx(){
+  if(admxLoaded===null){try{const h=await api("/api/health");admxLoaded=h.admx_loaded===true}catch(e){admxLoaded=false}$("#admx-empty").hidden=admxLoaded;$("#admx-content").hidden=!admxLoaded}
+  if(admxLoaded){if(!admxCatsLoaded){admxCatsLoaded=true;loadAdmxCategories()}loadAdmxResults($("#admx-search").value)}
+}
+async function loadAdmxResults(q){
+  try{const data=await api(`/api/admx/search?q=${encodeURIComponent(q)}`);$("#admx-results").hidden=false;$("#admx-detail").hidden=true;
+    $("#admx-results").innerHTML=data.items.length?data.items.map(p=>`<button class="admx-result" data-id="${escapeHtml(p.id)}"><div><strong>${escapeHtml(p.display_name)}</strong><span class="side ${p.class_==='Machine'?'computer':'user'}">${escapeHtml(p.class_)}</span></div><small class="mono">${escapeHtml(p.key)}</small><p>${escapeHtml((p.explain_text||"").slice(0,120))}${(p.explain_text||"").length>120?'…':''}</p></button>`).join(""):'<div class="table-empty">No policies found.</div>';
+    $$(".admx-result").forEach(el=>el.onclick=()=>loadAdmxDetail(el.dataset.id));
+  }catch(e){toast(e.message)}
+}
+async function loadAdmxDetail(id){
+  try{const p=await api(`/api/admx/policies/${encodeURIComponent(id)}`);$("#admx-results").hidden=true;$("#admx-detail").hidden=false;
+    $("#admx-detail").innerHTML=`<div class="admx-detail-head"><button class="quiet" id="admx-back">← Back</button><h3>${escapeHtml(p.display_name)}</h3></div><dl class="details"><dt>ID</dt><dd class="mono">${escapeHtml(p.id)}</dd><dt>Class</dt><dd>${escapeHtml(p.class_)}</dd><dt>Key</dt><dd class="mono">${escapeHtml(p.key)}</dd><dt>Category</dt><dd>${escapeHtml(p.parent_category)||"—"}</dd><dt>Supported on</dt><dd>${escapeHtml(p.supported_on)||"—"}</dd><dt>Explanation</dt><dd>${escapeHtml(p.explain_text)||"—"}</dd>${p.elements&&p.elements.length?`<dt>Elements</dt><dd>${p.elements.map(e=>`<div class="mono">${escapeHtml(e.kind)}: ${escapeHtml(e.id)}</div>`).join("")}</dd>`:""}${p.presentation&&p.presentation.length?`<dt>Presentation</dt><dd>${p.presentation.map(e=>`<div>${escapeHtml(e.kind)}: ${escapeHtml(e.label||e.id)}</div>`).join("")}</dd>`:""}</dl>`;
+    $("#admx-back").onclick=()=>{$("#admx-detail").hidden=true;$("#admx-results").hidden=false};
+  }catch(e){toast(e.message)}
+}
+async function loadAdmxCategories(){
+  try{const data=await api("/api/admx/categories");$("#admx-categories").innerHTML=data.items.length?data.items.map(c=>`<div class="admx-cat">${escapeHtml(c.display_name)}<small class="mono">${escapeHtml(c.id)}</small></div>`).join(""):'<div class="table-empty">No categories.</div>';
+  }catch(e){}
+}
+$("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};
+
+$$(".tab").forEach(tab=>tab.onclick=()=>{$$(".tab").forEach(x=>x.classList.toggle("active",x===tab));$$(".panel").forEach(x=>x.classList.toggle("active",x.id===`panel-${tab.dataset.tab}`));if(tab.dataset.tab==="history")loadHistory();if(tab.dataset.tab==="admx")checkAdmx()});
 $$(".chip").forEach(chip=>chip.onclick=()=>{$$(".chip").forEach(x=>x.classList.toggle("active",x===chip));state.side=chip.dataset.side;renderSettings()});
 $("#new-gpo").onclick=()=>openGpo();$("#empty-new").onclick=()=>openGpo();$("#edit-metadata").onclick=()=>openGpo(true);$("#add-setting").onclick=()=>openSetting();$("#add-link").onclick=()=>openLink();$("#search").oninput=renderList;
 for(const name of ["side","action","registry_type"])$("#setting-form")[name].onchange=syncSettingForm;

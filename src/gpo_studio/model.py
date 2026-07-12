@@ -47,6 +47,8 @@ class GPO:
     revision: int = 0
     settings: tuple[RegistrySetting, ...] = field(default_factory=tuple)
     links: tuple[GPOLink, ...] = field(default_factory=tuple)
+    source_guid: str = ""
+    cse_metadata: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     created_at: str = ""
     updated_at: str = ""
 

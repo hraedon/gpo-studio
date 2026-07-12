@@ -53,8 +53,7 @@ def test_powershell_plan_escapes_names_and_maps_disabled_sides() -> None:
     assert " -Context " not in plan
     assert "New-GPLink" in plan
     assert "Set-GPLink" in plan
-    expected_status = "$gpo.GpoStatus = [Microsoft.GroupPolicy.GpoStatus]::UserSettingsDisabled"
-    assert expected_status in plan
+    assert "Set-GPO -Guid $gpo.Id -Status UserSettingsDisabled | Out-Null" in plan
 
 
 def test_bundle_is_byte_for_byte_deterministic() -> None:

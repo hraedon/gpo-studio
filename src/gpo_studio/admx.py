@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal, cast
 
 _MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -30,10 +31,12 @@ class Category:
 
 @dataclass(frozen=True, slots=True)
 class PolicyElement:
-    kind: Literal["boolean", "decimal", "text", "enum", "list", "multitext"]
+    kind: Literal["boolean", "decimal", "text", "enum", "list", "multitext", "unknown"]
     id: str
     registry_key: str = ""
     registry_value_name: str = ""
+    tag_name: str = ""
+    attributes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +164,9 @@ def _parse_elements(policy_elem: ET.Element) -> tuple[PolicyElement, ...]:
     elem_container = policy_elem.find(f"{{{_ADMX_NS}}}elements")
     if elem_container is None:
         return ()
-    kind_map: dict[str, Literal["boolean", "decimal", "text", "enum", "list", "multitext"]] = {
+    kind_map: dict[
+        str, Literal["boolean", "decimal", "text", "enum", "list", "multitext"]
+    ] = {
         "boolean": "boolean",
         "decimal": "decimal",
         "text": "text",
@@ -174,7 +179,14 @@ def _parse_elements(policy_elem: ET.Element) -> tuple[PolicyElement, ...]:
         kind = kind_map.get(local)
         if kind is None:
             elements.append(
-                PolicyElement(kind="text", id=local, registry_key="", registry_value_name="")
+                PolicyElement(
+                    kind="unknown",
+                    id=local,
+                    registry_key="",
+                    registry_value_name="",
+                    tag_name=local,
+                    attributes=tuple(sorted(child.attrib.items())),
+                )
             )
             continue
         elem_id = child.get("id", "")
@@ -289,6 +301,40 @@ def build_catalogue(admx_data: bytes, adml_data: bytes) -> AdmxCatalogue:
     categories = _parse_categories(root, strings)
     supported_on = _parse_supported_on(root, strings)
     policies = _parse_policies(root, strings)
+    return AdmxCatalogue(
+        policies=tuple(policies),
+        categories=tuple(categories),
+        supported_on=tuple(supported_on),
+    )
+
+
+def _find_adml(admx_path: Path) -> Path | None:
+    adml_path = admx_path.with_suffix(".adml")
+    if adml_path.exists():
+        return adml_path
+    for child in admx_path.parent.iterdir():
+        if child.is_dir():
+            candidate = child / (admx_path.stem + ".adml")
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def load_catalogue(directory: Path) -> AdmxCatalogue:
+    """Load all ADMX/ADML file pairs from a directory."""
+    if not directory.is_dir():
+        return AdmxCatalogue()
+    policies: list[PolicyDefinition] = []
+    categories: list[Category] = []
+    supported_on: list[SupportedOnDefinition] = []
+    for admx_path in sorted(directory.glob("*.admx")):
+        adml_path = _find_adml(admx_path)
+        if adml_path is None:
+            continue
+        catalogue = build_catalogue(admx_path.read_bytes(), adml_path.read_bytes())
+        policies.extend(catalogue.policies)
+        categories.extend(catalogue.categories)
+        supported_on.extend(catalogue.supported_on)
     return AdmxCatalogue(
         policies=tuple(policies),
         categories=tuple(categories),
