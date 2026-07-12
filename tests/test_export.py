@@ -299,3 +299,64 @@ def test_powershell_plan_sanitizes_wmi_newlines() -> None:
     assert len(wmi_lines) == 2
     for line in wmi_lines:
         assert not line.lstrip("# ").startswith("Remove-GPO")
+
+
+def test_powershell_plan_removes_stale_security_filters() -> None:
+    gpo = replace(
+        sample_gpo(),
+        security_filters=(
+            SecurityFilter(
+                id="sf-1",
+                principal="DOMAIN\\User1",
+                permission="apply",
+                inheritable=True,
+                target_type="user",
+            ),
+            SecurityFilter(
+                id="sf-2",
+                principal="DOMAIN\\Readers",
+                permission="read",
+                inheritable=False,
+                target_type="computer",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "$existing = (Get-GPO -Guid $gpo.Id).SecurityFiltering" in plan
+    assert "$desired = @('DOMAIN\\User1', 'DOMAIN\\Readers')" in plan
+    assert "foreach ($perm in $existing)" in plan
+    assert "$desired -notcontains $perm.Trustee.Name" in plan
+    assert (
+        "Set-GPPermission -Guid $gpo.Id -PermissionLevel None"
+        " -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType"
+        " -ErrorAction SilentlyContinue"
+    ) in plan
+
+
+def test_powershell_plan_sanitizes_wmi_backtick() -> None:
+    gpo = replace(
+        sample_gpo(),
+        wmi_filter=WmiFilter(
+            id="wmi-1",
+            name="Evil`Filter",
+            query="select * from Win32_Service",
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "Evil Filter" in plan
+    assert "Evil`Filter" not in plan
+
+
+def test_powershell_plan_sanitizes_domain_in_wmi_comment() -> None:
+    gpo = replace(
+        sample_gpo(),
+        domain="studio.local\nRemove-GPO -Guid $gpo.Id #",
+        wmi_filter=WmiFilter(
+            id="wmi-1",
+            name="TestFilter",
+            query="select * from Win32_Service",
+        ),
+    )
+    plan = powershell_plan(gpo)
+    for line in plan.splitlines():
+        assert not line.lstrip("# ").startswith("Remove-GPO")

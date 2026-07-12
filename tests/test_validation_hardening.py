@@ -37,8 +37,8 @@ def test_security_filter_empty_principal_error() -> None:
 def test_security_filter_duplicate_principal_different_case_error() -> None:
     gpo = _gpo(
         security_filters=(
-            SecurityFilter(id="sf-1", principal="Domain Admins"),
-            SecurityFilter(id="sf-2", principal="DOMAIN ADMINS"),
+            SecurityFilter(id="sf-1", principal="DOMAIN\\Admins"),
+            SecurityFilter(id="sf-2", principal="DOMAIN\\ADMINS"),
         ),
     )
     issues = validate_gpo(gpo)
@@ -52,8 +52,8 @@ def test_security_filter_duplicate_principal_different_case_error() -> None:
 def test_security_filter_valid_no_errors() -> None:
     gpo = _gpo(
         security_filters=(
-            SecurityFilter(id="sf-1", principal="Domain Admins"),
-            SecurityFilter(id="sf-2", principal="Help Desk", permission="read"),
+            SecurityFilter(id="sf-1", principal="DOMAIN\\Admins"),
+            SecurityFilter(id="sf-2", principal="DOMAIN\\HelpDesk", permission="read"),
         ),
     )
     assert validate_gpo(gpo) == []
@@ -162,8 +162,8 @@ def test_registry_valid_key_no_issues() -> None:
 def test_security_filter_duplicate_principal_whitespace_difference() -> None:
     gpo = _gpo(
         security_filters=(
-            SecurityFilter(id="sf-1", principal="Domain Admins"),
-            SecurityFilter(id="sf-2", principal=" Domain Admins "),
+            SecurityFilter(id="sf-1", principal="DOMAIN\\Admins"),
+            SecurityFilter(id="sf-2", principal=" DOMAIN\\Admins "),
         ),
     )
     issues = validate_gpo(gpo)
@@ -181,3 +181,115 @@ def test_wmi_query_substring_not_keyword() -> None:
 def test_registry_key_whitespace_only_error() -> None:
     issues = validate_setting(_setting(key="   "))
     assert any(i.code == "invalid_registry_key" for i in issues)
+
+
+def test_principal_format_domain_user_passes() -> None:
+    gpo = _gpo(
+        security_filters=(SecurityFilter(id="sf-1", principal="DOMAIN\\Admins"),),
+    )
+    assert not any(i.code == "invalid_principal_format" for i in validate_gpo(gpo))
+
+
+def test_principal_format_upn_passes() -> None:
+    gpo = _gpo(
+        security_filters=(SecurityFilter(id="sf-1", principal="admin@example.com"),),
+    )
+    assert not any(i.code == "invalid_principal_format" for i in validate_gpo(gpo))
+
+
+def test_principal_format_sid_passes() -> None:
+    gpo = _gpo(
+        security_filters=(SecurityFilter(id="sf-1", principal="S-1-5-32-544"),),
+    )
+    assert not any(i.code == "invalid_principal_format" for i in validate_gpo(gpo))
+
+
+def test_principal_format_plain_name_rejected() -> None:
+    gpo = _gpo(
+        security_filters=(SecurityFilter(id="sf-1", principal="just a name"),),
+    )
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "invalid_principal_format"
+        and i.severity == "error"
+        and i.path == "security_filters/sf-1/principal"
+        for i in issues
+    )
+
+
+def test_principal_format_empty_user_part_rejected() -> None:
+    gpo = _gpo(
+        security_filters=(SecurityFilter(id="sf-1", principal="DOMAIN\\"),),
+    )
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "invalid_principal_format"
+        and i.path == "security_filters/sf-1/principal"
+        for i in issues
+    )
+
+
+def test_principal_format_empty_domain_part_rejected() -> None:
+    gpo = _gpo(
+        security_filters=(SecurityFilter(id="sf-1", principal="\\user"),),
+    )
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "invalid_principal_format"
+        and i.path == "security_filters/sf-1/principal"
+        for i in issues
+    )
+
+
+def test_domain_empty_error() -> None:
+    gpo = _gpo(domain="   ")
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "empty_domain"
+        and i.severity == "error"
+        and i.path == "domain"
+        for i in issues
+    )
+
+
+def test_domain_too_long_error() -> None:
+    gpo = _gpo(domain="A" * 256)
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "domain_too_long"
+        and i.severity == "error"
+        and i.path == "domain"
+        for i in issues
+    )
+
+
+def test_domain_control_character_error() -> None:
+    gpo = _gpo(domain="studio\x00.local")
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "control_character_in_domain"
+        and i.severity == "error"
+        and i.path == "domain"
+        for i in issues
+    )
+
+
+def test_domain_format_suspicious_warning() -> None:
+    gpo = _gpo(domain="domain!")
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "domain_format_suspicious"
+        and i.severity == "warning"
+        and i.path == "domain"
+        for i in issues
+    )
+
+
+def test_domain_valid_fqdn_no_issues() -> None:
+    gpo = _gpo(domain="corp.example.com")
+    assert not any(i.path == "domain" for i in validate_gpo(gpo))
+
+
+def test_domain_default_studio_local_no_issues() -> None:
+    gpo = _gpo()
+    assert not any(i.path == "domain" for i in validate_gpo(gpo))

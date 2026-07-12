@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +21,7 @@ from .admx import AdmxCatalogue, AdmxError, load_catalogue
 from .backup import read_backup
 from .canonical import semantic_hash
 from .diff import diff_gpos, three_way_diff
+from .estate import parse_estate
 from .export import export_bundle, gpmc_backup_bundle, powershell_plan
 from .identity import ClaimedIdentity, claimed_identity
 from .import_export import (
@@ -141,6 +142,18 @@ class ConfigurePolicyRequest(Audit):
     gpo_guid: str = Field(min_length=1, max_length=255)
     side: Literal["computer", "user"]
     values: dict[str, bool | int | str | list[str]]
+
+
+class ForkGPO(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    actor: str = Field(default="local-operator", min_length=1, max_length=120)
+    reason: str = Field(default="Fork from baseline", min_length=1, max_length=500)
+
+
+class EstateDiffRequest(BaseModel):
+    baseline_guid: str = Field(min_length=1, max_length=255)
+    draft_guid: str = Field(min_length=1, max_length=255)
+    observed_guid: str = Field(min_length=1, max_length=255)
 
 
 def _store(request: Request) -> WorkspaceStore:
@@ -636,6 +649,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         settings=all_settings,
         security_filters=security_filters,
         wmi_filter=wmi_filter,
+        domain=backup_gpo.domain or "studio.local",
     )
     gpo_issues = [i for i in validate_gpo(temp_gpo) if i.severity == "error"]
     if gpo_issues:
@@ -670,3 +684,34 @@ def gpmc_backup(request: Request, guid: str) -> Response:
         ])
     headers = {"Content-Disposition": f'attachment; filename="{gpo.guid}-gpmc-backup.zip"'}
     return Response(gpmc_backup_bundle(gpo), media_type="application/zip", headers=headers)
+
+
+@app.post("/api/estate/import")
+def import_estate(
+    request: Request,
+    body: dict[str, Any],
+    actor: str = Query(default="local-operator", min_length=1, max_length=120),
+    reason: str = Query(default="Import gpo-lens estate", min_length=1, max_length=500),
+) -> dict[str, Any]:
+    gpos = parse_estate(body)
+    return _store(request).import_baseline_gpos(
+        gpos, identity=_identity(actor), reason=reason
+    )
+
+
+@app.post("/api/gpos/{guid}/fork", status_code=201)
+def fork_gpo(request: Request, guid: str, body: ForkGPO) -> dict[str, Any]:
+    gpo = _store(request).fork_gpo(
+        guid, body.name, identity=_identity(body.actor), reason=body.reason
+    )
+    return _gpo_payload(gpo)
+
+
+@app.post("/api/estate/diff")
+def estate_diff(request: Request, body: EstateDiffRequest) -> dict[str, Any]:
+    store = _store(request)
+    baseline = store.get_gpo(body.baseline_guid)
+    draft = store.get_gpo(body.draft_guid)
+    observed = store.get_gpo(body.observed_guid)
+    result = three_way_diff(baseline, draft, observed)
+    return asdict(result)
