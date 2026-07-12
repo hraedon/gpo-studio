@@ -213,3 +213,16 @@ def test_parse_sddl_unclosed_parenthesis() -> None:
 def test_parse_sddl_extra_close_parenthesis() -> None:
     with pytest.raises(SddlError):
         parse_sddl(f"O:{_ADMIN}G:{_ADMIN}D:(A;;CC;;;{_ADMIN}))")
+
+
+def test_parse_sddl_exceeds_max_size() -> None:
+    oversized = "O:" + "0" * (256 * 1024 + 1)
+    with pytest.raises(SddlError, match="exceeds"):
+        parse_sddl(oversized)
+
+
+def test_parse_sddl_exceeds_max_ace_count() -> None:
+    oversized = "O:S-1-5-32-544G:S-1-5-32-544D:" + "(A;;GA;;;S-1-5-32-544)" * 10001
+    assert len(oversized) < 256 * 1024
+    with pytest.raises(SddlError, match="ACEs"):
+        parse_sddl(oversized)

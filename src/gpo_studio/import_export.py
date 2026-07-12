@@ -6,10 +6,20 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from .backup import (
+    BackupError,
     BackupGpo,
     BackupSecurityFilter,
     BackupWmiFilter,
     read_file_bytes,
+)
+from .gpp import (
+    GppCollection,
+    GppGroup,
+    GppRegistry,
+    GppScope,
+    contains_cpassword,
+    parse_gpp_groups,
+    parse_gpp_registry,
 )
 from .model import (
     GPO,
@@ -90,6 +100,11 @@ def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
             f.relative_path == "Registry.pol" for f in ext.files
         ):
             continue
+        non_gpp_files = [
+            f for f in ext.files if not f.relative_path.startswith("Preferences/")
+        ]
+        if not non_gpp_files:
+            continue
         metadata.append(
             CseMetadataEntry(
                 guid=ext.guid,
@@ -100,7 +115,7 @@ def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
                         content_hash=f.content_hash,
                         size=f.size,
                     )
-                    for f in ext.files
+                    for f in non_gpp_files
                 ),
             )
         )
@@ -142,3 +157,32 @@ def backup_wmi_filter_to_model(wmi: BackupWmiFilter | None) -> WmiFilter | None:
         query=wmi.query,
         language=wmi.language,
     )
+
+
+def collect_gpp_collections(backup_dir: Path, gpo_guid: str) -> tuple[GppCollection, ...]:
+    """Parse GPP XML files from a backup directory."""
+    collections: list[GppCollection] = []
+    sides: list[tuple[str, GppScope]] = [("Machine", "computer"), ("User", "user")]
+    for side_name, scope in sides:
+        side_dir = backup_dir / gpo_guid / side_name / "Preferences"
+        if not side_dir.exists():
+            continue
+        groups_path = side_dir / "Groups" / "Groups.xml"
+        registry_path = side_dir / "Registry" / "Registry.xml"
+        groups: tuple[GppGroup, ...] = ()
+        registry: tuple[GppRegistry, ...] = ()
+        if groups_path.exists():
+            groups_data = read_file_bytes(groups_path)
+            if contains_cpassword(groups_data):
+                raise BackupError("cpassword detected in Groups.xml")
+            groups = parse_gpp_groups(groups_data)
+        if registry_path.exists():
+            registry_data = read_file_bytes(registry_path)
+            if contains_cpassword(registry_data):
+                raise BackupError("cpassword detected in Registry.xml")
+            registry = parse_gpp_registry(registry_data)
+        if groups or registry:
+            collections.append(
+                GppCollection(scope=scope, groups=groups, registry=registry)
+            )
+    return tuple(collections)

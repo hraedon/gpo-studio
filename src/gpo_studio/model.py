@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from .gpp import GppCollection
 
 Side = Literal["computer", "user"]
 RegistryType = Literal[
@@ -90,6 +93,7 @@ class GPO:
     cse_metadata: tuple[CseMetadataEntry, ...] = field(default_factory=tuple)
     security_filters: tuple[SecurityFilter, ...] = field(default_factory=tuple)
     wmi_filter: WmiFilter | None = None
+    gpp_collections: tuple[GppCollection, ...] = field(default_factory=tuple)
     domain: str = "studio.local"
     created_at: str = ""
     updated_at: str = ""

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from .gpp import GppCollection, gpp_collection_from_dict
 from .identity import Identity
 from .model import (
     GPO,
@@ -107,6 +108,10 @@ def _wmi_filter(data: dict[str, Any]) -> WmiFilter:
     )
 
 
+def _gpp_collection(data: dict[str, Any]) -> GppCollection:
+    return gpp_collection_from_dict(data)
+
+
 def gpo_from_dict(data: dict[str, Any]) -> GPO:
     return GPO(
         guid=str(data["guid"]),
@@ -126,6 +131,9 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
             _security_filter(item) for item in data.get("security_filters", [])
         ),
         wmi_filter=_wmi_filter(data["wmi_filter"]) if data.get("wmi_filter") else None,
+        gpp_collections=tuple(
+            _gpp_collection(item) for item in data.get("gpp_collections", [])
+        ),
         domain=str(data.get("domain", "studio.local")),
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
@@ -202,6 +210,7 @@ class WorkspaceStore:
         user_enabled: bool = True,
         security_filters: tuple[SecurityFilter, ...] = (),
         wmi_filter: WmiFilter | None = None,
+        gpp_collections: tuple[GppCollection, ...] = (),
     ) -> GPO:
         actor = _resolve_actor(identity)
         timestamp = _now()
@@ -219,6 +228,7 @@ class WorkspaceStore:
             domain=domain,
             security_filters=security_filters,
             wmi_filter=wmi_filter,
+            gpp_collections=gpp_collections,
             created_at=timestamp,
             updated_at=timestamp,
         )
@@ -329,11 +339,13 @@ class WorkspaceStore:
             settings=forked_settings,
             links=forked_links,
             source_guid=source.guid,
+            cse_metadata=source.cse_metadata,
             domain=source.domain,
             computer_enabled=source.computer_enabled,
             user_enabled=source.user_enabled,
             security_filters=forked_security_filters,
             wmi_filter=forked_wmi,
+            gpp_collections=source.gpp_collections,
         )
 
     def _mutate(

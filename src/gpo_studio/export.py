@@ -10,12 +10,15 @@ from dataclasses import asdict
 from typing import assert_never
 
 from .canonical import semantic_dict, semantic_hash
-from .model import GPO, RegistrySetting
+from .gpp import contains_cpassword, serialize_gpp
+from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
 from .validation import validate_gpo
 
 _GPMC_NS = "http://www.microsoft.com/GroupPolicy/Types"
 _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
+_GPP_GROUPS_CSE_GUID = "{3125E937-EB16-4b4c-9934-544FC6D24D26}"
+_GPP_REGISTRY_CSE_GUID = "{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}"
 
 
 def _ps_quote(value: str) -> str:
@@ -173,12 +176,25 @@ def export_bundle(gpo: GPO) -> bytes:
     user = [item for item in gpo.settings if item.side == "user"]
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        entries = {
+        entries: dict[str, bytes] = {
             "manifest.json": json.dumps(manifest, indent=2, sort_keys=True).encode(),
             "apply.ps1": powershell_plan(gpo).encode("utf-8-sig"),
             "Machine/Registry.pol": serialize(computer),
             "User/Registry.pol": serialize(user),
         }
+        for col in gpo.gpp_collections:
+            side_dir = "Machine" if col.scope == "computer" else "User"
+            for filename, content in serialize_gpp(col).items():
+                if contains_cpassword(content):
+                    raise ValidationError([
+                        ValidationIssue(
+                            severity="error",
+                            code="cpassword_detected",
+                            message=f"GPP file {filename} contains a cpassword attribute.",
+                            path=f"gpp_collections/{filename}",
+                        )
+                    ])
+                entries[f"{side_dir}/Preferences/{filename}"] = content
         for name, content in entries.items():
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
@@ -218,10 +234,31 @@ def _build_manifest_xml(gpo: GPO) -> bytes:
     ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Domain").text = gpo.domain
     has_computer = any(s.side == "computer" for s in gpo.settings)
     has_user = any(s.side == "user" for s in gpo.settings)
-    if has_computer:
-        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}MachineExtensionGuids").text = _REGISTRY_CSE_GUID
-    if has_user:
-        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}UserExtensionGuids").text = _REGISTRY_CSE_GUID
+    machine_gpp_guids: set[str] = set()
+    user_gpp_guids: set[str] = set()
+    for col in gpo.gpp_collections:
+        if col.scope == "computer":
+            if col.groups:
+                machine_gpp_guids.add(_GPP_GROUPS_CSE_GUID)
+            if col.registry:
+                machine_gpp_guids.add(_GPP_REGISTRY_CSE_GUID)
+        else:
+            if col.groups:
+                user_gpp_guids.add(_GPP_GROUPS_CSE_GUID)
+            if col.registry:
+                user_gpp_guids.add(_GPP_REGISTRY_CSE_GUID)
+    has_computer_gpp = bool(machine_gpp_guids)
+    has_user_gpp = bool(user_gpp_guids)
+    if has_computer or has_computer_gpp:
+        guids = ([_REGISTRY_CSE_GUID] if has_computer else []) + sorted(machine_gpp_guids)
+        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}MachineExtensionGuids").text = (
+            "\n".join(guids)
+        )
+    if has_user or has_user_gpp:
+        guids = ([_REGISTRY_CSE_GUID] if has_user else []) + sorted(user_gpp_guids)
+        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}UserExtensionGuids").text = (
+            "\n".join(guids)
+        )
     _append_security_filters(gpo_elem, gpo)
     if gpo.wmi_filter is not None:
         wmi_elem = ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}WmiFilter")
@@ -302,6 +339,19 @@ def gpmc_backup_bundle(gpo: GPO) -> bytes:
             f"{gpo.guid}/gpreport.xml": _build_gpreport_xml(gpo),
             f"{gpo.guid}/DomainController.xml": _build_dc_xml(),
         }
+        for col in gpo.gpp_collections:
+            side_dir = "Machine" if col.scope == "computer" else "User"
+            for filename, content in serialize_gpp(col).items():
+                if contains_cpassword(content):
+                    raise ValidationError([
+                        ValidationIssue(
+                            severity="error",
+                            code="cpassword_detected",
+                            message=f"GPP file {filename} contains a cpassword attribute.",
+                            path=f"gpp_collections/{filename}",
+                        )
+                    ])
+                entries[f"{gpo.guid}/{side_dir}/Preferences/{filename}"] = content
         for name in sorted(entries):
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED

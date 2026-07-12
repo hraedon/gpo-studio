@@ -53,6 +53,7 @@ def parse_estate(data: dict[str, Any]) -> list[GPO]:
             "links": raw.get("links", []),
             "security_filters": raw.get("security_filters", []),
             "wmi_filter": raw.get("wmi_filter"),
+            "cse_metadata": raw.get("cse_metadata", []),
             "status": "archived",
             "source_guid": original_guid,
         }

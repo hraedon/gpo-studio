@@ -32,6 +32,22 @@ export function openWmi(){
   if(w){form.name.value=w.name;form.description.value=w.description;form.language.value=w.language;form.query.value=w.query;form.reason.value="Update WMI filter"}
   $("#wmi-dialog").showModal();
 }
+export async function openWmiCatalogue(){
+  const list=$("#wmi-catalogue-list");list.innerHTML='<div class="table-empty">Loading…</div>';
+  $("#wmi-catalogue-dialog").showModal();
+  try{const data=await api("/api/wmi-filters");
+    if(!data.count){list.innerHTML='<div class="table-empty">No WMI filters in catalogue. Set GPO_STUDIO_WMI_CATALOGUE to enable.</div>';return}
+    list.innerHTML=data.items.map(f=>`<div class="wmi-catalogue-entry"><div><strong>${escapeHtml(f.name)}</strong>${f.description?` <small>${escapeHtml(f.description)}</small>`:''}<code class="mono">${escapeHtml(f.query)}</code></div><button type="button" data-wmi-filter-id="${escapeHtml(f.id)}">Use this</button></div>`).join("");
+    $$("[data-wmi-filter-id]").forEach(btn=>btn.onclick=()=>{
+      const entry=data.items.find(f=>f.id===btn.dataset.wmiFilterId);if(!entry)return;
+      $("#wmi-catalogue-dialog").close();
+      const form=$("#wmi-form");form.reset();clearFormErrors(form);
+      form.name.value=entry.name;form.description.value=entry.description||"";form.language.value=entry.language||"WQL";form.query.value=entry.query||"";
+      form.reason.value=`Apply WMI filter '${entry.name}' from catalogue`;
+      $("#wmi-dialog").showModal();
+    });
+  }catch(error){list.innerHTML=`<div class="table-empty">${escapeHtml(error.message)}</div>`}
+}
 let estateParsedJson=null,estateMode='upload';
 function setEstateMode(mode){estateMode=mode;$$('.estate-toggle .chip').forEach(c=>c.classList.toggle('active',c.dataset.mode===mode));$('#estate-upload-section').hidden=mode!=='upload';$('#estate-paste-section').hidden=mode!=='paste'}
 export function openEstate(){

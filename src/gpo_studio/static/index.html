@@ -78,7 +78,7 @@
         <div class="panel" id="panel-security">
           <div class="section-head"><div><p class="eyebrow">Security filtering</p><h2>Security filters & WMI</h2></div><button class="primary" id="add-filter">＋ Add filter</button></div>
           <div class="table-card"><table><thead><tr><th>Principal</th><th>Permission</th><th>Type</th><th>Inheritable</th><th></th></tr></thead><tbody id="filters-table"></tbody></table><div class="table-empty" id="filters-empty">No security filters configured.</div></div>
-          <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">WMI filter</p><h2>WMI filtering</h2></div><button class="quiet" id="edit-wmi">Edit</button></div>
+          <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">WMI filter</p><h2>WMI filtering</h2></div><button class="quiet" id="browse-wmi-catalogue">Browse catalogue</button><button class="quiet" id="edit-wmi">Edit</button></div>
           <div id="wmi-display" class="wmi-display"></div>
         </div>
 
@@ -187,6 +187,14 @@
       <label>Query<textarea name="query" rows="4" maxlength="4000" placeholder="SELECT * FROM Win32_OperatingSystem WHERE ProductType = 1"></textarea></label>
       <label>Change reason<input name="reason" required value="Update WMI filter"></label>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="wmi-catalogue-dialog">
+    <form method="dialog" id="wmi-catalogue-form">
+      <div class="dialog-head"><div><p class="eyebrow">WMI filter catalogue</p><h2>Select a filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div id="wmi-catalogue-list" class="wmi-catalogue-list"></div>
+      <div class="dialog-actions"><button value="cancel">Close</button></div>
     </form>
   </dialog>
 

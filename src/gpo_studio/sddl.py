@@ -37,6 +37,9 @@ class SecurityDescriptor:
 _SECTION_RE = re.compile(r"([OGDS]):")
 _ACE_RE = re.compile(r"\(([^)]*)\)")
 
+_MAX_SDDL_SIZE = 256 * 1024
+_MAX_ACE_COUNT = 10000
+
 
 def _split_codes(s: str) -> tuple[str, ...]:
     if len(s) % 2 != 0:
@@ -89,7 +92,12 @@ def format_ace(ace: Ace) -> str:
 
 
 def _parse_acl(acl_str: str) -> Acl:
-    aces = tuple(parse_ace(m.group(1)) for m in _ACE_RE.finditer(acl_str))
+    ace_matches = list(_ACE_RE.finditer(acl_str))
+    if len(ace_matches) > _MAX_ACE_COUNT:
+        raise SddlError(
+            f"SDDL has {len(ace_matches)} ACEs, exceeds {_MAX_ACE_COUNT}"
+        )
+    aces = tuple(parse_ace(m.group(1)) for m in ace_matches)
     remaining = _ACE_RE.sub("", acl_str)
     if "(" in remaining or ")" in remaining:
         raise SddlError(f"unmatched parentheses in ACL: {acl_str!r}")
@@ -102,6 +110,8 @@ def _mask_parens(s: str) -> str:
 
 def parse_sddl(sddl: str) -> SecurityDescriptor:
     """Parse an SDDL string into a SecurityDescriptor."""
+    if len(sddl.encode("utf-8")) > _MAX_SDDL_SIZE:
+        raise SddlError(f"SDDL string exceeds {_MAX_SDDL_SIZE} bytes")
     masked = _mask_parens(sddl)
     matches = list(_SECTION_RE.finditer(masked))
     if not matches:
