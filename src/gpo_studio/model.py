@@ -37,6 +37,23 @@ class GPOLink:
 
 
 @dataclass(frozen=True, slots=True)
+class CseFileEntry:
+    relative_path: str
+    content_hash: str
+    size: int
+
+
+CseSide = Literal["machine", "user"]
+
+
+@dataclass(frozen=True, slots=True)
+class CseMetadataEntry:
+    guid: str
+    side: CseSide
+    files: tuple[CseFileEntry, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
 class GPO:
     guid: str
     name: str
@@ -48,7 +65,7 @@ class GPO:
     settings: tuple[RegistrySetting, ...] = field(default_factory=tuple)
     links: tuple[GPOLink, ...] = field(default_factory=tuple)
     source_guid: str = ""
-    cse_metadata: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    cse_metadata: tuple[CseMetadataEntry, ...] = field(default_factory=tuple)
     created_at: str = ""
     updated_at: str = ""
 

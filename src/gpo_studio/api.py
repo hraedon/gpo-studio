@@ -18,31 +18,23 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .admx import AdmxCatalogue, AdmxError, load_catalogue
-from .backup import BackupGpo, read_backup
+from .backup import read_backup
 from .canonical import semantic_hash
 from .diff import diff_gpos, three_way_diff
 from .export import export_bundle, gpmc_backup_bundle, powershell_plan
 from .identity import ClaimedIdentity, claimed_identity
+from .import_export import collect_cse_metadata, extract_settings, resolve_gpo
 from .model import (
     GPO,
     ConflictError,
     NotFoundError,
-    RegistrySetting,
-    RegistryType,
-    Side,
     StudioError,
     ValidationError,
     ValidationIssue,
 )
-from .registry_pol import parse as parse_pol
+from .policy_config import PolicyConfiguration, resolve_policy
 from .store import WorkspaceStore, gpo_from_dict
 from .validation import validate_gpo, validate_setting
-
-_VALID_REGISTRY_TYPES = {
-    "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY",
-    "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD",
-}
-_VALID_ACTIONS = {"set", "delete"}
 
 STATIC = Path(__file__).with_name("static")
 
@@ -114,6 +106,12 @@ class BackupImportRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     actor: str = Field(default="local-operator", min_length=1, max_length=120)
     reason: str = Field(default="Import GPMC backup", min_length=1, max_length=500)
+
+
+class ConfigurePolicyRequest(Audit):
+    gpo_guid: str = Field(min_length=1, max_length=255)
+    side: Literal["computer", "user"]
+    values: dict[str, bool | int | str | list[str]]
 
 
 def _store(request: Request) -> WorkspaceStore:
@@ -241,6 +239,35 @@ def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
         if policy.id == policy_id:
             return asdict(policy)
     raise NotFoundError(f"Policy '{policy_id}' not found")
+
+
+@app.post("/api/admx/policies/{policy_id}/configure")
+def configure_policy(
+    request: Request, policy_id: str, body: ConfigurePolicyRequest
+) -> dict[str, Any]:
+    catalogue = _catalogue(request)
+    policy = None
+    for p in catalogue.policies:
+        if p.id == policy_id:
+            policy = p
+            break
+    if policy is None:
+        raise NotFoundError(f"Policy '{policy_id}' not found")
+    config = PolicyConfiguration(side=body.side, values=body.values)
+    settings = resolve_policy(policy, config)
+    issues: list[ValidationIssue] = []
+    for s in settings:
+        issues.extend(validate_setting(s))
+    if any(i.severity == "error" for i in issues):
+        raise ValidationError(issues)
+    gpo = _store(request).put_settings(
+        body.gpo_guid,
+        body.expected_revision,
+        settings,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
 
 
 @app.get("/api/admx/categories")
@@ -424,12 +451,7 @@ def plan(request: Request, guid: str) -> Response:
 
 
 def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
-    if isinstance(ref, str):
-        return _store(request).get_gpo(ref)
-    try:
-        return gpo_from_dict(ref)
-    except (KeyError, TypeError, ValueError) as error:
-        raise StudioError(f"Invalid inline GPO reference: {error}") from error
+    return resolve_gpo(_store(request), ref)
 
 
 @app.get("/api/gpos/{guid}/diff")
@@ -450,81 +472,6 @@ def ad_hoc_diff(request: Request, body: ThreeWayDiffRequest) -> dict[str, Any]:
     return asdict(result)
 
 
-_REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
-
-
-def _extract_settings(pol_path: Path, side: Side) -> list[RegistrySetting]:
-    if not pol_path.exists():
-        return []
-    data = pol_path.read_bytes()
-    records = parse_pol(data)
-    hive: Literal["HKLM", "HKCU"] = "HKLM" if side == "computer" else "HKCU"
-    settings: list[RegistrySetting] = []
-    for i, record in enumerate(records):
-        key = record.key
-        for prefix in ("HKLM\\", "HKCU\\", "HKLM/", "HKCU/"):
-            if key.casefold().startswith(prefix.casefold()):
-                key = key[len(prefix):]
-                break
-        if record.registry_type not in _VALID_REGISTRY_TYPES:
-            raise ValidationError([
-                ValidationIssue(
-                    severity="error",
-                    code="invalid_registry_type",
-                    message=f"Unknown registry type from PReg: {record.registry_type}",
-                    path=f"imported/{side}/{i}",
-                )
-            ])
-        if record.action not in _VALID_ACTIONS:
-            raise ValidationError([
-                ValidationIssue(
-                    severity="error",
-                    code="invalid_action",
-                    message=f"Unknown action from PReg: {record.action}",
-                    path=f"imported/{side}/{i}",
-                )
-            ])
-        settings.append(
-            RegistrySetting(
-                id=f"imported-{side}-{i}",
-                side=side,
-                hive=hive,
-                key=key,
-                value_name=record.value_name,
-                registry_type=cast(RegistryType, record.registry_type),
-                value=record.value,
-                action=cast(Literal["set", "delete"], record.action),
-            )
-        )
-    return settings
-
-
-def _collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[dict[str, Any], ...]:
-    metadata: list[dict[str, Any]] = []
-    for ext in (*backup_gpo.machine_extensions, *backup_gpo.user_extensions):
-        if ext.guid == _REGISTRY_CSE_GUID:
-            continue
-        if ext.guid == "unknown" and all(
-            f.relative_path == "Registry.pol" for f in ext.files
-        ):
-            continue
-        metadata.append(
-            {
-                "guid": ext.guid,
-                "side": ext.side,
-                "files": [
-                    {
-                        "relative_path": f.relative_path,
-                        "content_hash": f.content_hash,
-                        "size": f.size,
-                    }
-                    for f in ext.files
-                ],
-            }
-        )
-    return tuple(metadata)
-
-
 @app.post("/api/backups/import", status_code=201)
 def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]:
     backup_dir = Path(body.path)
@@ -540,10 +487,10 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     backup_gpo = backup.gpos[0]
     gpo_dir = backup_dir / backup_gpo.guid
 
-    machine_settings = _extract_settings(gpo_dir / "Machine" / "Registry.pol", "computer")
-    user_settings = _extract_settings(gpo_dir / "User" / "Registry.pol", "user")
+    machine_settings = extract_settings(gpo_dir / "Machine" / "Registry.pol", "computer")
+    user_settings = extract_settings(gpo_dir / "User" / "Registry.pol", "user")
     all_settings = tuple(machine_settings + user_settings)
-    cse_metadata = _collect_cse_metadata(backup_gpo)
+    cse_metadata = collect_cse_metadata(backup_gpo)
 
     temp_gpo = GPO(
         guid="import-preview",

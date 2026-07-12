@@ -1,0 +1,231 @@
+from __future__ import annotations
+
+import pytest
+
+from gpo_studio.admx import PolicyDefinition, PolicyElement
+from gpo_studio.model import ValidationError
+from gpo_studio.policy_config import PolicyConfiguration, resolve_policy
+
+
+def _policy(
+    elements: tuple[PolicyElement, ...] = (),
+    class_: str = "Machine",
+    key: str = r"Software\Policies\Test",
+) -> PolicyDefinition:
+    return PolicyDefinition(
+        id="TestPolicy",
+        class_=class_,  # type: ignore[arg-type]
+        key=key,
+        display_name="Test Policy",
+        explain_text="A test policy",
+        supported_on="Supported_Test",
+        elements=elements,
+    )
+
+
+def _element(
+    kind: str = "boolean",
+    id: str = "Enabled",
+    key: str = "",
+    value_name: str = "Enabled",
+) -> PolicyElement:
+    return PolicyElement(
+        kind=kind,  # type: ignore[arg-type]
+        id=id,
+        registry_key=key,
+        registry_value_name=value_name,
+    )
+
+
+def test_boolean_policy_produces_dword() -> None:
+    policy = _policy((_element("boolean", "Enabled"),))
+    config = PolicyConfiguration(side="computer", values={"Enabled": True})
+    settings = resolve_policy(policy, config)
+    assert len(settings) == 1
+    s = settings[0]
+    assert s.registry_type == "REG_DWORD"
+    assert s.value == 1
+    assert s.side == "computer"
+    assert s.hive == "HKLM"
+    assert s.key == r"Software\Policies\Test"
+    assert s.value_name == "Enabled"
+
+
+def test_boolean_policy_false_produces_zero() -> None:
+    policy = _policy((_element("boolean", "Enabled"),))
+    config = PolicyConfiguration(side="computer", values={"Enabled": False})
+    settings = resolve_policy(policy, config)
+    assert settings[0].value == 0
+
+
+def test_decimal_policy_produces_dword() -> None:
+    policy = _policy((_element("decimal", "Threshold", value_name="Threshold"),))
+    config = PolicyConfiguration(side="computer", values={"Threshold": 42})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_DWORD"
+    assert settings[0].value == 42
+
+
+def test_text_policy_produces_sz() -> None:
+    policy = _policy(
+        (_element("text", "Label", value_name="Label"),),
+        class_="User",
+    )
+    config = PolicyConfiguration(side="user", values={"Label": "hello"})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_SZ"
+    assert settings[0].value == "hello"
+    assert settings[0].side == "user"
+    assert settings[0].hive == "HKCU"
+
+
+def test_multitext_policy_produces_multi_sz() -> None:
+    policy = _policy((_element("multitext", "Multi", value_name="Multi"),))
+    config = PolicyConfiguration(side="computer", values={"Multi": ["line1", "line2"]})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_MULTI_SZ"
+    assert settings[0].value == ["line1", "line2"]
+
+
+def test_list_policy_produces_multi_sz() -> None:
+    policy = _policy((_element("list", "Items", value_name="Items"),))
+    config = PolicyConfiguration(side="computer", values={"Items": ["a", "b"]})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_MULTI_SZ"
+    assert settings[0].value == ["a", "b"]
+
+
+def test_enum_policy_produces_sz() -> None:
+    policy = _policy((_element("enum", "Mode", value_name="Mode"),))
+    config = PolicyConfiguration(side="computer", values={"Mode": "Standard"})
+    settings = resolve_policy(policy, config)
+    assert settings[0].registry_type == "REG_SZ"
+    assert settings[0].value == "Standard"
+
+
+def test_unknown_element_raises_validation_error() -> None:
+    policy = _policy((_element("unknown", "Weird", value_name="Weird"),))
+    config = PolicyConfiguration(side="computer", values={"Weird": "x"})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "unsupported_element_kind"
+
+
+def test_missing_element_value_raises() -> None:
+    policy = _policy((_element("boolean", "Enabled"),))
+    config = PolicyConfiguration(side="computer", values={})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "missing_element_value"
+
+
+def test_decimal_rejects_bool() -> None:
+    policy = _policy((_element("decimal", "Threshold", value_name="Threshold"),))
+    config = PolicyConfiguration(side="computer", values={"Threshold": True})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "type_mismatch"
+
+
+def test_text_rejects_int() -> None:
+    policy = _policy(
+        (_element("text", "Label", value_name="Label"),),
+        class_="Both",
+    )
+    config = PolicyConfiguration(side="computer", values={"Label": 123})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "type_mismatch"
+
+
+def test_side_mismatch_machine_policy() -> None:
+    policy = _policy((_element("boolean", "Enabled"),), class_="Machine")
+    config = PolicyConfiguration(side="user", values={"Enabled": True})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "side_mismatch"
+
+
+def test_side_mismatch_user_policy() -> None:
+    policy = _policy((_element("text", "Label", value_name="Label"),), class_="User")
+    config = PolicyConfiguration(side="computer", values={"Label": "x"})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "side_mismatch"
+
+
+def test_both_class_allows_either_side() -> None:
+    policy = _policy((_element("boolean", "Enabled"),), class_="Both")
+    config_c = PolicyConfiguration(side="computer", values={"Enabled": True})
+    settings_c = resolve_policy(policy, config_c)
+    assert settings_c[0].hive == "HKLM"
+    config_u = PolicyConfiguration(side="user", values={"Enabled": True})
+    settings_u = resolve_policy(policy, config_u)
+    assert settings_u[0].hive == "HKCU"
+
+
+def test_element_registry_key_overrides_policy_key() -> None:
+    policy = _policy(
+        (_element("boolean", "Enabled", key=r"Software\Overrides", value_name="Enabled"),),
+    )
+    config = PolicyConfiguration(side="computer", values={"Enabled": True})
+    settings = resolve_policy(policy, config)
+    assert settings[0].key == r"Software\Overrides"
+
+
+def test_multiple_elements() -> None:
+    policy = _policy((
+        _element("boolean", "Enabled", value_name="Enabled"),
+        _element("decimal", "Threshold", value_name="Threshold"),
+        _element("text", "Label", value_name="Label"),
+    ))
+    config = PolicyConfiguration(
+        side="computer",
+        values={"Enabled": True, "Threshold": 100, "Label": "production"},
+    )
+    settings = resolve_policy(policy, config)
+    assert len(settings) == 3
+    by_name = {s.value_name: s for s in settings}
+    assert by_name["Enabled"].value == 1
+    assert by_name["Threshold"].value == 100
+    assert by_name["Label"].value == "production"
+
+
+def test_setting_id_is_deterministic() -> None:
+    policy = _policy((_element("boolean", "Enabled", value_name="Enabled"),))
+    config = PolicyConfiguration(side="computer", values={"Enabled": True})
+    settings = resolve_policy(policy, config)
+    assert settings[0].id == "admx-TestPolicy-Enabled-computer"
+
+
+def test_empty_elements_returns_empty_list() -> None:
+    policy = _policy(())
+    config = PolicyConfiguration(side="computer", values={})
+    assert resolve_policy(policy, config) == []
+
+
+def test_decimal_rejects_negative() -> None:
+    policy = _policy((_element("decimal", "Threshold", value_name="Threshold"),))
+    config = PolicyConfiguration(side="computer", values={"Threshold": -1})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "value_range"
+
+
+def test_decimal_rejects_overflow() -> None:
+    policy = _policy((_element("decimal", "Threshold", value_name="Threshold"),))
+    config = PolicyConfiguration(side="computer", values={"Threshold": 2**32})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config)
+    assert exc_info.value.issues[0].code == "value_range"
+
+
+def test_both_class_ids_include_side() -> None:
+    policy = _policy((_element("boolean", "Enabled", value_name="Enabled"),), class_="Both")
+    config_c = PolicyConfiguration(side="computer", values={"Enabled": True})
+    config_u = PolicyConfiguration(side="user", values={"Enabled": True})
+    settings_c = resolve_policy(policy, config_c)
+    settings_u = resolve_policy(policy, config_u)
+    assert settings_c[0].id != settings_u[0].id
+    assert settings_c[0].id == "admx-TestPolicy-Enabled-computer"
+    assert settings_u[0].id == "admx-TestPolicy-Enabled-user"

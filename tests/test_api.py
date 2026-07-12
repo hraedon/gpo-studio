@@ -469,13 +469,14 @@ def test_admx_no_directory(tmp_path, monkeypatch) -> None:
 
 
 def test_gpmc_backup_rejected_with_cse_metadata(tmp_path) -> None:
+    from gpo_studio.model import CseMetadataEntry
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False
     with TestClient(app) as client:
         gpo = store.create_gpo(
             "CSE test", identity="tester", reason="test",
-            cse_metadata=({"guid": "{unknown-guid}", "side": "machine", "files": []},),
+            cse_metadata=(CseMetadataEntry(guid="{unknown-guid}", side="machine"),),
         )
         resp = client.get(f"/api/gpos/{gpo.guid}/gpmc-backup")
         assert resp.status_code == 422
@@ -534,3 +535,106 @@ def test_backup_import_not_a_directory(tmp_path) -> None:
     with TestClient(app) as client:
         resp = client.post("/api/backups/import", json={"path": str(tmp_path / "nonexistent")})
         assert resp.status_code == 422
+
+
+def test_configure_policy_boolean(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Config target"}).json()["gpo"]
+        resp = client.post("/api/admx/policies/SyntheticPolicy/configure", json={
+            "gpo_guid": gpo["guid"],
+            "side": "computer",
+            "values": {"Enabled": True},
+            "expected_revision": gpo["revision"],
+            "actor": "tester",
+            "reason": "Configure policy",
+        })
+        assert resp.status_code == 200
+        updated = resp.json()["gpo"]
+        assert len(updated["settings"]) == 1
+        assert updated["settings"][0]["registry_type"] == "REG_DWORD"
+        assert updated["settings"][0]["value"] == 1
+
+
+def test_configure_policy_unknown_policy_404(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Target"}).json()["gpo"]
+        resp = client.post("/api/admx/policies/Nonexistent/configure", json={
+            "gpo_guid": gpo["guid"],
+            "side": "computer",
+            "values": {},
+            "expected_revision": gpo["revision"],
+        })
+        assert resp.status_code == 404
+
+
+def test_configure_policy_invalid_config_422(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Target"}).json()["gpo"]
+        resp = client.post("/api/admx/policies/SyntheticPolicy/configure", json={
+            "gpo_guid": gpo["guid"],
+            "side": "computer",
+            "values": {},
+            "expected_revision": gpo["revision"],
+        })
+        assert resp.status_code == 422
+
+
+def test_configure_policy_side_mismatch_422(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Target"}).json()["gpo"]
+        resp = client.post("/api/admx/policies/SyntheticPolicy/configure", json={
+            "gpo_guid": gpo["guid"],
+            "side": "user",
+            "values": {"Enabled": True},
+            "expected_revision": gpo["revision"],
+        })
+        assert resp.status_code == 422
+
+
+def test_configure_policy_unknown_gpo_404(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        resp = client.post("/api/admx/policies/SyntheticPolicy/configure", json={
+            "gpo_guid": "nonexistent-guid",
+            "side": "computer",
+            "values": {"Enabled": True},
+            "expected_revision": 1,
+        })
+        assert resp.status_code == 404
+
+
+def test_typed_cse_metadata_round_trip(tmp_path) -> None:
+    from gpo_studio.model import CseFileEntry, CseMetadataEntry
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        cse = CseMetadataEntry(
+            guid="{12345678-1234-1234-1234-123456789abc}",
+            side="machine",
+            files=(
+                CseFileEntry(
+                    relative_path="Custom/custom.xml",
+                    content_hash="abc123",
+                    size=100,
+                ),
+            ),
+        )
+        gpo = store.create_gpo(
+            "Typed CSE test", identity="tester", reason="test",
+            cse_metadata=(cse,),
+        )
+        resp = client.get(f"/api/gpos/{gpo.guid}")
+        assert resp.status_code == 200
+        cse_data = resp.json()["gpo"]["cse_metadata"]
+        assert len(cse_data) == 1
+        assert cse_data[0]["guid"] == "{12345678-1234-1234-1234-123456789abc}"
+        assert cse_data[0]["side"] == "machine"
+        assert len(cse_data[0]["files"]) == 1
+        assert cse_data[0]["files"][0]["relative_path"] == "Custom/custom.xml"
+        assert cse_data[0]["files"][0]["content_hash"] == "abc123"
+        assert cse_data[0]["files"][0]["size"] == 100
