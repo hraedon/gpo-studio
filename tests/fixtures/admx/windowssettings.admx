@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <categories>
+    <category name="SyntheticWindowsSettings" displayName="$(string.SyntheticWindowsSettings)">
+      <parentCategory ref="SyntheticTopLevel" />
+    </category>
+    <category name="SyntheticWindowsSettingsChild" displayName="$(string.SyntheticWindowsSettingsChild)">
+      <parentCategory ref="SyntheticWindowsSettings" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="Supported_SyntheticOS_v1" displayName="$(string.Supported_SyntheticOS_v1)" />
+    <definition name="Supported_SyntheticOS_v2" displayName="$(string.Supported_SyntheticOS_v2)" />
+  </supportedOn>
+  <policies>
+    <policy name="SyntheticAuditPolicy" class="Both" key="Software\Policies\Synthetic\Audit"
+            displayName="$(string.SyntheticAuditPolicy)" explainText="$(string.SyntheticAuditPolicy_Explain)"
+            supportedOn="Supported_SyntheticOS_v2" presentation="$(presentation.SyntheticAuditPolicy)">
+      <parentCategory ref="SyntheticWindowsSettingsChild" />
+      <supportedOn ref="Supported_SyntheticOS_v2" />
+      <elements>
+        <boolean id="AuditEnabled" key="Software\Policies\Synthetic\Audit" valueName="Enabled" />
+      </elements>
+      <presentation>
+        <checkBox id="AuditEnabled" refId="AuditEnabled" label="$(string.AuditEnabledLabel)" />
+      </presentation>
+    </policy>
+    <policy name="SyntheticThresholdPolicy" class="Machine" key="Software\Policies\Synthetic\Threshold"
+            displayName="$(string.SyntheticThresholdPolicy)" explainText="$(string.SyntheticThresholdPolicy_Explain)"
+            supportedOn="Supported_SyntheticOS_v1" presentation="$(presentation.SyntheticThresholdPolicy)">
+      <parentCategory ref="SyntheticWindowsSettings" />
+      <supportedOn ref="Supported_SyntheticOS_v1" />
+      <elements>
+        <decimal id="Threshold" key="Software\Policies\Synthetic\Threshold" valueName="Threshold">
+          <minValue value="0" />
+          <maxValue value="100" />
+        </decimal>
+      </elements>
+      <presentation>
+        <decimalTextBox id="Threshold" refId="Threshold" label="$(string.ThresholdLabel)" />
+      </presentation>
+    </policy>
+  </policies>
+</policyDefinitions>

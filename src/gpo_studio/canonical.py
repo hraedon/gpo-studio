@@ -145,6 +145,7 @@ def semantic_dict(gpo: GPO) -> dict[str, Any]:
         "wmi_filter": (
             {
                 "name": wmi.name,
+                "description": wmi.description,
                 "query": wmi.query,
                 "language": wmi.language,
             }

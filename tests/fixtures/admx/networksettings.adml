@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <resources>
+    <stringTable>
+      <string id="SyntheticNetwork">Synthetic Network</string>
+      <string id="SyntheticNetworkAdvanced">Synthetic Network (Advanced)</string>
+      <string id="Supported_SyntheticNet_v1">Synthetic Network OS v1</string>
+      <string id="SyntheticQwordPolicy">Synthetic Qword Policy</string>
+      <string id="SyntheticQwordPolicy_Explain">Configures a synthetic 64-bit network throttle value.</string>
+      <string id="SyntheticMultiElementPolicy">Synthetic Multi-Element Network Policy</string>
+      <string id="SyntheticMultiElementPolicy_Explain">Configures multiple synthetic network settings.</string>
+      <string id="QwordModeStandard">Standard Throttle</string>
+      <string id="QwordModeLarge">Large Throttle</string>
+      <string id="QwordModeLabel">Network Throttle Mode</string>
+      <string id="NetworkEnabledLabel">Enable Synthetic Network</string>
+      <string id="NetworkTimeoutLabel">Network Timeout (seconds)</string>
+      <string id="NetworkGatewayLabel">Network Gateway Address</string>
+      <string id="NetworkModeLabel">Network Mode</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>

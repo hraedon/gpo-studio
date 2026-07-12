@@ -594,6 +594,17 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     backup_dir = _validate_inbox_path(body.path)
     if not backup_dir.is_dir():
         raise StudioError(f"Backup path is not a directory: {body.path}")
+    for xml_file in ("manifest.xml", "bkupInfo.xml"):
+        xml_path = backup_dir / xml_file
+        if xml_path.is_symlink():
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="symlink_in_backup",
+                    message=f"Symlinks are not allowed in backup content: {xml_file}",
+                    path="path",
+                )
+            ])
     backup = read_backup(backup_dir)
     if not backup.gpos:
         raise StudioError("No GPOs found in backup")
@@ -626,6 +637,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         settings=all_settings,
         source_guid=backup_gpo.guid,
         cse_metadata=cse_metadata,
+        domain=backup_gpo.domain or "studio.local",
     )
     return _gpo_payload(gpo)
 
