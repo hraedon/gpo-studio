@@ -191,6 +191,8 @@ class WorkspaceStore:
         source_guid: str = "",
         cse_metadata: tuple[CseMetadataEntry, ...] = (),
         domain: str = "studio.local",
+        computer_enabled: bool = True,
+        user_enabled: bool = True,
         security_filters: tuple[SecurityFilter, ...] = (),
         wmi_filter: WmiFilter | None = None,
     ) -> GPO:
@@ -200,6 +202,8 @@ class WorkspaceStore:
             guid=(guid or str(uuid.uuid4())).lower().strip("{}"),
             name=name.strip(),
             description=description.strip(),
+            computer_enabled=computer_enabled,
+            user_enabled=user_enabled,
             revision=1,
             settings=settings,
             links=links,
@@ -226,6 +230,104 @@ class WorkspaceStore:
         except sqlite3.IntegrityError as error:
             raise ConflictError("A GPO with that name or GUID already exists") from error
         return gpo
+
+    def import_baseline_gpos(
+        self,
+        gpos: list[GPO],
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> dict[str, int]:
+        actor = _resolve_actor(identity)
+        imported = 0
+        skipped = 0
+        conflicts = 0
+        for gpo in gpos:
+            normalized_guid = gpo.guid.lower().strip("{}")
+            try:
+                self.get_gpo(normalized_guid)
+                skipped += 1
+                continue
+            except NotFoundError:
+                pass
+            timestamp = _now()
+            normalized = replace(
+                gpo,
+                guid=normalized_guid,
+                name=gpo.name.strip(),
+                description=gpo.description.strip(),
+                revision=1,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            payload = json.dumps(
+                normalized.to_dict(), separators=(",", ":"), sort_keys=True
+            )
+            try:
+                with self._connection:
+                    self._connection.execute(
+                        """INSERT INTO gpos(guid, name, revision, snapshot_json, updated_at)
+                           VALUES(?,?,?,?,?)""",
+                        (
+                            normalized.guid,
+                            normalized.name,
+                            normalized.revision,
+                            payload,
+                            timestamp,
+                        ),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
+                        (normalized.guid, 1, actor, reason, timestamp, payload),
+                    )
+            except sqlite3.IntegrityError:
+                conflicts += 1
+                continue
+            imported += 1
+        return {
+            "imported": imported,
+            "skipped": skipped,
+            "conflicts": conflicts,
+            "total": imported + skipped + conflicts,
+        }
+
+    def fork_gpo(
+        self,
+        guid: str,
+        new_name: str,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        source = self.get_gpo(guid)
+        forked_settings = tuple(
+            replace(s, id=f"forked-{s.id}") for s in source.settings
+        )
+        forked_links = tuple(
+            replace(link, id=f"forked-{link.id}") for link in source.links
+        )
+        forked_security_filters = tuple(
+            replace(sf, id=f"forked-{sf.id}") for sf in source.security_filters
+        )
+        forked_wmi = (
+            replace(source.wmi_filter, id=f"forked-{source.wmi_filter.id}")
+            if source.wmi_filter
+            else None
+        )
+        return self.create_gpo(
+            name=new_name,
+            description=source.description,
+            identity=identity,
+            reason=reason,
+            settings=forked_settings,
+            links=forked_links,
+            source_guid=source.guid,
+            domain=source.domain,
+            computer_enabled=source.computer_enabled,
+            user_enabled=source.user_enabled,
+            security_filters=forked_security_filters,
+            wmi_filter=forked_wmi,
+        )
 
     def _mutate(
         self,

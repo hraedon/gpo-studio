@@ -11,6 +11,7 @@
     <aside class="rail">
       <div class="brand"><span class="brand-mark">GS</span><div><strong>GPO Studio</strong><small>Local workspace</small></div></div>
       <button class="primary full" id="new-gpo">＋ New GPO</button>
+      <button class="full" id="import-estate">Import estate</button>
       <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span class="dot"></span> Offline authoring mode</footer>
@@ -48,7 +49,7 @@
         <div class="panel active" id="panel-overview">
           <div class="grid two">
             <article class="card">
-              <div class="card-heading"><div><p class="eyebrow">Identity</p><h2>Policy details</h2></div><button class="quiet" id="edit-metadata">Edit</button></div>
+              <div class="card-heading"><div><p class="eyebrow">Identity</p><h2>Policy details</h2></div><button class="quiet" id="fork-gpo" hidden>Fork to draft</button><button class="quiet" id="edit-metadata">Edit</button></div>
               <dl class="details" id="metadata"></dl>
             </article>
             <article class="card">
@@ -75,7 +76,7 @@
 
         <div class="panel" id="panel-security">
           <div class="section-head"><div><p class="eyebrow">Security filtering</p><h2>Security filters & WMI</h2></div><button class="primary" id="add-filter">＋ Add filter</button></div>
-          <div class="table-card"><table><thead><tr><th>Principal</th><th>Permission</th><th>Inheritable</th><th></th></tr></thead><tbody id="filters-table"></tbody></table><div class="table-empty" id="filters-empty">No security filters configured.</div></div>
+          <div class="table-card"><table><thead><tr><th>Principal</th><th>Permission</th><th>Type</th><th>Inheritable</th><th></th></tr></thead><tbody id="filters-table"></tbody></table><div class="table-empty" id="filters-empty">No security filters configured.</div></div>
           <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">WMI filter</p><h2>WMI filtering</h2></div><button class="quiet" id="edit-wmi">Edit</button></div>
           <div id="wmi-display" class="wmi-display"></div>
         </div>
@@ -156,6 +157,7 @@
       <div class="dialog-head"><div><p class="eyebrow">Security filtering</p><h2 id="filter-dialog-title">Add security filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <label>Principal (SID or account)<input name="principal" required maxlength="255" placeholder="S-1-5-32-544 or DOMAIN\Admins"></label>
       <label>Permission<select name="permission"><option value="apply">Apply policy</option><option value="read">Read only</option></select></label>
+      <label>Target type<select name="target_type"><option value="group">Group</option><option value="user">User</option><option value="computer">Computer</option></select></label>
       <div class="switch-row"><span><strong>Inheritable</strong><small>Apply to child containers</small></span><input name="inheritable" type="checkbox" checked></div>
       <label>Change reason<input name="reason" required value="Add security filter"></label>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save filter</button></div>
@@ -174,7 +176,24 @@
     </form>
   </dialog>
 
+  <dialog id="estate-dialog">
+    <form method="dialog" id="estate-form">
+      <div class="dialog-head"><div><p class="eyebrow">Estate import</p><h2>Import gpo-lens estate</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Paste estate JSON<textarea name="json" rows="12" placeholder='{"kind": "gpo-lens-estate", ...}'></textarea></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Import</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="fork-dialog">
+    <form method="dialog" id="fork-form">
+      <div class="dialog-head"><div><p class="eyebrow">Fork baseline</p><h2>Fork to draft</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>New GPO name<input name="name" required maxlength="255" placeholder="Forked policy"></label>
+      <label>Change reason<input name="reason" required value="Fork from baseline"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Fork</button></div>
+    </form>
+  </dialog>
+
   <div id="toast" role="status"></div>
-  <script src="/assets/studio.js"></script>
+  <script type="module" src="/assets/js/main.mjs"></script>
 </body>
 </html>

@@ -9,6 +9,10 @@ from .model import GPO, RegistrySetting, ValidationIssue
 _DN = re.compile(r"^(?:OU|DC)=[^,=]+(?:,(?:OU|DC)=[^,=]+)+$", re.IGNORECASE)
 _WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
 _WQL_FROM = re.compile(r"\bfrom\b", re.IGNORECASE)
+_PRINCIPAL_DOMAIN_USER = re.compile(r"^[^\\\s]+\\[^\\\s]+$")
+_PRINCIPAL_UPN = re.compile(r"^[^@\s]+@[^@\s]+$")
+_PRINCIPAL_SID = re.compile(r"^S-\d+(?:-\d+)+$")
+_DOMAIN_FORMAT = re.compile(r"^[A-Za-z0-9.-]+$")
 
 
 def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
@@ -219,6 +223,19 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         if stripped:
             seen_principals.add(folded)
+        if stripped and not (
+            _PRINCIPAL_DOMAIN_USER.match(stripped)
+            or _PRINCIPAL_UPN.match(stripped)
+            or _PRINCIPAL_SID.match(stripped)
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "invalid_principal_format",
+                    "Principal must be DOMAIN\\user, user@domain, or a SID (S-1-5-...).",
+                    sf_path,
+                )
+            )
     if gpo.wmi_filter is not None:
         wf = gpo.wmi_filter
         if not wf.name.strip():
@@ -249,4 +266,33 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     "wmi_filter/query",
                 )
             )
+    domain = gpo.domain.strip()
+    if not domain:
+        issues.append(
+            ValidationIssue("error", "empty_domain", "Domain is required.", "domain")
+        )
+    if len(domain) > 255:
+        issues.append(
+            ValidationIssue(
+                "error", "domain_too_long", "Domain exceeds 255 characters.", "domain"
+            )
+        )
+    if any(ord(c) < 0x20 for c in gpo.domain):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_domain",
+                "Domain contains control characters.",
+                "domain",
+            )
+        )
+    if domain and not _DOMAIN_FORMAT.match(domain):
+        issues.append(
+            ValidationIssue(
+                "warning",
+                "domain_format_suspicious",
+                "Domain contains unusual characters.",
+                "domain",
+            )
+        )
     return issues

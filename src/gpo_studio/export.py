@@ -22,7 +22,7 @@ def _ps_quote(value: str) -> str:
 
 
 def _ps_sanitize_comment(text: str) -> str:
-    return text.replace("\r", " ").replace("\n", " ")
+    return text.replace("\r", " ").replace("\n", " ").replace("`", " ")
 
 
 def _ps_value(setting: RegistrySetting) -> str:
@@ -102,6 +102,18 @@ def powershell_plan(gpo: GPO) -> str:
     if gpo.security_filters:
         lines.append("")
         lines.append("# Security filtering")
+        desired_targets = ", ".join(_ps_quote(sf.principal) for sf in gpo.security_filters)
+        lines.append(f"$desired = @({desired_targets})")
+        lines.append("$existing = (Get-GPO -Guid $gpo.Id).SecurityFiltering")
+        lines.append("foreach ($perm in $existing) {")
+        lines.append("    if ($desired -notcontains $perm.Trustee.Name) {")
+        lines.append(
+            "        Set-GPPermission -Guid $gpo.Id -PermissionLevel None"
+            " -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType"
+            " -ErrorAction SilentlyContinue"
+        )
+        lines.append("    }")
+        lines.append("}")
         for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
             perm = "GpoApply" if sf.permission == "apply" else "GpoRead"
             target_type_ps = sf.target_type.title()
@@ -117,7 +129,7 @@ def powershell_plan(gpo: GPO) -> str:
         lines.append(f"# WMI filter: {wmi_name} ({wmi_query})")
         lines.append(
             f"# Assign WMI filter '{wmi_name}' to this GPO via GPMC or the"
-            f" GPMC COM API (domain: {gpo.domain})."
+            f" GPMC COM API (domain: {_ps_sanitize_comment(gpo.domain)})."
         )
     status_value: str
     if gpo.computer_enabled and gpo.user_enabled:
