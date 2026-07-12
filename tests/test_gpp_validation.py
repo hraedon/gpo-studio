@@ -1,0 +1,300 @@
+from __future__ import annotations
+
+from gpo_studio.gpp import (
+    GppCollection,
+    GppGroup,
+    GppGroupMember,
+    GppRegistry,
+    GppRegistryValue,
+)
+from gpo_studio.ilt import IltFilter, IltPredicate
+from gpo_studio.model import GPO, CseMetadataEntry
+from gpo_studio.validation import (
+    validate_gpo,
+    validate_gpp_collection,
+    validate_ready_transition,
+)
+
+_GUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+
+def _valid_group() -> GppGroup:
+    return GppGroup(
+        name="Administrators",
+        sid="S-1-5-32-544",
+        action="update",
+        members=(
+            GppGroupMember(sid="S-1-5-21-1-2-3-500", name="DOMAIN\\Domain Admins"),
+            GppGroupMember(sid="S-1-5-21-1-2-3-1000", name="DOMAIN\\Helpdesk", action="remove"),
+        ),
+    )
+
+
+def _valid_registry() -> GppRegistry:
+    return GppRegistry(
+        key=r"Software\Policies\Test",
+        action="update",
+        values=(
+            GppRegistryValue(name="Enabled", value=1, registry_type="REG_DWORD"),
+            GppRegistryValue(name="Path", value=r"C:\Temp", registry_type="REG_SZ"),
+            GppRegistryValue(
+                name="List", value=["a", "b", "c"], registry_type="REG_MULTI_SZ"
+            ),
+        ),
+    )
+
+
+def _valid_collection() -> GppCollection:
+    return GppCollection(
+        scope="computer",
+        groups=(_valid_group(),),
+        registry=(_valid_registry(),),
+    )
+
+
+def test_empty_gpp_group_name_error() -> None:
+    collection = GppCollection(scope="computer", groups=(GppGroup(name="   "),))
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "empty_gpp_group_name"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/name"
+        for i in issues
+    )
+
+
+def test_duplicate_gpp_group_names_case_insensitive_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(name="Admins", sid="S-1-5-32-544"),
+            GppGroup(name="ADMINS", sid="S-1-5-32-545"),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "duplicate_gpp_group"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/1/name"
+        for i in issues
+    )
+
+
+def test_gpp_registry_empty_key_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(GppRegistry(key="   "),),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "empty_gpp_registry_key"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/registry/0/key"
+        for i in issues
+    )
+
+
+def test_gpp_registry_value_wrong_type_dword_with_string_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="Enabled",
+                        value="not_a_number",
+                        registry_type="REG_DWORD",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "type_mismatch"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/registry/0/values/0/value"
+        for i in issues
+    )
+
+
+def test_gpp_dword_out_of_range_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="Enabled",
+                        value=0x100000000,
+                        registry_type="REG_DWORD",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "value_range"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/registry/0/values/0/value"
+        for i in issues
+    )
+
+
+def test_ilt_invalid_ip_range_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(
+                    predicates=(
+                        IltPredicate(type="ip_range", value="not-an-ip"),
+                    )
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "invalid_ilt_ip_range"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/groups/0/ilt_filter/0/value"
+        for i in issues
+    )
+
+
+def test_ilt_invalid_wmi_query_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(
+                    predicates=(
+                        IltPredicate(type="wmi_query", value="not a query"),
+                    )
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "invalid_ilt_wmi_query"
+        and i.severity == "error"
+        for i in issues
+    )
+
+
+def test_valid_gpp_collection_no_errors() -> None:
+    issues = validate_gpp_collection(_valid_collection())
+    assert issues == []
+
+
+def test_validate_ready_transition_blocks_when_errors_exist() -> None:
+    gpo = GPO(guid=_GUID, name="   ")
+    issues = validate_ready_transition(gpo)
+    assert any(i.severity == "error" for i in issues)
+    assert any(i.code == "name_required" for i in issues)
+
+
+def test_validate_ready_transition_blocks_when_cse_metadata_present() -> None:
+    gpo = GPO(
+        guid=_GUID,
+        name="Test",
+        cse_metadata=(
+            CseMetadataEntry(
+                guid="{35378EAC-683F-11D2-A89E-00C04FBBCFA2}",
+                side="machine",
+            ),
+        ),
+    )
+    issues = validate_ready_transition(gpo)
+    assert any(
+        i.code == "ready_blocked_unknown_cse"
+        and i.severity == "error"
+        and i.path == "cse_metadata"
+        for i in issues
+    )
+
+
+def test_validate_gpo_includes_gpp_issues() -> None:
+    gpo = GPO(
+        guid=_GUID,
+        name="Test",
+        gpp_collections=(
+            GppCollection(scope="computer", groups=(GppGroup(name="   "),)),
+        ),
+    )
+    issues = validate_gpo(gpo)
+    assert any(i.code == "empty_gpp_group_name" for i in issues)
+
+
+def test_gpp_registry_binary_invalid_hex_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="Blob",
+                        value="zz",
+                        registry_type="REG_BINARY",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "invalid_gpp_binary_hex"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/registry/0/values/0/value"
+        for i in issues
+    )
+
+
+def test_gpp_registry_binary_valid_hex_no_issues() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="Blob",
+                        value="DEADBEEF",
+                        registry_type="REG_BINARY",
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert validate_gpp_collection(collection) == []
+
+
+def test_gpp_registry_binary_valid_hex_with_spaces_no_issues() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="Blob",
+                        value="DE AD BE EF",
+                        registry_type="REG_BINARY",
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert validate_gpp_collection(collection) == []

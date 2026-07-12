@@ -14,7 +14,7 @@ export function renderList(){
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 export async function selectGpo(guid){
-  const data=await api(`/api/gpos/${guid}`);state.current=data.gpo;state.validation=data.validation;state.semanticHash=data.semantic_sha256||"";
+  const data=await api(`/api/gpos/${guid}`);state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";
   $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
   renderAll();renderList();
 }
@@ -26,7 +26,7 @@ export function renderAll(){
   const metaParts=[`<dt>GUID</dt><dd class="mono">${escapeHtml(g.guid)}</dd><dt>Description</dt><dd>${escapeHtml(g.description)||"—"}</dd><dt>Status</dt><dd><span class="pill ${g.status==='ready'?'ok':'warn'}">${escapeHtml(g.status)}</span></dd><dt>Computer</dt><dd>${g.computer_enabled?"Enabled":"Disabled"}</dd><dt>User</dt><dd>${g.user_enabled?"Enabled":"Disabled"}</dd><dt>Domain</dt><dd>${escapeHtml(g.domain||"studio.local")}</dd>`];
   if(g.source_guid)metaParts.push(`<dt>Source GUID</dt><dd class="mono">${escapeHtml(g.source_guid)}</dd>`);
   if(g.cse_metadata&&g.cse_metadata.length)metaParts.push(`<dt>CSE extensions</dt><dd>${g.cse_metadata.length} extension${g.cse_metadata.length===1?'':'s'}</dd>`);
-  metaParts.push(`<dt>Semantic hash</dt><dd class="mono" title="${escapeHtml(state.semanticHash)}">${escapeHtml(state.semanticHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
+  metaParts.push(`<dt>Policy hash</dt><dd class="mono" title="${escapeHtml(state.policyHash)}">${escapeHtml(state.policyHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
   $("#metadata").innerHTML=metaParts.join("");
   renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();
   if($("#panel-history").classList.contains("active"))loadHistory();

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeGuard, assert_never
 
-from .admx import PolicyDefinition, PolicyElement
+from .admx import EnumItem, PolicyDefinition, PolicyElement
 from .model import (
     RegistrySetting,
     RegistryType,
@@ -13,6 +13,7 @@ from .model import (
     ValidationError,
     ValidationIssue,
 )
+from .numeric import coerce_dword_qword
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,15 +95,30 @@ def _resolve_value(
             raise _type_error(element.id, "boolean", "bool")
         return "REG_DWORD", 1 if value else 0
     if element.kind == "decimal":
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise _type_error(element.id, "decimal", "int")
-        if not 0 <= value <= 0xFFFFFFFF:
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            raise _type_error(element.id, "decimal", "int or decimal string")
+        if isinstance(value, str):
+            try:
+                value = coerce_dword_qword(value, "REG_DWORD")
+            except ValueError:
+                raise ValidationError(
+                    [
+                        ValidationIssue(
+                            "error",
+                            "invalid_numeric_value",
+                            f"Element {element.id!r} decimal value must be a "
+                            f"canonical decimal string in the range 0-4294967295.",
+                            f"elements/{element.id}",
+                        )
+                    ]
+                ) from None
+        elif not 0 <= value <= 0xFFFFFFFF:
             raise ValidationError(
                 [
                     ValidationIssue(
                         "error",
                         "value_range",
-                        f"Element {element.id!r} decimal value must be 0–4294967295.",
+                        f"Element {element.id!r} decimal value must be 0\u20134294967295.",
                         f"elements/{element.id}",
                     )
                 ]
@@ -126,6 +142,7 @@ def _resolve_value(
         if element.enum_items:
             for item in element.enum_items:
                 if item.id == value:
+                    _check_enum_value_range(element.id, item)
                     return item.registry_type, item.value
             raise ValidationError(
                 [
@@ -167,3 +184,38 @@ def _type_error(element_id: str, kind: str, expected: str) -> ValidationError:
 
 def _is_str_list(value: object) -> TypeGuard[list[str]]:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _check_enum_value_range(element_id: str, item: EnumItem) -> None:
+    v = item.value
+    if not isinstance(v, int) or isinstance(v, bool):
+        return
+    match item.registry_type:
+        case "REG_DWORD":
+            if not 0 <= v <= 0xFFFFFFFF:
+                raise ValidationError(
+                    [
+                        ValidationIssue(
+                            "error",
+                            "value_range",
+                            f"Element {element_id!r} enum value exceeds REG_DWORD range.",
+                            f"elements/{element_id}",
+                        )
+                    ]
+                )
+        case "REG_QWORD":
+            if not 0 <= v <= 0xFFFFFFFFFFFFFFFF:
+                raise ValidationError(
+                    [
+                        ValidationIssue(
+                            "error",
+                            "value_range",
+                            f"Element {element_id!r} enum value exceeds REG_QWORD range.",
+                            f"elements/{element_id}",
+                        )
+                    ]
+                )
+        case "REG_SZ" | "REG_EXPAND_SZ" | "REG_BINARY" | "REG_MULTI_SZ":
+            pass
+        case _:
+            assert_never(item.registry_type)

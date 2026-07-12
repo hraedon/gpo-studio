@@ -293,3 +293,153 @@ def test_domain_valid_fqdn_no_issues() -> None:
 def test_domain_default_studio_local_no_issues() -> None:
     gpo = _gpo()
     assert not any(i.path == "domain" for i in validate_gpo(gpo))
+
+
+def test_dword_bool_value_type_mismatch_error() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Enabled",
+        registry_type="REG_DWORD",
+        value=True,
+    )
+    issues = validate_setting(setting)
+    assert any(
+        i.code == "type_mismatch"
+        and i.severity == "error"
+        and i.path == "settings/s1/value"
+        for i in issues
+    )
+
+
+def test_qword_bool_value_type_mismatch_error() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Enabled",
+        registry_type="REG_QWORD",
+        value=False,
+    )
+    issues = validate_setting(setting)
+    assert any(
+        i.code == "type_mismatch" and i.severity == "error" for i in issues
+    )
+
+
+def test_reg_sz_int_value_type_mismatch_error() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Path",
+        registry_type="REG_SZ",
+        value=42,
+    )
+    issues = validate_setting(setting)
+    assert any(
+        i.code == "type_mismatch"
+        and i.severity == "error"
+        and i.path == "settings/s1/value"
+        for i in issues
+    )
+
+
+def test_reg_expand_sz_non_string_type_mismatch_error() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Path",
+        registry_type="REG_EXPAND_SZ",
+        value=["a", "b"],
+    )
+    issues = validate_setting(setting)
+    assert any(
+        i.code == "type_mismatch"
+        and i.severity == "error"
+        and i.path == "settings/s1/value"
+        for i in issues
+    )
+
+
+def test_reg_binary_non_string_type_mismatch_error() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Blob",
+        registry_type="REG_BINARY",
+        value=42,
+    )
+    issues = validate_setting(setting)
+    assert any(
+        i.code == "type_mismatch"
+        and i.severity == "error"
+        and i.path == "settings/s1/value"
+        for i in issues
+    )
+
+
+def test_reg_binary_invalid_hex_error() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Blob",
+        registry_type="REG_BINARY",
+        value="zz",
+    )
+    issues = validate_setting(setting)
+    assert any(
+        i.code == "invalid_binary_hex"
+        and i.severity == "error"
+        and i.path == "settings/s1/value"
+        for i in issues
+    )
+
+
+def test_reg_binary_valid_hex_no_issues() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Blob",
+        registry_type="REG_BINARY",
+        value="DEADBEEF",
+    )
+    assert validate_setting(setting) == []
+
+
+def test_reg_binary_valid_hex_with_spaces_no_issues() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Blob",
+        registry_type="REG_BINARY",
+        value="DE AD BE EF",
+    )
+    assert validate_setting(setting) == []
+
+
+def test_reg_sz_valid_string_no_issues() -> None:
+    setting = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Path",
+        registry_type="REG_SZ",
+        value=r"C:\Temp",
+    )
+    assert validate_setting(setting) == []

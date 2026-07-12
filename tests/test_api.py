@@ -84,10 +84,10 @@ def test_full_api_authoring_flow(tmp_path) -> None:
                 "setting": {
                     "side": "computer",
                     "hive": "HKLM",
-                    "key": r"Software\Policies\Synthetic",
+                    "key": r"Software\Policies\Test",
                     "value_name": "Enabled",
                     "registry_type": "REG_DWORD",
-                    "value": 1,
+                    "value": "1",
                 },
             },
         )
@@ -154,8 +154,11 @@ def test_semantic_hash_in_response(tmp_path) -> None:
         resp = client.post("/api/gpos", json={"name": "Hash test policy"})
         assert resp.status_code == 201
         data = resp.json()
-        assert "semantic_sha256" in data
-        assert len(data["semantic_sha256"]) == 64
+        assert "semantic_sha256" not in data
+        assert "policy_semantic_sha256" in data
+        assert "review_model_sha256" in data
+        assert len(data["policy_semantic_sha256"]) == 64
+        assert len(data["review_model_sha256"]) == 64
         guid = data["gpo"]["guid"]
         rev = data["gpo"]["revision"]
         resp = client.post(
@@ -174,8 +177,8 @@ def test_semantic_hash_in_response(tmp_path) -> None:
             },
         )
         assert resp.status_code == 201
-        new_hash = resp.json()["semantic_sha256"]
-        assert new_hash != data["semantic_sha256"]
+        new_hash = resp.json()["policy_semantic_sha256"]
+        assert new_hash != data["policy_semantic_sha256"]
 
 
 def test_two_way_diff(tmp_path) -> None:
@@ -195,7 +198,7 @@ def test_two_way_diff(tmp_path) -> None:
                     "key": r"Software\Policies\Diff",
                     "value_name": "SettingA",
                     "registry_type": "REG_DWORD",
-                    "value": 1,
+                    "value": "1",
                 },
             },
         )
@@ -287,7 +290,7 @@ def test_backup_import(tmp_path, monkeypatch) -> None:
         assert gpo["source_guid"] == "11111111-2222-3333-4444-555555555555"
         assert len(gpo["settings"]) == 1
         assert gpo["settings"][0]["key"] == r"Software\Policies\Test"
-        assert gpo["settings"][0]["value"] == 1
+        assert gpo["settings"][0]["value"] == "1"
 
 
 def test_backup_import_nonexistent_dir(tmp_path) -> None:
@@ -356,7 +359,7 @@ def test_gpmc_backup_roundtrip(tmp_path, monkeypatch) -> None:
                     "key": r"Software\Policies\Roundtrip",
                     "value_name": "SettingA",
                     "registry_type": "REG_DWORD",
-                    "value": 42,
+                    "value": "42",
                 },
             },
         )
@@ -377,7 +380,7 @@ def test_gpmc_backup_roundtrip(tmp_path, monkeypatch) -> None:
         imported = resp.json()["gpo"]
         assert len(imported["settings"]) == 1
         assert imported["settings"][0]["key"] == r"Software\Policies\Roundtrip"
-        assert imported["settings"][0]["value"] == 42
+        assert imported["settings"][0]["value"] == "42"
 
 
 def test_gpmc_backup_deterministic(tmp_path) -> None:
@@ -557,7 +560,7 @@ def test_configure_policy_boolean(tmp_path, monkeypatch) -> None:
         updated = resp.json()["gpo"]
         assert len(updated["settings"]) == 1
         assert updated["settings"][0]["registry_type"] == "REG_DWORD"
-        assert updated["settings"][0]["value"] == 1
+        assert updated["settings"][0]["value"] == "1"
 
 
 def test_configure_policy_unknown_policy_404(tmp_path, monkeypatch) -> None:

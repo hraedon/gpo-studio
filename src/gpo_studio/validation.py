@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
+from typing import assert_never
 
+from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
+from .ilt import IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
 
 _DN = re.compile(r"^(?:OU|DC)=[^,=]+(?:,(?:OU|DC)=[^,=]+)+$", re.IGNORECASE)
@@ -13,6 +17,10 @@ _PRINCIPAL_DOMAIN_USER = re.compile(r"^[^\\\s]+\\[^\\\s]+$")
 _PRINCIPAL_UPN = re.compile(r"^[^@\s]+@[^@\s]+$")
 _PRINCIPAL_SID = re.compile(r"^S-\d+(?:-\d+)+$")
 _DOMAIN_FORMAT = re.compile(r"^[A-Za-z0-9.-]+$")
+
+_VALID_REGISTRY_TYPES = frozenset(
+    {"REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD"}
+)
 
 
 def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
@@ -66,7 +74,9 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
         )
     if setting.action == "set":
         value = setting.value
-        if setting.registry_type in {"REG_DWORD", "REG_QWORD"} and not isinstance(value, int):
+        if setting.registry_type in {"REG_DWORD", "REG_QWORD"} and (
+            isinstance(value, bool) or not isinstance(value, int)
+        ):
             issues.append(
                 ValidationIssue(
                     "error",
@@ -78,16 +88,18 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
         if (
             setting.registry_type == "REG_DWORD"
             and isinstance(value, int)
+            and not isinstance(value, bool)
             and not 0 <= value <= 0xFFFFFFFF
         ):
             issues.append(
                 ValidationIssue(
-                    "error", "value_range", "REG_DWORD must be 0–4294967295.", f"{path}/value"
+                    "error", "value_range", "REG_DWORD must be 0\u20134294967295.", f"{path}/value"
                 )
             )
         if (
             setting.registry_type == "REG_QWORD"
             and isinstance(value, int)
+            and not isinstance(value, bool)
             and not 0 <= value <= 0xFFFFFFFFFFFFFFFF
         ):
             issues.append(
@@ -109,6 +121,37 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                     f"{path}/value",
                 )
             )
+        if setting.registry_type in {"REG_SZ", "REG_EXPAND_SZ"} and not isinstance(value, str):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "type_mismatch",
+                    f"{setting.registry_type} requires a string.",
+                    f"{path}/value",
+                )
+            )
+        if setting.registry_type == "REG_BINARY":
+            if not isinstance(value, str):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "type_mismatch",
+                        "REG_BINARY requires a string.",
+                        f"{path}/value",
+                    )
+                )
+            else:
+                try:
+                    bytes.fromhex(value.replace(" ", ""))
+                except ValueError:
+                    issues.append(
+                        ValidationIssue(
+                            "error",
+                            "invalid_binary_hex",
+                            "REG_BINARY must be even-length hexadecimal.",
+                            f"{path}/value",
+                        )
+                    )
     return issues
 
 
@@ -286,6 +329,8 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     "wmi_filter/query",
                 )
             )
+    for collection in gpo.gpp_collections:
+        issues.extend(validate_gpp_collection(collection))
     domain = gpo.domain.strip()
     if not domain:
         issues.append(
@@ -316,3 +361,468 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
             )
         )
     return issues
+
+
+def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    match pred.type:
+        case "ou":
+            if not pred.value.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_ilt_ou_value",
+                        "ILT OU value is required.",
+                        f"{path}/value",
+                    )
+                )
+        case "group":
+            if not pred.value.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_ilt_group_value",
+                        "ILT group value is required.",
+                        f"{path}/value",
+                    )
+                )
+        case "registry":
+            if not pred.value.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_ilt_registry_value",
+                        "ILT registry value is required.",
+                        f"{path}/value",
+                    )
+                )
+        case "ip_range":
+            if not _is_valid_ip_range(pred.value):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "invalid_ilt_ip_range",
+                        "ILT IP range must be a valid CIDR or IP range.",
+                        f"{path}/value",
+                    )
+                )
+        case "environment":
+            if not pred.value.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_ilt_environment_value",
+                        "ILT environment value is required.",
+                        f"{path}/value",
+                    )
+                )
+        case "wmi_query":
+            if not _WQL_SELECT.search(pred.value) or not _WQL_FROM.search(pred.value):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "invalid_ilt_wmi_query",
+                        "ILT WMI query must contain SELECT and FROM.",
+                        f"{path}/value",
+                    )
+                )
+        case _:
+            assert_never(pred.type)
+    return issues
+
+
+def validate_ilt_filter(filter: IltFilter, path: str) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    for idx, pred in enumerate(filter.predicates):
+        issues.extend(validate_ilt_predicate(pred, f"{path}/{idx}"))
+    return issues
+
+
+def validate_gpp_group_member(
+    member: GppGroupMember, path: str
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if not member.sid.strip():
+        issues.append(
+            ValidationIssue(
+                "error",
+                "empty_gpp_member_sid",
+                "GPP group member SID is required.",
+                f"{path}/sid",
+            )
+        )
+    if any(ord(c) < 0x20 for c in member.sid):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpp_member_sid",
+                "GPP group member SID contains control characters.",
+                f"{path}/sid",
+            )
+        )
+    if len(member.sid) > 255:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "gpp_member_sid_too_long",
+                "GPP group member SID exceeds 255 characters.",
+                f"{path}/sid",
+            )
+        )
+    match member.action:
+        case "add" | "replace" | "remove" | "update":
+            pass
+        case _:
+            assert_never(member.action)
+    return issues
+
+
+def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    name = group.name
+    if not name.strip():
+        issues.append(
+            ValidationIssue(
+                "error",
+                "empty_gpp_group_name",
+                "GPP group name is required.",
+                f"{path}/name",
+            )
+        )
+    if len(name) > 255:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "gpp_group_name_too_long",
+                "GPP group name exceeds 255 characters.",
+                f"{path}/name",
+            )
+        )
+    if any(ord(c) < 0x20 for c in name):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpp_group_name",
+                "GPP group name contains control characters.",
+                f"{path}/name",
+            )
+        )
+    match group.action:
+        case "add" | "replace" | "remove" | "update":
+            pass
+        case _:
+            assert_never(group.action)
+    if group.sid:
+        sid_path = f"{path}/sid"
+        if any(ord(c) < 0x20 for c in group.sid):
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "invalid_gpp_group_sid",
+                    "GPP group SID contains control characters.",
+                    sid_path,
+                )
+            )
+        if len(group.sid) > 255:
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "invalid_gpp_group_sid",
+                    "GPP group SID exceeds 255 characters.",
+                    sid_path,
+                )
+            )
+        if not _PRINCIPAL_SID.match(group.sid):
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "invalid_gpp_group_sid",
+                    "GPP group SID does not match expected format (S-1-5-...).",
+                    sid_path,
+                )
+            )
+    seen_member_sids: set[str] = set()
+    for idx, member in enumerate(group.members):
+        member_path = f"{path}/members/{idx}"
+        issues.extend(validate_gpp_group_member(member, member_path))
+        folded_sid = member.sid.casefold()
+        if member.sid.strip() and folded_sid in seen_member_sids:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_member",
+                    "Duplicate GPP group member SID.",
+                    f"{member_path}/sid",
+                )
+            )
+        if member.sid.strip():
+            seen_member_sids.add(folded_sid)
+    if (
+        group.remove_all_users
+        and group.remove_all_groups
+        and group.action == "remove"
+    ):
+        issues.append(
+            ValidationIssue(
+                "warning",
+                "gpp_group_full_purge",
+                "GPP group removes all users and all groups.",
+                path,
+            )
+        )
+    if group.ilt_filter is not None:
+        issues.extend(validate_ilt_filter(group.ilt_filter, f"{path}/ilt_filter"))
+    return issues
+
+
+def validate_gpp_registry_value(
+    value: GppRegistryValue, path: str
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if not value.name.strip():
+        issues.append(
+            ValidationIssue(
+                "error",
+                "empty_gpp_registry_value_name",
+                "GPP registry value name is required.",
+                f"{path}/name",
+            )
+        )
+    if len(value.name) > 255:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "gpp_registry_value_name_too_long",
+                "GPP registry value name exceeds 255 characters.",
+                f"{path}/name",
+            )
+        )
+    if value.registry_type not in _VALID_REGISTRY_TYPES:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "invalid_gpp_registry_type",
+                f"Unknown GPP registry type: {value.registry_type}.",
+                f"{path}/registry_type",
+            )
+        )
+    raw = value.value
+    if value.registry_type in ("REG_DWORD", "REG_QWORD"):
+        if not isinstance(raw, int) or isinstance(raw, bool):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "type_mismatch",
+                    f"{value.registry_type} requires an integer.",
+                    f"{path}/value",
+                )
+            )
+        elif value.registry_type == "REG_DWORD" and not 0 <= raw <= 0xFFFFFFFF:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "value_range",
+                    "REG_DWORD must be 0\u20134294967295.",
+                    f"{path}/value",
+                )
+            )
+        elif value.registry_type == "REG_QWORD" and not 0 <= raw <= 0xFFFFFFFFFFFFFFFF:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "value_range",
+                    "REG_QWORD is outside its unsigned range.",
+                    f"{path}/value",
+                )
+            )
+    if value.registry_type == "REG_MULTI_SZ" and not (
+        isinstance(raw, list) and all(isinstance(item, str) for item in raw)
+    ):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "type_mismatch",
+                "REG_MULTI_SZ requires a string list.",
+                f"{path}/value",
+            )
+        )
+    if value.registry_type == "REG_BINARY":
+        if not isinstance(raw, str):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "type_mismatch",
+                    "REG_BINARY requires a string.",
+                    f"{path}/value",
+                )
+            )
+        else:
+            try:
+                bytes.fromhex(raw.replace(" ", ""))
+            except ValueError:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "invalid_gpp_binary_hex",
+                        "REG_BINARY must be even-length hexadecimal.",
+                        f"{path}/value",
+                    )
+                )
+    match value.action:
+        case "create" | "replace" | "update" | "delete":
+            pass
+        case _:
+            assert_never(value.action)
+    return issues
+
+
+def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    key = reg.key
+    if not key.strip():
+        issues.append(
+            ValidationIssue(
+                "error",
+                "empty_gpp_registry_key",
+                "GPP registry key is required.",
+                f"{path}/key",
+            )
+        )
+    if len(key) > 255:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "gpp_registry_key_too_long",
+                "GPP registry key exceeds 255 characters.",
+                f"{path}/key",
+            )
+        )
+    if any(ord(c) < 0x20 for c in key):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpp_registry_key",
+                "GPP registry key contains control characters.",
+                f"{path}/key",
+            )
+        )
+    if key.startswith("\\") or key.endswith("\\"):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "invalid_gpp_registry_key",
+                "GPP registry key must not start or end with a backslash.",
+                f"{path}/key",
+            )
+        )
+    if "\\\\" in key:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "consecutive_backslashes_in_gpp_registry_key",
+                "GPP registry key contains consecutive backslashes.",
+                f"{path}/key",
+            )
+        )
+    seen_value_names: set[str] = set()
+    for idx, val in enumerate(reg.values):
+        val_path = f"{path}/values/{idx}"
+        issues.extend(validate_gpp_registry_value(val, val_path))
+        folded_name = val.name.casefold()
+        if val.name.strip() and folded_name in seen_value_names:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_registry_value",
+                    "Duplicate GPP registry value name.",
+                    f"{val_path}/name",
+                )
+            )
+        if val.name.strip():
+            seen_value_names.add(folded_name)
+    match reg.action:
+        case "add" | "replace" | "remove" | "update":
+            pass
+        case _:
+            assert_never(reg.action)
+    if reg.ilt_filter is not None:
+        issues.extend(validate_ilt_filter(reg.ilt_filter, f"{path}/ilt_filter"))
+    return issues
+
+
+def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    match collection.scope:
+        case "computer" | "user":
+            pass
+        case _:
+            assert_never(collection.scope)
+    scope = collection.scope
+    seen_group_names: set[str] = set()
+    for idx, group in enumerate(collection.groups):
+        group_path = f"gpp_collections/{scope}/groups/{idx}"
+        issues.extend(validate_gpp_group(group, group_path))
+        folded_name = group.name.strip().casefold()
+        if folded_name and folded_name in seen_group_names:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_group",
+                    "Duplicate GPP group name in collection.",
+                    f"{group_path}/name",
+                )
+            )
+        if folded_name:
+            seen_group_names.add(folded_name)
+    seen_registry_keys: set[str] = set()
+    for idx, reg in enumerate(collection.registry):
+        reg_path = f"gpp_collections/{scope}/registry/{idx}"
+        issues.extend(validate_gpp_registry(reg, reg_path))
+        folded_key = reg.key.strip().casefold()
+        if folded_key and folded_key in seen_registry_keys:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_registry_key",
+                    "Duplicate GPP registry key in collection.",
+                    f"{reg_path}/key",
+                )
+            )
+        if folded_key:
+            seen_registry_keys.add(folded_key)
+    return issues
+
+
+def validate_ready_transition(gpo: GPO) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    base_issues = validate_gpo(gpo)
+    issues.extend(i for i in base_issues if i.severity == "error")
+    if gpo.cse_metadata:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "ready_blocked_unknown_cse",
+                "Cannot transition to ready with unknown/preserved CSE content.",
+                "cse_metadata",
+            )
+        )
+    return issues
+
+
+def _is_valid_ip_range(value: str) -> bool:
+    stripped = value.strip()
+    if not stripped:
+        return False
+    try:
+        if "/" in stripped:
+            ipaddress.ip_network(stripped, strict=False)
+            return True
+        elif "-" in stripped:
+            min_ip, max_ip = stripped.split("-", 1)
+            ipaddress.ip_address(min_ip.strip())
+            ipaddress.ip_address(max_ip.strip())
+            return True
+        else:
+            return False
+    except ValueError:
+        return False

@@ -24,8 +24,10 @@ from .model import (
     RegistrySetting,
     Revision,
     SecurityFilter,
+    ValidationError,
     WmiFilter,
 )
+from .validation import validate_gpo, validate_ready_transition
 
 
 def _now() -> str:
@@ -259,6 +261,7 @@ class WorkspaceStore:
         imported = 0
         skipped = 0
         conflicts = 0
+        rejected = 0
         for gpo in gpos:
             normalized_guid = gpo.guid.lower().strip("{}")
             try:
@@ -277,6 +280,15 @@ class WorkspaceStore:
                 created_at=timestamp,
                 updated_at=timestamp,
             )
+            issues = validate_gpo(normalized)
+            if any(issue.severity == "error" for issue in issues):
+                rejected += 1
+                continue
+            if normalized.status == "ready":
+                ready_issues = validate_ready_transition(normalized)
+                if ready_issues:
+                    rejected += 1
+                    continue
             payload = json.dumps(
                 normalized.to_dict(), separators=(",", ":"), sort_keys=True
             )
@@ -305,7 +317,8 @@ class WorkspaceStore:
             "imported": imported,
             "skipped": skipped,
             "conflicts": conflicts,
-            "total": imported + skipped + conflicts,
+            "rejected": rejected,
+            "total": imported + skipped + conflicts + rejected,
         }
 
     def fork_gpo(
@@ -402,6 +415,16 @@ class WorkspaceStore:
         unknown = set(values) - allowed
         if unknown:
             raise ValueError(f"unknown metadata fields: {', '.join(sorted(unknown))}")
+
+        current = self.get_gpo(guid)
+        target_status = values.get("status")
+        if target_status == "ready" and current.status != "ready":
+            target_gpo = replace(
+                current, **{k: v for k, v in values.items() if k in allowed}
+            )
+            issues = validate_ready_transition(target_gpo)
+            if issues:
+                raise ValidationError(issues)
 
         def mutate(gpo: GPO) -> GPO:
             return replace(gpo, **values)
@@ -604,6 +627,13 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         historical = gpo_from_dict(self.get_revision(guid, revision).snapshot)
+        issues = validate_gpo(historical)
+        if any(issue.severity == "error" for issue in issues):
+            raise ValidationError(issues)
+        if historical.status == "ready":
+            ready_issues = validate_ready_transition(historical)
+            if ready_issues:
+                raise ValidationError(ready_issues)
 
         def mutate(current: GPO) -> GPO:
             return replace(

@@ -5,6 +5,9 @@ function formatSettingValue(s){if(!s)return '—';if(s.action==='delete')return 
 function formatSf(sf){if(!sf)return '—';return `${sf.permission} · ${sf.target_type||'group'} · ${sf.inheritable?'inheritable':'not inheritable'}`}
 function formatWmi(w){if(!w)return '—';return `${w.name}: ${w.query}`}
 function formatLink(l){if(!l)return '—';return `${l.target} · ${l.enabled?'enabled':'disabled'} · ${l.enforced?'enforced':'not enforced'} · order ${l.order}`}
+function formatGppGroup(g){if(!g)return '—';const members=(g.members||[]).map(m=>m.name||m.sid).filter(Boolean).join(', ');return `${g.name||'(unnamed)'} · ${g.action} · sid ${g.sid||'—'}${members?` · members: ${members}`:''}`}
+function formatGppRegistry(r){if(!r)return '—';const vals=(r.values||[]).map(v=>`${v.name}=${Array.isArray(v.value)?v.value.join(';'):String(v.value)}`).join(', ');return `${r.key||'(no key)'} · ${r.action}${vals?` · ${vals}`:''}`}
+function formatCse(c){if(!c)return '—';return `${c.guid||''} · ${c.side||''} · ${(c.files||[]).length} file(s)`}
 function kindClass(kind){return kind==='added'?'diff-added':kind==='removed'?'diff-removed':'diff-modified'}
 
 export function loadDiffSelectors(){
@@ -28,8 +31,8 @@ export function initDiff(){
 
 function renderDiff(data){
   const parts=[];
-  const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length);
-  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict;
+  const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length);
+  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length);
   if(data.settings.length){
     parts.push(`<div class="diff-section"><h3>Settings (${data.settings.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Key</th><th>Value name</th><th>Old</th><th>New</th></tr></thead><tbody>${data.settings.map(s=>{
       const ident=s.identity||[];const oldV=formatSettingValue(s.old);const newV=formatSettingValue(s.new);
@@ -46,6 +49,18 @@ function renderDiff(data){
     const w=data.wmi_filter;
     parts.push(`<div class="diff-section"><h3>WMI filter</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Old</th><th>New</th></tr></thead><tbody><tr><td class="${kindClass(w.kind)}">${escapeHtml(w.kind)}</td><td>${escapeHtml(formatWmi(w.old))}</td><td>${escapeHtml(formatWmi(w.new))}</td></tr></tbody></table></div>`);
   }
+  if(data.gpp_groups&&data.gpp_groups.length){
+    parts.push(`<div class="diff-section"><h3>GPP groups (${data.gpp_groups.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Group</th><th>Old</th><th>New</th></tr></thead><tbody>${data.gpp_groups.map(g=>`<tr><td class="${kindClass(g.kind)}">${escapeHtml(g.kind)}</td><td>${escapeHtml(g.scope)}</td><td class="mono">${escapeHtml((g.new||g.old||{}).name||'')}</td><td>${escapeHtml(formatGppGroup(g.old))}</td><td>${escapeHtml(formatGppGroup(g.new))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.gpp_registry&&data.gpp_registry.length){
+    parts.push(`<div class="diff-section"><h3>GPP registry (${data.gpp_registry.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Key</th><th>Old</th><th>New</th></tr></thead><tbody>${data.gpp_registry.map(r=>`<tr><td class="${kindClass(r.kind)}">${escapeHtml(r.kind)}</td><td>${escapeHtml(r.scope)}</td><td class="mono">${escapeHtml((r.new||r.old||{}).key||'')}</td><td>${escapeHtml(formatGppRegistry(r.old))}</td><td>${escapeHtml(formatGppRegistry(r.new))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.metadata&&data.metadata.length){
+    parts.push(`<div class="diff-section"><h3>Metadata (${data.metadata.length})</h3><table class="diff-table"><thead><tr><th>Field</th><th>Old</th><th>New</th></tr></thead><tbody>${data.metadata.map(m=>`<tr><td class="mono">${escapeHtml(m.field)}</td><td>${escapeHtml(String(m.old))}</td><td>${escapeHtml(String(m.new))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.cse_metadata&&data.cse_metadata.length){
+    parts.push(`<div class="diff-section"><h3>CSE metadata (${data.cse_metadata.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Old</th><th>New</th></tr></thead><tbody>${data.cse_metadata.map(c=>`<tr><td class="${kindClass(c.kind||'modified')}">${escapeHtml(c.kind||'modified')}</td><td>${escapeHtml(formatCse(c.old))}</td><td>${escapeHtml(formatCse(c.new))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
   if(data.conflicts.length){
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: Settings (${data.conflicts.length})</h3><table class="diff-table"><thead><tr><th>Key</th><th>Value name</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.conflicts.map(c=>{
       const ident=c.identity||[];
@@ -60,6 +75,20 @@ function renderDiff(data){
   if(data.wmi_filter_conflict){
     const c=data.wmi_filter_conflict;
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: WMI filter</h3><table class="diff-table"><thead><tr><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody><tr class="diff-conflict"><td>${escapeHtml(formatWmi(c.baseline))}</td><td>${escapeHtml(formatWmi(c.draft))}</td><td>${escapeHtml(formatWmi(c.observed))}</td></tr></tbody></table></div>`);
+  }
+  if(data.link_conflicts&&data.link_conflicts.length){
+    parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: Links (${data.link_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Target</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.link_conflicts.map(c=>`<tr class="diff-conflict"><td class="mono">${escapeHtml(c.identity)}</td><td>${escapeHtml(formatLink(c.baseline))}</td><td>${escapeHtml(formatLink(c.draft))}</td><td>${escapeHtml(formatLink(c.observed))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.gpp_conflicts&&data.gpp_conflicts.length){
+    const rows=data.gpp_conflicts.map(c=>{
+      if(c.kind==='registry'){
+        const label=(c.draft||c.observed||c.baseline||{}).key||c.identity||'';
+        return `<tr class="diff-conflict"><td>GPP registry</td><td>${escapeHtml(c.scope)}</td><td class="mono">${escapeHtml(label)}</td><td>${escapeHtml(formatGppRegistry(c.baseline))}</td><td>${escapeHtml(formatGppRegistry(c.draft))}</td><td>${escapeHtml(formatGppRegistry(c.observed))}</td></tr>`;
+      }
+      const label=(c.draft||c.observed||c.baseline||{}).name||(c.identity&&c.identity[1])||'';
+      return `<tr class="diff-conflict"><td>GPP group</td><td>${escapeHtml(c.scope)}</td><td class="mono">${escapeHtml(label)}</td><td>${escapeHtml(formatGppGroup(c.baseline))}</td><td>${escapeHtml(formatGppGroup(c.draft))}</td><td>${escapeHtml(formatGppGroup(c.observed))}</td></tr>`;
+    }).join('');
+    parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: GPP (${data.gpp_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Name/Key</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${rows}</tbody></table></div>`);
   }
   if(!hasChanges&&!hasConflicts)parts.push('<div class="table-empty">No differences found</div>');
   $('#diff-results').innerHTML=parts.join('');
