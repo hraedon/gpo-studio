@@ -18,7 +18,7 @@ _GPP_NS = "http://www.microsoft.com/GroupPolicy/Settings"
 
 
 def _ns(tag: str) -> str:
-    return f"{{{_GPP_NS}}}{tag}"
+    return tag
 
 
 def _local_name(tag: str) -> str:
@@ -364,7 +364,6 @@ def serialize_gpp_groups(collection: GppCollection) -> bytes:
     root.set("clsid", _GROUPS_CLSID)
     for group in collection.groups:
         root.append(_serialize_group(group))
-    ET.register_namespace("", _GPP_NS)
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
@@ -439,7 +438,6 @@ def serialize_gpp_registry(collection: GppCollection) -> bytes:
     for reg in collection.registry:
         for elem in _serialize_registry(reg):
             root.append(elem)
-    ET.register_namespace("", _GPP_NS)
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
@@ -596,9 +594,11 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
 def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
     """Parse GPP Registry XML bytes into a tuple of GppRegistry.
 
-    Consecutive <Registry> elements sharing the same (hive, key) are grouped
-    into a single GppRegistry with multiple values, matching how GPMC emits
-    one <Registry> element per value.
+    Each <Registry> element produces its own GppRegistry with a single
+    value, preserving per-element metadata (ILT filters, unknown
+    attributes, unknown children).  This avoids the lossy coalescing
+    that occurred when consecutive elements sharing a hive/key were
+    merged and subsequent elements' metadata was discarded.
     """
     try:
         root = ET.fromstring(data)
@@ -611,22 +611,15 @@ def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
 
     grouped: list[GppRegistry] = []
     for hive, key, value, ilt_filter, unknown_attrs, unknown_children in parsed:
-        if grouped and grouped[-1].hive == hive and grouped[-1].key == key:
-            existing = grouped[-1]
-            grouped[-1] = replace(
-                existing,
-                values=existing.values + (value,),
-            )
-        else:
-            grouped.append(GppRegistry(
-                key=key,
-                hive=hive,
-                values=(value,),
-                action="update",
-                ilt_filter=ilt_filter,
-                unknown_attrs=unknown_attrs,
-                unknown_children=unknown_children,
-            ))
+        grouped.append(GppRegistry(
+            key=key,
+            hive=hive,
+            values=(value,),
+            action="update",
+            ilt_filter=ilt_filter,
+            unknown_attrs=unknown_attrs,
+            unknown_children=unknown_children,
+        ))
     return tuple(grouped)
 
 
@@ -687,37 +680,69 @@ def ensure_editor_ids(collection: GppCollection) -> GppCollection:
 def _ilt_filter_to_dict(ilt: IltFilter | None) -> dict[str, Any] | None:
     if ilt is None:
         return None
-    result: dict[str, Any] = {
-        "predicates": [
-            {"type": p.type, "negate": p.negate, "value": p.value}
-            for p in ilt.predicates
+    return {
+        "items": [
+            {
+                "type": p.type,
+                "negate": p.negate,
+                "value": p.value,
+                "bool_op": p.bool_op,
+                "unknown_attrs": list(p.unknown_attrs) if p.unknown_attrs else [],
+            }
+            if isinstance(p, IltPredicate) else p
+            for p in ilt.items
         ],
     }
-    if ilt.unknown_predicates:
-        result["unknown_predicates"] = list(ilt.unknown_predicates)
-    return result
 
 
 def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
     if not data:
         return None
     if isinstance(data, dict):
+        items_data = data.get("items")
+        if items_data is not None:
+            items: list[IltPredicate | str] = []
+            for item in items_data:
+                if isinstance(item, dict):
+                    items.append(IltPredicate(
+                        type=item["type"],
+                        negate=bool(item["negate"]),
+                        value=str(item["value"]),
+                        bool_op=str(item.get("bool_op", "AND")),
+                        unknown_attrs=tuple(
+                            (str(k), str(v))
+                            for k, v in item.get("unknown_attrs", [])
+                        ),
+                    ))
+                else:
+                    items.append(str(item))
+            return IltFilter(items=tuple(items))
         predicates_data = data.get("predicates", [])
         unknown = tuple(data.get("unknown_predicates", []))
+        preds = tuple(
+            IltPredicate(
+                type=p["type"],
+                negate=bool(p["negate"]),
+                value=str(p["value"]),
+                bool_op=str(p.get("bool_op", "AND")),
+                unknown_attrs=tuple(
+                    (str(k), str(v))
+                    for k, v in p.get("unknown_attrs", [])
+                ),
+            )
+            for p in predicates_data
+        )
+        return IltFilter(items=preds + unknown)
     else:
-        predicates_data = data
-        unknown = ()
-    return IltFilter(
-        predicates=tuple(
+        preds = tuple(
             IltPredicate(
                 type=p["type"],
                 negate=bool(p["negate"]),
                 value=str(p["value"]),
             )
-            for p in predicates_data
-        ),
-        unknown_predicates=unknown,
-    )
+            for p in data
+        )
+        return IltFilter(items=preds)
 
 
 def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:

@@ -139,14 +139,20 @@ def semantic_dict_ilt_predicate(pred: IltPredicate) -> dict[str, Any]:
         "type": pred.type,
         "negate": pred.negate,
         "value": pred.value,
+        "bool_op": pred.bool_op,
+        "unknown_attrs": list(pred.unknown_attrs),
     }
 
 
 def semantic_dict_ilt(f: IltFilter | None) -> list[dict[str, Any]] | None:
     if f is None:
         return None
-    result: list[dict[str, Any]] = [semantic_dict_ilt_predicate(p) for p in f.predicates]
-    result.extend({"unknown": raw} for raw in f.unknown_predicates)
+    result: list[dict[str, Any]] = []
+    for item in f.items:
+        if isinstance(item, IltPredicate):
+            result.append(semantic_dict_ilt_predicate(item))
+        else:
+            result.append({"unknown": item})
     return result
 
 

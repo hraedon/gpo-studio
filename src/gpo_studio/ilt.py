@@ -2,8 +2,10 @@
 
 Implements the MS-GPPREF targeting protocol.  Every filter element requires
 ``bool="AND|OR"`` and ``not="0|1"`` attributes per the IFilter schema.
-Studio emits ``bool="AND"`` on every predicate because only AND semantics
-are authored; OR and nested FilterCollection are preserved as unknown XML.
+The ``bool`` attribute is preserved through round-trips so that imported
+OR predicates are not silently changed to AND.  Unknown predicate types
+and unknown attributes are preserved losslessly, and the original
+interleaving order of typed and unknown predicates is maintained.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ _ILT_NS = "http://www.microsoft.com/GroupPolicy/Settings"
 
 
 def _ns(tag: str) -> str:
-    return f"{{{_ILT_NS}}}{tag}"
+    return tag
 
 
 def _local_name(tag: str) -> str:
@@ -37,12 +39,42 @@ class IltPredicate:
     type: IltPredicateType
     negate: bool = False
     value: str = ""
+    bool_op: str = "AND"
+    unknown_attrs: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class IltFilter:
-    predicates: tuple[IltPredicate, ...] = field(default_factory=tuple)
-    unknown_predicates: tuple[str, ...] = field(default_factory=tuple)
+    items: tuple[IltPredicate | str, ...] = field(default_factory=tuple)
+
+    @property
+    def predicates(self) -> tuple[IltPredicate, ...]:
+        return tuple(i for i in self.items if isinstance(i, IltPredicate))
+
+    @property
+    def unknown_predicates(self) -> tuple[str, ...]:
+        return tuple(i for i in self.items if isinstance(i, str))
+
+
+_PREDICATE_KNOWN_ATTRS: dict[IltPredicateType, frozenset[str]] = {
+    "ou": frozenset({"name", "not", "bool"}),
+    "group": frozenset({"sid", "name", "not", "bool"}),
+    "registry": frozenset({"key", "valueName", "not", "bool"}),
+    "ip_range": frozenset({"min", "max", "not", "bool"}),
+    "environment": frozenset({"variableName", "name", "value", "not", "bool"}),
+    "wmi_query": frozenset({"query", "not", "bool"}),
+}
+
+
+def validate_predicate_unknown_attrs(pred: IltPredicate) -> None:
+    """Raise IltError if unknown attrs collide with reserved predicate attribute names."""
+    reserved = _PREDICATE_KNOWN_ATTRS[pred.type]
+    for name, _value in pred.unknown_attrs:
+        if _local_name(name) in reserved:
+            raise IltError(
+                f"Unknown attribute {name!r} in ILT predicate type "
+                f"{pred.type!r} collides with a reserved typed attribute name"
+            )
 
 
 def _not_attr(negate: bool) -> str:
@@ -105,22 +137,25 @@ def _serialize_predicate(pred: IltPredicate) -> ET.Element:
         case _:
             assert_never(pred.type)
     elem.set("not", _not_attr(pred.negate))
-    elem.set("bool", "AND")
+    elem.set("bool", pred.bool_op)
+    for name, value in pred.unknown_attrs:
+        elem.set(name, value)
     return elem
 
 
 def serialize_ilt(filter: IltFilter) -> ET.Element:
     """Serialize an IltFilter to a <Filters> XML element."""
     root = ET.Element(_ns("Filters"))
-    for pred in filter.predicates:
-        root.append(_serialize_predicate(pred))
-    for raw in filter.unknown_predicates:
-        try:
-            root.append(ET.fromstring(raw))
-        except ET.ParseError as error:
-            raise IltError(
-                f"Corrupted unknown ILT predicate XML: {error}"
-            ) from error
+    for item in filter.items:
+        if isinstance(item, IltPredicate):
+            root.append(_serialize_predicate(item))
+        else:
+            try:
+                root.append(ET.fromstring(item))
+            except ET.ParseError as error:
+                raise IltError(
+                    f"Corrupted unknown ILT predicate XML: {error}"
+                ) from error
     return root
 
 
@@ -157,6 +192,7 @@ def _reconstruct_ip_range(min_ip: str, max_ip: str) -> str:
 
 def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredicate:
     negate = elem.get("not", "0") == "1"
+    bool_op = elem.get("bool", "AND")
     match pred_type:
         case "ou":
             value = elem.get("name", "")
@@ -178,23 +214,28 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
             value = elem.get("query", "")
         case _:
             assert_never(pred_type)
-    return IltPredicate(type=pred_type, negate=negate, value=value)
+    known = _PREDICATE_KNOWN_ATTRS[pred_type]
+    unknown_attrs = tuple(
+        (name, val)
+        for name, val in elem.attrib.items()
+        if _local_name(name) not in known
+    )
+    return IltPredicate(
+        type=pred_type, negate=negate, value=value,
+        bool_op=bool_op, unknown_attrs=unknown_attrs,
+    )
 
 
 def parse_ilt(elem: ET.Element) -> IltFilter:
     """Parse a <Filters> XML element into an IltFilter."""
-    predicates: list[IltPredicate] = []
-    unknown: list[str] = []
+    items: list[IltPredicate | str] = []
     for child in elem:
         local = _local_name(child.tag)
         pred_type = _TAG_TO_TYPE.get(local)
         if pred_type is None:
             pred_type = _LEGACY_TAG_TO_TYPE.get(local)
         if pred_type is None:
-            unknown.append(ET.tostring(child, encoding="unicode"))
-            continue
-        predicates.append(_parse_predicate(pred_type, child))
-    return IltFilter(
-        predicates=tuple(predicates),
-        unknown_predicates=tuple(unknown),
-    )
+            items.append(ET.tostring(child, encoding="unicode"))
+        else:
+            items.append(_parse_predicate(pred_type, child))
+    return IltFilter(items=tuple(items))

@@ -255,7 +255,7 @@ def _ilt_equal(a: IltFilter | None, b: IltFilter | None) -> bool:
         return True
     if a is None or b is None:
         return False
-    return a.predicates == b.predicates and a.unknown_predicates == b.unknown_predicates
+    return a.items == b.items
 
 
 def _gpp_members_equal(a: GppGroup, b: GppGroup) -> bool:
