@@ -1,6 +1,7 @@
 import {state,$,$$,escapeHtml} from './state.mjs';
 import {api} from './api.mjs';
 import {openSetting,deleteSetting,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
+import {renderGpp} from './gpp.mjs';
 
 export async function loadList(selectGuid){
   const data=await api("/api/gpos");state.gpos=data.items;renderList();
@@ -22,13 +23,13 @@ export function renderAll(){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
   $("#fork-gpo").hidden=!(g.source_guid||g.status==="archived");
   $("#plan").href=`/api/gpos/${g.guid}/plan.ps1`;$("#export").href=`/api/gpos/${g.guid}/export.zip`;$("#gpmc-backup").href=`/api/gpos/${g.guid}/gpmc-backup`;
-  $("#setting-count").textContent=g.settings.length;$("#link-count").textContent=g.links.length;$("#filter-count").textContent=g.security_filters?g.security_filters.length:0;
+  $("#setting-count").textContent=g.settings.length;$("#link-count").textContent=g.links.length;$("#filter-count").textContent=g.security_filters?g.security_filters.length:0;$("#gpp-count").textContent=(g.gpp_collections||[]).reduce((n,c)=>n+(c.groups?c.groups.length:0)+(c.registry?c.registry.length:0),0);
   const metaParts=[`<dt>GUID</dt><dd class="mono">${escapeHtml(g.guid)}</dd><dt>Description</dt><dd>${escapeHtml(g.description)||"—"}</dd><dt>Status</dt><dd><span class="pill ${g.status==='ready'?'ok':'warn'}">${escapeHtml(g.status)}</span></dd><dt>Computer</dt><dd>${g.computer_enabled?"Enabled":"Disabled"}</dd><dt>User</dt><dd>${g.user_enabled?"Enabled":"Disabled"}</dd><dt>Domain</dt><dd>${escapeHtml(g.domain||"studio.local")}</dd>`];
   if(g.source_guid)metaParts.push(`<dt>Source GUID</dt><dd class="mono">${escapeHtml(g.source_guid)}</dd>`);
   if(g.cse_metadata&&g.cse_metadata.length)metaParts.push(`<dt>CSE extensions</dt><dd>${g.cse_metadata.length} extension${g.cse_metadata.length===1?'':'s'}</dd>`);
   metaParts.push(`<dt>Policy hash</dt><dd class="mono" title="${escapeHtml(state.policyHash)}">${escapeHtml(state.policyHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
   $("#metadata").innerHTML=metaParts.join("");
-  renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();
+  renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();renderGpp();
   if($("#panel-history").classList.contains("active"))loadHistory();
 }
 export function renderValidation(){
