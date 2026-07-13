@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GPO Studio</title>
   <link rel="stylesheet" href="/assets/studio.css">
+  <style>
+    .gpp-scope-row{display:flex;gap:7px;margin:-7px 0 12px}
+    .gpp-add-actions{display:flex;gap:8px}
+    .gpp-sub-head{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px}
+    .gpp-rows{display:flex;flex-direction:column;gap:6px}
+    .gpp-row{display:flex;gap:6px;align-items:center}
+    .gpp-row>input,.gpp-row>select{display:block;flex:1;min-width:0;width:auto;margin-top:0}
+    .gpp-row>button{flex:0 0 auto}
+    .gpp-row>label{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap;font-weight:400;margin:0}
+    .gpp-row>label input{width:auto;margin:0}
+    .gpp-note{color:var(--muted);display:block;margin-bottom:6px;font-size:12px}
+    .ilt-preview{background:var(--green-soft);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:13px;color:var(--green-dark)}
+    .ilt-preview:empty{display:none}
+  </style>
 </head>
 <body>
   <div class="shell">
@@ -42,6 +56,7 @@
           <button class="tab" data-tab="settings">Policy settings <span id="setting-count"></span></button>
           <button class="tab" data-tab="links">Scope & links <span id="link-count"></span></button>
           <button class="tab" data-tab="security">Security <span id="filter-count"></span></button>
+          <button class="tab" data-tab="preferences">Preferences <span id="gpp-count"></span></button>
           <button class="tab" data-tab="history">History</button>
           <button class="tab" data-tab="diff">Diff</button>
           <button class="tab" data-tab="admx">ADMX</button>
@@ -80,6 +95,15 @@
           <div class="table-card"><table><thead><tr><th>Principal</th><th>Permission</th><th>Type</th><th>Inheritable</th><th></th></tr></thead><tbody id="filters-table"></tbody></table><div class="table-empty" id="filters-empty">No security filters configured.</div></div>
           <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">WMI filter</p><h2>WMI filtering</h2></div><button class="quiet" id="browse-wmi-catalogue">Browse catalogue</button><button class="quiet" id="edit-wmi">Edit</button></div>
           <div id="wmi-display" class="wmi-display"></div>
+        </div>
+
+        <div class="panel" id="panel-preferences">
+          <div class="section-head"><div><p class="eyebrow">Group Policy Preferences</p><h2>Groups &amp; Registry</h2></div><div class="gpp-add-actions"><button class="primary" id="add-gpp-group">＋ Add group</button><button class="primary" id="add-gpp-registry">＋ Add registry</button></div></div>
+          <div class="gpp-scope-row"><button class="chip active" data-gpp-scope="computer">Computer</button><button class="chip" data-gpp-scope="user">User</button></div>
+          <div class="section-head" style="margin-top:1rem"><div><p class="eyebrow">Local groups</p><h2>GPP Groups</h2></div></div>
+          <div class="table-card"><table><thead><tr><th>Action</th><th>Group name</th><th>SID</th><th>Members</th><th>ILT</th><th></th></tr></thead><tbody id="gpp-groups-table"></tbody></table><div class="table-empty" id="gpp-groups-empty">No GPP groups configured.</div></div>
+          <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">Registry preferences</p><h2>GPP Registry</h2></div></div>
+          <div class="table-card"><table><thead><tr><th>Action</th><th>Key</th><th>Values</th><th>ILT</th><th></th></tr></thead><tbody id="gpp-registry-table"></tbody></table><div class="table-empty" id="gpp-registry-empty">No GPP registry items configured.</div></div>
         </div>
 
         <div class="panel" id="panel-history">
@@ -225,6 +249,41 @@
       <label>New GPO name<input name="name" required maxlength="255" placeholder="Forked policy"></label>
       <label>Change reason<input name="reason" required value="Fork from baseline"></label>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Fork</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="gpp-group-dialog">
+    <form method="dialog" id="gpp-group-form">
+      <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-group-dialog-title">Add group</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <input type="hidden" name="scope">
+      <label>Group name<input name="name" required maxlength="255" placeholder="Administrators"></label>
+      <div class="grid two compact"><label>SID<input name="sid" maxlength="255" placeholder="S-1-5-32-544"></label><label>Action<select name="action"><option value="update">Update</option><option value="add">Add</option><option value="replace">Replace</option><option value="remove">Remove</option></select></label></div>
+      <label>Description<textarea name="description" rows="2" maxlength="2000" placeholder="Purpose and rollout notes"></textarea></label>
+      <div class="toggle-stack"><label><input name="remove_all_users" type="checkbox"> Remove all users</label><label><input name="remove_all_groups" type="checkbox"> Remove all groups</label></div>
+      <div class="gpp-sub-head"><strong>Members</strong><button type="button" class="quiet" id="gpp-add-member">＋ Add member</button></div>
+      <div id="gpp-members-list" class="gpp-rows"></div>
+      <div class="gpp-sub-head"><strong>Item-level targeting</strong><button type="button" class="quiet" id="gpp-add-predicate">＋ Add predicate</button></div>
+      <small class="gpp-note">Predicates are combined with AND.</small>
+      <div id="gpp-ilt-list" class="gpp-rows"></div>
+      <div id="gpp-ilt-preview" class="ilt-preview"></div>
+      <label>Change reason<input name="reason" required value="Update GPP groups"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save group</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="gpp-registry-dialog">
+    <form method="dialog" id="gpp-registry-form">
+      <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-registry-dialog-title">Add registry</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <input type="hidden" name="scope">
+      <div class="grid two compact"><label>Registry key<input name="key" required maxlength="1000" placeholder="SOFTWARE\MyApp\Settings"></label><label>Action<select name="action"><option value="update">Update</option><option value="add">Add</option><option value="replace">Replace</option><option value="remove">Remove</option></select></label></div>
+      <div class="gpp-sub-head"><strong>Values</strong><button type="button" class="quiet" id="gpp-add-value">＋ Add value</button></div>
+      <div id="gpp-values-list" class="gpp-rows"></div>
+      <div class="gpp-sub-head"><strong>Item-level targeting</strong><button type="button" class="quiet" id="gpp-add-ilt-registry">＋ Add predicate</button></div>
+      <small class="gpp-note">Predicates are combined with AND.</small>
+      <div id="gpp-ilt-registry-list" class="gpp-rows"></div>
+      <div id="gpp-ilt-registry-preview" class="ilt-preview"></div>
+      <label>Change reason<input name="reason" required value="Update GPP registry"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save registry</button></div>
     </form>
   </dialog>
 

@@ -2,6 +2,7 @@ import {state,$,$$} from './state.mjs';
 import {toast} from './api.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
 import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,syncSettingForm,initForms} from './forms.mjs';
+import {initGpp} from './gpp.mjs';
 import {checkAdmx,initAdmx} from './admx.mjs';
 import {initDiff,loadDiffSelectors} from './diff.mjs';
 
@@ -9,4 +10,4 @@ $$(".tab").forEach(tab=>tab.onclick=()=>{$$(".tab").forEach(x=>x.classList.toggl
 $$(".filter-row .chip").forEach(chip=>chip.onclick=()=>{$$(".filter-row .chip").forEach(x=>x.classList.toggle("active",x===chip));state.side=chip.dataset.side;renderSettings()});
 $("#new-gpo").onclick=()=>openGpo();$("#empty-new").onclick=()=>openGpo();$("#edit-metadata").onclick=()=>openGpo(true);$("#add-setting").onclick=()=>openSetting();$("#add-link").onclick=()=>openLink();$("#add-filter").onclick=()=>openFilter();$("#edit-wmi").onclick=()=>openWmi();$("#browse-wmi-catalogue").onclick=()=>openWmiCatalogue();$("#import-estate").onclick=()=>openEstate();$("#fork-gpo").onclick=()=>openFork();$("#search").oninput=renderList;
 for(const name of ["side","action","registry_type"])$("#setting-form")[name].onchange=syncSettingForm;
-initForms();initAdmx();initDiff();loadList().catch(error=>toast(error.message));
+initForms();initGpp();initAdmx();initDiff();loadList().catch(error=>toast(error.message));
