@@ -285,6 +285,53 @@ class GppGroupMutation(Audit):
                     "reason": "Remove obsolete local admins group",
                     "expected_revision": 4,
                 },
+                {
+                    "scope": "computer",
+                    "group": {
+                        "name": "Administrators",
+                        "sid": "S-1-5-32-544",
+                        "action": "update",
+                        "description": "Targeted local admins with ILT",
+                        "members": [
+                            {
+                                "sid": "S-1-5-21-1-2-3-500",
+                                "name": "STUDIO\\Domain Admins",
+                                "action": "add",
+                            }
+                        ],
+                        "ilt_filter": {
+                            "predicates": [
+                                {
+                                    "type": "ou",
+                                    "value": "OU=Servers,DC=studio,DC=local",
+                                },
+                                {
+                                    "type": "group",
+                                    "value": "S-1-5-21-1-2-3-1001",
+                                },
+                                {
+                                    "type": "registry",
+                                    "value": "Software\\Policies\\Test\\Enabled",
+                                },
+                                {
+                                    "type": "ip_range",
+                                    "value": "192.168.1.0/24",
+                                },
+                                {
+                                    "type": "environment",
+                                    "value": "COMPUTERNAME=WORKSTATION",
+                                },
+                                {
+                                    "type": "wmi_query",
+                                    "value": "SELECT * FROM Win32_OperatingSystem",
+                                },
+                            ]
+                        },
+                    },
+                    "actor": "local-operator",
+                    "reason": "Add group with item-level targeting",
+                    "expected_revision": 5,
+                },
             ]
         }
     )
@@ -334,6 +381,12 @@ class GppRegistryMutation(Audit):
                                 "name": "Counter",
                                 "value": "18446744073709551615",
                                 "registry_type": "REG_QWORD",
+                                "action": "create",
+                            },
+                            {
+                                "name": "SystemPath",
+                                "value": "%SystemRoot%\\System32",
+                                "registry_type": "REG_EXPAND_SZ",
                                 "action": "create",
                             },
                         ],
@@ -423,6 +476,28 @@ class GppMemberMutation(Audit):
                     "reason": "Remove member from local admins group",
                     "expected_revision": 2,
                 },
+                {
+                    "scope": "computer",
+                    "member": {
+                        "sid": "S-1-5-21-1-2-3-513",
+                        "name": "STUDIO\\Domain Users",
+                        "action": "replace",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Replace member entry in local admins group",
+                    "expected_revision": 3,
+                },
+                {
+                    "scope": "computer",
+                    "member": {
+                        "sid": "S-1-5-21-1-2-3-513",
+                        "name": "STUDIO\\Domain Users",
+                        "action": "update",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Update member entry in local admins group",
+                    "expected_revision": 4,
+                },
             ]
         }
     )
@@ -495,6 +570,18 @@ class GppRegistryValueMutation(Audit):
                     "reason": "Set REG_QWORD registry value",
                     "expected_revision": 5,
                 },
+                {
+                    "scope": "computer",
+                    "value": {
+                        "name": "SystemPath",
+                        "value": "%SystemRoot%\\System32",
+                        "registry_type": "REG_EXPAND_SZ",
+                        "action": "create",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Set REG_EXPAND_SZ registry value",
+                    "expected_revision": 6,
+                },
             ]
         }
     )
@@ -530,8 +617,156 @@ class ValidationIssueResponse(BaseModel):
     path: str
 
 
+class RegistrySettingResponse(BaseModel):
+    id: str
+    side: str
+    hive: str
+    key: str
+    value_name: str
+    registry_type: str
+    value: str | list[str]
+    action: str
+    comment: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GpoLinkResponse(BaseModel):
+    id: str
+    target: str
+    enabled: bool
+    enforced: bool
+    order: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SecurityFilterResponse(BaseModel):
+    id: str
+    principal: str
+    permission: str
+    inheritable: bool
+    target_type: str
+    sid: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WmiFilterResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    query: str
+    language: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CseFileEntryResponse(BaseModel):
+    relative_path: str
+    content_hash: str
+    size: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CseMetadataEntryResponse(BaseModel):
+    guid: str
+    side: str
+    files: list[CseFileEntryResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IltPredicateResponse(BaseModel):
+    type: str
+    negate: bool
+    value: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IltFilterResponse(BaseModel):
+    predicates: list[IltPredicateResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GppGroupMemberResponse(BaseModel):
+    id: str
+    sid: str
+    name: str
+    action: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GppRegistryValueResponse(BaseModel):
+    id: str
+    name: str
+    value: str | list[str]
+    registry_type: str
+    action: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GppGroupResponse(BaseModel):
+    id: str
+    name: str
+    sid: str
+    action: str
+    members: list[GppGroupMemberResponse]
+    description: str
+    remove_all_users: bool
+    remove_all_groups: bool
+    ilt_filter: IltFilterResponse | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GppRegistryResponse(BaseModel):
+    id: str
+    key: str
+    values: list[GppRegistryValueResponse]
+    action: str
+    ilt_filter: IltFilterResponse | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GppCollectionResponse(BaseModel):
+    scope: str
+    groups: list[GppGroupResponse]
+    registry: list[GppRegistryResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GpoResponse(BaseModel):
+    guid: str
+    name: str
+    description: str
+    computer_enabled: bool
+    user_enabled: bool
+    status: str
+    revision: int
+    settings: list[RegistrySettingResponse]
+    links: list[GpoLinkResponse]
+    source_guid: str
+    cse_metadata: list[CseMetadataEntryResponse]
+    security_filters: list[SecurityFilterResponse]
+    wmi_filter: WmiFilterResponse | None
+    gpp_collections: list[GppCollectionResponse]
+    domain: str
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class GpoPayloadResponse(BaseModel):
-    gpo: dict[str, Any]
+    gpo: GpoResponse
     validation: list[ValidationIssueResponse]
     policy_semantic_sha256: str
     review_model_sha256: str
