@@ -17,6 +17,7 @@ from gpo_studio.gpp import (
     GppRegistry,
     GppRegistryValue,
     contains_cpassword,
+    ensure_editor_ids,
     gpp_collection_from_dict,
     gpp_collection_to_dict,
     parse_gpp_collection,
@@ -609,3 +610,156 @@ def test_full_registry_round_trip_equality() -> None:
     parsed = parse_gpp_registry(data)
     assert len(parsed) == 1
     assert parsed[0] == reg
+
+
+def test_editor_id_not_in_serialized_xml() -> None:
+    group = GppGroup(
+        name="Administrators",
+        sid="S-1-5-32-544",
+        action="update",
+        members=(
+            GppGroupMember(
+                sid="S-1-5-21-1-2-3-500",
+                name="DOMAIN\\Domain Admins",
+                action="add",
+                id="member-id-1",
+            ),
+        ),
+        id="group-id-1",
+    )
+    reg = GppRegistry(
+        key=r"Software\Policies\Test",
+        action="update",
+        values=(
+            GppRegistryValue(
+                name="Enabled",
+                value=1,
+                registry_type="REG_DWORD",
+                action="create",
+                id="value-id-1",
+            ),
+        ),
+        id="registry-id-1",
+    )
+    collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
+    groups_xml = serialize_gpp_groups(collection)
+    registry_xml = serialize_gpp_registry(collection)
+    assert b'id="group-id-1"' not in groups_xml
+    assert b'id="member-id-1"' not in groups_xml
+    assert b'id="registry-id-1"' not in registry_xml
+    assert b'id="value-id-1"' not in registry_xml
+    parsed_groups = parse_gpp_groups(groups_xml)
+    assert parsed_groups[0].id == ""
+    assert parsed_groups[0].members[0].id == ""
+    parsed_registry = parse_gpp_registry(registry_xml)
+    assert parsed_registry[0].id == ""
+    assert parsed_registry[0].values[0].id == ""
+
+
+def test_editor_id_persists_in_dict_round_trip() -> None:
+    group = GppGroup(
+        name="Administrators",
+        sid="S-1-5-32-544",
+        action="update",
+        members=(
+            GppGroupMember(
+                sid="S-1-5-21-1-2-3-500",
+                name="DOMAIN\\Domain Admins",
+                action="add",
+                id="member-id-1",
+            ),
+        ),
+        id="group-id-1",
+    )
+    reg = GppRegistry(
+        key=r"Software\Policies\Test",
+        action="update",
+        values=(
+            GppRegistryValue(
+                name="Enabled",
+                value=1,
+                registry_type="REG_DWORD",
+                action="create",
+                id="value-id-1",
+            ),
+        ),
+        id="registry-id-1",
+    )
+    collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
+    d = gpp_collection_to_dict(collection)
+    assert d["groups"][0]["id"] == "group-id-1"
+    assert d["groups"][0]["members"][0]["id"] == "member-id-1"
+    assert d["registry"][0]["id"] == "registry-id-1"
+    assert d["registry"][0]["values"][0]["id"] == "value-id-1"
+    restored = gpp_collection_from_dict(d)
+    assert restored.groups[0].id == "group-id-1"
+    assert restored.groups[0].members[0].id == "member-id-1"
+    assert restored.registry[0].id == "registry-id-1"
+    assert restored.registry[0].values[0].id == "value-id-1"
+
+
+def test_editor_id_defaults_to_empty_when_missing_in_dict() -> None:
+    d = {
+        "scope": "computer",
+        "groups": [{"name": "G1", "sid": "", "action": "update", "members": []}],
+        "registry": [
+            {"key": "K", "action": "update", "values": []},
+        ],
+    }
+    restored = gpp_collection_from_dict(d)
+    assert restored.groups[0].id == ""
+    assert restored.registry[0].id == ""
+
+
+def test_ensure_editor_ids_fills_empty_ids() -> None:
+    group = GppGroup(
+        name="G1",
+        members=(GppGroupMember(sid="S-1", name="m1"),),
+    )
+    reg = GppRegistry(
+        key="K",
+        values=(GppRegistryValue(name="V", value="x"),),
+    )
+    collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
+    result = ensure_editor_ids(collection)
+    assert result.groups[0].id != ""
+    assert result.groups[0].members[0].id != ""
+    assert result.registry[0].id != ""
+    assert result.registry[0].values[0].id != ""
+
+
+def test_ensure_editor_ids_preserves_existing_ids() -> None:
+    group = GppGroup(
+        name="G1",
+        id="group-1",
+        members=(GppGroupMember(sid="S-1", name="m1", id="member-1"),),
+    )
+    reg = GppRegistry(
+        key="K",
+        id="reg-1",
+        values=(GppRegistryValue(name="V", value="x", id="val-1"),),
+    )
+    collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
+    result = ensure_editor_ids(collection)
+    assert result.groups[0].id == "group-1"
+    assert result.groups[0].members[0].id == "member-1"
+    assert result.registry[0].id == "reg-1"
+    assert result.registry[0].values[0].id == "val-1"
+
+
+def test_collect_gpp_collections_assigns_editor_ids(tmp_path: Path) -> None:
+    gpo = _sample_gpo_with_gpp()
+    bundle = gpmc_backup_bundle(gpo)
+    backup_dir = tmp_path / "gpmc_backup"
+    backup_dir.mkdir()
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        archive.extractall(backup_dir)
+    backup = read_backup(backup_dir)
+    backup_gpo = backup.gpos[0]
+    gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
+    assert len(gpp_collections) == 1
+    collection = gpp_collections[0]
+    assert collection.groups[0].id != ""
+    assert collection.groups[0].members[0].id != ""
+    assert collection.registry[0].id != ""
+    assert collection.registry[0].values[0].id != ""
