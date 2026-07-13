@@ -320,7 +320,7 @@ def _base_gpo() -> GPO:
                             ),
                         ),
                         ilt_filter=IltFilter(
-                            predicates=(
+                            items=(
                                 IltPredicate(
                                     type="ou",
                                     value="OU=Workstations,DC=studio,DC=local",
@@ -463,7 +463,7 @@ def test_policy_hash_changes_on_ilt_predicate() -> None:
                         sid="S-1-5-21-1-2-3-1002",
                         action="update",
                         ilt_filter=IltFilter(
-                            predicates=(
+                            items=(
                                 IltPredicate(
                                     type="ou",
                                     negate=True,
@@ -707,7 +707,7 @@ def _golden_gpo() -> GPO:
                         ),
                         description="Local admins group",
                         ilt_filter=IltFilter(
-                            predicates=(
+                            items=(
                                 IltPredicate(
                                     type="ou",
                                     value="OU=Workstations,DC=studio,DC=local",
@@ -729,7 +729,7 @@ def _golden_gpo() -> GPO:
                             ),
                         ),
                         ilt_filter=IltFilter(
-                            predicates=(
+                            items=(
                                 IltPredicate(
                                     type="group",
                                     value="S-1-5-21-1-2-3-1003",
@@ -759,9 +759,9 @@ def _golden_gpo() -> GPO:
         updated_at="2026-01-02T00:00:00Z",
     )
 
-GOLDEN_POLICY_SEMANTIC_SHA256 = "8eb31d93ff0ea8c5fa0506eb2e5d025655e6c09b2e4a2c6e47dbd8b5d665ee67"
+GOLDEN_POLICY_SEMANTIC_SHA256 = "01546aef28c4ae5c44daca5916d5d09c2388e696aeef27fb1681dc789a018b5d"
 
-GOLDEN_REVIEW_MODEL_SHA256 = "997518c23b6ae9c036743db384d3b6cf8cccba190c0c6043395dfc73b50c4735"
+GOLDEN_REVIEW_MODEL_SHA256 = "c837f68bfec358bbf4c68a963ac2c615094271651d244029ecda466190715ec5"
 
 
 def test_golden_policy_semantic_sha256() -> None:
@@ -859,6 +859,68 @@ def test_policy_hash_stable_on_gpp_group_name_case() -> None:
     assert policy_semantic_sha256(gpo_a) == policy_semantic_sha256(gpo_b)
 
 
+def test_policy_hash_changes_on_ilt_bool_op() -> None:
+    base = GPO(guid="g-bool-001", name="Bool op test")
+    gpo_and = replace(base, gpp_collections=(
+        GppCollection(scope="computer", groups=(
+            GppGroup(name="G1", ilt_filter=IltFilter(items=(
+                IltPredicate(type="ou", value="OU=Test", bool_op="AND"),
+            ))),
+        )),
+    ))
+    gpo_or = replace(base, gpp_collections=(
+        GppCollection(scope="computer", groups=(
+            GppGroup(name="G1", ilt_filter=IltFilter(items=(
+                IltPredicate(type="ou", value="OU=Test", bool_op="OR"),
+            ))),
+        )),
+    ))
+    assert policy_semantic_sha256(gpo_and) != policy_semantic_sha256(gpo_or)
+
+
+def test_policy_hash_changes_on_ilt_unknown_attrs() -> None:
+    base = GPO(guid="g-uattr-001", name="Unknown attrs test")
+    gpo_without = replace(base, gpp_collections=(
+        GppCollection(scope="computer", groups=(
+            GppGroup(name="G1", ilt_filter=IltFilter(items=(
+                IltPredicate(type="ou", value="OU=Test"),
+            ))),
+        )),
+    ))
+    gpo_with = replace(base, gpp_collections=(
+        GppCollection(scope="computer", groups=(
+            GppGroup(name="G1", ilt_filter=IltFilter(items=(
+                IltPredicate(
+                    type="ou", value="OU=Test",
+                    unknown_attrs=(("userContext", "1"),),
+                ),
+            ))),
+        )),
+    ))
+    assert policy_semantic_sha256(gpo_without) != policy_semantic_sha256(gpo_with)
+
+
+def test_policy_hash_changes_on_ilt_interleaving_order() -> None:
+    base = GPO(guid="g-order-001", name="Interleaving test")
+    gpo_a = replace(base, gpp_collections=(
+        GppCollection(scope="computer", groups=(
+            GppGroup(name="G1", ilt_filter=IltFilter(items=(
+                IltPredicate(type="ou", value="OU=Test"),
+                "<FilterBattery not=\"0\" bool=\"AND\"/>",
+                IltPredicate(type="group", value="S-1-5-32-544"),
+            ))),
+        )),
+    ))
+    gpo_b = replace(base, gpp_collections=(
+        GppCollection(scope="computer", groups=(
+            GppGroup(name="G1", ilt_filter=IltFilter(items=(
+                IltPredicate(type="ou", value="OU=Test"),
+                IltPredicate(type="group", value="S-1-5-32-544"),
+                "<FilterBattery not=\"0\" bool=\"AND\"/>",
+            ))),
+        )),
+    ))
+    assert policy_semantic_sha256(gpo_a) != policy_semantic_sha256(gpo_b)
 def test_policy_hash_stable_on_domain_case() -> None:
     gpo_a = GPO(
         guid="g-case-002",

@@ -1338,8 +1338,99 @@ def test_gpp_group_with_ilt_filter(tmp_path) -> None:
         gpo = resp.json()["gpo"]
         group = gpo["gpp_collections"][0]["groups"][0]
         assert group["ilt_filter"] is not None
-        assert len(group["ilt_filter"]["predicates"]) == 1
-        assert group["ilt_filter"]["predicates"][0]["type"] == "ou"
+        assert len(group["ilt_filter"]["items"]) == 1
+        assert group["ilt_filter"]["items"][0]["type"] == "ou"
+
+
+def test_gpp_group_rejects_reserved_unknown_attr(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "Reserved attr policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group with reserved attr",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "unknown_attrs": [["name", "Overridden"]],
+                },
+            },
+        )
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert any("reserved" in i["message"].lower() for i in issues)
+
+
+def test_gpp_registry_rejects_reserved_unknown_attr(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "Reserved reg attr policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/registry",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add registry with reserved attr",
+                "scope": "computer",
+                "registry": {
+                    "key": r"Software\Test",
+                    "action": "update",
+                    "values": [
+                        {
+                            "name": "Enabled",
+                            "value": "1",
+                            "registry_type": "REG_DWORD",
+                            "action": "create",
+                            "unknown_attrs": [["action", "D"]],
+                        }
+                    ],
+                },
+            },
+        )
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert any("reserved" in i["message"].lower() for i in issues)
+
+
+def test_gpp_group_rejects_reserved_unknown_child(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "Reserved child policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group with reserved child",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "unknown_children": ["<Properties action='D'/>"],
+                },
+            },
+        )
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert any("reserved" in i["message"].lower() for i in issues)
 
 
 def test_gpp_group_edit_uses_path_id_not_body_id(tmp_path) -> None:

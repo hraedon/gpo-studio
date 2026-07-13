@@ -234,31 +234,27 @@ def test_parse_registry_round_trip() -> None:
     original = _sample_collection()
     data = serialize_gpp_registry(original)
     parsed = parse_gpp_registry(data)
-    assert len(parsed) == 1
-    r = parsed[0]
-    assert r.key == r"Software\Policies\Test"
-    assert r.hive == "HKEY_LOCAL_MACHINE"
-    assert len(r.values) == 3
-    assert r.values[0].name == "Enabled"
-    assert r.values[0].value == 1
-    assert r.values[0].registry_type == "REG_DWORD"
-    assert r.values[1].name == "Path"
-    assert r.values[1].value == r"C:\Temp"
-    assert r.values[2].name == "List"
-    assert r.values[2].value == ["a", "b", "c"]
-    assert r.values[2].registry_type == "REG_MULTI_SZ"
+    assert len(parsed) == 3
+    assert all(r.key == r"Software\Policies\Test" for r in parsed)
+    assert all(r.hive == "HKEY_LOCAL_MACHINE" for r in parsed)
+    assert parsed[0].values[0].name == "Enabled"
+    assert parsed[0].values[0].value == 1
+    assert parsed[0].values[0].registry_type == "REG_DWORD"
+    assert parsed[1].values[0].name == "Path"
+    assert parsed[1].values[0].value == r"C:\Temp"
+    assert parsed[2].values[0].name == "List"
+    assert parsed[2].values[0].value == ["a", "b", "c"]
+    assert parsed[2].values[0].registry_type == "REG_MULTI_SZ"
 
 
 def test_parse_registry_from_ms_format() -> None:
     parsed = parse_gpp_registry(_REGISTRY_XML)
-    assert len(parsed) == 1
-    r = parsed[0]
-    assert r.key == r"Software\Policies\Test"
-    assert r.hive == "HKEY_LOCAL_MACHINE"
-    assert len(r.values) == 3
-    assert r.values[0].value == 1
-    assert r.values[0].registry_type == "REG_DWORD"
-    assert r.values[2].value == ["a", "b", "c"]
+    assert len(parsed) == 3
+    assert all(r.key == r"Software\Policies\Test" for r in parsed)
+    assert all(r.hive == "HKEY_LOCAL_MACHINE" for r in parsed)
+    assert parsed[0].values[0].value == 1
+    assert parsed[0].values[0].registry_type == "REG_DWORD"
+    assert parsed[2].values[0].value == ["a", "b", "c"]
 
 
 def test_parse_registry_legacy_format() -> None:
@@ -271,12 +267,10 @@ def test_parse_registry_legacy_format() -> None:
   </Registry>
 </RegistrySettings>"""
     parsed = parse_gpp_registry(legacy_xml)
-    assert len(parsed) == 1
-    r = parsed[0]
-    assert r.key == r"Software\Policies\Test"
-    assert len(r.values) == 2
-    assert r.values[0].name == "Enabled"
-    assert r.values[0].value == 1
+    assert len(parsed) == 2
+    assert all(r.key == r"Software\Policies\Test" for r in parsed)
+    assert parsed[0].values[0].name == "Enabled"
+    assert parsed[0].values[0].value == 1
 
 
 def test_action_code_mapping() -> None:
@@ -365,8 +359,8 @@ def test_parse_gpp_collection_round_trip() -> None:
     assert parsed.scope == "computer"
     assert len(parsed.groups) == 1
     assert parsed.groups[0].name == "Administrators"
-    assert len(parsed.registry) == 1
-    assert parsed.registry[0].key == r"Software\Policies\Test"
+    assert len(parsed.registry) == 3
+    assert all(r.key == r"Software\Policies\Test" for r in parsed.registry)
 
 
 def test_parse_gpp_collection_empty_files() -> None:
@@ -382,7 +376,7 @@ def test_parse_gpp_collection_backslash_paths() -> None:
     backslash_files = {k.replace("/", "\\"): v for k, v in files.items()}
     parsed = parse_gpp_collection("computer", backslash_files)
     assert len(parsed.groups) == 1
-    assert len(parsed.registry) == 1
+    assert len(parsed.registry) == 3
 
 
 def test_gpp_collection_to_dict_round_trip() -> None:
@@ -569,7 +563,7 @@ def test_gpmc_backup_round_trip_with_gpp(tmp_path: Path) -> None:
     assert gpp_collections[0].scope == "computer"
     assert len(gpp_collections[0].groups) == 1
     assert gpp_collections[0].groups[0].name == "Administrators"
-    assert len(gpp_collections[0].registry) == 1
+    assert len(gpp_collections[0].registry) == 3
     assert gpp_collections[0].registry[0].key == r"Software\Policies\Test"
 
 
@@ -700,7 +694,7 @@ def test_full_group_round_trip_equality() -> None:
         remove_all_users=True,
         remove_all_groups=False,
         ilt_filter=IltFilter(
-            predicates=(
+            items=(
                 IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com"),
                 IltPredicate(type="group", value="S-1-5-32-544", negate=True),
             )
@@ -732,18 +726,18 @@ def test_full_registry_round_trip_equality() -> None:
             ),
         ),
         ilt_filter=IltFilter(
-            predicates=(
+            items=(
                 IltPredicate(type="wmi_query", value="SELECT * FROM Win32_OperatingSystem"),
             )
         ),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     parsed = parse_gpp_registry(data)
-    assert len(parsed) == 1
-    assert parsed[0].key == reg.key
-    assert parsed[0].hive == reg.hive
-    assert len(parsed[0].values) == len(reg.values)
-    assert parsed[0].values == reg.values
+    assert len(parsed) == 3
+    assert all(r.key == reg.key for r in parsed)
+    assert all(r.hive == reg.hive for r in parsed)
+    assert all(len(r.values) == 1 for r in parsed)
+    assert [r.values[0] for r in parsed] == list(reg.values)
     assert parsed[0].ilt_filter is not None
     assert parsed[0].ilt_filter.predicates == reg.ilt_filter.predicates
 
@@ -899,3 +893,37 @@ def test_collect_gpp_collections_assigns_editor_ids(tmp_path: Path) -> None:
     assert collection.groups[0].members[0].id != ""
     assert collection.registry[0].id != ""
     assert collection.registry[0].values[0].id != ""
+
+
+def test_registry_no_coalescing_preserves_per_element_metadata() -> None:
+    xml = b"""<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\Policies\\Test" uid="{first}">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
+                name="Enabled" type="REG_DWORD" value="1"/>
+    <Filters>
+      <FilterOrgUnit name="OU=First,DC=example,DC=com" not="0" bool="AND"/>
+    </Filters>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\Policies\\Test" uid="{second}">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
+                name="Path" type="REG_SZ" value="C:\\Temp"/>
+    <Filters>
+      <FilterOrgUnit name="OU=Second,DC=example,DC=com" not="0" bool="AND"/>
+    </Filters>
+  </Registry>
+</RegistrySettings>"""
+    parsed = parse_gpp_registry(xml)
+    assert len(parsed) == 2
+    assert parsed[0].values[0].name == "Enabled"
+    assert parsed[1].values[0].name == "Path"
+    first_uid = [a for a in parsed[0].unknown_attrs if a[0] == "uid"]
+    second_uid = [a for a in parsed[1].unknown_attrs if a[0] == "uid"]
+    assert len(first_uid) == 1 and first_uid[0][1] == "{first}"
+    assert len(second_uid) == 1 and second_uid[0][1] == "{second}"
+    assert parsed[0].ilt_filter is not None
+    assert parsed[1].ilt_filter is not None
+    assert parsed[0].ilt_filter.predicates[0].value == "OU=First,DC=example,DC=com"
+    assert parsed[1].ilt_filter.predicates[0].value == "OU=Second,DC=example,DC=com"

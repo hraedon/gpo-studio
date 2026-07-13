@@ -28,7 +28,6 @@ from gpo_studio.ilt import (
 
 
 def _serialize_to_bytes(filt: IltFilter) -> bytes:
-    ET.register_namespace("", "http://www.microsoft.com/GroupPolicy/Settings")
     return ET.tostring(serialize_ilt(filt), encoding="utf-8")
 
 
@@ -38,7 +37,7 @@ def _parse_from_bytes(data: bytes) -> IltFilter:
 
 def test_serialize_ou_predicate() -> None:
     pred = IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com")
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b"<FilterOrgUnit" in data
     assert b'name="OU=Workstations,DC=example,DC=com"' in data
     assert b'not="0"' in data
@@ -47,7 +46,7 @@ def test_serialize_ou_predicate() -> None:
 
 def test_serialize_group_predicate() -> None:
     pred = IltPredicate(type="group", value="S-1-5-32-544")
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b"<FilterGroup" in data
     assert b'sid="S-1-5-32-544"' in data
     assert b'bool="AND"' in data
@@ -55,7 +54,7 @@ def test_serialize_group_predicate() -> None:
 
 def test_serialize_group_name_predicate() -> None:
     pred = IltPredicate(type="group", value="DOMAIN\\Admins")
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b"<FilterGroup" in data
     assert b'name="DOMAIN\\Admins"' in data
     assert b'bool="AND"' in data
@@ -63,7 +62,7 @@ def test_serialize_group_name_predicate() -> None:
 
 def test_serialize_registry_predicate() -> None:
     pred = IltPredicate(type="registry", value=r"HKLM\Software\Policy\Enabled")
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b"<FilterRegistry" in data
     assert b'key="HKLM\\Software\\Policy"' in data
     assert b'valueName="Enabled"' in data
@@ -72,7 +71,7 @@ def test_serialize_registry_predicate() -> None:
 
 def test_serialize_ip_range_predicate() -> None:
     pred = IltPredicate(type="ip_range", value="192.168.1.0/24")
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b"<FilterIpRange" in data
     assert b'min="192.168.1.0"' in data
     assert b'max="192.168.1.255"' in data
@@ -81,14 +80,14 @@ def test_serialize_ip_range_predicate() -> None:
 
 def test_serialize_ip_range_min_max_format() -> None:
     pred = IltPredicate(type="ip_range", value="10.0.0.1-10.0.0.99")
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b'min="10.0.0.1"' in data
     assert b'max="10.0.0.99"' in data
 
 
 def test_serialize_environment_predicate() -> None:
     pred = IltPredicate(type="environment", value="COMPUTERNAME=WORKSTATION*")
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b"<FilterVariable" in data
     assert b'variableName="COMPUTERNAME"' in data
     assert b'value="WORKSTATION*"' in data
@@ -100,7 +99,7 @@ def test_serialize_wmi_query_predicate() -> None:
         type="wmi_query",
         value="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1",
     )
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b"<FilterWmi " in data or b"<FilterWmi>" in data
     assert b'query="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1"' in data
     assert b'bool="AND"' in data
@@ -108,17 +107,17 @@ def test_serialize_wmi_query_predicate() -> None:
 
 def test_negate_produces_not_attr() -> None:
     pred = IltPredicate(type="ou", value="OU=Test,DC=example,DC=com", negate=True)
-    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
     assert b'not="1"' in data
 
     pred2 = IltPredicate(type="ou", value="OU=Test,DC=example,DC=com", negate=False)
-    data2 = _serialize_to_bytes(IltFilter(predicates=(pred2,)))
+    data2 = _serialize_to_bytes(IltFilter(items=(pred2,)))
     assert b'not="0"' in data2
 
 
 def test_multiple_predicates_and_logic() -> None:
     filt = IltFilter(
-        predicates=(
+        items=(
             IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com"),
             IltPredicate(type="group", value="S-1-5-32-544"),
             IltPredicate(type="wmi_query", value="SELECT * FROM Win32_OperatingSystem"),
@@ -134,7 +133,7 @@ def test_multiple_predicates_and_logic() -> None:
 
 def test_round_trip_ou() -> None:
     original = IltFilter(
-        predicates=(IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com"),)
+        items=(IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com"),)
     )
     parsed = _parse_from_bytes(_serialize_to_bytes(original))
     assert parsed == original
@@ -142,7 +141,7 @@ def test_round_trip_ou() -> None:
 
 def test_round_trip_group() -> None:
     original = IltFilter(
-        predicates=(IltPredicate(type="group", value="S-1-5-32-544", negate=True),)
+        items=(IltPredicate(type="group", value="S-1-5-32-544", negate=True),)
     )
     parsed = _parse_from_bytes(_serialize_to_bytes(original))
     assert parsed == original
@@ -150,7 +149,7 @@ def test_round_trip_group() -> None:
 
 def test_round_trip_group_name() -> None:
     original = IltFilter(
-        predicates=(IltPredicate(type="group", value="DOMAIN\\Admins"),)
+        items=(IltPredicate(type="group", value="DOMAIN\\Admins"),)
     )
     parsed = _parse_from_bytes(_serialize_to_bytes(original))
     assert parsed == original
@@ -158,7 +157,7 @@ def test_round_trip_group_name() -> None:
 
 def test_round_trip_registry() -> None:
     original = IltFilter(
-        predicates=(
+        items=(
             IltPredicate(type="registry", value=r"HKLM\Software\Policy\Enabled"),
         )
     )
@@ -168,7 +167,7 @@ def test_round_trip_registry() -> None:
 
 def test_round_trip_ip_range_cidr() -> None:
     original = IltFilter(
-        predicates=(IltPredicate(type="ip_range", value="192.168.1.0/24"),)
+        items=(IltPredicate(type="ip_range", value="192.168.1.0/24"),)
     )
     parsed = _parse_from_bytes(_serialize_to_bytes(original))
     assert parsed == original
@@ -176,7 +175,7 @@ def test_round_trip_ip_range_cidr() -> None:
 
 def test_round_trip_ip_range_min_max() -> None:
     original = IltFilter(
-        predicates=(IltPredicate(type="ip_range", value="10.0.0.1-10.0.0.99"),)
+        items=(IltPredicate(type="ip_range", value="10.0.0.1-10.0.0.99"),)
     )
     parsed = _parse_from_bytes(_serialize_to_bytes(original))
     assert parsed == original
@@ -184,7 +183,7 @@ def test_round_trip_ip_range_min_max() -> None:
 
 def test_round_trip_environment() -> None:
     original = IltFilter(
-        predicates=(
+        items=(
             IltPredicate(type="environment", value="COMPUTERNAME=WORKSTATION*"),
         )
     )
@@ -194,7 +193,7 @@ def test_round_trip_environment() -> None:
 
 def test_round_trip_environment_no_value() -> None:
     original = IltFilter(
-        predicates=(
+        items=(
             IltPredicate(type="environment", value="COMPUTERNAME"),
         )
     )
@@ -204,7 +203,7 @@ def test_round_trip_environment_no_value() -> None:
 
 def test_round_trip_wmi_query() -> None:
     original = IltFilter(
-        predicates=(
+        items=(
             IltPredicate(
                 type="wmi_query",
                 value="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1",
@@ -218,7 +217,7 @@ def test_round_trip_wmi_query() -> None:
 
 def test_round_trip_multiple_predicates() -> None:
     original = IltFilter(
-        predicates=(
+        items=(
             IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com"),
             IltPredicate(type="group", value="S-1-5-32-544", negate=True),
             IltPredicate(type="registry", value=r"HKLM\Software\Policy\Enabled"),
@@ -237,7 +236,7 @@ def test_round_trip_multiple_predicates() -> None:
 def test_parse_empty_filters() -> None:
     data = b"<Filters/>"
     result = parse_ilt(ET.fromstring(data))
-    assert result == IltFilter(predicates=())
+    assert result == IltFilter(items=())
 
 
 def test_parse_unknown_filter_type_skipped() -> None:
@@ -272,12 +271,12 @@ def test_parse_legacy_filter_names() -> None:
 def test_serialize_invalid_ip_range_raises() -> None:
     pred = IltPredicate(type="ip_range", value="not-an-ip-range")
     with pytest.raises(IltError, match="Invalid IP range format"):
-        _serialize_to_bytes(IltFilter(predicates=(pred,)))
+        _serialize_to_bytes(IltFilter(items=(pred,)))
 
 
 def _sample_ilt_filter() -> IltFilter:
     return IltFilter(
-        predicates=(
+        items=(
             IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com"),
             IltPredicate(type="group", value="S-1-5-32-544", negate=True),
         )
@@ -351,15 +350,15 @@ def test_gpp_registry_with_ilt_filter_round_trip() -> None:
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     parsed = parse_gpp_registry(data)
-    assert len(parsed) == 1
-    r = parsed[0]
-    assert r.key == r"Software\Policies\Test"
-    assert len(r.values) == 2
-    assert r.ilt_filter is not None
-    assert len(r.ilt_filter.predicates) == 2
-    assert r.ilt_filter.predicates[0].type == "ou"
-    assert r.ilt_filter.predicates[1].type == "group"
-    assert r.ilt_filter.predicates[1].negate is True
+    assert len(parsed) == 2
+    assert all(r.key == r"Software\Policies\Test" for r in parsed)
+    assert all(len(r.values) == 1 for r in parsed)
+    r0 = parsed[0]
+    assert r0.ilt_filter is not None
+    assert len(r0.ilt_filter.predicates) == 2
+    assert r0.ilt_filter.predicates[0].type == "ou"
+    assert r0.ilt_filter.predicates[1].type == "group"
+    assert r0.ilt_filter.predicates[1].negate is True
 
 
 def test_gpp_registry_without_ilt_filter_has_no_filters() -> None:
@@ -378,7 +377,7 @@ def _sample_collection_with_ilt() -> GppCollection:
                 name="Administrators",
                 sid="S-1-5-32-544",
                 ilt_filter=IltFilter(
-                    predicates=(
+                    items=(
                         IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com"),
                         IltPredicate(type="group", value="S-1-5-32-544"),
                     )
@@ -390,7 +389,7 @@ def _sample_collection_with_ilt() -> GppCollection:
                 key=r"Software\Policies\Test",
                 values=(GppRegistryValue(name="Enabled", value=1, registry_type="REG_DWORD"),),
                 ilt_filter=IltFilter(
-                    predicates=(
+                    items=(
                         IltPredicate(
                             type="wmi_query",
                             value="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1",
@@ -427,14 +426,14 @@ def test_dict_conversion_preserves_ilt() -> None:
     original = _sample_collection_with_ilt()
     d = gpp_collection_to_dict(original)
     assert d["groups"][0]["ilt_filter"] is not None
-    assert len(d["groups"][0]["ilt_filter"]["predicates"]) == 2
-    assert d["groups"][0]["ilt_filter"]["predicates"][0]["type"] == "ou"
+    assert len(d["groups"][0]["ilt_filter"]["items"]) == 2
+    assert d["groups"][0]["ilt_filter"]["items"][0]["type"] == "ou"
     assert (
-        d["groups"][0]["ilt_filter"]["predicates"][0]["value"]
+        d["groups"][0]["ilt_filter"]["items"][0]["value"]
         == "OU=Workstations,DC=example,DC=com"
     )
     assert d["registry"][0]["ilt_filter"] is not None
-    assert d["registry"][0]["ilt_filter"]["predicates"][0]["type"] == "wmi_query"
+    assert d["registry"][0]["ilt_filter"]["items"][0]["type"] == "wmi_query"
 
     restored = gpp_collection_from_dict(d)
     assert len(restored.groups) == 1
@@ -500,3 +499,104 @@ def test_store_persistence_preserves_ilt(tmp_path: Path) -> None:
     assert r.ilt_filter is not None
     assert len(r.ilt_filter.predicates) == 1
     assert r.ilt_filter.predicates[0].type == "wmi_query"
+
+
+# --- bool attribute preservation ---
+
+
+def test_bool_or_preserved_in_round_trip() -> None:
+    xml = (
+        b"<Filters>"
+        b'<FilterOrgUnit name="OU=Test,DC=example,DC=com" not="0" bool="OR"/>'
+        b'<FilterGroup sid="S-1-5-32-544" not="0" bool="AND"/>'
+        b"</Filters>"
+    )
+    parsed = parse_ilt(ET.fromstring(xml))
+    assert len(parsed.predicates) == 2
+    assert parsed.predicates[0].bool_op == "OR"
+    assert parsed.predicates[1].bool_op == "AND"
+
+    serialized = _serialize_to_bytes(parsed)
+    assert b'bool="OR"' in serialized
+    assert b'bool="AND"' in serialized
+
+    reparsed = parse_ilt(ET.fromstring(serialized))
+    assert reparsed.predicates[0].bool_op == "OR"
+    assert reparsed.predicates[1].bool_op == "AND"
+
+
+def test_bool_default_is_and() -> None:
+    xml = (
+        b"<Filters>"
+        b'<FilterOrgUnit name="OU=Test,DC=example,DC=com" not="0"/>'
+        b"</Filters>"
+    )
+    parsed = parse_ilt(ET.fromstring(xml))
+    assert len(parsed.predicates) == 1
+    assert parsed.predicates[0].bool_op == "AND"
+
+
+# --- predicate ordering preservation ---
+
+
+def test_predicate_ordering_preserved() -> None:
+    xml = (
+        b"<Filters>"
+        b'<FilterOrgUnit name="OU=Test,DC=example,DC=com" not="0" bool="AND"/>'
+        b'<FilterBattery not="0" bool="AND"/>'
+        b'<FilterGroup sid="S-1-5-32-544" not="0" bool="AND"/>'
+        b"</Filters>"
+    )
+    parsed = parse_ilt(ET.fromstring(xml))
+    assert len(parsed.items) == 3
+    assert isinstance(parsed.items[0], IltPredicate)
+    assert parsed.items[0].type == "ou"
+    assert isinstance(parsed.items[1], str)
+    assert "FilterBattery" in parsed.items[1]
+    assert isinstance(parsed.items[2], IltPredicate)
+    assert parsed.items[2].type == "group"
+
+    serialized = _serialize_to_bytes(parsed)
+    reparsed = parse_ilt(ET.fromstring(serialized))
+    assert len(reparsed.items) == 3
+    assert isinstance(reparsed.items[0], IltPredicate)
+    assert reparsed.items[0].type == "ou"
+    assert isinstance(reparsed.items[1], str)
+    assert "FilterBattery" in reparsed.items[1]
+    assert isinstance(reparsed.items[2], IltPredicate)
+    assert reparsed.items[2].type == "group"
+
+
+# --- unknown predicate attrs preservation ---
+
+
+def test_unknown_predicate_attrs_preserved() -> None:
+    xml = (
+        b"<Filters>"
+        b'<FilterOrgUnit name="OU=Test,DC=example,DC=com" not="0" bool="AND" '
+        b'userContext="1" primaryGroup="S-1-5-32-544"/>'
+        b"</Filters>"
+    )
+    parsed = parse_ilt(ET.fromstring(xml))
+    assert len(parsed.predicates) == 1
+    pred = parsed.predicates[0]
+    assert pred.unknown_attrs == (("userContext", "1"), ("primaryGroup", "S-1-5-32-544"))
+
+    serialized = _serialize_to_bytes(parsed)
+    assert b'userContext="1"' in serialized
+    assert b'primaryGroup="S-1-5-32-544"' in serialized
+
+    reparsed = parse_ilt(ET.fromstring(serialized))
+    assert reparsed.predicates[0].unknown_attrs == pred.unknown_attrs
+
+
+def test_validate_predicate_unknown_attrs_rejects_reserved() -> None:
+    from gpo_studio.ilt import IltError, validate_predicate_unknown_attrs
+
+    pred = IltPredicate(
+        type="ou",
+        value="OU=Test",
+        unknown_attrs=(("bool", "OR"),),
+    )
+    with pytest.raises(IltError, match="collides with a reserved"):
+        validate_predicate_unknown_attrs(pred)

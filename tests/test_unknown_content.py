@@ -267,16 +267,18 @@ def test_unknown_attrs_survive_dict_round_trip() -> None:
 
 def test_unknown_ilt_predicates_survive_dict_round_trip() -> None:
     filt = IltFilter(
-        predicates=(IltPredicate(type="ou", value="OU=Test,DC=example,DC=com"),),
-        unknown_predicates=("<FilterBattery not=\"0\" bool=\"AND\"/>",),
+        items=(
+            IltPredicate(type="ou", value="OU=Test,DC=example,DC=com"),
+            "<FilterBattery not=\"0\" bool=\"AND\"/>",
+        ),
     )
     group = GppGroup(name="Test", ilt_filter=filt)
     collection = GppCollection(scope="computer", groups=(group,))
     d = gpp_collection_to_dict(collection)
 
     assert d["groups"][0]["ilt_filter"] is not None
-    assert "unknown_predicates" in d["groups"][0]["ilt_filter"]
-    assert len(d["groups"][0]["ilt_filter"]["unknown_predicates"]) == 1
+    assert "items" in d["groups"][0]["ilt_filter"]
+    assert len(d["groups"][0]["ilt_filter"]["items"]) == 2
 
     restored = gpp_collection_from_dict(d)
     r_filt = restored.groups[0].ilt_filter
@@ -404,7 +406,7 @@ def test_cpassword_in_unknown_children_caught_by_gate() -> None:
 
 def test_cpassword_in_unknown_predicates_caught_by_gate() -> None:
     filt = IltFilter(
-        unknown_predicates=('<FilterCustom cpassword="encData" not="0"/>',),
+        items=('<FilterCustom cpassword="encData" not="0"/>',),
     )
     group = GppGroup(name="Test", ilt_filter=filt)
     data = serialize_gpp_groups(GppCollection(scope="computer", groups=(group,)))

@@ -153,7 +153,7 @@ def test_ilt_invalid_ip_range_error() -> None:
             GppGroup(
                 name="Admins",
                 ilt_filter=IltFilter(
-                    predicates=(
+                    items=(
                         IltPredicate(type="ip_range", value="not-an-ip"),
                     )
                 ),
@@ -177,7 +177,7 @@ def test_ilt_invalid_wmi_query_error() -> None:
             GppGroup(
                 name="Admins",
                 ilt_filter=IltFilter(
-                    predicates=(
+                    items=(
                         IltPredicate(type="wmi_query", value="not a query"),
                     )
                 ),
@@ -441,7 +441,7 @@ def test_ilt_predicate_value_control_character_error() -> None:
             GppGroup(
                 name="Admins",
                 ilt_filter=IltFilter(
-                    predicates=(
+                    items=(
                         IltPredicate(type="ou", value="OU=Test\x01"),
                     )
                 ),
@@ -491,7 +491,7 @@ def test_ilt_predicate_value_xml_unsafe_ffff_error() -> None:
             GppGroup(
                 name="Admins",
                 ilt_filter=IltFilter(
-                    predicates=(
+                    items=(
                         IltPredicate(type="ou", value="OU=Test\uffff"),
                     )
                 ),
@@ -628,7 +628,7 @@ def test_ilt_predicate_value_crlf_no_error() -> None:
             GppGroup(
                 name="Admins",
                 ilt_filter=IltFilter(
-                    predicates=(
+                    items=(
                         IltPredicate(type="ou", value="OU=Test\r\nDC=example"),
                     )
                 ),

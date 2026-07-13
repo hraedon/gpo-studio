@@ -158,8 +158,10 @@ WQL). A reusable filter catalogue can be loaded at startup
 Group Policy Preferences Groups with `action` (add/replace/update/remove),
 `members` (sid, name, action), `remove_all_users`, `remove_all_groups`,
 `description`, and an optional ILT filter. Serialize/parse round-trip is
-implemented and tested. Unknown XML attributes and child elements are preserved
-losslessly through import/export round-trips.
+implemented and tested. Unknown XML attributes on `<Group>` and unknown
+child elements are preserved through import/export round-trips. Unknown
+attributes on `<Properties>` are captured on the parent `<Group>` only
+when they are not recognized typed attributes.
 
 - **Authoring &#9680;:** Browser editor available via the Preferences tab.
   Groups CRUD via `/api/gpos/{guid}/preferences/groups`. Clone, reorder, and
@@ -181,8 +183,13 @@ losslessly through import/export round-trips.
 Group Policy Preferences Registry with `action` (add/replace/update/remove),
 typed `values` (name, value, registry\_type, action: create/replace/update/
 delete), and an optional ILT filter. Serialize/parse round-trip is implemented
-and tested. Unknown XML attributes and child elements are preserved losslessly
-through import/export round-trips.
+and tested. Unknown XML attributes on `<Registry>` and `<Properties>` elements
+are captured and re-emitted on export. Each parsed `<Registry>` element
+becomes its own `GppRegistry` with a single value, preserving per-element
+metadata (ILT filters, unknown attributes, unknown children). The
+collection-level `GppRegistry.action` field is a Studio-only grouping
+concept; it is not serialized to XML because MS-GPPREF has no
+collection-level action attribute.
 
 - **Authoring &#9680;:** Browser editor available via the Preferences tab.
   Registry CRUD via `/api/gpos/{guid}/preferences/registry`. Unknown content
@@ -212,24 +219,29 @@ GPP Groups and GPP Registry elements:
 | `environment` | `FilterVariable` | `VAR=value` or `VAR` |
 | `wmi_query` | `FilterWmi` | WQL query string |
 
-Each predicate supports negation (`not="1"`). Predicates serialize and parse
-round-trip. Unknown filter types (e.g. `FilterBattery`, `FilterComputer`) are
-captured as raw XML and re-emitted losslessly on export, preserving imported
-content that GPO Studio does not have a typed editor for.
+Each predicate supports negation (`not="1"`). The `bool` attribute
+(`AND`/`OR`) is preserved through round-trips. Predicates serialize and
+parse round-trip. Unknown filter types (e.g. `FilterBattery`,
+`FilterComputer`) are captured as raw XML and re-emitted on export,
+preserving imported content that GPO Studio does not have a typed editor
+for. The original interleaving order of typed and unknown predicates is
+preserved.
 
-> **Note:** ILT currently supports AND combination only. OR semantics and
-> nested groups (`FilterCollection`) are not supported. Imported expressions
-> using OR or grouping are preserved as read-only rather than flattened.
+> **Note:** ILT supports `AND` and `OR` combination at the predicate
+> level. Nested groups (`FilterCollection`) are not parsed into a typed
+> model; they are preserved as unknown XML and re-emitted on export.
+> Authoring supports `AND` combination only; `OR` predicates can be
+> authored via the API but the browser editor does not expose an OR
+> toggle.
 
 - **Authoring &#9680;:** Browser ILT editor attached to GPP Groups and Registry
-  editors via the Preferences tab. Only AND combination is supported; OR and
-  nested group (`FilterCollection`) semantics are not available. Unknown
-  predicate types from `unknown_predicates` are rendered as read-only with a
-  warning; they are preserved on save and re-export. (Previously only typed
-  `predicates` were checked; `unknown_predicates` are now rendered and
-  preserved as well.)
+  editors via the Preferences tab. Only AND combination is supported in the
+  browser UI; OR predicates can be set via the API (`bool_op` field). Nested
+  group (`FilterCollection`) semantics are not available. Unknown predicate
+  types from `unknown_predicates` are rendered as read-only with a warning;
+  they are preserved on save and re-export.
 - **Import/Export:** Serialized within GPP XML. Unknown predicates preserved
-  losslessly.
+  through round-trips.
 - **Diff &#10003;:** Compared as part of GPP element equality; not surfaced as a standalone diff entry.
 - **Hash:** Included in `policy_semantic_sha256` as part of GPP canonical.
 
