@@ -82,6 +82,14 @@ class MetadataChange:
 
 
 @dataclass(frozen=True, slots=True)
+class MetadataConflict:
+    field: str
+    baseline: str | bool
+    draft: str | bool
+    observed: str | bool
+
+
+@dataclass(frozen=True, slots=True)
 class CseMetadataChange:
     kind: Literal["added", "removed", "modified"]
     guid: str
@@ -176,6 +184,7 @@ class ThreeWayDiff:
     gpp_registry: tuple[GppRegistryChange, ...] = ()
     gpp_conflicts: tuple[GppGroupConflict | GppRegistryConflict, ...] = ()
     metadata: tuple[MetadataChange, ...] = ()
+    metadata_conflicts: tuple[MetadataConflict, ...] = ()
     cse_metadata: tuple[CseMetadataChange, ...] = ()
     cse_metadata_conflicts: tuple[CseMetadataConflict, ...] = ()
 
@@ -553,6 +562,8 @@ def _diff_metadata(old: GPO, new: GPO) -> list[MetadataChange]:
         ("computer_enabled", old.computer_enabled, new.computer_enabled),
         ("user_enabled", old.user_enabled, new.user_enabled),
         ("domain", old.domain, new.domain),
+        ("status", old.status, new.status),
+        ("source_guid", old.source_guid, new.source_guid),
     ]
     for field_name, old_value, new_value in fields:
         if old_value != new_value:
@@ -856,6 +867,32 @@ def _three_way_cse_metadata_conflicts(
     return tuple(conflicts)
 
 
+def _three_way_metadata_conflicts(
+    baseline: GPO, draft: GPO, observed: GPO
+) -> tuple[MetadataConflict, ...]:
+    draft_meta = _diff_metadata(baseline, draft)
+    observed_meta = _diff_metadata(baseline, observed)
+    observed_meta_by_field: dict[str, MetadataChange] = {
+        c.field: c for c in observed_meta
+    }
+    conflicts: list[MetadataConflict] = []
+    for draft_change in draft_meta:
+        if draft_change.field not in observed_meta_by_field:
+            continue
+        observed_change = observed_meta_by_field[draft_change.field]
+        if draft_change.new != observed_change.new:
+            conflicts.append(
+                MetadataConflict(
+                    field=draft_change.field,
+                    baseline=draft_change.old,
+                    draft=draft_change.new,
+                    observed=observed_change.new,
+                )
+            )
+    conflicts.sort(key=lambda c: c.field)
+    return tuple(conflicts)
+
+
 def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
     conflicts = _three_way_setting_conflicts(
         baseline.settings, draft.settings, observed.settings
@@ -878,6 +915,7 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
     cse_metadata_conflicts = _three_way_cse_metadata_conflicts(
         baseline.cse_metadata, draft.cse_metadata, observed.cse_metadata
     )
+    metadata_conflicts = _three_way_metadata_conflicts(baseline, draft, observed)
 
     return ThreeWayDiff(
         settings=tuple(diff_settings(baseline.settings, draft.settings)),
@@ -894,6 +932,7 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
         gpp_registry=gpp_registry,
         gpp_conflicts=gpp_conflicts,
         metadata=tuple(_diff_metadata(baseline, draft)),
+        metadata_conflicts=metadata_conflicts,
         cse_metadata=tuple(diff_cse_metadata(baseline.cse_metadata, draft.cse_metadata)),
         cse_metadata_conflicts=cse_metadata_conflicts,
     )

@@ -157,7 +157,10 @@ def semantic_dict_gpp_member(member: GppGroupMember) -> dict[str, Any]:
 
 
 def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
-    members_sorted = sorted(group.members, key=gpp_member_identity)
+    # GPP element order is semantically significant: gpp.py serializes members
+    # in tuple order, and Windows processes GPP items in document order. The
+    # canonical hash must therefore preserve insertion order so that a reorder
+    # changes the hash (matching how it changes exported Groups.xml bytes).
     return {
         "name": group.name.casefold(),
         "sid": group.sid.lower(),
@@ -165,7 +168,7 @@ def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
         "description": group.description,
         "remove_all_users": group.remove_all_users,
         "remove_all_groups": group.remove_all_groups,
-        "members": [semantic_dict_gpp_member(m) for m in members_sorted],
+        "members": [semantic_dict_gpp_member(m) for m in group.members],
         "ilt_filter": semantic_dict_ilt(group.ilt_filter),
     }
 
@@ -180,22 +183,24 @@ def semantic_dict_gpp_registry_value(value: GppRegistryValue) -> dict[str, Any]:
 
 
 def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
-    values_sorted = sorted(reg.values, key=gpp_registry_value_identity)
+    # GPP value order is semantically significant: gpp.py serializes values in
+    # tuple order. Preserve insertion order so a reorder changes the hash.
     return {
         "key": reg.key.casefold(),
         "action": reg.action,
-        "values": [semantic_dict_gpp_registry_value(v) for v in values_sorted],
+        "values": [semantic_dict_gpp_registry_value(v) for v in reg.values],
         "ilt_filter": semantic_dict_ilt(reg.ilt_filter),
     }
 
 
 def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
-    groups_sorted = sorted(collection.groups, key=gpp_group_identity)
-    registry_sorted = sorted(collection.registry, key=gpp_registry_identity)
+    # GPP group/registry order is semantically significant: gpp.py serializes
+    # groups and registry in tuple order. Preserve insertion order so a reorder
+    # changes the hash (matching how it changes exported XML bytes).
     return {
         "scope": collection.scope,
-        "groups": [semantic_dict_gpp_group(g) for g in groups_sorted],
-        "registry": [semantic_dict_gpp_registry(r) for r in registry_sorted],
+        "groups": [semantic_dict_gpp_group(g) for g in collection.groups],
+        "registry": [semantic_dict_gpp_registry(r) for r in collection.registry],
     }
 
 

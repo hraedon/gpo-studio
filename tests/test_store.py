@@ -7,6 +7,7 @@ from gpo_studio.model import (
     ConflictError,
     CseMetadataEntry,
     NotFoundError,
+    RegistrySetting,
     SecurityFilter,
     ValidationError,
     WmiFilter,
@@ -284,3 +285,79 @@ def test_restore_revision_rejects_invalid_snapshot(tmp_path) -> None:
             reason="restore invalid snapshot",
         )
     assert any(i.code == "name_required" for i in exc_info.value.issues)
+
+
+def test_put_setting_rejects_invalid_side_hive_combination(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Side policy", identity="alice", reason="draft")
+    with pytest.raises(ValidationError) as exc_info:
+        store.put_setting(
+            gpo.guid,
+            gpo.revision,
+            {
+                "side": "computer",
+                "hive": "HKCU",
+                "key": r"Software\Policies\Synthetic",
+                "value_name": "Enabled",
+                "registry_type": "REG_DWORD",
+                "value": 1,
+            },
+            identity="alice",
+            reason="invalid side/hive",
+        )
+    assert any(i.code == "side_hive_mismatch" for i in exc_info.value.issues)
+
+
+def test_put_setting_accepts_valid_computer_hklm_setting(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Valid policy", identity="alice", reason="draft")
+    updated = store.put_setting(
+        gpo.guid,
+        gpo.revision,
+        {
+            "side": "computer",
+            "hive": "HKLM",
+            "key": r"Software\Policies\Synthetic",
+            "value_name": "Enabled",
+            "registry_type": "REG_DWORD",
+            "value": 1,
+        },
+        identity="alice",
+        reason="valid computer setting",
+    )
+    assert updated.revision == gpo.revision + 1
+    assert len(updated.settings) == 1
+    assert updated.settings[0].side == "computer"
+    assert updated.settings[0].hive == "HKLM"
+
+
+def test_put_settings_rejects_batch_with_invalid_setting(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Batch policy", identity="alice", reason="draft")
+    valid_setting = RegistrySetting(
+        id="valid-1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Synthetic",
+        value_name="Enabled",
+        registry_type="REG_DWORD",
+        value=1,
+    )
+    invalid_setting = RegistrySetting(
+        id="invalid-1",
+        side="user",
+        hive="HKLM",
+        key=r"Software\Policies\Synthetic",
+        value_name="Enabled",
+        registry_type="REG_DWORD",
+        value=1,
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        store.put_settings(
+            gpo.guid,
+            gpo.revision,
+            [valid_setting, invalid_setting],
+            identity="alice",
+            reason="mixed batch",
+        )
+    assert any(i.code == "side_hive_mismatch" for i in exc_info.value.issues)

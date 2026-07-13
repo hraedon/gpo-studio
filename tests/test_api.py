@@ -172,7 +172,7 @@ def test_semantic_hash_in_response(tmp_path) -> None:
                     "key": r"Software\Policies\Test",
                     "value_name": "Enabled",
                     "registry_type": "REG_DWORD",
-                    "value": 1,
+                    "value": "1",
                 },
             },
         )

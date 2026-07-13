@@ -32,7 +32,7 @@ export function initDiff(){
 function renderDiff(data){
   const parts=[];
   const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length);
-  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length);
+  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.links&&data.links.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length);
   if(data.settings.length){
     parts.push(`<div class="diff-section"><h3>Settings (${data.settings.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Key</th><th>Value name</th><th>Old</th><th>New</th></tr></thead><tbody>${data.settings.map(s=>{
       const ident=s.identity||[];const oldV=formatSettingValue(s.old);const newV=formatSettingValue(s.new);
@@ -89,6 +89,12 @@ function renderDiff(data){
       return `<tr class="diff-conflict"><td>GPP group</td><td>${escapeHtml(c.scope)}</td><td class="mono">${escapeHtml(label)}</td><td>${escapeHtml(formatGppGroup(c.baseline))}</td><td>${escapeHtml(formatGppGroup(c.draft))}</td><td>${escapeHtml(formatGppGroup(c.observed))}</td></tr>`;
     }).join('');
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: GPP (${data.gpp_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Name/Key</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${rows}</tbody></table></div>`);
+  }
+  if(data.metadata_conflicts&&data.metadata_conflicts.length){
+    parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: Metadata (${data.metadata_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Field</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.metadata_conflicts.map(c=>`<tr class="diff-conflict"><td class="mono">${escapeHtml(c.field)}</td><td>${escapeHtml(String(c.baseline))}</td><td>${escapeHtml(String(c.draft))}</td><td>${escapeHtml(String(c.observed))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length){
+    parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: CSE metadata (${data.cse_metadata_conflicts.length})</h3><table class="diff-table"><thead><tr><th>GUID</th><th>Side</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.cse_metadata_conflicts.map(c=>`<tr class="diff-conflict"><td class="mono">${escapeHtml(c.guid||'')}</td><td>${escapeHtml(c.side||'')}</td><td>${escapeHtml(formatCse(c.baseline))}</td><td>${escapeHtml(formatCse(c.draft))}</td><td>${escapeHtml(formatCse(c.observed))}</td></tr>`).join('')}</tbody></table></div>`);
   }
   if(!hasChanges&&!hasConflicts)parts.push('<div class="table-empty">No differences found</div>');
   $('#diff-results').innerHTML=parts.join('');

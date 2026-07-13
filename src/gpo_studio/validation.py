@@ -329,7 +329,20 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                     "wmi_filter/query",
                 )
             )
+    seen_scopes: set[str] = set()
     for collection in gpo.gpp_collections:
+        scope = collection.scope
+        if scope in seen_scopes:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_scope",
+                    f"Duplicate GPP collection scope '{scope}'; "
+                    "only one collection per scope is allowed.",
+                    f"gpp_collections/{scope}",
+                )
+            )
+        seen_scopes.add(scope)
         issues.extend(validate_gpp_collection(collection))
     domain = gpo.domain.strip()
     if not domain:
@@ -365,6 +378,15 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
 
 def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    if any(ord(c) < 0x20 for c in pred.value):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_ilt_value",
+                "ILT predicate value contains control characters.",
+                f"{path}/value",
+            )
+        )
     match pred.type:
         case "ou":
             if not pred.value.strip():
@@ -460,6 +482,15 @@ def validate_gpp_group_member(
                 f"{path}/sid",
             )
         )
+    if any(ord(c) < 0x20 for c in member.name):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpp_member_name",
+                "GPP group member name contains control characters.",
+                f"{path}/name",
+            )
+        )
     if len(member.sid) > 255:
         issues.append(
             ValidationIssue(
@@ -507,6 +538,15 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                 f"{path}/name",
             )
         )
+    if any(ord(c) < 0x20 for c in group.description):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpp_group_description",
+                "GPP group description contains control characters.",
+                f"{path}/description",
+            )
+        )
     match group.action:
         case "add" | "replace" | "remove" | "update":
             pass
@@ -514,6 +554,15 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
             assert_never(group.action)
     if group.sid:
         sid_path = f"{path}/sid"
+        if any(ord(c) < 0x20 for c in group.sid):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "control_character_in_gpp_group_sid",
+                    "GPP group SID contains control characters.",
+                    sid_path,
+                )
+            )
         if any(ord(c) < 0x20 for c in group.sid):
             issues.append(
                 ValidationIssue(
@@ -597,6 +646,15 @@ def validate_gpp_registry_value(
                 f"{path}/name",
             )
         )
+    if any(ord(c) < 0x20 for c in value.name):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpp_registry_value_name",
+                "GPP registry value name contains control characters.",
+                f"{path}/name",
+            )
+        )
     if value.registry_type not in _VALID_REGISTRY_TYPES:
         issues.append(
             ValidationIssue(
@@ -607,6 +665,15 @@ def validate_gpp_registry_value(
             )
         )
     raw = value.value
+    if isinstance(raw, str) and any(ord(c) < 0x20 for c in raw):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "control_character_in_gpp_registry_value",
+                "GPP registry value contains control characters.",
+                f"{path}/value",
+            )
+        )
     if value.registry_type in ("REG_DWORD", "REG_QWORD"):
         if not isinstance(raw, int) or isinstance(raw, bool):
             issues.append(
