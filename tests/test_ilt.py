@@ -39,17 +39,26 @@ def _parse_from_bytes(data: bytes) -> IltFilter:
 def test_serialize_ou_predicate() -> None:
     pred = IltPredicate(type="ou", value="OU=Workstations,DC=example,DC=com")
     data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
-    assert b"<FilterOu" in data
+    assert b"<FilterOrgUnit" in data
     assert b'name="OU=Workstations,DC=example,DC=com"' in data
     assert b'not="0"' in data
+    assert b'bool="AND"' in data
 
 
 def test_serialize_group_predicate() -> None:
     pred = IltPredicate(type="group", value="S-1-5-32-544")
     data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
     assert b"<FilterGroup" in data
-    assert b'name="S-1-5-32-544"' in data
     assert b'sid="S-1-5-32-544"' in data
+    assert b'bool="AND"' in data
+
+
+def test_serialize_group_name_predicate() -> None:
+    pred = IltPredicate(type="group", value="DOMAIN\\Admins")
+    data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
+    assert b"<FilterGroup" in data
+    assert b'name="DOMAIN\\Admins"' in data
+    assert b'bool="AND"' in data
 
 
 def test_serialize_registry_predicate() -> None:
@@ -58,6 +67,7 @@ def test_serialize_registry_predicate() -> None:
     assert b"<FilterRegistry" in data
     assert b'key="HKLM\\Software\\Policy"' in data
     assert b'valueName="Enabled"' in data
+    assert b'bool="AND"' in data
 
 
 def test_serialize_ip_range_predicate() -> None:
@@ -66,6 +76,7 @@ def test_serialize_ip_range_predicate() -> None:
     assert b"<FilterIpRange" in data
     assert b'min="192.168.1.0"' in data
     assert b'max="192.168.1.255"' in data
+    assert b'bool="AND"' in data
 
 
 def test_serialize_ip_range_min_max_format() -> None:
@@ -78,9 +89,10 @@ def test_serialize_ip_range_min_max_format() -> None:
 def test_serialize_environment_predicate() -> None:
     pred = IltPredicate(type="environment", value="COMPUTERNAME=WORKSTATION*")
     data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
-    assert b"<FilterEnvironment" in data
-    assert b'name="COMPUTERNAME"' in data
+    assert b"<FilterVariable" in data
+    assert b'variableName="COMPUTERNAME"' in data
     assert b'value="WORKSTATION*"' in data
+    assert b'bool="AND"' in data
 
 
 def test_serialize_wmi_query_predicate() -> None:
@@ -89,8 +101,9 @@ def test_serialize_wmi_query_predicate() -> None:
         value="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1",
     )
     data = _serialize_to_bytes(IltFilter(predicates=(pred,)))
-    assert b"<FilterWmiQuery" in data
+    assert b"<FilterWmi " in data or b"<FilterWmi>" in data
     assert b'query="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1"' in data
+    assert b'bool="AND"' in data
 
 
 def test_negate_produces_not_attr() -> None:
@@ -112,10 +125,11 @@ def test_multiple_predicates_and_logic() -> None:
         )
     )
     data = _serialize_to_bytes(filt)
-    assert data.count(b"FilterOu") == 1
+    assert data.count(b"FilterOrgUnit") == 1
     assert data.count(b"FilterGroup") == 1
-    assert data.count(b"FilterWmiQuery") == 1
+    assert data.count(b"FilterWmi") == 1
     assert data.count(b"not=") == 3
+    assert data.count(b'bool="AND"') == 3
 
 
 def test_round_trip_ou() -> None:
@@ -129,6 +143,14 @@ def test_round_trip_ou() -> None:
 def test_round_trip_group() -> None:
     original = IltFilter(
         predicates=(IltPredicate(type="group", value="S-1-5-32-544", negate=True),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_group_name() -> None:
+    original = IltFilter(
+        predicates=(IltPredicate(type="group", value="DOMAIN\\Admins"),)
     )
     parsed = _parse_from_bytes(_serialize_to_bytes(original))
     assert parsed == original
@@ -164,6 +186,16 @@ def test_round_trip_environment() -> None:
     original = IltFilter(
         predicates=(
             IltPredicate(type="environment", value="COMPUTERNAME=WORKSTATION*"),
+        )
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_environment_no_value() -> None:
+    original = IltFilter(
+        predicates=(
+            IltPredicate(type="environment", value="COMPUTERNAME"),
         )
     )
     parsed = _parse_from_bytes(_serialize_to_bytes(original))
@@ -211,15 +243,30 @@ def test_parse_empty_filters() -> None:
 def test_parse_unknown_filter_type_skipped() -> None:
     xml = (
         b"<Filters>"
-        b'<FilterOu name="OU=Test,DC=example,DC=com" not="0"/>'
-        b'<FilterBattery not="0"/>'
-        b'<FilterGroup name="S-1-5-32-544" sid="S-1-5-32-544" not="0"/>'
+        b'<FilterOrgUnit name="OU=Test,DC=example,DC=com" not="0" bool="AND"/>'
+        b'<FilterBattery not="0" bool="AND"/>'
+        b'<FilterGroup sid="S-1-5-32-544" name="" not="0" bool="AND"/>'
         b"</Filters>"
     )
     result = parse_ilt(ET.fromstring(xml))
     assert len(result.predicates) == 2
     assert result.predicates[0].type == "ou"
     assert result.predicates[1].type == "group"
+
+
+def test_parse_legacy_filter_names() -> None:
+    xml = (
+        b"<Filters>"
+        b'<FilterOu name="OU=Test,DC=example,DC=com" not="0"/>'
+        b'<FilterEnvironment name="VAR" value="1" not="0"/>'
+        b'<FilterWmiQuery query="SELECT * FROM Win32_OperatingSystem" not="0"/>'
+        b"</Filters>"
+    )
+    result = parse_ilt(ET.fromstring(xml))
+    assert len(result.predicates) == 3
+    assert result.predicates[0].type == "ou"
+    assert result.predicates[1].type == "environment"
+    assert result.predicates[2].type == "wmi_query"
 
 
 def test_serialize_invalid_ip_range_raises() -> None:
@@ -245,7 +292,7 @@ def test_gpp_group_with_ilt_filter_serializes() -> None:
     )
     data = serialize_gpp_groups(GppCollection(scope="computer", groups=(group,)))
     assert b"<Filters" in data
-    assert b"FilterOu" in data
+    assert b"FilterOrgUnit" in data
     assert b"FilterGroup" in data
 
 
@@ -290,7 +337,7 @@ def test_gpp_registry_with_ilt_filter_serializes() -> None:
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     assert b"<Filters" in data
-    assert b"FilterOu" in data
+    assert b"FilterOrgUnit" in data
 
 
 def test_gpp_registry_with_ilt_filter_round_trip() -> None:

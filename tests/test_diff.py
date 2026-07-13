@@ -1150,7 +1150,10 @@ def test_gpp_registry_reorder_detected() -> None:
     assert len(result.gpp_registry) == 2
     assert all(c.kind == "reordered" for c in result.gpp_registry)
     identities = {c.identity for c in result.gpp_registry}
-    assert identities == {reg_a.key.casefold(), reg_b.key.casefold()}
+    assert identities == {
+        f"hkey_local_machine\\{reg_a.key.casefold()}",
+        f"hkey_local_machine\\{reg_b.key.casefold()}",
+    }
 
 
 def test_gpp_group_content_change_not_reorder() -> None:

@@ -33,23 +33,33 @@ from gpo_studio.model import GPO, RegistrySetting
 
 _GROUPS_XML = b"""<?xml version="1.0" encoding="utf-8"?>
 <Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
-  <Group clsid="{6D4A79E4-529C-4480-964E-E4ECA473E269}" name="Administrators"
-         action="U" removeUsers="0" removeGroups="0">
-    <Properties groupName="Administrators" groupSid="S-1-5-32-544"/>
-    <Members>
-      <Member name="DOMAIN\\Domain Admins" sid="S-1-5-21-1-2-3-500" action="ADD"/>
-      <Member name="DOMAIN\\Helpdesk" sid="S-1-5-21-1-2-3-1000" action="REMOVE"/>
-    </Members>
+  <Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Administrators">
+    <Properties action="U" groupName="Administrators" groupSid="S-1-5-32-544"
+                deleteAllUsers="0" deleteAllGroups="0">
+      <Members>
+        <Member name="DOMAIN\\Domain Admins" sid="S-1-5-21-1-2-3-500" action="ADD"/>
+        <Member name="DOMAIN\\Helpdesk" sid="S-1-5-21-1-2-3-1000" action="REMOVE"/>
+      </Members>
+    </Properties>
   </Group>
 </Groups>"""
 
 _REGISTRY_XML = b"""<?xml version="1.0" encoding="utf-8"?>
-<RegistrySettings clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}">
-  <Registry clsid="{9CD4A0B9-A8CE-471E-A0D8-7DE5A1B4F7CA}"
-            name="Software\\Policies\\Test" action="U">
-    <Properties name="Enabled" value="1" type="REG_DWORD" action="C"/>
-    <Properties name="Path" value="C:\\\\Temp" type="REG_SZ" action="C"/>
-    <Properties name="List" value="a;b;c" type="REG_MULTI_SZ" action="C"/>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\Policies\\Test">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
+                name="Enabled" type="REG_DWORD" value="1"/>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\Policies\\Test">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
+                name="Path" type="REG_SZ" value="C:\\\\Temp"/>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\Policies\\Test">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
+                name="List" type="REG_MULTI_SZ" value="a;b;c"/>
   </Registry>
 </RegistrySettings>"""
 
@@ -69,6 +79,7 @@ def _sample_group() -> GppGroup:
 def _sample_registry() -> GppRegistry:
     return GppRegistry(
         key=r"Software\Policies\Test",
+        hive="HKEY_LOCAL_MACHINE",
         action="update",
         values=(
             GppRegistryValue(
@@ -103,6 +114,37 @@ def test_serialize_groups_produces_valid_xml() -> None:
     assert b'sid="S-1-5-21-1-2-3-500"' in data
 
 
+def test_serialize_groups_correct_clsid() -> None:
+    data = serialize_gpp_groups(_sample_collection())
+    assert b'clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}"' in data
+
+
+def test_serialize_groups_members_inside_properties() -> None:
+    data = serialize_gpp_groups(_sample_collection())
+    assert b"<Members>" in data
+    assert b"</Members>" in data
+    assert b"<Properties" in data
+    assert data.index(b"<Properties") < data.index(b"<Members>")
+
+
+def test_serialize_groups_action_on_properties() -> None:
+    data = serialize_gpp_groups(_sample_collection())
+    assert b'<Properties action="U"' in data
+
+
+def test_serialize_groups_delete_all_flags() -> None:
+    group = GppGroup(
+        name="Test",
+        sid="S-1-5-32-544",
+        action="update",
+        remove_all_users=True,
+        remove_all_groups=True,
+    )
+    data = serialize_gpp_groups(GppCollection(scope="computer", groups=(group,)))
+    assert b'deleteAllUsers="1"' in data
+    assert b'deleteAllGroups="1"' in data
+
+
 def test_serialize_groups_action_codes() -> None:
     group = GppGroup(
         name="Test",
@@ -130,7 +172,7 @@ def test_parse_groups_round_trip() -> None:
     assert g.members[1].action == "remove"
 
 
-def test_parse_groups_from_real_format() -> None:
+def test_parse_groups_from_ms_format() -> None:
     parsed = parse_gpp_groups(_GROUPS_XML)
     assert len(parsed) == 1
     g = parsed[0]
@@ -146,16 +188,46 @@ def test_parse_groups_from_real_format() -> None:
     assert g.members[1].action == "remove"
 
 
+def test_parse_groups_legacy_format() -> None:
+    legacy_xml = b"""<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
+  <Group clsid="{6D4A79E4-529C-4480-964E-E4ECA473E269}" name="Admins"
+         action="U" removeUsers="1" removeGroups="0" description="Legacy">
+    <Properties groupName="Admins" groupSid="S-1-5-32-544"/>
+    <Members>
+      <Member name="DOMAIN\\Admin" sid="S-1-5-21-1-2-3-500" action="ADD"/>
+    </Members>
+  </Group>
+</Groups>"""
+    parsed = parse_gpp_groups(legacy_xml)
+    assert len(parsed) == 1
+    g = parsed[0]
+    assert g.name == "Admins"
+    assert g.sid == "S-1-5-32-544"
+    assert g.action == "update"
+    assert g.remove_all_users is True
+    assert g.remove_all_groups is False
+    assert g.description == "Legacy"
+    assert len(g.members) == 1
+
+
 def test_serialize_registry_produces_valid_xml() -> None:
     data = serialize_gpp_registry(_sample_collection())
     assert b"<RegistrySettings" in data
-    assert b'clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}"' in data
+    assert b'clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}"' in data
     assert b"<Registry " in data
-    assert b'name="Software\\Policies\\Test"' in data
+    assert b'clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"' in data
+    assert b'hive="HKEY_LOCAL_MACHINE"' in data
+    assert b'key="Software\\Policies\\Test"' in data
     assert b'type="REG_DWORD"' in data
     assert b'value="1"' in data
     assert b'type="REG_MULTI_SZ"' in data
     assert b'value="a;b;c"' in data
+
+
+def test_serialize_registry_one_element_per_value() -> None:
+    data = serialize_gpp_registry(_sample_collection())
+    assert data.count(b"<Registry ") == 3
 
 
 def test_parse_registry_round_trip() -> None:
@@ -165,7 +237,7 @@ def test_parse_registry_round_trip() -> None:
     assert len(parsed) == 1
     r = parsed[0]
     assert r.key == r"Software\Policies\Test"
-    assert r.action == "update"
+    assert r.hive == "HKEY_LOCAL_MACHINE"
     assert len(r.values) == 3
     assert r.values[0].name == "Enabled"
     assert r.values[0].value == 1
@@ -177,16 +249,34 @@ def test_parse_registry_round_trip() -> None:
     assert r.values[2].registry_type == "REG_MULTI_SZ"
 
 
-def test_parse_registry_from_real_format() -> None:
+def test_parse_registry_from_ms_format() -> None:
     parsed = parse_gpp_registry(_REGISTRY_XML)
     assert len(parsed) == 1
     r = parsed[0]
     assert r.key == r"Software\Policies\Test"
-    assert r.action == "update"
+    assert r.hive == "HKEY_LOCAL_MACHINE"
     assert len(r.values) == 3
     assert r.values[0].value == 1
     assert r.values[0].registry_type == "REG_DWORD"
     assert r.values[2].value == ["a", "b", "c"]
+
+
+def test_parse_registry_legacy_format() -> None:
+    legacy_xml = b"""<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}">
+  <Registry clsid="{9CD4A0B9-A8CE-471E-A0D8-7DE5A1B4F7CA}"
+            name="Software\\Policies\\Test" action="U">
+    <Properties name="Enabled" value="1" type="REG_DWORD" action="C"/>
+    <Properties name="Path" value="C:\\\\Temp" type="REG_SZ" action="C"/>
+  </Registry>
+</RegistrySettings>"""
+    parsed = parse_gpp_registry(legacy_xml)
+    assert len(parsed) == 1
+    r = parsed[0]
+    assert r.key == r"Software\Policies\Test"
+    assert len(r.values) == 2
+    assert r.values[0].name == "Enabled"
+    assert r.values[0].value == 1
 
 
 def test_action_code_mapping() -> None:
@@ -306,12 +396,36 @@ def test_gpp_collection_to_dict_round_trip() -> None:
     assert len(restored.groups[0].members) == len(original.groups[0].members)
     assert len(restored.registry) == len(original.registry)
     assert restored.registry[0].key == original.registry[0].key
+    assert restored.registry[0].hive == original.registry[0].hive
     assert len(restored.registry[0].values) == len(original.registry[0].values)
 
 
 def test_gpp_collection_from_dict_invalid_scope() -> None:
     with pytest.raises(GppError, match="Invalid GPP scope"):
         gpp_collection_from_dict({"scope": "invalid"})
+
+
+def test_gpp_collection_from_dict_rejects_reserved_unknown_attr() -> None:
+    with pytest.raises(GppError, match="collides with a reserved"):
+        gpp_collection_from_dict({
+            "scope": "computer",
+            "groups": [{"name": "G1", "unknown_attrs": [["name", "override"]]}],
+        })
+
+
+def test_gpp_collection_from_dict_rejects_reserved_registry_attr() -> None:
+    with pytest.raises(GppError, match="collides with a reserved"):
+        gpp_collection_from_dict({
+            "scope": "computer",
+            "registry": [{
+                "key": "K",
+                "values": [{
+                    "name": "V",
+                    "value": "x",
+                    "unknown_attrs": [["action", "D"]],
+                }],
+            }],
+        })
 
 
 def test_parse_groups_malformed_xml_raises() -> None:
@@ -332,7 +446,7 @@ def test_parse_groups_empty() -> None:
 def test_parse_registry_empty() -> None:
     data = (
         b'<?xml version="1.0"?>'
-        b'<RegistrySettings clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}"/>'
+        b'<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}"/>'
     )
     assert parse_gpp_registry(data) == ()
 
@@ -601,6 +715,7 @@ def test_full_group_round_trip_equality() -> None:
 def test_full_registry_round_trip_equality() -> None:
     reg = GppRegistry(
         key=r"Software\Policies\Test",
+        hive="HKEY_LOCAL_MACHINE",
         action="replace",
         values=(
             GppRegistryValue(
@@ -625,7 +740,12 @@ def test_full_registry_round_trip_equality() -> None:
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     parsed = parse_gpp_registry(data)
     assert len(parsed) == 1
-    assert parsed[0] == reg
+    assert parsed[0].key == reg.key
+    assert parsed[0].hive == reg.hive
+    assert len(parsed[0].values) == len(reg.values)
+    assert parsed[0].values == reg.values
+    assert parsed[0].ilt_filter is not None
+    assert parsed[0].ilt_filter.predicates == reg.ilt_filter.predicates
 
 
 def test_editor_id_not_in_serialized_xml() -> None:

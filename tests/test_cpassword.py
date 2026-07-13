@@ -25,29 +25,32 @@ _GPO_GUID = "11111111-2222-3333-4444-555555555555"
 
 _GROUPS_XML_CLEAN = b"""<?xml version="1.0" encoding="utf-8"?>
 <Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
-  <Group clsid="{6D4A79E4-529C-4480-964E-E4ECA473E269}" name="Admins" action="U">
-    <Properties groupName="Admins" groupSid="S-1-5-32-544"/>
+  <Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Admins">
+    <Properties action="U" groupName="Admins" groupSid="S-1-5-32-544"
+                deleteAllUsers="0" deleteAllGroups="0"/>
   </Group>
 </Groups>"""
 
 _GROUPS_XML_CPASSWORD = b"""<?xml version="1.0" encoding="utf-8"?>
 <Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
-  <Group clsid="{6D4A79E4-529C-4480-964E-E4ECA473E269}" name="Admins" action="U">
-    <Properties groupName="Admins" cpassword="someEncryptedBlob"/>
+  <Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Admins">
+    <Properties action="U" groupName="Admins" cpassword="someEncryptedBlob"/>
   </Group>
 </Groups>"""
 
 _REGISTRY_XML_CLEAN = b"""<?xml version="1.0" encoding="utf-8"?>
-<RegistrySettings clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}">
-  <Registry clsid="{9CD4A0B9-A8CE-471E-A0D8-7DE5A1B4F7CA}" name="Software\\Test" action="U">
-    <Properties name="Enabled" value="1" type="REG_DWORD" action="C"/>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\\Test">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Test"
+                name="Enabled" value="1" type="REG_DWORD"/>
   </Registry>
 </RegistrySettings>"""
 
 _REGISTRY_XML_CPASSWORD = b"""<?xml version="1.0" encoding="utf-8"?>
-<RegistrySettings clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}">
-  <Registry clsid="{9CD4A0B9-A8CE-471E-A0D8-7DE5A1B4F7CA}" name="Software\\Test" action="U">
-    <Properties name="Password" value="secret" type="REG_SZ" action="C" cpassword="encData"/>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\\Test">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Test"
+                name="Password" value="secret" type="REG_SZ" cpassword="encData"/>
   </Registry>
 </RegistrySettings>"""
 
