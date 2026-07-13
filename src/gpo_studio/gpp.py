@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import uuid
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, assert_never
 
 from .ilt import IltFilter, IltPredicate, parse_ilt, serialize_ilt
@@ -136,6 +137,7 @@ class GppGroupMember:
     sid: str
     name: str = ""
     action: GppAction = "add"
+    id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +150,7 @@ class GppGroup:
     remove_all_users: bool = False
     remove_all_groups: bool = False
     ilt_filter: IltFilter | None = None
+    id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +159,7 @@ class GppRegistryValue:
     value: str | int | list[str]
     registry_type: str = "REG_SZ"
     action: GppRegistryAction = "create"
+    id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +168,7 @@ class GppRegistry:
     values: tuple[GppRegistryValue, ...] = field(default_factory=tuple)
     action: GppAction = "update"
     ilt_filter: IltFilter | None = None
+    id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,6 +383,39 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
     return GppCollection(scope=scope, groups=groups, registry=registry)
 
 
+def _ensure_group_editor_ids(group: GppGroup) -> GppGroup:
+    new_members = tuple(
+        replace(m, id=str(uuid.uuid4())) if not m.id else m
+        for m in group.members
+    )
+    return replace(
+        group,
+        id=group.id or str(uuid.uuid4()),
+        members=new_members,
+    )
+
+
+def _ensure_registry_editor_ids(registry: GppRegistry) -> GppRegistry:
+    new_values = tuple(
+        replace(v, id=str(uuid.uuid4())) if not v.id else v
+        for v in registry.values
+    )
+    return replace(
+        registry,
+        id=registry.id or str(uuid.uuid4()),
+        values=new_values,
+    )
+
+
+def ensure_editor_ids(collection: GppCollection) -> GppCollection:
+    """Return a copy with a uuid assigned to every empty-id group, member, registry, and value."""
+    new_groups = tuple(_ensure_group_editor_ids(g) for g in collection.groups)
+    new_registry = tuple(
+        _ensure_registry_editor_ids(r) for r in collection.registry
+    )
+    return replace(collection, groups=new_groups, registry=new_registry)
+
+
 def _ilt_filter_to_dict(ilt: IltFilter | None) -> list[dict[str, Any]] | None:
     if ilt is None:
         return None
@@ -417,6 +455,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                         "sid": m.sid,
                         "name": m.name,
                         "action": m.action,
+                        "id": m.id,
                     }
                     for m in g.members
                 ],
@@ -424,6 +463,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "remove_all_users": g.remove_all_users,
                 "remove_all_groups": g.remove_all_groups,
                 "ilt_filter": _ilt_filter_to_dict(g.ilt_filter),
+                "id": g.id,
             }
             for g in collection.groups
         ],
@@ -437,10 +477,12 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                         "value": v.value,
                         "registry_type": v.registry_type,
                         "action": v.action,
+                        "id": v.id,
                     }
                     for v in r.values
                 ],
                 "ilt_filter": _ilt_filter_to_dict(r.ilt_filter),
+                "id": r.id,
             }
             for r in collection.registry
         ],
@@ -463,6 +505,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     sid=str(m.get("sid", "")),
                     name=str(m.get("name", "")),
                     action=_validate_gpp_action(m.get("action", "add")),
+                    id=str(m.get("id", "")),
                 )
                 for m in g.get("members", [])
             ),
@@ -470,6 +513,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             remove_all_users=bool(g.get("remove_all_users", False)),
             remove_all_groups=bool(g.get("remove_all_groups", False)),
             ilt_filter=_parse_ilt_filter_from_dict(g.get("ilt_filter")),
+            id=str(g.get("id", "")),
         )
         for g in data.get("groups", [])
     )
@@ -483,10 +527,12 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     value=v.get("value", ""),
                     registry_type=str(v.get("registry_type", "REG_SZ")),
                     action=_validate_gpp_registry_action(v.get("action", "create")),
+                    id=str(v.get("id", "")),
                 )
                 for v in r.get("values", [])
             ),
             ilt_filter=_parse_ilt_filter_from_dict(r.get("ilt_filter")),
+            id=str(r.get("id", "")),
         )
         for r in data.get("registry", [])
     )

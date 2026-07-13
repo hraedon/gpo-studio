@@ -1031,3 +1031,469 @@ def test_gpmc_backup_roundtrip_with_filters(tmp_path, monkeypatch) -> None:
         assert imported["wmi_filter"] is not None
         assert imported["wmi_filter"]["name"] == "WorkstationFilter"
         assert imported["wmi_filter"]["query"] == "select * from Win32_OperatingSystem"
+
+
+def test_gpp_group_crud_via_api(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP group policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "members": [
+                        {
+                            "sid": "S-1-5-21-1-2-3-500",
+                            "name": "DOMAIN\\Domain Admins",
+                            "action": "add",
+                        }
+                    ],
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert len(gpo["gpp_collections"]) == 1
+        assert gpo["gpp_collections"][0]["scope"] == "computer"
+        assert len(gpo["gpp_collections"][0]["groups"]) == 1
+        group_id = gpo["gpp_collections"][0]["groups"][0]["id"]
+        assert group_id
+
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "rename group",
+                "scope": "computer",
+                "group": {
+                    "name": "Admins",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "id": group_id,
+                },
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert gpo["gpp_collections"][0]["groups"][0]["name"] == "Admins"
+
+        resp = client.request(
+            "DELETE",
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "remove group",
+                "scope": "computer",
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert len(gpo["gpp_collections"]) == 0
+
+
+def test_gpp_registry_crud_via_api(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP registry policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/registry",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add registry",
+                "scope": "computer",
+                "registry": {
+                    "key": r"Software\Policies\Test",
+                    "action": "update",
+                    "values": [
+                        {
+                            "name": "Enabled",
+                            "value": "42",
+                            "registry_type": "REG_DWORD",
+                            "action": "create",
+                        }
+                    ],
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert len(gpo["gpp_collections"][0]["registry"]) == 1
+        reg_id = gpo["gpp_collections"][0]["registry"][0]["id"]
+        assert reg_id
+        assert gpo["gpp_collections"][0]["registry"][0]["values"][0]["value"] == "42"
+
+        resp = client.request(
+            "DELETE",
+            f"/api/gpos/{gpo['guid']}/preferences/registry/{reg_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "remove registry",
+                "scope": "computer",
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert len(gpo["gpp_collections"]) == 0
+
+
+def test_gpp_member_crud_via_api(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP member policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        group_id = gpo["gpp_collections"][0]["groups"][0]["id"]
+
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}/members",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add member",
+                "scope": "computer",
+                "member": {
+                    "sid": "S-1-5-21-1-2-3-500",
+                    "name": "DOMAIN\\Domain Admins",
+                    "action": "add",
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert len(gpo["gpp_collections"][0]["groups"][0]["members"]) == 1
+        member_id = gpo["gpp_collections"][0]["groups"][0]["members"][0]["id"]
+        assert member_id
+
+        resp = client.request(
+            "DELETE",
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}/members/{member_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "remove member",
+                "scope": "computer",
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert len(gpo["gpp_collections"][0]["groups"][0].get("members", [])) == 0
+
+
+def test_gpp_dword_registry_value_round_trips(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP dword policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/registry",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add dword",
+                "scope": "computer",
+                "registry": {
+                    "key": r"Software\Policies\Test",
+                    "action": "update",
+                    "values": [
+                        {
+                            "name": "MaxValue",
+                            "value": "4294967295",
+                            "registry_type": "REG_DWORD",
+                            "action": "create",
+                        }
+                    ],
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        val = gpo["gpp_collections"][0]["registry"][0]["values"][0]
+        assert val["registry_type"] == "REG_DWORD"
+        assert val["value"] == "4294967295"
+
+
+def test_gpp_invalid_group_name_returns_422(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP invalid policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "invalid group",
+                "scope": "computer",
+                "group": {
+                    "name": "   ",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert any(i["code"] == "empty_gpp_group_name" for i in issues)
+
+
+def test_gpp_stale_revision_returns_409(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP conflict policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": 999,
+                "actor": "tester",
+                "reason": "stale",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        assert resp.status_code == 409
+
+
+def test_gpp_group_with_ilt_filter(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP ILT policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group with filter",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "ilt_filter": {
+                        "predicates": [
+                            {
+                                "type": "ou",
+                                "value": "OU=Workstations,DC=example,DC=test",
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        group = gpo["gpp_collections"][0]["groups"][0]
+        assert group["ilt_filter"] is not None
+        assert len(group["ilt_filter"]["predicates"]) == 1
+        assert group["ilt_filter"]["predicates"][0]["type"] == "ou"
+
+
+def test_gpp_group_edit_uses_path_id_not_body_id(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP path id policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        gpo = resp.json()["gpo"]
+        group_id = gpo["gpp_collections"][0]["groups"][0]["id"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit",
+                "scope": "computer",
+                "group": {
+                    "name": "Admins",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "id": "divergent-body-id",
+                },
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        groups = gpo["gpp_collections"][0]["groups"]
+        assert len(groups) == 1
+        assert groups[0]["id"] == group_id
+        assert groups[0]["name"] == "Admins"
+
+
+def test_gpp_registry_edit_uses_path_id_not_body_id(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP path id reg policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/registry",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add registry",
+                "scope": "computer",
+                "registry": {
+                    "key": r"Software\Policies\Test",
+                    "action": "update",
+                    "values": [],
+                },
+            },
+        )
+        gpo = resp.json()["gpo"]
+        reg_id = gpo["gpp_collections"][0]["registry"][0]["id"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/registry/{reg_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit",
+                "scope": "computer",
+                "registry": {
+                    "key": r"Software\Policies\Updated",
+                    "action": "update",
+                    "values": [],
+                    "id": "divergent-body-id",
+                },
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        registry = gpo["gpp_collections"][0]["registry"]
+        assert len(registry) == 1
+        assert registry[0]["id"] == reg_id
+        assert registry[0]["key"] == r"Software\Policies\Updated"
+
+
+def test_gpp_member_edit_uses_path_id_not_body_id(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP path id member policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        gpo = resp.json()["gpo"]
+        group_id = gpo["gpp_collections"][0]["groups"][0]["id"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}/members",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add member",
+                "scope": "computer",
+                "member": {
+                    "sid": "S-1-5-21-1-2-3-500",
+                    "name": "DOMAIN\\Domain Admins",
+                    "action": "add",
+                },
+            },
+        )
+        gpo = resp.json()["gpo"]
+        member_id = gpo["gpp_collections"][0]["groups"][0]["members"][0]["id"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}/members/{member_id}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit member",
+                "scope": "computer",
+                "member": {
+                    "sid": "S-1-5-21-1-2-3-500",
+                    "name": "DOMAIN\\Admins",
+                    "action": "add",
+                    "id": "divergent-body-id",
+                },
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        members = gpo["gpp_collections"][0]["groups"][0]["members"]
+        assert len(members) == 1
+        assert members[0]["id"] == member_id
+        assert members[0]["name"] == "DOMAIN\\Admins"

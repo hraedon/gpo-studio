@@ -11,7 +11,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from .gpp import GppCollection, gpp_collection_from_dict
+from .gpp import (
+    GppCollection,
+    GppGroup,
+    GppGroupMember,
+    GppRegistry,
+    GppScope,
+    ensure_editor_ids,
+    gpp_collection_from_dict,
+)
 from .identity import Identity
 from .model import (
     GPO,
@@ -28,7 +36,12 @@ from .model import (
     ValidationIssue,
     WmiFilter,
 )
-from .validation import validate_gpo, validate_ready_transition, validate_setting
+from .validation import (
+    validate_gpo,
+    validate_gpp_collection,
+    validate_ready_transition,
+    validate_setting,
+)
 
 
 def _now() -> str:
@@ -280,6 +293,9 @@ class WorkspaceStore:
                 revision=1,
                 created_at=timestamp,
                 updated_at=timestamp,
+                gpp_collections=tuple(
+                    ensure_editor_ids(c) for c in gpo.gpp_collections
+                ),
             )
             issues = validate_gpo(normalized)
             if any(issue.severity == "error" for issue in issues):
@@ -592,6 +608,281 @@ class WorkspaceStore:
 
         def mutate(gpo: GPO) -> GPO:
             return replace(gpo, wmi_filter=new_wmi)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def _validate_gpp(self, collection: GppCollection) -> None:
+        errors = [
+            issue
+            for issue in validate_gpp_collection(collection)
+            if issue.severity == "error"
+        ]
+        if errors:
+            raise ValidationError(errors)
+
+    @staticmethod
+    def _find_collection(
+        gpo: GPO, scope: GppScope
+    ) -> tuple[int, GppCollection] | None:
+        for idx, c in enumerate(gpo.gpp_collections):
+            if c.scope == scope:
+                return idx, c
+        return None
+
+    @staticmethod
+    def _replace_collection(
+        gpo: GPO, idx: int, new_collection: GppCollection
+    ) -> tuple[GppCollection, ...]:
+        return tuple(
+            new_collection if i == idx else c
+            for i, c in enumerate(gpo.gpp_collections)
+        )
+
+    def put_gpp_group(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        group: GppGroup,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        processed = ensure_editor_ids(GppCollection(scope=scope, groups=(group,)))
+        group = processed.groups[0]
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                new_collection = GppCollection(scope=scope, groups=(group,))
+                new_collections = gpo.gpp_collections + (new_collection,)
+            else:
+                idx, existing = found
+                groups_list = list(existing.groups)
+                try:
+                    gi = next(i for i, x in enumerate(groups_list) if x.id == group.id)
+                    groups_list[gi] = group
+                except StopIteration:
+                    groups_list.append(group)
+                new_collection = replace(existing, groups=tuple(groups_list))
+                new_collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection)
+            return replace(gpo, gpp_collections=new_collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def delete_gpp_group(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        group_id: str,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not group_id:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="empty_gpp_group_id",
+                    message="GPP group id is required.",
+                    path="group_id",
+                )
+            ])
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                raise NotFoundError(
+                    f"GPP collection for scope '{scope}' was not found"
+                )
+            idx, existing = found
+            groups = tuple(g for g in existing.groups if g.id != group_id)
+            if len(groups) == len(existing.groups):
+                raise NotFoundError(f"GPP group '{group_id}' was not found")
+            new_collection = replace(existing, groups=groups)
+            self._validate_gpp(new_collection)
+            if not new_collection.groups and not new_collection.registry:
+                new_collections = tuple(
+                    c for i, c in enumerate(gpo.gpp_collections) if i != idx
+                )
+            else:
+                new_collections = self._replace_collection(gpo, idx, new_collection)
+            return replace(gpo, gpp_collections=new_collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def put_gpp_registry(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        registry: GppRegistry,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        processed = ensure_editor_ids(GppCollection(scope=scope, registry=(registry,)))
+        registry = processed.registry[0]
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                new_collection = GppCollection(scope=scope, registry=(registry,))
+                new_collections = gpo.gpp_collections + (new_collection,)
+            else:
+                idx, existing = found
+                items_list = list(existing.registry)
+                try:
+                    ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
+                    items_list[ri] = registry
+                except StopIteration:
+                    items_list.append(registry)
+                new_collection = replace(existing, registry=tuple(items_list))
+                new_collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection)
+            return replace(gpo, gpp_collections=new_collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def delete_gpp_registry(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        registry_id: str,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not registry_id:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="empty_gpp_registry_id",
+                    message="GPP registry id is required.",
+                    path="registry_id",
+                )
+            ])
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                raise NotFoundError(
+                    f"GPP collection for scope '{scope}' was not found"
+                )
+            idx, existing = found
+            items = tuple(r for r in existing.registry if r.id != registry_id)
+            if len(items) == len(existing.registry):
+                raise NotFoundError(f"GPP registry '{registry_id}' was not found")
+            new_collection = replace(existing, registry=items)
+            self._validate_gpp(new_collection)
+            if not new_collection.groups and not new_collection.registry:
+                new_collections = tuple(
+                    c for i, c in enumerate(gpo.gpp_collections) if i != idx
+                )
+            else:
+                new_collections = self._replace_collection(gpo, idx, new_collection)
+            return replace(gpo, gpp_collections=new_collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def put_gpp_member(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        group_id: str,
+        member: GppGroupMember,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not member.id:
+            member = replace(member, id=str(uuid.uuid4()))
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                raise NotFoundError(
+                    f"GPP collection for scope '{scope}' was not found"
+                )
+            idx, existing = found
+            group_idx = None
+            for gi, g in enumerate(existing.groups):
+                if g.id == group_id:
+                    group_idx = gi
+                    break
+            if group_idx is None:
+                raise NotFoundError(f"GPP group '{group_id}' was not found")
+            group = existing.groups[group_idx]
+            members_list = list(group.members)
+            try:
+                mi = next(i for i, x in enumerate(members_list) if x.id == member.id)
+                members_list[mi] = member
+            except StopIteration:
+                members_list.append(member)
+            new_group = replace(group, members=tuple(members_list))
+            new_groups = tuple(
+                new_group if i == group_idx else g
+                for i, g in enumerate(existing.groups)
+            )
+            new_collection = replace(existing, groups=new_groups)
+            new_collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection)
+            return replace(gpo, gpp_collections=new_collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def delete_gpp_member(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        group_id: str,
+        member_id: str,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not member_id:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="empty_gpp_member_id",
+                    message="GPP member id is required.",
+                    path="member_id",
+                )
+            ])
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                raise NotFoundError(
+                    f"GPP collection for scope '{scope}' was not found"
+                )
+            idx, existing = found
+            group_idx = None
+            for gi, g in enumerate(existing.groups):
+                if g.id == group_id:
+                    group_idx = gi
+                    break
+            if group_idx is None:
+                raise NotFoundError(f"GPP group '{group_id}' was not found")
+            group = existing.groups[group_idx]
+            members = tuple(m for m in group.members if m.id != member_id)
+            if len(members) == len(group.members):
+                raise NotFoundError(f"GPP member '{member_id}' was not found")
+            new_group = replace(group, members=members)
+            new_groups = tuple(
+                new_group if i == group_idx else g
+                for i, g in enumerate(existing.groups)
+            )
+            new_collection = replace(existing, groups=new_groups)
+            new_collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection)
+            return replace(gpo, gpp_collections=new_collections)
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 

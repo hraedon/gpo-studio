@@ -18,6 +18,7 @@ from .gpp import (
     GppRegistry,
     GppScope,
     contains_cpassword,
+    ensure_editor_ids,
     parse_gpp_groups,
     parse_gpp_registry,
 )
@@ -183,6 +184,8 @@ def collect_gpp_collections(backup_dir: Path, gpo_guid: str) -> tuple[GppCollect
             registry = parse_gpp_registry(registry_data)
         if groups or registry:
             collections.append(
-                GppCollection(scope=scope, groups=groups, registry=registry)
+                ensure_editor_ids(
+                    GppCollection(scope=scope, groups=groups, registry=registry)
+                )
             )
     return tuple(collections)

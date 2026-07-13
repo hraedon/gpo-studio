@@ -7,7 +7,7 @@ import logging
 import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -24,7 +24,9 @@ from .canonical import policy_semantic_sha256, review_model_sha256
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
 from .export import export_bundle, gpmc_backup_bundle, powershell_plan
+from .gpp import GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
 from .identity import ClaimedIdentity, claimed_identity
+from .ilt import IltFilter, IltPredicate
 from .import_export import (
     backup_security_filters_to_model,
     backup_wmi_filter_to_model,
@@ -150,6 +152,85 @@ class RestoreMutation(Audit):
     pass
 
 
+class IltPredicateData(BaseModel):
+    type: Literal["ou", "group", "registry", "ip_range", "environment", "wmi_query"]
+    negate: bool = False
+    value: str = ""
+
+
+class IltFilterData(BaseModel):
+    predicates: list[IltPredicateData] = Field(default_factory=list)
+
+
+class GppGroupMemberData(BaseModel):
+    sid: str = Field(min_length=1, max_length=255)
+    name: str = Field(default="", max_length=255)
+    action: Literal["add", "replace", "remove", "update"] = "add"
+    id: str = ""
+
+
+class GppGroupData(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    sid: str = Field(default="", max_length=255)
+    action: Literal["add", "replace", "remove", "update"] = "update"
+    description: str = Field(default="", max_length=2000)
+    remove_all_users: bool = False
+    remove_all_groups: bool = False
+    members: list[GppGroupMemberData] = Field(default_factory=list)
+    id: str = ""
+    ilt_filter: IltFilterData | None = None
+
+
+_GPP_REGISTRY_TYPES = Literal[
+    "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD"
+]
+
+
+class GppRegistryValueData(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    value: str | int | list[str]
+    registry_type: _GPP_REGISTRY_TYPES = "REG_SZ"
+    action: Literal["create", "replace", "update", "delete"] = "create"
+    id: str = ""
+
+    @model_validator(mode="after")
+    def _normalize_numeric_value(self) -> GppRegistryValueData:
+        if self.registry_type in ("REG_DWORD", "REG_QWORD"):
+            if not isinstance(self.value, str):
+                raise ValueError(
+                    f"{self.registry_type} requires a canonical decimal string value"
+                )
+            self.value = coerce_dword_qword(self.value, self.registry_type)
+        return self
+
+
+class GppRegistryData(BaseModel):
+    key: str = Field(min_length=1, max_length=1000)
+    action: Literal["add", "replace", "remove", "update"] = "update"
+    values: list[GppRegistryValueData] = Field(default_factory=list)
+    id: str = ""
+    ilt_filter: IltFilterData | None = None
+
+
+class GppGroupMutation(Audit):
+    scope: Literal["computer", "user"]
+    group: GppGroupData
+
+
+class GppRegistryMutation(Audit):
+    scope: Literal["computer", "user"]
+    registry: GppRegistryData
+
+
+class GppMemberMutation(Audit):
+    scope: Literal["computer", "user"]
+    member: GppGroupMemberData
+
+
+class GppDeleteMutation(Audit):
+    scope: Literal["computer", "user"]
+
+
 class ThreeWayDiffRequest(BaseModel):
     baseline: str | dict[str, Any]
     draft: str | dict[str, Any]
@@ -197,6 +278,60 @@ def _identity(actor: str) -> ClaimedIdentity:
     return claimed_identity(actor)
 
 
+def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
+    if data is None:
+        return None
+    return IltFilter(
+        predicates=tuple(
+            IltPredicate(type=p.type, negate=p.negate, value=p.value)
+            for p in data.predicates
+        )
+    )
+
+
+def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
+    return GppGroupMember(
+        sid=data.sid,
+        name=data.name,
+        action=data.action,
+        id=data.id,
+    )
+
+
+def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
+    return GppGroup(
+        name=data.name,
+        sid=data.sid,
+        action=data.action,
+        members=tuple(_gpp_member_data_to_model(m) for m in data.members),
+        description=data.description,
+        remove_all_users=data.remove_all_users,
+        remove_all_groups=data.remove_all_groups,
+        ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
+        id=data.id,
+    )
+
+
+def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistryValue:
+    return GppRegistryValue(
+        name=data.name,
+        value=data.value,
+        registry_type=data.registry_type,
+        action=data.action,
+        id=data.id,
+    )
+
+
+def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
+    return GppRegistry(
+        key=data.key,
+        action=data.action,
+        values=tuple(_gpp_registry_value_data_to_model(v) for v in data.values),
+        ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
+        id=data.id,
+    )
+
+
 def _stringify_numeric_settings(settings: list[dict[str, Any]]) -> None:
     for setting in settings:
         value = setting.get("value")
@@ -208,9 +343,23 @@ def _stringify_numeric_settings(settings: list[dict[str, Any]]) -> None:
             setting["value"] = str(value)
 
 
+def _stringify_gpp_numeric_values(collections: list[dict[str, Any]]) -> None:
+    for collection in collections:
+        for reg in collection.get("registry", []):
+            for val in reg.get("values", []):
+                raw = val.get("value")
+                if (
+                    val.get("registry_type") in ("REG_DWORD", "REG_QWORD")
+                    and isinstance(raw, int)
+                    and not isinstance(raw, bool)
+                ):
+                    val["value"] = str(raw)
+
+
 def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
     gpo_dict: dict[str, Any] = gpo.to_dict()
     _stringify_numeric_settings(gpo_dict["settings"])
+    _stringify_gpp_numeric_values(gpo_dict["gpp_collections"])
     return gpo_dict
 
 
@@ -643,6 +792,171 @@ def clear_wmi_filter(request: Request, guid: str, body: DeleteMutation) -> dict[
         guid,
         body.expected_revision,
         None,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.post("/api/gpos/{guid}/preferences/groups", status_code=201)
+def add_gpp_group(
+    request: Request, guid: str, body: GppGroupMutation
+) -> dict[str, Any]:
+    group = _gpp_group_data_to_model(body.group)
+    gpo = _store(request).put_gpp_group(
+        guid,
+        body.expected_revision,
+        body.scope,
+        group,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.put("/api/gpos/{guid}/preferences/groups/{group_id}")
+def edit_gpp_group(
+    request: Request, guid: str, group_id: str, body: GppGroupMutation
+) -> dict[str, Any]:
+    group = _gpp_group_data_to_model(body.group)
+    group = replace(group, id=group_id)
+    gpo = _store(request).put_gpp_group(
+        guid,
+        body.expected_revision,
+        body.scope,
+        group,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.delete("/api/gpos/{guid}/preferences/groups/{group_id}")
+def delete_gpp_group(
+    request: Request, guid: str, group_id: str, body: GppDeleteMutation
+) -> dict[str, Any]:
+    gpo = _store(request).delete_gpp_group(
+        guid,
+        body.expected_revision,
+        body.scope,
+        group_id,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.post("/api/gpos/{guid}/preferences/registry", status_code=201)
+def add_gpp_registry(
+    request: Request, guid: str, body: GppRegistryMutation
+) -> dict[str, Any]:
+    registry = _gpp_registry_data_to_model(body.registry)
+    gpo = _store(request).put_gpp_registry(
+        guid,
+        body.expected_revision,
+        body.scope,
+        registry,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.put("/api/gpos/{guid}/preferences/registry/{registry_id}")
+def edit_gpp_registry(
+    request: Request, guid: str, registry_id: str, body: GppRegistryMutation
+) -> dict[str, Any]:
+    registry = _gpp_registry_data_to_model(body.registry)
+    registry = replace(registry, id=registry_id)
+    gpo = _store(request).put_gpp_registry(
+        guid,
+        body.expected_revision,
+        body.scope,
+        registry,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.delete("/api/gpos/{guid}/preferences/registry/{registry_id}")
+def delete_gpp_registry(
+    request: Request, guid: str, registry_id: str, body: GppDeleteMutation
+) -> dict[str, Any]:
+    gpo = _store(request).delete_gpp_registry(
+        guid,
+        body.expected_revision,
+        body.scope,
+        registry_id,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/groups/{group_id}/members",
+    status_code=201,
+)
+def add_gpp_member(
+    request: Request,
+    guid: str,
+    group_id: str,
+    body: GppMemberMutation,
+) -> dict[str, Any]:
+    member = _gpp_member_data_to_model(body.member)
+    gpo = _store(request).put_gpp_member(
+        guid,
+        body.expected_revision,
+        body.scope,
+        group_id,
+        member,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.put(
+    "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"
+)
+def edit_gpp_member(
+    request: Request,
+    guid: str,
+    group_id: str,
+    member_id: str,
+    body: GppMemberMutation,
+) -> dict[str, Any]:
+    member = _gpp_member_data_to_model(body.member)
+    member = replace(member, id=member_id)
+    gpo = _store(request).put_gpp_member(
+        guid,
+        body.expected_revision,
+        body.scope,
+        group_id,
+        member,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.delete(
+    "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"
+)
+def delete_gpp_member(
+    request: Request,
+    guid: str,
+    group_id: str,
+    member_id: str,
+    body: GppDeleteMutation,
+) -> dict[str, Any]:
+    gpo = _store(request).delete_gpp_member(
+        guid,
+        body.expected_revision,
+        body.scope,
+        group_id,
+        member_id,
         identity=_identity(body.actor),
         reason=body.reason,
     )
