@@ -18,6 +18,7 @@
     .gpp-note{color:var(--muted);display:block;margin-bottom:6px;font-size:12px}
     .ilt-preview{background:var(--green-soft);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:13px;color:var(--green-dark)}
     .ilt-preview:empty{display:none}
+    .gpp-readonly-warn{color:var(--red);font-size:12px;white-space:nowrap;font-weight:400}
   </style>
 </head>
 <body>
@@ -257,7 +258,7 @@
       <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-group-dialog-title">Add group</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="scope">
       <label>Group name<input name="name" required maxlength="255" placeholder="Administrators"></label>
-      <div class="grid two compact"><label>SID<input name="sid" maxlength="255" placeholder="S-1-5-32-544"></label><label>Action<select name="action"><option value="update">Update</option><option value="add">Add</option><option value="replace">Replace</option><option value="remove">Remove</option></select></label></div>
+      <div class="grid two compact"><label>SID<input name="sid" maxlength="255" placeholder="S-1-5-32-544"></label><label>Action<select name="action"><option value="add">Add</option><option value="replace">Replace</option><option value="remove">Remove</option><option value="update" selected>Update</option></select></label></div>
       <label>Description<textarea name="description" rows="2" maxlength="2000" placeholder="Purpose and rollout notes"></textarea></label>
       <div class="toggle-stack"><label><input name="remove_all_users" type="checkbox"> Remove all users</label><label><input name="remove_all_groups" type="checkbox"> Remove all groups</label></div>
       <div class="gpp-sub-head"><strong>Members</strong><button type="button" class="quiet" id="gpp-add-member">＋ Add member</button></div>

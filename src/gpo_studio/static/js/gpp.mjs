@@ -7,7 +7,7 @@ const ILT_LABELS={ou:"OU",group:"Group",registry:"Registry",ip_range:"IP range",
 const ILT_HINTS={ou:"Distinguished name, e.g. OU=Servers,DC=studio,DC=local",group:"Group SID or name, e.g. S-1-5-32-544",registry:"Key\\ValueName path",ip_range:"CIDR (10.0.0.0/8) or range (10.0.0.1-10.0.0.99)",environment:"NAME=value",wmi_query:"WQL query (SELECT ... FROM ...)"};
 const ILT_PREVIEW={ou:v=>"Member of "+v,group:v=>"Member of group "+v,registry:v=>"Registry "+v+" matches",ip_range:v=>"IP in "+v,environment:v=>"Environment "+v,wmi_query:v=>"WMI query: "+v};
 const REG_TYPES=["REG_SZ","REG_EXPAND_SZ","REG_BINARY","REG_DWORD","REG_MULTI_SZ","REG_QWORD"];
-const REG_VALUE_HINTS={REG_SZ:"Text value",REG_EXPAND_SZ:"Text with %VAR% expansion",REG_BINARY:"Hex bytes, e.g. 01FFA0",REG_DWORD:"Non-negative decimal integer",REG_MULTI_SZ:"Semicolon-separated values",REG_QWORD:"Non-negative decimal integer"};
+const REG_VALUE_HINTS={REG_SZ:"Text value",REG_EXPAND_SZ:"Text with %VAR% expansion",REG_BINARY:"Hex bytes, e.g. 01FFA0",REG_DWORD:"Non-negative decimal integer",REG_MULTI_SZ:"Semicolon or newline-separated values",REG_QWORD:"Non-negative decimal integer"};
 const REG_VALUE_ACTIONS=["create","replace","update","delete"];
 const GROUP_ACTIONS=["add","replace","remove","update"];
 
@@ -84,7 +84,7 @@ function addMemberRow(member=null){
   const list=$("#gpp-members-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="sid" placeholder="SID (required)" maxlength="255"><input data-field="name" placeholder="Name" maxlength="255"><select data-field="action">${GROUP_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<input data-field="sid" placeholder="SID (required)" maxlength="255" required><input data-field="name" placeholder="Name" maxlength="255"><select data-field="action">${GROUP_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
   if(member){row.querySelector('[data-field=sid]').value=member.sid;row.querySelector('[data-field=name]').value=member.name||"";row.querySelector('[data-field=action]').value=member.action;row.dataset.id=member.id||""}
   row.querySelector("button").onclick=()=>row.remove();
   list.appendChild(row);
@@ -98,7 +98,10 @@ async function submitGppGroup(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
-  const group={name:f.name.value.trim(),sid:f.sid.value.trim(),action:f.action.value,description:f.description.value,remove_all_users:f.remove_all_users.checked,remove_all_groups:f.remove_all_groups.checked,members:collectMembers(),ilt_filter:collectIlt("gpp-ilt-list")};
+  if($("#gpp-ilt-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item contains unsupported ILT predicates that will be dropped on save. Continue?"))return;
+  const partialMember=[...$("#gpp-members-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=name]').value.trim()&&!row.querySelector('[data-field=sid]').value.trim());
+  if(partialMember){showFormErrors(f,{issues:[{message:"Each member with a name must also have a SID."}]});return}
+  const group={name:f.name.value.trim(),sid:f.sid.value.trim(),action:f.action.value,description:f.description.value.trim(),remove_all_users:f.remove_all_users.checked,remove_all_groups:f.remove_all_groups.checked,members:collectMembers(),ilt_filter:collectIlt("gpp-ilt-list")};
   if(state.editingGppGroup)group.id=state.editingGppGroup.id;
   const path=state.editingGppGroup?`/api/gpos/${state.current.guid}/preferences/groups/${state.editingGppGroup.id}`:`/api/gpos/${state.current.guid}/preferences/groups`;
   try{const data=await api(path,{method:state.editingGppGroup?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),group})});$("#gpp-group-dialog").close();state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";renderAll();renderList();toast("GPP group saved")}catch(error){showFormErrors(f,error)}
@@ -134,13 +137,14 @@ function addValueRow(value=null){
   const list=$("#gpp-values-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="name" placeholder="Value name (required)" maxlength="255"><select data-field="type">${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<input data-field="name" placeholder="Value name (required)" maxlength="255" required><select data-field="type">${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
   const typeSel=row.querySelector('[data-field=type]');
   const valueInput=row.querySelector('[data-field=value]');
   const actionSel=row.querySelector('[data-field=action]');
   typeSel.onchange=()=>{valueInput.placeholder=REG_VALUE_HINTS[typeSel.value];valueInput.disabled=actionSel.value==="delete"};
   actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"};
   if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type;valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;row.dataset.id=value.id||""}
+  valueInput.disabled=actionSel.value==="delete";
   typeSel.onchange();
   row.querySelector("button").onclick=()=>row.remove();
   list.appendChild(row);
@@ -154,7 +158,7 @@ function collectValues(){
     const action=row.querySelector('[data-field=action]').value;
     let value;
     if(action==="delete")value="";
-    else if(type==="REG_MULTI_SZ")value=raw.split(";").map(s=>s.trim()).filter(Boolean);
+    else if(type==="REG_MULTI_SZ")value=raw.split(/[\r\n;]+/).map(s=>s.trim()).filter(s=>s.length>0);
     else if(type==="REG_DWORD"||type==="REG_QWORD")value=raw.trim();
     else value=raw;
     return {name,value,registry_type:type,action,id:row.dataset.id||""};
@@ -165,7 +169,13 @@ async function submitGppRegistry(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
-  const registry={key:f.key.value.trim(),action:f.action.value,values:collectValues(),ilt_filter:collectIlt("gpp-ilt-registry-list")};
+  if($("#gpp-ilt-registry-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item contains unsupported ILT predicates that will be dropped on save. Continue?"))return;
+  const partialValue=[...$("#gpp-values-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=value]').value.trim()&&!row.querySelector('[data-field=name]').value.trim());
+  if(partialValue){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
+  const values=collectValues();
+  const badDword=values.find(v=>v.action!=="delete"&&(v.registry_type==="REG_DWORD"||v.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(v.value));
+  if(badDword){showFormErrors(f,{issues:[{message:`${badDword.registry_type} value for "${badDword.name}" must be a non-negative decimal integer.`}]});return}
+  const registry={key:f.key.value.trim(),action:f.action.value,values,ilt_filter:collectIlt("gpp-ilt-registry-list")};
   if(state.editingGppRegistry)registry.id=state.editingGppRegistry.id;
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";renderAll();renderList();toast("GPP registry saved")}catch(error){showFormErrors(f,error)}
@@ -184,11 +194,12 @@ function addPredicateRow(listId,previewId,predicate=null){
   const typeSel=row.querySelector('[data-field=type]');
   const valueInput=row.querySelector('[data-field=value]');
   const negateBox=row.querySelector('[data-field=negate]');
-  const update=()=>{valueInput.placeholder=ILT_HINTS[typeSel.value];updateIltPreview(listId,previewId)};
+  const update=()=>{valueInput.placeholder=ILT_HINTS[typeSel.value]||"";updateIltPreview(listId,previewId)};
   typeSel.onchange=update;
   valueInput.oninput=()=>updateIltPreview(listId,previewId);
   negateBox.onchange=()=>updateIltPreview(listId,previewId);
-  if(predicate){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate}
+  if(predicate&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate}
+  else if(predicate){row.dataset.readonly="true";typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="Unsupported ILT predicate type — saving will drop it";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unsupported — will be dropped on save";row.appendChild(warn)}
   update();
   row.querySelector("button").onclick=()=>{row.remove();updateIltPreview(listId,previewId)};
   list.appendChild(row);
@@ -196,13 +207,13 @@ function addPredicateRow(listId,previewId,predicate=null){
 
 function collectIlt(listId){
   const rows=$("#"+listId).querySelectorAll(".gpp-row");
-  const predicates=[...rows].map(row=>({type:row.querySelector('[data-field=type]').value,negate:row.querySelector('[data-field=negate]').checked,value:row.querySelector('[data-field=value]').value.trim()})).filter(p=>p.value);
+  const predicates=[...rows].filter(row=>row.dataset.readonly!=="true").map(row=>({type:row.querySelector('[data-field=type]').value,negate:row.querySelector('[data-field=negate]').checked,value:row.querySelector('[data-field=value]').value.trim()})).filter(p=>p.value);
   return predicates.length?{predicates}:null;
 }
 
 function updateIltPreview(listId,previewId){
   const rows=$("#"+listId).querySelectorAll(".gpp-row");
-  const parts=[...rows].map(row=>{
+  const parts=[...rows].filter(row=>row.dataset.readonly!=="true").map(row=>{
     const type=row.querySelector('[data-field=type]').value;
     const negate=row.querySelector('[data-field=negate]').checked;
     const value=row.querySelector('[data-field=value]').value.trim();
