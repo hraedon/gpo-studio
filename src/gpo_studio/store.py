@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,9 +25,10 @@ from .model import (
     Revision,
     SecurityFilter,
     ValidationError,
+    ValidationIssue,
     WmiFilter,
 )
-from .validation import validate_gpo, validate_ready_transition
+from .validation import validate_gpo, validate_ready_transition, validate_setting
 
 
 def _now() -> str:
@@ -431,6 +432,15 @@ class WorkspaceStore:
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
+    def _validate_settings(self, settings: Iterable[RegistrySetting]) -> None:
+        errors: list[ValidationIssue] = []
+        for setting in settings:
+            for issue in validate_setting(setting):
+                if issue.severity == "error":
+                    errors.append(issue)
+        if errors:
+            raise ValidationError(errors)
+
     def put_setting(
         self,
         guid: str,
@@ -442,6 +452,7 @@ class WorkspaceStore:
         setting_id: str | None = None,
     ) -> GPO:
         new_setting = _setting({"id": setting_id or str(uuid.uuid4()), **values})
+        self._validate_settings([new_setting])
 
         def mutate(gpo: GPO) -> GPO:
             settings = [item for item in gpo.settings if item.id != new_setting.id]
@@ -462,6 +473,7 @@ class WorkspaceStore:
     ) -> GPO:
         if not new_settings:
             return self.get_gpo(guid)
+        self._validate_settings(new_settings)
         new_ids = {s.id for s in new_settings}
 
         def mutate(gpo: GPO) -> GPO:

@@ -96,9 +96,9 @@ class SettingData(BaseModel):
     @model_validator(mode="after")
     def _normalize_numeric_value(self) -> SettingData:
         if self.registry_type in ("REG_DWORD", "REG_QWORD"):
-            if isinstance(self.value, bool) or not isinstance(self.value, (str, int)):
+            if not isinstance(self.value, str):
                 raise ValueError(
-                    f"{self.registry_type} requires a decimal string or integer value"
+                    f"{self.registry_type} requires a canonical decimal string value"
                 )
             self.value = coerce_dword_qword(self.value, self.registry_type)
         return self

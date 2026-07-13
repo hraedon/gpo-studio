@@ -298,3 +298,167 @@ def test_gpp_registry_binary_valid_hex_with_spaces_no_issues() -> None:
         ),
     )
     assert validate_gpp_collection(collection) == []
+
+
+def test_duplicate_gpp_scope_error() -> None:
+    gpo = GPO(
+        guid=_GUID,
+        name="Test",
+        gpp_collections=(
+            GppCollection(scope="computer", groups=(_valid_group(),)),
+            GppCollection(scope="computer", registry=(_valid_registry(),)),
+        ),
+    )
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "duplicate_gpp_scope"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer"
+        for i in issues
+    )
+
+
+def test_gpp_group_description_control_character_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                description="\x01alpha",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_group_description"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/description"
+        for i in issues
+    )
+
+
+def test_gpp_group_sid_control_character_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544\x01",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_group_sid"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/sid"
+        for i in issues
+    )
+
+
+def test_gpp_member_name_control_character_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                members=(
+                    GppGroupMember(
+                        sid="S-1-5-21-1-2-3-500",
+                        name="DOMAIN\x01\\Domain Admins",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_member_name"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/members/0/name"
+        for i in issues
+    )
+
+
+def test_gpp_registry_value_name_control_character_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="\x01Enabled",
+                        value=1,
+                        registry_type="REG_DWORD",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_registry_value_name"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/registry/0/values/0/name"
+        for i in issues
+    )
+
+
+def test_gpp_registry_string_value_control_character_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="Path",
+                        value="C:\\Temp\x01",
+                        registry_type="REG_SZ",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_registry_value"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/registry/0/values/0/value"
+        for i in issues
+    )
+
+
+def test_ilt_predicate_value_control_character_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(
+                    predicates=(
+                        IltPredicate(type="ou", value="OU=Test\x01"),
+                    )
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_ilt_value"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/groups/0/ilt_filter/0/value"
+        for i in issues
+    )
+
+
+def test_gpp_collection_clean_text_no_control_character_errors() -> None:
+    collection = _valid_collection()
+    issues = validate_gpp_collection(collection)
+    assert not any(i.code.startswith("control_character_in_") for i in issues)

@@ -6,6 +6,7 @@ from gpo_studio.diff import (
     GppGroupConflict,
     GppRegistryConflict,
     LinkConflict,
+    MetadataConflict,
     diff_gpos,
     diff_links,
     diff_security_filters,
@@ -179,6 +180,8 @@ def _gpo(
     computer_enabled: bool = True,
     user_enabled: bool = True,
     domain: str = "studio.local",
+    status: str = "draft",
+    source_guid: str = "",
 ) -> GPO:
     return GPO(
         guid=guid,
@@ -193,6 +196,8 @@ def _gpo(
         computer_enabled=computer_enabled,
         user_enabled=user_enabled,
         domain=domain,
+        status=status,  # type: ignore[arg-type]
+        source_guid=source_guid,
     )
 
 
@@ -1073,3 +1078,50 @@ def test_three_way_cse_metadata_conflict() -> None:
     assert conflict.guid == "{00000000-0000-0000-0000-000000000001}"
     assert conflict.draft is not None
     assert conflict.observed is not None
+
+
+def test_metadata_includes_status_and_source_guid() -> None:
+    old = _gpo(status="draft", source_guid="old-guid")
+    new = _gpo(status="ready", source_guid="new-guid")
+    result = diff_gpos(old, new)
+    by_field = {c.field: c for c in result.metadata}
+    assert by_field["status"].old == "draft"
+    assert by_field["status"].new == "ready"
+    assert by_field["source_guid"].old == "old-guid"
+    assert by_field["source_guid"].new == "new-guid"
+
+
+def test_three_way_metadata_conflict_domain() -> None:
+    baseline = _gpo(domain="base.local")
+    draft = _gpo(domain="draft.local")
+    observed = _gpo(domain="observed.local")
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.metadata_conflicts) == 1
+    conflict = result.metadata_conflicts[0]
+    assert isinstance(conflict, MetadataConflict)
+    assert conflict.field == "domain"
+    assert conflict.baseline == "base.local"
+    assert conflict.draft == "draft.local"
+    assert conflict.observed == "observed.local"
+
+
+def test_three_way_metadata_no_conflict_convergent() -> None:
+    baseline = _gpo(domain="base.local")
+    draft = _gpo(domain="same.local")
+    observed = _gpo(domain="same.local")
+    result = three_way_diff(baseline, draft, observed)
+    by_field = {c.field: c for c in result.metadata_conflicts}
+    assert "domain" not in by_field
+
+
+def test_three_way_metadata_conflict_status() -> None:
+    baseline = _gpo(status="draft")
+    draft = _gpo(status="ready")
+    observed = _gpo(status="archived")
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.metadata_conflicts) == 1
+    conflict = result.metadata_conflicts[0]
+    assert conflict.field == "status"
+    assert conflict.baseline == "draft"
+    assert conflict.draft == "ready"
+    assert conflict.observed == "archived"

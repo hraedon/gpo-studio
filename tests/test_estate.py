@@ -544,7 +544,7 @@ def test_estate_diff_api_detects_changes(tmp_path) -> None:
                     "key": r"Software\Policies\New",
                     "value_name": "SettingB",
                     "registry_type": "REG_DWORD",
-                    "value": 1,
+                    "value": "1",
                 },
             },
         )

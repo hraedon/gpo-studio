@@ -535,7 +535,12 @@ def test_review_model_differs_from_policy_on_cse_metadata() -> None:
     assert review_model_sha256(base) != review_model_sha256(changed)
 
 
-def test_policy_hash_deterministic_across_insertion_order() -> None:
+def test_policy_hash_changes_on_gpp_insertion_order() -> None:
+    # GPP element order is semantically significant: gpp.py serializes groups,
+    # members, and registry values in tuple order, and Windows processes GPP
+    # items in document order. Two GPOs that differ ONLY in GPP element order
+    # must therefore have DIFFERENT policy_semantic_sha256 values, because they
+    # produce different Groups.xml / Registry.xml bytes.
     group_a = GppGroup(name="Alpha", sid="S-1-5-21-1-2-3-1001", action="update")
     group_b = GppGroup(name="Beta", sid="S-1-5-21-1-2-3-1002", action="update")
     value_a = GppRegistryValue(name="Zeta", value="z", registry_type="REG_SZ", action="create")
@@ -564,7 +569,85 @@ def test_policy_hash_deterministic_across_insertion_order() -> None:
             GppCollection(scope="computer", groups=(group_b, group_a), registry=(reg_ba,)),
         ),
     )
-    assert policy_semantic_sha256(gpo_ab) == policy_semantic_sha256(gpo_ba)
+    assert policy_semantic_sha256(gpo_ab) != policy_semantic_sha256(gpo_ba)
+
+
+def test_policy_hash_changes_on_reversed_group_order() -> None:
+    group_a = GppGroup(name="Alpha", sid="S-1-5-21-1-2-3-1001", action="update")
+    group_b = GppGroup(name="Beta", sid="S-1-5-21-1-2-3-1002", action="update")
+    gpo_ab = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="group-order-test",
+        gpp_collections=(
+            GppCollection(scope="computer", groups=(group_a, group_b)),
+        ),
+    )
+    gpo_ba = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="group-order-test",
+        gpp_collections=(
+            GppCollection(scope="computer", groups=(group_b, group_a)),
+        ),
+    )
+    assert policy_semantic_sha256(gpo_ab) != policy_semantic_sha256(gpo_ba)
+
+
+def test_policy_hash_changes_on_reversed_member_order() -> None:
+    member_a = GppGroupMember(
+        sid="S-1-5-21-1-2-3-1001", name="Alpha", action="add"
+    )
+    member_b = GppGroupMember(
+        sid="S-1-5-21-1-2-3-1002", name="Beta", action="add"
+    )
+    group_ab = GppGroup(
+        name="Admins",
+        sid="S-1-5-32-544",
+        action="update",
+        members=(member_a, member_b),
+    )
+    group_ba = GppGroup(
+        name="Admins",
+        sid="S-1-5-32-544",
+        action="update",
+        members=(member_b, member_a),
+    )
+    gpo_ab = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="member-order-test",
+        gpp_collections=(GppCollection(scope="computer", groups=(group_ab,)),),
+    )
+    gpo_ba = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="member-order-test",
+        gpp_collections=(GppCollection(scope="computer", groups=(group_ba,)),),
+    )
+    assert policy_semantic_sha256(gpo_ab) != policy_semantic_sha256(gpo_ba)
+
+
+def test_policy_hash_changes_on_reversed_registry_value_order() -> None:
+    value_a = GppRegistryValue(name="Zeta", value="z", registry_type="REG_SZ", action="create")
+    value_b = GppRegistryValue(name="Alpha", value="a", registry_type="REG_SZ", action="create")
+    reg_ab = GppRegistry(
+        key=r"Software\Studio\GPP",
+        action="update",
+        values=(value_a, value_b),
+    )
+    reg_ba = GppRegistry(
+        key=r"Software\Studio\GPP",
+        action="update",
+        values=(value_b, value_a),
+    )
+    gpo_ab = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="value-order-test",
+        gpp_collections=(GppCollection(scope="computer", registry=(reg_ab,)),),
+    )
+    gpo_ba = GPO(
+        guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        name="value-order-test",
+        gpp_collections=(GppCollection(scope="computer", registry=(reg_ba,)),),
+    )
+    assert policy_semantic_sha256(gpo_ab) != policy_semantic_sha256(gpo_ba)
 
 
 def _golden_gpo() -> GPO:

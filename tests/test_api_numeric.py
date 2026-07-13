@@ -149,7 +149,7 @@ def test_qword_int_precision_boundary(tmp_path) -> None:
     with TestClient(app) as client:
         gpo = client.post("/api/gpos", json={"name": "QWORD int"}).json()["gpo"]
         resp = _post_setting(
-            client, gpo["guid"], gpo["revision"], "REG_QWORD", 9007199254740993
+            client, gpo["guid"], gpo["revision"], "REG_QWORD", "9007199254740993"
         )
         assert resp.status_code == 201
         setting = resp.json()["gpo"]["settings"][0]
@@ -163,22 +163,21 @@ def test_dword_int_overflow_rejected(tmp_path) -> None:
     with TestClient(app) as client:
         gpo = client.post("/api/gpos", json={"name": "DWORD int overflow"}).json()["gpo"]
         resp = _post_setting(
-            client, gpo["guid"], gpo["revision"], "REG_DWORD", 4294967296
+            client, gpo["guid"], gpo["revision"], "REG_DWORD", "4294967296"
         )
         assert resp.status_code == 422
 
 
-def test_dword_int_backward_compat(tmp_path) -> None:
+def test_dword_int_rejected(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False
     with TestClient(app) as client:
-        gpo = client.post("/api/gpos", json={"name": "DWORD int compat"}).json()["gpo"]
+        gpo = client.post("/api/gpos", json={"name": "DWORD int rejected"}).json()["gpo"]
         resp = _post_setting(
             client, gpo["guid"], gpo["revision"], "REG_DWORD", 42
         )
-        assert resp.status_code == 201
-        assert resp.json()["gpo"]["settings"][0]["value"] == "42"
+        assert resp.status_code == 422
 
 
 def test_qword_string_fractional_rejected(tmp_path) -> None:
