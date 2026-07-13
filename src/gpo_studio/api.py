@@ -160,6 +160,7 @@ class IltPredicateData(BaseModel):
 
 class IltFilterData(BaseModel):
     predicates: list[IltPredicateData] = Field(default_factory=list)
+    unknown_predicates: list[str] = Field(default_factory=list)
 
 
 class GppGroupMemberData(BaseModel):
@@ -167,6 +168,7 @@ class GppGroupMemberData(BaseModel):
     name: str = Field(default="", max_length=255)
     action: Literal["add", "replace", "remove", "update"] = "add"
     id: str = ""
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
 
 
 class GppGroupData(BaseModel):
@@ -179,6 +181,8 @@ class GppGroupData(BaseModel):
     members: list[GppGroupMemberData] = Field(default_factory=list)
     id: str = ""
     ilt_filter: IltFilterData | None = None
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
 
 _GPP_REGISTRY_TYPES = Literal[
@@ -192,6 +196,7 @@ class GppRegistryValueData(BaseModel):
     registry_type: _GPP_REGISTRY_TYPES = "REG_SZ"
     action: Literal["create", "replace", "update", "delete"] = "create"
     id: str = ""
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _normalize_numeric_value(self) -> GppRegistryValueData:
@@ -210,6 +215,8 @@ class GppRegistryData(BaseModel):
     values: list[GppRegistryValueData] = Field(default_factory=list)
     id: str = ""
     ilt_filter: IltFilterData | None = None
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
 
 class GppGroupMutation(Audit):
@@ -688,6 +695,7 @@ class IltPredicateResponse(BaseModel):
 
 class IltFilterResponse(BaseModel):
     predicates: list[IltPredicateResponse]
+    unknown_predicates: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -697,6 +705,7 @@ class GppGroupMemberResponse(BaseModel):
     sid: str
     name: str
     action: str
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -707,6 +716,7 @@ class GppRegistryValueResponse(BaseModel):
     value: str | list[str]
     registry_type: str
     action: str
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -721,6 +731,8 @@ class GppGroupResponse(BaseModel):
     remove_all_users: bool
     remove_all_groups: bool
     ilt_filter: IltFilterResponse | None
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -731,6 +743,8 @@ class GppRegistryResponse(BaseModel):
     values: list[GppRegistryValueResponse]
     action: str
     ilt_filter: IltFilterResponse | None
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -828,7 +842,8 @@ def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
         predicates=tuple(
             IltPredicate(type=p.type, negate=p.negate, value=p.value)
             for p in data.predicates
-        )
+        ),
+        unknown_predicates=tuple(data.unknown_predicates),
     )
 
 
@@ -838,6 +853,7 @@ def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
         name=data.name,
         action=data.action,
         id=data.id,
+        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
     )
 
 
@@ -852,6 +868,8 @@ def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
         remove_all_groups=data.remove_all_groups,
         ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
         id=data.id,
+        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
+        unknown_children=tuple(data.unknown_children),
     )
 
 
@@ -862,6 +880,7 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
         registry_type=data.registry_type,
         action=data.action,
         id=data.id,
+        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
     )
 
 
@@ -872,6 +891,8 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
         values=tuple(_gpp_registry_value_data_to_model(v) for v in data.values),
         ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
         id=data.id,
+        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
+        unknown_children=tuple(data.unknown_children),
     )
 
 

@@ -255,7 +255,7 @@ def _ilt_equal(a: IltFilter | None, b: IltFilter | None) -> bool:
         return True
     if a is None or b is None:
         return False
-    return a.predicates == b.predicates
+    return a.predicates == b.predicates and a.unknown_predicates == b.unknown_predicates
 
 
 def _gpp_members_equal(a: GppGroup, b: GppGroup) -> bool:
@@ -265,6 +265,7 @@ def _gpp_members_equal(a: GppGroup, b: GppGroup) -> bool:
             m.sid.lower(),
             m.name,
             m.action,
+            m.unknown_attrs,
         )
         for m in a.members
     ]
@@ -274,6 +275,7 @@ def _gpp_members_equal(a: GppGroup, b: GppGroup) -> bool:
             m.sid.lower(),
             m.name,
             m.action,
+            m.unknown_attrs,
         )
         for m in b.members
     ]
@@ -288,6 +290,8 @@ def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
         and a.description == b.description
         and a.remove_all_users == b.remove_all_users
         and a.remove_all_groups == b.remove_all_groups
+        and a.unknown_attrs == b.unknown_attrs
+        and a.unknown_children == b.unknown_children
         and _gpp_members_equal(a, b)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
     )
@@ -301,6 +305,7 @@ def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
             v.registry_type,
             v.value,
             v.action,
+            v.unknown_attrs,
         )
         for v in a.values
     ]
@@ -311,6 +316,7 @@ def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
             v.registry_type,
             v.value,
             v.action,
+            v.unknown_attrs,
         )
         for v in b.values
     ]
@@ -321,6 +327,8 @@ def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
     return (
         a.key.casefold() == b.key.casefold()
         and a.action == b.action
+        and a.unknown_attrs == b.unknown_attrs
+        and a.unknown_children == b.unknown_children
         and _gpp_registry_values_equal(a, b)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
     )

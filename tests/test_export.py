@@ -61,7 +61,7 @@ def test_powershell_plan_escapes_names_and_maps_disabled_sides() -> None:
     assert " -Context " not in plan
     assert "New-GPLink" in plan
     assert "Set-GPLink" in plan
-    assert "Set-GPO -Guid $gpo.Id -Status UserSettingsDisabled | Out-Null" in plan
+    assert "$gpo.GpoStatus = 'UserSettingsDisabled'" in plan
 
 
 def test_bundle_is_byte_for_byte_deterministic() -> None:
@@ -359,10 +359,14 @@ def test_powershell_plan_removes_stale_security_filters() -> None:
         ),
     )
     plan = powershell_plan(gpo)
-    assert "$existing = (Get-GPO -Guid $gpo.Id).SecurityFiltering" in plan
-    assert "$desired = @('DOMAIN\\User1', 'DOMAIN\\Readers')" in plan
+    assert "Get-GPPermission -Guid $gpo.Id -All" in plan
+    assert "$desiredApply = @('DOMAIN\\User1')" in plan
+    assert "$protected" in plan
+    assert "Authenticated Users" in plan
     assert "foreach ($perm in $existing)" in plan
-    assert "$desired -notcontains $perm.Trustee.Name" in plan
+    assert "$perm.Permission -eq 'GpoApply'" in plan
+    assert "$desiredApply -notcontains $perm.Trustee.Name" in plan
+    assert "$protected -notcontains $perm.Trustee.Name" in plan
     assert (
         "Set-GPPermission -Guid $gpo.Id -PermissionLevel None"
         " -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType"
@@ -397,3 +401,90 @@ def test_powershell_plan_sanitizes_domain_in_wmi_comment() -> None:
     plan = powershell_plan(gpo)
     for line in plan.splitlines():
         assert not line.lstrip("# ").startswith("Remove-GPO")
+
+
+def test_powershell_plan_side_status_all_enabled() -> None:
+    plan = powershell_plan(sample_gpo())
+    assert "$gpo.GpoStatus = 'AllSettingsEnabled'" in plan
+    assert "Set-GPO -Status" not in plan
+
+
+def test_powershell_plan_side_status_all_disabled() -> None:
+    gpo = replace(sample_gpo(), computer_enabled=False, user_enabled=False)
+    plan = powershell_plan(gpo)
+    assert "$gpo.GpoStatus = 'AllSettingsDisabled'" in plan
+
+
+def test_powershell_plan_side_status_computer_only() -> None:
+    gpo = replace(sample_gpo(), user_enabled=False)
+    plan = powershell_plan(gpo)
+    assert "$gpo.GpoStatus = 'UserSettingsDisabled'" in plan
+
+
+def test_powershell_plan_side_status_user_only() -> None:
+    gpo = replace(sample_gpo(), computer_enabled=False)
+    plan = powershell_plan(gpo)
+    assert "$gpo.GpoStatus = 'ComputerSettingsDisabled'" in plan
+
+
+def test_powershell_plan_security_filter_protects_default_trustees() -> None:
+    gpo = replace(
+        sample_gpo(),
+        security_filters=(
+            SecurityFilter(
+                id="sf-1",
+                principal="DOMAIN\\CustomGroup",
+                permission="apply",
+                inheritable=True,
+                target_type="group",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "$protected" in plan
+    assert "Authenticated Users" in plan
+    assert "Domain Admins" in plan
+    assert "Enterprise Admins" in plan
+    assert "SYSTEM" in plan
+    assert "Administrators" in plan
+    assert "$protected -notcontains $perm.Trustee.Name" in plan
+
+
+def test_powershell_plan_security_filter_only_reconciles_apply() -> None:
+    gpo = replace(
+        sample_gpo(),
+        security_filters=(
+            SecurityFilter(
+                id="sf-1",
+                principal="DOMAIN\\User1",
+                permission="apply",
+                target_type="user",
+            ),
+            SecurityFilter(
+                id="sf-2",
+                principal="DOMAIN\\Readers",
+                permission="read",
+                target_type="group",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "$desiredApply = @('DOMAIN\\User1')" in plan
+    assert "DOMAIN\\Readers" not in plan.split("$desiredApply")[1].split("\n")[0]
+    assert "$perm.Permission -eq 'GpoApply'" in plan
+
+
+def test_powershell_plan_security_filter_empty_desired() -> None:
+    gpo = replace(
+        sample_gpo(),
+        security_filters=(
+            SecurityFilter(
+                id="sf-1",
+                principal="DOMAIN\\Readers",
+                permission="read",
+                target_type="group",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "$desiredApply = @()" in plan

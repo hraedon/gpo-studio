@@ -76,6 +76,55 @@ _CODE_TO_MEMBER_ACTION: dict[str, GppAction] = {
 }
 
 
+_GROUP_KNOWN_ATTRS = frozenset({
+    "clsid", "name", "action", "removeUsers", "removeGroups", "description",
+})
+_MEMBER_KNOWN_ATTRS = frozenset({"name", "sid", "action"})
+_REGISTRY_KNOWN_ATTRS = frozenset({"clsid", "name", "action"})
+_REGISTRY_VALUE_KNOWN_ATTRS = frozenset({"name", "value", "type", "action"})
+_GROUP_KNOWN_CHILDREN = frozenset({"Properties", "Members", "Filters"})
+_REGISTRY_KNOWN_CHILDREN = frozenset({"Properties", "Filters"})
+
+
+def _capture_unknown_attrs(
+    elem: ET.Element, known: frozenset[str]
+) -> tuple[tuple[str, str], ...]:
+    """Return attributes whose local name is not in the known set."""
+    return tuple(
+        (name, value)
+        for name, value in elem.attrib.items()
+        if _local_name(name) not in known
+    )
+
+
+def _capture_unknown_children(
+    elem: ET.Element, known: frozenset[str]
+) -> tuple[str, ...]:
+    """Return raw XML of child elements whose local name is not in the known set."""
+    return tuple(
+        ET.tostring(child, encoding="unicode")
+        for child in elem
+        if _local_name(child.tag) not in known
+    )
+
+
+def _apply_unknown_attrs(elem: ET.Element, unknown: tuple[tuple[str, str], ...]) -> None:
+    for name, value in unknown:
+        elem.set(name, value)
+
+
+def _append_unknown_children(
+    elem: ET.Element, unknown: tuple[str, ...], context: str
+) -> None:
+    for raw in unknown:
+        try:
+            elem.append(ET.fromstring(raw))
+        except ET.ParseError as error:
+            raise GppError(
+                f"Corrupted unknown XML in {context}: {error}"
+            ) from error
+
+
 class GppError(ValueError):
     """Malformed or unsupported GPP content."""
 
@@ -138,6 +187,7 @@ class GppGroupMember:
     name: str = ""
     action: GppAction = "add"
     id: str = ""
+    unknown_attrs: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +201,8 @@ class GppGroup:
     remove_all_groups: bool = False
     ilt_filter: IltFilter | None = None
     id: str = ""
+    unknown_attrs: tuple[tuple[str, str], ...] = ()
+    unknown_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +212,7 @@ class GppRegistryValue:
     registry_type: str = "REG_SZ"
     action: GppRegistryAction = "create"
     id: str = ""
+    unknown_attrs: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +222,8 @@ class GppRegistry:
     action: GppAction = "update"
     ilt_filter: IltFilter | None = None
     id: str = ""
+    unknown_attrs: tuple[tuple[str, str], ...] = ()
+    unknown_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +245,7 @@ def _serialize_member(member: GppGroupMember) -> ET.Element:
     if code is None:
         raise GppError(f"Unsupported member action: {member.action!r}")
     elem.set("action", code)
+    _apply_unknown_attrs(elem, member.unknown_attrs)
     return elem
 
 
@@ -202,6 +258,7 @@ def _serialize_group(group: GppGroup) -> ET.Element:
     elem.set("removeGroups", "1" if group.remove_all_groups else "0")
     if group.description:
         elem.set("description", group.description)
+    _apply_unknown_attrs(elem, group.unknown_attrs)
     props = ET.SubElement(elem, _ns("Properties"))
     props.set("groupName", group.name)
     if group.sid:
@@ -212,6 +269,7 @@ def _serialize_group(group: GppGroup) -> ET.Element:
             members_elem.append(_serialize_member(member))
     if group.ilt_filter is not None:
         elem.append(serialize_ilt(group.ilt_filter))
+    _append_unknown_children(elem, group.unknown_children, f"group {group.name!r}")
     return elem
 
 
@@ -238,6 +296,7 @@ def _serialize_registry_value(value: GppRegistryValue) -> ET.Element:
     props.set("value", text_value)
     props.set("type", value.registry_type)
     props.set("action", _registry_action_to_code(value.action))
+    _apply_unknown_attrs(props, value.unknown_attrs)
     return props
 
 
@@ -246,10 +305,12 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
     elem.set("clsid", _REGISTRY_CLSID)
     elem.set("name", reg.key)
     elem.set("action", _action_to_code(reg.action))
+    _apply_unknown_attrs(elem, reg.unknown_attrs)
     for value in reg.values:
         elem.append(_serialize_registry_value(value))
     if reg.ilt_filter is not None:
         elem.append(serialize_ilt(reg.ilt_filter))
+    _append_unknown_children(elem, reg.unknown_children, f"registry {reg.key!r}")
     return elem
 
 
@@ -282,6 +343,7 @@ def _parse_member(elem: ET.Element) -> GppGroupMember:
         sid=elem.get("sid", ""),
         name=elem.get("name", ""),
         action=_CODE_TO_MEMBER_ACTION[action_code],
+        unknown_attrs=_capture_unknown_attrs(elem, _MEMBER_KNOWN_ATTRS),
     )
 
 
@@ -311,6 +373,8 @@ def _parse_group(elem: ET.Element) -> GppGroup:
         remove_all_users=remove_all_users,
         remove_all_groups=remove_all_groups,
         ilt_filter=ilt_filter,
+        unknown_attrs=_capture_unknown_attrs(elem, _GROUP_KNOWN_ATTRS),
+        unknown_children=_capture_unknown_children(elem, _GROUP_KNOWN_CHILDREN),
     )
 
 
@@ -342,6 +406,7 @@ def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
         value=value,
         registry_type=reg_type,
         action=action,
+        unknown_attrs=_capture_unknown_attrs(props, _REGISTRY_VALUE_KNOWN_ATTRS),
     )
 
 
@@ -358,6 +423,8 @@ def _parse_registry(elem: ET.Element) -> GppRegistry:
         values=tuple(values),
         action=action,
         ilt_filter=ilt_filter,
+        unknown_attrs=_capture_unknown_attrs(elem, _REGISTRY_KNOWN_ATTRS),
+        unknown_children=_capture_unknown_children(elem, _REGISTRY_KNOWN_CHILDREN),
     )
 
 
@@ -416,19 +483,29 @@ def ensure_editor_ids(collection: GppCollection) -> GppCollection:
     return replace(collection, groups=new_groups, registry=new_registry)
 
 
-def _ilt_filter_to_dict(ilt: IltFilter | None) -> list[dict[str, Any]] | None:
+def _ilt_filter_to_dict(ilt: IltFilter | None) -> dict[str, Any] | None:
     if ilt is None:
         return None
-    return [
-        {"type": p.type, "negate": p.negate, "value": p.value}
-        for p in ilt.predicates
-    ]
+    result: dict[str, Any] = {
+        "predicates": [
+            {"type": p.type, "negate": p.negate, "value": p.value}
+            for p in ilt.predicates
+        ],
+    }
+    if ilt.unknown_predicates:
+        result["unknown_predicates"] = list(ilt.unknown_predicates)
+    return result
 
 
 def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
     if not data:
         return None
-    predicates_data = data.get("predicates", []) if isinstance(data, dict) else data
+    if isinstance(data, dict):
+        predicates_data = data.get("predicates", [])
+        unknown = tuple(data.get("unknown_predicates", []))
+    else:
+        predicates_data = data
+        unknown = ()
     return IltFilter(
         predicates=tuple(
             IltPredicate(
@@ -437,7 +514,8 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
                 value=str(p["value"]),
             )
             for p in predicates_data
-        )
+        ),
+        unknown_predicates=unknown,
     )
 
 
@@ -456,6 +534,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                         "name": m.name,
                         "action": m.action,
                         "id": m.id,
+                        "unknown_attrs": list(m.unknown_attrs) if m.unknown_attrs else [],
                     }
                     for m in g.members
                 ],
@@ -464,6 +543,8 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "remove_all_groups": g.remove_all_groups,
                 "ilt_filter": _ilt_filter_to_dict(g.ilt_filter),
                 "id": g.id,
+                "unknown_attrs": list(g.unknown_attrs) if g.unknown_attrs else [],
+                "unknown_children": list(g.unknown_children) if g.unknown_children else [],
             }
             for g in collection.groups
         ],
@@ -478,11 +559,14 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                         "registry_type": v.registry_type,
                         "action": v.action,
                         "id": v.id,
+                        "unknown_attrs": list(v.unknown_attrs) if v.unknown_attrs else [],
                     }
                     for v in r.values
                 ],
                 "ilt_filter": _ilt_filter_to_dict(r.ilt_filter),
                 "id": r.id,
+                "unknown_attrs": list(r.unknown_attrs) if r.unknown_attrs else [],
+                "unknown_children": list(r.unknown_children) if r.unknown_children else [],
             }
             for r in collection.registry
         ],
@@ -506,6 +590,10 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     name=str(m.get("name", "")),
                     action=_validate_gpp_action(m.get("action", "add")),
                     id=str(m.get("id", "")),
+                    unknown_attrs=tuple(
+                        (str(k), str(v))
+                        for k, v in m.get("unknown_attrs", [])
+                    ),
                 )
                 for m in g.get("members", [])
             ),
@@ -514,6 +602,11 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             remove_all_groups=bool(g.get("remove_all_groups", False)),
             ilt_filter=_parse_ilt_filter_from_dict(g.get("ilt_filter")),
             id=str(g.get("id", "")),
+            unknown_attrs=tuple(
+                (str(k), str(v))
+                for k, v in g.get("unknown_attrs", [])
+            ),
+            unknown_children=tuple(g.get("unknown_children", [])),
         )
         for g in data.get("groups", [])
     )
@@ -528,11 +621,20 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     registry_type=str(v.get("registry_type", "REG_SZ")),
                     action=_validate_gpp_registry_action(v.get("action", "create")),
                     id=str(v.get("id", "")),
+                    unknown_attrs=tuple(
+                        (str(k), str(v2))
+                        for k, v2 in v.get("unknown_attrs", [])
+                    ),
                 )
                 for v in r.get("values", [])
             ),
             ilt_filter=_parse_ilt_filter_from_dict(r.get("ilt_filter")),
             id=str(r.get("id", "")),
+            unknown_attrs=tuple(
+                (str(k), str(v2))
+                for k, v2 in r.get("unknown_attrs", [])
+            ),
+            unknown_children=tuple(r.get("unknown_children", [])),
         )
         for r in data.get("registry", [])
     )
@@ -549,6 +651,6 @@ def contains_cpassword(xml: bytes) -> bool:
         return True
     for elem in root.iter():
         for attr_name in elem.attrib:
-            if attr_name.casefold() == "cpassword":
+            if _local_name(attr_name).casefold() == "cpassword":
                 return True
     return False

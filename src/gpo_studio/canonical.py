@@ -145,7 +145,9 @@ def semantic_dict_ilt_predicate(pred: IltPredicate) -> dict[str, Any]:
 def semantic_dict_ilt(f: IltFilter | None) -> list[dict[str, Any]] | None:
     if f is None:
         return None
-    return [semantic_dict_ilt_predicate(p) for p in f.predicates]
+    result: list[dict[str, Any]] = [semantic_dict_ilt_predicate(p) for p in f.predicates]
+    result.extend({"unknown": raw} for raw in f.unknown_predicates)
+    return result
 
 
 def semantic_dict_gpp_member(member: GppGroupMember) -> dict[str, Any]:
@@ -153,6 +155,7 @@ def semantic_dict_gpp_member(member: GppGroupMember) -> dict[str, Any]:
         "sid": member.sid.lower(),
         "name": member.name.casefold(),
         "action": member.action,
+        "unknown_attrs": list(member.unknown_attrs),
     }
 
 
@@ -170,6 +173,8 @@ def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
         "remove_all_groups": group.remove_all_groups,
         "members": [semantic_dict_gpp_member(m) for m in group.members],
         "ilt_filter": semantic_dict_ilt(group.ilt_filter),
+        "unknown_attrs": list(group.unknown_attrs),
+        "unknown_children": list(group.unknown_children),
     }
 
 
@@ -179,6 +184,7 @@ def semantic_dict_gpp_registry_value(value: GppRegistryValue) -> dict[str, Any]:
         "value": value.value,
         "registry_type": value.registry_type,
         "action": value.action,
+        "unknown_attrs": list(value.unknown_attrs),
     }
 
 
@@ -190,6 +196,8 @@ def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
         "action": reg.action,
         "values": [semantic_dict_gpp_registry_value(v) for v in reg.values],
         "ilt_filter": semantic_dict_ilt(reg.ilt_filter),
+        "unknown_attrs": list(reg.unknown_attrs),
+        "unknown_children": list(reg.unknown_children),
     }
 
 

@@ -554,6 +554,22 @@ def test_contains_cpassword_true_for_malformed_xml() -> None:
     assert contains_cpassword(xml) is True
 
 
+def test_contains_cpassword_true_for_namespaced_attribute() -> None:
+    xml = (
+        b'<Properties xmlns:x="http://schemas.microsoft.com/GroupPolicy/Settings"'
+        b' x:cpassword="encData" name="test"/>'
+    )
+    assert contains_cpassword(xml) is True
+
+
+def test_contains_cpassword_true_for_namespaced_attribute_mixed_case() -> None:
+    xml = (
+        b'<Properties xmlns:x="http://schemas.microsoft.com/GroupPolicy/Settings"'
+        b' x:Cpassword="encData" name="test"/>'
+    )
+    assert contains_cpassword(xml) is True
+
+
 # --- Issue 10: Full round-trip equality ---
 
 
