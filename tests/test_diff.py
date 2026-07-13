@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from gpo_studio.canonical import gpp_group_identity, gpp_registry_identity
 from gpo_studio.diff import (
     GppGroupConflict,
     GppRegistryConflict,
+    GppReorderConflict,
     LinkConflict,
     MetadataConflict,
     diff_gpos,
@@ -1195,3 +1197,73 @@ def test_gpp_group_member_reorder_is_modified() -> None:
     result = diff_gpos(old, new)
     assert len(result.gpp_groups) == 1
     assert result.gpp_groups[0].kind == "modified"
+
+
+def test_three_way_gpp_group_reorder_conflict() -> None:
+    group_a = _gpp_group(name="GroupA")
+    group_b = _gpp_group(name="GroupB")
+    group_c = _gpp_group(name="GroupC")
+    baseline = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_b, group_c)),))
+    draft = _gpo(gpp_collections=(_gpp_collection(groups=(group_b, group_a, group_c)),))
+    observed = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_c, group_b)),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.gpp_reorder_conflicts) == 1
+    conflict = result.gpp_reorder_conflicts[0]
+    assert isinstance(conflict, GppReorderConflict)
+    assert conflict.element_type == "group"
+    assert conflict.scope == "computer"
+    assert conflict.baseline_order == tuple(
+        str(gpp_group_identity(g)) for g in (group_a, group_b, group_c)
+    )
+    assert conflict.draft_order == tuple(
+        str(gpp_group_identity(g)) for g in (group_b, group_a, group_c)
+    )
+    assert conflict.observed_order == tuple(
+        str(gpp_group_identity(g)) for g in (group_a, group_c, group_b)
+    )
+
+
+def test_three_way_gpp_group_reorder_no_conflict_convergent() -> None:
+    group_a = _gpp_group(name="GroupA")
+    group_b = _gpp_group(name="GroupB")
+    group_c = _gpp_group(name="GroupC")
+    baseline = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_b, group_c)),))
+    draft = _gpo(gpp_collections=(_gpp_collection(groups=(group_b, group_a, group_c)),))
+    observed = _gpo(gpp_collections=(_gpp_collection(groups=(group_b, group_a, group_c)),))
+    result = three_way_diff(baseline, draft, observed)
+    assert result.gpp_reorder_conflicts == ()
+
+
+def test_three_way_gpp_group_reorder_no_conflict_draft_only() -> None:
+    group_a = _gpp_group(name="GroupA")
+    group_b = _gpp_group(name="GroupB")
+    group_c = _gpp_group(name="GroupC")
+    baseline = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_b, group_c)),))
+    draft = _gpo(gpp_collections=(_gpp_collection(groups=(group_b, group_a, group_c)),))
+    observed = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_b, group_c)),))
+    result = three_way_diff(baseline, draft, observed)
+    assert result.gpp_reorder_conflicts == ()
+
+
+def test_three_way_gpp_registry_reorder_conflict() -> None:
+    reg_a = _gpp_registry(key=r"Software\KeyA")
+    reg_b = _gpp_registry(key=r"Software\KeyB")
+    reg_c = _gpp_registry(key=r"Software\KeyC")
+    baseline = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a, reg_b, reg_c)),))
+    draft = _gpo(gpp_collections=(_gpp_collection(registry=(reg_b, reg_a, reg_c)),))
+    observed = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a, reg_c, reg_b)),))
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.gpp_reorder_conflicts) == 1
+    conflict = result.gpp_reorder_conflicts[0]
+    assert isinstance(conflict, GppReorderConflict)
+    assert conflict.element_type == "registry"
+    assert conflict.scope == "computer"
+    assert conflict.baseline_order == tuple(
+        str(gpp_registry_identity(r)) for r in (reg_a, reg_b, reg_c)
+    )
+    assert conflict.draft_order == tuple(
+        str(gpp_registry_identity(r)) for r in (reg_b, reg_a, reg_c)
+    )
+    assert conflict.observed_order == tuple(
+        str(gpp_registry_identity(r)) for r in (reg_a, reg_c, reg_b)
+    )

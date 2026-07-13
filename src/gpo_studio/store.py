@@ -129,8 +129,97 @@ def _gpp_collection(data: dict[str, Any]) -> GppCollection:
     return gpp_collection_from_dict(data)
 
 
+def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
+    guid = gpo.guid
+    new_collections: list[GppCollection] = []
+    changed = False
+    for collection in gpo.gpp_collections:
+        scope = collection.scope
+        new_groups: list[GppGroup] = []
+        for g_idx, group in enumerate(collection.groups):
+            new_group = group
+            if not group.id:
+                new_group = replace(
+                    new_group,
+                    id=str(
+                        uuid.uuid5(
+                            uuid.NAMESPACE_URL, f"{guid}/{scope}/group/{g_idx}"
+                        )
+                    ),
+                )
+                changed = True
+            new_members: list[GppGroupMember] = []
+            members_changed = False
+            for m_idx, member in enumerate(new_group.members):
+                if not member.id:
+                    new_members.append(
+                        replace(
+                            member,
+                            id=str(
+                                uuid.uuid5(
+                                    uuid.NAMESPACE_URL,
+                                    f"{guid}/{scope}/group/{g_idx}/member/{m_idx}",
+                                )
+                            ),
+                        )
+                    )
+                    members_changed = True
+                    changed = True
+                else:
+                    new_members.append(member)
+            if members_changed:
+                new_group = replace(new_group, members=tuple(new_members))
+            new_groups.append(new_group)
+        new_registry: list[GppRegistry] = []
+        for r_idx, registry in enumerate(collection.registry):
+            new_reg = registry
+            if not registry.id:
+                new_reg = replace(
+                    new_reg,
+                    id=str(
+                        uuid.uuid5(
+                            uuid.NAMESPACE_URL,
+                            f"{guid}/{scope}/registry/{r_idx}",
+                        )
+                    ),
+                )
+                changed = True
+            new_values: list[GppRegistryValue] = []
+            values_changed = False
+            for v_idx, value in enumerate(new_reg.values):
+                if not value.id:
+                    new_values.append(
+                        replace(
+                            value,
+                            id=str(
+                                uuid.uuid5(
+                                    uuid.NAMESPACE_URL,
+                                    f"{guid}/{scope}/registry/{r_idx}/value/{v_idx}",
+                                )
+                            ),
+                        )
+                    )
+                    values_changed = True
+                    changed = True
+                else:
+                    new_values.append(value)
+            if values_changed:
+                new_reg = replace(new_reg, values=tuple(new_values))
+            new_registry.append(new_reg)
+        new_collections.append(
+            replace(
+                collection,
+                groups=tuple(new_groups),
+                registry=tuple(new_registry),
+            )
+        )
+    if not changed:
+        return gpo
+    return replace(gpo, gpp_collections=tuple(new_collections))
+
+
 def gpo_from_dict(data: dict[str, Any]) -> GPO:
-    return GPO(
+    gpo = GPO(
         guid=str(data["guid"]),
         name=str(data["name"]),
         description=str(data.get("description", "")),
@@ -155,6 +244,7 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
     )
+    return _assign_legacy_gpp_ids(gpo)
 
 
 class WorkspaceStore:
@@ -648,6 +738,7 @@ class WorkspaceStore:
         *,
         identity: Identity | str,
         reason: str,
+        must_exist: bool = False,
     ) -> GPO:
         processed = ensure_editor_ids(GppCollection(scope=scope, groups=(group,)))
         group = processed.groups[0]
@@ -655,6 +746,8 @@ class WorkspaceStore:
         def mutate(gpo: GPO) -> GPO:
             found = self._find_collection(gpo, scope)
             if found is None:
+                if must_exist:
+                    raise NotFoundError(f"GPP group with id {group.id} not found")
                 new_collection = GppCollection(scope=scope, groups=(group,))
                 new_collections = gpo.gpp_collections + (new_collection,)
             else:
@@ -664,6 +757,10 @@ class WorkspaceStore:
                     gi = next(i for i, x in enumerate(groups_list) if x.id == group.id)
                     groups_list[gi] = group
                 except StopIteration:
+                    if must_exist:
+                        raise NotFoundError(
+                            f"GPP group with id {group.id} not found"
+                        ) from None
                     groups_list.append(group)
                 new_collection = replace(existing, groups=tuple(groups_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
@@ -727,6 +824,7 @@ class WorkspaceStore:
         *,
         identity: Identity | str,
         reason: str,
+        must_exist: bool = False,
     ) -> GPO:
         processed = ensure_editor_ids(GppCollection(scope=scope, registry=(registry,)))
         registry = processed.registry[0]
@@ -734,6 +832,10 @@ class WorkspaceStore:
         def mutate(gpo: GPO) -> GPO:
             found = self._find_collection(gpo, scope)
             if found is None:
+                if must_exist:
+                    raise NotFoundError(
+                        f"GPP registry with id {registry.id} not found"
+                    )
                 new_collection = GppCollection(scope=scope, registry=(registry,))
                 new_collections = gpo.gpp_collections + (new_collection,)
             else:
@@ -743,6 +845,10 @@ class WorkspaceStore:
                     ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
                     items_list[ri] = registry
                 except StopIteration:
+                    if must_exist:
+                        raise NotFoundError(
+                            f"GPP registry with id {registry.id} not found"
+                        ) from None
                     items_list.append(registry)
                 new_collection = replace(existing, registry=tuple(items_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
@@ -808,6 +914,7 @@ class WorkspaceStore:
         *,
         identity: Identity | str,
         reason: str,
+        must_exist: bool = False,
     ) -> GPO:
         if not member.id:
             member = replace(member, id=str(uuid.uuid4()))
@@ -832,6 +939,10 @@ class WorkspaceStore:
                 mi = next(i for i, x in enumerate(members_list) if x.id == member.id)
                 members_list[mi] = member
             except StopIteration:
+                if must_exist:
+                    raise NotFoundError(
+                        f"GPP member with id {member.id} not found"
+                    ) from None
                 members_list.append(member)
             new_group = replace(group, members=tuple(members_list))
             new_groups = tuple(
@@ -911,6 +1022,7 @@ class WorkspaceStore:
         *,
         identity: Identity | str,
         reason: str,
+        must_exist: bool = False,
     ) -> GPO:
         if not value.id:
             value = replace(value, id=str(uuid.uuid4()))
@@ -935,6 +1047,10 @@ class WorkspaceStore:
                 vi = next(i for i, x in enumerate(values_list) if x.id == value.id)
                 values_list[vi] = value
             except StopIteration:
+                if must_exist:
+                    raise NotFoundError(
+                        f"GPP registry value with id {value.id} not found"
+                    ) from None
                 values_list.append(value)
             new_registry = replace(registry, values=tuple(values_list))
             new_registries = tuple(

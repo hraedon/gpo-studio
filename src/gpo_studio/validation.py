@@ -25,7 +25,7 @@ _VALID_REGISTRY_TYPES = frozenset(
 
 def _xml_char_unsafe(cp: int) -> bool:
     if cp < 0x20:
-        return True
+        return cp not in (0x09, 0x0A, 0x0D)
     if 0xD800 <= cp <= 0xDFFF:
         return True
     if cp in (0xFFFE, 0xFFFF):

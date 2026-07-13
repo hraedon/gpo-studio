@@ -1640,3 +1640,181 @@ def test_gpp_registry_value_crud_via_api(tmp_path) -> None:
         gpo = resp.json()["gpo"]
         values = gpo["gpp_collections"][0]["registry"][0]["values"]
         assert len(values) == 0
+
+
+def test_put_gpp_group_nonexistent_id_returns_404(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP 404 policy"}
+        ).json()["gpo"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/nonexistent",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit missing",
+                "scope": "computer",
+                "group": {
+                    "name": "Admins",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        assert resp.status_code == 404
+
+
+def test_put_gpp_registry_nonexistent_id_returns_404(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP 404 reg policy"}
+        ).json()["gpo"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/registry/nonexistent",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit missing",
+                "scope": "computer",
+                "registry": {
+                    "key": r"Software\Policies\Test",
+                    "action": "update",
+                    "values": [],
+                },
+            },
+        )
+        assert resp.status_code == 404
+
+
+def test_put_gpp_member_nonexistent_id_returns_404(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP 404 member policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group",
+                "scope": "computer",
+                "group": {
+                    "name": "Admins",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        gpo = resp.json()["gpo"]
+        group_id = gpo["gpp_collections"][0]["groups"][0]["id"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{group_id}/members/nonexistent",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit missing member",
+                "scope": "computer",
+                "member": {
+                    "sid": "S-1-5-21-1-2-3-500",
+                    "name": "STUDIO\\Domain Admins",
+                    "action": "add",
+                },
+            },
+        )
+        assert resp.status_code == 404
+
+
+def test_put_gpp_registry_value_nonexistent_id_returns_404(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP 404 value policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/registry",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add registry",
+                "scope": "computer",
+                "registry": {
+                    "key": r"Software\Policies\Test",
+                    "action": "update",
+                    "values": [],
+                },
+            },
+        )
+        gpo = resp.json()["gpo"]
+        reg_id = gpo["gpp_collections"][0]["registry"][0]["id"]
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/registry/{reg_id}/values/nonexistent",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit missing value",
+                "scope": "computer",
+                "value": {
+                    "name": "V1",
+                    "value": "x",
+                    "registry_type": "REG_SZ",
+                    "action": "create",
+                },
+            },
+        )
+        assert resp.status_code == 404
+
+
+def test_post_gpp_group_still_creates_after_must_exist_change(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "GPP create policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group",
+                "scope": "computer",
+                "group": {
+                    "name": "Admins",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        assert resp.status_code == 201
+        gpo = resp.json()["gpo"]
+        assert len(gpo["gpp_collections"][0]["groups"]) == 1
+
+        resp = client.put(
+            f"/api/gpos/{gpo['guid']}/preferences/groups/{gpo['gpp_collections'][0]['groups'][0]['id']}",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "edit existing",
+                "scope": "computer",
+                "group": {
+                    "name": "Admins2",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                },
+            },
+        )
+        assert resp.status_code == 200
+        gpo = resp.json()["gpo"]
+        assert gpo["gpp_collections"][0]["groups"][0]["name"] == "Admins2"

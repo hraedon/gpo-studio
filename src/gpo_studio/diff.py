@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -171,6 +171,15 @@ class GppRegistryConflict:
 
 
 @dataclass(frozen=True, slots=True)
+class GppReorderConflict:
+    element_type: Literal["group", "registry"]
+    scope: str
+    baseline_order: tuple[str, ...]
+    draft_order: tuple[str, ...]
+    observed_order: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ThreeWayDiff:
     settings: tuple[SettingChange, ...]
     links: tuple[LinkChange, ...]
@@ -183,6 +192,7 @@ class ThreeWayDiff:
     gpp_groups: tuple[GppGroupChange, ...] = ()
     gpp_registry: tuple[GppRegistryChange, ...] = ()
     gpp_conflicts: tuple[GppGroupConflict | GppRegistryConflict, ...] = ()
+    gpp_reorder_conflicts: tuple[GppReorderConflict, ...] = ()
     metadata: tuple[MetadataChange, ...] = ()
     metadata_conflicts: tuple[MetadataConflict, ...] = ()
     cse_metadata: tuple[CseMetadataChange, ...] = ()
@@ -887,6 +897,74 @@ def _three_way_gpp_conflicts(
     return tuple(conflicts)
 
 
+def _gpp_collection_reorder_conflict[IdentityT: Hashable](
+    element_type: Literal["group", "registry"],
+    scope: str,
+    baseline_identities: list[IdentityT],
+    draft_identities: list[IdentityT],
+    observed_identities: list[IdentityT],
+) -> GppReorderConflict | None:
+    common = (
+        set(baseline_identities)
+        & set(draft_identities)
+        & set(observed_identities)
+    )
+    b_order = tuple(str(i) for i in baseline_identities if i in common)
+    d_order = tuple(str(i) for i in draft_identities if i in common)
+    o_order = tuple(str(i) for i in observed_identities if i in common)
+    if d_order != b_order and o_order != b_order and d_order != o_order:
+        return GppReorderConflict(
+            element_type=element_type,
+            scope=scope,
+            baseline_order=b_order,
+            draft_order=d_order,
+            observed_order=o_order,
+        )
+    return None
+
+
+def _three_way_gpp_reorder_conflicts(
+    baseline: tuple[GppCollection, ...],
+    draft: tuple[GppCollection, ...],
+    observed: tuple[GppCollection, ...],
+) -> tuple[GppReorderConflict, ...]:
+    baseline_map: dict[str, GppCollection] = {c.scope: c for c in baseline}
+    draft_map: dict[str, GppCollection] = {c.scope: c for c in draft}
+    observed_map: dict[str, GppCollection] = {c.scope: c for c in observed}
+    scopes = set(baseline_map) | set(draft_map) | set(observed_map)
+    conflicts: list[GppReorderConflict] = []
+    for scope in sorted(scopes):
+        baseline_collection = baseline_map.get(scope)
+        draft_collection = draft_map.get(scope)
+        observed_collection = observed_map.get(scope)
+        baseline_groups = baseline_collection.groups if baseline_collection is not None else ()
+        draft_groups = draft_collection.groups if draft_collection is not None else ()
+        observed_groups = observed_collection.groups if observed_collection is not None else ()
+        group_conflict = _gpp_collection_reorder_conflict(
+            element_type="group",
+            scope=scope,
+            baseline_identities=[gpp_group_identity(g) for g in baseline_groups],
+            draft_identities=[gpp_group_identity(g) for g in draft_groups],
+            observed_identities=[gpp_group_identity(g) for g in observed_groups],
+        )
+        if group_conflict is not None:
+            conflicts.append(group_conflict)
+        baseline_registry = baseline_collection.registry if baseline_collection is not None else ()
+        draft_registry = draft_collection.registry if draft_collection is not None else ()
+        observed_registry = observed_collection.registry if observed_collection is not None else ()
+        registry_conflict = _gpp_collection_reorder_conflict(
+            element_type="registry",
+            scope=scope,
+            baseline_identities=[gpp_registry_identity(r) for r in baseline_registry],
+            draft_identities=[gpp_registry_identity(r) for r in draft_registry],
+            observed_identities=[gpp_registry_identity(r) for r in observed_registry],
+        )
+        if registry_conflict is not None:
+            conflicts.append(registry_conflict)
+    conflicts.sort(key=lambda c: (c.element_type, c.scope))
+    return tuple(conflicts)
+
+
 def _three_way_cse_metadata_conflicts(
     baseline: tuple[CseMetadataEntry, ...],
     draft: tuple[CseMetadataEntry, ...],
@@ -977,6 +1055,9 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
     gpp_conflicts = _three_way_gpp_conflicts(
         baseline.gpp_collections, draft.gpp_collections, observed.gpp_collections
     )
+    gpp_reorder_conflicts = _three_way_gpp_reorder_conflicts(
+        baseline.gpp_collections, draft.gpp_collections, observed.gpp_collections
+    )
     cse_metadata_conflicts = _three_way_cse_metadata_conflicts(
         baseline.cse_metadata, draft.cse_metadata, observed.cse_metadata
     )
@@ -996,6 +1077,7 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
         gpp_groups=gpp_groups,
         gpp_registry=gpp_registry,
         gpp_conflicts=gpp_conflicts,
+        gpp_reorder_conflicts=gpp_reorder_conflicts,
         metadata=tuple(_diff_metadata(baseline, draft)),
         metadata_conflicts=metadata_conflicts,
         cse_metadata=tuple(diff_cse_metadata(baseline.cse_metadata, draft.cse_metadata)),

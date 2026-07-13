@@ -567,6 +567,78 @@ def test_gpp_collection_safe_unicode_text_no_control_character_errors() -> None:
     assert not any(i.code.startswith("control_character_in_") for i in issues)
 
 
+def test_gpp_group_description_newline_no_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                description="Line one\nLine two",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(
+        i.code == "control_character_in_gpp_group_description" for i in issues
+    )
+
+
+def test_gpp_group_description_tab_no_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                description="col1\tcol2",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(
+        i.code == "control_character_in_gpp_group_description" for i in issues
+    )
+
+
+def test_gpp_group_description_vertical_tab_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                description="bad\x0btext",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_group_description"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/description"
+        for i in issues
+    )
+
+
+def test_ilt_predicate_value_crlf_no_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(
+                    predicates=(
+                        IltPredicate(type="ou", value="OU=Test\r\nDC=example"),
+                    )
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(i.code == "control_character_in_ilt_value" for i in issues)
+
+
 def test_duplicate_gpp_group_id_error() -> None:
     collection = GppCollection(
         scope="computer",
