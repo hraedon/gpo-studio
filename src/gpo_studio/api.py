@@ -218,24 +218,74 @@ class GppGroupMutation(Audit):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "scope": "computer",
-                "group": {
-                    "name": "Administrators",
-                    "sid": "S-1-5-32-544",
-                    "action": "update",
-                    "members": [
-                        {
-                            "sid": "S-1-5-21-1-2-3-500",
-                            "name": "STUDIO\\Domain Admins",
-                            "action": "add",
-                        }
-                    ],
+            "examples": [
+                {
+                    "scope": "computer",
+                    "group": {
+                        "name": "Administrators",
+                        "sid": "S-1-5-32-544",
+                        "action": "add",
+                        "members": [
+                            {
+                                "sid": "S-1-5-21-1-2-3-500",
+                                "name": "STUDIO\\Domain Admins",
+                                "action": "add",
+                            }
+                        ],
+                    },
+                    "actor": "local-operator",
+                    "reason": "Add local admins group",
+                    "expected_revision": 1,
                 },
-                "actor": "local-operator",
-                "reason": "Add local admins group",
-                "expected_revision": 1,
-            }
+                {
+                    "scope": "computer",
+                    "group": {
+                        "name": "Administrators",
+                        "sid": "S-1-5-32-544",
+                        "action": "replace",
+                        "members": [
+                            {
+                                "sid": "S-1-5-21-1-2-3-500",
+                                "name": "STUDIO\\Domain Admins",
+                                "action": "add",
+                            }
+                        ],
+                    },
+                    "actor": "local-operator",
+                    "reason": "Replace local admins group membership",
+                    "expected_revision": 2,
+                },
+                {
+                    "scope": "computer",
+                    "group": {
+                        "name": "Administrators",
+                        "sid": "S-1-5-32-544",
+                        "action": "update",
+                        "description": "Grant Studio Domain Admins local admin rights",
+                        "members": [
+                            {
+                                "sid": "S-1-5-21-1-2-3-500",
+                                "name": "STUDIO\\Domain Admins",
+                                "action": "add",
+                            }
+                        ],
+                    },
+                    "actor": "local-operator",
+                    "reason": "Update local admins group",
+                    "expected_revision": 3,
+                },
+                {
+                    "scope": "computer",
+                    "group": {
+                        "name": "OldAdmins",
+                        "sid": "S-1-5-32-547",
+                        "action": "remove",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Remove obsolete local admins group",
+                    "expected_revision": 4,
+                },
+            ]
         }
     )
 
@@ -246,24 +296,100 @@ class GppRegistryMutation(Audit):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "scope": "computer",
-                "registry": {
-                    "key": "Software\\Policies\\Studio",
-                    "action": "update",
-                    "values": [
-                        {
-                            "name": "Enabled",
-                            "value": "1",
-                            "registry_type": "REG_DWORD",
-                            "action": "create",
-                        }
-                    ],
+            "examples": [
+                {
+                    "scope": "computer",
+                    "registry": {
+                        "key": "Software\\Policies\\Studio",
+                        "action": "update",
+                        "values": [
+                            {
+                                "name": "Enabled",
+                                "value": "1",
+                                "registry_type": "REG_DWORD",
+                                "action": "create",
+                            },
+                            {
+                                "name": "InstallPath",
+                                "value": "C:\\Program Files\\Studio",
+                                "registry_type": "REG_SZ",
+                                "action": "replace",
+                            },
+                            {
+                                "name": "Servers",
+                                "value": [
+                                    "dc01.studio.local",
+                                    "dc02.studio.local",
+                                ],
+                                "registry_type": "REG_MULTI_SZ",
+                                "action": "update",
+                            },
+                            {
+                                "name": "Blob",
+                                "value": "deadbeef",
+                                "registry_type": "REG_BINARY",
+                                "action": "delete",
+                            },
+                            {
+                                "name": "Counter",
+                                "value": "18446744073709551615",
+                                "registry_type": "REG_QWORD",
+                                "action": "create",
+                            },
+                        ],
+                    },
+                    "actor": "local-operator",
+                    "reason": "Configure studio policy registry values",
+                    "expected_revision": 1,
                 },
-                "actor": "local-operator",
-                "reason": "Set studio policy",
-                "expected_revision": 1,
-            }
+                {
+                    "scope": "user",
+                    "registry": {
+                        "key": "Software\\Policies\\Studio\\User",
+                        "action": "add",
+                        "values": [
+                            {
+                                "name": "Theme",
+                                "value": "Dark",
+                                "registry_type": "REG_SZ",
+                                "action": "create",
+                            }
+                        ],
+                    },
+                    "actor": "local-operator",
+                    "reason": "Add user registry preference",
+                    "expected_revision": 2,
+                },
+                {
+                    "scope": "computer",
+                    "registry": {
+                        "key": "Software\\Policies\\Studio",
+                        "action": "replace",
+                        "values": [
+                            {
+                                "name": "Enabled",
+                                "value": "0",
+                                "registry_type": "REG_DWORD",
+                                "action": "replace",
+                            }
+                        ],
+                    },
+                    "actor": "local-operator",
+                    "reason": "Replace studio registry preference",
+                    "expected_revision": 3,
+                },
+                {
+                    "scope": "computer",
+                    "registry": {
+                        "key": "Software\\Policies\\Studio\\Legacy",
+                        "action": "remove",
+                        "values": [],
+                    },
+                    "actor": "local-operator",
+                    "reason": "Remove legacy studio registry preference",
+                    "expected_revision": 4,
+                },
+            ]
         }
     )
 
@@ -274,17 +400,30 @@ class GppMemberMutation(Audit):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "scope": "computer",
-                "member": {
-                    "sid": "S-1-5-21-1-2-3-500",
-                    "name": "STUDIO\\Domain Admins",
-                    "action": "add",
+            "examples": [
+                {
+                    "scope": "computer",
+                    "member": {
+                        "sid": "S-1-5-21-1-2-3-500",
+                        "name": "STUDIO\\Domain Admins",
+                        "action": "add",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Add member to local admins group",
+                    "expected_revision": 1,
                 },
-                "actor": "local-operator",
-                "reason": "Add member to group",
-                "expected_revision": 1,
-            }
+                {
+                    "scope": "computer",
+                    "member": {
+                        "sid": "S-1-5-21-1-2-3-500",
+                        "name": "STUDIO\\Domain Admins",
+                        "action": "remove",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Remove member from local admins group",
+                    "expected_revision": 2,
+                },
+            ]
         }
     )
 
@@ -295,24 +434,109 @@ class GppRegistryValueMutation(Audit):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "scope": "computer",
-                "value": {
-                    "name": "Enabled",
-                    "value": "1",
-                    "registry_type": "REG_DWORD",
-                    "action": "create",
+            "examples": [
+                {
+                    "scope": "computer",
+                    "value": {
+                        "name": "InstallPath",
+                        "value": "C:\\Program Files\\Studio",
+                        "registry_type": "REG_SZ",
+                        "action": "create",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Set REG_SZ registry value",
+                    "expected_revision": 1,
                 },
-                "actor": "local-operator",
-                "reason": "Set registry value",
-                "expected_revision": 1,
-            }
+                {
+                    "scope": "computer",
+                    "value": {
+                        "name": "Enabled",
+                        "value": "1",
+                        "registry_type": "REG_DWORD",
+                        "action": "replace",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Set REG_DWORD registry value",
+                    "expected_revision": 2,
+                },
+                {
+                    "scope": "computer",
+                    "value": {
+                        "name": "Servers",
+                        "value": ["dc01.studio.local", "dc02.studio.local"],
+                        "registry_type": "REG_MULTI_SZ",
+                        "action": "update",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Set REG_MULTI_SZ registry value",
+                    "expected_revision": 3,
+                },
+                {
+                    "scope": "computer",
+                    "value": {
+                        "name": "Blob",
+                        "value": "deadbeef",
+                        "registry_type": "REG_BINARY",
+                        "action": "create",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Set REG_BINARY registry value",
+                    "expected_revision": 4,
+                },
+                {
+                    "scope": "computer",
+                    "value": {
+                        "name": "Counter",
+                        "value": "18446744073709551615",
+                        "registry_type": "REG_QWORD",
+                        "action": "create",
+                    },
+                    "actor": "local-operator",
+                    "reason": "Set REG_QWORD registry value",
+                    "expected_revision": 5,
+                },
+            ]
         }
     )
 
 
 class GppDeleteMutation(Audit):
     scope: Literal["computer", "user"]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "scope": "computer",
+                    "actor": "local-operator",
+                    "reason": "Delete GPP preference element",
+                    "expected_revision": 1,
+                },
+                {
+                    "scope": "user",
+                    "actor": "local-operator",
+                    "reason": "Remove stale user preference",
+                    "expected_revision": 2,
+                },
+            ]
+        }
+    )
+
+
+class ValidationIssueResponse(BaseModel):
+    severity: str
+    code: str
+    message: str
+    path: str
+
+
+class GpoPayloadResponse(BaseModel):
+    gpo: dict[str, Any]
+    validation: list[ValidationIssueResponse]
+    policy_semantic_sha256: str
+    review_model_sha256: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ThreeWayDiffRequest(BaseModel):
@@ -882,7 +1106,7 @@ def clear_wmi_filter(request: Request, guid: str, body: DeleteMutation) -> dict[
     return _gpo_payload(gpo)
 
 
-@app.post("/api/gpos/{guid}/preferences/groups", status_code=201)
+@app.post("/api/gpos/{guid}/preferences/groups", status_code=201, response_model=GpoPayloadResponse)
 def add_gpp_group(
     request: Request, guid: str, body: GppGroupMutation
 ) -> dict[str, Any]:
@@ -899,7 +1123,7 @@ def add_gpp_group(
     return _gpo_payload(gpo)
 
 
-@app.put("/api/gpos/{guid}/preferences/groups/{group_id}")
+@app.put("/api/gpos/{guid}/preferences/groups/{group_id}", response_model=GpoPayloadResponse)
 def edit_gpp_group(
     request: Request, guid: str, group_id: str, body: GppGroupMutation
 ) -> dict[str, Any]:
@@ -912,11 +1136,12 @@ def edit_gpp_group(
         group,
         identity=_identity(body.actor),
         reason=body.reason,
+        must_exist=True,
     )
     return _gpo_payload(gpo)
 
 
-@app.delete("/api/gpos/{guid}/preferences/groups/{group_id}")
+@app.delete("/api/gpos/{guid}/preferences/groups/{group_id}", response_model=GpoPayloadResponse)
 def delete_gpp_group(
     request: Request, guid: str, group_id: str, body: GppDeleteMutation
 ) -> dict[str, Any]:
@@ -931,7 +1156,11 @@ def delete_gpp_group(
     return _gpo_payload(gpo)
 
 
-@app.post("/api/gpos/{guid}/preferences/registry", status_code=201)
+@app.post(
+    "/api/gpos/{guid}/preferences/registry",
+    status_code=201,
+    response_model=GpoPayloadResponse,
+)
 def add_gpp_registry(
     request: Request, guid: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
@@ -948,7 +1177,7 @@ def add_gpp_registry(
     return _gpo_payload(gpo)
 
 
-@app.put("/api/gpos/{guid}/preferences/registry/{registry_id}")
+@app.put("/api/gpos/{guid}/preferences/registry/{registry_id}", response_model=GpoPayloadResponse)
 def edit_gpp_registry(
     request: Request, guid: str, registry_id: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
@@ -961,11 +1190,15 @@ def edit_gpp_registry(
         registry,
         identity=_identity(body.actor),
         reason=body.reason,
+        must_exist=True,
     )
     return _gpo_payload(gpo)
 
 
-@app.delete("/api/gpos/{guid}/preferences/registry/{registry_id}")
+@app.delete(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}",
+    response_model=GpoPayloadResponse,
+)
 def delete_gpp_registry(
     request: Request, guid: str, registry_id: str, body: GppDeleteMutation
 ) -> dict[str, Any]:
@@ -983,6 +1216,7 @@ def delete_gpp_registry(
 @app.post(
     "/api/gpos/{guid}/preferences/groups/{group_id}/members",
     status_code=201,
+    response_model=GpoPayloadResponse,
 )
 def add_gpp_member(
     request: Request,
@@ -1005,7 +1239,8 @@ def add_gpp_member(
 
 
 @app.put(
-    "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"
+    "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}",
+    response_model=GpoPayloadResponse,
 )
 def edit_gpp_member(
     request: Request,
@@ -1024,12 +1259,14 @@ def edit_gpp_member(
         member,
         identity=_identity(body.actor),
         reason=body.reason,
+        must_exist=True,
     )
     return _gpo_payload(gpo)
 
 
 @app.delete(
-    "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}"
+    "/api/gpos/{guid}/preferences/groups/{group_id}/members/{member_id}",
+    response_model=GpoPayloadResponse,
 )
 def delete_gpp_member(
     request: Request,
@@ -1053,6 +1290,7 @@ def delete_gpp_member(
 @app.post(
     "/api/gpos/{guid}/preferences/registry/{registry_id}/values",
     status_code=201,
+    response_model=GpoPayloadResponse,
 )
 def add_gpp_registry_value(
     request: Request,
@@ -1075,7 +1313,8 @@ def add_gpp_registry_value(
 
 
 @app.put(
-    "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}"
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}",
+    response_model=GpoPayloadResponse,
 )
 def edit_gpp_registry_value(
     request: Request,
@@ -1094,12 +1333,14 @@ def edit_gpp_registry_value(
         value,
         identity=_identity(body.actor),
         reason=body.reason,
+        must_exist=True,
     )
     return _gpo_payload(gpo)
 
 
 @app.delete(
-    "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}"
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}",
+    response_model=GpoPayloadResponse,
 )
 def delete_gpp_registry_value(
     request: Request,

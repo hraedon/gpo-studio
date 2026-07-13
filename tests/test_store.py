@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import replace
 
 import pytest
 
 from gpo_studio.gpp import (
+    GppCollection,
     GppGroup,
     GppGroupMember,
     GppRegistry,
@@ -1079,3 +1081,320 @@ def test_delete_gpp_registry_value_empty_id_raises(tmp_path) -> None:
             reason="delete",
         )
     assert any(i.code == "empty_gpp_registry_value_id" for i in exc_info.value.issues)
+
+
+def test_gpo_from_dict_assigns_deterministic_legacy_gpp_ids(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo(
+        "Legacy GPP policy",
+        identity="alice",
+        reason="draft",
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="Administrators",
+                        sid="S-1-5-32-544",
+                        id="",
+                        members=(
+                            GppGroupMember(
+                                sid="S-1-5-21-1-2-3-500",
+                                name="STUDIO\\Domain Admins",
+                                action="add",
+                                id="",
+                            ),
+                        ),
+                    ),
+                ),
+                registry=(
+                    GppRegistry(
+                        key=r"Software\Policies\Test",
+                        id="",
+                        values=(
+                            GppRegistryValue(name="V1", value="x", id=""),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    loaded = store.get_gpo(gpo.guid)
+    collection = loaded.gpp_collections[0]
+    group = collection.groups[0]
+    assert group.id != ""
+    assert group.id == str(
+        uuid.uuid5(uuid.NAMESPACE_URL, f"{gpo.guid}/computer/group/0")
+    )
+    member = group.members[0]
+    assert member.id != ""
+    assert member.id == str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"{gpo.guid}/computer/group/0/member/0",
+        )
+    )
+    registry = collection.registry[0]
+    assert registry.id != ""
+    assert registry.id == str(
+        uuid.uuid5(uuid.NAMESPACE_URL, f"{gpo.guid}/computer/registry/0")
+    )
+    value = registry.values[0]
+    assert value.id != ""
+    assert value.id == str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"{gpo.guid}/computer/registry/0/value/0",
+        )
+    )
+
+    loaded_again = store.get_gpo(gpo.guid)
+    assert (
+        loaded_again.gpp_collections[0].groups[0].id == group.id
+    )
+    assert (
+        loaded_again.gpp_collections[0].groups[0].members[0].id == member.id
+    )
+    assert (
+        loaded_again.gpp_collections[0].registry[0].id == registry.id
+    )
+    assert (
+        loaded_again.gpp_collections[0].registry[0].values[0].id == value.id
+    )
+
+    updated = store.put_gpp_group(
+        gpo.guid,
+        loaded.revision,
+        "computer",
+        replace(group, name="Administrators-Updated"),
+        identity="alice",
+        reason="edit legacy group",
+        must_exist=True,
+    )
+    assert updated.gpp_collections[0].groups[0].name == "Administrators-Updated"
+    assert updated.gpp_collections[0].groups[0].id == group.id
+
+
+def test_gpo_from_dict_preserves_existing_gpp_ids(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo(
+        "Stable GPP policy",
+        identity="alice",
+        reason="draft",
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(name="Admins", sid="S-1-5-32-544", id="existing-g1"),
+                ),
+                registry=(),
+            ),
+        ),
+    )
+    loaded = store.get_gpo(gpo.guid)
+    assert loaded.gpp_collections[0].groups[0].id == "existing-g1"
+
+
+def test_put_gpp_group_must_exist_raises_not_found(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    with pytest.raises(NotFoundError, match="not found"):
+        store.put_gpp_group(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            GppGroup(name="Admins", id="nonexistent"),
+            identity="alice",
+            reason="edit",
+            must_exist=True,
+        )
+
+
+def test_put_gpp_group_must_exist_false_appends(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    updated = store.put_gpp_group(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppGroup(name="Admins", id="new-id"),
+        identity="alice",
+        reason="add",
+        must_exist=False,
+    )
+    assert len(updated.gpp_collections[0].groups) == 1
+
+
+def test_put_gpp_group_must_exist_updates_existing(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_group(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppGroup(name="Admins", id="g1"),
+        identity="alice",
+        reason="add",
+    )
+    updated = store.put_gpp_group(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppGroup(name="Admins2", id="g1"),
+        identity="alice",
+        reason="edit",
+        must_exist=True,
+    )
+    assert updated.gpp_collections[0].groups[0].name == "Admins2"
+
+
+def test_put_gpp_registry_must_exist_raises_not_found(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    with pytest.raises(NotFoundError, match="not found"):
+        store.put_gpp_registry(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            GppRegistry(key=r"Software\Policies\Test", id="nonexistent"),
+            identity="alice",
+            reason="edit",
+            must_exist=True,
+        )
+
+
+def test_put_gpp_registry_must_exist_updates_existing(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(key=r"Software\Policies\Test", id="r1"),
+        identity="alice",
+        reason="add",
+    )
+    updated = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(key=r"Software\Policies\Updated", id="r1"),
+        identity="alice",
+        reason="edit",
+        must_exist=True,
+    )
+    assert updated.gpp_collections[0].registry[0].key == r"Software\Policies\Updated"
+
+
+def test_put_gpp_member_must_exist_raises_not_found(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_group(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppGroup(name="Admins", sid="S-1-5-32-544", id="g1"),
+        identity="alice",
+        reason="add group",
+    )
+    with pytest.raises(NotFoundError, match="not found"):
+        store.put_gpp_member(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            "g1",
+            GppGroupMember(sid="S-1-5-21-1-2-3-500", id="nonexistent"),
+            identity="alice",
+            reason="edit",
+            must_exist=True,
+        )
+
+
+def test_put_gpp_member_must_exist_updates_existing(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_group(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppGroup(name="Admins", sid="S-1-5-32-544", id="g1"),
+        identity="alice",
+        reason="add group",
+    )
+    gpo = store.put_gpp_member(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "g1",
+        GppGroupMember(sid="S-1-5-21-1-2-3-500", id="m1"),
+        identity="alice",
+        reason="add member",
+    )
+    updated = store.put_gpp_member(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "g1",
+        GppGroupMember(sid="S-1-5-21-1-2-3-500", name="Updated", id="m1"),
+        identity="alice",
+        reason="edit member",
+        must_exist=True,
+    )
+    assert (
+        updated.gpp_collections[0].groups[0].members[0].name == "Updated"
+    )
+
+
+def test_put_gpp_registry_value_must_exist_raises_not_found(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(key=r"Software\Policies\Test", id="r1"),
+        identity="alice",
+        reason="add registry",
+    )
+    with pytest.raises(NotFoundError, match="not found"):
+        store.put_gpp_registry_value(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            "r1",
+            GppRegistryValue(name="V1", value="x", id="nonexistent"),
+            identity="alice",
+            reason="edit",
+            must_exist=True,
+        )
+
+
+def test_put_gpp_registry_value_must_exist_updates_existing(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            id="r1",
+            values=(GppRegistryValue(name="V1", value="x", id="v1"),),
+        ),
+        identity="alice",
+        reason="add registry",
+    )
+    updated = store.put_gpp_registry_value(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "r1",
+        GppRegistryValue(name="V1", value="updated", id="v1"),
+        identity="alice",
+        reason="edit value",
+        must_exist=True,
+    )
+    assert (
+        updated.gpp_collections[0].registry[0].values[0].value == "updated"
+    )
