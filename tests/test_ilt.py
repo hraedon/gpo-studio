@@ -350,15 +350,15 @@ def test_gpp_registry_with_ilt_filter_round_trip() -> None:
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     parsed = parse_gpp_registry(data)
-    assert len(parsed) == 2
-    assert all(r.key == r"Software\Policies\Test" for r in parsed)
-    assert all(len(r.values) == 1 for r in parsed)
-    r0 = parsed[0]
-    assert r0.ilt_filter is not None
-    assert len(r0.ilt_filter.predicates) == 2
-    assert r0.ilt_filter.predicates[0].type == "ou"
-    assert r0.ilt_filter.predicates[1].type == "group"
-    assert r0.ilt_filter.predicates[1].negate is True
+    assert len(parsed) == 1
+    r = parsed[0]
+    assert r.key == r"Software\Policies\Test"
+    assert len(r.values) == 2
+    assert r.values[0].ilt_filter is not None
+    assert len(r.values[0].ilt_filter.predicates) == 2
+    assert r.values[0].ilt_filter.predicates[0].type == "ou"
+    assert r.values[0].ilt_filter.predicates[1].type == "group"
+    assert r.values[0].ilt_filter.predicates[1].negate is True
 
 
 def test_gpp_registry_without_ilt_filter_has_no_filters() -> None:
@@ -417,9 +417,10 @@ def test_gpp_collection_round_trip_preserves_ilt() -> None:
 
     assert len(parsed_registry) == 1
     r = parsed_registry[0]
-    assert r.ilt_filter is not None
-    assert len(r.ilt_filter.predicates) == 1
-    assert r.ilt_filter.predicates[0].type == "wmi_query"
+    ilt = r.values[0].ilt_filter
+    assert ilt is not None
+    assert len(ilt.predicates) == 1
+    assert ilt.predicates[0].type == "wmi_query"
 
 
 def test_dict_conversion_preserves_ilt() -> None:

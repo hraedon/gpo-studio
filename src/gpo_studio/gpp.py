@@ -98,6 +98,14 @@ _REGISTRY_VALUE_KNOWN_ATTRS = frozenset({
 })
 _GROUP_KNOWN_CHILDREN = frozenset({"Properties", "Members", "Filters"})
 _REGISTRY_KNOWN_CHILDREN = frozenset({"Properties", "Filters"})
+_GROUP_PROPS_KNOWN_ATTRS = frozenset({
+    "action", "groupName", "groupSid", "description",
+    "deleteAllUsers", "deleteAllGroups",
+})
+_GROUPS_ROOT_KNOWN_ATTRS = frozenset({"clsid"})
+_GROUPS_ROOT_KNOWN_CHILDREN = frozenset({"Group"})
+_REGISTRY_SETTINGS_ROOT_KNOWN_ATTRS = frozenset({"clsid"})
+_REGISTRY_SETTINGS_ROOT_KNOWN_CHILDREN = frozenset({"Registry"})
 
 # Reserved attribute names that must not appear in unknown_attrs bags.
 # These are the typed attribute names written during serialization; allowing
@@ -282,6 +290,7 @@ class GppGroup:
     ilt_filter: IltFilter | None = None
     id: str = ""
     unknown_attrs: tuple[tuple[str, str], ...] = ()
+    unknown_props_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
 
 
@@ -293,6 +302,9 @@ class GppRegistryValue:
     action: GppRegistryAction = "create"
     id: str = ""
     unknown_attrs: tuple[tuple[str, str], ...] = ()
+    ilt_filter: IltFilter | None = None
+    unknown_elem_attrs: tuple[tuple[str, str], ...] = ()
+    unknown_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +324,10 @@ class GppCollection:
     scope: GppScope
     groups: tuple[GppGroup, ...] = field(default_factory=tuple)
     registry: tuple[GppRegistry, ...] = field(default_factory=tuple)
+    groups_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    groups_unknown_children: tuple[str, ...] = ()
+    registry_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    registry_unknown_children: tuple[str, ...] = ()
 
 
 def _xml_declaration(data: bytes) -> bytes:
@@ -348,6 +364,7 @@ def _serialize_group(group: GppGroup) -> ET.Element:
         props.set("description", group.description)
     props.set("deleteAllUsers", "1" if group.remove_all_users else "0")
     props.set("deleteAllGroups", "1" if group.remove_all_groups else "0")
+    _apply_unknown_attrs(props, group.unknown_props_attrs)
     if group.members:
         members_elem = ET.SubElement(props, _ns("Members"))
         for member in group.members:
@@ -362,8 +379,10 @@ def serialize_gpp_groups(collection: GppCollection) -> bytes:
     """Serialize Groups from a GppCollection to GPP XML bytes."""
     root = ET.Element(_ns("Groups"))
     root.set("clsid", _GROUPS_CLSID)
+    _apply_unknown_attrs(root, collection.groups_unknown_attrs)
     for group in collection.groups:
         root.append(_serialize_group(group))
+    _append_unknown_children(root, collection.groups_unknown_children, "Groups root")
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
@@ -397,18 +416,25 @@ def _serialize_registry(reg: GppRegistry) -> list[ET.Element]:
     MS-GPPREF requires exactly one <Properties> child per <Registry> element.
     A GppRegistry with multiple values therefore produces multiple
     <Registry> elements sharing the same hive and key.
+
+    Per-value element metadata (ILT filter, unknown attrs on <Registry>,
+    unknown children) is taken from each GppRegistryValue.  For authored
+    content that sets metadata on GppRegistry directly, the registry-level
+    metadata is applied to values that don't have their own.
     """
     hive = _normalize_hive(reg.hive)
     elements: list[ET.Element] = []
     for i, value in enumerate(reg.values):
         elem = _serialize_registry_value(value, hive, reg.key)
-        if i == 0:
-            _apply_unknown_attrs(elem, reg.unknown_attrs)
-            if reg.ilt_filter is not None:
-                elem.append(serialize_ilt(reg.ilt_filter))
-            _append_unknown_children(
-                elem, reg.unknown_children, f"registry {reg.key!r}"
-            )
+        elem_attrs = value.unknown_elem_attrs or (reg.unknown_attrs if i == 0 else ())
+        ilt = value.ilt_filter if value.ilt_filter is not None else (
+            reg.ilt_filter if i == 0 else None
+        )
+        children = value.unknown_children or (reg.unknown_children if i == 0 else ())
+        _apply_unknown_attrs(elem, elem_attrs)
+        if ilt is not None:
+            elem.append(serialize_ilt(ilt))
+        _append_unknown_children(elem, children, f"registry {reg.key!r}")
         elements.append(elem)
     if not elements:
         elem = ET.Element(_ns("Registry"))
@@ -435,9 +461,11 @@ def serialize_gpp_registry(collection: GppCollection) -> bytes:
     """Serialize Registry from a GppCollection to GPP XML bytes."""
     root = ET.Element(_ns("RegistrySettings"))
     root.set("clsid", _REGISTRY_SETTINGS_CLSID)
+    _apply_unknown_attrs(root, collection.registry_unknown_attrs)
     for reg in collection.registry:
         for elem in _serialize_registry(reg):
             root.append(elem)
+    _append_unknown_children(root, collection.registry_unknown_children, "RegistrySettings root")
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
@@ -514,6 +542,10 @@ def _parse_group(elem: ET.Element) -> GppGroup:
         remove_all_groups=remove_all_groups,
         ilt_filter=ilt_filter,
         unknown_attrs=_capture_unknown_attrs(elem, _GROUP_KNOWN_ATTRS),
+        unknown_props_attrs=(
+            _capture_unknown_attrs(props, _GROUP_PROPS_KNOWN_ATTRS)
+            if props is not None else ()
+        ),
         unknown_children=_capture_unknown_children(elem, _GROUP_KNOWN_CHILDREN),
     )
 
@@ -550,17 +582,16 @@ def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
     )
 
 
-_RegistryParsed = tuple[
-    str, str, GppRegistryValue, IltFilter | None,
-    tuple[tuple[str, str], ...], tuple[str, ...],
-]
+_RegistryParsed = tuple[str, str, GppRegistryValue]
 
 
 def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
     """Parse a single <Registry> element.
 
-    Returns a list of (hive, key, value, ilt_filter, unknown_attrs, unknown_children).
-    The caller groups results by (hive, key).
+    Returns a list of (hive, key, value).  Per-element metadata (ILT
+    filter, unknown attrs on <Registry>, unknown children) is attached
+    to each GppRegistryValue so that coalescing by (hive, key) is
+    lossless.
 
     Handles both MS-GPPREF format (one <Properties> per <Registry> with
     hive/key on Properties) and legacy Studio format (multiple <Properties>
@@ -580,13 +611,22 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
         key = registry_name
         results.append((hive, key, GppRegistryValue(
             name="", value="", registry_type="REG_SZ", action="create",
-        ), ilt_filter, unknown_attrs, unknown_children))
+            ilt_filter=ilt_filter,
+            unknown_elem_attrs=unknown_attrs,
+            unknown_children=unknown_children,
+        )))
     else:
         for props in props_list:
             hive = _normalize_hive(props.get("hive", "HKEY_LOCAL_MACHINE"))
             key = props.get("key", "") or registry_name
             value = _parse_registry_value(props)
-            results.append((hive, key, value, ilt_filter, unknown_attrs, unknown_children))
+            value = replace(
+                value,
+                ilt_filter=ilt_filter,
+                unknown_elem_attrs=unknown_attrs,
+                unknown_children=unknown_children,
+            )
+            results.append((hive, key, value))
 
     return results
 
@@ -594,11 +634,10 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
 def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
     """Parse GPP Registry XML bytes into a tuple of GppRegistry.
 
-    Each <Registry> element produces its own GppRegistry with a single
-    value, preserving per-element metadata (ILT filters, unknown
-    attributes, unknown children).  This avoids the lossy coalescing
-    that occurred when consecutive elements sharing a hive/key were
-    merged and subsequent elements' metadata was discarded.
+    Consecutive <Registry> elements sharing the same (hive, key) are
+    grouped into a single GppRegistry with multiple values.  Per-element
+    metadata (ILT filters, unknown attributes, unknown children) is
+    preserved on each GppRegistryValue, so the coalescing is lossless.
     """
     try:
         root = ET.fromstring(data)
@@ -610,16 +649,20 @@ def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
         parsed.extend(_parse_registry(elem))
 
     grouped: list[GppRegistry] = []
-    for hive, key, value, ilt_filter, unknown_attrs, unknown_children in parsed:
-        grouped.append(GppRegistry(
-            key=key,
-            hive=hive,
-            values=(value,),
-            action="update",
-            ilt_filter=ilt_filter,
-            unknown_attrs=unknown_attrs,
-            unknown_children=unknown_children,
-        ))
+    for hive, key, value in parsed:
+        if grouped and grouped[-1].hive == hive and grouped[-1].key == key:
+            existing = grouped[-1]
+            grouped[-1] = replace(
+                existing,
+                values=existing.values + (value,),
+            )
+        else:
+            grouped.append(GppRegistry(
+                key=key,
+                hive=hive,
+                values=(value,),
+                action="update",
+            ))
     return tuple(grouped)
 
 
@@ -627,13 +670,45 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
     """Parse a dict of filename to XML bytes into a GppCollection."""
     groups: tuple[GppGroup, ...] = ()
     registry: tuple[GppRegistry, ...] = ()
+    groups_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    groups_unknown_children: tuple[str, ...] = ()
+    registry_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    registry_unknown_children: tuple[str, ...] = ()
     for filename, content in files.items():
         normalized = filename.replace("\\", "/")
         if normalized.endswith("Groups/Groups.xml"):
             groups = parse_gpp_groups(content)
+            try:
+                root = ET.fromstring(content)
+            except ET.ParseError:
+                root = None
+            if root is not None:
+                groups_unknown_attrs = _capture_unknown_attrs(
+                    root, _GROUPS_ROOT_KNOWN_ATTRS
+                )
+                groups_unknown_children = _capture_unknown_children(
+                    root, _GROUPS_ROOT_KNOWN_CHILDREN
+                )
         elif normalized.endswith("Registry/Registry.xml"):
             registry = parse_gpp_registry(content)
-    return GppCollection(scope=scope, groups=groups, registry=registry)
+            try:
+                root = ET.fromstring(content)
+            except ET.ParseError:
+                root = None
+            if root is not None:
+                registry_unknown_attrs = _capture_unknown_attrs(
+                    root, _REGISTRY_SETTINGS_ROOT_KNOWN_ATTRS
+                )
+                registry_unknown_children = _capture_unknown_children(
+                    root, _REGISTRY_SETTINGS_ROOT_KNOWN_CHILDREN
+                )
+    return GppCollection(
+        scope=scope, groups=groups, registry=registry,
+        groups_unknown_attrs=groups_unknown_attrs,
+        groups_unknown_children=groups_unknown_children,
+        registry_unknown_attrs=registry_unknown_attrs,
+        registry_unknown_children=registry_unknown_children,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -770,6 +845,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "ilt_filter": _ilt_filter_to_dict(g.ilt_filter),
                 "id": g.id,
                 "unknown_attrs": list(g.unknown_attrs) if g.unknown_attrs else [],
+                "unknown_props_attrs": list(g.unknown_props_attrs) if g.unknown_props_attrs else [],
                 "unknown_children": list(g.unknown_children) if g.unknown_children else [],
             }
             for g in collection.groups
@@ -787,6 +863,12 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                         "action": v.action,
                         "id": v.id,
                         "unknown_attrs": list(v.unknown_attrs) if v.unknown_attrs else [],
+                        "ilt_filter": _ilt_filter_to_dict(v.ilt_filter),
+                        "unknown_elem_attrs": (
+                            list(v.unknown_elem_attrs)
+                            if v.unknown_elem_attrs else []
+                        ),
+                        "unknown_children": list(v.unknown_children) if v.unknown_children else [],
                     }
                     for v in r.values
                 ],
@@ -797,6 +879,22 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
             }
             for r in collection.registry
         ],
+        "groups_unknown_attrs": (
+            list(collection.groups_unknown_attrs)
+            if collection.groups_unknown_attrs else []
+        ),
+        "groups_unknown_children": (
+            list(collection.groups_unknown_children)
+            if collection.groups_unknown_children else []
+        ),
+        "registry_unknown_attrs": (
+            list(collection.registry_unknown_attrs)
+            if collection.registry_unknown_attrs else []
+        ),
+        "registry_unknown_children": (
+            list(collection.registry_unknown_children)
+            if collection.registry_unknown_children else []
+        ),
     }
 
 
@@ -833,6 +931,10 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 (str(k), str(v))
                 for k, v in g.get("unknown_attrs", [])
             ),
+            unknown_props_attrs=tuple(
+                (str(k), str(v))
+                for k, v in g.get("unknown_props_attrs", [])
+            ),
             unknown_children=tuple(g.get("unknown_children", [])),
         )
         for g in data.get("groups", [])
@@ -841,6 +943,11 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     for g in groups:
         _validate_unknown_attrs(
             g.unknown_attrs, _GROUP_RESERVED_ATTRS, f"group {g.name!r}"
+        )
+        _validate_unknown_attrs(
+            g.unknown_props_attrs,
+            _GROUP_PROPS_KNOWN_ATTRS,
+            f"group {g.name!r} properties",
         )
         _validate_unknown_children(
             g.unknown_children, _GROUP_KNOWN_CHILDREN, f"group {g.name!r}"
@@ -866,6 +973,12 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                         (str(k), str(v2))
                         for k, v2 in v.get("unknown_attrs", [])
                     ),
+                    ilt_filter=_parse_ilt_filter_from_dict(v.get("ilt_filter")),
+                    unknown_elem_attrs=tuple(
+                        (str(k), str(v2))
+                        for k, v2 in v.get("unknown_elem_attrs", [])
+                    ),
+                    unknown_children=tuple(v.get("unknown_children", [])),
                 )
                 for v in r.get("values", [])
             ),
@@ -893,8 +1006,30 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 _REGISTRY_VALUE_RESERVED_ATTRS,
                 f"registry value {v.name!r}",
             )
+            _validate_unknown_attrs(
+                v.unknown_elem_attrs,
+                _REGISTRY_RESERVED_ATTRS,
+                f"registry value {v.name!r}",
+            )
+            _validate_unknown_children(
+                v.unknown_children,
+                _REGISTRY_KNOWN_CHILDREN,
+                f"registry value {v.name!r}",
+            )
 
-    return GppCollection(scope=scope, groups=groups, registry=registry)
+    return GppCollection(
+        scope=scope, groups=groups, registry=registry,
+        groups_unknown_attrs=tuple(
+            (str(k), str(v))
+            for k, v in data.get("groups_unknown_attrs", [])
+        ),
+        groups_unknown_children=tuple(data.get("groups_unknown_children", [])),
+        registry_unknown_attrs=tuple(
+            (str(k), str(v))
+            for k, v in data.get("registry_unknown_attrs", [])
+        ),
+        registry_unknown_children=tuple(data.get("registry_unknown_children", [])),
+    )
 
 
 def contains_cpassword(xml: bytes) -> bool:

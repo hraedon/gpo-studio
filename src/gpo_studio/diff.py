@@ -291,6 +291,7 @@ def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
         and a.remove_all_users == b.remove_all_users
         and a.remove_all_groups == b.remove_all_groups
         and a.unknown_attrs == b.unknown_attrs
+        and a.unknown_props_attrs == b.unknown_props_attrs
         and a.unknown_children == b.unknown_children
         and _gpp_members_equal(a, b)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
@@ -306,6 +307,9 @@ def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
             v.value,
             v.action,
             v.unknown_attrs,
+            v.unknown_elem_attrs,
+            v.unknown_children,
+            v.ilt_filter,
         )
         for v in a.values
     ]
@@ -317,6 +321,9 @@ def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
             v.value,
             v.action,
             v.unknown_attrs,
+            v.unknown_elem_attrs,
+            v.unknown_children,
+            v.ilt_filter,
         )
         for v in b.values
     ]
