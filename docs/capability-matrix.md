@@ -172,7 +172,10 @@ captured and re-emitted.
   re-export.
 - **Import:** `Groups/Groups.xml` parsed from GPMC backups. Unknown attributes
   (e.g. `uid`, `userContext`, `disabled`) and unknown child elements are
-  captured and re-emitted on export.
+  captured and re-emitted on export. Root-level attributes and unknown root
+  children (e.g. `<User>` entries) are preserved even when no typed `<Group>`
+  elements exist. Mixed typed/unknown content is preserved but reordered:
+  typed items are emitted first, then unknown children.
 - **Export:** `Preferences/Groups/Groups.xml` in both Studio bundle and GPMC
   backup.
 - **PowerShell plan &#10007;:** GPP is **not applied** by the plan. It is

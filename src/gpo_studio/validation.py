@@ -862,8 +862,11 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
             pass
         case _:
             assert_never(reg.action)
-    if reg.ilt_filter is not None:
-        issues.extend(validate_ilt_filter(reg.ilt_filter, f"{path}/ilt_filter"))
+    for i, val in enumerate(reg.values):
+        if val.ilt_filter is not None:
+            issues.extend(
+                validate_ilt_filter(val.ilt_filter, f"{path}/values/{i}/ilt_filter")
+            )
     return issues
 
 

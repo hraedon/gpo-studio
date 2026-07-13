@@ -726,13 +726,13 @@ def _golden_gpo() -> GPO:
                                 value="configured",
                                 registry_type="REG_SZ",
                                 action="create",
-                            ),
-                        ),
-                        ilt_filter=IltFilter(
-                            items=(
-                                IltPredicate(
-                                    type="group",
-                                    value="S-1-5-21-1-2-3-1003",
+                                ilt_filter=IltFilter(
+                                    items=(
+                                        IltPredicate(
+                                            type="group",
+                                            value="S-1-5-21-1-2-3-1003",
+                                        ),
+                                    ),
                                 ),
                             ),
                         ),
@@ -759,9 +759,9 @@ def _golden_gpo() -> GPO:
         updated_at="2026-01-02T00:00:00Z",
     )
 
-GOLDEN_POLICY_SEMANTIC_SHA256 = "b78f1d23dbea4f55806acf26899d838c3a9bfd8f81e5b7dd3c973a3a75b3af55"
+GOLDEN_POLICY_SEMANTIC_SHA256 = "41014c513bb89786aa51fa5c9b2a388947f667c860e4296ec0cc67b40eff02bd"
 
-GOLDEN_REVIEW_MODEL_SHA256 = "2b19cb05ff05e1f80b95fbb4fb5d19c353e792017a33163d57669968ccc94753"
+GOLDEN_REVIEW_MODEL_SHA256 = "8d3b5fc56707681fd74c84ae53d673db96b86e3863726e34679a91d838171752"
 
 
 def test_golden_policy_semantic_sha256() -> None:

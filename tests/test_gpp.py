@@ -719,7 +719,14 @@ def test_full_registry_round_trip_equality() -> None:
         action="replace",
         values=(
             GppRegistryValue(
-                name="Enabled", value=1, registry_type="REG_DWORD", action="create"
+                name="Enabled", value=1, registry_type="REG_DWORD", action="create",
+                ilt_filter=IltFilter(
+                    items=(
+                        IltPredicate(
+                            type="wmi_query", value="SELECT * FROM Win32_OperatingSystem",
+                        ),
+                    )
+                ),
             ),
             GppRegistryValue(
                 name="Path", value=r"C:\Temp", registry_type="REG_SZ", action="replace"
@@ -730,11 +737,6 @@ def test_full_registry_round_trip_equality() -> None:
                 registry_type="REG_MULTI_SZ",
                 action="delete",
             ),
-        ),
-        ilt_filter=IltFilter(
-            items=(
-                IltPredicate(type="wmi_query", value="SELECT * FROM Win32_OperatingSystem"),
-            )
         ),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
@@ -749,7 +751,7 @@ def test_full_registry_round_trip_equality() -> None:
         assert pv.registry_type == rv.registry_type
         assert pv.action == rv.action
     assert parsed[0].values[0].ilt_filter is not None
-    assert parsed[0].values[0].ilt_filter.predicates == reg.ilt_filter.predicates
+    assert parsed[0].values[0].ilt_filter.predicates == reg.values[0].ilt_filter.predicates
 
 
 def test_editor_id_not_in_serialized_xml() -> None:
