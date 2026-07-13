@@ -326,6 +326,7 @@ def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
 def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
     return (
         a.key.casefold() == b.key.casefold()
+        and a.hive.casefold() == b.hive.casefold()
         and a.action == b.action
         and a.unknown_attrs == b.unknown_attrs
         and a.unknown_children == b.unknown_children

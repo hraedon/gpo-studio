@@ -1,8 +1,11 @@
 # Plan 016 — GPP end-to-end authoring
 
-Status: in-progress (WP-1 completed, WP-2 completed, WP-3 completed, WP-4
-completed, WP-5 partially completed — Python API and codec tests done, browser
-automation deferred to Plan 019)
+Status: in-progress (WP-1 completed, WP-2 completed, WP-3 partially completed
+— browser editors work but clone, reorder, and restore-from-revision actions
+are not yet available, WP-4 partially completed — AND-only semantics, OR and
+FilterCollection grouping not supported, limitation not labeled in UI, WP-5
+partially completed — Python API and codec tests done, browser automation
+deferred to Plan 019)
 Scope: turn the Plan 014 GPP/ILT codec foundation into a complete, reviewable
 Groups and Registry authoring workflow
 Depends on: Plan 015 canonical, validation, and numeric contracts
@@ -90,4 +93,13 @@ and export it without editing JSON or SQLite directly.
 Services, Scheduled Tasks, Files, Folders, Environment, Drives, Printers,
 Shortcuts, Local Users, and arbitrary executable/script payloads remain
 post-1.0. Add each later as its own vertical slice using this plan's gates.
+
+## Known gaps
+
+- Clone action not implemented in browser.
+- Reorder action not available in browser UI (API supports it).
+- Restore-from-revision not available for GPP items.
+- OR and FilterCollection grouping semantics not supported in ILT (AND-only).
+- ILT AND-only limitation not labeled in browser UI.
+- Browser automation deferred to Plan 019.
 

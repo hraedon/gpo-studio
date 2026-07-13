@@ -25,31 +25,33 @@ from gpo_studio.model import GPO, RegistrySetting
 
 _GROUPS_XML_WITH_UNKNOWN = b"""<?xml version="1.0" encoding="utf-8"?>
 <Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
-  <Group clsid="{6D4A79E4-529C-4480-964E-E4ECA473E269}" name="Admins"
-         action="U" removeUsers="0" removeGroups="0"
+  <Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Admins"
          uid="{abc-123}" userContext="0" disabled="0" bypassErrors="1">
-    <Properties groupName="Admins" groupSid="S-1-5-32-544"/>
-    <Members>
-      <Member name="DOMAIN\\Domain Admins" sid="S-1-5-21-1-2-3-500" action="ADD"/>
-    </Members>
+    <Properties action="U" groupName="Admins" groupSid="S-1-5-32-544"
+                deleteAllUsers="0" deleteAllGroups="0">
+      <Members>
+        <Member name="DOMAIN\\Domain Admins" sid="S-1-5-21-1-2-3-500" action="ADD"/>
+      </Members>
+    </Properties>
     <Filters>
-      <FilterOu name="OU=Workstations,DC=example,DC=com" not="0"/>
-      <FilterBattery not="0"/>
-      <FilterGroup name="S-1-5-32-544" sid="S-1-5-32-544" not="0"/>
+      <FilterOrgUnit name="OU=Workstations,DC=example,DC=com" not="0" bool="AND"/>
+      <FilterBattery not="0" bool="AND"/>
+      <FilterGroup sid="S-1-5-32-544" not="0" bool="AND"/>
     </Filters>
   </Group>
 </Groups>"""
 
 _REGISTRY_XML_WITH_UNKNOWN = b"""<?xml version="1.0" encoding="utf-8"?>
-<RegistrySettings clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}">
-  <Registry clsid="{9CD4A0B9-A8CE-471E-A0D8-7DE5A1B4F7CA}"
-            name="Software\\Policies\\Test" action="U"
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\Policies\\Test"
             uid="{def-456}" disabled="0" status="Enabled">
-    <Properties name="Enabled" value="1" type="REG_DWORD" action="C"
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
+                name="Enabled" value="1" type="REG_DWORD"
                 description="Test value"/>
     <Filters>
-      <FilterWmiQuery query="SELECT * FROM Win32_OperatingSystem" not="0"/>
-      <FilterComputer not="0"/>
+      <FilterWmi query="SELECT * FROM Win32_OperatingSystem" not="0" bool="AND"/>
+      <FilterComputer not="0" bool="AND" name="TEST" type="NETBIOS"/>
     </Filters>
   </Registry>
 </RegistrySettings>"""
@@ -58,9 +60,9 @@ _REGISTRY_XML_WITH_UNKNOWN = b"""<?xml version="1.0" encoding="utf-8"?>
 def test_unknown_ilt_predicate_preserved_in_round_trip() -> None:
     xml = (
         b"<Filters>"
-        b'<FilterOu name="OU=Test,DC=example,DC=com" not="0"/>'
-        b'<FilterBattery not="0"/>'
-        b'<FilterGroup name="S-1-5-32-544" sid="S-1-5-32-544" not="0"/>'
+        b'<FilterOrgUnit name="OU=Test,DC=example,DC=com" not="0" bool="AND"/>'
+        b'<FilterBattery not="0" bool="AND"/>'
+        b'<FilterGroup sid="S-1-5-32-544" not="0" bool="AND"/>'
         b"</Filters>"
     )
     parsed = parse_ilt(ET.fromstring(xml))
@@ -71,13 +73,16 @@ def test_unknown_ilt_predicate_preserved_in_round_trip() -> None:
     root = serialize_ilt(parsed)
     serialized = ET.tostring(root, encoding="unicode")
     assert "FilterBattery" in serialized
-    assert "FilterOu" in serialized
+    assert "FilterOrgUnit" in serialized
     assert "FilterGroup" in serialized
 
     reparsed = parse_ilt(ET.fromstring(serialized.encode()))
     assert len(reparsed.predicates) == 2
     assert len(reparsed.unknown_predicates) == 1
-    assert reparsed == parsed
+    assert "FilterBattery" in reparsed.unknown_predicates[0]
+    assert 'not="0"' in reparsed.unknown_predicates[0]
+    assert 'bool="AND"' in reparsed.unknown_predicates[0]
+    assert reparsed.predicates == parsed.predicates
 
 
 def test_unknown_group_attrs_preserved_in_round_trip() -> None:
@@ -108,8 +113,8 @@ def test_unknown_group_child_elements_preserved() -> None:
     xml = (
         b'<?xml version="1.0" encoding="utf-8"?>'
         b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
-        b'<Group clsid="{6D4A79E4-529C-4480-964E-E4ECA473E269}" name="G1" action="U">'
-        b'<Properties groupName="G1"/>'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="G1">'
+        b'<Properties action="U" groupName="G1"/>'
         b'<CustomExtension someAttr="value"/>'
         b'</Group>'
         b'</Groups>'
@@ -163,12 +168,13 @@ def test_unknown_member_attrs_preserved() -> None:
     xml = (
         b'<?xml version="1.0" encoding="utf-8"?>'
         b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
-        b'<Group clsid="{6D4A79E4-529C-4480-964E-E4ECA473E269}" name="G1" action="U">'
-        b'<Properties groupName="G1"/>'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="G1">'
+        b'<Properties action="U" groupName="G1">'
         b'<Members>'
         b'<Member name="DOMAIN\\Admin" sid="S-1-5-21-1-2-3-500" action="ADD" '
         b'uid="{mem-1}" disabled="0"/>'
         b'</Members>'
+        b'</Properties>'
         b'</Group>'
         b'</Groups>'
     )
@@ -262,7 +268,7 @@ def test_unknown_attrs_survive_dict_round_trip() -> None:
 def test_unknown_ilt_predicates_survive_dict_round_trip() -> None:
     filt = IltFilter(
         predicates=(IltPredicate(type="ou", value="OU=Test,DC=example,DC=com"),),
-        unknown_predicates=("<FilterBattery not=\"0\"/>",),
+        unknown_predicates=("<FilterBattery not=\"0\" bool=\"AND\"/>",),
     )
     group = GppGroup(name="Test", ilt_filter=filt)
     collection = GppCollection(scope="computer", groups=(group,))

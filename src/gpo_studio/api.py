@@ -211,6 +211,7 @@ class GppRegistryValueData(BaseModel):
 
 class GppRegistryData(BaseModel):
     key: str = Field(min_length=1, max_length=1000)
+    hive: str = Field(default="HKEY_LOCAL_MACHINE", max_length=50)
     action: Literal["add", "replace", "remove", "update"] = "update"
     values: list[GppRegistryValueData] = Field(default_factory=list)
     id: str = ""
@@ -740,6 +741,7 @@ class GppGroupResponse(BaseModel):
 class GppRegistryResponse(BaseModel):
     id: str
     key: str
+    hive: str
     values: list[GppRegistryValueResponse]
     action: str
     ilt_filter: IltFilterResponse | None
@@ -887,6 +889,7 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
 def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
     return GppRegistry(
         key=data.key,
+        hive=data.hive,
         action=data.action,
         values=tuple(_gpp_registry_value_data_to_model(v) for v in data.values),
         ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),

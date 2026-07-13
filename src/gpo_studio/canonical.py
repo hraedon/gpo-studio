@@ -127,7 +127,7 @@ def gpp_group_identity(group: GppGroup) -> tuple[str, str]:
 
 
 def gpp_registry_identity(reg: GppRegistry) -> str:
-    return reg.key.casefold()
+    return f"{reg.hive.casefold()}\\{reg.key.casefold()}"
 
 
 def gpp_registry_value_identity(value: GppRegistryValue) -> tuple[str, str]:
@@ -193,6 +193,7 @@ def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
     # tuple order. Preserve insertion order so a reorder changes the hash.
     return {
         "key": reg.key.casefold(),
+        "hive": reg.hive,
         "action": reg.action,
         "values": [semantic_dict_gpp_registry_value(v) for v in reg.values],
         "ilt_filter": semantic_dict_ilt(reg.ilt_filter),

@@ -903,13 +903,15 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             )
         if group.id:
             seen_group_ids.add(group.id)
-    seen_registry_keys: set[str] = set()
+    seen_registry_keys: set[tuple[str, str]] = set()
     seen_registry_ids: set[str] = set()
     for idx, reg in enumerate(collection.registry):
         reg_path = f"gpp_collections/{scope}/registry/{idx}"
         issues.extend(validate_gpp_registry(reg, reg_path))
         folded_key = reg.key.strip().casefold()
-        if folded_key and folded_key in seen_registry_keys:
+        folded_hive = reg.hive.strip().casefold()
+        reg_identity = (folded_hive, folded_key)
+        if folded_key and reg_identity in seen_registry_keys:
             issues.append(
                 ValidationIssue(
                     "error",
@@ -919,7 +921,7 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
                 )
             )
         if folded_key:
-            seen_registry_keys.add(folded_key)
+            seen_registry_keys.add(reg_identity)
         if reg.id and reg.id in seen_registry_ids:
             issues.append(
                 ValidationIssue(

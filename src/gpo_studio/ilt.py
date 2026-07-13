@@ -1,4 +1,10 @@
-"""Item-Level Targeting (ILT) expression builder for GPP elements."""
+"""Item-Level Targeting (ILT) expression builder for GPP elements.
+
+Implements the MS-GPPREF targeting protocol.  Every filter element requires
+``bool="AND|OR"`` and ``not="0|1"`` attributes per the IFilter schema.
+Studio emits ``bool="AND"`` on every predicate because only AND semantics
+are authored; OR and nested FilterCollection are preserved as unknown XML.
+"""
 
 from __future__ import annotations
 
@@ -46,12 +52,14 @@ def _not_attr(negate: bool) -> str:
 def _serialize_predicate(pred: IltPredicate) -> ET.Element:
     match pred.type:
         case "ou":
-            elem = ET.Element(_ns("FilterOu"))
+            elem = ET.Element(_ns("FilterOrgUnit"))
             elem.set("name", pred.value)
         case "group":
             elem = ET.Element(_ns("FilterGroup"))
-            elem.set("name", pred.value)
-            elem.set("sid", pred.value)
+            if pred.value.startswith("S-"):
+                elem.set("sid", pred.value)
+            else:
+                elem.set("name", pred.value)
         case "registry":
             elem = ET.Element(_ns("FilterRegistry"))
             parts = pred.value.rsplit("\\", 1)
@@ -83,20 +91,21 @@ def _serialize_predicate(pred: IltPredicate) -> ET.Element:
             else:
                 raise IltError(f"Invalid IP range format: {pred.value!r}")
         case "environment":
-            elem = ET.Element(_ns("FilterEnvironment"))
+            elem = ET.Element(_ns("FilterVariable"))
             if "=" in pred.value:
-                name, val = pred.value.split("=", 1)
-                elem.set("name", name)
+                var_name, val = pred.value.split("=", 1)
+                elem.set("variableName", var_name)
                 elem.set("value", val)
             else:
-                elem.set("name", pred.value)
+                elem.set("variableName", pred.value)
                 elem.set("value", "")
         case "wmi_query":
-            elem = ET.Element(_ns("FilterWmiQuery"))
+            elem = ET.Element(_ns("FilterWmi"))
             elem.set("query", pred.value)
         case _:
             assert_never(pred.type)
     elem.set("not", _not_attr(pred.negate))
+    elem.set("bool", "AND")
     return elem
 
 
@@ -115,11 +124,20 @@ def serialize_ilt(filter: IltFilter) -> ET.Element:
     return root
 
 
+# Canonical MS-GPPREF element names mapped to typed predicate types.
 _TAG_TO_TYPE: dict[str, IltPredicateType] = {
-    "FilterOu": "ou",
+    "FilterOrgUnit": "ou",
     "FilterGroup": "group",
     "FilterRegistry": "registry",
     "FilterIpRange": "ip_range",
+    "FilterVariable": "environment",
+    "FilterWmi": "wmi_query",
+}
+
+# Legacy element names used by earlier Studio versions.  Accepted on parse
+# for backward compatibility with existing stored data, but never emitted.
+_LEGACY_TAG_TO_TYPE: dict[str, IltPredicateType] = {
+    "FilterOu": "ou",
     "FilterEnvironment": "environment",
     "FilterWmiQuery": "wmi_query",
 }
@@ -143,7 +161,7 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
         case "ou":
             value = elem.get("name", "")
         case "group":
-            value = elem.get("name", "") or elem.get("sid", "")
+            value = elem.get("sid", "") or elem.get("name", "")
         case "registry":
             key = elem.get("key", "")
             value_name = elem.get("valueName", "")
@@ -153,9 +171,9 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
             max_ip = elem.get("max", "")
             value = _reconstruct_ip_range(min_ip, max_ip)
         case "environment":
-            name = elem.get("name", "")
+            name = elem.get("variableName", "") or elem.get("name", "")
             val = elem.get("value", "")
-            value = f"{name}={val}"
+            value = f"{name}={val}" if val else name
         case "wmi_query":
             value = elem.get("query", "")
         case _:
@@ -168,7 +186,10 @@ def parse_ilt(elem: ET.Element) -> IltFilter:
     predicates: list[IltPredicate] = []
     unknown: list[str] = []
     for child in elem:
-        pred_type = _TAG_TO_TYPE.get(_local_name(child.tag))
+        local = _local_name(child.tag)
+        pred_type = _TAG_TO_TYPE.get(local)
+        if pred_type is None:
+            pred_type = _LEGACY_TAG_TO_TYPE.get(local)
         if pred_type is None:
             unknown.append(ET.tostring(child, encoding="unicode"))
             continue

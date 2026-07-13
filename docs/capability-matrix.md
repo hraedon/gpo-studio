@@ -162,8 +162,10 @@ implemented and tested. Unknown XML attributes and child elements are preserved
 losslessly through import/export round-trips.
 
 - **Authoring &#9680;:** Browser editor available via the Preferences tab.
-  Groups CRUD via `/api/gpos/{guid}/preferences/groups`. Unknown content
-  preserved from import is retained on re-export.
+  Groups CRUD via `/api/gpos/{guid}/preferences/groups`. Clone, reorder, and
+  restore-from-revision actions are not yet available in the browser. Unknown
+  content preserved from import is retained through browser edits and
+  re-export.
 - **Import:** `Groups/Groups.xml` parsed from GPMC backups. Unknown attributes
   (e.g. `uid`, `userContext`, `disabled`) and unknown child elements are
   captured and re-emitted on export.
@@ -185,6 +187,9 @@ through import/export round-trips.
 - **Authoring &#9680;:** Browser editor available via the Preferences tab.
   Registry CRUD via `/api/gpos/{guid}/preferences/registry`. Unknown content
   preserved from import is retained on re-export.
+- **Serialization:** Each registry value is serialized as an individual
+  `<Registry>` element per MS-GPPREF, keyed by `hive` (e.g.
+  HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER), `key`, and value name.
 - **Import:** `Registry/Registry.xml` parsed from GPMC backups. Unknown
   attributes on `<Registry>` and `<Properties>` elements are captured.
 - **Export:** `Preferences/Registry/Registry.xml` in both Studio bundle and GPMC
@@ -200,21 +205,29 @@ GPP Groups and GPP Registry elements:
 
 | Predicate | XML element | Value format |
 |-----------|-------------|--------------|
-| `ou` | `FilterOu` | OU distinguished name |
+| `ou` | `FilterOrgUnit` | OU distinguished name |
 | `group` | `FilterGroup` | Group name or SID |
 | `registry` | `FilterRegistry` | `key\valueName` path |
 | `ip_range` | `FilterIpRange` | CIDR (`10.0.0.0/8`) or range (`10.0.0.1-10.0.0.255`) |
-| `environment` | `FilterEnvironment` | `VAR=value` or `VAR` |
-| `wmi_query` | `FilterWmiQuery` | WQL query string |
+| `environment` | `FilterVariable` | `VAR=value` or `VAR` |
+| `wmi_query` | `FilterWmi` | WQL query string |
 
 Each predicate supports negation (`not="1"`). Predicates serialize and parse
 round-trip. Unknown filter types (e.g. `FilterBattery`, `FilterComputer`) are
 captured as raw XML and re-emitted losslessly on export, preserving imported
 content that GPO Studio does not have a typed editor for.
 
+> **Note:** ILT currently supports AND combination only. OR semantics and
+> nested groups (`FilterCollection`) are not supported. Imported expressions
+> using OR or grouping are preserved as read-only rather than flattened.
+
 - **Authoring &#9680;:** Browser ILT editor attached to GPP Groups and Registry
-  editors via the Preferences tab. Unknown predicate types are shown as
-  read-only with a warning; they are preserved on save and re-export.
+  editors via the Preferences tab. Only AND combination is supported; OR and
+  nested group (`FilterCollection`) semantics are not available. Unknown
+  predicate types from `unknown_predicates` are rendered as read-only with a
+  warning; they are preserved on save and re-export. (Previously only typed
+  `predicates` were checked; `unknown_predicates` are now rendered and
+  preserved as well.)
 - **Import/Export:** Serialized within GPP XML. Unknown predicates preserved
   losslessly.
 - **Diff &#10003;:** Compared as part of GPP element equality; not surfaced as a standalone diff entry.
