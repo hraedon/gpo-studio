@@ -28,7 +28,7 @@ export function renderGpp(){
   $$("[data-delete-gpp-group]").forEach(el=>el.onclick=()=>deleteGppGroup(scope,el.dataset.deleteGppGroup));
   $("#gpp-registry-table").innerHTML=registry.map(reg=>{
     const values=reg.values.map(v=>`${escapeHtml(v.name)}=${escapeHtml(formatRegValue(v))}`).join(", ")||"—";
-    const iltCount=reg.ilt_filter&&reg.ilt_filter.items?reg.ilt_filter.items.filter(i=>typeof i==="object").length:0;
+    const iltCount=reg.ilt_filter&&reg.ilt_filter.items?reg.ilt_filter.items.filter(i=>typeof i==="object").length:(reg.values||[]).reduce((n,v)=>n+(v.ilt_filter&&v.ilt_filter.items?v.ilt_filter.items.filter(i=>typeof i==="object").length:0),0);
     const ilt=iltCount?`ILT: ${iltCount} predicate${iltCount===1?'':'s'}`:"—";
     return `<tr><td class="mono">${escapeHtml(reg.action)}</td><td><div class="mono truncate" title="${escapeHtml(reg.key)}">${escapeHtml(reg.key)}</div></td><td><div class="truncate" title="${escapeHtml(values)}">${escapeHtml(values)}</div></td><td>${ilt}</td><td><div class="row-actions"><button data-edit-gpp-registry="${escapeHtml(reg.id)}">Edit</button><button data-delete-gpp-registry="${escapeHtml(reg.id)}">×</button></div></td></tr>`;
   }).join("");
@@ -124,16 +124,17 @@ export function openGppRegistry(scope,registry=null){
   $("#gpp-values-list").innerHTML="";
   $("#gpp-ilt-registry-list").innerHTML="";
   $("#gpp-ilt-registry-preview").textContent="";
-  if(registry){
-    f.key.value=registry.key;
-    f.hive.value=registry.hive||"HKEY_LOCAL_MACHINE";
-    f.action.value=registry.action;
-    (registry.values||[]).forEach(v=>addValueRow(v));
-    if(registry.ilt_filter&&registry.ilt_filter.items)registry.ilt_filter.items.forEach(item=>{
-      if(typeof item==="string")addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",{unknown:true,raw:item});
-      else addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",item);
-    });
-    f.reason.value="Update GPP registry";
+    if(registry){
+      f.key.value=registry.key;
+      f.hive.value=registry.hive||"HKEY_LOCAL_MACHINE";
+      f.action.value=registry.action;
+      (registry.values||[]).forEach(v=>addValueRow(v));
+      const firstIlt=(registry.values||[]).find(v=>v.ilt_filter);
+      if(firstIlt&&firstIlt.ilt_filter&&firstIlt.ilt_filter.items)firstIlt.ilt_filter.items.forEach(item=>{
+        if(typeof item==="string")addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",{unknown:true,raw:item});
+        else addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",item);
+      });
+      f.reason.value="Update GPP registry";
   }else{
     f.reason.value="Add GPP registry";
   }
@@ -189,7 +190,7 @@ async function submitGppRegistry(event){
   const badDword=values.find(v=>v.action!=="delete"&&(v.registry_type==="REG_DWORD"||v.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(v.value));
   if(badDword){showFormErrors(f,{issues:[{message:`${badDword.registry_type} value for "${badDword.name}" must be a non-negative decimal integer.`}]});return}
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,values,ilt_filter:collectIlt("gpp-ilt-registry-list")};
-  if(state.editingGppRegistry){registry.id=state.editingGppRegistry.id;registry.unknown_attrs=state.editingGppRegistry.unknown_attrs||[];registry.unknown_children=state.editingGppRegistry.unknown_children||[]}
+  if(state.editingGppRegistry){registry.id=state.editingGppRegistry.id}
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";renderAll();renderList();toast("GPP registry saved")}catch(error){showFormErrors(f,error)}
 }
@@ -213,7 +214,7 @@ function addPredicateRow(listId,previewId,predicate=null){
   negateBox.onchange=()=>updateIltPreview(listId,previewId);
   if(predicate&&predicate.unknown){row.dataset.readonly="true";row.dataset.unknownPredicate=predicate.raw;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value="[unsupported predicate]";row.title="Unknown ILT predicate — preserved on save, cannot be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unknown — preserved on save";row.appendChild(warn)}
   else if(predicate&&ILT_TYPES.includes(predicate.type)&&predicate.bool_op==="OR"){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="ILT predicate with OR combination — preserved on save, cannot be edited in browser";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ OR — preserved on save";row.appendChild(warn)}
-  else if(predicate&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate}
+  else if(predicate&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.dataset.unknownAttrs=predicate.unknown_attrs?JSON.stringify(predicate.unknown_attrs):""}
   else if(predicate){row.dataset.readonly="true";row.dataset.unknownPredicate=predicate.raw||"";typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="Unsupported ILT predicate type — preserved on save, cannot be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unsupported — preserved on save";row.appendChild(warn)}
   update();
   row.querySelector("button").onclick=()=>{row.remove();updateIltPreview(listId,previewId)};
@@ -230,7 +231,10 @@ function collectIlt(listId){
     const negate=row.querySelector('[data-field=negate]').checked;
     const value=row.querySelector('[data-field=value]').value.trim();
     if(!value)return null;
-    return {type,negate,value,bool_op:"AND"};
+    const result={type,negate,value,bool_op:"AND"};
+    const ua=row.dataset.unknownAttrs;
+    if(ua)try{result.unknown_attrs=JSON.parse(ua)}catch{}
+    return result;
   }).filter(item=>item!==null);
   if(!items.length)return null;
   return {items};

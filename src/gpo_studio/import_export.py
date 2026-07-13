@@ -14,14 +14,10 @@ from .backup import (
 )
 from .gpp import (
     GppCollection,
-    GppGroup,
-    GppRegistry,
     GppScope,
     contains_cpassword,
     ensure_editor_ids,
     parse_gpp_collection,
-    parse_gpp_groups,
-    parse_gpp_registry,
 )
 from .model import (
     GPO,
@@ -178,34 +174,20 @@ def collect_gpp_collections(backup_dir: Path, gpo_guid: str) -> tuple[GppCollect
             continue
         groups_path = side_dir / "Groups" / "Groups.xml"
         registry_path = side_dir / "Registry" / "Registry.xml"
-        groups: tuple[GppGroup, ...] = ()
-        registry: tuple[GppRegistry, ...] = ()
-        if groups_path.exists():
-            groups_data = read_file_bytes(groups_path)
-            if contains_cpassword(groups_data):
-                raise BackupError("cpassword detected in Groups.xml")
-            groups = parse_gpp_groups(groups_data)
-        if registry_path.exists():
-            registry_data = read_file_bytes(registry_path)
-            if contains_cpassword(registry_data):
-                raise BackupError("cpassword detected in Registry.xml")
-            registry = parse_gpp_registry(registry_data)
-        if groups or registry:
+        if groups_path.exists() or registry_path.exists():
             files: dict[str, bytes] = {}
             if groups_path.exists():
-                files["Groups/Groups.xml"] = read_file_bytes(groups_path)
+                groups_data = read_file_bytes(groups_path)
+                if contains_cpassword(groups_data):
+                    raise BackupError("cpassword detected in Groups.xml")
+                files["Groups/Groups.xml"] = groups_data
             if registry_path.exists():
-                files["Registry/Registry.xml"] = read_file_bytes(registry_path)
+                registry_data = read_file_bytes(registry_path)
+                if contains_cpassword(registry_data):
+                    raise BackupError("cpassword detected in Registry.xml")
+                files["Registry/Registry.xml"] = registry_data
             parsed_collection = parse_gpp_collection(scope, files)
             collections.append(
-                ensure_editor_ids(
-                    GppCollection(
-                        scope=scope, groups=groups, registry=registry,
-                        groups_unknown_attrs=parsed_collection.groups_unknown_attrs,
-                        groups_unknown_children=parsed_collection.groups_unknown_children,
-                        registry_unknown_attrs=parsed_collection.registry_unknown_attrs,
-                        registry_unknown_children=parsed_collection.registry_unknown_children,
-                    )
-                )
+                ensure_editor_ids(parsed_collection)
             )
     return tuple(collections)

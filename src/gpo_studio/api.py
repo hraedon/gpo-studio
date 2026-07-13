@@ -239,8 +239,6 @@ class GppRegistryData(BaseModel):
     values: list[GppRegistryValueData] = Field(default_factory=list)
     id: str = ""
     ilt_filter: IltFilterData | None = None
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
 
 
 class GppGroupMutation(Audit):
@@ -772,9 +770,6 @@ class GppRegistryResponse(BaseModel):
     hive: str
     values: list[GppRegistryValueResponse]
     action: str
-    ilt_filter: IltFilterResponse | None
-    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1040,21 +1035,19 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
                 path="hive",
             )
         ]) from error
+    reg_ilt = _ilt_filter_data_to_model(data.ilt_filter)
+    values = tuple(_gpp_registry_value_data_to_model(v) for v in data.values)
+    if reg_ilt is not None:
+        values = tuple(
+            replace(v, ilt_filter=v.ilt_filter or reg_ilt)
+            for v in values
+        )
     registry = GppRegistry(
         key=data.key,
         hive=hive,
         action=data.action,
-        values=tuple(_gpp_registry_value_data_to_model(v) for v in data.values),
-        ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
+        values=values,
         id=data.id,
-        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-        unknown_children=tuple(data.unknown_children),
-    )
-    _validate_gpp_unknown_attrs(
-        registry.unknown_attrs, _REGISTRY_RESERVED_ATTRS, f"registry {registry.key!r}"
-    )
-    _validate_gpp_unknown_children(
-        registry.unknown_children, _REGISTRY_KNOWN_CHILDREN, f"registry {registry.key!r}"
     )
     return registry
 

@@ -75,6 +75,14 @@ class GppRegistryChange:
 
 
 @dataclass(frozen=True, slots=True)
+class GppCollectionChange:
+    kind: Literal["added", "removed", "modified"]
+    scope: str
+    old: GppCollection | None
+    new: GppCollection | None
+
+
+@dataclass(frozen=True, slots=True)
 class MetadataChange:
     field: str
     old: str | bool
@@ -106,6 +114,7 @@ class TwoWayDiff:
     wmi_filter: WmiFilterChange | None = None
     gpp_groups: tuple[GppGroupChange, ...] = ()
     gpp_registry: tuple[GppRegistryChange, ...] = ()
+    gpp_collection: tuple[GppCollectionChange, ...] = ()
     metadata: tuple[MetadataChange, ...] = ()
     cse_metadata: tuple[CseMetadataChange, ...] = ()
 
@@ -191,6 +200,7 @@ class ThreeWayDiff:
     link_conflicts: tuple[LinkConflict, ...] = ()
     gpp_groups: tuple[GppGroupChange, ...] = ()
     gpp_registry: tuple[GppRegistryChange, ...] = ()
+    gpp_collection: tuple[GppCollectionChange, ...] = ()
     gpp_conflicts: tuple[GppGroupConflict | GppRegistryConflict, ...] = ()
     gpp_reorder_conflicts: tuple[GppReorderConflict, ...] = ()
     metadata: tuple[MetadataChange, ...] = ()
@@ -335,10 +345,7 @@ def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
         a.key.casefold() == b.key.casefold()
         and a.hive.casefold() == b.hive.casefold()
         and a.action == b.action
-        and a.unknown_attrs == b.unknown_attrs
-        and a.unknown_children == b.unknown_children
         and _gpp_registry_values_equal(a, b)
-        and _ilt_equal(a.ilt_filter, b.ilt_filter)
     )
 
 
@@ -577,6 +584,40 @@ def _diff_gpp_registry(
     return changes
 
 
+def _gpp_collection_equal(a: GppCollection, b: GppCollection) -> bool:
+    return (
+        a.groups_unknown_attrs == b.groups_unknown_attrs
+        and a.groups_unknown_children == b.groups_unknown_children
+        and a.registry_unknown_attrs == b.registry_unknown_attrs
+        and a.registry_unknown_children == b.registry_unknown_children
+    )
+
+
+def _diff_gpp_collections(
+    old: tuple[GppCollection, ...], new: tuple[GppCollection, ...]
+) -> list[GppCollectionChange]:
+    old_map: dict[str, GppCollection] = {c.scope: c for c in old}
+    new_map: dict[str, GppCollection] = {c.scope: c for c in new}
+    scopes = set(old_map.keys()) | set(new_map.keys())
+    changes: list[GppCollectionChange] = []
+    for scope in sorted(scopes):
+        old_c = old_map.get(scope)
+        new_c = new_map.get(scope)
+        if old_c is None and new_c is not None:
+            changes.append(GppCollectionChange(
+                kind="added", scope=scope, old=None, new=new_c
+            ))
+        elif new_c is None and old_c is not None:
+            changes.append(GppCollectionChange(
+                kind="removed", scope=scope, old=old_c, new=None
+            ))
+        elif old_c is not None and new_c is not None and not _gpp_collection_equal(old_c, new_c):
+            changes.append(GppCollectionChange(
+                kind="modified", scope=scope, old=old_c, new=new_c
+            ))
+    return changes
+
+
 def diff_gpp(
     old: tuple[GppCollection, ...], new: tuple[GppCollection, ...]
 ) -> tuple[tuple[GppGroupChange, ...], tuple[GppRegistryChange, ...]]:
@@ -667,6 +708,9 @@ def _diff_metadata(old: GPO, new: GPO) -> list[MetadataChange]:
 
 def diff_gpos(old: GPO, new: GPO) -> TwoWayDiff:
     gpp_groups, gpp_registry = diff_gpp(old.gpp_collections, new.gpp_collections)
+    gpp_collection = _diff_gpp_collections(
+        old.gpp_collections, new.gpp_collections
+    )
     return TwoWayDiff(
         settings=tuple(diff_settings(old.settings, new.settings)),
         links=tuple(diff_links(old.links, new.links)),
@@ -676,6 +720,7 @@ def diff_gpos(old: GPO, new: GPO) -> TwoWayDiff:
         wmi_filter=_diff_wmi_filter(old.wmi_filter, new.wmi_filter),
         gpp_groups=gpp_groups,
         gpp_registry=gpp_registry,
+        gpp_collection=tuple(gpp_collection),
         metadata=tuple(_diff_metadata(old, new)),
         cse_metadata=tuple(diff_cse_metadata(old.cse_metadata, new.cse_metadata)),
     )
@@ -1092,6 +1137,9 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
         link_conflicts=link_conflicts,
         gpp_groups=gpp_groups,
         gpp_registry=gpp_registry,
+        gpp_collection=tuple(_diff_gpp_collections(
+            baseline.gpp_collections, draft.gpp_collections
+        )),
         gpp_conflicts=gpp_conflicts,
         gpp_reorder_conflicts=gpp_reorder_conflicts,
         metadata=tuple(_diff_metadata(baseline, draft)),

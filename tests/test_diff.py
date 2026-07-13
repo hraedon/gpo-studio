@@ -1270,3 +1270,22 @@ def test_three_way_gpp_registry_reorder_conflict() -> None:
     assert conflict.observed_order == tuple(
         str(gpp_registry_identity(r)) for r in (reg_a, reg_c, reg_b)
     )
+
+
+def test_root_metadata_change_produces_diff() -> None:
+    from gpo_studio.gpp import GppCollection, GppGroup
+    from gpo_studio.model import GPO
+
+    base = GPO(guid="g-root-001", name="Root metadata test")
+    gpo_without = replace(base, gpp_collections=(
+        GppCollection(scope="computer", groups=(GppGroup(name="G1"),)),
+    ))
+    gpo_with = replace(base, gpp_collections=(
+        GppCollection(
+            scope="computer", groups=(GppGroup(name="G1"),),
+            groups_unknown_attrs=(("disabled", "1"),),
+        ),
+    ))
+    result = diff_gpos(gpo_without, gpo_with)
+    assert len(result.gpp_collection) > 0
+    assert result.gpp_collection[0].kind == "modified"

@@ -251,22 +251,22 @@ def test_unknown_attrs_survive_dict_round_trip() -> None:
                 name="V",
                 value="x",
                 unknown_attrs=(("description", "desc"),),
+                unknown_elem_attrs=(("uid", "{test-2}"),),
             ),
         ),
-        unknown_attrs=(("uid", "{test-2}"),),
     )
     collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
     d = gpp_collection_to_dict(collection)
 
     assert d["groups"][0]["unknown_attrs"] == [("uid", "{test-1}"), ("disabled", "0")]
     assert d["groups"][0]["unknown_children"] == ["<CustomExt attr='val'/>"]
-    assert d["registry"][0]["unknown_attrs"] == [("uid", "{test-2}")]
+    assert d["registry"][0]["values"][0]["unknown_elem_attrs"] == [("uid", "{test-2}")]
     assert d["registry"][0]["values"][0]["unknown_attrs"] == [("description", "desc")]
 
     restored = gpp_collection_from_dict(d)
     assert restored.groups[0].unknown_attrs == (("uid", "{test-1}"), ("disabled", "0"))
     assert restored.groups[0].unknown_children == ("<CustomExt attr='val'/>",)
-    assert restored.registry[0].unknown_attrs == (("uid", "{test-2}"),)
+    assert restored.registry[0].values[0].unknown_elem_attrs == (("uid", "{test-2}"),)
     assert restored.registry[0].values[0].unknown_attrs == (("description", "desc"),)
 
 
@@ -515,3 +515,81 @@ def test_group_properties_unknown_attrs_preserved() -> None:
 
     reparsed = parse_gpp_groups(serialized)
     assert reparsed[0].unknown_props_attrs == group.unknown_props_attrs
+
+
+def test_unsupported_only_groups_file_preserved() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}" disabled="1">'
+        b'<User clsid="{DF5F1855-FDA4-4B49-A6AE-5D2A3F4D7B5B}" name="AdminUser">'
+        b'<Properties action="U" userName="AdminUser"/>'
+        b'</User>'
+        b'</Groups>'
+    )
+    files = {"Groups/Groups.xml": xml}
+    parsed = parse_gpp_collection("computer", files)
+    assert len(parsed.groups) == 0
+    assert len(parsed.groups_unknown_children) == 1
+    assert "User" in parsed.groups_unknown_children[0]
+    assert parsed.groups_unknown_attrs == (("disabled", "1"),)
+
+    from gpo_studio.gpp import serialize_gpp
+    output = serialize_gpp(parsed)
+    assert "Groups/Groups.xml" in output
+    assert b"<User" in output["Groups/Groups.xml"]
+    assert b'disabled="1"' in output["Groups/Groups.xml"]
+
+
+def test_non_consecutive_registry_coalescing() -> None:
+    xml = b"""<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\KeyA">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\KeyA"
+                name="Val1" type="REG_SZ" value="a"/>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\KeyB">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\KeyB"
+                name="Val2" type="REG_SZ" value="b"/>
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
+            name="Software\\KeyA">
+    <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\KeyA"
+                name="Val3" type="REG_SZ" value="c"/>
+  </Registry>
+</RegistrySettings>"""
+    parsed = parse_gpp_registry(xml)
+    assert len(parsed) == 2
+    key_a = [r for r in parsed if r.key == r"Software\KeyA"][0]
+    key_b = [r for r in parsed if r.key == r"Software\KeyB"][0]
+    assert len(key_a.values) == 2
+    assert key_a.values[0].name == "Val1"
+    assert key_a.values[1].name == "Val3"
+    assert len(key_b.values) == 1
+    assert key_b.values[0].name == "Val2"
+
+
+def test_old_registry_level_metadata_applied_to_values() -> None:
+    old_dict = {
+        "scope": "computer",
+        "registry": [{
+            "key": "K",
+            "hive": "HKEY_LOCAL_MACHINE",
+            "action": "update",
+            "ilt_filter": {
+                "items": [
+                    {"type": "ou", "value": "OU=Test", "negate": False, "bool_op": "AND"}
+                ]
+            },
+            "unknown_attrs": [["uid", "{test}"]],
+            "unknown_children": ["<Custom/>"],
+            "values": [{"name": "V", "value": "x"}],
+        }],
+    }
+    restored = gpp_collection_from_dict(old_dict)
+    val = restored.registry[0].values[0]
+    assert val.ilt_filter is not None
+    assert val.ilt_filter.predicates[0].type == "ou"
+    assert val.unknown_elem_attrs == (("uid", "{test}"),)
+    assert val.unknown_children == ("<Custom/>",)

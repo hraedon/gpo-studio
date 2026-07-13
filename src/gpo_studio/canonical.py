@@ -206,9 +206,6 @@ def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
         "hive": reg.hive,
         "action": reg.action,
         "values": [semantic_dict_gpp_registry_value(v) for v in reg.values],
-        "ilt_filter": semantic_dict_ilt(reg.ilt_filter),
-        "unknown_attrs": list(reg.unknown_attrs),
-        "unknown_children": list(reg.unknown_children),
     }
 
 
