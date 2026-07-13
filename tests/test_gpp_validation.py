@@ -462,3 +462,246 @@ def test_gpp_collection_clean_text_no_control_character_errors() -> None:
     collection = _valid_collection()
     issues = validate_gpp_collection(collection)
     assert not any(i.code.startswith("control_character_in_") for i in issues)
+
+
+def test_gpp_group_description_xml_unsafe_fffe_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                description="dangerous\ufffe",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_group_description"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/description"
+        for i in issues
+    )
+
+
+def test_ilt_predicate_value_xml_unsafe_ffff_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(
+                    predicates=(
+                        IltPredicate(type="ou", value="OU=Test\uffff"),
+                    )
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_ilt_value"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/groups/0/ilt_filter/0/value"
+        for i in issues
+    )
+
+
+def test_gpp_member_name_xml_unsafe_surrogate_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                members=(
+                    GppGroupMember(
+                        sid="S-1-5-21-1-2-3-500",
+                        name="DOMAIN\ud800\\Admins",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_member_name"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/members/0/name"
+        for i in issues
+    )
+
+
+def test_gpp_group_description_supplementary_noncharacter_rejected() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                description="bad\U0001FFFE",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_group_description"
+        and i.severity == "error"
+        for i in issues
+    )
+
+
+def test_gpp_collection_safe_unicode_text_no_control_character_errors() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Administrators \u4e2d\u6587 \u2705",
+                sid="S-1-5-32-544",
+                description="Emoji and CJK are XML-safe.",
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(i.code.startswith("control_character_in_") for i in issues)
+
+
+def test_duplicate_gpp_group_id_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(name="Admins", sid="S-1-5-32-544", id="grp-1"),
+            GppGroup(name="Helpdesk", sid="S-1-5-32-545", id="grp-1"),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "duplicate_gpp_group_id"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/1/id"
+        for i in issues
+    )
+
+
+def test_duplicate_gpp_member_id_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                sid="S-1-5-32-544",
+                members=(
+                    GppGroupMember(
+                        sid="S-1-5-21-1-2-3-500",
+                        name="DOMAIN\\Admins",
+                        id="m-1",
+                    ),
+                    GppGroupMember(
+                        sid="S-1-5-21-1-2-3-1000",
+                        name="DOMAIN\\Helpdesk",
+                        id="m-1",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "duplicate_gpp_member_id"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/groups/0/members/1/id"
+        for i in issues
+    )
+
+
+def test_duplicate_gpp_registry_value_id_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(
+                        name="Enabled",
+                        value=1,
+                        registry_type="REG_DWORD",
+                        id="v-1",
+                    ),
+                    GppRegistryValue(
+                        name="Path",
+                        value=r"C:\Temp",
+                        registry_type="REG_SZ",
+                        id="v-1",
+                    ),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "duplicate_gpp_registry_value_id"
+        and i.severity == "error"
+        and i.path
+        == "gpp_collections/computer/registry/0/values/1/id"
+        for i in issues
+    )
+
+
+def test_duplicate_gpp_registry_id_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(key=r"Software\Test1", id="r-1"),
+            GppRegistry(key=r"Software\Test2", id="r-1"),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "duplicate_gpp_registry_id"
+        and i.severity == "error"
+        and i.path == "gpp_collections/computer/registry/1/id"
+        for i in issues
+    )
+
+
+def test_empty_gpp_editor_ids_not_flagged() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(name="Admins", sid="S-1-5-32-544", id=""),
+            GppGroup(name="Helpdesk", sid="S-1-5-32-545", id=""),
+        ),
+        registry=(
+            GppRegistry(key=r"Software\A", id=""),
+            GppRegistry(
+                key=r"Software\B",
+                values=(
+                    GppRegistryValue(name="X", value=1, registry_type="REG_DWORD", id=""),
+                    GppRegistryValue(name="Y", value=2, registry_type="REG_DWORD", id=""),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(
+        i.code
+        in (
+            "duplicate_gpp_group_id",
+            "duplicate_gpp_registry_id",
+            "duplicate_gpp_registry_value_id",
+        )
+        for i in issues
+    )
+
+
+def test_unique_gpp_editor_ids_no_issues() -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(name="Admins", sid="S-1-5-32-544", id="grp-1"),
+            GppGroup(name="Helpdesk", sid="S-1-5-32-545", id="grp-2"),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(i.code == "duplicate_gpp_group_id" for i in issues)

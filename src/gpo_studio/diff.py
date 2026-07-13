@@ -58,7 +58,7 @@ class WmiFilterChange:
 
 @dataclass(frozen=True, slots=True)
 class GppGroupChange:
-    kind: Literal["added", "removed", "modified"]
+    kind: Literal["added", "removed", "modified", "reordered"]
     identity: tuple[str, str]
     scope: str
     old: GppGroup | None
@@ -67,7 +67,7 @@ class GppGroupChange:
 
 @dataclass(frozen=True, slots=True)
 class GppRegistryChange:
-    kind: Literal["added", "removed", "modified"]
+    kind: Literal["added", "removed", "modified", "reordered"]
     identity: str
     scope: str
     old: GppRegistry | None
@@ -249,19 +249,25 @@ def _ilt_equal(a: IltFilter | None, b: IltFilter | None) -> bool:
 
 
 def _gpp_members_equal(a: GppGroup, b: GppGroup) -> bool:
-    a_members = {gpp_member_identity(m): m for m in a.members}
-    b_members = {gpp_member_identity(m): m for m in b.members}
-    if a_members.keys() != b_members.keys():
-        return False
-    for key, a_member in a_members.items():
-        b_member = b_members[key]
-        if (
-            a_member.sid.lower() != b_member.sid.lower()
-            or a_member.name != b_member.name
-            or a_member.action != b_member.action
-        ):
-            return False
-    return True
+    a_seq = [
+        (
+            gpp_member_identity(m),
+            m.sid.lower(),
+            m.name,
+            m.action,
+        )
+        for m in a.members
+    ]
+    b_seq = [
+        (
+            gpp_member_identity(m),
+            m.sid.lower(),
+            m.name,
+            m.action,
+        )
+        for m in b.members
+    ]
+    return a_seq == b_seq
 
 
 def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
@@ -278,20 +284,27 @@ def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
 
 
 def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
-    a_values = {gpp_registry_value_identity(v): v for v in a.values}
-    b_values = {gpp_registry_value_identity(v): v for v in b.values}
-    if a_values.keys() != b_values.keys():
-        return False
-    for key, a_value in a_values.items():
-        b_value = b_values[key]
-        if (
-            a_value.name.casefold() != b_value.name.casefold()
-            or a_value.registry_type != b_value.registry_type
-            or a_value.value != b_value.value
-            or a_value.action != b_value.action
-        ):
-            return False
-    return True
+    a_seq = [
+        (
+            gpp_registry_value_identity(v),
+            v.name.casefold(),
+            v.registry_type,
+            v.value,
+            v.action,
+        )
+        for v in a.values
+    ]
+    b_seq = [
+        (
+            gpp_registry_value_identity(v),
+            v.name.casefold(),
+            v.registry_type,
+            v.value,
+            v.action,
+        )
+        for v in b.values
+    ]
+    return a_seq == b_seq
 
 
 def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
@@ -396,6 +409,24 @@ def diff_security_filters(
     return changes
 
 
+def _reordered_common_identities[IdentityT](
+    old_identities: list[IdentityT],
+    new_identities: list[IdentityT],
+) -> list[IdentityT]:
+    old_id_set = set(old_identities)
+    new_id_set = set(new_identities)
+    common_old = [ident for ident in old_identities if ident in new_id_set]
+    common_new = [ident for ident in new_identities if ident in old_id_set]
+    if common_old == common_new:
+        return []
+    old_positions = {ident: idx for idx, ident in enumerate(common_old)}
+    reordered: list[IdentityT] = []
+    for new_idx, ident in enumerate(common_new):
+        if old_positions.get(ident, -1) != new_idx:
+            reordered.append(ident)
+    return reordered
+
+
 def _diff_wmi_filter(old: WmiFilter | None, new: WmiFilter | None) -> WmiFilterChange | None:
     if old is None and new is None:
         return None
@@ -417,8 +448,14 @@ def _diff_wmi_filter(old: WmiFilter | None, new: WmiFilter | None) -> WmiFilterC
 def _diff_gpp_groups(
     old: Iterable[GppGroup], new: Iterable[GppGroup], scope: str
 ) -> list[GppGroupChange]:
-    old_map: dict[tuple[str, str], GppGroup] = {gpp_group_identity(g): g for g in old}
-    new_map: dict[tuple[str, str], GppGroup] = {gpp_group_identity(g): g for g in new}
+    old_groups = tuple(old)
+    new_groups = tuple(new)
+    old_map: dict[tuple[str, str], GppGroup] = {
+        gpp_group_identity(g): g for g in old_groups
+    }
+    new_map: dict[tuple[str, str], GppGroup] = {
+        gpp_group_identity(g): g for g in new_groups
+    }
     changes: list[GppGroupChange] = []
     for identity, new_group in new_map.items():
         if identity not in old_map:
@@ -446,6 +483,19 @@ def _diff_gpp_groups(
                     kind="removed", identity=identity, scope=scope, old=old_group, new=None
                 )
             )
+    for identity in _reordered_common_identities(
+        [gpp_group_identity(g) for g in old_groups],
+        [gpp_group_identity(g) for g in new_groups],
+    ):
+        changes.append(
+            GppGroupChange(
+                kind="reordered",
+                identity=identity,
+                scope=scope,
+                old=old_map[identity],
+                new=new_map[identity],
+            )
+        )
     changes.sort(key=lambda c: c.identity)
     return changes
 
@@ -453,8 +503,10 @@ def _diff_gpp_groups(
 def _diff_gpp_registry(
     old: Iterable[GppRegistry], new: Iterable[GppRegistry], scope: str
 ) -> list[GppRegistryChange]:
-    old_map: dict[str, GppRegistry] = {gpp_registry_identity(r): r for r in old}
-    new_map: dict[str, GppRegistry] = {gpp_registry_identity(r): r for r in new}
+    old_registry = tuple(old)
+    new_registry = tuple(new)
+    old_map: dict[str, GppRegistry] = {gpp_registry_identity(r): r for r in old_registry}
+    new_map: dict[str, GppRegistry] = {gpp_registry_identity(r): r for r in new_registry}
     changes: list[GppRegistryChange] = []
     for identity, new_reg in new_map.items():
         if identity not in old_map:
@@ -482,6 +534,19 @@ def _diff_gpp_registry(
                     kind="removed", identity=identity, scope=scope, old=old_reg, new=None
                 )
             )
+    for identity in _reordered_common_identities(
+        [gpp_registry_identity(r) for r in old_registry],
+        [gpp_registry_identity(r) for r in new_registry],
+    ):
+        changes.append(
+            GppRegistryChange(
+                kind="reordered",
+                identity=identity,
+                scope=scope,
+                old=old_map[identity],
+                new=new_map[identity],
+            )
+        )
     changes.sort(key=lambda c: c.identity)
     return changes
 

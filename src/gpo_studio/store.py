@@ -16,6 +16,7 @@ from .gpp import (
     GppGroup,
     GppGroupMember,
     GppRegistry,
+    GppRegistryValue,
     GppScope,
     ensure_editor_ids,
     gpp_collection_from_dict,
@@ -698,9 +699,13 @@ class WorkspaceStore:
                     f"GPP collection for scope '{scope}' was not found"
                 )
             idx, existing = found
-            groups = tuple(g for g in existing.groups if g.id != group_id)
-            if len(groups) == len(existing.groups):
+            groups_list = list(existing.groups)
+            gi = next(
+                (i for i, x in enumerate(groups_list) if x.id == group_id), None
+            )
+            if gi is None:
                 raise NotFoundError(f"GPP group '{group_id}' was not found")
+            groups = tuple(groups_list[:gi] + groups_list[gi + 1 :])
             new_collection = replace(existing, groups=groups)
             self._validate_gpp(new_collection)
             if not new_collection.groups and not new_collection.registry:
@@ -773,9 +778,14 @@ class WorkspaceStore:
                     f"GPP collection for scope '{scope}' was not found"
                 )
             idx, existing = found
-            items = tuple(r for r in existing.registry if r.id != registry_id)
-            if len(items) == len(existing.registry):
+            items_list = list(existing.registry)
+            ri = next(
+                (i for i, x in enumerate(items_list) if x.id == registry_id),
+                None,
+            )
+            if ri is None:
                 raise NotFoundError(f"GPP registry '{registry_id}' was not found")
+            items = tuple(items_list[:ri] + items_list[ri + 1 :])
             new_collection = replace(existing, registry=items)
             self._validate_gpp(new_collection)
             if not new_collection.groups and not new_collection.registry:
@@ -871,15 +881,123 @@ class WorkspaceStore:
             if group_idx is None:
                 raise NotFoundError(f"GPP group '{group_id}' was not found")
             group = existing.groups[group_idx]
-            members = tuple(m for m in group.members if m.id != member_id)
-            if len(members) == len(group.members):
+            members_list = list(group.members)
+            mi = next(
+                (i for i, x in enumerate(members_list) if x.id == member_id),
+                None,
+            )
+            if mi is None:
                 raise NotFoundError(f"GPP member '{member_id}' was not found")
+            members = tuple(members_list[:mi] + members_list[mi + 1 :])
             new_group = replace(group, members=members)
             new_groups = tuple(
                 new_group if i == group_idx else g
                 for i, g in enumerate(existing.groups)
             )
             new_collection = replace(existing, groups=new_groups)
+            new_collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection)
+            return replace(gpo, gpp_collections=new_collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def put_gpp_registry_value(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        registry_id: str,
+        value: GppRegistryValue,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not value.id:
+            value = replace(value, id=str(uuid.uuid4()))
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                raise NotFoundError(
+                    f"GPP collection for scope '{scope}' was not found"
+                )
+            idx, existing = found
+            reg_idx = None
+            for ri, r in enumerate(existing.registry):
+                if r.id == registry_id:
+                    reg_idx = ri
+                    break
+            if reg_idx is None:
+                raise NotFoundError(f"GPP registry '{registry_id}' was not found")
+            registry = existing.registry[reg_idx]
+            values_list = list(registry.values)
+            try:
+                vi = next(i for i, x in enumerate(values_list) if x.id == value.id)
+                values_list[vi] = value
+            except StopIteration:
+                values_list.append(value)
+            new_registry = replace(registry, values=tuple(values_list))
+            new_registries = tuple(
+                new_registry if i == reg_idx else r
+                for i, r in enumerate(existing.registry)
+            )
+            new_collection = replace(existing, registry=new_registries)
+            new_collections = self._replace_collection(gpo, idx, new_collection)
+            self._validate_gpp(new_collection)
+            return replace(gpo, gpp_collections=new_collections)
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def delete_gpp_registry_value(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        registry_id: str,
+        value_id: str,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not value_id:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="empty_gpp_registry_value_id",
+                    message="GPP registry value id is required.",
+                    path="value_id",
+                )
+            ])
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                raise NotFoundError(
+                    f"GPP collection for scope '{scope}' was not found"
+                )
+            idx, existing = found
+            reg_idx = None
+            for ri, r in enumerate(existing.registry):
+                if r.id == registry_id:
+                    reg_idx = ri
+                    break
+            if reg_idx is None:
+                raise NotFoundError(f"GPP registry '{registry_id}' was not found")
+            registry = existing.registry[reg_idx]
+            values_list = list(registry.values)
+            vi = next(
+                (i for i, x in enumerate(values_list) if x.id == value_id),
+                None,
+            )
+            if vi is None:
+                raise NotFoundError(f"GPP registry value '{value_id}' was not found")
+            new_values = tuple(values_list[:vi] + values_list[vi + 1 :])
+            new_registry = replace(registry, values=new_values)
+            new_registries = tuple(
+                new_registry if i == reg_idx else r
+                for i, r in enumerate(existing.registry)
+            )
+            new_collection = replace(existing, registry=new_registries)
             new_collections = self._replace_collection(gpo, idx, new_collection)
             self._validate_gpp(new_collection)
             return replace(gpo, gpp_collections=new_collections)

@@ -32,7 +32,7 @@ export function initDiff(){
 function renderDiff(data){
   const parts=[];
   const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length);
-  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.links&&data.links.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length);
+  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length);
   if(data.settings.length){
     parts.push(`<div class="diff-section"><h3>Settings (${data.settings.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Key</th><th>Value name</th><th>Old</th><th>New</th></tr></thead><tbody>${data.settings.map(s=>{
       const ident=s.identity||[];const oldV=formatSettingValue(s.old);const newV=formatSettingValue(s.new);

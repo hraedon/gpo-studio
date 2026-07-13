@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from gpo_studio.gpp import (
@@ -898,3 +900,182 @@ def test_delete_gpp_group_keeps_collection_with_remaining_registry(tmp_path) -> 
     assert len(gpo.gpp_collections) == 1
     assert len(gpo.gpp_collections[0].groups) == 0
     assert len(gpo.gpp_collections[0].registry) == 1
+
+
+def test_delete_gpp_member_removes_exactly_one_with_duplicate_id(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_group(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppGroup(
+            name="Administrators",
+            sid="S-1-5-32-544",
+            id="g1",
+            members=(
+                GppGroupMember(sid="S-1", name="m1", id="dup"),
+            ),
+        ),
+        identity="alice",
+        reason="add group",
+    )
+
+    def inject_duplicate(gpo: GPO) -> GPO:
+        collection = gpo.gpp_collections[0]
+        group = collection.groups[0]
+        new_member = GppGroupMember(sid="S-2", name="m2", id="dup")
+        new_group = replace(group, members=group.members + (new_member,))
+        new_collection = replace(collection, groups=(new_group,))
+        return replace(gpo, gpp_collections=(new_collection,))
+
+    gpo = store._mutate(
+        gpo.guid,
+        gpo.revision,
+        inject_duplicate,
+        identity="alice",
+        reason="inject duplicate member",
+    )
+    members = gpo.gpp_collections[0].groups[0].members
+    assert len(members) == 2
+    assert members[0].id == "dup"
+    assert members[1].id == "dup"
+
+    gpo = store.delete_gpp_member(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "g1",
+        "dup",
+        identity="alice",
+        reason="delete one member",
+    )
+    members = gpo.gpp_collections[0].groups[0].members
+    assert len(members) == 1
+
+
+def test_put_gpp_registry_value_crud(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            id="r1",
+            values=(
+                GppRegistryValue(name="V1", value="a", id="v1"),
+                GppRegistryValue(name="V2", value="b", id="v2"),
+                GppRegistryValue(name="V3", value="c", id="v3"),
+            ),
+        ),
+        identity="alice",
+        reason="add registry",
+    )
+
+    gpo = store.put_gpp_registry_value(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "r1",
+        GppRegistryValue(name="V4", value="d"),
+        identity="alice",
+        reason="add value",
+    )
+    values = gpo.gpp_collections[0].registry[0].values
+    assert len(values) == 4
+    assert values[3].name == "V4"
+    assert values[3].id != ""
+
+    gpo = store.put_gpp_registry_value(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "r1",
+        GppRegistryValue(name="V2", value="updated", id="v2"),
+        identity="alice",
+        reason="update value",
+    )
+    values = gpo.gpp_collections[0].registry[0].values
+    assert len(values) == 4
+    assert [v.id for v in values] == ["v1", "v2", "v3", values[3].id]
+    assert values[1].value == "updated"
+
+    gpo = store.delete_gpp_registry_value(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "r1",
+        "v2",
+        identity="alice",
+        reason="delete value",
+    )
+    values = gpo.gpp_collections[0].registry[0].values
+    assert len(values) == 3
+    assert all(v.id != "v2" for v in values)
+
+
+def test_put_gpp_registry_value_auto_generates_id(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(key=r"Software\Policies\Test", id="r1"),
+        identity="alice",
+        reason="add registry",
+    )
+    gpo = store.put_gpp_registry_value(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "r1",
+        GppRegistryValue(name="V1", value="x"),
+        identity="alice",
+        reason="add value",
+    )
+    value = gpo.gpp_collections[0].registry[0].values[0]
+    assert value.id != ""
+    assert len(value.id) > 0
+
+
+def test_put_gpp_registry_value_empty_name_raises(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    gpo = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(key=r"Software\Policies\Test", id="r1"),
+        identity="alice",
+        reason="add registry",
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        store.put_gpp_registry_value(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            "r1",
+            GppRegistryValue(name="   ", value="x"),
+            identity="alice",
+            reason="invalid value",
+        )
+    assert any(i.code == "empty_gpp_registry_value_name" for i in exc_info.value.issues)
+
+
+def test_delete_gpp_registry_value_empty_id_raises(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
+    with pytest.raises(ValidationError) as exc_info:
+        store.delete_gpp_registry_value(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            "r1",
+            "",
+            identity="alice",
+            reason="delete",
+        )
+    assert any(i.code == "empty_gpp_registry_value_id" for i in exc_info.value.issues)
