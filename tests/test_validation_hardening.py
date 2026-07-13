@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from gpo_studio.gpp import GppCollection, GppGroup
 from gpo_studio.model import GPO, RegistrySetting, SecurityFilter, WmiFilter
 from gpo_studio.validation import validate_gpo, validate_setting
 
@@ -443,3 +444,72 @@ def test_reg_sz_valid_string_no_issues() -> None:
         value=r"C:\Temp",
     )
     assert validate_setting(setting) == []
+
+
+def test_disabled_computer_side_with_gpp_collection_warns() -> None:
+    gpo = _gpo(
+        computer_enabled=False,
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(GppGroup(name="Admins", sid="S-1-5-32-544"),),
+            ),
+        ),
+    )
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "disabled_side_populated"
+        and i.severity == "warning"
+        and i.path == "computer_enabled"
+        for i in issues
+    )
+
+
+def test_enabled_computer_side_with_gpp_collection_no_warning() -> None:
+    gpo = _gpo(
+        computer_enabled=True,
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(GppGroup(name="Admins", sid="S-1-5-32-544"),),
+            ),
+        ),
+    )
+    issues = validate_gpo(gpo)
+    assert not any(
+        i.code == "disabled_side_populated" and i.path == "computer_enabled"
+        for i in issues
+    )
+
+
+def test_disabled_user_side_with_gpp_collection_warns() -> None:
+    gpo = _gpo(
+        user_enabled=False,
+        gpp_collections=(
+            GppCollection(
+                scope="user",
+                groups=(GppGroup(name="Admins", sid="S-1-5-32-544"),),
+            ),
+        ),
+    )
+    issues = validate_gpo(gpo)
+    assert any(
+        i.code == "disabled_side_populated"
+        and i.severity == "warning"
+        and i.path == "user_enabled"
+        for i in issues
+    )
+
+
+def test_disabled_side_with_empty_gpp_collection_no_warning() -> None:
+    gpo = _gpo(
+        computer_enabled=False,
+        gpp_collections=(
+            GppCollection(scope="computer"),
+        ),
+    )
+    issues = validate_gpo(gpo)
+    assert not any(
+        i.code == "disabled_side_populated" and i.path == "computer_enabled"
+        for i in issues
+    )

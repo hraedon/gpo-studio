@@ -15,7 +15,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import __version__
 from .admx import AdmxCatalogue, AdmxError, load_catalogue
@@ -216,15 +216,99 @@ class GppGroupMutation(Audit):
     scope: Literal["computer", "user"]
     group: GppGroupData
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "members": [
+                        {
+                            "sid": "S-1-5-21-1-2-3-500",
+                            "name": "STUDIO\\Domain Admins",
+                            "action": "add",
+                        }
+                    ],
+                },
+                "actor": "local-operator",
+                "reason": "Add local admins group",
+                "expected_revision": 1,
+            }
+        }
+    )
+
 
 class GppRegistryMutation(Audit):
     scope: Literal["computer", "user"]
     registry: GppRegistryData
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "scope": "computer",
+                "registry": {
+                    "key": "Software\\Policies\\Studio",
+                    "action": "update",
+                    "values": [
+                        {
+                            "name": "Enabled",
+                            "value": "1",
+                            "registry_type": "REG_DWORD",
+                            "action": "create",
+                        }
+                    ],
+                },
+                "actor": "local-operator",
+                "reason": "Set studio policy",
+                "expected_revision": 1,
+            }
+        }
+    )
+
 
 class GppMemberMutation(Audit):
     scope: Literal["computer", "user"]
     member: GppGroupMemberData
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "scope": "computer",
+                "member": {
+                    "sid": "S-1-5-21-1-2-3-500",
+                    "name": "STUDIO\\Domain Admins",
+                    "action": "add",
+                },
+                "actor": "local-operator",
+                "reason": "Add member to group",
+                "expected_revision": 1,
+            }
+        }
+    )
+
+
+class GppRegistryValueMutation(Audit):
+    scope: Literal["computer", "user"]
+    value: GppRegistryValueData
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "scope": "computer",
+                "value": {
+                    "name": "Enabled",
+                    "value": "1",
+                    "registry_type": "REG_DWORD",
+                    "action": "create",
+                },
+                "actor": "local-operator",
+                "reason": "Set registry value",
+                "expected_revision": 1,
+            }
+        }
+    )
 
 
 class GppDeleteMutation(Audit):
@@ -803,6 +887,7 @@ def add_gpp_group(
     request: Request, guid: str, body: GppGroupMutation
 ) -> dict[str, Any]:
     group = _gpp_group_data_to_model(body.group)
+    group = replace(group, id="")
     gpo = _store(request).put_gpp_group(
         guid,
         body.expected_revision,
@@ -851,6 +936,7 @@ def add_gpp_registry(
     request: Request, guid: str, body: GppRegistryMutation
 ) -> dict[str, Any]:
     registry = _gpp_registry_data_to_model(body.registry)
+    registry = replace(registry, id="")
     gpo = _store(request).put_gpp_registry(
         guid,
         body.expected_revision,
@@ -905,6 +991,7 @@ def add_gpp_member(
     body: GppMemberMutation,
 ) -> dict[str, Any]:
     member = _gpp_member_data_to_model(body.member)
+    member = replace(member, id="")
     gpo = _store(request).put_gpp_member(
         guid,
         body.expected_revision,
@@ -957,6 +1044,76 @@ def delete_gpp_member(
         body.scope,
         group_id,
         member_id,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.post(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/values",
+    status_code=201,
+)
+def add_gpp_registry_value(
+    request: Request,
+    guid: str,
+    registry_id: str,
+    body: GppRegistryValueMutation,
+) -> dict[str, Any]:
+    value = _gpp_registry_value_data_to_model(body.value)
+    value = replace(value, id="")
+    gpo = _store(request).put_gpp_registry_value(
+        guid,
+        body.expected_revision,
+        body.scope,
+        registry_id,
+        value,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.put(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}"
+)
+def edit_gpp_registry_value(
+    request: Request,
+    guid: str,
+    registry_id: str,
+    value_id: str,
+    body: GppRegistryValueMutation,
+) -> dict[str, Any]:
+    value = _gpp_registry_value_data_to_model(body.value)
+    value = replace(value, id=value_id)
+    gpo = _store(request).put_gpp_registry_value(
+        guid,
+        body.expected_revision,
+        body.scope,
+        registry_id,
+        value,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo)
+
+
+@app.delete(
+    "/api/gpos/{guid}/preferences/registry/{registry_id}/values/{value_id}"
+)
+def delete_gpp_registry_value(
+    request: Request,
+    guid: str,
+    registry_id: str,
+    value_id: str,
+    body: GppDeleteMutation,
+) -> dict[str, Any]:
+    gpo = _store(request).delete_gpp_registry_value(
+        guid,
+        body.expected_revision,
+        body.scope,
+        registry_id,
+        value_id,
         identity=_identity(body.actor),
         reason=body.reason,
     )

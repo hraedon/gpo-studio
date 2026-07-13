@@ -23,6 +23,20 @@ _VALID_REGISTRY_TYPES = frozenset(
 )
 
 
+def _xml_char_unsafe(cp: int) -> bool:
+    if cp < 0x20:
+        return True
+    if 0xD800 <= cp <= 0xDFFF:
+        return True
+    if cp in (0xFFFE, 0xFFFF):
+        return True
+    return cp > 0xFFFF and (cp & 0xFFFE) == 0xFFFE
+
+
+def _has_xml_unsafe_text(text: str) -> bool:
+    return any(_xml_char_unsafe(ord(c)) for c in text)
+
+
 def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     path = f"settings/{setting.id}"
@@ -204,7 +218,13 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 )
             )
         orders.add(order_identity)
-    if not gpo.computer_enabled and any(item.side == "computer" for item in gpo.settings):
+    if not gpo.computer_enabled and (
+        any(item.side == "computer" for item in gpo.settings)
+        or any(
+            c.scope == "computer" and (c.groups or c.registry)
+            for c in gpo.gpp_collections
+        )
+    ):
         issues.append(
             ValidationIssue(
                 "warning",
@@ -213,7 +233,13 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
                 "computer_enabled",
             )
         )
-    if not gpo.user_enabled and any(item.side == "user" for item in gpo.settings):
+    if not gpo.user_enabled and (
+        any(item.side == "user" for item in gpo.settings)
+        or any(
+            c.scope == "user" and (c.groups or c.registry)
+            for c in gpo.gpp_collections
+        )
+    ):
         issues.append(
             ValidationIssue(
                 "warning",
@@ -378,7 +404,7 @@ def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
 
 def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    if any(ord(c) < 0x20 for c in pred.value):
+    if _has_xml_unsafe_text(pred.value):
         issues.append(
             ValidationIssue(
                 "error",
@@ -473,7 +499,7 @@ def validate_gpp_group_member(
                 f"{path}/sid",
             )
         )
-    if any(ord(c) < 0x20 for c in member.sid):
+    if _has_xml_unsafe_text(member.sid):
         issues.append(
             ValidationIssue(
                 "error",
@@ -482,7 +508,7 @@ def validate_gpp_group_member(
                 f"{path}/sid",
             )
         )
-    if any(ord(c) < 0x20 for c in member.name):
+    if _has_xml_unsafe_text(member.name):
         issues.append(
             ValidationIssue(
                 "error",
@@ -529,7 +555,7 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                 f"{path}/name",
             )
         )
-    if any(ord(c) < 0x20 for c in name):
+    if _has_xml_unsafe_text(name):
         issues.append(
             ValidationIssue(
                 "error",
@@ -538,7 +564,7 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                 f"{path}/name",
             )
         )
-    if any(ord(c) < 0x20 for c in group.description):
+    if _has_xml_unsafe_text(group.description):
         issues.append(
             ValidationIssue(
                 "error",
@@ -554,7 +580,7 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
             assert_never(group.action)
     if group.sid:
         sid_path = f"{path}/sid"
-        if any(ord(c) < 0x20 for c in group.sid):
+        if _has_xml_unsafe_text(group.sid):
             issues.append(
                 ValidationIssue(
                     "error",
@@ -563,7 +589,7 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                     sid_path,
                 )
             )
-        if any(ord(c) < 0x20 for c in group.sid):
+        if _has_xml_unsafe_text(group.sid):
             issues.append(
                 ValidationIssue(
                     "warning",
@@ -591,6 +617,7 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                 )
             )
     seen_member_sids: set[str] = set()
+    seen_member_ids: set[str] = set()
     for idx, member in enumerate(group.members):
         member_path = f"{path}/members/{idx}"
         issues.extend(validate_gpp_group_member(member, member_path))
@@ -606,6 +633,17 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
             )
         if member.sid.strip():
             seen_member_sids.add(folded_sid)
+        if member.id and member.id in seen_member_ids:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_member_id",
+                    "Duplicate GPP group member editor id.",
+                    f"{member_path}/id",
+                )
+            )
+        if member.id:
+            seen_member_ids.add(member.id)
     if (
         group.remove_all_users
         and group.remove_all_groups
@@ -646,7 +684,7 @@ def validate_gpp_registry_value(
                 f"{path}/name",
             )
         )
-    if any(ord(c) < 0x20 for c in value.name):
+    if _has_xml_unsafe_text(value.name):
         issues.append(
             ValidationIssue(
                 "error",
@@ -665,7 +703,7 @@ def validate_gpp_registry_value(
             )
         )
     raw = value.value
-    if isinstance(raw, str) and any(ord(c) < 0x20 for c in raw):
+    if isinstance(raw, str) and _has_xml_unsafe_text(raw):
         issues.append(
             ValidationIssue(
                 "error",
@@ -764,7 +802,7 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
                 f"{path}/key",
             )
         )
-    if any(ord(c) < 0x20 for c in key):
+    if _has_xml_unsafe_text(key):
         issues.append(
             ValidationIssue(
                 "error",
@@ -792,6 +830,7 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
             )
         )
     seen_value_names: set[str] = set()
+    seen_value_ids: set[str] = set()
     for idx, val in enumerate(reg.values):
         val_path = f"{path}/values/{idx}"
         issues.extend(validate_gpp_registry_value(val, val_path))
@@ -807,6 +846,17 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
             )
         if val.name.strip():
             seen_value_names.add(folded_name)
+        if val.id and val.id in seen_value_ids:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_registry_value_id",
+                    "Duplicate GPP registry value editor id.",
+                    f"{val_path}/id",
+                )
+            )
+        if val.id:
+            seen_value_ids.add(val.id)
     match reg.action:
         case "add" | "replace" | "remove" | "update":
             pass
@@ -826,6 +876,7 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             assert_never(collection.scope)
     scope = collection.scope
     seen_group_names: set[str] = set()
+    seen_group_ids: set[str] = set()
     for idx, group in enumerate(collection.groups):
         group_path = f"gpp_collections/{scope}/groups/{idx}"
         issues.extend(validate_gpp_group(group, group_path))
@@ -841,7 +892,19 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             )
         if folded_name:
             seen_group_names.add(folded_name)
+        if group.id and group.id in seen_group_ids:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_group_id",
+                    "Duplicate GPP group editor id in collection.",
+                    f"{group_path}/id",
+                )
+            )
+        if group.id:
+            seen_group_ids.add(group.id)
     seen_registry_keys: set[str] = set()
+    seen_registry_ids: set[str] = set()
     for idx, reg in enumerate(collection.registry):
         reg_path = f"gpp_collections/{scope}/registry/{idx}"
         issues.extend(validate_gpp_registry(reg, reg_path))
@@ -857,6 +920,17 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             )
         if folded_key:
             seen_registry_keys.add(folded_key)
+        if reg.id and reg.id in seen_registry_ids:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_registry_id",
+                    "Duplicate GPP registry editor id in collection.",
+                    f"{reg_path}/id",
+                )
+            )
+        if reg.id:
+            seen_registry_ids.add(reg.id)
     return issues
 
 

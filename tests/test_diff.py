@@ -1125,3 +1125,73 @@ def test_three_way_metadata_conflict_status() -> None:
     assert conflict.baseline == "draft"
     assert conflict.draft == "ready"
     assert conflict.observed == "archived"
+
+
+def test_gpp_group_reorder_detected() -> None:
+    group_a = _gpp_group(name="GroupA")
+    group_b = _gpp_group(name="GroupB")
+    old = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_b)),))
+    new = _gpo(gpp_collections=(_gpp_collection(groups=(group_b, group_a)),))
+    result = diff_gpos(old, new)
+    assert len(result.gpp_groups) == 2
+    assert all(c.kind == "reordered" for c in result.gpp_groups)
+    identities = {c.identity for c in result.gpp_groups}
+    assert identities == {("groupa", group_a.sid.lower()), ("groupb", group_b.sid.lower())}
+
+
+def test_gpp_registry_reorder_detected() -> None:
+    reg_a = _gpp_registry(key=r"Software\KeyA")
+    reg_b = _gpp_registry(key=r"Software\KeyB")
+    old = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a, reg_b)),))
+    new = _gpo(gpp_collections=(_gpp_collection(registry=(reg_b, reg_a)),))
+    result = diff_gpos(old, new)
+    assert len(result.gpp_registry) == 2
+    assert all(c.kind == "reordered" for c in result.gpp_registry)
+    identities = {c.identity for c in result.gpp_registry}
+    assert identities == {reg_a.key.casefold(), reg_b.key.casefold()}
+
+
+def test_gpp_group_content_change_not_reorder() -> None:
+    group_old = _gpp_group(name="GroupA")
+    group_new = _gpp_group(name="GroupA", description="changed")
+    old = _gpo(gpp_collections=(_gpp_collection(groups=(group_old,)),))
+    new = _gpo(gpp_collections=(_gpp_collection(groups=(group_new,)),))
+    result = diff_gpos(old, new)
+    assert len(result.gpp_groups) == 1
+    assert result.gpp_groups[0].kind == "modified"
+
+
+def test_gpp_group_reorder_and_content_change() -> None:
+    group_a_old = _gpp_group(name="GroupA")
+    group_b_old = _gpp_group(name="GroupB")
+    group_a_new = _gpp_group(name="GroupA", description="changed")
+    group_b_new = _gpp_group(name="GroupB")
+    old = _gpo(gpp_collections=(_gpp_collection(groups=(group_a_old, group_b_old)),))
+    new = _gpo(gpp_collections=(_gpp_collection(groups=(group_b_new, group_a_new)),))
+    result = diff_gpos(old, new)
+    kinds_by_identity: dict[tuple[str, str], list[str]] = {}
+    for change in result.gpp_groups:
+        kinds_by_identity.setdefault(change.identity, []).append(change.kind)
+    assert "modified" in kinds_by_identity[("groupa", group_a_old.sid.lower())]
+    assert "reordered" in kinds_by_identity[("groupb", group_b_old.sid.lower())]
+
+
+def test_gpp_group_same_order_no_change() -> None:
+    group_a = _gpp_group(name="GroupA")
+    group_b = _gpp_group(name="GroupB")
+    old = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_b)),))
+    new = _gpo(gpp_collections=(_gpp_collection(groups=(group_a, group_b)),))
+    result = diff_gpos(old, new)
+    assert result.gpp_groups == ()
+
+
+def test_gpp_group_member_reorder_is_modified() -> None:
+    member_a = _gpp_member(sid="S-1-5-1", name="MemberA")
+    member_b = _gpp_member(sid="S-1-5-2", name="MemberB")
+    group_old = _gpp_group(name="GroupA", members=(member_a, member_b))
+    group_new = _gpp_group(name="GroupA", members=(member_b, member_a))
+    old = _gpo(gpp_collections=(_gpp_collection(groups=(group_old,)),))
+    new = _gpo(gpp_collections=(_gpp_collection(groups=(group_new,)),))
+    result = diff_gpos(old, new)
+    assert len(result.gpp_groups) == 1
+    assert result.gpp_groups[0].kind == "modified"
