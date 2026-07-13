@@ -110,12 +110,24 @@ def powershell_plan(gpo: GPO) -> str:
         )
     if gpo.security_filters:
         lines.append("")
-        lines.append("# Security filtering")
-        desired_targets = ", ".join(_ps_quote(sf.principal) for sf in gpo.security_filters)
-        lines.append(f"$desired = @({desired_targets})")
-        lines.append("$existing = (Get-GPO -Guid $gpo.Id).SecurityFiltering")
+        lines.append("# Security filtering — reconcile GpoApply permissions only.")
+        lines.append("# GpoEdit, GpoRead, and other management permissions are preserved.")
+        desired_targets = ", ".join(
+            _ps_quote(sf.principal)
+            for sf in gpo.security_filters
+            if sf.permission == "apply"
+        )
+        lines.append(f"$desiredApply = @({desired_targets})")
+        lines.append("# Trustees that must not be removed even if absent from desired set.")
+        lines.append("$protected = @('Authenticated Users', 'Domain Admins',")
+        lines.append("  'Enterprise Admins', 'SYSTEM', 'Administrators')")
+        lines.append(
+            "$existing = Get-GPPermission -Guid $gpo.Id -All -ErrorAction SilentlyContinue"
+        )
         lines.append("foreach ($perm in $existing) {")
-        lines.append("    if ($desired -notcontains $perm.Trustee.Name) {")
+        lines.append("    if ($perm.Permission -eq 'GpoApply' -and")
+        lines.append("        $desiredApply -notcontains $perm.Trustee.Name -and")
+        lines.append("        $protected -notcontains $perm.Trustee.Name) {")
         lines.append(
             "        Set-GPPermission -Guid $gpo.Id -PermissionLevel None"
             " -TargetName $perm.Trustee.Name -TargetType $perm.Trustee.SidType"
@@ -160,7 +172,8 @@ def powershell_plan(gpo: GPO) -> str:
         [
             "",
             "# Side enablement is explicit in the draft.",
-            f"Set-GPO -Guid $gpo.Id -Status {status_value} | Out-Null",
+            "# GpoStatus is a writable .NET property on the GPO object, not a Set-GPO parameter.",
+            f"$gpo.GpoStatus = '{status_value}'",
         ]
     )
     return "\n".join(lines) + "\n"

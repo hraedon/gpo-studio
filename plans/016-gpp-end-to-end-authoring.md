@@ -1,6 +1,8 @@
 # Plan 016 — GPP end-to-end authoring
 
-Status: proposed
+Status: in-progress (WP-1 completed, WP-2 completed, WP-3 completed, WP-4
+completed, WP-5 partially completed — Python API and codec tests done, browser
+automation deferred to Plan 019)
 Scope: turn the Plan 014 GPP/ILT codec foundation into a complete, reviewable
 Groups and Registry authoring workflow
 Depends on: Plan 015 canonical, validation, and numeric contracts

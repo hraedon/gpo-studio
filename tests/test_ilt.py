@@ -380,11 +380,14 @@ def test_dict_conversion_preserves_ilt() -> None:
     original = _sample_collection_with_ilt()
     d = gpp_collection_to_dict(original)
     assert d["groups"][0]["ilt_filter"] is not None
-    assert len(d["groups"][0]["ilt_filter"]) == 2
-    assert d["groups"][0]["ilt_filter"][0]["type"] == "ou"
-    assert d["groups"][0]["ilt_filter"][0]["value"] == "OU=Workstations,DC=example,DC=com"
+    assert len(d["groups"][0]["ilt_filter"]["predicates"]) == 2
+    assert d["groups"][0]["ilt_filter"]["predicates"][0]["type"] == "ou"
+    assert (
+        d["groups"][0]["ilt_filter"]["predicates"][0]["value"]
+        == "OU=Workstations,DC=example,DC=com"
+    )
     assert d["registry"][0]["ilt_filter"] is not None
-    assert d["registry"][0]["ilt_filter"][0]["type"] == "wmi_query"
+    assert d["registry"][0]["ilt_filter"]["predicates"][0]["type"] == "wmi_query"
 
     restored = gpp_collection_from_dict(d)
     assert len(restored.groups) == 1

@@ -36,6 +36,7 @@ class IltPredicate:
 @dataclass(frozen=True, slots=True)
 class IltFilter:
     predicates: tuple[IltPredicate, ...] = field(default_factory=tuple)
+    unknown_predicates: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _not_attr(negate: bool) -> str:
@@ -104,6 +105,13 @@ def serialize_ilt(filter: IltFilter) -> ET.Element:
     root = ET.Element(_ns("Filters"))
     for pred in filter.predicates:
         root.append(_serialize_predicate(pred))
+    for raw in filter.unknown_predicates:
+        try:
+            root.append(ET.fromstring(raw))
+        except ET.ParseError as error:
+            raise IltError(
+                f"Corrupted unknown ILT predicate XML: {error}"
+            ) from error
     return root
 
 
@@ -158,9 +166,14 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
 def parse_ilt(elem: ET.Element) -> IltFilter:
     """Parse a <Filters> XML element into an IltFilter."""
     predicates: list[IltPredicate] = []
+    unknown: list[str] = []
     for child in elem:
         pred_type = _TAG_TO_TYPE.get(_local_name(child.tag))
         if pred_type is None:
+            unknown.append(ET.tostring(child, encoding="unicode"))
             continue
         predicates.append(_parse_predicate(pred_type, child))
-    return IltFilter(predicates=tuple(predicates))
+    return IltFilter(
+        predicates=tuple(predicates),
+        unknown_predicates=tuple(unknown),
+    )

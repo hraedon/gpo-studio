@@ -129,8 +129,12 @@ Security filters carry `principal`, `permission` (apply/read), `inheritable`,
 - **Authoring:** Full CRUD via `/api/gpos/{guid}/security-filters`.
 - **Import:** From GPMC backups and gpo-lens estate snapshots (including SIDs).
 - **Export:** Studio bundle manifest, GPMC backup manifest.xml and gpreport.xml.
-- **PowerShell plan:** `Set-GPPermission` with `-Replace`. Desired set is
-  reconciled against existing filtering; unexpected trustees are removed.
+- **PowerShell plan:** `Set-GPPermission` with `-Replace`. Existing permissions
+  are enumerated via `Get-GPPermission -All`. Only `GpoApply` permissions are
+  reconciled; `GpoEdit`, `GpoRead`, and other management permissions are
+  preserved. Default trustees (`Authenticated Users`, `Domain Admins`,
+  `Enterprise Admins`, `SYSTEM`, `Administrators`) are protected from removal.
+  The plan is idempotent for registry values and links; test it in a lab.
 - **Diff:** Two-way and three-way.
 
 ### WMI filters — supported
@@ -154,12 +158,15 @@ WQL). A reusable filter catalogue can be loaded at startup
 Group Policy Preferences Groups with `action` (add/replace/update/remove),
 `members` (sid, name, action), `remove_all_users`, `remove_all_groups`,
 `description`, and an optional ILT filter. Serialize/parse round-trip is
-implemented and tested.
+implemented and tested. Unknown XML attributes and child elements are preserved
+losslessly through import/export round-trips.
 
-- **Authoring &#9680;:** No dedicated browser authoring endpoint. GPP Groups
-  enter the workspace through GPMC backup import. The model, serializer, and
-  storage layer support them; a browser editor is not yet exposed.
-- **Import:** `Groups/Groups.xml` parsed from GPMC backups.
+- **Authoring &#9680;:** Browser editor available via the Preferences tab.
+  Groups CRUD via `/api/gpos/{guid}/preferences/groups`. Unknown content
+  preserved from import is retained on re-export.
+- **Import:** `Groups/Groups.xml` parsed from GPMC backups. Unknown attributes
+  (e.g. `uid`, `userContext`, `disabled`) and unknown child elements are
+  captured and re-emitted on export.
 - **Export:** `Preferences/Groups/Groups.xml` in both Studio bundle and GPMC
   backup.
 - **PowerShell plan &#10007;:** GPP is **not applied** by the plan. It is
@@ -172,11 +179,14 @@ implemented and tested.
 Group Policy Preferences Registry with `action` (add/replace/update/remove),
 typed `values` (name, value, registry\_type, action: create/replace/update/
 delete), and an optional ILT filter. Serialize/parse round-trip is implemented
-and tested.
+and tested. Unknown XML attributes and child elements are preserved losslessly
+through import/export round-trips.
 
-- **Authoring &#9680;:** Same as GPP Groups — no dedicated browser endpoint.
-  Enters via import.
-- **Import:** `Registry/Registry.xml` parsed from GPMC backups.
+- **Authoring &#9680;:** Browser editor available via the Preferences tab.
+  Registry CRUD via `/api/gpos/{guid}/preferences/registry`. Unknown content
+  preserved from import is retained on re-export.
+- **Import:** `Registry/Registry.xml` parsed from GPMC backups. Unknown
+  attributes on `<Registry>` and `<Properties>` elements are captured.
 - **Export:** `Preferences/Registry/Registry.xml` in both Studio bundle and GPMC
   backup.
 - **PowerShell plan &#10007;:** Not applied by the plan. GPMC backup export only.
@@ -198,11 +208,15 @@ GPP Groups and GPP Registry elements:
 | `wmi_query` | `FilterWmiQuery` | WQL query string |
 
 Each predicate supports negation (`not="1"`). Predicates serialize and parse
-round-trip.
+round-trip. Unknown filter types (e.g. `FilterBattery`, `FilterComputer`) are
+captured as raw XML and re-emitted losslessly on export, preserving imported
+content that GPO Studio does not have a typed editor for.
 
-- **Authoring &#9680;:** No standalone browser endpoint; attached to GPP
-  elements via import.
-- **Import/Export:** Serialized within GPP XML.
+- **Authoring &#9680;:** Browser ILT editor attached to GPP Groups and Registry
+  editors via the Preferences tab. Unknown predicate types are shown as
+  read-only with a warning; they are preserved on save and re-export.
+- **Import/Export:** Serialized within GPP XML. Unknown predicates preserved
+  losslessly.
 - **Diff &#10003;:** Compared as part of GPP element equality; not surfaced as a standalone diff entry.
 - **Hash:** Included in `policy_semantic_sha256` as part of GPP canonical.
 
@@ -216,8 +230,10 @@ Computer and User sides can be independently enabled or disabled.
   carry side status).
 - **Export &#9680;:** Studio bundle manifest includes side flags. GPMC backup
   format does not carry side status.
-- **PowerShell plan:** `Set-GPO -Status` (AllSettingsEnabled /
+- **PowerShell plan:** `$gpo.GpoStatus` property (AllSettingsEnabled /
   UserSettingsDisabled / ComputerSettingsDisabled / AllSettingsDisabled).
+  GpoStatus is a writable .NET property on the GPO object returned by `Get-GPO`,
+  not a `Set-GPO` parameter.
 - **Diff &#10003;:** Reported as a metadata change in two-way and three-way diff.
 - **Hash:** Included in `policy_semantic_sha256`.
 
@@ -281,7 +297,8 @@ Emits a deterministic ZIP containing `manifest.json`, `apply.ps1`,
 `cpassword` attributes (legacy encrypted passwords in GPP XML) are structurally
 detected and rejected at every boundary: GPMC backup import, Studio bundle
 export, and GPMC backup export. The detector (`contains_cpassword`) checks for
-the attribute name in any XML element.
+the attribute name in any XML element, including namespace-qualified attributes
+(e.g. `x:cpassword`) and mixed-case variants.
 
 ### Unknown CSE content — preserved
 
@@ -340,8 +357,8 @@ module and delegated GPO rights.
 |-------------|-----------|
 | Registry values | `Set-GPRegistryValue`, `Remove-GPRegistryValue` |
 | GPO links | `New-GPLink`, `Set-GPLink` |
-| Security filtering | `Set-GPPermission` (with `-Replace`) |
-| Side enablement | `Set-GPO -Status` |
+| Security filtering | `Get-GPPermission -All`, `Set-GPPermission` (with `-Replace`) |
+| Side enablement | `$gpo.GpoStatus` property assignment |
 | GPO creation / rename | `New-GPO`, `Rename-GPO` |
 
 ### NOT applied by the plan
