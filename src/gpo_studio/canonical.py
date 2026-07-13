@@ -180,6 +180,7 @@ def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
         "members": [semantic_dict_gpp_member(m) for m in group.members],
         "ilt_filter": semantic_dict_ilt(group.ilt_filter),
         "unknown_attrs": list(group.unknown_attrs),
+        "unknown_props_attrs": list(group.unknown_props_attrs),
         "unknown_children": list(group.unknown_children),
     }
 
@@ -191,6 +192,9 @@ def semantic_dict_gpp_registry_value(value: GppRegistryValue) -> dict[str, Any]:
         "registry_type": value.registry_type,
         "action": value.action,
         "unknown_attrs": list(value.unknown_attrs),
+        "ilt_filter": semantic_dict_ilt(value.ilt_filter),
+        "unknown_elem_attrs": list(value.unknown_elem_attrs),
+        "unknown_children": list(value.unknown_children),
     }
 
 
@@ -216,6 +220,10 @@ def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
         "scope": collection.scope,
         "groups": [semantic_dict_gpp_group(g) for g in collection.groups],
         "registry": [semantic_dict_gpp_registry(r) for r in collection.registry],
+        "groups_unknown_attrs": list(collection.groups_unknown_attrs),
+        "groups_unknown_children": list(collection.groups_unknown_children),
+        "registry_unknown_attrs": list(collection.registry_unknown_attrs),
+        "registry_unknown_children": list(collection.registry_unknown_children),
     }
 
 

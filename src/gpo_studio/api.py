@@ -26,6 +26,7 @@ from .estate import parse_estate
 from .export import export_bundle, gpmc_backup_bundle, powershell_plan
 from .gpp import (
     _GROUP_KNOWN_CHILDREN,
+    _GROUP_PROPS_KNOWN_ATTRS,
     _GROUP_RESERVED_ATTRS,
     _MEMBER_RESERVED_ATTRS,
     _REGISTRY_KNOWN_CHILDREN,
@@ -41,7 +42,7 @@ from .gpp import (
     _validate_unknown_children,
 )
 from .identity import ClaimedIdentity, claimed_identity
-from .ilt import IltFilter, IltPredicate, validate_predicate_unknown_attrs
+from .ilt import IltError, IltFilter, IltPredicate, validate_predicate_unknown_attrs
 from .import_export import (
     backup_security_filters_to_model,
     backup_wmi_filter_to_model,
@@ -176,6 +177,7 @@ class IltPredicateData(BaseModel):
 
 
 class IltFilterData(BaseModel):
+    items: list[IltPredicateData | str] | None = None
     predicates: list[IltPredicateData] = Field(default_factory=list)
     unknown_predicates: list[str] = Field(default_factory=list)
 
@@ -199,6 +201,7 @@ class GppGroupData(BaseModel):
     id: str = ""
     ilt_filter: IltFilterData | None = None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
 
@@ -214,6 +217,9 @@ class GppRegistryValueData(BaseModel):
     action: Literal["create", "replace", "update", "delete"] = "create"
     id: str = ""
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    ilt_filter: IltFilterData | None = None
+    unknown_elem_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _normalize_numeric_value(self) -> GppRegistryValueData:
@@ -736,6 +742,9 @@ class GppRegistryValueResponse(BaseModel):
     registry_type: str
     action: str
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    ilt_filter: IltFilterResponse | None = None
+    unknown_elem_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -751,6 +760,7 @@ class GppGroupResponse(BaseModel):
     remove_all_groups: bool
     ilt_filter: IltFilterResponse | None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -773,6 +783,10 @@ class GppCollectionResponse(BaseModel):
     scope: str
     groups: list[GppGroupResponse]
     registry: list[GppRegistryResponse]
+    groups_unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    groups_unknown_children: list[str] = Field(default_factory=list)
+    registry_unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    registry_unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -859,19 +873,48 @@ def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
     if data is None:
         return None
     items: list[IltPredicate | str] = []
-    for p in data.predicates:
-        pred = IltPredicate(
-            type=p.type,
-            negate=p.negate,
-            value=p.value,
-            bool_op=p.bool_op,
-            unknown_attrs=tuple((pair[0], pair[1]) for pair in p.unknown_attrs),
-        )
-        validate_predicate_unknown_attrs(pred)
-        items.append(pred)
-    for raw in data.unknown_predicates:
-        items.append(raw)
+    if data.items:
+        for item in data.items:
+            if isinstance(item, IltPredicateData):
+                pred = IltPredicate(
+                    type=item.type,
+                    negate=item.negate,
+                    value=item.value,
+                    bool_op=item.bool_op,
+                    unknown_attrs=tuple((pair[0], pair[1]) for pair in item.unknown_attrs),
+                )
+                _validate_ilt_predicate_attrs(pred)
+                items.append(pred)
+            else:
+                items.append(item)
+    else:
+        for p in data.predicates:
+            pred = IltPredicate(
+                type=p.type,
+                negate=p.negate,
+                value=p.value,
+                bool_op=p.bool_op,
+                unknown_attrs=tuple((pair[0], pair[1]) for pair in p.unknown_attrs),
+            )
+            _validate_ilt_predicate_attrs(pred)
+            items.append(pred)
+        for raw in data.unknown_predicates:
+            items.append(raw)
     return IltFilter(items=tuple(items))
+
+
+def _validate_ilt_predicate_attrs(pred: IltPredicate) -> None:
+    try:
+        validate_predicate_unknown_attrs(pred)
+    except IltError as error:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="reserved_attribute_collision",
+                message=str(error),
+                path="unknown_attrs",
+            )
+        ]) from error
 
 
 def _validate_gpp_unknown_attrs(
@@ -936,10 +979,18 @@ def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
         ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
         id=data.id,
         unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
+        unknown_props_attrs=tuple(
+            (pair[0], pair[1]) for pair in data.unknown_props_attrs
+        ),
         unknown_children=tuple(data.unknown_children),
     )
     _validate_gpp_unknown_attrs(
         group.unknown_attrs, _GROUP_RESERVED_ATTRS, f"group {group.name!r}"
+    )
+    _validate_gpp_unknown_attrs(
+        group.unknown_props_attrs,
+        _GROUP_PROPS_KNOWN_ATTRS,
+        f"group {group.name!r} properties",
     )
     _validate_gpp_unknown_children(
         group.unknown_children, _GROUP_KNOWN_CHILDREN, f"group {group.name!r}"
@@ -955,11 +1006,24 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
         action=data.action,
         id=data.id,
         unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
+        ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
+        unknown_elem_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_elem_attrs),
+        unknown_children=tuple(data.unknown_children),
     )
     _validate_gpp_unknown_attrs(
         value.unknown_attrs,
         _REGISTRY_VALUE_RESERVED_ATTRS,
         f"registry value {value.name!r}",
+    )
+    _validate_gpp_unknown_attrs(
+        value.unknown_elem_attrs,
+        _REGISTRY_RESERVED_ATTRS,
+        f"registry {value.name!r}",
+    )
+    _validate_gpp_unknown_children(
+        value.unknown_children,
+        _REGISTRY_KNOWN_CHILDREN,
+        f"registry {value.name!r}",
     )
     return value
 

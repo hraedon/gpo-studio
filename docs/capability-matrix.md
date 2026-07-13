@@ -158,10 +158,12 @@ WQL). A reusable filter catalogue can be loaded at startup
 Group Policy Preferences Groups with `action` (add/replace/update/remove),
 `members` (sid, name, action), `remove_all_users`, `remove_all_groups`,
 `description`, and an optional ILT filter. Serialize/parse round-trip is
-implemented and tested. Unknown XML attributes on `<Group>` and unknown
-child elements are preserved through import/export round-trips. Unknown
-attributes on `<Properties>` are captured on the parent `<Group>` only
-when they are not recognized typed attributes.
+implemented and tested. Unknown XML attributes on `<Group>`, unknown
+attributes on `<Properties>` (e.g. `newName`, `userAction`,
+`removeAccounts`), and unknown child elements are preserved through
+import/export round-trips. Root-level attributes on `<Groups>` (e.g.
+`disabled`) and unknown root children (e.g. `<User>` entries) are also
+captured and re-emitted.
 
 - **Authoring &#9680;:** Browser editor available via the Preferences tab.
   Groups CRUD via `/api/gpos/{guid}/preferences/groups`. Clone, reorder, and
@@ -184,9 +186,11 @@ Group Policy Preferences Registry with `action` (add/replace/update/remove),
 typed `values` (name, value, registry\_type, action: create/replace/update/
 delete), and an optional ILT filter. Serialize/parse round-trip is implemented
 and tested. Unknown XML attributes on `<Registry>` and `<Properties>` elements
-are captured and re-emitted on export. Each parsed `<Registry>` element
-becomes its own `GppRegistry` with a single value, preserving per-element
-metadata (ILT filters, unknown attributes, unknown children). The
+are captured and re-emitted on export. Per-element metadata (ILT filters,
+unknown attributes on `<Registry>`, unknown children) is stored on each
+`GppRegistryValue`, so coalescing consecutive elements sharing a hive/key
+is lossless. Root-level attributes on `<RegistrySettings>` and unknown root
+children (e.g. nested `<Collection>` trees) are also captured. The
 collection-level `GppRegistry.action` field is a Studio-only grouping
 concept; it is not serialized to XML because MS-GPPREF has no
 collection-level action attribute.
@@ -328,11 +332,13 @@ the attribute name in any XML element, including namespace-qualified attributes
 ### Unknown CSE content — preserved
 
 When a GPMC backup contains CSE files that GPO Studio does not have a typed
-editor for (anything beyond registry policy and GPP Groups/Registry), those
-files are:
+editor for (anything beyond registry policy and GPP Groups/Registry XML),
+those files are:
 
 1. **Inventoried** — file path, SHA-256 hash, and size are stored as
-   `CseMetadataEntry` on the GPO.
+   `CseMetadataEntry` on the GPO. This includes unhandled Preferences/ files
+   (e.g. `ScheduledTasks.xml`, `Drives.xml`) that are not parsed by the GPP
+   Groups or Registry parsers.
 2. **Hashed** — included in `review_model_sha256` so the review digest
    accounts for their presence.
 3. **Not editable** — there is no authoring surface for unknown CSE bytes.

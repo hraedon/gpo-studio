@@ -19,6 +19,7 @@ from .gpp import (
     GppScope,
     contains_cpassword,
     ensure_editor_ids,
+    parse_gpp_collection,
     parse_gpp_groups,
     parse_gpp_registry,
 )
@@ -92,6 +93,12 @@ def extract_settings(pol_path: Path, side: Side) -> list[RegistrySetting]:
     return settings
 
 
+_HANDLED_GPP_FILES = frozenset({
+    "Preferences/Groups/Groups.xml",
+    "Preferences/Registry/Registry.xml",
+})
+
+
 def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
     metadata: list[CseMetadataEntry] = []
     for ext in (*backup_gpo.machine_extensions, *backup_gpo.user_extensions):
@@ -102,7 +109,8 @@ def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
         ):
             continue
         non_gpp_files = [
-            f for f in ext.files if not f.relative_path.startswith("Preferences/")
+            f for f in ext.files
+            if f.relative_path.replace("\\", "/") not in _HANDLED_GPP_FILES
         ]
         if not non_gpp_files:
             continue
@@ -183,9 +191,21 @@ def collect_gpp_collections(backup_dir: Path, gpo_guid: str) -> tuple[GppCollect
                 raise BackupError("cpassword detected in Registry.xml")
             registry = parse_gpp_registry(registry_data)
         if groups or registry:
+            files: dict[str, bytes] = {}
+            if groups_path.exists():
+                files["Groups/Groups.xml"] = read_file_bytes(groups_path)
+            if registry_path.exists():
+                files["Registry/Registry.xml"] = read_file_bytes(registry_path)
+            parsed_collection = parse_gpp_collection(scope, files)
             collections.append(
                 ensure_editor_ids(
-                    GppCollection(scope=scope, groups=groups, registry=registry)
+                    GppCollection(
+                        scope=scope, groups=groups, registry=registry,
+                        groups_unknown_attrs=parsed_collection.groups_unknown_attrs,
+                        groups_unknown_children=parsed_collection.groups_unknown_children,
+                        registry_unknown_attrs=parsed_collection.registry_unknown_attrs,
+                        registry_unknown_children=parsed_collection.registry_unknown_children,
+                    )
                 )
             )
     return tuple(collections)

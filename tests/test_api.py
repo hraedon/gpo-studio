@@ -1433,7 +1433,90 @@ def test_gpp_group_rejects_reserved_unknown_child(tmp_path) -> None:
         assert any("reserved" in i["message"].lower() for i in issues)
 
 
-def test_gpp_group_edit_uses_path_id_not_body_id(tmp_path) -> None:
+def test_gpp_group_ilt_filter_items_round_trip(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "ILT items round-trip"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group with items-format ILT",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "ilt_filter": {
+                        "items": [
+                            {
+                                "type": "ou",
+                                "value": "OU=Test,DC=example,DC=com",
+                                "negate": False,
+                                "bool_op": "AND",
+                            },
+                            "<FilterBattery not=\"0\" bool=\"AND\"/>",
+                            {
+                                "type": "group",
+                                "value": "S-1-5-32-544",
+                                "negate": True,
+                                "bool_op": "OR",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+        assert resp.status_code == 201
+        result = resp.json()["gpo"]
+        group = result["gpp_collections"][0]["groups"][0]
+        assert group["ilt_filter"] is not None
+        assert len(group["ilt_filter"]["items"]) == 3
+        assert group["ilt_filter"]["items"][0]["type"] == "ou"
+        assert group["ilt_filter"]["items"][1] == "<FilterBattery not=\"0\" bool=\"AND\"/>"
+        assert group["ilt_filter"]["items"][2]["bool_op"] == "OR"
+
+
+def test_gpp_ilt_reserved_attr_returns_422_not_500(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post(
+            "/api/gpos", json={"name": "ILT reserved attr policy"}
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "add group with reserved ILT attr",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "action": "update",
+                    "ilt_filter": {
+                        "items": [
+                            {
+                                "type": "ou",
+                                "value": "OU=Test",
+                                "bool_op": "AND",
+                                "unknown_attrs": [["bool", "OR"]],
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert any("reserved" in i["message"].lower() for i in issues)
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False

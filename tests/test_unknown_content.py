@@ -15,6 +15,7 @@ from gpo_studio.gpp import (
     contains_cpassword,
     gpp_collection_from_dict,
     gpp_collection_to_dict,
+    parse_gpp_collection,
     parse_gpp_groups,
     parse_gpp_registry,
     serialize_gpp_groups,
@@ -133,8 +134,9 @@ def test_unknown_registry_attrs_preserved_in_round_trip() -> None:
     parsed = parse_gpp_registry(_REGISTRY_XML_WITH_UNKNOWN)
     assert len(parsed) == 1
     reg = parsed[0]
+    assert len(reg.values) == 1
 
-    uid_attrs = [a for a in reg.unknown_attrs if a[0] == "uid"]
+    uid_attrs = [a for a in reg.values[0].unknown_elem_attrs if a[0] == "uid"]
     assert len(uid_attrs) == 1
     assert uid_attrs[0][1] == "{def-456}"
 
@@ -144,7 +146,7 @@ def test_unknown_registry_attrs_preserved_in_round_trip() -> None:
 
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
-    assert reparsed[0].unknown_attrs == reg.unknown_attrs
+    assert reparsed[0].values[0].unknown_elem_attrs == reg.values[0].unknown_elem_attrs
 
 
 def test_unknown_registry_value_attrs_preserved() -> None:
@@ -217,19 +219,22 @@ def test_unknown_registry_ilt_preserved_through_full_round_trip() -> None:
     parsed = parse_gpp_registry(_REGISTRY_XML_WITH_UNKNOWN)
     assert len(parsed) == 1
     reg = parsed[0]
-    assert reg.ilt_filter is not None
-    assert len(reg.ilt_filter.predicates) == 1
-    assert len(reg.ilt_filter.unknown_predicates) == 1
-    assert "FilterComputer" in reg.ilt_filter.unknown_predicates[0]
+    assert len(reg.values) == 1
+    ilt = reg.values[0].ilt_filter
+    assert ilt is not None
+    assert len(ilt.predicates) == 1
+    assert len(ilt.unknown_predicates) == 1
+    assert "FilterComputer" in ilt.unknown_predicates[0]
 
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
-    assert reparsed[0].ilt_filter is not None
-    assert len(reparsed[0].ilt_filter.predicates) == 1
-    assert len(reparsed[0].ilt_filter.unknown_predicates) == 1
-    assert "FilterComputer" in reparsed[0].ilt_filter.unknown_predicates[0]
-    assert reparsed[0].ilt_filter.predicates == reg.ilt_filter.predicates
+    rilt = reparsed[0].values[0].ilt_filter
+    assert rilt is not None
+    assert len(rilt.predicates) == 1
+    assert len(rilt.unknown_predicates) == 1
+    assert "FilterComputer" in rilt.unknown_predicates[0]
+    assert rilt.predicates == ilt.predicates
 
 
 def test_unknown_attrs_survive_dict_round_trip() -> None:
@@ -431,3 +436,82 @@ def test_unknown_content_changes_semantic_hash() -> None:
         ),
     ))
     assert policy_semantic_sha256(gpo_without) != policy_semantic_sha256(gpo_with)
+
+
+def test_root_attrs_preserved_in_round_trip() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}" disabled="1">'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="G1">'
+        b'<Properties action="U" groupName="G1"/>'
+        b'</Group>'
+        b'</Groups>'
+    )
+    parsed = parse_gpp_groups(xml)
+    assert len(parsed) == 1
+    assert parsed[0].name == "G1"
+
+    collection = GppCollection(
+        scope="computer", groups=parsed,
+        groups_unknown_attrs=(("disabled", "1"),),
+    )
+    serialized = serialize_gpp_groups(collection)
+    assert b'disabled="1"' in serialized
+
+    files = {"Groups/Groups.xml": serialized}
+    reparsed = parse_gpp_collection("computer", files)
+    assert reparsed.groups_unknown_attrs == (("disabled", "1"),)
+
+
+def test_root_unknown_children_preserved() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="G1">'
+        b'<Properties action="U" groupName="G1"/>'
+        b'</Group>'
+        b'<User clsid="{DF5F1855-FDA4-4B49-A6AE-5D2A3F4D7B5B}" name="AdminUser">'
+        b'<Properties action="U" userName="AdminUser"/>'
+        b'</User>'
+        b'</Groups>'
+    )
+    files = {"Groups/Groups.xml": xml}
+    parsed = parse_gpp_collection("computer", files)
+    assert len(parsed.groups) == 1
+    assert len(parsed.groups_unknown_children) == 1
+    assert "User" in parsed.groups_unknown_children[0]
+
+    serialized = serialize_gpp_groups(parsed)
+    assert b"<User" in serialized
+    assert b'userName="AdminUser"' in serialized
+
+
+def test_group_properties_unknown_attrs_preserved() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Admins">'
+        b'<Properties action="U" groupName="Admins" groupSid="S-1-5-32-544" '
+        b'newName="RenamedAdmins" userAction="UPDATE" removeAccounts="1" '
+        b'deleteAllUsers="0" deleteAllGroups="0"/>'
+        b'</Group>'
+        b'</Groups>'
+    )
+    parsed = parse_gpp_groups(xml)
+    assert len(parsed) == 1
+    group = parsed[0]
+    assert group.unknown_props_attrs == (
+        ("newName", "RenamedAdmins"),
+        ("userAction", "UPDATE"),
+        ("removeAccounts", "1"),
+    )
+
+    serialized = serialize_gpp_groups(
+        GppCollection(scope="computer", groups=parsed)
+    )
+    assert b'newName="RenamedAdmins"' in serialized
+    assert b'userAction="UPDATE"' in serialized
+    assert b'removeAccounts="1"' in serialized
+
+    reparsed = parse_gpp_groups(serialized)
+    assert reparsed[0].unknown_props_attrs == group.unknown_props_attrs
