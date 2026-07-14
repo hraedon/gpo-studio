@@ -356,15 +356,15 @@ def test_gpp_registry_with_ilt_filter_round_trip() -> None:
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     parsed = parse_gpp_registry(data)
-    assert len(parsed) == 1
-    r = parsed[0]
-    assert r.key == r"Software\Policies\Test"
-    assert len(r.values) == 2
-    assert r.values[0].ilt_filter is not None
-    assert len(r.values[0].ilt_filter.predicates) == 2
-    assert r.values[0].ilt_filter.predicates[0].type == "ou"
-    assert r.values[0].ilt_filter.predicates[1].type == "group"
-    assert r.values[0].ilt_filter.predicates[1].negate is True
+    assert len(parsed) == 2
+    r0 = parsed[0]
+    assert r0.key == r"Software\Policies\Test"
+    assert r0.values[0].name == "Enabled"
+    assert r0.values[0].ilt_filter is not None
+    assert len(r0.values[0].ilt_filter.predicates) == 2
+    assert r0.values[0].ilt_filter.predicates[0].type == "ou"
+    assert r0.values[0].ilt_filter.predicates[1].type == "group"
+    assert r0.values[0].ilt_filter.predicates[1].negate is True
 
 
 def test_gpp_registry_without_ilt_filter_has_no_filters() -> None:

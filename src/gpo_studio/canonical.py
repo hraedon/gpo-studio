@@ -127,7 +127,12 @@ def gpp_group_identity(group: GppGroup) -> tuple[str, str]:
 
 
 def gpp_registry_identity(reg: GppRegistry) -> str:
-    return f"{reg.hive.casefold()}\\{reg.key.casefold()}"
+    if reg.uid:
+        return f"uid:{reg.uid}"
+    first = reg.values[0] if reg.values else None
+    vname = first.name.casefold() if first else ""
+    vact = first.action if first else ""
+    return f"{reg.hive.casefold()}\\{reg.key.casefold()}#{vname}#{vact}"
 
 
 def gpp_registry_value_identity(value: GppRegistryValue) -> tuple[str, str]:
@@ -191,6 +196,7 @@ def semantic_dict_gpp_registry_value(value: GppRegistryValue) -> dict[str, Any]:
         "value": value.value,
         "registry_type": value.registry_type,
         "action": value.action,
+        "default": value.default,
         "unknown_attrs": list(value.unknown_attrs),
         "ilt_filter": semantic_dict_ilt(value.ilt_filter),
         "unknown_elem_attrs": list(value.unknown_elem_attrs),
@@ -205,6 +211,7 @@ def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
         "key": reg.key.casefold(),
         "hive": reg.hive,
         "action": reg.action,
+        "uid": reg.uid,
         "values": [semantic_dict_gpp_registry_value(v) for v in reg.values],
     }
 

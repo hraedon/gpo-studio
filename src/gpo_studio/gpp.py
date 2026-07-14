@@ -92,9 +92,9 @@ _GROUP_KNOWN_ATTRS = frozenset({
     "action", "removeUsers", "removeGroups", "description",
 })
 _MEMBER_KNOWN_ATTRS = frozenset({"name", "sid", "action"})
-_REGISTRY_KNOWN_ATTRS = frozenset({"clsid", "name", "action"})
+_REGISTRY_KNOWN_ATTRS = frozenset({"clsid", "name", "action", "uid"})
 _REGISTRY_VALUE_KNOWN_ATTRS = frozenset({
-    "action", "hive", "key", "name", "type", "value",
+    "action", "hive", "key", "name", "type", "value", "default",
 })
 _GROUP_KNOWN_CHILDREN = frozenset({"Properties", "Members", "Filters"})
 _REGISTRY_KNOWN_CHILDREN = frozenset({"Properties", "Filters"})
@@ -114,9 +114,9 @@ _GROUP_RESERVED_ATTRS = frozenset({
     "clsid", "name",
 })
 _MEMBER_RESERVED_ATTRS = frozenset({"name", "sid", "action"})
-_REGISTRY_RESERVED_ATTRS = frozenset({"clsid", "name"})
+_REGISTRY_RESERVED_ATTRS = frozenset({"clsid", "name", "uid"})
 _REGISTRY_VALUE_RESERVED_ATTRS = frozenset({
-    "action", "hive", "key", "name", "type", "value",
+    "action", "hive", "key", "name", "type", "value", "default",
 })
 
 _REGISTRY_HIVES = frozenset({
@@ -300,6 +300,7 @@ class GppRegistryValue:
     value: str | int | list[str]
     registry_type: str = "REG_SZ"
     action: GppRegistryAction = "create"
+    default: bool = False
     id: str = ""
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     ilt_filter: IltFilter | None = None
@@ -313,6 +314,7 @@ class GppRegistry:
     hive: str = "HKEY_LOCAL_MACHINE"
     values: tuple[GppRegistryValue, ...] = field(default_factory=tuple)
     action: GppAction = "update"
+    uid: str = ""
     id: str = ""
 
 
@@ -403,6 +405,8 @@ def _serialize_registry_value(
     else:
         text_value = raw
     props.set("value", text_value)
+    if value.default:
+        props.set("default", "1")
     _apply_unknown_attrs(props, value.unknown_attrs)
     return elem
 
@@ -415,12 +419,15 @@ def _serialize_registry(reg: GppRegistry) -> list[ET.Element]:
     <Registry> elements sharing the same hive and key.
 
     Per-value element metadata (ILT filter, unknown attrs on <Registry>,
-    unknown children) is taken from each GppRegistryValue.
+    unknown children) is taken from each GppRegistryValue.  The GPP common
+    uid is emitted on each <Registry> element when present.
     """
     hive = _normalize_hive(reg.hive)
     elements: list[ET.Element] = []
     for value in reg.values:
         elem = _serialize_registry_value(value, hive, reg.key)
+        if reg.uid:
+            elem.set("uid", reg.uid)
         _apply_unknown_attrs(elem, value.unknown_elem_attrs)
         if value.ilt_filter is not None:
             elem.append(serialize_ilt(value.ilt_filter))
@@ -432,6 +439,8 @@ def _serialize_registry(reg: GppRegistry) -> list[ET.Element]:
         elem = ET.Element(_ns("Registry"))
         elem.set("clsid", _REGISTRY_CLSID)
         elem.set("name", reg.key)
+        if reg.uid:
+            elem.set("uid", reg.uid)
         props = ET.SubElement(elem, _ns("Properties"))
         props.set("action", "U")
         props.set("hive", hive)
@@ -560,6 +569,7 @@ def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
     reg_type = props.get("type", "REG_SZ")
     action = _code_to_registry_action(props.get("action", "C"))
     name = props.get("name", "")
+    default = props.get("default", "0") == "1"
     if reg_type in ("REG_DWORD", "REG_QWORD"):
         try:
             value: str | int | list[str] = int(raw)
@@ -574,20 +584,21 @@ def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
         value=value,
         registry_type=reg_type,
         action=action,
+        default=default,
         unknown_attrs=_capture_unknown_attrs(props, _REGISTRY_VALUE_KNOWN_ATTRS),
     )
 
 
-_RegistryParsed = tuple[str, str, GppRegistryValue]
+_RegistryParsed = tuple[str, str, str, GppRegistryValue]
 
 
 def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
     """Parse a single <Registry> element.
 
-    Returns a list of (hive, key, value).  Per-element metadata (ILT
-    filter, unknown attrs on <Registry>, unknown children) is attached
-    to each GppRegistryValue so that coalescing by (hive, key) is
-    lossless.
+    Returns a list of (uid, hive, key, value).  Each <Registry> element
+    produces exactly one entry — coalescing is no longer performed because
+    each Registry preference item is independently actionable with its own
+    uid, targeting, and common attributes.
 
     Handles both MS-GPPREF format (one <Properties> per <Registry> with
     hive/key on Properties) and legacy Studio format (multiple <Properties>
@@ -595,6 +606,7 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
     """
     props_list = _findall_local(elem, "Properties")
     registry_name = elem.get("name", "")
+    uid = elem.get("uid", "")
     filters_elem = _find_local(elem, "Filters")
     ilt_filter = parse_ilt(filters_elem) if filters_elem is not None else None
     unknown_attrs = _capture_unknown_attrs(elem, _REGISTRY_KNOWN_ATTRS)
@@ -605,7 +617,7 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
     if not props_list:
         hive = "HKEY_LOCAL_MACHINE"
         key = registry_name
-        results.append((hive, key, GppRegistryValue(
+        results.append((uid, hive, key, GppRegistryValue(
             name="", value="", registry_type="", action="create",
             ilt_filter=ilt_filter,
             unknown_elem_attrs=unknown_attrs,
@@ -623,7 +635,7 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
                     unknown_elem_attrs=unknown_attrs,
                     unknown_children=unknown_children,
                 )
-            results.append((hive, key, value))
+            results.append((uid, hive, key, value))
 
     return results
 
@@ -631,12 +643,10 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
 def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
     """Parse GPP Registry XML bytes into a tuple of GppRegistry.
 
-    Consecutive <Registry> elements sharing the same (hive, key) are
-    grouped into a single GppRegistry with multiple values.  Non-consecutive
-    elements with the same (hive, key) are kept as separate GppRegistry
-    objects, preserving their original order and item identity.  Per-element
-    metadata (ILT filters, unknown attributes, unknown children) is
-    preserved on each GppRegistryValue, so the coalescing is lossless.
+    Each <Registry> XML element becomes its own GppRegistry with exactly
+    one value.  Coalescing is not performed because each Registry
+    preference item is independently actionable (separate uid, targeting,
+    and common attributes) per MS-GPPREF.
     """
     try:
         root = ET.fromstring(data)
@@ -647,24 +657,16 @@ def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
     for elem in _findall_local(root, "Registry"):
         parsed.extend(_parse_registry(elem))
 
-    grouped: list[GppRegistry] = []
-    for hive, key, value in parsed:
-        if grouped:
-            last = grouped[-1]
-            last_identity = (last.hive, last.key)
-            if last_identity == (hive, key):
-                grouped[-1] = replace(
-                    last,
-                    values=last.values + (value,),
-                )
-                continue
-        grouped.append(GppRegistry(
+    return tuple(
+        GppRegistry(
             key=key,
             hive=hive,
             values=(value,),
             action="update",
-        ))
-    return tuple(grouped)
+            uid=uid,
+        )
+        for uid, hive, key, value in parsed
+    )
 
 
 def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollection:
@@ -856,12 +858,14 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "key": r.key,
                 "hive": r.hive,
                 "action": r.action,
+                "uid": r.uid,
                 "values": [
                     {
                         "name": v.name,
                         "value": v.value,
                         "registry_type": v.registry_type,
                         "action": v.action,
+                        "default": v.default,
                         "id": v.id,
                         "unknown_attrs": list(v.unknown_attrs) if v.unknown_attrs else [],
                         "ilt_filter": _ilt_filter_to_dict(v.ilt_filter),
@@ -924,6 +928,7 @@ def _gpp_registry_value_from_dict(v: dict[str, Any]) -> GppRegistryValue:
         value=v.get("value", ""),
         registry_type=str(v.get("registry_type", "REG_SZ")),
         action=_validate_gpp_registry_action(v.get("action", "create")),
+        default=bool(v.get("default", False)),
         id=str(v.get("id", "")),
         unknown_attrs=tuple(
             (str(k), str(v2))
@@ -1002,6 +1007,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             key=str(r.get("key", "")),
             hive=_normalize_hive(str(r.get("hive", "HKEY_LOCAL_MACHINE"))),
             action=_validate_gpp_action(r.get("action", "update")),
+            uid=str(r.get("uid", "")),
             values=tuple(
                 _apply_registry_level_metadata_to_value(
                     _gpp_registry_value_from_dict(v), r,
