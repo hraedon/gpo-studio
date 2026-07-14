@@ -1,6 +1,11 @@
 # Plan 018 — Workspace and runtime hardening
 
-Status: proposed
+Status: WP-1/2/4/5 completed; WP-3 completed — CLI backup/restore/check,
+SQLite online backup API with WAL checkpoint, atomic metadata sidecar,
+crash-safe restore with rollback, startup quick-check with health
+degradation, /api/workspace/integrity endpoint. Four rounds of adversarial
+review resolved all CRITICAL/MAJOR findings. 940 tests pass, ruff and mypy
+--strict clean.
 Scope: make the local SQLite workspace recoverable, concurrency-safe, bounded,
 and secure under the stated single-operator deployment model
 Depends on: Plan 015; may proceed in parallel with Plans 016 and 017

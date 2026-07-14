@@ -1270,7 +1270,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             app.state.wmi_catalogue = WmiCatalogue()
     store = app.state.store
-    meta = store.workspace_meta()
+    startup_qc = store.quick_check()
+    if startup_qc.ok:
+        _logger.info("startup_quick_check=ok")
+    else:
+        _logger.error("startup_quick_check=fail errors=%s", "; ".join(startup_qc.errors))
+    app.state.workspace_healthy = startup_qc.ok
+    try:
+        meta = store.workspace_meta()
+    except Exception:
+        meta = {}
     admx_cat = cast(AdmxCatalogue, getattr(app.state, "admx_catalogue", AdmxCatalogue()))
     wmi_cat = cast(WmiCatalogue, getattr(app.state, "wmi_catalogue", WmiCatalogue()))
     _logger.info(
@@ -1365,15 +1374,32 @@ def health(request: Request) -> dict[str, Any]:
     store = _store(request)
     catalogue = _catalogue(request)
     wmi_cat = _wmi_catalogue(request)
-    meta = store.workspace_meta()
+    healthy = getattr(request.app.state, "workspace_healthy", True)
+    try:
+        meta = store.workspace_meta()
+    except Exception:
+        meta = {}
+        healthy = False
     return {
-        "status": "ok",
+        "status": "ok" if healthy else "degraded",
         "version": __version__,
         "schema_version": meta.get("schema_version", "unknown"),
         "mode": "offline-workspace",
         "admx_loaded": len(catalogue.policies) > 0,
         "wmi_catalogue_loaded": len(wmi_cat.filters) > 0,
     }
+
+
+@app.get("/api/workspace/integrity")
+def workspace_integrity(request: Request, full: bool = False) -> dict[str, Any]:
+    """Run an integrity check on the workspace database.
+
+    By default runs a quick check (fast, suitable for routine use).
+    Pass ``?full=true`` for a thorough integrity check.
+    """
+    store = _store(request)
+    result = store.full_integrity_check() if full else store.quick_check()
+    return result.to_dict()
 
 
 @app.get("/api/admx/search")
