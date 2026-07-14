@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
+import threading
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from .gpp import (
     GppCollection,
@@ -36,6 +38,7 @@ from .model import (
     ValidationError,
     ValidationIssue,
     WmiFilter,
+    WorkspaceError,
 )
 from .validation import (
     validate_gpo,
@@ -255,53 +258,68 @@ class WorkspaceStore:
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
+        self._lock = threading.RLock()
         self._connection = sqlite3.connect(self.path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
-        self._connection.execute("PRAGMA foreign_keys = ON")
-        self._connection.execute("PRAGMA journal_mode = WAL")
-        self._migrate()
+        self._apply_pragmas()
+        self._migrate_schema()
 
     def close(self) -> None:
         self._connection.close()
 
-    def _migrate(self) -> None:
-        self._connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS gpos (
-                guid TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                revision INTEGER NOT NULL,
-                snapshot_json TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_gpos_name_nocase
-                ON gpos(name COLLATE NOCASE);
-            CREATE TABLE IF NOT EXISTS revisions (
-                gpo_guid TEXT NOT NULL REFERENCES gpos(guid) ON DELETE CASCADE,
-                revision INTEGER NOT NULL,
-                actor TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                snapshot_json TEXT NOT NULL,
-                PRIMARY KEY (gpo_guid, revision)
-            );
-            """
-        )
-        self._connection.commit()
+    def _apply_pragmas(self) -> None:
+        self._connection.execute("PRAGMA journal_mode = WAL")
+        self._connection.execute("PRAGMA foreign_keys = ON")
+        self._connection.execute("PRAGMA busy_timeout = 5000")
+        self._connection.execute("PRAGMA synchronous = NORMAL")
+
+    def _migrate_schema(self) -> None:
+        from .schema import SchemaError, migrate
+
+        try:
+            migrate(self._connection)
+        except SchemaError as e:
+            raise WorkspaceError(str(e)) from e
+        except sqlite3.Error as e:
+            self._map_sqlite_error(e)
+
+    @staticmethod
+    def _map_sqlite_error(error: sqlite3.Error) -> NoReturn:
+        """Map SQLite errors to domain exceptions. Never returns; always raises."""
+        if isinstance(error, sqlite3.IntegrityError):
+            raise ConflictError("A GPO with that name or GUID already exists") from error
+        if isinstance(error, sqlite3.OperationalError):
+            msg = str(error).lower()
+            if "locked" in msg or "busy" in msg:
+                raise WorkspaceError("Workspace is busy. Try again.") from error
+            if "read-only" in msg or "readonly" in msg:
+                raise WorkspaceError("Workspace is read-only.") from error
+            if "corrupt" in msg or "malformed" in msg:
+                raise WorkspaceError("Workspace database is corrupt.") from error
+        raise WorkspaceError(f"Workspace error: {error}") from error
+
+    def workspace_meta(self) -> dict[str, str]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT key, value FROM workspace_meta"
+            ).fetchall()
+            return {row["key"]: row["value"] for row in rows}
 
     def list_gpos(self) -> list[GPO]:
-        rows = self._connection.execute(
-            "SELECT snapshot_json FROM gpos ORDER BY name COLLATE NOCASE"
-        ).fetchall()
-        return [gpo_from_dict(json.loads(row["snapshot_json"])) for row in rows]
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT snapshot_json FROM gpos ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+            return [gpo_from_dict(json.loads(row["snapshot_json"])) for row in rows]
 
     def get_gpo(self, guid: str) -> GPO:
-        row = self._connection.execute(
-            "SELECT snapshot_json FROM gpos WHERE guid = ?", (guid.lower(),)
-        ).fetchone()
-        if row is None:
-            raise NotFoundError(f"GPO {guid} was not found")
-        return gpo_from_dict(json.loads(row["snapshot_json"]))
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT snapshot_json FROM gpos WHERE guid = ?", (guid.lower(),)
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"GPO {guid} was not found")
+            return gpo_from_dict(json.loads(row["snapshot_json"]))
 
     def create_gpo(
         self,
@@ -343,8 +361,9 @@ class WorkspaceStore:
             updated_at=timestamp,
         )
         payload = json.dumps(gpo.to_dict(), separators=(",", ":"), sort_keys=True)
-        try:
-            with self._connection:
+        with self._lock:
+            try:
+                self._connection.execute("BEGIN IMMEDIATE")
                 self._connection.execute(
                     """INSERT INTO gpos(guid, name, revision, snapshot_json, updated_at)
                        VALUES(?,?,?,?,?)""",
@@ -354,8 +373,11 @@ class WorkspaceStore:
                     "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
                     (gpo.guid, 1, actor, reason, timestamp, payload),
                 )
-        except sqlite3.IntegrityError as error:
-            raise ConflictError("A GPO with that name or GUID already exists") from error
+                self._connection.execute("COMMIT")
+            except sqlite3.Error as error:
+                with contextlib.suppress(sqlite3.Error):
+                    self._connection.execute("ROLLBACK")
+                self._map_sqlite_error(error)
         return gpo
 
     def import_baseline_gpos(
@@ -372,12 +394,6 @@ class WorkspaceStore:
         rejected = 0
         for gpo in gpos:
             normalized_guid = gpo.guid.lower().strip("{}")
-            try:
-                self.get_gpo(normalized_guid)
-                skipped += 1
-                continue
-            except NotFoundError:
-                pass
             timestamp = _now()
             normalized = replace(
                 gpo,
@@ -404,22 +420,37 @@ class WorkspaceStore:
                 normalized.to_dict(), separators=(",", ":"), sort_keys=True
             )
             try:
-                with self._connection:
-                    self._connection.execute(
-                        """INSERT INTO gpos(guid, name, revision, snapshot_json, updated_at)
-                           VALUES(?,?,?,?,?)""",
-                        (
-                            normalized.guid,
-                            normalized.name,
-                            normalized.revision,
-                            payload,
-                            timestamp,
-                        ),
-                    )
-                    self._connection.execute(
-                        "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
-                        (normalized.guid, 1, actor, reason, timestamp, payload),
-                    )
+                with self._lock:
+                    try:
+                        try:
+                            self.get_gpo(normalized_guid)
+                            skipped += 1
+                            continue
+                        except NotFoundError:
+                            pass
+                        self._connection.execute("BEGIN IMMEDIATE")
+                        self._connection.execute(
+                            """INSERT INTO gpos(guid, name, revision, snapshot_json, updated_at)
+                               VALUES(?,?,?,?,?)""",
+                            (
+                                normalized.guid,
+                                normalized.name,
+                                normalized.revision,
+                                payload,
+                                timestamp,
+                            ),
+                        )
+                        self._connection.execute(
+                            "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
+                            (normalized.guid, 1, actor, reason, timestamp, payload),
+                        )
+                        self._connection.execute("COMMIT")
+                    except sqlite3.Error as error:
+                        with contextlib.suppress(sqlite3.Error):
+                            self._connection.execute("ROLLBACK")
+                        if isinstance(error, sqlite3.IntegrityError):
+                            raise
+                        self._map_sqlite_error(error)
             except sqlite3.IntegrityError:
                 conflicts += 1
                 continue
@@ -482,35 +513,50 @@ class WorkspaceStore:
         reason: str,
     ) -> GPO:
         actor = _resolve_actor(identity)
-        current = self.get_gpo(guid)
-        if current.revision != expected_revision:
-            raise ConflictError(
-                f"Expected revision {expected_revision}, "
-                f"but the current revision is {current.revision}"
-            )
-        timestamp = _now()
-        changed = mutation(current)
-        updated = replace(changed, revision=current.revision + 1, updated_at=timestamp)
-        payload = json.dumps(updated.to_dict(), separators=(",", ":"), sort_keys=True)
-        with self._connection:
-            cursor = self._connection.execute(
-                """UPDATE gpos SET name=?, revision=?, snapshot_json=?, updated_at=?
-                   WHERE guid=? AND revision=?""",
-                (
-                    updated.name,
-                    updated.revision,
-                    payload,
-                    timestamp,
-                    current.guid,
-                    expected_revision,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise ConflictError("The GPO changed while this request was being processed")
-            self._connection.execute(
-                "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
-                (current.guid, updated.revision, actor, reason, timestamp, payload),
-            )
+        with self._lock:
+            try:
+                self._connection.execute("BEGIN IMMEDIATE")
+                current = self.get_gpo(guid)
+                if current.revision != expected_revision:
+                    raise ConflictError(
+                        f"Expected revision {expected_revision}, "
+                        f"but the current revision is {current.revision}"
+                    )
+                timestamp = _now()
+                changed = mutation(current)
+                updated = replace(
+                    changed, revision=current.revision + 1, updated_at=timestamp
+                )
+                payload = json.dumps(
+                    updated.to_dict(), separators=(",", ":"), sort_keys=True
+                )
+                cursor = self._connection.execute(
+                    """UPDATE gpos SET name=?, revision=?, snapshot_json=?, updated_at=?
+                       WHERE guid=? AND revision=?""",
+                    (
+                        updated.name,
+                        updated.revision,
+                        payload,
+                        timestamp,
+                        current.guid,
+                        expected_revision,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ConflictError(
+                        "The GPO changed while this request was being processed"
+                    )
+                self._connection.execute(
+                    "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
+                    (current.guid, updated.revision, actor, reason, timestamp, payload),
+                )
+                self._connection.execute("COMMIT")
+            except Exception as exc:
+                with contextlib.suppress(sqlite3.Error):
+                    self._connection.execute("ROLLBACK")
+                if isinstance(exc, sqlite3.Error):
+                    self._map_sqlite_error(exc)
+                raise
         return updated
 
     def update_metadata(
@@ -1148,38 +1194,40 @@ class WorkspaceStore:
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
     def revisions(self, guid: str) -> list[Revision]:
-        self.get_gpo(guid)
-        rows = self._connection.execute(
-            """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
-               WHERE gpo_guid=? ORDER BY revision DESC""",
-            (guid.lower(),),
-        ).fetchall()
-        return [
-            Revision(
+        with self._lock:
+            self.get_gpo(guid)
+            rows = self._connection.execute(
+                """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
+                   WHERE gpo_guid=? ORDER BY revision DESC""",
+                (guid.lower(),),
+            ).fetchall()
+            return [
+                Revision(
+                    revision=int(row["revision"]),
+                    actor=str(row["actor"]),
+                    reason=str(row["reason"]),
+                    created_at=str(row["created_at"]),
+                    snapshot=json.loads(row["snapshot_json"]),
+                )
+                for row in rows
+            ]
+
+    def get_revision(self, guid: str, revision: int) -> Revision:
+        with self._lock:
+            row = self._connection.execute(
+                """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
+                   WHERE gpo_guid=? AND revision=?""",
+                (guid.lower(), revision),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"Revision {revision} was not found")
+            return Revision(
                 revision=int(row["revision"]),
                 actor=str(row["actor"]),
                 reason=str(row["reason"]),
                 created_at=str(row["created_at"]),
                 snapshot=json.loads(row["snapshot_json"]),
             )
-            for row in rows
-        ]
-
-    def get_revision(self, guid: str, revision: int) -> Revision:
-        row = self._connection.execute(
-            """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
-               WHERE gpo_guid=? AND revision=?""",
-            (guid.lower(), revision),
-        ).fetchone()
-        if row is None:
-            raise NotFoundError(f"Revision {revision} was not found")
-        return Revision(
-            revision=int(row["revision"]),
-            actor=str(row["actor"]),
-            reason=str(row["reason"]),
-            created_at=str(row["created_at"]),
-            snapshot=json.loads(row["snapshot_json"]),
-        )
 
     def restore_revision(
         self,

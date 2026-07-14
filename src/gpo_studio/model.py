@@ -137,3 +137,7 @@ class ValidationError(StudioError):
     def __init__(self, issues: list[ValidationIssue]) -> None:
         super().__init__("validation failed")
         self.issues = issues
+
+
+class WorkspaceError(StudioError):
+    """Workspace-level error (corrupt database, schema mismatch, busy)."""
