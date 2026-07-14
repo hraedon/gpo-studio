@@ -331,12 +331,10 @@ def test_gpp_group_without_ilt_filter_has_no_filters() -> None:
 def test_gpp_registry_with_ilt_filter_serializes() -> None:
     reg = GppRegistry(
         key=r"Software\Policies\Test",
-        values=(
-            GppRegistryValue(
-                name="Enabled", value=1, registry_type="REG_DWORD",
-                ilt_filter=_sample_ilt_filter(),
-            ),
+        value=GppRegistryValue(
+            name="Enabled", value=1, registry_type="REG_DWORD",
         ),
+        ilt_filter=_sample_ilt_filter(),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     assert b"<Filters" in data
@@ -344,35 +342,38 @@ def test_gpp_registry_with_ilt_filter_serializes() -> None:
 
 
 def test_gpp_registry_with_ilt_filter_round_trip() -> None:
-    reg = GppRegistry(
-        key=r"Software\Policies\Test",
-        values=(
-            GppRegistryValue(
+    regs = (
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            value=GppRegistryValue(
                 name="Enabled", value=1, registry_type="REG_DWORD",
-                ilt_filter=_sample_ilt_filter(),
             ),
-            GppRegistryValue(name="Path", value=r"C:\Temp"),
+            ilt_filter=_sample_ilt_filter(),
+        ),
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            value=GppRegistryValue(name="Path", value=r"C:\Temp"),
         ),
     )
-    data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
+    data = serialize_gpp_registry(GppCollection(scope="computer", registry=regs))
     parsed = parse_gpp_registry(data)
     assert len(parsed) == 2
     r0 = parsed[0]
     assert r0.key == r"Software\Policies\Test"
-    assert r0.values[0].name == "Enabled"
-    assert r0.values[0].ilt_filter is not None
-    assert len(r0.values[0].ilt_filter.predicates) == 2
-    assert r0.values[0].ilt_filter.predicates[0].type == "ou"
-    assert r0.values[0].ilt_filter.predicates[1].type == "group"
-    assert r0.values[0].ilt_filter.predicates[1].negate is True
+    assert r0.value.name == "Enabled"
+    assert r0.ilt_filter is not None
+    assert len(r0.ilt_filter.predicates) == 2
+    assert r0.ilt_filter.predicates[0].type == "ou"
+    assert r0.ilt_filter.predicates[1].type == "group"
+    assert r0.ilt_filter.predicates[1].negate is True
 
 
 def test_gpp_registry_without_ilt_filter_has_no_filters() -> None:
-    reg = GppRegistry(key="K")
+    reg = GppRegistry(key="K", value=GppRegistryValue(name="V", value="x"))
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     assert b"<Filters" not in data
     parsed = parse_gpp_registry(data)
-    assert parsed[0].values[0].ilt_filter is None
+    assert parsed[0].ilt_filter is None
 
 
 def _sample_collection_with_ilt() -> GppCollection:
@@ -393,18 +394,16 @@ def _sample_collection_with_ilt() -> GppCollection:
         registry=(
             GppRegistry(
                 key=r"Software\Policies\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Enabled", value=1, registry_type="REG_DWORD",
-                        ilt_filter=IltFilter(
-                            items=(
-                                IltPredicate(
-                                    type="wmi_query",
-                                    value="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1",
-                                ),
-                            )
+                value=GppRegistryValue(
+                    name="Enabled", value=1, registry_type="REG_DWORD",
+                ),
+                ilt_filter=IltFilter(
+                    items=(
+                        IltPredicate(
+                            type="wmi_query",
+                            value="SELECT * FROM Win32_OperatingSystem WHERE ProductType=1",
                         ),
-                    ),
+                    )
                 ),
             ),
         ),
@@ -427,7 +426,7 @@ def test_gpp_collection_round_trip_preserves_ilt() -> None:
 
     assert len(parsed_registry) == 1
     r = parsed_registry[0]
-    ilt = r.values[0].ilt_filter
+    ilt = r.ilt_filter
     assert ilt is not None
     assert len(ilt.predicates) == 1
     assert ilt.predicates[0].type == "wmi_query"
@@ -443,8 +442,8 @@ def test_dict_conversion_preserves_ilt() -> None:
         d["groups"][0]["ilt_filter"]["items"][0]["value"]
         == "OU=Workstations,DC=example,DC=com"
     )
-    assert d["registry"][0]["values"][0]["ilt_filter"] is not None
-    assert d["registry"][0]["values"][0]["ilt_filter"]["items"][0]["type"] == "wmi_query"
+    assert d["registry"][0]["ilt_filter"] is not None
+    assert d["registry"][0]["ilt_filter"]["items"][0]["type"] == "wmi_query"
 
     restored = gpp_collection_from_dict(d)
     assert len(restored.groups) == 1
@@ -458,11 +457,11 @@ def test_dict_conversion_preserves_ilt() -> None:
 
     assert len(restored.registry) == 1
     r = restored.registry[0]
-    assert r.values[0].ilt_filter is not None
-    assert len(r.values[0].ilt_filter.predicates) == 1
-    assert r.values[0].ilt_filter.predicates[0].type == "wmi_query"
+    assert r.ilt_filter is not None
+    assert len(r.ilt_filter.predicates) == 1
+    assert r.ilt_filter.predicates[0].type == "wmi_query"
     assert (
-        r.values[0].ilt_filter.predicates[0].value
+        r.ilt_filter.predicates[0].value
         == "SELECT * FROM Win32_OperatingSystem WHERE ProductType=1"
     )
 
@@ -471,15 +470,15 @@ def test_dict_conversion_none_ilt_filter() -> None:
     collection = GppCollection(
         scope="computer",
         groups=(GppGroup(name="Test"),),
-        registry=(GppRegistry(key="K", values=(GppRegistryValue(name="V", value="x"),)),),
+        registry=(GppRegistry(key="K", value=GppRegistryValue(name="V", value="x")),),
     )
     d = gpp_collection_to_dict(collection)
     assert d["groups"][0]["ilt_filter"] is None
-    assert d["registry"][0]["values"][0]["ilt_filter"] is None
+    assert d["registry"][0]["ilt_filter"] is None
 
     restored = gpp_collection_from_dict(d)
     assert restored.groups[0].ilt_filter is None
-    assert restored.registry[0].values[0].ilt_filter is None
+    assert restored.registry[0].ilt_filter is None
 
 
 def test_store_persistence_preserves_ilt(tmp_path: Path) -> None:
@@ -507,9 +506,9 @@ def test_store_persistence_preserves_ilt(tmp_path: Path) -> None:
     assert g.ilt_filter.predicates[1].type == "group"
 
     r = loaded.gpp_collections[0].registry[0]
-    assert r.values[0].ilt_filter is not None
-    assert len(r.values[0].ilt_filter.predicates) == 1
-    assert r.values[0].ilt_filter.predicates[0].type == "wmi_query"
+    assert r.ilt_filter is not None
+    assert len(r.ilt_filter.predicates) == 1
+    assert r.ilt_filter.predicates[0].type == "wmi_query"
 
 
 # --- bool attribute preservation ---

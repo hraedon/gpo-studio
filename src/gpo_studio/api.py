@@ -221,9 +221,6 @@ class GppRegistryValueData(BaseModel):
     default: bool = False
     id: str = ""
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    ilt_filter: IltFilterData | None = None
-    unknown_elem_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_registry_value(self) -> GppRegistryValueData:
@@ -264,10 +261,12 @@ class GppRegistryData(BaseModel):
     key: str = Field(min_length=1, max_length=1000)
     hive: str = Field(default="HKEY_LOCAL_MACHINE", max_length=50)
     action: Literal["add", "replace", "remove", "update"] = "update"
-    values: list[GppRegistryValueData] = Field(default_factory=list)
+    value: GppRegistryValueData = Field(default_factory=lambda: GppRegistryValueData())
     id: str = ""
     uid: str = ""
     ilt_filter: IltFilterData | None = None
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
 
 class GppGroupMutation(Audit):
@@ -407,50 +406,15 @@ class GppRegistryMutation(Audit):
                     "registry": {
                         "key": "Software\\Policies\\Studio",
                         "action": "update",
-                        "values": [
-                            {
-                                "name": "Enabled",
-                                "value": "1",
-                                "registry_type": "REG_DWORD",
-                                "action": "create",
-                            },
-                            {
-                                "name": "InstallPath",
-                                "value": "C:\\Program Files\\Studio",
-                                "registry_type": "REG_SZ",
-                                "action": "replace",
-                            },
-                            {
-                                "name": "Servers",
-                                "value": [
-                                    "dc01.studio.local",
-                                    "dc02.studio.local",
-                                ],
-                                "registry_type": "REG_MULTI_SZ",
-                                "action": "update",
-                            },
-                            {
-                                "name": "Blob",
-                                "value": "deadbeef",
-                                "registry_type": "REG_BINARY",
-                                "action": "delete",
-                            },
-                            {
-                                "name": "Counter",
-                                "value": "18446744073709551615",
-                                "registry_type": "REG_QWORD",
-                                "action": "create",
-                            },
-                            {
-                                "name": "SystemPath",
-                                "value": "%SystemRoot%\\System32",
-                                "registry_type": "REG_EXPAND_SZ",
-                                "action": "create",
-                            },
-                        ],
+                        "value": {
+                            "name": "Enabled",
+                            "value": "1",
+                            "registry_type": "REG_DWORD",
+                            "action": "create",
+                        },
                     },
                     "actor": "local-operator",
-                    "reason": "Configure studio policy registry values",
+                    "reason": "Configure studio policy registry value",
                     "expected_revision": 1,
                 },
                 {
@@ -458,14 +422,12 @@ class GppRegistryMutation(Audit):
                     "registry": {
                         "key": "Software\\Policies\\Studio\\User",
                         "action": "add",
-                        "values": [
-                            {
-                                "name": "Theme",
-                                "value": "Dark",
-                                "registry_type": "REG_SZ",
-                                "action": "create",
-                            }
-                        ],
+                        "value": {
+                            "name": "Theme",
+                            "value": "Dark",
+                            "registry_type": "REG_SZ",
+                            "action": "create",
+                        },
                     },
                     "actor": "local-operator",
                     "reason": "Add user registry preference",
@@ -476,14 +438,12 @@ class GppRegistryMutation(Audit):
                     "registry": {
                         "key": "Software\\Policies\\Studio",
                         "action": "replace",
-                        "values": [
-                            {
-                                "name": "Enabled",
-                                "value": "0",
-                                "registry_type": "REG_DWORD",
-                                "action": "replace",
-                            }
-                        ],
+                        "value": {
+                            "name": "Enabled",
+                            "value": "0",
+                            "registry_type": "REG_DWORD",
+                            "action": "replace",
+                        },
                     },
                     "actor": "local-operator",
                     "reason": "Replace studio registry preference",
@@ -494,7 +454,12 @@ class GppRegistryMutation(Audit):
                     "registry": {
                         "key": "Software\\Policies\\Studio\\Legacy",
                         "action": "remove",
-                        "values": [],
+                        "value": {
+                            "name": "",
+                            "value": "",
+                            "registry_type": "",
+                            "action": "create",
+                        },
                     },
                     "actor": "local-operator",
                     "reason": "Remove legacy studio registry preference",
@@ -770,9 +735,6 @@ class GppRegistryValueResponse(BaseModel):
     action: str
     default: bool = False
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    ilt_filter: IltFilterResponse | None = None
-    unknown_elem_attrs: list[tuple[str, str]] = Field(default_factory=list)
-    unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -798,9 +760,12 @@ class GppRegistryResponse(BaseModel):
     id: str
     key: str
     hive: str
-    values: list[GppRegistryValueResponse]
+    value: GppRegistryValueResponse
     action: str
     uid: str = ""
+    ilt_filter: IltFilterResponse | None = None
+    unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_children: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1033,24 +998,11 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
         default=data.default,
         id=data.id,
         unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
-        ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
-        unknown_elem_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_elem_attrs),
-        unknown_children=tuple(data.unknown_children),
     )
     _validate_gpp_unknown_attrs(
         value.unknown_attrs,
         _REGISTRY_VALUE_RESERVED_ATTRS,
         f"registry value {value.name!r}",
-    )
-    _validate_gpp_unknown_attrs(
-        value.unknown_elem_attrs,
-        _REGISTRY_RESERVED_ATTRS,
-        f"registry {value.name!r}",
-    )
-    _validate_gpp_unknown_children(
-        value.unknown_children,
-        _REGISTRY_KNOWN_CHILDREN,
-        f"registry {value.name!r}",
     )
     return value
 
@@ -1068,17 +1020,27 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
             )
         ]) from error
     reg_ilt = _ilt_filter_data_to_model(data.ilt_filter)
-    values_list = [_gpp_registry_value_data_to_model(v) for v in data.values]
-    if reg_ilt is not None and values_list and values_list[0].ilt_filter is None:
-        values_list[0] = replace(values_list[0], ilt_filter=reg_ilt)
-    values = tuple(values_list)
+    value = _gpp_registry_value_data_to_model(data.value)
     registry = GppRegistry(
         key=data.key,
         hive=hive,
         action=data.action,
         uid=data.uid,
-        values=values,
+        value=value,
         id=data.id,
+        ilt_filter=reg_ilt,
+        unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
+        unknown_children=tuple(data.unknown_children),
+    )
+    _validate_gpp_unknown_attrs(
+        registry.unknown_attrs,
+        _REGISTRY_RESERVED_ATTRS,
+        f"registry {registry.key!r}",
+    )
+    _validate_gpp_unknown_children(
+        registry.unknown_children,
+        _REGISTRY_KNOWN_CHILDREN,
+        f"registry {registry.key!r}",
     )
     return registry
 
@@ -1097,14 +1059,16 @@ def _stringify_numeric_settings(settings: list[dict[str, Any]]) -> None:
 def _stringify_gpp_numeric_values(collections: list[dict[str, Any]]) -> None:
     for collection in collections:
         for reg in collection.get("registry", []):
-            for val in reg.get("values", []):
-                raw = val.get("value")
-                if (
-                    val.get("registry_type") in ("REG_DWORD", "REG_QWORD")
-                    and isinstance(raw, int)
-                    and not isinstance(raw, bool)
-                ):
-                    val["value"] = str(raw)
+            val = reg.get("value")
+            if not isinstance(val, dict):
+                continue
+            raw = val.get("value")
+            if (
+                val.get("registry_type") in ("REG_DWORD", "REG_QWORD")
+                and isinstance(raw, int)
+                and not isinstance(raw, bool)
+            ):
+                val["value"] = str(raw)
 
 
 def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:

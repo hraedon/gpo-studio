@@ -715,17 +715,6 @@ def validate_gpp_registry_value(
                 )
             )
         return issues
-    if is_default:
-        if value.registry_type not in _VALID_REGISTRY_TYPES:
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "invalid_gpp_registry_type",
-                    f"Unknown GPP registry type: {value.registry_type}.",
-                    f"{path}/registry_type",
-                )
-            )
-        return issues
     if value.registry_type not in _VALID_REGISTRY_TYPES:
         issues.append(
             ValidationIssue(
@@ -862,68 +851,15 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
                 f"{path}/key",
             )
         )
-    seen_value_names: set[str] = set()
-    seen_value_ids: set[str] = set()
-    seen_key_only = False
-    seen_default = False
-    for idx, val in enumerate(reg.values):
-        val_path = f"{path}/values/{idx}"
-        issues.extend(validate_gpp_registry_value(val, val_path))
-        if val.default:
-            if seen_default:
-                issues.append(
-                    ValidationIssue(
-                        "error",
-                        "duplicate_default_value",
-                        "Duplicate default registry value in the same key.",
-                        f"{val_path}/default",
-                    )
-                )
-            seen_default = True
-        elif val.name == "":
-            if seen_key_only:
-                issues.append(
-                    ValidationIssue(
-                        "error",
-                        "duplicate_key_only_value",
-                        "Duplicate key-only registry value in the same key.",
-                        f"{val_path}/name",
-                    )
-                )
-            seen_key_only = True
-        folded_name = val.name.casefold()
-        if val.name.strip() and folded_name in seen_value_names:
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "duplicate_gpp_registry_value",
-                    "Duplicate GPP registry value name.",
-                    f"{val_path}/name",
-                )
-            )
-        if val.name.strip():
-            seen_value_names.add(folded_name)
-        if val.id and val.id in seen_value_ids:
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "duplicate_gpp_registry_value_id",
-                    "Duplicate GPP registry value editor id.",
-                    f"{val_path}/id",
-                )
-            )
-        if val.id:
-            seen_value_ids.add(val.id)
+    val_path = f"{path}/value"
+    issues.extend(validate_gpp_registry_value(reg.value, val_path))
     match reg.action:
         case "add" | "replace" | "remove" | "update":
             pass
         case _:
             assert_never(reg.action)
-    for i, val in enumerate(reg.values):
-        if val.ilt_filter is not None:
-            issues.extend(
-                validate_ilt_filter(val.ilt_filter, f"{path}/values/{i}/ilt_filter")
-            )
+    if reg.ilt_filter is not None:
+        issues.extend(validate_ilt_filter(reg.ilt_filter, f"{path}/ilt_filter"))
     return issues
 
 
@@ -964,6 +900,7 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
         if group.id:
             seen_group_ids.add(group.id)
     seen_registry_ids: set[str] = set()
+    seen_registry_uids: set[str] = set()
     for idx, reg in enumerate(collection.registry):
         reg_path = f"gpp_collections/{scope}/registry/{idx}"
         issues.extend(validate_gpp_registry(reg, reg_path))
@@ -978,6 +915,17 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             )
         if reg.id:
             seen_registry_ids.add(reg.id)
+        if reg.uid and reg.uid in seen_registry_uids:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "duplicate_gpp_registry_uid",
+                    "Duplicate GPP registry protocol uid in collection.",
+                    f"{reg_path}/uid",
+                )
+            )
+        if reg.uid:
+            seen_registry_uids.add(reg.uid)
     return issues
 
 

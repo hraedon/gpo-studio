@@ -522,10 +522,8 @@ def test_put_gpp_registry_crud(tmp_path) -> None:
     reg = GppRegistry(
         key=r"Software\Policies\Test",
         action="update",
-        values=(
-            GppRegistryValue(
-                name="Enabled", value=1, registry_type="REG_DWORD", id="v1"
-            ),
+        value=GppRegistryValue(
+            name="Enabled", value=1, registry_type="REG_DWORD", id="v1"
         ),
         id="r1",
     )
@@ -760,10 +758,7 @@ def test_put_gpp_registry_assigns_nested_value_ids(tmp_path) -> None:
     gpo = store.create_gpo("GPP policy", identity="alice", reason="draft")
     reg = GppRegistry(
         key="K",
-        values=(
-            GppRegistryValue(name="V1", value="x"),
-            GppRegistryValue(name="V2", value="y"),
-        ),
+        value=GppRegistryValue(name="V1", value="x"),
     )
     gpo = store.put_gpp_registry(
         gpo.guid,
@@ -773,11 +768,8 @@ def test_put_gpp_registry_assigns_nested_value_ids(tmp_path) -> None:
         identity="alice",
         reason="add registry",
     )
-    values = gpo.gpp_collections[0].registry[0].values
-    assert len(values) == 2
-    assert values[0].id != ""
-    assert values[1].id != ""
-    assert values[0].id != values[1].id
+    value = gpo.gpp_collections[0].registry[0].value
+    assert value.id != ""
 
 
 def test_delete_gpp_group_empty_id_raises(tmp_path) -> None:
@@ -966,11 +958,7 @@ def test_put_gpp_registry_value_crud(tmp_path) -> None:
         GppRegistry(
             key=r"Software\Policies\Test",
             id="r1",
-            values=(
-                GppRegistryValue(name="V1", value="a", id="v1"),
-                GppRegistryValue(name="V2", value="b", id="v2"),
-                GppRegistryValue(name="V3", value="c", id="v3"),
-            ),
+            value=GppRegistryValue(name="V1", value="a", id="v1"),
         ),
         identity="alice",
         reason="add registry",
@@ -981,14 +969,14 @@ def test_put_gpp_registry_value_crud(tmp_path) -> None:
         gpo.revision,
         "computer",
         "r1",
-        GppRegistryValue(name="V4", value="d"),
+        GppRegistryValue(name="V2", value="b"),
         identity="alice",
-        reason="add value",
+        reason="replace value",
     )
-    values = gpo.gpp_collections[0].registry[0].values
-    assert len(values) == 4
-    assert values[3].name == "V4"
-    assert values[3].id != ""
+    value = gpo.gpp_collections[0].registry[0].value
+    assert value.name == "V2"
+    assert value.value == "b"
+    assert value.id != ""
 
     gpo = store.put_gpp_registry_value(
         gpo.guid,
@@ -999,10 +987,9 @@ def test_put_gpp_registry_value_crud(tmp_path) -> None:
         identity="alice",
         reason="update value",
     )
-    values = gpo.gpp_collections[0].registry[0].values
-    assert len(values) == 4
-    assert [v.id for v in values] == ["v1", "v2", "v3", values[3].id]
-    assert values[1].value == "updated"
+    value = gpo.gpp_collections[0].registry[0].value
+    assert value.value == "updated"
+    assert value.id == "v2"
 
     gpo = store.delete_gpp_registry_value(
         gpo.guid,
@@ -1013,9 +1000,7 @@ def test_put_gpp_registry_value_crud(tmp_path) -> None:
         identity="alice",
         reason="delete value",
     )
-    values = gpo.gpp_collections[0].registry[0].values
-    assert len(values) == 3
-    assert all(v.id != "v2" for v in values)
+    assert len(gpo.gpp_collections) == 0
 
 
 def test_put_gpp_registry_value_auto_generates_id(tmp_path) -> None:
@@ -1038,7 +1023,7 @@ def test_put_gpp_registry_value_auto_generates_id(tmp_path) -> None:
         identity="alice",
         reason="add value",
     )
-    value = gpo.gpp_collections[0].registry[0].values[0]
+    value = gpo.gpp_collections[0].registry[0].value
     assert value.id != ""
     assert len(value.id) > 0
 
@@ -1111,9 +1096,7 @@ def test_gpo_from_dict_assigns_deterministic_legacy_gpp_ids(tmp_path) -> None:
                     GppRegistry(
                         key=r"Software\Policies\Test",
                         id="",
-                        values=(
-                            GppRegistryValue(name="V1", value="x", id=""),
-                        ),
+                        value=GppRegistryValue(name="V1", value="x", id=""),
                     ),
                 ),
             ),
@@ -1140,12 +1123,12 @@ def test_gpo_from_dict_assigns_deterministic_legacy_gpp_ids(tmp_path) -> None:
     assert registry.id == str(
         uuid.uuid5(uuid.NAMESPACE_URL, f"{gpo.guid}/computer/registry/0")
     )
-    value = registry.values[0]
+    value = registry.value
     assert value.id != ""
     assert value.id == str(
         uuid.uuid5(
             uuid.NAMESPACE_URL,
-            f"{gpo.guid}/computer/registry/0/value/0",
+            f"{gpo.guid}/computer/registry/0/value",
         )
     )
 
@@ -1160,7 +1143,7 @@ def test_gpo_from_dict_assigns_deterministic_legacy_gpp_ids(tmp_path) -> None:
         loaded_again.gpp_collections[0].registry[0].id == registry.id
     )
     assert (
-        loaded_again.gpp_collections[0].registry[0].values[0].id == value.id
+        loaded_again.gpp_collections[0].registry[0].value.id == value.id
     )
 
     updated = store.put_gpp_group(
@@ -1362,7 +1345,7 @@ def test_put_gpp_registry_value_must_exist_raises_not_found(tmp_path) -> None:
             gpo.guid,
             gpo.revision,
             "computer",
-            "r1",
+            "nonexistent",
             GppRegistryValue(name="V1", value="x", id="nonexistent"),
             identity="alice",
             reason="edit",
@@ -1380,7 +1363,7 @@ def test_put_gpp_registry_value_must_exist_updates_existing(tmp_path) -> None:
         GppRegistry(
             key=r"Software\Policies\Test",
             id="r1",
-            values=(GppRegistryValue(name="V1", value="x", id="v1"),),
+            value=GppRegistryValue(name="V1", value="x", id="v1"),
         ),
         identity="alice",
         reason="add registry",
@@ -1396,5 +1379,5 @@ def test_put_gpp_registry_value_must_exist_updates_existing(tmp_path) -> None:
         must_exist=True,
     )
     assert (
-        updated.gpp_collections[0].registry[0].values[0].value == "updated"
+        updated.gpp_collections[0].registry[0].value.value == "updated"
     )

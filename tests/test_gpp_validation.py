@@ -34,13 +34,7 @@ def _valid_registry() -> GppRegistry:
     return GppRegistry(
         key=r"Software\Policies\Test",
         action="update",
-        values=(
-            GppRegistryValue(name="Enabled", value=1, registry_type="REG_DWORD"),
-            GppRegistryValue(name="Path", value=r"C:\Temp", registry_type="REG_SZ"),
-            GppRegistryValue(
-                name="List", value=["a", "b", "c"], registry_type="REG_MULTI_SZ"
-            ),
-        ),
+        value=GppRegistryValue(name="Enabled", value=1, registry_type="REG_DWORD"),
     )
 
 
@@ -100,12 +94,10 @@ def test_gpp_registry_value_wrong_type_dword_with_string_error() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Enabled",
-                        value="not_a_number",
-                        registry_type="REG_DWORD",
-                    ),
+                value=GppRegistryValue(
+                    name="Enabled",
+                    value="not_a_number",
+                    registry_type="REG_DWORD",
                 ),
             ),
         ),
@@ -115,7 +107,7 @@ def test_gpp_registry_value_wrong_type_dword_with_string_error() -> None:
         i.code == "type_mismatch"
         and i.severity == "error"
         and i.path
-        == "gpp_collections/computer/registry/0/values/0/value"
+        == "gpp_collections/computer/registry/0/value/value"
         for i in issues
     )
 
@@ -126,12 +118,10 @@ def test_gpp_dword_out_of_range_error() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Enabled",
-                        value=0x100000000,
-                        registry_type="REG_DWORD",
-                    ),
+                value=GppRegistryValue(
+                    name="Enabled",
+                    value=0x100000000,
+                    registry_type="REG_DWORD",
                 ),
             ),
         ),
@@ -141,7 +131,7 @@ def test_gpp_dword_out_of_range_error() -> None:
         i.code == "value_range"
         and i.severity == "error"
         and i.path
-        == "gpp_collections/computer/registry/0/values/0/value"
+        == "gpp_collections/computer/registry/0/value/value"
         for i in issues
     )
 
@@ -242,12 +232,10 @@ def test_gpp_registry_binary_invalid_hex_error() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Blob",
-                        value="zz",
-                        registry_type="REG_BINARY",
-                    ),
+                value=GppRegistryValue(
+                    name="Blob",
+                    value="zz",
+                    registry_type="REG_BINARY",
                 ),
             ),
         ),
@@ -257,7 +245,7 @@ def test_gpp_registry_binary_invalid_hex_error() -> None:
         i.code == "invalid_gpp_binary_hex"
         and i.severity == "error"
         and i.path
-        == "gpp_collections/computer/registry/0/values/0/value"
+        == "gpp_collections/computer/registry/0/value/value"
         for i in issues
     )
 
@@ -268,12 +256,10 @@ def test_gpp_registry_binary_valid_hex_no_issues() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Blob",
-                        value="DEADBEEF",
-                        registry_type="REG_BINARY",
-                    ),
+                value=GppRegistryValue(
+                    name="Blob",
+                    value="DEADBEEF",
+                    registry_type="REG_BINARY",
                 ),
             ),
         ),
@@ -287,12 +273,10 @@ def test_gpp_registry_binary_valid_hex_with_spaces_no_issues() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Blob",
-                        value="DE AD BE EF",
-                        registry_type="REG_BINARY",
-                    ),
+                value=GppRegistryValue(
+                    name="Blob",
+                    value="DE AD BE EF",
+                    registry_type="REG_BINARY",
                 ),
             ),
         ),
@@ -388,12 +372,10 @@ def test_gpp_registry_value_name_control_character_error() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="\x01Enabled",
-                        value=1,
-                        registry_type="REG_DWORD",
-                    ),
+                value=GppRegistryValue(
+                    name="\x01Enabled",
+                    value=1,
+                    registry_type="REG_DWORD",
                 ),
             ),
         ),
@@ -403,7 +385,7 @@ def test_gpp_registry_value_name_control_character_error() -> None:
         i.code == "control_character_in_gpp_registry_value_name"
         and i.severity == "error"
         and i.path
-        == "gpp_collections/computer/registry/0/values/0/name"
+        == "gpp_collections/computer/registry/0/value/name"
         for i in issues
     )
 
@@ -414,12 +396,10 @@ def test_gpp_registry_string_value_control_character_error() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Path",
-                        value="C:\\Temp\x01",
-                        registry_type="REG_SZ",
-                    ),
+                value=GppRegistryValue(
+                    name="Path",
+                    value="C:\\Temp\x01",
+                    registry_type="REG_SZ",
                 ),
             ),
         ),
@@ -429,7 +409,7 @@ def test_gpp_registry_string_value_control_character_error() -> None:
         i.code == "control_character_in_gpp_registry_value"
         and i.severity == "error"
         and i.path
-        == "gpp_collections/computer/registry/0/values/0/value"
+        == "gpp_collections/computer/registry/0/value/value"
         for i in issues
     )
 
@@ -687,35 +667,19 @@ def test_duplicate_gpp_member_id_error() -> None:
     )
 
 
-def test_duplicate_gpp_registry_value_id_error() -> None:
+def test_duplicate_gpp_registry_uid_error() -> None:
     collection = GppCollection(
         scope="computer",
         registry=(
-            GppRegistry(
-                key=r"Software\Test",
-                values=(
-                    GppRegistryValue(
-                        name="Enabled",
-                        value=1,
-                        registry_type="REG_DWORD",
-                        id="v-1",
-                    ),
-                    GppRegistryValue(
-                        name="Path",
-                        value=r"C:\Temp",
-                        registry_type="REG_SZ",
-                        id="v-1",
-                    ),
-                ),
-            ),
+            GppRegistry(key=r"Software\Test1", uid="{dup-uid}"),
+            GppRegistry(key=r"Software\Test2", uid="{dup-uid}"),
         ),
     )
     issues = validate_gpp_collection(collection)
     assert any(
-        i.code == "duplicate_gpp_registry_value_id"
+        i.code == "duplicate_gpp_registry_uid"
         and i.severity == "error"
-        and i.path
-        == "gpp_collections/computer/registry/0/values/1/id"
+        and i.path == "gpp_collections/computer/registry/1/uid"
         for i in issues
     )
 
@@ -748,10 +712,11 @@ def test_empty_gpp_editor_ids_not_flagged() -> None:
             GppRegistry(key=r"Software\A", id=""),
             GppRegistry(
                 key=r"Software\B",
-                values=(
-                    GppRegistryValue(name="X", value=1, registry_type="REG_DWORD", id=""),
-                    GppRegistryValue(name="Y", value=2, registry_type="REG_DWORD", id=""),
-                ),
+                value=GppRegistryValue(name="X", value=1, registry_type="REG_DWORD", id=""),
+            ),
+            GppRegistry(
+                key=r"Software\B",
+                value=GppRegistryValue(name="Y", value=2, registry_type="REG_DWORD", id=""),
             ),
         ),
     )
@@ -761,7 +726,6 @@ def test_empty_gpp_editor_ids_not_flagged() -> None:
         in (
             "duplicate_gpp_group_id",
             "duplicate_gpp_registry_id",
-            "duplicate_gpp_registry_value_id",
         )
         for i in issues
     )
@@ -785,9 +749,7 @@ def test_key_only_registry_value_valid() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(name="", value="", registry_type=""),
-                ),
+                value=GppRegistryValue(name="", value="", registry_type=""),
             ),
         ),
     )
@@ -801,9 +763,7 @@ def test_key_only_registry_value_with_data_error() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(name="", value="data", registry_type=""),
-                ),
+                value=GppRegistryValue(name="", value="data", registry_type=""),
             ),
         ),
     )
@@ -821,11 +781,11 @@ def test_multiple_registry_same_key_allowed() -> None:
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(GppRegistryValue(name="V1", value="x", registry_type="REG_SZ"),),
+                value=GppRegistryValue(name="V1", value="x", registry_type="REG_SZ"),
             ),
             GppRegistry(
                 key=r"Software\Test",
-                values=(GppRegistryValue(name="V2", value="y", registry_type="REG_SZ"),),
+                value=GppRegistryValue(name="V2", value="y", registry_type="REG_SZ"),
             ),
         ),
     )
@@ -833,22 +793,115 @@ def test_multiple_registry_same_key_allowed() -> None:
     assert not any(i.code == "duplicate_gpp_registry_key" for i in issues)
 
 
-def test_duplicate_key_only_values_rejected() -> None:
+def test_default_value_dword_not_number_error() -> None:
     collection = GppCollection(
         scope="computer",
         registry=(
             GppRegistry(
                 key=r"Software\Test",
-                values=(
-                    GppRegistryValue(name="", value="", registry_type=""),
-                    GppRegistryValue(name="", value="", registry_type=""),
+                value=GppRegistryValue(
+                    name="",
+                    value="not-a-number",
+                    registry_type="REG_DWORD",
+                    default=True,
                 ),
             ),
         ),
     )
     issues = validate_gpp_collection(collection)
     assert any(
-        i.code == "duplicate_key_only_value"
+        i.code == "type_mismatch"
         and i.severity == "error"
         for i in issues
     )
+
+
+def test_default_value_dword_out_of_range_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                value=GppRegistryValue(
+                    name="",
+                    value=0x100000000,
+                    registry_type="REG_DWORD",
+                    default=True,
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "value_range"
+        and i.severity == "error"
+        for i in issues
+    )
+
+
+def test_default_value_binary_invalid_hex_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                value=GppRegistryValue(
+                    name="",
+                    value="zz",
+                    registry_type="REG_BINARY",
+                    default=True,
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "invalid_gpp_binary_hex"
+        and i.severity == "error"
+        for i in issues
+    )
+
+
+def test_default_value_control_character_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                value=GppRegistryValue(
+                    name="",
+                    value="bad\x01text",
+                    registry_type="REG_SZ",
+                    default=True,
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "control_character_in_gpp_registry_value"
+        and i.severity == "error"
+        for i in issues
+    )
+
+
+def test_default_value_valid_no_errors() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                value=GppRegistryValue(
+                    name="",
+                    value="configured",
+                    registry_type="REG_SZ",
+                    default=True,
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(i.severity == "error" for i in issues)
+
+
+

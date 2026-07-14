@@ -184,27 +184,30 @@ def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
                     ),
                 )
                 changed = True
-            new_values: list[GppRegistryValue] = []
-            values_changed = False
-            for v_idx, value in enumerate(new_reg.values):
-                if not value.id:
-                    new_values.append(
-                        replace(
-                            value,
-                            id=str(
-                                uuid.uuid5(
-                                    uuid.NAMESPACE_URL,
-                                    f"{guid}/{scope}/registry/{r_idx}/value/{v_idx}",
-                                )
-                            ),
+            if not new_reg.uid:
+                new_reg = replace(
+                    new_reg,
+                    uid=str(
+                        uuid.uuid5(
+                            uuid.NAMESPACE_URL,
+                            f"studio/registry/{new_reg.id}",
                         )
-                    )
-                    values_changed = True
-                    changed = True
-                else:
-                    new_values.append(value)
-            if values_changed:
-                new_reg = replace(new_reg, values=tuple(new_values))
+                    ),
+                )
+                changed = True
+            new_value = new_reg.value
+            if not new_value.id:
+                new_value = replace(
+                    new_value,
+                    id=str(
+                        uuid.uuid5(
+                            uuid.NAMESPACE_URL,
+                            f"{guid}/{scope}/registry/{r_idx}/value",
+                        )
+                    ),
+                )
+                new_reg = replace(new_reg, value=new_value)
+                changed = True
             new_registry.append(new_reg)
         new_collections.append(
             replace(
@@ -1042,17 +1045,7 @@ class WorkspaceStore:
             if reg_idx is None:
                 raise NotFoundError(f"GPP registry '{registry_id}' was not found")
             registry = existing.registry[reg_idx]
-            values_list = list(registry.values)
-            try:
-                vi = next(i for i, x in enumerate(values_list) if x.id == value.id)
-                values_list[vi] = value
-            except StopIteration:
-                if must_exist:
-                    raise NotFoundError(
-                        f"GPP registry value with id {value.id} not found"
-                    ) from None
-                values_list.append(value)
-            new_registry = replace(registry, values=tuple(values_list))
+            new_registry = replace(registry, value=value)
             new_registries = tuple(
                 new_registry if i == reg_idx else r
                 for i, r in enumerate(existing.registry)
@@ -1100,21 +1093,17 @@ class WorkspaceStore:
             if reg_idx is None:
                 raise NotFoundError(f"GPP registry '{registry_id}' was not found")
             registry = existing.registry[reg_idx]
-            values_list = list(registry.values)
-            vi = next(
-                (i for i, x in enumerate(values_list) if x.id == value_id),
-                None,
-            )
-            if vi is None:
+            if registry.value.id != value_id:
                 raise NotFoundError(f"GPP registry value '{value_id}' was not found")
-            new_values = tuple(values_list[:vi] + values_list[vi + 1 :])
-            new_registry = replace(registry, values=new_values)
             new_registries = tuple(
-                new_registry if i == reg_idx else r
-                for i, r in enumerate(existing.registry)
+                r for i, r in enumerate(existing.registry) if i != reg_idx
             )
             new_collection = replace(existing, registry=new_registries)
             new_collections = self._replace_collection(gpo, idx, new_collection)
+            if not new_collection.groups and not new_collection.registry:
+                new_collections = tuple(
+                    c for i, c in enumerate(gpo.gpp_collections) if i != idx
+                )
             self._validate_gpp(new_collection)
             return replace(gpo, gpp_collections=new_collections)
 
