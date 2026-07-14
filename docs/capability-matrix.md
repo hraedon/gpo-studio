@@ -186,22 +186,22 @@ captured and re-emitted.
 ### GPP Registry — supported &#9680;
 
 Group Policy Preferences Registry with `action` (add/replace/update/remove),
-typed `values` (name, value, registry\_type, action: create/replace/update/
-delete), and an optional ILT filter. Serialize/parse round-trip is implemented
-and tested. Unknown XML attributes on `<Registry>` and `<Properties>` elements
-are captured and re-emitted on export. Per-element metadata (ILT filters,
-unknown attributes on `<Registry>`, unknown children) is stored on each
-`GppRegistryValue`, so coalescing consecutive elements sharing a hive/key
-is lossless. Root-level attributes on `<RegistrySettings>` and unknown root
-children (e.g. nested `<Collection>` trees) are also captured. The
-collection-level `GppRegistry.action` field is a Studio-only grouping
-concept; it is not serialized to XML because MS-GPPREF has no
-collection-level action attribute.
+a single typed `value` (name, value, registry\_type, action: create/replace/
+update/delete), a protocol `uid`, and an optional ILT filter. One `<Registry>`
+XML element maps to one domain object with exactly one value, one UID, one ILT
+filter, and one set of element metadata. Serialize/parse round-trip is
+implemented and tested. Unknown XML attributes on `<Registry>` and
+`<Properties>` elements are captured and re-emitted on export. Element-level
+metadata (ILT filter, unknown attributes on `<Registry>`, unknown children)
+is stored on the `GppRegistry` item itself, matching the MS-GPPREF one-element-
+per-item model. Root-level attributes on `<RegistrySettings>` and unknown root
+children (e.g. nested `<Collection>` trees) are also captured.
 
 - **Authoring &#9680;:** Browser editor available via the Preferences tab.
   Registry CRUD via `/api/gpos/{guid}/preferences/registry`. Unknown content
-  preserved from import is retained on re-export.
-- **Serialization:** Each registry value is serialized as an individual
+  preserved from import is retained on re-export. Protocol UIDs are generated
+  for authored items and validated for uniqueness within each collection.
+- **Serialization:** Each registry item is serialized as an individual
   `<Registry>` element per MS-GPPREF, keyed by `hive` (e.g.
   HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER), `key`, and value name.
 - **Import:** `Registry/Registry.xml` parsed from GPMC backups. Unknown
@@ -209,7 +209,8 @@ collection-level action attribute.
 - **Export:** `Preferences/Registry/Registry.xml` in both Studio bundle and GPMC
   backup.
 - **PowerShell plan &#10007;:** Not applied by the plan. GPMC backup export only.
-- **Diff &#10003;:** Two-way and three-way, keyed on scope and registry key identity.
+- **Diff &#10003;:** Two-way and three-way, keyed on scope and UID-based
+  identity (falls back to hive/key/value-name/action when UID is absent).
 - **Hash:** Included in `policy_semantic_sha256`.
 
 ### ILT predicates — supported &#9680;

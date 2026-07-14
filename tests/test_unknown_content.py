@@ -696,9 +696,9 @@ def test_legacy_multi_value_preserves_per_value_metadata() -> None:
     assert r0.uid == "{parent-uid}"
     assert r0.id == "reg-1"
     assert r0.ilt_filter is not None
-    assert r0.ilt_filter.predicates[0].value == "OU=Registry,DC=example,DC=com"
-    assert r0.unknown_attrs == (("reg-attr", "1"),)
-    assert r0.unknown_children == ("<RegChild/>",)
+    assert r0.ilt_filter.predicates[0].value == "OU=ValA,DC=example,DC=com"
+    assert r0.unknown_attrs == (("attr-a", "x"),)
+    assert r0.unknown_children == ("<ChildA/>",)
 
     r1 = restored.registry[1]
     assert r1.uid == ""
@@ -707,3 +707,35 @@ def test_legacy_multi_value_preserves_per_value_metadata() -> None:
     assert r1.ilt_filter.predicates[0].value == "OU=ValB,DC=example,DC=com"
     assert r1.unknown_attrs == (("attr-b", "y"),)
     assert r1.unknown_children == ("<ChildB/>",)
+
+
+def test_legacy_snapshot_promotes_uid_and_default_from_unknown_attrs() -> None:
+    old_dict = {
+        "scope": "computer",
+        "registry": [
+            {
+                "key": r"Software\Test",
+                "hive": "HKEY_LOCAL_MACHINE",
+                "action": "update",
+                "values": [
+                    {
+                        "name": "",
+                        "value": "configured",
+                        "registry_type": "REG_SZ",
+                        "action": "create",
+                        "id": "v1",
+                        "unknown_attrs": [("default", "1")],
+                        "unknown_elem_attrs": [("uid", "{legacy-uid}")],
+                    },
+                ],
+            }
+        ],
+    }
+    restored = gpp_collection_from_dict(old_dict)
+    assert len(restored.registry) == 1
+    reg = restored.registry[0]
+    assert reg.uid == "{legacy-uid}"
+    assert reg.unknown_attrs == ()
+    assert reg.value.default is True
+    assert reg.value.unknown_attrs == ()
+    assert reg.value.value == "configured"

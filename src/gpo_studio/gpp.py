@@ -858,6 +858,17 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
     }
 
 
+def _promote_from_unknown_attrs(
+    unknown: tuple[tuple[str, str], ...],
+    name: str,
+) -> str | None:
+    """Find a historical typed attribute hiding in an unknown-attrs bag."""
+    for k, v in unknown:
+        if _local_name(k).lower() == name:
+            return v
+    return None
+
+
 def _gpp_registry_value_from_dict(v: dict[str, Any]) -> GppRegistryValue:
     return GppRegistryValue(
         name=str(v.get("name", "")),
@@ -941,15 +952,37 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         )
         elem_unknown_children = tuple(r.get("unknown_children", []))
         if "value" in r and isinstance(r["value"], dict):
+            new_uid = str(r.get("uid", ""))
+            new_elem_attrs = elem_unknown_attrs
+            promoted = _promote_from_unknown_attrs(new_elem_attrs, "uid")
+            if promoted is not None and not new_uid:
+                new_uid = promoted
+                new_elem_attrs = tuple(
+                    (k, v) for k, v in new_elem_attrs
+                    if _local_name(k) != "uid"
+                )
+            value = _gpp_registry_value_from_dict(r["value"])
+            promoted_default = _promote_from_unknown_attrs(
+                value.unknown_attrs, "default"
+            )
+            if promoted_default is not None and not value.default:
+                value = replace(
+                    value,
+                    default=promoted_default == "1",
+                    unknown_attrs=tuple(
+                        (k, v) for k, v in value.unknown_attrs
+                        if _local_name(k) != "default"
+                    ),
+                )
             registry.append(GppRegistry(
                 key=str(r.get("key", "")),
                 hive=_normalize_hive(str(r.get("hive", "HKEY_LOCAL_MACHINE"))),
                 action=_validate_gpp_action(r.get("action", "update")),
-                uid=str(r.get("uid", "")),
-                value=_gpp_registry_value_from_dict(r["value"]),
+                uid=new_uid,
+                value=value,
                 id=str(r.get("id", "")),
                 ilt_filter=ilt_filter,
-                unknown_attrs=elem_unknown_attrs,
+                unknown_attrs=new_elem_attrs,
                 unknown_children=elem_unknown_children,
             ))
         else:
@@ -957,32 +990,47 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             if not old_values:
                 old_values = [{}]
             for idx, v in enumerate(old_values):
-                if idx == 0:
+                v_ilt = _parse_ilt_filter_from_dict(v.get("ilt_filter"))
+                if v_ilt is None:
                     v_ilt = ilt_filter
-                    if v_ilt is None:
-                        v_ilt = _parse_ilt_filter_from_dict(v.get("ilt_filter"))
+                v_elem_attrs = tuple(
+                    (str(k), str(v2))
+                    for k, v2 in v.get("unknown_elem_attrs", [])
+                )
+                if not v_elem_attrs:
                     v_elem_attrs = elem_unknown_attrs
-                    if not v_elem_attrs:
-                        v_elem_attrs = tuple(
-                            (str(k), str(v2))
-                            for k, v2 in v.get("unknown_elem_attrs", [])
-                        )
+                v_elem_children = tuple(v.get("unknown_children", []))
+                if not v_elem_children:
                     v_elem_children = elem_unknown_children
-                    if not v_elem_children:
-                        v_elem_children = tuple(v.get("unknown_children", []))
-                else:
-                    v_ilt = _parse_ilt_filter_from_dict(v.get("ilt_filter"))
+                v_uid = str(r.get("uid", "")) if idx == 0 else ""
+                promoted_uid = _promote_from_unknown_attrs(
+                    v_elem_attrs, "uid"
+                )
+                if promoted_uid is not None:
+                    v_uid = promoted_uid
                     v_elem_attrs = tuple(
-                        (str(k), str(v2))
-                        for k, v2 in v.get("unknown_elem_attrs", [])
+                        (k, val) for k, val in v_elem_attrs
+                        if _local_name(k) != "uid"
                     )
-                    v_elem_children = tuple(v.get("unknown_children", []))
+                value = _gpp_registry_value_from_dict(v)
+                promoted_default = _promote_from_unknown_attrs(
+                    value.unknown_attrs, "default"
+                )
+                if promoted_default is not None:
+                    value = replace(
+                        value,
+                        default=promoted_default == "1",
+                        unknown_attrs=tuple(
+                            (k, val) for k, val in value.unknown_attrs
+                            if _local_name(k) != "default"
+                        ),
+                    )
                 registry.append(GppRegistry(
                     key=str(r.get("key", "")),
                     hive=_normalize_hive(str(r.get("hive", "HKEY_LOCAL_MACHINE"))),
                     action=_validate_gpp_action(r.get("action", "update")),
-                    uid=str(r.get("uid", "")) if idx == 0 else "",
-                    value=_gpp_registry_value_from_dict(v),
+                    uid=v_uid,
+                    value=value,
                     id=str(r.get("id", "")) if idx == 0 else "",
                     ilt_filter=v_ilt,
                     unknown_attrs=v_elem_attrs,
