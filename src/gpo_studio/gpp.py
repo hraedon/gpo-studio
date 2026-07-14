@@ -991,16 +991,16 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 old_values = [{}]
             for idx, v in enumerate(old_values):
                 v_ilt = _parse_ilt_filter_from_dict(v.get("ilt_filter"))
-                if v_ilt is None:
+                if v_ilt is None and idx == 0:
                     v_ilt = ilt_filter
                 v_elem_attrs = tuple(
                     (str(k), str(v2))
                     for k, v2 in v.get("unknown_elem_attrs", [])
                 )
-                if not v_elem_attrs:
+                if not v_elem_attrs and idx == 0:
                     v_elem_attrs = elem_unknown_attrs
                 v_elem_children = tuple(v.get("unknown_children", []))
-                if not v_elem_children:
+                if not v_elem_children and idx == 0:
                     v_elem_children = elem_unknown_children
                 v_uid = str(r.get("uid", "")) if idx == 0 else ""
                 promoted_uid = _promote_from_unknown_attrs(
