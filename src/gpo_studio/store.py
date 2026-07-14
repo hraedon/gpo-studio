@@ -46,6 +46,7 @@ from .validation import (
     validate_ready_transition,
     validate_setting,
 )
+from .workspace_ops import IntegrityResult
 
 
 def _now() -> str:
@@ -282,6 +283,20 @@ class WorkspaceStore:
             raise WorkspaceError(str(e)) from e
         except sqlite3.Error as e:
             self._map_sqlite_error(e)
+
+    def quick_check(self) -> IntegrityResult:
+        """Run PRAGMA quick_check — fast, suitable for startup."""
+        from .workspace_ops import quick_check as _quick_check
+
+        with self._lock:
+            return _quick_check(self._connection)
+
+    def full_integrity_check(self) -> IntegrityResult:
+        """Run PRAGMA integrity_check — thorough, for operator-invoked checks."""
+        from .workspace_ops import full_integrity_check as _full_check
+
+        with self._lock:
+            return _full_check(self._connection)
 
     @staticmethod
     def _map_sqlite_error(error: sqlite3.Error) -> NoReturn:
