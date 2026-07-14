@@ -685,12 +685,19 @@ def test_legacy_multi_value_preserves_per_value_metadata() -> None:
                         "unknown_elem_attrs": [("attr-b", "y")],
                         "unknown_children": ["<ChildB/>"],
                     },
+                    {
+                        "name": "ValueC",
+                        "value": "c",
+                        "registry_type": "REG_SZ",
+                        "action": "create",
+                        "id": "val-c",
+                    },
                 ],
             }
         ],
     }
     restored = gpp_collection_from_dict(old_dict)
-    assert len(restored.registry) == 2
+    assert len(restored.registry) == 3
 
     r0 = restored.registry[0]
     assert r0.uid == "{parent-uid}"
@@ -707,6 +714,13 @@ def test_legacy_multi_value_preserves_per_value_metadata() -> None:
     assert r1.ilt_filter.predicates[0].value == "OU=ValB,DC=example,DC=com"
     assert r1.unknown_attrs == (("attr-b", "y"),)
     assert r1.unknown_children == ("<ChildB/>",)
+
+    r2 = restored.registry[2]
+    assert r2.uid == ""
+    assert r2.id == ""
+    assert r2.ilt_filter is None
+    assert r2.unknown_attrs == ()
+    assert r2.unknown_children == ()
 
 
 def test_legacy_snapshot_promotes_uid_and_default_from_unknown_attrs() -> None:
