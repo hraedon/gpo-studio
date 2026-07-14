@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -208,12 +208,15 @@ class GppGroupData(BaseModel):
 _GPP_REGISTRY_TYPES = Literal[
     "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD"
 ]
+_VALID_REGISTRY_TYPE_STRINGS: frozenset[str] = frozenset(
+    t for t in get_args(_GPP_REGISTRY_TYPES)
+)
 
 
 class GppRegistryValueData(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    value: str | int | list[str]
-    registry_type: _GPP_REGISTRY_TYPES = "REG_SZ"
+    name: str = Field(default="", max_length=255)
+    value: str | int | list[str] = ""
+    registry_type: str = "REG_SZ"
     action: Literal["create", "replace", "update", "delete"] = "create"
     id: str = ""
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
@@ -222,13 +225,21 @@ class GppRegistryValueData(BaseModel):
     unknown_children: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _normalize_numeric_value(self) -> GppRegistryValueData:
-        if self.registry_type in ("REG_DWORD", "REG_QWORD"):
-            if not isinstance(self.value, str):
-                raise ValueError(
-                    f"{self.registry_type} requires a canonical decimal string value"
-                )
-            self.value = coerce_dword_qword(self.value, self.registry_type)
+    def _validate_registry_value(self) -> GppRegistryValueData:
+        if self.name == "":
+            if self.registry_type not in ("", "REG_SZ"):
+                raise ValueError("Key-only registry entry must have empty type")
+            if self.value != "" and self.value != []:
+                raise ValueError("Key-only registry entry must have empty value")
+        else:
+            if self.registry_type not in _VALID_REGISTRY_TYPE_STRINGS:
+                raise ValueError(f"Invalid registry type: {self.registry_type}")
+            if self.registry_type in ("REG_DWORD", "REG_QWORD"):
+                if not isinstance(self.value, str):
+                    raise ValueError(
+                        f"{self.registry_type} requires a canonical decimal string value"
+                    )
+                self.value = coerce_dword_qword(self.value, self.registry_type)
         return self
 
 
@@ -1036,12 +1047,10 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
             )
         ]) from error
     reg_ilt = _ilt_filter_data_to_model(data.ilt_filter)
-    values = tuple(_gpp_registry_value_data_to_model(v) for v in data.values)
-    if reg_ilt is not None:
-        values = tuple(
-            replace(v, ilt_filter=v.ilt_filter or reg_ilt)
-            for v in values
-        )
+    values_list = [_gpp_registry_value_data_to_model(v) for v in data.values]
+    if reg_ilt is not None and values_list and values_list[0].ilt_filter is None:
+        values_list[0] = replace(values_list[0], ilt_filter=reg_ilt)
+    values = tuple(values_list)
     registry = GppRegistry(
         key=data.key,
         hive=hive,

@@ -189,6 +189,14 @@ class GppReorderConflict:
 
 
 @dataclass(frozen=True, slots=True)
+class GppCollectionConflict:
+    scope: str
+    baseline: GppCollection | None
+    draft: GppCollection | None
+    observed: GppCollection | None
+
+
+@dataclass(frozen=True, slots=True)
 class ThreeWayDiff:
     settings: tuple[SettingChange, ...]
     links: tuple[LinkChange, ...]
@@ -203,6 +211,7 @@ class ThreeWayDiff:
     gpp_collection: tuple[GppCollectionChange, ...] = ()
     gpp_conflicts: tuple[GppGroupConflict | GppRegistryConflict, ...] = ()
     gpp_reorder_conflicts: tuple[GppReorderConflict, ...] = ()
+    gpp_collection_conflicts: tuple[GppCollectionConflict, ...] = ()
     metadata: tuple[MetadataChange, ...] = ()
     metadata_conflicts: tuple[MetadataConflict, ...] = ()
     cse_metadata: tuple[CseMetadataChange, ...] = ()
@@ -1026,6 +1035,48 @@ def _three_way_gpp_reorder_conflicts(
     return tuple(conflicts)
 
 
+def _three_way_gpp_collection_conflicts(
+    baseline: tuple[GppCollection, ...],
+    draft: tuple[GppCollection, ...],
+    observed: tuple[GppCollection, ...],
+) -> tuple[GppCollectionConflict, ...]:
+    draft_changes = _diff_gpp_collections(baseline, draft)
+    observed_changes = _diff_gpp_collections(baseline, observed)
+    observed_by_scope: dict[str, GppCollectionChange] = {
+        c.scope: c for c in observed_changes
+    }
+    conflicts: list[GppCollectionConflict] = []
+    for draft_change in draft_changes:
+        if draft_change.scope not in observed_by_scope:
+            continue
+        observed_change = observed_by_scope[draft_change.scope]
+        draft_c = draft_change.new
+        observed_c = observed_change.new
+        if draft_c is None and observed_c is None:
+            continue
+        if draft_c is None or observed_c is None:
+            conflicts.append(
+                GppCollectionConflict(
+                    scope=draft_change.scope,
+                    baseline=draft_change.old,
+                    draft=draft_c,
+                    observed=observed_c,
+                )
+            )
+            continue
+        if not _gpp_collection_equal(draft_c, observed_c):
+            conflicts.append(
+                GppCollectionConflict(
+                    scope=draft_change.scope,
+                    baseline=draft_change.old,
+                    draft=draft_c,
+                    observed=observed_c,
+                )
+            )
+    conflicts.sort(key=lambda c: c.scope)
+    return tuple(conflicts)
+
+
 def _three_way_cse_metadata_conflicts(
     baseline: tuple[CseMetadataEntry, ...],
     draft: tuple[CseMetadataEntry, ...],
@@ -1119,6 +1170,9 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
     gpp_reorder_conflicts = _three_way_gpp_reorder_conflicts(
         baseline.gpp_collections, draft.gpp_collections, observed.gpp_collections
     )
+    gpp_collection_conflicts = _three_way_gpp_collection_conflicts(
+        baseline.gpp_collections, draft.gpp_collections, observed.gpp_collections
+    )
     cse_metadata_conflicts = _three_way_cse_metadata_conflicts(
         baseline.cse_metadata, draft.cse_metadata, observed.cse_metadata
     )
@@ -1142,6 +1196,7 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
         )),
         gpp_conflicts=gpp_conflicts,
         gpp_reorder_conflicts=gpp_reorder_conflicts,
+        gpp_collection_conflicts=gpp_collection_conflicts,
         metadata=tuple(_diff_metadata(baseline, draft)),
         metadata_conflicts=metadata_conflicts,
         cse_metadata=tuple(diff_cse_metadata(baseline.cse_metadata, draft.cse_metadata)),

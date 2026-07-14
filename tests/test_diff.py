@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from gpo_studio.canonical import gpp_group_identity, gpp_registry_identity
 from gpo_studio.diff import (
+    GppCollectionConflict,
     GppGroupConflict,
     GppRegistryConflict,
     GppReorderConflict,
@@ -145,8 +146,20 @@ def _gpp_collection(
     scope: str = "computer",
     groups: tuple[GppGroup, ...] = (),
     registry: tuple[GppRegistry, ...] = (),
+    groups_unknown_attrs: tuple[tuple[str, str], ...] = (),
+    groups_unknown_children: tuple[str, ...] = (),
+    registry_unknown_attrs: tuple[tuple[str, str], ...] = (),
+    registry_unknown_children: tuple[str, ...] = (),
 ) -> GppCollection:
-    return GppCollection(scope=scope, groups=groups, registry=registry)  # type: ignore[arg-type]
+    return GppCollection(
+        scope=scope,
+        groups=groups,
+        registry=registry,
+        groups_unknown_attrs=groups_unknown_attrs,
+        groups_unknown_children=groups_unknown_children,
+        registry_unknown_attrs=registry_unknown_attrs,
+        registry_unknown_children=registry_unknown_children,
+    )  # type: ignore[arg-type]
 
 
 def _cse_file(
@@ -1289,3 +1302,68 @@ def test_root_metadata_change_produces_diff() -> None:
     result = diff_gpos(gpo_without, gpo_with)
     assert len(result.gpp_collection) > 0
     assert result.gpp_collection[0].kind == "modified"
+
+
+def test_three_way_gpp_collection_root_metadata_conflict() -> None:
+    baseline = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "baseline"),)),)
+    )
+    draft = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "draft"),)),)
+    )
+    observed = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "observed"),)),)
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.gpp_collection_conflicts) == 1
+    conflict = result.gpp_collection_conflicts[0]
+    assert isinstance(conflict, GppCollectionConflict)
+    assert conflict.scope == "computer"
+    assert conflict.baseline is not None
+    assert conflict.baseline.registry_unknown_attrs == (("custom", "baseline"),)
+    assert conflict.draft is not None
+    assert conflict.draft.registry_unknown_attrs == (("custom", "draft"),)
+    assert conflict.observed is not None
+    assert conflict.observed.registry_unknown_attrs == (("custom", "observed"),)
+
+
+def test_three_way_gpp_collection_root_metadata_no_conflict_convergent() -> None:
+    baseline = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "baseline"),)),)
+    )
+    draft = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "changed"),)),)
+    )
+    observed = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "changed"),)),)
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert result.gpp_collection_conflicts == ()
+
+
+def test_three_way_gpp_collection_root_metadata_no_conflict_draft_only() -> None:
+    baseline = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "baseline"),)),)
+    )
+    draft = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "draft"),)),)
+    )
+    observed = _gpo(
+        gpp_collections=(_gpp_collection(registry_unknown_attrs=(("custom", "baseline"),)),)
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert result.gpp_collection_conflicts == ()
+
+
+def test_three_way_gpp_collection_root_metadata_groups_unknown_children_conflict() -> None:
+    baseline = _gpo(
+        gpp_collections=(_gpp_collection(groups_unknown_children=()),)
+    )
+    draft = _gpo(
+        gpp_collections=(_gpp_collection(groups_unknown_children=("<DraftCustom/>",)),)
+    )
+    observed = _gpo(
+        gpp_collections=(_gpp_collection(groups_unknown_children=("<ObservedCustom/>",)),)
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.gpp_collection_conflicts) == 1

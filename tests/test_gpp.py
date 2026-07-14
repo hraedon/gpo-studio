@@ -941,3 +941,52 @@ def test_registry_coalescing_preserves_per_value_metadata() -> None:
     assert reg.values[1].ilt_filter is not None
     assert reg.values[0].ilt_filter.predicates[0].value == "OU=First,DC=example,DC=com"
     assert reg.values[1].ilt_filter.predicates[0].value == "OU=Second,DC=example,DC=com"
+
+
+def test_key_only_registry_round_trip() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+        b'<Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"'
+        b' name="Software\\Policies\\Test">'
+        b'<Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"'
+        b' name="" type="" value=""/>'
+        b'</Registry>'
+        b'</RegistrySettings>'
+    )
+    parsed = parse_gpp_registry(xml)
+    assert len(parsed) == 1
+    assert len(parsed[0].values) == 1
+    val = parsed[0].values[0]
+    assert val.name == ""
+    assert val.registry_type == ""
+    assert val.value == ""
+    serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed))
+    reparsed = parse_gpp_registry(serialized)
+    assert len(reparsed) == 1
+    assert len(reparsed[0].values) == 1
+    rval = reparsed[0].values[0]
+    assert rval.name == ""
+    assert rval.registry_type == ""
+    assert rval.value == ""
+
+
+def test_key_only_registry_no_properties() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+        b'<Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"'
+        b' name="Software\\Policies\\Test">'
+        b'<Filters>'
+        b'<FilterOrgUnit name="OU=Test,DC=example,DC=com" not="0" bool="AND"/>'
+        b'</Filters>'
+        b'</Registry>'
+        b'</RegistrySettings>'
+    )
+    parsed = parse_gpp_registry(xml)
+    assert len(parsed) == 1
+    assert len(parsed[0].values) == 1
+    val = parsed[0].values[0]
+    assert val.name == ""
+    assert val.registry_type == ""
+    assert val.value == ""

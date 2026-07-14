@@ -666,12 +666,13 @@ def validate_gpp_registry_value(
     value: GppRegistryValue, path: str
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    if not value.name.strip():
+    is_key_only = value.name == ""
+    if not is_key_only and not value.name.strip():
         issues.append(
             ValidationIssue(
                 "error",
                 "empty_gpp_registry_value_name",
-                "GPP registry value name is required.",
+                "GPP registry value name cannot be whitespace-only.",
                 f"{path}/name",
             )
         )
@@ -693,6 +694,26 @@ def validate_gpp_registry_value(
                 f"{path}/name",
             )
         )
+    if is_key_only:
+        if value.registry_type not in ("", "REG_SZ"):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "invalid_gpp_registry_type",
+                    "Key-only registry entry must have empty type.",
+                    f"{path}/registry_type",
+                )
+            )
+        if value.value not in ("", []):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "invalid_key_only_value",
+                    "Key-only registry entry must have empty value.",
+                    f"{path}/value",
+                )
+            )
+        return issues
     if value.registry_type not in _VALID_REGISTRY_TYPES:
         issues.append(
             ValidationIssue(
@@ -831,9 +852,21 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
         )
     seen_value_names: set[str] = set()
     seen_value_ids: set[str] = set()
+    seen_key_only = False
     for idx, val in enumerate(reg.values):
         val_path = f"{path}/values/{idx}"
         issues.extend(validate_gpp_registry_value(val, val_path))
+        if val.name == "":
+            if seen_key_only:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "duplicate_key_only_value",
+                        "Duplicate key-only registry value in the same key.",
+                        f"{val_path}/name",
+                    )
+                )
+            seen_key_only = True
         folded_name = val.name.casefold()
         if val.name.strip() and folded_name in seen_value_names:
             issues.append(
@@ -906,25 +939,10 @@ def validate_gpp_collection(collection: GppCollection) -> list[ValidationIssue]:
             )
         if group.id:
             seen_group_ids.add(group.id)
-    seen_registry_keys: set[tuple[str, str]] = set()
     seen_registry_ids: set[str] = set()
     for idx, reg in enumerate(collection.registry):
         reg_path = f"gpp_collections/{scope}/registry/{idx}"
         issues.extend(validate_gpp_registry(reg, reg_path))
-        folded_key = reg.key.strip().casefold()
-        folded_hive = reg.hive.strip().casefold()
-        reg_identity = (folded_hive, folded_key)
-        if folded_key and reg_identity in seen_registry_keys:
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "duplicate_gpp_registry_key",
-                    "Duplicate GPP registry key in collection.",
-                    f"{reg_path}/key",
-                )
-            )
-        if folded_key:
-            seen_registry_keys.add(reg_identity)
         if reg.id and reg.id in seen_registry_ids:
             issues.append(
                 ValidationIssue(
