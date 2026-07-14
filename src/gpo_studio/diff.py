@@ -10,7 +10,6 @@ from .canonical import (
     gpp_group_identity,
     gpp_member_identity,
     gpp_registry_identity,
-    gpp_registry_value_identity,
 )
 from .gpp import GppCollection, GppGroup, GppRegistry
 from .ilt import IltFilter
@@ -317,38 +316,16 @@ def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
     )
 
 
-def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
-    a_seq = [
-        (
-            gpp_registry_value_identity(v),
-            v.name.casefold(),
-            v.registry_type,
-            v.value,
-            v.action,
-            v.default,
-            v.unknown_attrs,
-            v.unknown_elem_attrs,
-            v.unknown_children,
-            v.ilt_filter,
-        )
-        for v in a.values
-    ]
-    b_seq = [
-        (
-            gpp_registry_value_identity(v),
-            v.name.casefold(),
-            v.registry_type,
-            v.value,
-            v.action,
-            v.default,
-            v.unknown_attrs,
-            v.unknown_elem_attrs,
-            v.unknown_children,
-            v.ilt_filter,
-        )
-        for v in b.values
-    ]
-    return a_seq == b_seq
+def _gpp_registry_value_equal(a: GppRegistry, b: GppRegistry) -> bool:
+    av, bv = a.value, b.value
+    return (
+        av.name.casefold() == bv.name.casefold()
+        and av.registry_type == bv.registry_type
+        and av.value == bv.value
+        and av.action == bv.action
+        and av.default == bv.default
+        and av.unknown_attrs == bv.unknown_attrs
+    )
 
 
 def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
@@ -357,7 +334,10 @@ def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
         and a.hive.casefold() == b.hive.casefold()
         and a.action == b.action
         and a.uid == b.uid
-        and _gpp_registry_values_equal(a, b)
+        and a.unknown_attrs == b.unknown_attrs
+        and a.unknown_children == b.unknown_children
+        and _ilt_equal(a.ilt_filter, b.ilt_filter)
+        and _gpp_registry_value_equal(a, b)
     )
 
 
@@ -1070,9 +1050,8 @@ def _three_way_gpp_collection_conflicts(
             )
             continue
 
-        assert baseline_c is not None
-        assert draft_c is not None
-        assert observed_c is not None
+        if baseline_c is None:
+            baseline_c = GppCollection(scope=draft_change.scope)  # type: ignore[arg-type]
 
         if _gpp_collection_root_fields_conflict(
             baseline_c, draft_c, observed_c

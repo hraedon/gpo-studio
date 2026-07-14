@@ -76,19 +76,29 @@ def _sample_group() -> GppGroup:
     )
 
 
-def _sample_registry() -> GppRegistry:
-    return GppRegistry(
-        key=r"Software\Policies\Test",
-        hive="HKEY_LOCAL_MACHINE",
-        action="update",
-        values=(
-            GppRegistryValue(
+def _sample_registry() -> tuple[GppRegistry, ...]:
+    return (
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            hive="HKEY_LOCAL_MACHINE",
+            action="update",
+            value=GppRegistryValue(
                 name="Enabled", value=1, registry_type="REG_DWORD", action="create"
             ),
-            GppRegistryValue(
+        ),
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            hive="HKEY_LOCAL_MACHINE",
+            action="update",
+            value=GppRegistryValue(
                 name="Path", value=r"C:\Temp", registry_type="REG_SZ", action="create"
             ),
-            GppRegistryValue(
+        ),
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            hive="HKEY_LOCAL_MACHINE",
+            action="update",
+            value=GppRegistryValue(
                 name="List", value=["a", "b", "c"], registry_type="REG_MULTI_SZ", action="create"
             ),
         ),
@@ -99,7 +109,7 @@ def _sample_collection() -> GppCollection:
     return GppCollection(
         scope="computer",
         groups=(_sample_group(),),
-        registry=(_sample_registry(),),
+        registry=_sample_registry(),
     )
 
 
@@ -238,17 +248,16 @@ def test_parse_registry_round_trip() -> None:
     r0 = parsed[0]
     assert r0.key == r"Software\Policies\Test"
     assert r0.hive == "HKEY_LOCAL_MACHINE"
-    assert len(r0.values) == 1
-    assert r0.values[0].name == "Enabled"
-    assert r0.values[0].value == 1
-    assert r0.values[0].registry_type == "REG_DWORD"
+    assert r0.value.name == "Enabled"
+    assert r0.value.value == 1
+    assert r0.value.registry_type == "REG_DWORD"
     r1 = parsed[1]
-    assert r1.values[0].name == "Path"
-    assert r1.values[0].value == r"C:\Temp"
+    assert r1.value.name == "Path"
+    assert r1.value.value == r"C:\Temp"
     r2 = parsed[2]
-    assert r2.values[0].name == "List"
-    assert r2.values[0].value == ["a", "b", "c"]
-    assert r2.values[0].registry_type == "REG_MULTI_SZ"
+    assert r2.value.name == "List"
+    assert r2.value.value == ["a", "b", "c"]
+    assert r2.value.registry_type == "REG_MULTI_SZ"
 
 
 def test_parse_registry_from_ms_format() -> None:
@@ -257,11 +266,11 @@ def test_parse_registry_from_ms_format() -> None:
     r0 = parsed[0]
     assert r0.key == r"Software\Policies\Test"
     assert r0.hive == "HKEY_LOCAL_MACHINE"
-    assert r0.values[0].name == "Enabled"
-    assert r0.values[0].value == 1
-    assert r0.values[0].registry_type == "REG_DWORD"
-    assert parsed[2].values[0].name == "List"
-    assert parsed[2].values[0].value == ["a", "b", "c"]
+    assert r0.value.name == "Enabled"
+    assert r0.value.value == 1
+    assert r0.value.registry_type == "REG_DWORD"
+    assert parsed[2].value.name == "List"
+    assert parsed[2].value.value == ["a", "b", "c"]
 
 
 def test_parse_registry_legacy_format() -> None:
@@ -277,9 +286,9 @@ def test_parse_registry_legacy_format() -> None:
     assert len(parsed) == 2
     r0 = parsed[0]
     assert r0.key == r"Software\Policies\Test"
-    assert r0.values[0].name == "Enabled"
-    assert r0.values[0].value == 1
-    assert parsed[1].values[0].name == "Path"
+    assert r0.value.name == "Enabled"
+    assert r0.value.value == 1
+    assert parsed[1].value.name == "Path"
 
 
 def test_action_code_mapping() -> None:
@@ -304,8 +313,7 @@ def test_registry_action_code_mapping() -> None:
     for action, code in [("create", "C"), ("replace", "R"), ("update", "U"), ("delete", "D")]:
         reg = GppRegistry(
             key="K",
-            values=(GppRegistryValue(name="N", value="V", action=action),  # type: ignore[arg-type]
-        ),
+            value=GppRegistryValue(name="N", value="V", action=action),  # type: ignore[arg-type]
         )
         data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
         assert f'action="{code}"'.encode() in data
@@ -314,10 +322,8 @@ def test_registry_action_code_mapping() -> None:
 def test_reg_multi_sz_joined_with_semicolons() -> None:
     reg = GppRegistry(
         key="K",
-        values=(
-            GppRegistryValue(
-                name="Multi", value=["x", "y", "z"], registry_type="REG_MULTI_SZ"
-            ),
+        value=GppRegistryValue(
+            name="Multi", value=["x", "y", "z"], registry_type="REG_MULTI_SZ"
         ),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
@@ -327,7 +333,7 @@ def test_reg_multi_sz_joined_with_semicolons() -> None:
 def test_reg_dword_value_as_string() -> None:
     reg = GppRegistry(
         key="K",
-        values=(GppRegistryValue(name="Dw", value=42, registry_type="REG_DWORD"),),
+        value=GppRegistryValue(name="Dw", value=42, registry_type="REG_DWORD"),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     assert b'value="42"' in data
@@ -336,7 +342,7 @@ def test_reg_dword_value_as_string() -> None:
 def test_reg_qword_value_as_string() -> None:
     reg = GppRegistry(
         key="K",
-        values=(GppRegistryValue(name="Qw", value=2**32, registry_type="REG_QWORD"),),
+        value=GppRegistryValue(name="Qw", value=2**32, registry_type="REG_QWORD"),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     assert b'value="4294967296"' in data
@@ -400,7 +406,7 @@ def test_gpp_collection_to_dict_round_trip() -> None:
     assert len(restored.registry) == len(original.registry)
     assert restored.registry[0].key == original.registry[0].key
     assert restored.registry[0].hive == original.registry[0].hive
-    assert len(restored.registry[0].values) == len(original.registry[0].values)
+    assert restored.registry[0].value == original.registry[0].value
 
 
 def test_gpp_collection_from_dict_invalid_scope() -> None:
@@ -422,11 +428,11 @@ def test_gpp_collection_from_dict_rejects_reserved_registry_attr() -> None:
             "scope": "computer",
             "registry": [{
                 "key": "K",
-                "values": [{
+                "value": {
                     "name": "V",
                     "value": "x",
                     "unknown_attrs": [["action", "D"]],
-                }],
+                },
             }],
         })
 
@@ -606,8 +612,8 @@ def test_gpp_collections_survive_store_round_trip(tmp_path: Path) -> None:
     assert loaded.gpp_collections[0].scope == "computer"
     assert loaded.gpp_collections[0].groups[0].name == "Administrators"
     assert len(loaded.gpp_collections[0].groups[0].members) == 2
-    assert len(loaded.gpp_collections[0].registry) == 1
-    assert loaded.gpp_collections[0].registry[0].values[0].value == 1
+    assert len(loaded.gpp_collections[0].registry) == 3
+    assert loaded.gpp_collections[0].registry[0].value.value == 1
 
 
 # --- Issue 1: Special character round-tripping ---
@@ -635,12 +641,12 @@ def test_member_name_with_angle_brackets_round_trips() -> None:
 def test_registry_value_with_ampersand_round_trips() -> None:
     reg = GppRegistry(
         key="K",
-        values=(GppRegistryValue(name="V", value="A&B", registry_type="REG_SZ"),),
+        value=GppRegistryValue(name="V", value="A&B", registry_type="REG_SZ"),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     parsed = parse_gpp_registry(data)
     assert len(parsed) == 1
-    assert parsed[0].values[0].value == "A&B"
+    assert parsed[0].value.value == "A&B"
 
 
 # --- Issue 2: cpassword detection ---
@@ -716,25 +722,35 @@ def test_full_group_round_trip_equality() -> None:
 
 
 def test_full_registry_round_trip_equality() -> None:
-    reg = GppRegistry(
-        key=r"Software\Policies\Test",
-        hive="HKEY_LOCAL_MACHINE",
-        action="replace",
-        values=(
-            GppRegistryValue(
+    regs = (
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            hive="HKEY_LOCAL_MACHINE",
+            action="replace",
+            value=GppRegistryValue(
                 name="Enabled", value=1, registry_type="REG_DWORD", action="create",
-                ilt_filter=IltFilter(
-                    items=(
-                        IltPredicate(
-                            type="wmi_query", value="SELECT * FROM Win32_OperatingSystem",
-                        ),
-                    )
-                ),
             ),
-            GppRegistryValue(
+            ilt_filter=IltFilter(
+                items=(
+                    IltPredicate(
+                        type="wmi_query", value="SELECT * FROM Win32_OperatingSystem",
+                    ),
+                )
+            ),
+        ),
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            hive="HKEY_LOCAL_MACHINE",
+            action="replace",
+            value=GppRegistryValue(
                 name="Path", value=r"C:\Temp", registry_type="REG_SZ", action="replace"
             ),
-            GppRegistryValue(
+        ),
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            hive="HKEY_LOCAL_MACHINE",
+            action="replace",
+            value=GppRegistryValue(
                 name="List",
                 value=["a", "b", "c"],
                 registry_type="REG_MULTI_SZ",
@@ -742,19 +758,19 @@ def test_full_registry_round_trip_equality() -> None:
             ),
         ),
     )
-    data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
+    data = serialize_gpp_registry(GppCollection(scope="computer", registry=regs))
     parsed = parse_gpp_registry(data)
     assert len(parsed) == 3
-    for i, rv in enumerate(reg.values):
-        pv = parsed[i].values[0]
-        assert parsed[i].key == reg.key
-        assert parsed[i].hive == reg.hive
-        assert pv.name == rv.name
-        assert pv.value == rv.value
-        assert pv.registry_type == rv.registry_type
-        assert pv.action == rv.action
-    assert parsed[0].values[0].ilt_filter is not None
-    assert parsed[0].values[0].ilt_filter.predicates == reg.values[0].ilt_filter.predicates
+    for i, reg in enumerate(regs):
+        pv = parsed[i]
+        assert pv.key == reg.key
+        assert pv.hive == reg.hive
+        assert pv.value.name == reg.value.name
+        assert pv.value.value == reg.value.value
+        assert pv.value.registry_type == reg.value.registry_type
+        assert pv.value.action == reg.value.action
+    assert parsed[0].ilt_filter is not None
+    assert parsed[0].ilt_filter.predicates == regs[0].ilt_filter.predicates
 
 
 def test_editor_id_not_in_serialized_xml() -> None:
@@ -775,14 +791,12 @@ def test_editor_id_not_in_serialized_xml() -> None:
     reg = GppRegistry(
         key=r"Software\Policies\Test",
         action="update",
-        values=(
-            GppRegistryValue(
-                name="Enabled",
-                value=1,
-                registry_type="REG_DWORD",
-                action="create",
-                id="value-id-1",
-            ),
+        value=GppRegistryValue(
+            name="Enabled",
+            value=1,
+            registry_type="REG_DWORD",
+            action="create",
+            id="value-id-1",
         ),
         id="registry-id-1",
     )
@@ -798,7 +812,7 @@ def test_editor_id_not_in_serialized_xml() -> None:
     assert parsed_groups[0].members[0].id == ""
     parsed_registry = parse_gpp_registry(registry_xml)
     assert parsed_registry[0].id == ""
-    assert parsed_registry[0].values[0].id == ""
+    assert parsed_registry[0].value.id == ""
 
 
 def test_editor_id_persists_in_dict_round_trip() -> None:
@@ -819,14 +833,12 @@ def test_editor_id_persists_in_dict_round_trip() -> None:
     reg = GppRegistry(
         key=r"Software\Policies\Test",
         action="update",
-        values=(
-            GppRegistryValue(
-                name="Enabled",
-                value=1,
-                registry_type="REG_DWORD",
-                action="create",
-                id="value-id-1",
-            ),
+        value=GppRegistryValue(
+            name="Enabled",
+            value=1,
+            registry_type="REG_DWORD",
+            action="create",
+            id="value-id-1",
         ),
         id="registry-id-1",
     )
@@ -835,12 +847,12 @@ def test_editor_id_persists_in_dict_round_trip() -> None:
     assert d["groups"][0]["id"] == "group-id-1"
     assert d["groups"][0]["members"][0]["id"] == "member-id-1"
     assert d["registry"][0]["id"] == "registry-id-1"
-    assert d["registry"][0]["values"][0]["id"] == "value-id-1"
+    assert d["registry"][0]["value"]["id"] == "value-id-1"
     restored = gpp_collection_from_dict(d)
     assert restored.groups[0].id == "group-id-1"
     assert restored.groups[0].members[0].id == "member-id-1"
     assert restored.registry[0].id == "registry-id-1"
-    assert restored.registry[0].values[0].id == "value-id-1"
+    assert restored.registry[0].value.id == "value-id-1"
 
 
 def test_editor_id_defaults_to_empty_when_missing_in_dict() -> None:
@@ -848,7 +860,7 @@ def test_editor_id_defaults_to_empty_when_missing_in_dict() -> None:
         "scope": "computer",
         "groups": [{"name": "G1", "sid": "", "action": "update", "members": []}],
         "registry": [
-            {"key": "K", "action": "update", "values": []},
+            {"key": "K", "action": "update", "value": {"name": "", "value": ""}},
         ],
     }
     restored = gpp_collection_from_dict(d)
@@ -863,14 +875,14 @@ def test_ensure_editor_ids_fills_empty_ids() -> None:
     )
     reg = GppRegistry(
         key="K",
-        values=(GppRegistryValue(name="V", value="x"),),
+        value=GppRegistryValue(name="V", value="x"),
     )
     collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
     result = ensure_editor_ids(collection)
     assert result.groups[0].id != ""
     assert result.groups[0].members[0].id != ""
     assert result.registry[0].id != ""
-    assert result.registry[0].values[0].id != ""
+    assert result.registry[0].value.id != ""
 
 
 def test_ensure_editor_ids_preserves_existing_ids() -> None:
@@ -882,14 +894,14 @@ def test_ensure_editor_ids_preserves_existing_ids() -> None:
     reg = GppRegistry(
         key="K",
         id="reg-1",
-        values=(GppRegistryValue(name="V", value="x", id="val-1"),),
+        value=GppRegistryValue(name="V", value="x", id="val-1"),
     )
     collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
     result = ensure_editor_ids(collection)
     assert result.groups[0].id == "group-1"
     assert result.groups[0].members[0].id == "member-1"
     assert result.registry[0].id == "reg-1"
-    assert result.registry[0].values[0].id == "val-1"
+    assert result.registry[0].value.id == "val-1"
 
 
 def test_collect_gpp_collections_assigns_editor_ids(tmp_path: Path) -> None:
@@ -907,7 +919,7 @@ def test_collect_gpp_collections_assigns_editor_ids(tmp_path: Path) -> None:
     assert collection.groups[0].id != ""
     assert collection.groups[0].members[0].id != ""
     assert collection.registry[0].id != ""
-    assert collection.registry[0].values[0].id != ""
+    assert collection.registry[0].value.id != ""
 
 
 def test_registry_no_coalescing_each_element_is_separate() -> None:
@@ -934,14 +946,14 @@ def test_registry_no_coalescing_each_element_is_separate() -> None:
     assert len(parsed) == 2
     r0 = parsed[0]
     assert r0.uid == "{first}"
-    assert r0.values[0].name == "Enabled"
-    assert r0.values[0].ilt_filter is not None
-    assert r0.values[0].ilt_filter.predicates[0].value == "OU=First,DC=example,DC=com"
+    assert r0.value.name == "Enabled"
+    assert r0.ilt_filter is not None
+    assert r0.ilt_filter.predicates[0].value == "OU=First,DC=example,DC=com"
     r1 = parsed[1]
     assert r1.uid == "{second}"
-    assert r1.values[0].name == "Path"
-    assert r1.values[0].ilt_filter is not None
-    assert r1.values[0].ilt_filter.predicates[0].value == "OU=Second,DC=example,DC=com"
+    assert r1.value.name == "Path"
+    assert r1.ilt_filter is not None
+    assert r1.ilt_filter.predicates[0].value == "OU=Second,DC=example,DC=com"
 
 
 def test_key_only_registry_round_trip() -> None:
@@ -957,16 +969,14 @@ def test_key_only_registry_round_trip() -> None:
     )
     parsed = parse_gpp_registry(xml)
     assert len(parsed) == 1
-    assert len(parsed[0].values) == 1
-    val = parsed[0].values[0]
+    val = parsed[0].value
     assert val.name == ""
     assert val.registry_type == ""
     assert val.value == ""
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed))
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
-    assert len(reparsed[0].values) == 1
-    rval = reparsed[0].values[0]
+    rval = reparsed[0].value
     assert rval.name == ""
     assert rval.registry_type == ""
     assert rval.value == ""
@@ -986,8 +996,7 @@ def test_key_only_registry_no_properties() -> None:
     )
     parsed = parse_gpp_registry(xml)
     assert len(parsed) == 1
-    assert len(parsed[0].values) == 1
-    val = parsed[0].values[0]
+    val = parsed[0].value
     assert val.name == ""
     assert val.registry_type == ""
     assert val.value == ""
@@ -996,18 +1005,16 @@ def test_key_only_registry_no_properties() -> None:
 def test_default_registry_value_round_trip() -> None:
     reg = GppRegistry(
         key=r"Software\Policies\Test",
-        values=(
-            GppRegistryValue(
-                name="", value="configured", registry_type="REG_SZ",
-                action="create", default=True,
-            ),
+        value=GppRegistryValue(
+            name="", value="configured", registry_type="REG_SZ",
+            action="create", default=True,
         ),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     assert b'default="1"' in data
     parsed = parse_gpp_registry(data)
     assert len(parsed) == 1
-    val = parsed[0].values[0]
+    val = parsed[0].value
     assert val.default is True
     assert val.name == ""
     assert val.value == "configured"
@@ -1026,7 +1033,7 @@ def test_default_registry_value_parsed_from_ms_format() -> None:
     )
     parsed = parse_gpp_registry(xml)
     assert len(parsed) == 1
-    val = parsed[0].values[0]
+    val = parsed[0].value
     assert val.default is True
     assert val.value == "configured"
 
@@ -1047,3 +1054,58 @@ def test_registry_uid_parsed_and_serialized() -> None:
     assert parsed[0].uid == "{abc-123}"
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed))
     assert b'uid="{abc-123}"' in serialized
+
+
+def test_parse_serialize_parse_invariant() -> None:
+    reg = GppRegistry(
+        key=r"Software\Policies\Test",
+        hive="HKEY_LOCAL_MACHINE",
+        action="update",
+        uid="{test-uid-001}",
+        value=GppRegistryValue(
+            name="Enabled", value=1, registry_type="REG_DWORD", action="create",
+        ),
+        ilt_filter=IltFilter(
+            items=(
+                IltPredicate(type="ou", value="OU=Servers,DC=studio,DC=local"),
+                IltPredicate(type="group", value="S-1-5-32-544", negate=True),
+            )
+        ),
+    )
+    collection = GppCollection(scope="computer", registry=(reg,))
+    xml1 = serialize_gpp_registry(collection)
+    parsed1 = parse_gpp_registry(xml1)
+    xml2 = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed1))
+    parsed2 = parse_gpp_registry(xml2)
+    assert xml1 == xml2
+    assert len(parsed1) == len(parsed2) == 1
+    assert parsed1[0].key == parsed2[0].key
+    assert parsed1[0].uid == parsed2[0].uid
+    assert parsed1[0].value == parsed2[0].value
+    assert parsed1[0].ilt_filter == parsed2[0].ilt_filter
+
+
+def test_ensure_editor_ids_generates_uid() -> None:
+    reg = GppRegistry(
+        key="K",
+        value=GppRegistryValue(name="V", value="x"),
+    )
+    collection = GppCollection(scope="computer", registry=(reg,))
+    result = ensure_editor_ids(collection)
+    assert result.registry[0].uid != ""
+    assert result.registry[0].id != ""
+    assert result.registry[0].value.id != ""
+
+
+def test_ensure_editor_ids_preserves_existing_uid() -> None:
+    reg = GppRegistry(
+        key="K",
+        uid="{existing-uid}",
+        id="reg-1",
+        value=GppRegistryValue(name="V", value="x", id="val-1"),
+    )
+    collection = GppCollection(scope="computer", registry=(reg,))
+    result = ensure_editor_ids(collection)
+    assert result.registry[0].uid == "{existing-uid}"
+    assert result.registry[0].id == "reg-1"
+    assert result.registry[0].value.id == "val-1"

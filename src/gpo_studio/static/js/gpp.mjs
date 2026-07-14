@@ -27,8 +27,9 @@ export function renderGpp(){
   $$("[data-edit-gpp-group]").forEach(el=>el.onclick=()=>{const grp=groups.find(g=>g.id===el.dataset.editGppGroup);openGppGroup(scope,grp)});
   $$("[data-delete-gpp-group]").forEach(el=>el.onclick=()=>deleteGppGroup(scope,el.dataset.deleteGppGroup));
   $("#gpp-registry-table").innerHTML=registry.map(reg=>{
-    const values=reg.values.map(v=>`${escapeHtml(v.name)}=${escapeHtml(formatRegValue(v))}`).join(", ")||"—";
-    const iltCount=reg.ilt_filter&&reg.ilt_filter.items?reg.ilt_filter.items.filter(i=>typeof i==="object").length:(reg.values||[]).reduce((n,v)=>n+(v.ilt_filter&&v.ilt_filter.items?v.ilt_filter.items.filter(i=>typeof i==="object").length:0),0);
+    const v=reg.value;
+    const values=v?`${escapeHtml(v.name)}=${escapeHtml(formatRegValue(v))}`:"—";
+    const iltCount=reg.ilt_filter&&reg.ilt_filter.items?reg.ilt_filter.items.filter(i=>typeof i==="object").length:0;
     const ilt=iltCount?`ILT: ${iltCount} predicate${iltCount===1?'':'s'}`:"—";
     return `<tr><td class="mono">${escapeHtml(reg.action)}</td><td><div class="mono truncate" title="${escapeHtml(reg.key)}">${escapeHtml(reg.key)}</div></td><td><div class="truncate" title="${escapeHtml(values)}">${escapeHtml(values)}</div></td><td>${ilt}</td><td><div class="row-actions"><button data-edit-gpp-registry="${escapeHtml(reg.id)}">Edit</button><button data-delete-gpp-registry="${escapeHtml(reg.id)}">×</button></div></td></tr>`;
   }).join("");
@@ -49,7 +50,6 @@ export function initGpp(){
   $("#add-gpp-registry").onclick=()=>openGppRegistry(state.gppScope);
   $("#gpp-add-member").onclick=()=>addMemberRow();
   $("#gpp-add-predicate").onclick=()=>addPredicateRow("gpp-ilt-list","gpp-ilt-preview");
-  $("#gpp-add-value").onclick=()=>addValueRow();
   $("#gpp-add-ilt-registry").onclick=()=>addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview");
   $("#gpp-group-form").onsubmit=submitGppGroup;
   $("#gpp-registry-form").onsubmit=submitGppRegistry;
@@ -128,23 +128,15 @@ export function openGppRegistry(scope,registry=null){
       f.key.value=registry.key;
       f.hive.value=registry.hive||"HKEY_LOCAL_MACHINE";
       f.action.value=registry.action;
-      (registry.values||[]).forEach(v=>addValueRow(v));
-      const allValues=registry.values||[];
-      const iltValues=allValues.filter(v=>v.ilt_filter);
-      let commonIlt=null;
-      if(iltValues.length>0&&iltValues.length===allValues.length){
-        const firstJson=JSON.stringify(iltValues[0].ilt_filter);
-        if(iltValues.every(v=>JSON.stringify(v.ilt_filter)===firstJson))commonIlt=iltValues[0].ilt_filter;
-      }else if(iltValues.length===1&&allValues.length===1){
-        commonIlt=iltValues[0].ilt_filter;
-      }
-      if(commonIlt&&commonIlt.items)commonIlt.items.forEach(item=>{
+      addValueRow(registry.value||{name:"",value:"",registry_type:"",action:"create"});
+      if(registry.ilt_filter&&registry.ilt_filter.items)registry.ilt_filter.items.forEach(item=>{
         if(typeof item==="string")addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",{unknown:true,raw:item});
         else addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",item);
       });
       f.reason.value="Update GPP registry";
   }else{
-    f.reason.value="Add GPP registry";
+      f.reason.value="Add GPP registry";
+      addValueRow();
   }
   updateIltPreview("gpp-ilt-registry-list","gpp-ilt-registry-preview");
   $("#gpp-registry-dialog").showModal();
@@ -166,15 +158,16 @@ function addValueRow(value=null){
   typeSel.onchange=()=>{if(!typeSel.value&&!defaultBox.checked)valueInput.value="";valueInput.placeholder=typeSel.value?REG_VALUE_HINTS[typeSel.value]||"Value":defaultBox.checked?"Default value":"Key-only entry";valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
   actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
   row.dataset.unknownAttrs="[]";
-  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;defaultBox.checked=!!value.default;if(defaultBox.checked)row.querySelector('[data-field=name]').disabled=true;row.dataset.id=value.id||"";row.dataset.unknownAttrs=JSON.stringify(value.unknown_attrs||[]);row.dataset.iltFilter=value.ilt_filter?JSON.stringify(value.ilt_filter):"";row.dataset.unknownElemAttrs=JSON.stringify(value.unknown_elem_attrs||[]);row.dataset.unknownChildren=JSON.stringify(value.unknown_children||[])}
+  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;defaultBox.checked=!!value.default;if(defaultBox.checked)row.querySelector('[data-field=name]').disabled=true;row.dataset.id=value.id||"";row.dataset.unknownAttrs=JSON.stringify(value.unknown_attrs||[])}
   valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked);
   typeSel.onchange();
   row.querySelector("button").onclick=()=>row.remove();
   list.appendChild(row);
 }
 
-function collectValues(){
-  return [...$("#gpp-values-list").querySelectorAll(".gpp-row")].map(row=>{
+function collectValue(){
+  const row=$("#gpp-values-list").querySelector(".gpp-row");
+  if(!row)return null;
     const defaultBox=row.querySelector('[data-field=default]');
     const isDefault=defaultBox&&defaultBox.checked;
     const name=isDefault?"":row.querySelector('[data-field=name]').value.trim();
@@ -187,11 +180,7 @@ function collectValues(){
     else if(type==="REG_DWORD"||type==="REG_QWORD")value=raw.trim();
     else value=raw;
     const result={name,value,registry_type:type,action,default:isDefault,id:row.dataset.id||"",unknown_attrs:JSON.parse(row.dataset.unknownAttrs||"[]")};
-    if(row.dataset.iltFilter)result.ilt_filter=JSON.parse(row.dataset.iltFilter);
-    if(row.dataset.unknownElemAttrs)result.unknown_elem_attrs=JSON.parse(row.dataset.unknownElemAttrs);
-    if(row.dataset.unknownChildren)result.unknown_children=JSON.parse(row.dataset.unknownChildren);
     return result;
-  });
 }
 
 async function submitGppRegistry(event){
@@ -199,15 +188,14 @@ async function submitGppRegistry(event){
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
   if($("#gpp-ilt-registry-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item contains ILT predicates that cannot be edited in the browser. They will be preserved on save. Continue?"))return;
-  const partialValue=[...$("#gpp-values-list").querySelectorAll(".gpp-row")].find(row=>{const isDefault=row.querySelector('[data-field=default]')&&row.querySelector('[data-field=default]').checked;return!isDefault&&row.querySelector('[data-field=value]').value.trim()&&!row.querySelector('[data-field=name]').value.trim()});
-  if(partialValue){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
-  const values=collectValues();
+  const value=collectValue();
+  if(!value){showFormErrors(f,{issues:[{message:"A registry value is required."}]});return}
+  if(!value.default&&value.value.trim()&&!value.name.trim()&&value.registry_type){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
   const commonIlt=collectIlt("gpp-ilt-registry-list");
-  values.forEach(v=>{v.ilt_filter=commonIlt});
-  const badDword=values.find(v=>v.action!=="delete"&&(v.registry_type==="REG_DWORD"||v.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(v.value));
-  if(badDword){showFormErrors(f,{issues:[{message:`${badDword.registry_type} value for "${badDword.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
-  const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,values,ilt_filter:commonIlt};
-  if(state.editingGppRegistry){registry.id=state.editingGppRegistry.id;if(state.editingGppRegistry.uid)registry.uid=state.editingGppRegistry.uid}
+  const badDword=(value.action!=="delete"&&(value.registry_type==="REG_DWORD"||value.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(value.value));
+  if(badDword){showFormErrors(f,{issues:[{message:`${value.registry_type} value for "${value.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
+  const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,value,ilt_filter:commonIlt};
+  if(state.editingGppRegistry){registry.id=state.editingGppRegistry.id;if(state.editingGppRegistry.uid)registry.uid=state.editingGppRegistry.uid;if(state.editingGppRegistry.unknown_attrs)registry.unknown_attrs=state.editingGppRegistry.unknown_attrs;if(state.editingGppRegistry.unknown_children)registry.unknown_children=state.editingGppRegistry.unknown_children}
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";renderAll();renderList();toast("GPP registry saved")}catch(error){showFormErrors(f,error)}
 }

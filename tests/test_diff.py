@@ -122,10 +122,14 @@ def _gpp_member(
 
 def _gpp_registry(
     key: str = r"Software\Policies\Synthetic",
-    values: tuple[GppRegistryValue, ...] = (),
+    value: GppRegistryValue | None = None,
     action: str = "update",
 ) -> GppRegistry:
-    return GppRegistry(key=key, values=values, action=action)  # type: ignore[arg-type]
+    return GppRegistry(
+        key=key,
+        value=value or GppRegistryValue(name="Setting", value="1"),
+        action=action,  # type: ignore[arg-type]
+    )
 
 
 def _gpp_registry_value(
@@ -776,12 +780,12 @@ def test_gpp_registry_value_change_is_modified() -> None:
     new_value = _gpp_registry_value(name="Setting", value="new")
     old = _gpo(
         gpp_collections=(
-            _gpp_collection(registry=(_gpp_registry(values=(old_value,)),)),
+            _gpp_collection(registry=(_gpp_registry(value=old_value),)),
         )
     )
     new = _gpo(
         gpp_collections=(
-            _gpp_collection(registry=(_gpp_registry(values=(new_value,)),)),
+            _gpp_collection(registry=(_gpp_registry(value=new_value),)),
         )
     )
     result = diff_gpos(old, new)
@@ -936,17 +940,17 @@ def test_three_way_gpp_registry_conflict() -> None:
     observed_value = _gpp_registry_value(name="Setting", value="observed")
     baseline = _gpo(
         gpp_collections=(
-            _gpp_collection(registry=(_gpp_registry(values=(old_value,)),)),
+            _gpp_collection(registry=(_gpp_registry(value=old_value),)),
         )
     )
     draft = _gpo(
         gpp_collections=(
-            _gpp_collection(registry=(_gpp_registry(values=(draft_value,)),)),
+            _gpp_collection(registry=(_gpp_registry(value=draft_value),)),
         )
     )
     observed = _gpo(
         gpp_collections=(
-            _gpp_collection(registry=(_gpp_registry(values=(observed_value,)),)),
+            _gpp_collection(registry=(_gpp_registry(value=observed_value),)),
         )
     )
     result = three_way_diff(baseline, draft, observed)
@@ -996,20 +1000,20 @@ def test_three_way_gpp_mixed_conflict_same_scope_no_crash() -> None:
         gpp_collections=(
             _gpp_collection(
                 groups=(_gpp_group(name="GroupA"),),
-                registry=(_gpp_registry(values=(_gpp_registry_value(),)),),
+                registry=(_gpp_registry(value=_gpp_registry_value()),),
             ),
         )
     )
     draft = _gpo(
         gpp_collections=(
-            _gpp_collection(groups=(group,), registry=(_gpp_registry(values=(value,)),)),
+            _gpp_collection(groups=(group,), registry=(_gpp_registry(value=value),)),
         )
     )
     observed = _gpo(
         gpp_collections=(
             _gpp_collection(
                 groups=(_gpp_group(name="GroupA", description="observed"),),
-                registry=(_gpp_registry(values=(_gpp_registry_value(value="observed"),)),),
+                registry=(_gpp_registry(value=_gpp_registry_value(value="observed")),),
             ),
         )
     )
@@ -1164,24 +1168,24 @@ def test_gpp_registry_reorder_detected() -> None:
     assert all(c.kind == "reordered" for c in result.gpp_registry)
     identities = {c.identity for c in result.gpp_registry}
     assert identities == {
-        f"hkey_local_machine\\{reg_a.key.casefold()}##",
-        f"hkey_local_machine\\{reg_b.key.casefold()}##",
+        f"hkey_local_machine\\{reg_a.key.casefold()}#setting#create",
+        f"hkey_local_machine\\{reg_b.key.casefold()}#setting#create",
     }
 
 
 def test_gpp_registry_same_key_different_uid_no_collision() -> None:
     reg_a = GppRegistry(
         key=r"Software\Key", uid="{uid-a}",
-        values=(GppRegistryValue(name="V", value="old"),),
+        value=GppRegistryValue(name="V", value="old"),
     )
     reg_b = GppRegistry(
         key=r"Software\Key", uid="{uid-b}",
-        values=(GppRegistryValue(name="V", value="same"),),
+        value=GppRegistryValue(name="V", value="same"),
     )
     old = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a, reg_b)),))
     reg_a_new = GppRegistry(
         key=r"Software\Key", uid="{uid-a}",
-        values=(GppRegistryValue(name="V", value="new"),),
+        value=GppRegistryValue(name="V", value="new"),
     )
     new = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a_new, reg_b)),))
     result = diff_gpos(old, new)
@@ -1193,16 +1197,16 @@ def test_gpp_registry_same_key_different_uid_no_collision() -> None:
 def test_gpp_registry_same_key_no_uid_uses_value_action_fallback() -> None:
     reg_a = GppRegistry(
         key=r"Software\Key",
-        values=(GppRegistryValue(name="V1", value="old", action="create"),),
+        value=GppRegistryValue(name="V1", value="old", action="create"),
     )
     reg_b = GppRegistry(
         key=r"Software\Key",
-        values=(GppRegistryValue(name="V2", value="same", action="create"),),
+        value=GppRegistryValue(name="V2", value="same", action="create"),
     )
     old = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a, reg_b)),))
     reg_a_new = GppRegistry(
         key=r"Software\Key",
-        values=(GppRegistryValue(name="V1", value="new", action="create"),),
+        value=GppRegistryValue(name="V1", value="new", action="create"),
     )
     new = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a_new, reg_b)),))
     result = diff_gpos(old, new)
@@ -1394,6 +1398,42 @@ def test_three_way_gpp_collection_root_metadata_no_conflict_draft_only() -> None
     )
     result = three_way_diff(baseline, draft, observed)
     assert result.gpp_collection_conflicts == ()
+
+
+def test_three_way_concurrent_collection_addition_no_crash() -> None:
+    baseline = _gpo(gpp_collections=())
+    draft = _gpo(
+        gpp_collections=(
+            _gpp_collection(
+                groups_unknown_attrs=(("draft", "1"),),
+            ),
+        )
+    )
+    observed = _gpo(
+        gpp_collections=(
+            _gpp_collection(
+                registry_unknown_attrs=(("observed", "1"),),
+            ),
+        )
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.gpp_collection_conflicts) == 0
+
+
+def test_three_way_concurrent_collection_addition_same_field_conflict() -> None:
+    baseline = _gpo(gpp_collections=())
+    draft = _gpo(
+        gpp_collections=(
+            _gpp_collection(registry_unknown_attrs=(("custom", "draft"),)),
+        )
+    )
+    observed = _gpo(
+        gpp_collections=(
+            _gpp_collection(registry_unknown_attrs=(("custom", "observed"),)),
+        )
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert len(result.gpp_collection_conflicts) == 1
 
 
 def test_three_way_gpp_collection_root_metadata_groups_unknown_children_conflict() -> None:

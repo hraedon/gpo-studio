@@ -1122,14 +1122,12 @@ def test_gpp_registry_crud_via_api(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Test",
                     "action": "update",
-                    "values": [
-                        {
-                            "name": "Enabled",
-                            "value": "42",
-                            "registry_type": "REG_DWORD",
-                            "action": "create",
-                        }
-                    ],
+                    "value": {
+                        "name": "Enabled",
+                        "value": "42",
+                        "registry_type": "REG_DWORD",
+                        "action": "create",
+                    },
                 },
             },
         )
@@ -1138,7 +1136,7 @@ def test_gpp_registry_crud_via_api(tmp_path) -> None:
         assert len(gpo["gpp_collections"][0]["registry"]) == 1
         reg_id = gpo["gpp_collections"][0]["registry"][0]["id"]
         assert reg_id
-        assert gpo["gpp_collections"][0]["registry"][0]["values"][0]["value"] == "42"
+        assert gpo["gpp_collections"][0]["registry"][0]["value"]["value"] == "42"
 
         resp = client.request(
             "DELETE",
@@ -1234,20 +1232,18 @@ def test_gpp_dword_registry_value_round_trips(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Test",
                     "action": "update",
-                    "values": [
-                        {
-                            "name": "MaxValue",
-                            "value": "4294967295",
-                            "registry_type": "REG_DWORD",
-                            "action": "create",
-                        }
-                    ],
+                    "value": {
+                        "name": "MaxValue",
+                        "value": "4294967295",
+                        "registry_type": "REG_DWORD",
+                        "action": "create",
+                    },
                 },
             },
         )
         assert resp.status_code == 201
         gpo = resp.json()["gpo"]
-        val = gpo["gpp_collections"][0]["registry"][0]["values"][0]
+        val = gpo["gpp_collections"][0]["registry"][0]["value"]
         assert val["registry_type"] == "REG_DWORD"
         assert val["value"] == "4294967295"
 
@@ -1388,15 +1384,13 @@ def test_gpp_registry_rejects_reserved_unknown_attr(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Test",
                     "action": "update",
-                    "values": [
-                        {
-                            "name": "Enabled",
-                            "value": "1",
-                            "registry_type": "REG_DWORD",
-                            "action": "create",
-                            "unknown_attrs": [["action", "D"]],
-                        }
-                    ],
+                    "value": {
+                        "name": "Enabled",
+                        "value": "1",
+                        "registry_type": "REG_DWORD",
+                        "action": "create",
+                        "unknown_attrs": [["action", "D"]],
+                    },
                 },
             },
         )
@@ -1581,7 +1575,6 @@ def test_gpp_registry_edit_uses_path_id_not_body_id(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Test",
                     "action": "update",
-                    "values": [],
                 },
             },
         )
@@ -1597,7 +1590,6 @@ def test_gpp_registry_edit_uses_path_id_not_body_id(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Updated",
                     "action": "update",
-                    "values": [],
                     "id": "divergent-body-id",
                 },
             },
@@ -1745,7 +1737,6 @@ def test_gpp_registry_value_crud_via_api(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Test",
                     "action": "update",
-                    "values": [],
                 },
             },
         )
@@ -1770,12 +1761,11 @@ def test_gpp_registry_value_crud_via_api(tmp_path) -> None:
         )
         assert resp.status_code == 201
         gpo = resp.json()["gpo"]
-        values = gpo["gpp_collections"][0]["registry"][0]["values"]
-        assert len(values) == 1
-        assert values[0]["name"] == "Enabled"
-        assert values[0]["value"] == "42"
-        assert values[0]["registry_type"] == "REG_DWORD"
-        value_id = values[0]["id"]
+        value = gpo["gpp_collections"][0]["registry"][0]["value"]
+        assert value["name"] == "Enabled"
+        assert value["value"] == "42"
+        assert value["registry_type"] == "REG_DWORD"
+        value_id = value["id"]
         assert value_id
 
         resp = client.put(
@@ -1796,9 +1786,8 @@ def test_gpp_registry_value_crud_via_api(tmp_path) -> None:
         )
         assert resp.status_code == 200
         gpo = resp.json()["gpo"]
-        values = gpo["gpp_collections"][0]["registry"][0]["values"]
-        assert len(values) == 1
-        assert values[0]["value"] == "100"
+        value = gpo["gpp_collections"][0]["registry"][0]["value"]
+        assert value["value"] == "100"
 
         resp = client.request(
             "DELETE",
@@ -1812,8 +1801,7 @@ def test_gpp_registry_value_crud_via_api(tmp_path) -> None:
         )
         assert resp.status_code == 200
         gpo = resp.json()["gpo"]
-        values = gpo["gpp_collections"][0]["registry"][0]["values"]
-        assert len(values) == 0
+        assert len(gpo["gpp_collections"]) == 0
 
 
 def test_put_gpp_group_nonexistent_id_returns_404(tmp_path) -> None:
@@ -1859,7 +1847,6 @@ def test_put_gpp_registry_nonexistent_id_returns_404(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Test",
                     "action": "update",
-                    "values": [],
                 },
             },
         )
@@ -1925,14 +1912,12 @@ def test_put_gpp_registry_value_nonexistent_id_returns_404(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Test",
                     "action": "update",
-                    "values": [],
                 },
             },
         )
         gpo = resp.json()["gpo"]
-        reg_id = gpo["gpp_collections"][0]["registry"][0]["id"]
         resp = client.put(
-            f"/api/gpos/{gpo['guid']}/preferences/registry/{reg_id}/values/nonexistent",
+            f"/api/gpos/{gpo['guid']}/preferences/registry/nonexistent/values/fake",
             json={
                 "expected_revision": gpo["revision"],
                 "actor": "tester",

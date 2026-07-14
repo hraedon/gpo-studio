@@ -136,7 +136,7 @@ def test_unknown_registry_attrs_preserved_in_round_trip() -> None:
     reg = parsed[0]
     assert reg.uid == "{def-456}"
 
-    disabled_attrs = [a for a in reg.values[0].unknown_elem_attrs if a[0] == "disabled"]
+    disabled_attrs = [a for a in reg.unknown_attrs if a[0] == "disabled"]
     assert len(disabled_attrs) == 1
     assert disabled_attrs[0][1] == "0"
 
@@ -147,13 +147,13 @@ def test_unknown_registry_attrs_preserved_in_round_trip() -> None:
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
     assert reparsed[0].uid == reg.uid
-    assert reparsed[0].values[0].unknown_elem_attrs == reg.values[0].unknown_elem_attrs
+    assert reparsed[0].unknown_attrs == reg.unknown_attrs
 
 
 def test_unknown_registry_value_attrs_preserved() -> None:
     parsed = parse_gpp_registry(_REGISTRY_XML_WITH_UNKNOWN)
     assert len(parsed) == 1
-    value = parsed[0].values[0]
+    value = parsed[0].value
 
     desc_attrs = [a for a in value.unknown_attrs if a[0] == "description"]
     assert len(desc_attrs) == 1
@@ -164,7 +164,7 @@ def test_unknown_registry_value_attrs_preserved() -> None:
 
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
-    assert reparsed[0].values[0].unknown_attrs == value.unknown_attrs
+    assert reparsed[0].value.unknown_attrs == value.unknown_attrs
 
 
 def test_unknown_member_attrs_preserved() -> None:
@@ -220,8 +220,7 @@ def test_unknown_registry_ilt_preserved_through_full_round_trip() -> None:
     parsed = parse_gpp_registry(_REGISTRY_XML_WITH_UNKNOWN)
     assert len(parsed) == 1
     reg = parsed[0]
-    assert len(reg.values) == 1
-    ilt = reg.values[0].ilt_filter
+    ilt = reg.ilt_filter
     assert ilt is not None
     assert len(ilt.predicates) == 1
     assert len(ilt.unknown_predicates) == 1
@@ -230,7 +229,7 @@ def test_unknown_registry_ilt_preserved_through_full_round_trip() -> None:
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
-    rilt = reparsed[0].values[0].ilt_filter
+    rilt = reparsed[0].ilt_filter
     assert rilt is not None
     assert len(rilt.predicates) == 1
     assert len(rilt.unknown_predicates) == 1
@@ -247,12 +246,10 @@ def test_unknown_attrs_survive_dict_round_trip() -> None:
     )
     reg = GppRegistry(
         key="K",
-        values=(
-            GppRegistryValue(
-                name="V",
-                value="x",
-                unknown_attrs=(("description", "desc"),),
-            ),
+        value=GppRegistryValue(
+            name="V",
+            value="x",
+            unknown_attrs=(("description", "desc"),),
         ),
         uid="{reg-uid-1}",
     )
@@ -262,13 +259,13 @@ def test_unknown_attrs_survive_dict_round_trip() -> None:
     assert d["groups"][0]["unknown_attrs"] == [("uid", "{test-1}"), ("disabled", "0")]
     assert d["groups"][0]["unknown_children"] == ["<CustomExt attr='val'/>"]
     assert d["registry"][0]["uid"] == "{reg-uid-1}"
-    assert d["registry"][0]["values"][0]["unknown_attrs"] == [("description", "desc")]
+    assert d["registry"][0]["value"]["unknown_attrs"] == [("description", "desc")]
 
     restored = gpp_collection_from_dict(d)
     assert restored.groups[0].unknown_attrs == (("uid", "{test-1}"), ("disabled", "0"))
     assert restored.groups[0].unknown_children == ("<CustomExt attr='val'/>",)
     assert restored.registry[0].uid == "{reg-uid-1}"
-    assert restored.registry[0].values[0].unknown_attrs == (("description", "desc"),)
+    assert restored.registry[0].value.unknown_attrs == (("description", "desc"),)
 
 
 def test_unknown_ilt_predicates_survive_dict_round_trip() -> None:
@@ -563,14 +560,14 @@ def test_non_consecutive_registry_coalescing() -> None:
     parsed = parse_gpp_registry(xml)
     assert len(parsed) == 3
     assert parsed[0].key == r"Software\KeyA"
-    assert parsed[0].values[0].name == "Val1"
+    assert parsed[0].value.name == "Val1"
     assert parsed[1].key == r"Software\KeyB"
-    assert parsed[1].values[0].name == "Val2"
+    assert parsed[1].value.name == "Val2"
     assert parsed[2].key == r"Software\KeyA"
-    assert parsed[2].values[0].name == "Val3"
+    assert parsed[2].value.name == "Val3"
 
 
-def test_old_registry_level_metadata_applied_to_values() -> None:
+def test_registry_element_metadata_from_dict() -> None:
     old_dict = {
         "scope": "computer",
         "registry": [{
@@ -584,46 +581,41 @@ def test_old_registry_level_metadata_applied_to_values() -> None:
             },
             "unknown_attrs": [["image", "12"]],
             "unknown_children": ["<Custom/>"],
-            "values": [{"name": "V", "value": "x"}],
-        }],
-    }
-    restored = gpp_collection_from_dict(old_dict)
-    val = restored.registry[0].values[0]
-    assert val.ilt_filter is not None
-    assert val.ilt_filter.predicates[0].type == "ou"
-    assert val.unknown_elem_attrs == (("image", "12"),)
-    assert val.unknown_children == ("<Custom/>",)
-
-
-def test_registry_level_metadata_only_first_value() -> None:
-    old_dict = {
-        "scope": "computer",
-        "registry": [{
-            "key": "K",
-            "hive": "HKEY_LOCAL_MACHINE",
-            "action": "update",
-            "ilt_filter": {
-                "items": [
-                    {"type": "ou", "value": "OU=Test", "negate": False, "bool_op": "AND"}
-                ]
-            },
-            "unknown_attrs": [["image", "12"]],
-            "unknown_children": ["<Custom/>"],
-            "values": [
-                {"name": "V1", "value": "x"},
-                {"name": "V2", "value": "y"},
-            ],
+            "value": {"name": "V", "value": "x"},
         }],
     }
     restored = gpp_collection_from_dict(old_dict)
     reg = restored.registry[0]
-    assert len(reg.values) == 2
-    first = reg.values[0]
-    second = reg.values[1]
-    assert first.ilt_filter is not None
-    assert first.ilt_filter.predicates[0].type == "ou"
-    assert first.unknown_elem_attrs == (("image", "12"),)
-    assert first.unknown_children == ("<Custom/>",)
-    assert second.ilt_filter is None
-    assert second.unknown_elem_attrs == ()
-    assert second.unknown_children == ()
+    assert reg.ilt_filter is not None
+    assert reg.ilt_filter.predicates[0].type == "ou"
+    assert reg.unknown_attrs == (("image", "12"),)
+    assert reg.unknown_children == ("<Custom/>",)
+
+
+def test_registry_element_metadata_round_trips_through_dict() -> None:
+    reg = GppRegistry(
+        key="K",
+        hive="HKEY_LOCAL_MACHINE",
+        action="update",
+        ilt_filter=IltFilter(
+            items=(
+                IltPredicate(type="ou", value="OU=Test"),
+            )
+        ),
+        unknown_attrs=(("image", "12"),),
+        unknown_children=("<Custom/>",),
+        value=GppRegistryValue(name="V", value="x"),
+    )
+    collection = GppCollection(scope="computer", registry=(reg,))
+    d = gpp_collection_to_dict(collection)
+
+    assert d["registry"][0]["ilt_filter"] is not None
+    assert d["registry"][0]["unknown_attrs"] == [("image", "12")]
+    assert d["registry"][0]["unknown_children"] == ["<Custom/>"]
+
+    restored = gpp_collection_from_dict(d)
+    r = restored.registry[0]
+    assert r.ilt_filter is not None
+    assert r.ilt_filter.predicates[0].type == "ou"
+    assert r.unknown_attrs == (("image", "12"),)
+    assert r.unknown_children == ("<Custom/>",)

@@ -333,13 +333,11 @@ def _base_gpo() -> GPO:
                     GppRegistry(
                         key=r"Software\Studio\GPP",
                         action="update",
-                        values=(
-                            GppRegistryValue(
-                                name="Setting",
-                                value="configured",
-                                registry_type="REG_SZ",
-                                action="create",
-                            ),
+                        value=GppRegistryValue(
+                            name="Setting",
+                            value="configured",
+                            registry_type="REG_SZ",
+                            action="create",
                         ),
                     ),
                 ),
@@ -434,13 +432,11 @@ def test_policy_hash_changes_on_gpp_registry_value() -> None:
                     GppRegistry(
                         key=r"Software\Studio\GPP",
                         action="update",
-                        values=(
-                            GppRegistryValue(
-                                name="Setting",
-                                value="changed",
-                                registry_type="REG_SZ",
-                                action="create",
-                            ),
+                        value=GppRegistryValue(
+                            name="Setting",
+                            value="changed",
+                            registry_type="REG_SZ",
+                            action="create",
                         ),
                     ),
                 ),
@@ -548,12 +544,12 @@ def test_policy_hash_changes_on_gpp_insertion_order() -> None:
     reg_ab = GppRegistry(
         key=r"Software\Studio\GPP",
         action="update",
-        values=(value_a, value_b),
+        value=value_a,
     )
     reg_ba = GppRegistry(
         key=r"Software\Studio\GPP",
         action="update",
-        values=(value_b, value_a),
+        value=value_b,
     )
     gpo_ab = GPO(
         guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
@@ -625,27 +621,25 @@ def test_policy_hash_changes_on_reversed_member_order() -> None:
 
 
 def test_policy_hash_changes_on_reversed_registry_value_order() -> None:
-    value_a = GppRegistryValue(name="Zeta", value="z", registry_type="REG_SZ", action="create")
-    value_b = GppRegistryValue(name="Alpha", value="a", registry_type="REG_SZ", action="create")
-    reg_ab = GppRegistry(
+    reg_a = GppRegistry(
         key=r"Software\Studio\GPP",
         action="update",
-        values=(value_a, value_b),
+        value=GppRegistryValue(name="Zeta", value="z", registry_type="REG_SZ", action="create"),
     )
-    reg_ba = GppRegistry(
-        key=r"Software\Studio\GPP",
+    reg_b = GppRegistry(
+        key=r"Software\Studio\GPP2",
         action="update",
-        values=(value_b, value_a),
+        value=GppRegistryValue(name="Alpha", value="a", registry_type="REG_SZ", action="create"),
     )
     gpo_ab = GPO(
         guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         name="value-order-test",
-        gpp_collections=(GppCollection(scope="computer", registry=(reg_ab,)),),
+        gpp_collections=(GppCollection(scope="computer", registry=(reg_a, reg_b)),),
     )
     gpo_ba = GPO(
         guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         name="value-order-test",
-        gpp_collections=(GppCollection(scope="computer", registry=(reg_ba,)),),
+        gpp_collections=(GppCollection(scope="computer", registry=(reg_b, reg_a)),),
     )
     assert policy_semantic_sha256(gpo_ab) != policy_semantic_sha256(gpo_ba)
 
@@ -720,19 +714,17 @@ def _golden_gpo() -> GPO:
                     GppRegistry(
                         key=r"Software\Studio\GPP",
                         action="update",
-                        values=(
-                            GppRegistryValue(
-                                name="Setting",
-                                value="configured",
-                                registry_type="REG_SZ",
-                                action="create",
-                                ilt_filter=IltFilter(
-                                    items=(
-                                        IltPredicate(
-                                            type="group",
-                                            value="S-1-5-21-1-2-3-1003",
-                                        ),
-                                    ),
+                        value=GppRegistryValue(
+                            name="Setting",
+                            value="configured",
+                            registry_type="REG_SZ",
+                            action="create",
+                        ),
+                        ilt_filter=IltFilter(
+                            items=(
+                                IltPredicate(
+                                    type="group",
+                                    value="S-1-5-21-1-2-3-1003",
                                 ),
                             ),
                         ),
@@ -759,9 +751,9 @@ def _golden_gpo() -> GPO:
         updated_at="2026-01-02T00:00:00Z",
     )
 
-GOLDEN_POLICY_SEMANTIC_SHA256 = "14289758c30bd185ee97235c5e75c782da93c302fc0bb3ee631878517a51f006"
+GOLDEN_POLICY_SEMANTIC_SHA256 = "46fd6cc66df59bdd79ca3fed53dc49f9234b4553f27dfd8500b52eded057bfde"
 
-GOLDEN_REVIEW_MODEL_SHA256 = "c8c4c5962c9ba81ea379d9d4e98ff58b6eb6e0315621d197bf28d921c40f6b26"
+GOLDEN_REVIEW_MODEL_SHA256 = "6f08732a3c2e9d27f974f19817f6a93db427718ca3bd70780bf0e5f5db93b560"
 
 
 def test_golden_policy_semantic_sha256() -> None:

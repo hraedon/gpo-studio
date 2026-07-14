@@ -129,14 +129,9 @@ def gpp_group_identity(group: GppGroup) -> tuple[str, str]:
 def gpp_registry_identity(reg: GppRegistry) -> str:
     if reg.uid:
         return f"uid:{reg.uid}"
-    first = reg.values[0] if reg.values else None
-    vname = first.name.casefold() if first else ""
-    vact = first.action if first else ""
+    vname = reg.value.name.casefold()
+    vact = reg.value.action
     return f"{reg.hive.casefold()}\\{reg.key.casefold()}#{vname}#{vact}"
-
-
-def gpp_registry_value_identity(value: GppRegistryValue) -> tuple[str, str]:
-    return (value.name.casefold(), value.registry_type)
 
 
 def semantic_dict_ilt_predicate(pred: IltPredicate) -> dict[str, Any]:
@@ -198,21 +193,19 @@ def semantic_dict_gpp_registry_value(value: GppRegistryValue) -> dict[str, Any]:
         "action": value.action,
         "default": value.default,
         "unknown_attrs": list(value.unknown_attrs),
-        "ilt_filter": semantic_dict_ilt(value.ilt_filter),
-        "unknown_elem_attrs": list(value.unknown_elem_attrs),
-        "unknown_children": list(value.unknown_children),
     }
 
 
 def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
-    # GPP value order is semantically significant: gpp.py serializes values in
-    # tuple order. Preserve insertion order so a reorder changes the hash.
     return {
         "key": reg.key.casefold(),
         "hive": reg.hive,
         "action": reg.action,
         "uid": reg.uid,
-        "values": [semantic_dict_gpp_registry_value(v) for v in reg.values],
+        "value": semantic_dict_gpp_registry_value(reg.value),
+        "ilt_filter": semantic_dict_ilt(reg.ilt_filter),
+        "unknown_attrs": list(reg.unknown_attrs),
+        "unknown_children": list(reg.unknown_children),
     }
 
 
