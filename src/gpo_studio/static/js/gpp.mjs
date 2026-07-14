@@ -190,7 +190,7 @@ async function submitGppRegistry(event){
   if($("#gpp-ilt-registry-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item contains ILT predicates that cannot be edited in the browser. They will be preserved on save. Continue?"))return;
   const value=collectValue();
   if(!value){showFormErrors(f,{issues:[{message:"A registry value is required."}]});return}
-  if(!value.default&&value.value.trim()&&!value.name.trim()&&value.registry_type){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
+  if(!value.default&&String(value.value).trim()&&!value.name.trim()&&value.registry_type){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
   const commonIlt=collectIlt("gpp-ilt-registry-list");
   const badDword=(value.action!=="delete"&&(value.registry_type==="REG_DWORD"||value.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(value.value));
   if(badDword){showFormErrors(f,{issues:[{message:`${value.registry_type} value for "${value.name||"(default)"}" must be a non-negative decimal integer.`}]});return}

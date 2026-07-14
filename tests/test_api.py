@@ -1737,35 +1737,19 @@ def test_gpp_registry_value_crud_via_api(tmp_path) -> None:
                 "registry": {
                     "key": r"Software\Policies\Test",
                     "action": "update",
+                    "value": {
+                        "name": "Enabled",
+                        "value": "42",
+                        "registry_type": "REG_DWORD",
+                        "action": "create",
+                    },
                 },
             },
         )
         assert resp.status_code == 201
         gpo = resp.json()["gpo"]
         reg_id = gpo["gpp_collections"][0]["registry"][0]["id"]
-
-        resp = client.post(
-            f"/api/gpos/{gpo['guid']}/preferences/registry/{reg_id}/values",
-            json={
-                "expected_revision": gpo["revision"],
-                "actor": "tester",
-                "reason": "add value",
-                "scope": "computer",
-                "value": {
-                    "name": "Enabled",
-                    "value": "42",
-                    "registry_type": "REG_DWORD",
-                    "action": "create",
-                },
-            },
-        )
-        assert resp.status_code == 201
-        gpo = resp.json()["gpo"]
-        value = gpo["gpp_collections"][0]["registry"][0]["value"]
-        assert value["name"] == "Enabled"
-        assert value["value"] == "42"
-        assert value["registry_type"] == "REG_DWORD"
-        value_id = value["id"]
+        value_id = gpo["gpp_collections"][0]["registry"][0]["value"]["id"]
         assert value_id
 
         resp = client.put(
