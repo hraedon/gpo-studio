@@ -777,3 +777,78 @@ def test_unique_gpp_editor_ids_no_issues() -> None:
     )
     issues = validate_gpp_collection(collection)
     assert not any(i.code == "duplicate_gpp_group_id" for i in issues)
+
+
+def test_key_only_registry_value_valid() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(name="", value="", registry_type=""),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(i.severity == "error" for i in issues)
+
+
+def test_key_only_registry_value_with_data_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(name="", value="data", registry_type=""),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "invalid_key_only_value"
+        and i.severity == "error"
+        for i in issues
+    )
+
+
+def test_multiple_registry_same_key_allowed() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(GppRegistryValue(name="V1", value="x", registry_type="REG_SZ"),),
+            ),
+            GppRegistry(
+                key=r"Software\Test",
+                values=(GppRegistryValue(name="V2", value="y", registry_type="REG_SZ"),),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(i.code == "duplicate_gpp_registry_key" for i in issues)
+
+
+def test_duplicate_key_only_values_rejected() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                values=(
+                    GppRegistryValue(name="", value="", registry_type=""),
+                    GppRegistryValue(name="", value="", registry_type=""),
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "duplicate_key_only_value"
+        and i.severity == "error"
+        for i in issues
+    )

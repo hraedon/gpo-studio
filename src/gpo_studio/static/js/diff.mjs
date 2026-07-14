@@ -32,7 +32,7 @@ export function initDiff(){
 function renderDiff(data){
   const parts=[];
   const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length);
-  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.gpp_reorder_conflicts&&data.gpp_reorder_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length);
+  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.gpp_reorder_conflicts&&data.gpp_reorder_conflicts.length)||(data.gpp_collection_conflicts&&data.gpp_collection_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length);
   if(data.settings.length){
     parts.push(`<div class="diff-section"><h3>Settings (${data.settings.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Key</th><th>Value name</th><th>Old</th><th>New</th></tr></thead><tbody>${data.settings.map(s=>{
       const ident=s.identity||[];const oldV=formatSettingValue(s.old);const newV=formatSettingValue(s.new);
@@ -98,6 +98,9 @@ function renderDiff(data){
   }
   if(data.gpp_reorder_conflicts&&data.gpp_reorder_conflicts.length){
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: GPP reorder (${data.gpp_reorder_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Baseline order</th><th>Draft order</th><th>Observed order</th></tr></thead><tbody>${data.gpp_reorder_conflicts.map(c=>`<tr class="diff-conflict"><td>${escapeHtml(c.element_type||'')}</td><td>${escapeHtml(c.scope||'')}</td><td class="mono">${escapeHtml((c.baseline_order||[]).join(' → '))}</td><td class="mono">${escapeHtml((c.draft_order||[]).join(' → '))}</td><td class="mono">${escapeHtml((c.observed_order||[]).join(' → '))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.gpp_collection_conflicts&&data.gpp_collection_conflicts.length){
+    parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: GPP collection metadata (${data.gpp_collection_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Scope</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.gpp_collection_conflicts.map(c=>`<tr class="diff-conflict"><td>${escapeHtml(c.scope||'')}</td><td>${escapeHtml(c.baseline?'modified':'absent')}</td><td>${escapeHtml(c.draft?'modified':'absent')}</td><td>${escapeHtml(c.observed?'modified':'absent')}</td></tr>`).join('')}</tbody></table></div>`);
   }
   if(!hasChanges&&!hasConflicts)parts.push('<div class="table-empty">No differences found</div>');
   $('#diff-results').innerHTML=parts.join('');

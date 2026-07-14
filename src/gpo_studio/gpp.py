@@ -606,22 +606,23 @@ def _parse_registry(elem: ET.Element) -> list[_RegistryParsed]:
         hive = "HKEY_LOCAL_MACHINE"
         key = registry_name
         results.append((hive, key, GppRegistryValue(
-            name="", value="", registry_type="REG_SZ", action="create",
+            name="", value="", registry_type="", action="create",
             ilt_filter=ilt_filter,
             unknown_elem_attrs=unknown_attrs,
             unknown_children=unknown_children,
         )))
     else:
-        for props in props_list:
+        for idx, props in enumerate(props_list):
             hive = _normalize_hive(props.get("hive", "HKEY_LOCAL_MACHINE"))
             key = props.get("key", "") or registry_name
             value = _parse_registry_value(props)
-            value = replace(
-                value,
-                ilt_filter=ilt_filter,
-                unknown_elem_attrs=unknown_attrs,
-                unknown_children=unknown_children,
-            )
+            if idx == 0:
+                value = replace(
+                    value,
+                    ilt_filter=ilt_filter,
+                    unknown_elem_attrs=unknown_attrs,
+                    unknown_children=unknown_children,
+                )
             results.append((hive, key, value))
 
     return results
@@ -631,7 +632,9 @@ def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
     """Parse GPP Registry XML bytes into a tuple of GppRegistry.
 
     Consecutive <Registry> elements sharing the same (hive, key) are
-    grouped into a single GppRegistry with multiple values.  Per-element
+    grouped into a single GppRegistry with multiple values.  Non-consecutive
+    elements with the same (hive, key) are kept as separate GppRegistry
+    objects, preserving their original order and item identity.  Per-element
     metadata (ILT filters, unknown attributes, unknown children) is
     preserved on each GppRegistryValue, so the coalescing is lossless.
     """
@@ -645,24 +648,22 @@ def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
         parsed.extend(_parse_registry(elem))
 
     grouped: list[GppRegistry] = []
-    group_map: dict[tuple[str, str], int] = {}
     for hive, key, value in parsed:
-        identity = (hive, key)
-        if identity in group_map:
-            idx = group_map[identity]
-            existing = grouped[idx]
-            grouped[idx] = replace(
-                existing,
-                values=existing.values + (value,),
-            )
-        else:
-            group_map[identity] = len(grouped)
-            grouped.append(GppRegistry(
-                key=key,
-                hive=hive,
-                values=(value,),
-                action="update",
-            ))
+        if grouped:
+            last = grouped[-1]
+            last_identity = (last.hive, last.key)
+            if last_identity == (hive, key):
+                grouped[-1] = replace(
+                    last,
+                    values=last.values + (value,),
+                )
+                continue
+        grouped.append(GppRegistry(
+            key=key,
+            hive=hive,
+            values=(value,),
+            action="update",
+        ))
     return tuple(grouped)
 
 
@@ -917,6 +918,26 @@ def _apply_registry_level_metadata_to_value(
     return value
 
 
+def _gpp_registry_value_from_dict(v: dict[str, Any]) -> GppRegistryValue:
+    return GppRegistryValue(
+        name=str(v.get("name", "")),
+        value=v.get("value", ""),
+        registry_type=str(v.get("registry_type", "REG_SZ")),
+        action=_validate_gpp_registry_action(v.get("action", "create")),
+        id=str(v.get("id", "")),
+        unknown_attrs=tuple(
+            (str(k), str(v2))
+            for k, v2 in v.get("unknown_attrs", [])
+        ),
+        ilt_filter=_parse_ilt_filter_from_dict(v.get("ilt_filter")),
+        unknown_elem_attrs=tuple(
+            (str(k), str(v2))
+            for k, v2 in v.get("unknown_elem_attrs", [])
+        ),
+        unknown_children=tuple(v.get("unknown_children", [])),
+    )
+
+
 def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     """Reconstruct a GppCollection from a plain dict."""
     scope_raw = str(data.get("scope", "computer"))
@@ -983,26 +1004,11 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             action=_validate_gpp_action(r.get("action", "update")),
             values=tuple(
                 _apply_registry_level_metadata_to_value(
-                    GppRegistryValue(
-                        name=str(v.get("name", "")),
-                        value=v.get("value", ""),
-                        registry_type=str(v.get("registry_type", "REG_SZ")),
-                        action=_validate_gpp_registry_action(v.get("action", "create")),
-                        id=str(v.get("id", "")),
-                        unknown_attrs=tuple(
-                            (str(k), str(v2))
-                            for k, v2 in v.get("unknown_attrs", [])
-                        ),
-                        ilt_filter=_parse_ilt_filter_from_dict(v.get("ilt_filter")),
-                        unknown_elem_attrs=tuple(
-                            (str(k), str(v2))
-                            for k, v2 in v.get("unknown_elem_attrs", [])
-                        ),
-                        unknown_children=tuple(v.get("unknown_children", [])),
-                    ),
-                    r,
+                    _gpp_registry_value_from_dict(v), r,
                 )
-                for v in r.get("values", [])
+                if idx == 0
+                else _gpp_registry_value_from_dict(v)
+                for idx, v in enumerate(r.get("values", []))
             ),
             id=str(r.get("id", "")),
         )

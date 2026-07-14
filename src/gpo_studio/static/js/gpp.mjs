@@ -129,8 +129,16 @@ export function openGppRegistry(scope,registry=null){
       f.hive.value=registry.hive||"HKEY_LOCAL_MACHINE";
       f.action.value=registry.action;
       (registry.values||[]).forEach(v=>addValueRow(v));
-      const firstIlt=(registry.values||[]).find(v=>v.ilt_filter);
-      if(firstIlt&&firstIlt.ilt_filter&&firstIlt.ilt_filter.items)firstIlt.ilt_filter.items.forEach(item=>{
+      const allValues=registry.values||[];
+      const iltValues=allValues.filter(v=>v.ilt_filter);
+      let commonIlt=null;
+      if(iltValues.length>0&&iltValues.length===allValues.length){
+        const firstJson=JSON.stringify(iltValues[0].ilt_filter);
+        if(iltValues.every(v=>JSON.stringify(v.ilt_filter)===firstJson))commonIlt=iltValues[0].ilt_filter;
+      }else if(iltValues.length===1&&allValues.length===1){
+        commonIlt=iltValues[0].ilt_filter;
+      }
+      if(commonIlt&&commonIlt.items)commonIlt.items.forEach(item=>{
         if(typeof item==="string")addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",{unknown:true,raw:item});
         else addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview",item);
       });
@@ -146,15 +154,15 @@ function addValueRow(value=null){
   const list=$("#gpp-values-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="name" placeholder="Value name (required)" maxlength="255" required><select data-field="type">${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"><select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
   const typeSel=row.querySelector('[data-field=type]');
   const valueInput=row.querySelector('[data-field=value]');
   const actionSel=row.querySelector('[data-field=action]');
-  typeSel.onchange=()=>{valueInput.placeholder=REG_VALUE_HINTS[typeSel.value];valueInput.disabled=actionSel.value==="delete"};
-  actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"};
+  typeSel.onchange=()=>{if(!typeSel.value)valueInput.value="";valueInput.placeholder=typeSel.value?REG_VALUE_HINTS[typeSel.value]||"Value":"Key-only entry";valueInput.disabled=actionSel.value==="delete"||!typeSel.value};
+  actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"||!typeSel.value};
   row.dataset.unknownAttrs="[]";
-  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type;valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;row.dataset.id=value.id||"";row.dataset.unknownAttrs=JSON.stringify(value.unknown_attrs||[]);row.dataset.iltFilter=value.ilt_filter?JSON.stringify(value.ilt_filter):"";row.dataset.unknownElemAttrs=JSON.stringify(value.unknown_elem_attrs||[]);row.dataset.unknownChildren=JSON.stringify(value.unknown_children||[])}
-  valueInput.disabled=actionSel.value==="delete";
+  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;row.dataset.id=value.id||"";row.dataset.unknownAttrs=JSON.stringify(value.unknown_attrs||[]);row.dataset.iltFilter=value.ilt_filter?JSON.stringify(value.ilt_filter):"";row.dataset.unknownElemAttrs=JSON.stringify(value.unknown_elem_attrs||[]);row.dataset.unknownChildren=JSON.stringify(value.unknown_children||[])}
+  valueInput.disabled=actionSel.value==="delete"||!typeSel.value;
   typeSel.onchange();
   row.querySelector("button").onclick=()=>row.remove();
   list.appendChild(row);
@@ -176,7 +184,7 @@ function collectValues(){
     if(row.dataset.unknownElemAttrs)result.unknown_elem_attrs=JSON.parse(row.dataset.unknownElemAttrs);
     if(row.dataset.unknownChildren)result.unknown_children=JSON.parse(row.dataset.unknownChildren);
     return result;
-  }).filter(v=>v.name);
+  });
 }
 
 async function submitGppRegistry(event){
@@ -187,9 +195,11 @@ async function submitGppRegistry(event){
   const partialValue=[...$("#gpp-values-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=value]').value.trim()&&!row.querySelector('[data-field=name]').value.trim());
   if(partialValue){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
   const values=collectValues();
+  const commonIlt=collectIlt("gpp-ilt-registry-list");
+  if(commonIlt)values.forEach(v=>{v.ilt_filter=commonIlt});
   const badDword=values.find(v=>v.action!=="delete"&&(v.registry_type==="REG_DWORD"||v.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(v.value));
   if(badDword){showFormErrors(f,{issues:[{message:`${badDword.registry_type} value for "${badDword.name}" must be a non-negative decimal integer.`}]});return}
-  const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,values,ilt_filter:collectIlt("gpp-ilt-registry-list")};
+  const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,values,ilt_filter:commonIlt};
   if(state.editingGppRegistry){registry.id=state.editingGppRegistry.id}
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";renderAll();renderList();toast("GPP registry saved")}catch(error){showFormErrors(f,error)}

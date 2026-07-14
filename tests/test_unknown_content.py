@@ -560,14 +560,13 @@ def test_non_consecutive_registry_coalescing() -> None:
   </Registry>
 </RegistrySettings>"""
     parsed = parse_gpp_registry(xml)
-    assert len(parsed) == 2
-    key_a = [r for r in parsed if r.key == r"Software\KeyA"][0]
-    key_b = [r for r in parsed if r.key == r"Software\KeyB"][0]
-    assert len(key_a.values) == 2
-    assert key_a.values[0].name == "Val1"
-    assert key_a.values[1].name == "Val3"
-    assert len(key_b.values) == 1
-    assert key_b.values[0].name == "Val2"
+    assert len(parsed) == 3
+    assert parsed[0].key == r"Software\KeyA"
+    assert parsed[0].values[0].name == "Val1"
+    assert parsed[1].key == r"Software\KeyB"
+    assert parsed[1].values[0].name == "Val2"
+    assert parsed[2].key == r"Software\KeyA"
+    assert parsed[2].values[0].name == "Val3"
 
 
 def test_old_registry_level_metadata_applied_to_values() -> None:
@@ -593,3 +592,37 @@ def test_old_registry_level_metadata_applied_to_values() -> None:
     assert val.ilt_filter.predicates[0].type == "ou"
     assert val.unknown_elem_attrs == (("uid", "{test}"),)
     assert val.unknown_children == ("<Custom/>",)
+
+
+def test_registry_level_metadata_only_first_value() -> None:
+    old_dict = {
+        "scope": "computer",
+        "registry": [{
+            "key": "K",
+            "hive": "HKEY_LOCAL_MACHINE",
+            "action": "update",
+            "ilt_filter": {
+                "items": [
+                    {"type": "ou", "value": "OU=Test", "negate": False, "bool_op": "AND"}
+                ]
+            },
+            "unknown_attrs": [["uid", "{test}"]],
+            "unknown_children": ["<Custom/>"],
+            "values": [
+                {"name": "V1", "value": "x"},
+                {"name": "V2", "value": "y"},
+            ],
+        }],
+    }
+    restored = gpp_collection_from_dict(old_dict)
+    reg = restored.registry[0]
+    assert len(reg.values) == 2
+    first = reg.values[0]
+    second = reg.values[1]
+    assert first.ilt_filter is not None
+    assert first.ilt_filter.predicates[0].type == "ou"
+    assert first.unknown_elem_attrs == (("uid", "{test}"),)
+    assert first.unknown_children == ("<Custom/>",)
+    assert second.ilt_filter is None
+    assert second.unknown_elem_attrs == ()
+    assert second.unknown_children == ()
