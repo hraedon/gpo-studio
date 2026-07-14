@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+import uuid as uuid_module
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
@@ -16,6 +18,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response as StarletteResponse
 
 from . import __version__
 from .admx import AdmxCatalogue, AdmxError, load_catalogue
@@ -58,6 +62,7 @@ from .model import (
     StudioError,
     ValidationError,
     ValidationIssue,
+    WorkspaceError,
 )
 from .numeric import coerce_dword_qword
 from .policy_config import PolicyConfiguration, resolve_policy
@@ -1134,19 +1139,125 @@ def _validate_inbox_path(path: str) -> Path:
     return requested_resolved
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
+
+_logger = logging.getLogger("gpo_studio.api")
+
+
+def _is_unsafe_mode() -> bool:
+    return os.getenv("GPO_STUDIO_UNSAFE_BIND", "").lower() in ("1", "true", "yes")
+
+
+def _is_loopback_host(host: str) -> bool:
+    host = host.lower()
+    if host in _LOOPBACK_HOSTS:
+        return True
+    return any(host.startswith(known + ":") for known in _LOOPBACK_HOSTS)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'"
+        )
+        return response
+
+
+class HostValidationMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
+        if not _is_unsafe_mode():
+            host = request.headers.get("host", "")
+            if not _is_loopback_host(host):
+                return JSONResponse(
+                    {"error": {"message": "Host header not allowed"}},
+                    status_code=421,
+                )
+        return await call_next(request)
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
+        te = request.headers.get("transfer-encoding", "").lower()
+        if "chunked" in te:
+            return JSONResponse(
+                {"error": {"message": "Chunked transfer encoding not supported"}},
+                status_code=400,
+            )
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                cl = int(content_length)
+            except ValueError:
+                return JSONResponse(
+                    {"error": {"message": "Invalid Content-Length"}},
+                    status_code=400,
+                )
+            if cl < 0 or cl > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    {"error": {"message": "Request body too large"}},
+                    status_code=413,
+                )
+        return await call_next(request)
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
+        request_id = str(uuid_module.uuid4())
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start) * 1000
+        guid = ""
+        path = request.url.path
+        if "/api/gpos/" in path:
+            parts = path.split("/")
+            for i, p in enumerate(parts):
+                if p == "gpos" and i + 1 < len(parts):
+                    guid = parts[i + 1]
+                    break
+        _logger.info(
+            "request method=%s path=%s status=%d duration_ms=%.1f%s",
+            request.method,
+            path,
+            response.status_code,
+            duration_ms,
+            f" gpo_guid={guid}" if guid else "",
+        )
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "store"):
-        app.state.store = WorkspaceStore(os.getenv("GPO_STUDIO_DB", "gpo-studio.db"))
+        db_path = os.getenv("GPO_STUDIO_DB", "gpo-studio.db")
+        app.state.store = WorkspaceStore(db_path)
         app.state.owns_store = True
+        _logger.info("workspace_opened path=%s", db_path)
     if not hasattr(app.state, "admx_catalogue"):
         admx_dir = os.getenv("GPO_STUDIO_ADMX_DIR", "./admx")
         try:
             app.state.admx_catalogue = load_catalogue(Path(admx_dir))
         except AdmxError as error:
-            logging.getLogger("gpo_studio.api").warning(
-                "Failed to load ADMX catalogue: %s", error
-            )
+            _logger.warning("Failed to load ADMX catalogue: %s", error)
             app.state.admx_catalogue = AdmxCatalogue()
     if not hasattr(app.state, "wmi_catalogue"):
         wmi_catalogue_path = os.getenv("GPO_STUDIO_WMI_CATALOGUE", "")
@@ -1154,15 +1265,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             try:
                 app.state.wmi_catalogue = load_wmi_catalogue(Path(wmi_catalogue_path))
             except WmiCatalogueError as error:
-                logging.getLogger("gpo_studio.api").warning(
-                    "Failed to load WMI catalogue: %s", error
-                )
+                _logger.warning("Failed to load WMI catalogue: %s", error)
                 app.state.wmi_catalogue = WmiCatalogue()
         else:
             app.state.wmi_catalogue = WmiCatalogue()
+    store = app.state.store
+    meta = store.workspace_meta()
+    admx_cat = cast(AdmxCatalogue, getattr(app.state, "admx_catalogue", AdmxCatalogue()))
+    wmi_cat = cast(WmiCatalogue, getattr(app.state, "wmi_catalogue", WmiCatalogue()))
+    _logger.info(
+        "startup_complete schema_version=%s app_version=%s admx_policies=%d wmi_filters=%d",
+        meta.get("schema_version", "unknown"),
+        __version__,
+        len(admx_cat.policies),
+        len(wmi_cat.filters),
+    )
     yield
     if getattr(app.state, "owns_store", False):
         app.state.store.close()
+        _logger.info("workspace_closed")
 
 
 app = FastAPI(
@@ -1171,6 +1292,10 @@ app = FastAPI(
     description="Offline-first Group Policy authoring workspace",
     lifespan=lifespan,
 )
+app.add_middleware(HostValidationMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
 
 
@@ -1181,6 +1306,8 @@ async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
         if isinstance(error, NotFoundError)
         else 409
         if isinstance(error, ConflictError)
+        else 503
+        if isinstance(error, WorkspaceError)
         else 422
     )
     detail: dict[str, Any] = {"message": str(error)}
@@ -1235,11 +1362,14 @@ def index() -> FileResponse:
 
 @app.get("/api/health")
 def health(request: Request) -> dict[str, Any]:
+    store = _store(request)
     catalogue = _catalogue(request)
     wmi_cat = _wmi_catalogue(request)
+    meta = store.workspace_meta()
     return {
         "status": "ok",
         "version": __version__,
+        "schema_version": meta.get("schema_version", "unknown"),
         "mode": "offline-workspace",
         "admx_loaded": len(catalogue.policies) > 0,
         "wmi_catalogue_loaded": len(wmi_cat.filters) > 0,

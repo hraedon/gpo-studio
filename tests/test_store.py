@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+import threading
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -22,6 +24,7 @@ from gpo_studio.model import (
     SecurityFilter,
     ValidationError,
     WmiFilter,
+    WorkspaceError,
 )
 from gpo_studio.store import WorkspaceStore
 
@@ -1470,3 +1473,143 @@ def test_delete_gpp_registry_preserves_collection_with_root_metadata(
     assert gpo.gpp_collections[0].registry_unknown_children == (
         "<CustomReg/>",
     )
+
+
+def test_concurrent_mutations_same_gpo_one_wins(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Concurrent policy", identity="alice", reason="initial")
+    results: list[Exception | GPO] = []
+    results_lock = threading.Lock()
+
+    def worker() -> None:
+        try:
+            updated = store.update_metadata(
+                gpo.guid,
+                gpo.revision,
+                {"description": f"updated by {threading.current_thread().name}"},
+                identity="alice",
+                reason="concurrent update",
+            )
+            with results_lock:
+                results.append(updated)
+        except Exception as exc:
+            with results_lock:
+                results.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    successes = [r for r in results if isinstance(r, GPO)]
+    conflicts = [r for r in results if isinstance(r, ConflictError)]
+    assert len(successes) == 1
+    assert len(conflicts) == 1
+    store.close()
+
+
+def test_concurrent_mutations_different_gpos_both_succeed(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo_a = store.create_gpo("Policy A", identity="alice", reason="initial")
+    gpo_b = store.create_gpo("Policy B", identity="alice", reason="initial")
+    results: list[Exception | GPO] = []
+    results_lock = threading.Lock()
+
+    def worker(guid: str, desc: str) -> None:
+        try:
+            updated = store.update_metadata(
+                guid,
+                1,
+                {"description": desc},
+                identity="alice",
+                reason="concurrent update",
+            )
+            with results_lock:
+                results.append(updated)
+        except Exception as exc:
+            with results_lock:
+                results.append(exc)
+
+    threads = [
+        threading.Thread(target=worker, args=(gpo_a.guid, "desc A")),
+        threading.Thread(target=worker, args=(gpo_b.guid, "desc B")),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    successes = [r for r in results if isinstance(r, GPO)]
+    assert len(successes) == 2
+    store.close()
+
+
+def test_sqlite_busy_error_maps_to_workspace_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    error = sqlite3.OperationalError("database is locked")
+    with pytest.raises(WorkspaceError, match="busy"):
+        store._map_sqlite_error(error)
+    store.close()
+
+
+def test_sqlite_corrupt_error_maps_to_workspace_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    error = sqlite3.OperationalError("database disk image is malformed")
+    with pytest.raises(WorkspaceError, match="corrupt"):
+        store._map_sqlite_error(error)
+    store.close()
+
+
+def test_sqlite_readonly_error_maps_to_workspace_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    error = sqlite3.OperationalError("attempt to write a readonly database")
+    with pytest.raises(WorkspaceError, match="read-only"):
+        store._map_sqlite_error(error)
+    store.close()
+
+
+def test_sqlite_integrity_error_maps_to_conflict_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    error = sqlite3.IntegrityError("UNIQUE constraint failed: gpos.name")
+    with pytest.raises(ConflictError):
+        store._map_sqlite_error(error)
+    store.close()
+
+
+def test_workspace_meta_returns_schema_and_app_version(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    meta = store.workspace_meta()
+    assert "schema_version" in meta
+    assert "app_version" in meta
+    assert meta["schema_version"] == "1"
+    store.close()
+
+
+def test_create_gpo_maps_sqlite_errors_to_workspace_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    store._connection.close()
+    with pytest.raises(WorkspaceError):
+        store.create_gpo("Synthetic policy", identity="alice", reason="initial")
+    store.close()
+
+
+def test_import_baseline_gpos_maps_sqlite_errors_to_workspace_error(
+    tmp_path: Path,
+) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    store._connection.close()
+    gpo = GPO(guid="aaa11111-2222-3333-4444-555566667777", name="Test")
+    with pytest.raises(WorkspaceError):
+        store.import_baseline_gpos([gpo], identity="alice", reason="import")
+    store.close()
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Synthetic policy", identity="alice", reason="initial")
+    store._connection.close()
+    with pytest.raises(WorkspaceError):
+        store._mutate(
+            gpo.guid,
+            gpo.revision,
+            lambda g: g,
+            identity="alice",
+            reason="test mutation",
+        )
+    store.close()

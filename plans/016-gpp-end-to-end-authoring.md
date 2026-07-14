@@ -1,11 +1,13 @@
 # Plan 016 — GPP end-to-end authoring
 
-Status: in-progress (WP-1 completed, WP-2 completed, WP-3 partially completed
-— browser editors work but clone, reorder, and restore-from-revision actions
-are not yet available, WP-4 partially completed — AND-only semantics, OR and
-FilterCollection grouping not supported, limitation not labeled in UI, WP-5
-partially completed — Python API and codec tests done, browser automation
-deferred to Plan 019)
+Status: signed off by Sol (2026-07-14). WP-1 completed, WP-2 completed, WP-3
+partially completed — browser editors work but clone, reorder, and
+restore-from-revision actions are not yet available, WP-4 partially completed
+— AND-only semantics, OR and FilterCollection grouping not supported,
+limitation not labeled in UI, WP-5 partially completed — Python API and codec
+tests done, browser automation deferred to Plan 019. Five rounds of Sol review
+resolved all P0/P1 findings. Remaining gaps are tracked as known limitations
+and deferred to Plans 018/019.
 Scope: turn the Plan 014 GPP/ILT codec foundation into a complete, reviewable
 Groups and Registry authoring workflow
 Depends on: Plan 015 canonical, validation, and numeric contracts
