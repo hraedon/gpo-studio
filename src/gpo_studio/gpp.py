@@ -957,17 +957,25 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             if not old_values:
                 old_values = [{}]
             for idx, v in enumerate(old_values):
-                v_ilt = ilt_filter
-                if v_ilt is None:
+                if idx == 0:
+                    v_ilt = ilt_filter
+                    if v_ilt is None:
+                        v_ilt = _parse_ilt_filter_from_dict(v.get("ilt_filter"))
+                    v_elem_attrs = elem_unknown_attrs
+                    if not v_elem_attrs:
+                        v_elem_attrs = tuple(
+                            (str(k), str(v2))
+                            for k, v2 in v.get("unknown_elem_attrs", [])
+                        )
+                    v_elem_children = elem_unknown_children
+                    if not v_elem_children:
+                        v_elem_children = tuple(v.get("unknown_children", []))
+                else:
                     v_ilt = _parse_ilt_filter_from_dict(v.get("ilt_filter"))
-                v_elem_attrs = elem_unknown_attrs
-                if not v_elem_attrs:
                     v_elem_attrs = tuple(
                         (str(k), str(v2))
                         for k, v2 in v.get("unknown_elem_attrs", [])
                     )
-                v_elem_children = elem_unknown_children
-                if not v_elem_children:
                     v_elem_children = tuple(v.get("unknown_children", []))
                 registry.append(GppRegistry(
                     key=str(r.get("key", "")),
@@ -976,9 +984,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     uid=str(r.get("uid", "")) if idx == 0 else "",
                     value=_gpp_registry_value_from_dict(v),
                     id=str(r.get("id", "")) if idx == 0 else "",
-                    ilt_filter=v_ilt if idx == 0 else None,
-                    unknown_attrs=v_elem_attrs if idx == 0 else (),
-                    unknown_children=v_elem_children if idx == 0 else (),
+                    ilt_filter=v_ilt,
+                    unknown_attrs=v_elem_attrs,
+                    unknown_children=v_elem_children,
                 ))
     registry_tuple = tuple(registry)
     for r in registry_tuple:

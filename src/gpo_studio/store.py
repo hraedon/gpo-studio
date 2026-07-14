@@ -808,7 +808,14 @@ class WorkspaceStore:
             groups = tuple(groups_list[:gi] + groups_list[gi + 1 :])
             new_collection = replace(existing, groups=groups)
             self._validate_gpp(new_collection)
-            if not new_collection.groups and not new_collection.registry:
+            if (
+                not new_collection.groups
+                and not new_collection.registry
+                and not new_collection.groups_unknown_attrs
+                and not new_collection.groups_unknown_children
+                and not new_collection.registry_unknown_attrs
+                and not new_collection.registry_unknown_children
+            ):
                 new_collections = tuple(
                     c for i, c in enumerate(gpo.gpp_collections) if i != idx
                 )
@@ -897,7 +904,14 @@ class WorkspaceStore:
             items = tuple(items_list[:ri] + items_list[ri + 1 :])
             new_collection = replace(existing, registry=items)
             self._validate_gpp(new_collection)
-            if not new_collection.groups and not new_collection.registry:
+            if (
+                not new_collection.groups
+                and not new_collection.registry
+                and not new_collection.groups_unknown_attrs
+                and not new_collection.groups_unknown_children
+                and not new_collection.registry_unknown_attrs
+                and not new_collection.registry_unknown_children
+            ):
                 new_collections = tuple(
                     c for i, c in enumerate(gpo.gpp_collections) if i != idx
                 )
@@ -1045,6 +1059,23 @@ class WorkspaceStore:
             if reg_idx is None:
                 raise NotFoundError(f"GPP registry '{registry_id}' was not found")
             registry = existing.registry[reg_idx]
+            if must_exist:
+                if not registry.value.id or registry.value.id != value.id:
+                    raise NotFoundError(
+                        f"GPP registry value with id {value.id} not found"
+                    )
+            elif registry.value.id:
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="gpp_registry_value_already_exists",
+                        message=(
+                            "A value already exists for this registry item;"
+                            " use PUT to update it."
+                        ),
+                        path="value_id",
+                    )
+                ])
             new_registry = replace(registry, value=value)
             new_registries = tuple(
                 new_registry if i == reg_idx else r
@@ -1100,7 +1131,14 @@ class WorkspaceStore:
             )
             new_collection = replace(existing, registry=new_registries)
             new_collections = self._replace_collection(gpo, idx, new_collection)
-            if not new_collection.groups and not new_collection.registry:
+            if (
+                not new_collection.groups
+                and not new_collection.registry
+                and not new_collection.groups_unknown_attrs
+                and not new_collection.groups_unknown_children
+                and not new_collection.registry_unknown_attrs
+                and not new_collection.registry_unknown_children
+            ):
                 new_collections = tuple(
                     c for i, c in enumerate(gpo.gpp_collections) if i != idx
                 )

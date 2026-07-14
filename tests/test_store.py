@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -963,40 +964,54 @@ def test_put_gpp_registry_value_crud(tmp_path) -> None:
         identity="alice",
         reason="add registry",
     )
+    existing_value_id = gpo.gpp_collections[0].registry[0].value.id
+
+    with pytest.raises(ValidationError) as exc_info:
+        store.put_gpp_registry_value(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            "r1",
+            GppRegistryValue(name="V2", value="b"),
+            identity="alice",
+            reason="reject add when value exists",
+        )
+    assert any(i.code == "gpp_registry_value_already_exists" for i in exc_info.value.issues)
 
     gpo = store.put_gpp_registry_value(
         gpo.guid,
         gpo.revision,
         "computer",
         "r1",
-        GppRegistryValue(name="V2", value="b"),
+        GppRegistryValue(name="V2", value="b", id=existing_value_id),
         identity="alice",
         reason="replace value",
+        must_exist=True,
     )
     value = gpo.gpp_collections[0].registry[0].value
     assert value.name == "V2"
     assert value.value == "b"
-    assert value.id != ""
+    assert value.id == existing_value_id
 
     gpo = store.put_gpp_registry_value(
         gpo.guid,
         gpo.revision,
         "computer",
         "r1",
-        GppRegistryValue(name="V2", value="updated", id="v2"),
+        GppRegistryValue(name="V2", value="updated", id=existing_value_id),
         identity="alice",
         reason="update value",
+        must_exist=True,
     )
     value = gpo.gpp_collections[0].registry[0].value
     assert value.value == "updated"
-    assert value.id == "v2"
 
     gpo = store.delete_gpp_registry_value(
         gpo.guid,
         gpo.revision,
         "computer",
         "r1",
-        "v2",
+        existing_value_id,
         identity="alice",
         reason="delete value",
     )
@@ -1010,22 +1025,31 @@ def test_put_gpp_registry_value_auto_generates_id(tmp_path) -> None:
         gpo.guid,
         gpo.revision,
         "computer",
-        GppRegistry(key=r"Software\Policies\Test", id="r1"),
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            id="r1",
+            value=GppRegistryValue(name="V0", value="init", id="v0"),
+        ),
         identity="alice",
         reason="add registry",
     )
+    existing_value_id = gpo.gpp_collections[0].registry[0].value.id
+    assert existing_value_id == "v0"
+
     gpo = store.put_gpp_registry_value(
         gpo.guid,
         gpo.revision,
         "computer",
         "r1",
-        GppRegistryValue(name="V1", value="x"),
+        GppRegistryValue(name="V1", value="x", id=existing_value_id),
         identity="alice",
-        reason="add value",
+        reason="replace value",
+        must_exist=True,
     )
     value = gpo.gpp_collections[0].registry[0].value
-    assert value.id != ""
-    assert len(value.id) > 0
+    assert value.id == existing_value_id
+    assert value.name == "V1"
+    assert value.value == "x"
 
 
 def test_put_gpp_registry_value_empty_name_raises(tmp_path) -> None:
@@ -1035,19 +1059,25 @@ def test_put_gpp_registry_value_empty_name_raises(tmp_path) -> None:
         gpo.guid,
         gpo.revision,
         "computer",
-        GppRegistry(key=r"Software\Policies\Test", id="r1"),
+        GppRegistry(
+            key=r"Software\Policies\Test",
+            id="r1",
+            value=GppRegistryValue(name="V1", value="a", id="v1"),
+        ),
         identity="alice",
         reason="add registry",
     )
+    existing_value_id = gpo.gpp_collections[0].registry[0].value.id
     with pytest.raises(ValidationError) as exc_info:
         store.put_gpp_registry_value(
             gpo.guid,
             gpo.revision,
             "computer",
             "r1",
-            GppRegistryValue(name="   ", value="x"),
+            GppRegistryValue(name="   ", value="x", id=existing_value_id),
             identity="alice",
             reason="invalid value",
+            must_exist=True,
         )
     assert any(i.code == "empty_gpp_registry_value_name" for i in exc_info.value.issues)
 
@@ -1380,4 +1410,63 @@ def test_put_gpp_registry_value_must_exist_updates_existing(tmp_path) -> None:
     )
     assert (
         updated.gpp_collections[0].registry[0].value.value == "updated"
+    )
+
+
+def test_delete_gpp_registry_preserves_collection_with_root_metadata(
+    tmp_path: Path,
+) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo(
+        "Root meta policy", identity="alice", reason="draft"
+    )
+    gpo = store.put_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        GppRegistry(
+            key=r"Software\Test",
+            id="r1",
+            value=GppRegistryValue(name="V", value="x", id="v1"),
+        ),
+        identity="alice",
+        reason="add registry",
+    )
+    col = gpo.gpp_collections[0]
+    col = replace(
+        col,
+        registry_unknown_attrs=(("custom", "1"),),
+        registry_unknown_children=("<CustomReg/>",),
+    )
+    gpo = replace(gpo, gpp_collections=(col,))
+    import json as _json
+
+    payload = _json.dumps(
+        gpo.to_dict(), separators=(",", ":"), sort_keys=True
+    )
+    store._connection.execute(
+        "UPDATE gpos SET snapshot_json=? WHERE guid=?",
+        (payload, gpo.guid),
+    )
+    store._connection.commit()
+    gpo = store.get_gpo(gpo.guid)
+    assert (
+        gpo.gpp_collections[0].registry_unknown_attrs
+        == (("custom", "1"),)
+    )
+
+    gpo = store.delete_gpp_registry(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "r1",
+        identity="alice",
+        reason="delete last registry",
+    )
+    assert len(gpo.gpp_collections) == 1
+    assert gpo.gpp_collections[0].registry_unknown_attrs == (
+        ("custom", "1"),
+    )
+    assert gpo.gpp_collections[0].registry_unknown_children == (
+        "<CustomReg/>",
     )

@@ -905,3 +905,26 @@ def test_default_value_valid_no_errors() -> None:
 
 
 
+
+
+def test_default_value_with_non_empty_name_error() -> None:
+    collection = GppCollection(
+        scope="computer",
+        registry=(
+            GppRegistry(
+                key=r"Software\Test",
+                value=GppRegistryValue(
+                    name="Named",
+                    value="configured",
+                    registry_type="REG_SZ",
+                    default=True,
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(
+        i.code == "default_value_must_have_empty_name"
+        and i.severity == "error"
+        for i in issues
+    )

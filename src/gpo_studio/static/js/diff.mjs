@@ -6,7 +6,7 @@ function formatSf(sf){if(!sf)return '—';return `${sf.permission} · ${sf.targe
 function formatWmi(w){if(!w)return '—';return `${w.name}: ${w.query}`}
 function formatLink(l){if(!l)return '—';return `${l.target} · ${l.enabled?'enabled':'disabled'} · ${l.enforced?'enforced':'not enforced'} · order ${l.order}`}
 function formatGppGroup(g){if(!g)return '—';const members=(g.members||[]).map(m=>m.name||m.sid).filter(Boolean).join(', ');return `${g.name||'(unnamed)'} · ${g.action} · sid ${g.sid||'—'}${members?` · members: ${members}`:''}`}
-function formatGppRegistry(r){if(!r)return '—';const vals=(r.values||[]).map(v=>`${v.name}=${Array.isArray(v.value)?v.value.join(';'):String(v.value)}`).join(', ');return `${r.key||'(no key)'} · ${r.action}${vals?` · ${vals}`:''}`}
+function formatGppRegistry(r){if(!r)return '—';const v=Array.isArray(r.value)?(r.value[0]||null):r.value;if(!v)return `${r.key||'(no key)'} · ${r.action||''}`;const valStr=`${v.name||'(default)'}=${Array.isArray(v.value)?v.value.join(';'):String(v.value)}`;return `${r.key||'(no key)'} · ${r.action||''} · ${valStr}`}
 function formatCse(c){if(!c)return '—';return `${c.guid||''} · ${c.side||''} · ${(c.files||[]).length} file(s)`}
 function kindClass(kind){return kind==='added'?'diff-added':kind==='removed'?'diff-removed':'diff-modified'}
 

@@ -668,6 +668,15 @@ def validate_gpp_registry_value(
     issues: list[ValidationIssue] = []
     is_key_only = value.name == "" and not value.default
     is_default = value.default
+    if is_default and value.name != "":
+        issues.append(
+            ValidationIssue(
+                "error",
+                "default_value_must_have_empty_name",
+                "Default registry entry must have an empty name.",
+                f"{path}/name",
+            )
+        )
     if not is_key_only and not is_default and not value.name.strip():
         issues.append(
             ValidationIssue(

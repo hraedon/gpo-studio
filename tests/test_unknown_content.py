@@ -619,3 +619,91 @@ def test_registry_element_metadata_round_trips_through_dict() -> None:
     assert r.ilt_filter.predicates[0].type == "ou"
     assert r.unknown_attrs == (("image", "12"),)
     assert r.unknown_children == ("<Custom/>",)
+
+
+def test_legacy_multi_value_preserves_per_value_metadata() -> None:
+    reg_ilt = {
+        "items": [
+            {
+                "type": "ou",
+                "negate": False,
+                "value": "OU=Registry,DC=example,DC=com",
+                "bool_op": "AND",
+            }
+        ]
+    }
+    val_a_ilt = {
+        "items": [
+            {
+                "type": "ou",
+                "negate": False,
+                "value": "OU=ValA,DC=example,DC=com",
+                "bool_op": "AND",
+            }
+        ]
+    }
+    val_b_ilt = {
+        "items": [
+            {
+                "type": "ou",
+                "negate": False,
+                "value": "OU=ValB,DC=example,DC=com",
+                "bool_op": "AND",
+            }
+        ]
+    }
+    old_dict = {
+        "scope": "computer",
+        "registry": [
+            {
+                "key": r"Software\Test",
+                "hive": "HKEY_LOCAL_MACHINE",
+                "action": "update",
+                "uid": "{parent-uid}",
+                "id": "reg-1",
+                "ilt_filter": reg_ilt,
+                "unknown_attrs": [("reg-attr", "1")],
+                "unknown_children": ["<RegChild/>"],
+                "values": [
+                    {
+                        "name": "ValueA",
+                        "value": "a",
+                        "registry_type": "REG_SZ",
+                        "action": "create",
+                        "id": "val-a",
+                        "ilt_filter": val_a_ilt,
+                        "unknown_elem_attrs": [("attr-a", "x")],
+                        "unknown_children": ["<ChildA/>"],
+                    },
+                    {
+                        "name": "ValueB",
+                        "value": "b",
+                        "registry_type": "REG_SZ",
+                        "action": "create",
+                        "id": "val-b",
+                        "ilt_filter": val_b_ilt,
+                        "unknown_elem_attrs": [("attr-b", "y")],
+                        "unknown_children": ["<ChildB/>"],
+                    },
+                ],
+            }
+        ],
+    }
+    restored = gpp_collection_from_dict(old_dict)
+    assert len(restored.registry) == 2
+
+    r0 = restored.registry[0]
+    assert r0.uid == "{parent-uid}"
+    assert r0.id == "reg-1"
+    assert r0.ilt_filter is not None
+    assert r0.ilt_filter.predicates[0].value == "OU=Registry,DC=example,DC=com"
+    assert r0.unknown_attrs == (("reg-attr", "1"),)
+    assert r0.unknown_children == ("<RegChild/>",)
+
+    r1 = restored.registry[1]
+    assert r1.uid == ""
+    assert r1.id == ""
+    assert r1.ilt_filter is not None
+    assert r1.ilt_filter.predicates[0].value == "OU=ValB,DC=example,DC=com"
+    assert r1.unknown_attrs == (("attr-b", "y"),)
+    assert r1.unknown_children == ("<ChildB/>",)
