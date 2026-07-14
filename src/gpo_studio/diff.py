@@ -325,6 +325,7 @@ def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
             v.registry_type,
             v.value,
             v.action,
+            v.default,
             v.unknown_attrs,
             v.unknown_elem_attrs,
             v.unknown_children,
@@ -339,6 +340,7 @@ def _gpp_registry_values_equal(a: GppRegistry, b: GppRegistry) -> bool:
             v.registry_type,
             v.value,
             v.action,
+            v.default,
             v.unknown_attrs,
             v.unknown_elem_attrs,
             v.unknown_children,
@@ -354,6 +356,7 @@ def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
         a.key.casefold() == b.key.casefold()
         and a.hive.casefold() == b.hive.casefold()
         and a.action == b.action
+        and a.uid == b.uid
         and _gpp_registry_values_equal(a, b)
     )
 
@@ -1052,29 +1055,76 @@ def _three_way_gpp_collection_conflicts(
         observed_change = observed_by_scope[draft_change.scope]
         draft_c = draft_change.new
         observed_c = observed_change.new
+        baseline_c = draft_change.old
+
         if draft_c is None and observed_c is None:
             continue
         if draft_c is None or observed_c is None:
             conflicts.append(
                 GppCollectionConflict(
                     scope=draft_change.scope,
-                    baseline=draft_change.old,
+                    baseline=baseline_c,
                     draft=draft_c,
                     observed=observed_c,
                 )
             )
             continue
-        if not _gpp_collection_equal(draft_c, observed_c):
+
+        assert baseline_c is not None
+        assert draft_c is not None
+        assert observed_c is not None
+
+        if _gpp_collection_root_fields_conflict(
+            baseline_c, draft_c, observed_c
+        ):
             conflicts.append(
                 GppCollectionConflict(
                     scope=draft_change.scope,
-                    baseline=draft_change.old,
+                    baseline=baseline_c,
                     draft=draft_c,
                     observed=observed_c,
                 )
             )
     conflicts.sort(key=lambda c: c.scope)
     return tuple(conflicts)
+
+
+def _gpp_collection_root_fields_conflict(
+    baseline: GppCollection,
+    draft: GppCollection,
+    observed: GppCollection,
+) -> bool:
+    """Return True only when draft and observed changed the SAME root field
+    to DIFFERENT values.
+
+    Independent changes to different root metadata fields (e.g. draft
+    changes groups_unknown_attrs while observed changes
+    registry_unknown_attrs) touch different XML files and can be
+    reconciled independently — they are not conflicts.
+
+    Convergent changes (both changed the same field to the same value)
+    are also not conflicts.
+    """
+    root_field_pairs = [
+        ("groups_unknown_attrs", "groups_unknown_children"),
+        ("registry_unknown_attrs", "registry_unknown_children"),
+    ]
+    for attrs_field, children_field in root_field_pairs:
+        b_attrs = getattr(baseline, attrs_field)
+        d_attrs = getattr(draft, attrs_field)
+        o_attrs = getattr(observed, attrs_field)
+        if d_attrs != b_attrs and o_attrs != b_attrs and d_attrs != o_attrs:
+            return True
+        b_children = getattr(baseline, children_field)
+        d_children = getattr(draft, children_field)
+        o_children = getattr(observed, children_field)
+        if (
+            d_children != b_children
+            and o_children != b_children
+            and d_children != o_children
+        ):
+            return True
+    return False
 
 
 def _three_way_cse_metadata_conflicts(

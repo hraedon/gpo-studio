@@ -154,15 +154,20 @@ function addValueRow(value=null){
   const list=$("#gpp-values-list");
   const row=document.createElement("div");
   row.className="gpp-row";
-  row.innerHTML=`<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"><select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><button type="button" class="quiet">×</button>`;
+  row.innerHTML=`<input data-field="name" placeholder="Value name (empty = key-only)" maxlength="255"><select data-field="type"><option value="">(key-only)</option>${REG_TYPES.map(t=>`<option value="${t}">${t}</option>`).join("")}</select><input data-field="value" placeholder="Value"><select data-field="action">${REG_VALUE_ACTIONS.map(a=>`<option value="${a}">${a}</option>`).join("")}</select><label title="Configure the key's default value"><input type="checkbox" data-field="default"> Default</label><button type="button" class="quiet">×</button>`;
   const typeSel=row.querySelector('[data-field=type]');
   const valueInput=row.querySelector('[data-field=value]');
   const actionSel=row.querySelector('[data-field=action]');
-  typeSel.onchange=()=>{if(!typeSel.value)valueInput.value="";valueInput.placeholder=typeSel.value?REG_VALUE_HINTS[typeSel.value]||"Value":"Key-only entry";valueInput.disabled=actionSel.value==="delete"||!typeSel.value};
-  actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"||!typeSel.value};
+  const defaultBox=row.querySelector('[data-field=default]');
+  defaultBox.onchange=()=>{
+    if(defaultBox.checked){row.querySelector('[data-field=name]').value="";row.querySelector('[data-field=name]').disabled=true}
+    else{row.querySelector('[data-field=name]').disabled=false}
+  };
+  typeSel.onchange=()=>{if(!typeSel.value&&!defaultBox.checked)valueInput.value="";valueInput.placeholder=typeSel.value?REG_VALUE_HINTS[typeSel.value]||"Value":defaultBox.checked?"Default value":"Key-only entry";valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
+  actionSel.onchange=()=>{valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked)};
   row.dataset.unknownAttrs="[]";
-  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;row.dataset.id=value.id||"";row.dataset.unknownAttrs=JSON.stringify(value.unknown_attrs||[]);row.dataset.iltFilter=value.ilt_filter?JSON.stringify(value.ilt_filter):"";row.dataset.unknownElemAttrs=JSON.stringify(value.unknown_elem_attrs||[]);row.dataset.unknownChildren=JSON.stringify(value.unknown_children||[])}
-  valueInput.disabled=actionSel.value==="delete"||!typeSel.value;
+  if(value){row.querySelector('[data-field=name]').value=value.name;typeSel.value=value.registry_type||"";valueInput.value=Array.isArray(value.value)?value.value.join(";"):String(value.value);actionSel.value=value.action;defaultBox.checked=!!value.default;if(defaultBox.checked)row.querySelector('[data-field=name]').disabled=true;row.dataset.id=value.id||"";row.dataset.unknownAttrs=JSON.stringify(value.unknown_attrs||[]);row.dataset.iltFilter=value.ilt_filter?JSON.stringify(value.ilt_filter):"";row.dataset.unknownElemAttrs=JSON.stringify(value.unknown_elem_attrs||[]);row.dataset.unknownChildren=JSON.stringify(value.unknown_children||[])}
+  valueInput.disabled=actionSel.value==="delete"||(!typeSel.value&&!defaultBox.checked);
   typeSel.onchange();
   row.querySelector("button").onclick=()=>row.remove();
   list.appendChild(row);
@@ -170,7 +175,9 @@ function addValueRow(value=null){
 
 function collectValues(){
   return [...$("#gpp-values-list").querySelectorAll(".gpp-row")].map(row=>{
-    const name=row.querySelector('[data-field=name]').value.trim();
+    const defaultBox=row.querySelector('[data-field=default]');
+    const isDefault=defaultBox&&defaultBox.checked;
+    const name=isDefault?"":row.querySelector('[data-field=name]').value.trim();
     const type=row.querySelector('[data-field=type]').value;
     const raw=row.querySelector('[data-field=value]').value;
     const action=row.querySelector('[data-field=action]').value;
@@ -179,7 +186,7 @@ function collectValues(){
     else if(type==="REG_MULTI_SZ")value=raw.split(/[\r\n;]+/).map(s=>s.trim()).filter(s=>s.length>0);
     else if(type==="REG_DWORD"||type==="REG_QWORD")value=raw.trim();
     else value=raw;
-    const result={name,value,registry_type:type,action,id:row.dataset.id||"",unknown_attrs:JSON.parse(row.dataset.unknownAttrs||"[]")};
+    const result={name,value,registry_type:type,action,default:isDefault,id:row.dataset.id||"",unknown_attrs:JSON.parse(row.dataset.unknownAttrs||"[]")};
     if(row.dataset.iltFilter)result.ilt_filter=JSON.parse(row.dataset.iltFilter);
     if(row.dataset.unknownElemAttrs)result.unknown_elem_attrs=JSON.parse(row.dataset.unknownElemAttrs);
     if(row.dataset.unknownChildren)result.unknown_children=JSON.parse(row.dataset.unknownChildren);
@@ -192,15 +199,15 @@ async function submitGppRegistry(event){
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
   if($("#gpp-ilt-registry-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item contains ILT predicates that cannot be edited in the browser. They will be preserved on save. Continue?"))return;
-  const partialValue=[...$("#gpp-values-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=value]').value.trim()&&!row.querySelector('[data-field=name]').value.trim());
+  const partialValue=[...$("#gpp-values-list").querySelectorAll(".gpp-row")].find(row=>{const isDefault=row.querySelector('[data-field=default]')&&row.querySelector('[data-field=default]').checked;return!isDefault&&row.querySelector('[data-field=value]').value.trim()&&!row.querySelector('[data-field=name]').value.trim()});
   if(partialValue){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
   const values=collectValues();
   const commonIlt=collectIlt("gpp-ilt-registry-list");
-  if(commonIlt)values.forEach(v=>{v.ilt_filter=commonIlt});
+  values.forEach(v=>{v.ilt_filter=commonIlt});
   const badDword=values.find(v=>v.action!=="delete"&&(v.registry_type==="REG_DWORD"||v.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(v.value));
-  if(badDword){showFormErrors(f,{issues:[{message:`${badDword.registry_type} value for "${badDword.name}" must be a non-negative decimal integer.`}]});return}
+  if(badDword){showFormErrors(f,{issues:[{message:`${badDword.registry_type} value for "${badDword.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,values,ilt_filter:commonIlt};
-  if(state.editingGppRegistry){registry.id=state.editingGppRegistry.id}
+  if(state.editingGppRegistry){registry.id=state.editingGppRegistry.id;if(state.editingGppRegistry.uid)registry.uid=state.editingGppRegistry.uid}
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";renderAll();renderList();toast("GPP registry saved")}catch(error){showFormErrors(f,error)}
 }

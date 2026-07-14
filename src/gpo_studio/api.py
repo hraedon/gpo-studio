@@ -218,6 +218,7 @@ class GppRegistryValueData(BaseModel):
     value: str | int | list[str] = ""
     registry_type: str = "REG_SZ"
     action: Literal["create", "replace", "update", "delete"] = "create"
+    default: bool = False
     id: str = ""
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     ilt_filter: IltFilterData | None = None
@@ -226,7 +227,23 @@ class GppRegistryValueData(BaseModel):
 
     @model_validator(mode="after")
     def _validate_registry_value(self) -> GppRegistryValueData:
-        if self.name == "":
+        if self.default:
+            if self.name != "":
+                raise ValueError(
+                    "Default registry entry must have empty name"
+                )
+            if self.registry_type not in ("", "REG_SZ", "REG_EXPAND_SZ",
+                                          "REG_BINARY", "REG_DWORD",
+                                          "REG_MULTI_SZ", "REG_QWORD"):
+                raise ValueError("Invalid registry type for default entry")
+            if self.registry_type in ("REG_DWORD", "REG_QWORD"):
+                if not isinstance(self.value, str):
+                    raise ValueError(
+                        f"{self.registry_type} requires a canonical "
+                        "decimal string value"
+                    )
+                self.value = coerce_dword_qword(self.value, self.registry_type)
+        elif self.name == "":
             if self.registry_type not in ("", "REG_SZ"):
                 raise ValueError("Key-only registry entry must have empty type")
             if self.value != "" and self.value != []:
@@ -249,6 +266,7 @@ class GppRegistryData(BaseModel):
     action: Literal["add", "replace", "remove", "update"] = "update"
     values: list[GppRegistryValueData] = Field(default_factory=list)
     id: str = ""
+    uid: str = ""
     ilt_filter: IltFilterData | None = None
 
 
@@ -750,6 +768,7 @@ class GppRegistryValueResponse(BaseModel):
     value: str | list[str]
     registry_type: str
     action: str
+    default: bool = False
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     ilt_filter: IltFilterResponse | None = None
     unknown_elem_attrs: list[tuple[str, str]] = Field(default_factory=list)
@@ -781,6 +800,7 @@ class GppRegistryResponse(BaseModel):
     hive: str
     values: list[GppRegistryValueResponse]
     action: str
+    uid: str = ""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1010,6 +1030,7 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
         value=data.value,
         registry_type=data.registry_type,
         action=data.action,
+        default=data.default,
         id=data.id,
         unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
         ilt_filter=_ilt_filter_data_to_model(data.ilt_filter),
@@ -1055,6 +1076,7 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
         key=data.key,
         hive=hive,
         action=data.action,
+        uid=data.uid,
         values=values,
         id=data.id,
     )

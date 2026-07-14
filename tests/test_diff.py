@@ -1164,9 +1164,50 @@ def test_gpp_registry_reorder_detected() -> None:
     assert all(c.kind == "reordered" for c in result.gpp_registry)
     identities = {c.identity for c in result.gpp_registry}
     assert identities == {
-        f"hkey_local_machine\\{reg_a.key.casefold()}",
-        f"hkey_local_machine\\{reg_b.key.casefold()}",
+        f"hkey_local_machine\\{reg_a.key.casefold()}##",
+        f"hkey_local_machine\\{reg_b.key.casefold()}##",
     }
+
+
+def test_gpp_registry_same_key_different_uid_no_collision() -> None:
+    reg_a = GppRegistry(
+        key=r"Software\Key", uid="{uid-a}",
+        values=(GppRegistryValue(name="V", value="old"),),
+    )
+    reg_b = GppRegistry(
+        key=r"Software\Key", uid="{uid-b}",
+        values=(GppRegistryValue(name="V", value="same"),),
+    )
+    old = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a, reg_b)),))
+    reg_a_new = GppRegistry(
+        key=r"Software\Key", uid="{uid-a}",
+        values=(GppRegistryValue(name="V", value="new"),),
+    )
+    new = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a_new, reg_b)),))
+    result = diff_gpos(old, new)
+    reg_changes = [c for c in result.gpp_registry if c.kind == "modified"]
+    assert len(reg_changes) == 1
+    assert reg_changes[0].identity == "uid:{uid-a}"
+
+
+def test_gpp_registry_same_key_no_uid_uses_value_action_fallback() -> None:
+    reg_a = GppRegistry(
+        key=r"Software\Key",
+        values=(GppRegistryValue(name="V1", value="old", action="create"),),
+    )
+    reg_b = GppRegistry(
+        key=r"Software\Key",
+        values=(GppRegistryValue(name="V2", value="same", action="create"),),
+    )
+    old = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a, reg_b)),))
+    reg_a_new = GppRegistry(
+        key=r"Software\Key",
+        values=(GppRegistryValue(name="V1", value="new", action="create"),),
+    )
+    new = _gpo(gpp_collections=(_gpp_collection(registry=(reg_a_new, reg_b)),))
+    result = diff_gpos(old, new)
+    reg_changes = [c for c in result.gpp_registry if c.kind == "modified"]
+    assert len(reg_changes) == 1
 
 
 def test_gpp_group_content_change_not_reorder() -> None:
@@ -1367,3 +1408,26 @@ def test_three_way_gpp_collection_root_metadata_groups_unknown_children_conflict
     )
     result = three_way_diff(baseline, draft, observed)
     assert len(result.gpp_collection_conflicts) == 1
+
+
+def test_three_way_gpp_collection_independent_root_fields_no_conflict() -> None:
+    baseline = _gpo(
+        gpp_collections=(_gpp_collection(
+            groups_unknown_attrs=(("custom", "baseline"),),
+            registry_unknown_attrs=(("custom", "baseline"),),
+        ),)
+    )
+    draft = _gpo(
+        gpp_collections=(_gpp_collection(
+            groups_unknown_attrs=(("custom", "draft"),),
+            registry_unknown_attrs=(("custom", "baseline"),),
+        ),)
+    )
+    observed = _gpo(
+        gpp_collections=(_gpp_collection(
+            groups_unknown_attrs=(("custom", "baseline"),),
+            registry_unknown_attrs=(("custom", "observed"),),
+        ),)
+    )
+    result = three_way_diff(baseline, draft, observed)
+    assert result.gpp_collection_conflicts == ()

@@ -666,8 +666,9 @@ def validate_gpp_registry_value(
     value: GppRegistryValue, path: str
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    is_key_only = value.name == ""
-    if not is_key_only and not value.name.strip():
+    is_key_only = value.name == "" and not value.default
+    is_default = value.default
+    if not is_key_only and not is_default and not value.name.strip():
         issues.append(
             ValidationIssue(
                 "error",
@@ -711,6 +712,17 @@ def validate_gpp_registry_value(
                     "invalid_key_only_value",
                     "Key-only registry entry must have empty value.",
                     f"{path}/value",
+                )
+            )
+        return issues
+    if is_default:
+        if value.registry_type not in _VALID_REGISTRY_TYPES:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "invalid_gpp_registry_type",
+                    f"Unknown GPP registry type: {value.registry_type}.",
+                    f"{path}/registry_type",
                 )
             )
         return issues
@@ -853,10 +865,22 @@ def validate_gpp_registry(reg: GppRegistry, path: str) -> list[ValidationIssue]:
     seen_value_names: set[str] = set()
     seen_value_ids: set[str] = set()
     seen_key_only = False
+    seen_default = False
     for idx, val in enumerate(reg.values):
         val_path = f"{path}/values/{idx}"
         issues.extend(validate_gpp_registry_value(val, val_path))
-        if val.name == "":
+        if val.default:
+            if seen_default:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "duplicate_default_value",
+                        "Duplicate default registry value in the same key.",
+                        f"{val_path}/default",
+                    )
+                )
+            seen_default = True
+        elif val.name == "":
             if seen_key_only:
                 issues.append(
                     ValidationIssue(

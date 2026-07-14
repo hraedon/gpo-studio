@@ -134,11 +134,11 @@ def test_unknown_registry_attrs_preserved_in_round_trip() -> None:
     parsed = parse_gpp_registry(_REGISTRY_XML_WITH_UNKNOWN)
     assert len(parsed) == 1
     reg = parsed[0]
-    assert len(reg.values) == 1
+    assert reg.uid == "{def-456}"
 
-    uid_attrs = [a for a in reg.values[0].unknown_elem_attrs if a[0] == "uid"]
-    assert len(uid_attrs) == 1
-    assert uid_attrs[0][1] == "{def-456}"
+    disabled_attrs = [a for a in reg.values[0].unknown_elem_attrs if a[0] == "disabled"]
+    assert len(disabled_attrs) == 1
+    assert disabled_attrs[0][1] == "0"
 
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed))
     assert b'uid="{def-456}"' in serialized
@@ -146,6 +146,7 @@ def test_unknown_registry_attrs_preserved_in_round_trip() -> None:
 
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
+    assert reparsed[0].uid == reg.uid
     assert reparsed[0].values[0].unknown_elem_attrs == reg.values[0].unknown_elem_attrs
 
 
@@ -251,22 +252,22 @@ def test_unknown_attrs_survive_dict_round_trip() -> None:
                 name="V",
                 value="x",
                 unknown_attrs=(("description", "desc"),),
-                unknown_elem_attrs=(("uid", "{test-2}"),),
             ),
         ),
+        uid="{reg-uid-1}",
     )
     collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
     d = gpp_collection_to_dict(collection)
 
     assert d["groups"][0]["unknown_attrs"] == [("uid", "{test-1}"), ("disabled", "0")]
     assert d["groups"][0]["unknown_children"] == ["<CustomExt attr='val'/>"]
-    assert d["registry"][0]["values"][0]["unknown_elem_attrs"] == [("uid", "{test-2}")]
+    assert d["registry"][0]["uid"] == "{reg-uid-1}"
     assert d["registry"][0]["values"][0]["unknown_attrs"] == [("description", "desc")]
 
     restored = gpp_collection_from_dict(d)
     assert restored.groups[0].unknown_attrs == (("uid", "{test-1}"), ("disabled", "0"))
     assert restored.groups[0].unknown_children == ("<CustomExt attr='val'/>",)
-    assert restored.registry[0].values[0].unknown_elem_attrs == (("uid", "{test-2}"),)
+    assert restored.registry[0].uid == "{reg-uid-1}"
     assert restored.registry[0].values[0].unknown_attrs == (("description", "desc"),)
 
 
@@ -581,7 +582,7 @@ def test_old_registry_level_metadata_applied_to_values() -> None:
                     {"type": "ou", "value": "OU=Test", "negate": False, "bool_op": "AND"}
                 ]
             },
-            "unknown_attrs": [["uid", "{test}"]],
+            "unknown_attrs": [["image", "12"]],
             "unknown_children": ["<Custom/>"],
             "values": [{"name": "V", "value": "x"}],
         }],
@@ -590,7 +591,7 @@ def test_old_registry_level_metadata_applied_to_values() -> None:
     val = restored.registry[0].values[0]
     assert val.ilt_filter is not None
     assert val.ilt_filter.predicates[0].type == "ou"
-    assert val.unknown_elem_attrs == (("uid", "{test}"),)
+    assert val.unknown_elem_attrs == (("image", "12"),)
     assert val.unknown_children == ("<Custom/>",)
 
 
@@ -606,7 +607,7 @@ def test_registry_level_metadata_only_first_value() -> None:
                     {"type": "ou", "value": "OU=Test", "negate": False, "bool_op": "AND"}
                 ]
             },
-            "unknown_attrs": [["uid", "{test}"]],
+            "unknown_attrs": [["image", "12"]],
             "unknown_children": ["<Custom/>"],
             "values": [
                 {"name": "V1", "value": "x"},
@@ -621,7 +622,7 @@ def test_registry_level_metadata_only_first_value() -> None:
     second = reg.values[1]
     assert first.ilt_filter is not None
     assert first.ilt_filter.predicates[0].type == "ou"
-    assert first.unknown_elem_attrs == (("uid", "{test}"),)
+    assert first.unknown_elem_attrs == (("image", "12"),)
     assert first.unknown_children == ("<Custom/>",)
     assert second.ilt_filter is None
     assert second.unknown_elem_attrs == ()
