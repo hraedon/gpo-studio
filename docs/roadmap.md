@@ -103,7 +103,7 @@ This is a partial plan. Administrators must review both `apply.ps1` and the GPMC
 
 - **Python:** 3.13 and 3.14, matching CI. `requires-python` is `>=3.13`.
 - **Browsers:** The UI is built with dependency-light ES modules and plain CSS. It targets current evergreen browsers (Chrome, Firefox, Edge, Safari). No formal minimum browser version is enforced yet.
-- **Workspace schema:** The workspace is a local SQLite database (`gpo-studio.db` by default, configurable via `GPO_STUDIO_DB`). Schema versioning is planned but not yet implemented; migrations are currently additive and guarded by `CREATE TABLE IF NOT EXISTS`.
+- **Workspace schema:** The workspace is a local SQLite database (`gpo-studio.db` by default, configurable via `GPO_STUDIO_DB`). Schema versioning is implemented (Plan 018): a `workspace_meta` table tracks the schema version, migrations are forward-only and transactional, and unknown newer schemas are refused.
 
 ## Milestone 1 — usable policy editor
 
