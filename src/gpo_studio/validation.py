@@ -9,6 +9,7 @@ from typing import assert_never
 from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
 from .ilt import IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
+from .registry_pol import _MAX_MULTI_SZ_ITEMS
 
 _DN = re.compile(r"^(?:OU|DC)=[^,=]+(?:,(?:OU|DC)=[^,=]+)+$", re.IGNORECASE)
 _WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
@@ -132,6 +133,19 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                     "error",
                     "type_mismatch",
                     "REG_MULTI_SZ requires a string list.",
+                    f"{path}/value",
+                )
+            )
+        if (
+            setting.registry_type == "REG_MULTI_SZ"
+            and isinstance(value, list)
+            and len(value) > _MAX_MULTI_SZ_ITEMS
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "item_count_exceeded",
+                    f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}.",
                     f"{path}/value",
                 )
             )
@@ -779,6 +793,19 @@ def validate_gpp_registry_value(
                 "error",
                 "type_mismatch",
                 "REG_MULTI_SZ requires a string list.",
+                f"{path}/value",
+            )
+        )
+    if (
+        value.registry_type == "REG_MULTI_SZ"
+        and isinstance(raw, list)
+        and len(raw) > _MAX_MULTI_SZ_ITEMS
+    ):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "item_count_exceeded",
+                f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}.",
                 f"{path}/value",
             )
         )

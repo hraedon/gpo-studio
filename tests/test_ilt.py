@@ -610,3 +610,12 @@ def test_validate_predicate_unknown_attrs_rejects_reserved() -> None:
     )
     with pytest.raises(IltError, match="collides with a reserved"):
         validate_predicate_unknown_attrs(pred)
+
+
+def test_parse_ilt_rejects_oversized_tail_text(monkeypatch) -> None:
+    from gpo_studio.ilt import IltError, _bounded_parse_ilt
+
+    monkeypatch.setattr("gpo_studio.ilt._MAX_ILT_XML_TEXT_LENGTH", 10)
+    raw = '<FilterCustom><Sub/>' + "x" * 20 + '</FilterCustom>'
+    with pytest.raises(IltError, match="text length"):
+        _bounded_parse_ilt(raw)

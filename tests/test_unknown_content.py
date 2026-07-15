@@ -6,9 +6,12 @@ import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from gpo_studio.export import export_bundle, gpmc_backup_bundle
 from gpo_studio.gpp import (
     GppCollection,
+    GppError,
     GppGroup,
     GppRegistry,
     GppRegistryValue,
@@ -753,3 +756,76 @@ def test_legacy_snapshot_promotes_uid_and_default_from_unknown_attrs() -> None:
     assert reg.value.default is True
     assert reg.value.unknown_attrs == ()
     assert reg.value.value == "configured"
+
+
+# --- P2: malformed unknown children must be rejected, not silently accepted ---
+
+
+def test_malformed_unknown_child_rejected() -> None:
+    with pytest.raises(GppError, match="Malformed unknown child XML"):
+        gpp_collection_from_dict({
+            "scope": "computer",
+            "groups": [{
+                "name": "G1",
+                "unknown_children": ["<unclosed"],
+            }],
+        })
+
+
+def test_over_depth_unknown_child_rejected(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.gpp._MAX_GPP_XML_DEPTH", 5)
+    deep_xml = "<a><b><c><d><e><f/></e></d></c></b></a>"
+    with pytest.raises(GppError, match="Malformed unknown child XML"):
+        gpp_collection_from_dict({
+            "scope": "computer",
+            "groups": [{
+                "name": "G1",
+                "unknown_children": [deep_xml],
+            }],
+        })
+
+
+def test_entity_declaration_in_unknown_child_rejected() -> None:
+    with pytest.raises(GppError, match="entity"):
+        gpp_collection_from_dict({
+            "scope": "computer",
+            "groups": [{
+                "name": "G1",
+                "unknown_children": ["<!ENTITY xxe SYSTEM 'file:///etc/passwd'>"],
+            }],
+        })
+
+
+def test_oversized_unknown_child_rejected() -> None:
+    big = "<a>" + "x" * (11 * 1024 * 1024) + "</a>"
+    with pytest.raises(GppError, match="exceeds"):
+        gpp_collection_from_dict({
+            "scope": "computer",
+            "groups": [{
+                "name": "G1",
+                "unknown_children": [big],
+            }],
+        })
+
+
+def test_malformed_unknown_child_in_registry_rejected() -> None:
+    with pytest.raises(GppError, match="Malformed unknown child XML"):
+        gpp_collection_from_dict({
+            "scope": "computer",
+            "registry": [{
+                "key": "K",
+                "value": {"name": "V", "value": "x"},
+                "unknown_children": ["<broken"],
+            }],
+        })
+
+
+def test_valid_unknown_child_still_accepted() -> None:
+    restored = gpp_collection_from_dict({
+        "scope": "computer",
+        "groups": [{
+            "name": "G1",
+            "unknown_children": ["<CustomExt attr='val'/>"],
+        }],
+    })
+    assert restored.groups[0].unknown_children == ("<CustomExt attr='val'/>",)

@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,7 +24,7 @@ from starlette.responses import Response as StarletteResponse
 
 from . import __version__
 from .admx import AdmxCatalogue, AdmxError, load_catalogue
-from .backup import read_backup
+from .backup import BackupError, read_backup
 from .canonical import policy_semantic_sha256, review_model_sha256
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
@@ -66,6 +67,7 @@ from .model import (
 )
 from .numeric import coerce_dword_qword
 from .policy_config import PolicyConfiguration, resolve_policy
+from .registry_pol import RegistryPolError
 from .store import WorkspaceStore, gpo_from_dict
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
@@ -1083,7 +1085,10 @@ def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
     return gpo_dict
 
 
-def _gpo_payload(gpo: Any) -> dict[str, Any]:
+def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
+    if request is not None:
+        request.state.gpo_guid = gpo.guid
+        request.state.gpo_revision = gpo.revision
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validate_gpo(gpo)],
@@ -1123,7 +1128,7 @@ def _validate_inbox_path(path: str) -> Path:
             ValidationIssue(
                 severity="error",
                 code="inbox_path_unresolvable",
-                message=f"Cannot resolve backup path or inbox directory: {path}",
+                message="Cannot resolve the requested import path.",
                 path="path",
             )
         ]) from None
@@ -1132,21 +1137,31 @@ def _validate_inbox_path(path: str) -> Path:
             ValidationIssue(
                 severity="error",
                 code="path_outside_inbox",
-                message=f"Backup path is outside the configured inbox directory: {path}",
+                message="Import path is outside the configured inbox directory.",
                 path="path",
             )
         ])
     return requested_resolved
 
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
 
 _logger = logging.getLogger("gpo_studio.api")
 
+_MUTATION_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
 
 def _is_unsafe_mode() -> bool:
     return os.getenv("GPO_STUDIO_UNSAFE_BIND", "").lower() in ("1", "true", "yes")
+
+
+def _sanitize_log_value(value: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in value)
+
+
+def _sanitize_log_path(value: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_/" else "_" for c in value)
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -1190,6 +1205,39 @@ class HostValidationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class OriginValidationMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> StarletteResponse:
+        if not _is_unsafe_mode() and request.method in _MUTATION_METHODS:
+            origin = request.headers.get("origin", "")
+            if origin:
+                if origin == "null":
+                    return JSONResponse(
+                        {"error": {"message": "Origin not allowed"}},
+                        status_code=403,
+                    )
+                try:
+                    parsed = urlparse(origin)
+                except ValueError:
+                    return JSONResponse(
+                        {"error": {"message": "Origin not allowed"}},
+                        status_code=403,
+                    )
+                if parsed.scheme not in ("http", "https"):
+                    return JSONResponse(
+                        {"error": {"message": "Origin not allowed"}},
+                        status_code=403,
+                    )
+                origin_host = parsed.hostname or ""
+                if not origin_host or not _is_loopback_host(origin_host):
+                    return JSONResponse(
+                        {"error": {"message": "Origin not allowed"}},
+                        status_code=403,
+                    )
+        return await call_next(request)
+
+
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
@@ -1214,6 +1262,18 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                     {"error": {"message": "Request body too large"}},
                     status_code=413,
                 )
+
+        if request.method in _MUTATION_METHODS:
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > MAX_REQUEST_BODY_BYTES:
+                    return JSONResponse(
+                        {"error": {"message": "Request body too large"}},
+                        status_code=413,
+                    )
+            request._body = bytes(body)
+
         return await call_next(request)
 
 
@@ -1225,21 +1285,44 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
         response = await call_next(request)
         duration_ms = (time.perf_counter() - start) * 1000
-        guid = ""
+
+        path_params = request.scope.get("path_params") or {}
+        guid = str(path_params.get("guid", "")) or getattr(request.state, "gpo_guid", "")
+        revision = (
+            str(path_params.get("revision", ""))
+            or getattr(request.state, "gpo_revision", "")
+        )
+
+        safe_guid = _sanitize_log_value(guid) if guid else ""
+        safe_revision = _sanitize_log_value(str(revision)) if revision else ""
+
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", None)
         path = request.url.path
-        if "/api/gpos/" in path:
-            parts = path.split("/")
-            for i, p in enumerate(parts):
-                if p == "gpos" and i + 1 < len(parts):
-                    guid = parts[i + 1]
-                    break
+        safe_path = _sanitize_log_path(path)
+
+        if route_path and safe_path.startswith("/api/"):
+            operation = f"{request.method} {route_path}"
+        elif safe_path.startswith("/api/"):
+            route_template = safe_path
+            if safe_guid:
+                route_template = route_template.replace(safe_guid, "{guid}")
+            operation = f"{request.method} {route_template}"
+        else:
+            operation = request.method
+
+        outcome = "success" if response.status_code < 400 else "error"
         _logger.info(
-            "request method=%s path=%s status=%d duration_ms=%.1f%s",
+            "request request_id=%s operation=%s method=%s status=%d "
+            "outcome=%s duration_ms=%.1f%s%s",
+            request_id,
+            operation,
             request.method,
-            path,
             response.status_code,
+            outcome,
             duration_ms,
-            f" gpo_guid={guid}" if guid else "",
+            f" gpo_guid={safe_guid}" if safe_guid else "",
+            f" revision={safe_revision}" if safe_revision else "",
         )
         response.headers["X-Request-ID"] = request_id
         return response
@@ -1251,7 +1334,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         db_path = os.getenv("GPO_STUDIO_DB", "gpo-studio.db")
         app.state.store = WorkspaceStore(db_path)
         app.state.owns_store = True
-        _logger.info("workspace_opened path=%s", db_path)
+        _logger.info("workspace_opened")
     if not hasattr(app.state, "admx_catalogue"):
         admx_dir = os.getenv("GPO_STUDIO_ADMX_DIR", "./admx")
         try:
@@ -1264,18 +1347,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if wmi_catalogue_path:
             try:
                 app.state.wmi_catalogue = load_wmi_catalogue(Path(wmi_catalogue_path))
-            except WmiCatalogueError as error:
-                _logger.warning("Failed to load WMI catalogue: %s", error)
+            except WmiCatalogueError:
+                _logger.warning("Failed to load WMI catalogue")
                 app.state.wmi_catalogue = WmiCatalogue()
         else:
             app.state.wmi_catalogue = WmiCatalogue()
     store = app.state.store
-    startup_qc = store.quick_check()
-    if startup_qc.ok:
-        _logger.info("startup_quick_check=ok")
+    if store.is_degraded:
+        _logger.error(
+            "startup_quick_check=fail workspace is degraded — "
+            "pragmas and migrations skipped"
+        )
     else:
-        _logger.error("startup_quick_check=fail errors=%s", "; ".join(startup_qc.errors))
-    app.state.workspace_healthy = startup_qc.ok
+        startup_qc = store.quick_check()
+        if startup_qc.ok:
+            _logger.info("startup_quick_check=ok")
+        else:
+            _logger.error("startup_quick_check=fail errors=%s", "; ".join(startup_qc.errors))
     try:
         meta = store.workspace_meta()
     except Exception:
@@ -1302,6 +1390,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(HostValidationMiddleware)
+app.add_middleware(OriginValidationMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
@@ -1374,7 +1463,7 @@ def health(request: Request) -> dict[str, Any]:
     store = _store(request)
     catalogue = _catalogue(request)
     wmi_cat = _wmi_catalogue(request)
-    healthy = getattr(request.app.state, "workspace_healthy", True)
+    healthy = not store.is_degraded
     try:
         meta = store.workspace_meta()
     except Exception:
@@ -1390,12 +1479,16 @@ def health(request: Request) -> dict[str, Any]:
     }
 
 
-@app.get("/api/workspace/integrity")
+@app.post("/api/workspace/integrity")
 def workspace_integrity(request: Request, full: bool = False) -> dict[str, Any]:
     """Run an integrity check on the workspace database.
 
     By default runs a quick check (fast, suitable for routine use).
     Pass ``?full=true`` for a thorough integrity check.
+
+    This is a POST endpoint so that Origin validation middleware protects
+    it from cross-origin requests.  The check writes integrity metadata
+    to the workspace, making it a state-changing operation.
     """
     store = _store(request)
     result = store.full_integrity_check() if full else store.quick_check()
@@ -1469,7 +1562,7 @@ def configure_policy(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.get("/api/admx/categories")
@@ -1493,12 +1586,12 @@ def create_gpo(request: Request, body: CreateGPO) -> dict[str, Any]:
     gpo = _store(request).create_gpo(
         body.name, body.description, identity=_identity(body.actor), reason=body.reason
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.get("/api/gpos/{guid}")
 def get_gpo(request: Request, guid: str) -> dict[str, Any]:
-    return _gpo_payload(_store(request).get_gpo(guid))
+    return _gpo_payload(_store(request).get_gpo(guid), request)
 
 
 @app.patch("/api/gpos/{guid}")
@@ -1511,7 +1604,7 @@ def update_gpo(request: Request, guid: str, body: MetadataMutation) -> dict[str,
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 def _validated_setting(body: SettingMutation) -> dict[str, Any]:
@@ -1533,7 +1626,7 @@ def add_setting(request: Request, guid: str, body: SettingMutation) -> dict[str,
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put("/api/gpos/{guid}/settings/{setting_id}")
@@ -1548,7 +1641,7 @@ def edit_setting(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete("/api/gpos/{guid}/settings/{setting_id}")
@@ -1562,7 +1655,7 @@ def delete_setting(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.post("/api/gpos/{guid}/links", status_code=201)
@@ -1574,7 +1667,7 @@ def add_link(request: Request, guid: str, body: LinkMutation) -> dict[str, Any]:
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put("/api/gpos/{guid}/links/{link_id}")
@@ -1587,7 +1680,7 @@ def edit_link(request: Request, guid: str, link_id: str, body: LinkMutation) -> 
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete("/api/gpos/{guid}/links/{link_id}")
@@ -1599,7 +1692,7 @@ def delete_link(request: Request, guid: str, link_id: str, body: DeleteMutation)
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.post("/api/gpos/{guid}/security-filters", status_code=201)
@@ -1613,7 +1706,7 @@ def add_security_filter(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put("/api/gpos/{guid}/security-filters/{filter_id}")
@@ -1628,7 +1721,7 @@ def edit_security_filter(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete("/api/gpos/{guid}/security-filters/{filter_id}")
@@ -1642,7 +1735,7 @@ def delete_security_filter(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put("/api/gpos/{guid}/wmi-filter")
@@ -1654,7 +1747,7 @@ def set_wmi_filter(request: Request, guid: str, body: WmiFilterMutation) -> dict
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete("/api/gpos/{guid}/wmi-filter")
@@ -1666,7 +1759,7 @@ def clear_wmi_filter(request: Request, guid: str, body: DeleteMutation) -> dict[
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.post("/api/gpos/{guid}/preferences/groups", status_code=201, response_model=GpoPayloadResponse)
@@ -1683,7 +1776,7 @@ def add_gpp_group(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put("/api/gpos/{guid}/preferences/groups/{group_id}", response_model=GpoPayloadResponse)
@@ -1701,7 +1794,7 @@ def edit_gpp_group(
         reason=body.reason,
         must_exist=True,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete("/api/gpos/{guid}/preferences/groups/{group_id}", response_model=GpoPayloadResponse)
@@ -1716,7 +1809,7 @@ def delete_gpp_group(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.post(
@@ -1737,7 +1830,7 @@ def add_gpp_registry(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put("/api/gpos/{guid}/preferences/registry/{registry_id}", response_model=GpoPayloadResponse)
@@ -1755,7 +1848,7 @@ def edit_gpp_registry(
         reason=body.reason,
         must_exist=True,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete(
@@ -1773,7 +1866,7 @@ def delete_gpp_registry(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.post(
@@ -1798,7 +1891,7 @@ def add_gpp_member(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put(
@@ -1824,7 +1917,7 @@ def edit_gpp_member(
         reason=body.reason,
         must_exist=True,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete(
@@ -1847,7 +1940,7 @@ def delete_gpp_member(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.post(
@@ -1872,7 +1965,7 @@ def add_gpp_registry_value(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.put(
@@ -1898,7 +1991,7 @@ def edit_gpp_registry_value(
         reason=body.reason,
         must_exist=True,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.delete(
@@ -1921,7 +2014,7 @@ def delete_gpp_registry_value(
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.get("/api/wmi-filters")
@@ -1980,7 +2073,7 @@ def restore(request: Request, guid: str, revision: int, body: RestoreMutation) -
         identity=_identity(body.actor),
         reason=body.reason,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.get("/api/gpos/{guid}/export.zip")
@@ -2027,53 +2120,69 @@ def ad_hoc_diff(request: Request, body: ThreeWayDiffRequest) -> dict[str, Any]:
 @app.post("/api/backups/import", status_code=201)
 def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]:
     backup_dir = _validate_inbox_path(body.path)
-    if not backup_dir.is_dir():
-        raise StudioError(f"Backup path is not a directory: {body.path}")
-    for xml_file in ("manifest.xml", "bkupInfo.xml"):
-        xml_path = backup_dir / xml_file
-        if xml_path.is_symlink():
-            raise ValidationError([
-                ValidationIssue(
-                    severity="error",
-                    code="symlink_in_backup",
-                    message=f"Symlinks are not allowed in backup content: {xml_file}",
-                    path="path",
-                )
-            ])
-    backup = read_backup(backup_dir)
-    if not backup.gpos:
-        raise StudioError("No GPOs found in backup")
-    if len(backup.gpos) > 1:
-        raise StudioError(
-            f"Multi-GPO backups are not supported (found {len(backup.gpos)} GPOs)"
-        )
-    backup_gpo = backup.gpos[0]
-    gpo_dir = backup_dir / backup_gpo.guid
 
-    machine_settings = extract_settings(gpo_dir / "Machine" / "Registry.pol", "computer")
-    user_settings = extract_settings(gpo_dir / "User" / "Registry.pol", "user")
-    all_settings = tuple(machine_settings + user_settings)
-    cse_metadata = collect_cse_metadata(backup_gpo)
-    gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
+    try:
+        if not backup_dir.is_dir():
+            raise StudioError("Backup path is not a directory")
+        for xml_file in ("manifest.xml", "bkupInfo.xml"):
+            xml_path = backup_dir / xml_file
+            if xml_path.is_symlink():
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="symlink_in_backup",
+                        message=f"Symlinks are not allowed in backup content: {xml_file}",
+                        path="path",
+                    )
+                ])
+        backup = read_backup(backup_dir)
+        if not backup.gpos:
+            raise StudioError("No GPOs found in backup")
+        if len(backup.gpos) > 1:
+            raise StudioError(
+                f"Multi-GPO backups are not supported (found {len(backup.gpos)} GPOs)"
+            )
+        backup_gpo = backup.gpos[0]
+        gpo_dir = backup_dir / backup_gpo.guid
 
-    security_filters = backup_security_filters_to_model(backup_gpo.security_filters)
-    wmi_filter = backup_wmi_filter_to_model(backup_gpo.wmi_filter)
+        machine_settings = extract_settings(gpo_dir / "Machine" / "Registry.pol", "computer")
+        user_settings = extract_settings(gpo_dir / "User" / "Registry.pol", "user")
+        all_settings = tuple(machine_settings + user_settings)
+        cse_metadata = collect_cse_metadata(backup_gpo)
+        gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
 
-    if body.migration_table_path is not None:
-        from .migration import apply_migration, parse_migration_table
+        security_filters = backup_security_filters_to_model(backup_gpo.security_filters)
+        wmi_filter = backup_wmi_filter_to_model(backup_gpo.wmi_filter)
 
-        mig_path = _validate_inbox_path(body.migration_table_path)
-        if not mig_path.is_file():
-            raise StudioError(f"Migration table is not a file: {body.migration_table_path}")
-        table = parse_migration_table(mig_path)
-        temp_gpo_for_migration = GPO(
-            guid="import-preview",
-            name=backup_gpo.display_name or "Imported GPO",
-            security_filters=security_filters,
-            domain=backup_gpo.domain or "studio.local",
-        )
-        migrated_gpo = apply_migration(temp_gpo_for_migration, table)
-        security_filters = migrated_gpo.security_filters
+        if body.migration_table_path is not None:
+            from .migration import apply_migration, parse_migration_table
+
+            mig_path = _validate_inbox_path(body.migration_table_path)
+            if not mig_path.is_file():
+                raise StudioError("Migration table is not a file")
+            table = parse_migration_table(mig_path)
+            temp_gpo_for_migration = GPO(
+                guid="import-preview",
+                name=backup_gpo.display_name or "Imported GPO",
+                security_filters=security_filters,
+                domain=backup_gpo.domain or "studio.local",
+            )
+            migrated_gpo = apply_migration(temp_gpo_for_migration, table)
+            security_filters = migrated_gpo.security_filters
+    except BackupError as error:
+        # Backup parser errors may contain untrusted policy fields (for
+        # example an invalid permission or target type).  Keep those details
+        # in the exception chain for local diagnostics, but never reflect
+        # them into the HTTP response.
+        raise StudioError("Invalid or unsafe backup content") from error
+    except StudioError:
+        raise
+    except (RegistryPolError, GppError) as error:
+        raise StudioError("Invalid or malformed policy data in backup") from error
+    except OSError as error:
+        raise StudioError("Filesystem error during backup import") from error
+    except Exception as error:
+        raise StudioError("Backup import failed") from error
 
     temp_gpo = GPO(
         guid="import-preview",
@@ -2100,7 +2209,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         wmi_filter=wmi_filter,
         gpp_collections=gpp_collections,
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.get("/api/gpos/{guid}/gpmc-backup")
@@ -2140,7 +2249,7 @@ def fork_gpo(request: Request, guid: str, body: ForkGPO) -> dict[str, Any]:
     gpo = _store(request).fork_gpo(
         guid, body.name, identity=_identity(body.actor), reason=body.reason
     )
-    return _gpo_payload(gpo)
+    return _gpo_payload(gpo, request)
 
 
 @app.post("/api/estate/diff")

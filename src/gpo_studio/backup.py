@@ -12,9 +12,23 @@ from typing import Literal
 
 from .gpp import contains_cpassword
 from .model import StudioError
+from .safe_io import (
+    SafeOpenError,
+    is_link_or_junction,
+    iter_directory,
+    open_directory,
+    open_regular_file,
+)
+from .xml_safety import parse_xml_bounded
 
 _MAX_FILE_SIZE = 50 * 1024 * 1024
 _MAX_DEPTH = 100
+_MAX_TOTAL_BACKUP_BYTES = 500 * 1024 * 1024
+_MAX_TOTAL_FILE_COUNT = 10000
+_MAX_BACKUP_GPO_COUNT = 100
+_MAX_XML_ELEMENT_COUNT = 100000
+_MAX_XML_TEXT_LENGTH = 1024 * 1024
+_MAX_XML_ATTR_LENGTH = 4096
 _ADMX_NS = "http://www.microsoft.com/GroupPolicy/Types"
 _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 _GUID_RE = re.compile(
@@ -76,28 +90,44 @@ class GpmcBackup:
     gpos: tuple[BackupGpo, ...] = field(default_factory=tuple)
 
 
+@dataclass
+class _BackupBudget:
+    total_bytes: int = 0
+    entry_count: int = 0
+
+    def add_bytes(self, size: int) -> None:
+        self.total_bytes += size
+        if self.total_bytes > _MAX_TOTAL_BACKUP_BYTES:
+            raise BackupError(
+                f"Total backup size exceeds {_MAX_TOTAL_BACKUP_BYTES} bytes"
+            )
+
+    def add_entry(self) -> None:
+        self.entry_count += 1
+        if self.entry_count > _MAX_TOTAL_FILE_COUNT:
+            raise BackupError(
+                f"Total entry count exceeds {_MAX_TOTAL_FILE_COUNT}"
+            )
+
+    def add_file(self, size: int) -> None:
+        self.add_entry()
+        self.add_bytes(size)
+
+
 def _local_name(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
 
-def _check_depth(elem: ET.Element, depth: int = 0) -> None:
-    if depth > _MAX_DEPTH:
-        raise BackupError(f"XML nesting depth exceeds {_MAX_DEPTH}")
-    for child in elem:
-        _check_depth(child, depth + 1)
-
-
 def _safe_parse(data: bytes) -> ET.Element:
-    if len(data) > _MAX_FILE_SIZE:
-        raise BackupError(f"File exceeds {_MAX_FILE_SIZE} bytes")
-    if b"<!ENTITY" in data:
-        raise BackupError("XML entity declarations are not allowed")
-    try:
-        root = ET.fromstring(data)
-    except ET.ParseError as error:
-        raise BackupError(f"Malformed XML: {error}") from error
-    _check_depth(root)
-    return root
+    return parse_xml_bounded(
+        data,
+        max_size=_MAX_FILE_SIZE,
+        max_elements=_MAX_XML_ELEMENT_COUNT,
+        max_depth=_MAX_DEPTH,
+        max_text_length=_MAX_XML_TEXT_LENGTH,
+        max_attr_length=_MAX_XML_ATTR_LENGTH,
+        error_class=BackupError,
+    )
 
 
 _VALID_TARGET_TYPES = {"user", "group", "computer"}
@@ -112,7 +142,7 @@ def _safe_path(base: Path, relative: str) -> Path:
     current = base
     for part in Path(relative).parts:
         current = current / part
-        if current.is_symlink():
+        if is_link_or_junction(current):
             raise BackupError(f"Symlinks are not allowed: {current}")
     resolved = candidate.resolve()
     base_resolved = base.resolve()
@@ -125,8 +155,8 @@ def _safe_path(base: Path, relative: str) -> Path:
 
 def read_file_bytes(path: Path) -> bytes:
     try:
-        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
+        fd = open_regular_file(path)
+    except SafeOpenError:
         raise BackupError(f"Cannot open file (symlink or inaccessible): {path}") from None
     try:
         data = bytearray()
@@ -147,26 +177,36 @@ def read_file_bytes(path: Path) -> bytes:
 
 def _hash_file(path: Path) -> tuple[str, int]:
     try:
-        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
+        fd = open_regular_file(path)
+    except SafeOpenError:
         raise BackupError(f"Cannot open file (symlink or inaccessible): {path}") from None
     try:
-        hasher = hashlib.sha256()
-        size = 0
-        while True:
-            try:
-                chunk = os.read(fd, 65536)
-            except OSError:
-                raise BackupError(f"Cannot read file: {path}") from None
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > _MAX_FILE_SIZE:
-                raise BackupError(f"File exceeds {_MAX_FILE_SIZE} bytes: {path}")
-            hasher.update(chunk)
-        return hasher.hexdigest(), size
+        content_hash, size, _ = _inspect_open_file(fd, path, collect_content=False)
+        return content_hash, size
     finally:
         os.close(fd)
+
+
+def _inspect_open_file(
+    fd: int, path: Path, *, collect_content: bool
+) -> tuple[str, int, bytes | None]:
+    hasher = hashlib.sha256()
+    size = 0
+    data = bytearray() if collect_content else None
+    while True:
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError:
+            raise BackupError(f"Cannot read file: {path}") from None
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > _MAX_FILE_SIZE:
+            raise BackupError(f"File exceeds {_MAX_FILE_SIZE} bytes: {path}")
+        hasher.update(chunk)
+        if data is not None:
+            data.extend(chunk)
+    return hasher.hexdigest(), size, bytes(data) if data is not None else None
 
 
 def _parse_extension_guids(text: str | None) -> list[str]:
@@ -355,39 +395,33 @@ def _text_or_empty(elem: ET.Element | None) -> str:
     return (elem.text or "").strip()
 
 
-def _check_cpassword_in_preferences(gpo_dir: Path) -> None:
-    for side in ("Machine", "User"):
-        prefs_dir = gpo_dir / side / "Preferences"
-        if not prefs_dir.exists():
-            continue
-        if prefs_dir.is_symlink():
-            raise BackupError(
-                f"Symlinks are not allowed in backup content: {prefs_dir}"
-            )
-        for path, rel in _scan_directory_for_files(prefs_dir, prefs_dir):
-            data = read_file_bytes(path)
-            if contains_cpassword(data):
-                raise BackupError(f"cpassword detected in backup file: {rel}")
-
-
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
-    if backup_dir.is_symlink():
+    if is_link_or_junction(backup_dir):
         raise BackupError(f"Symlinks are not allowed: {backup_dir}")
     manifest_path = backup_dir / "manifest.xml"
-    if manifest_path.is_symlink():
+    if is_link_or_junction(manifest_path):
         raise BackupError(f"Symlinks are not allowed: {manifest_path}")
     if not manifest_path.exists():
         raise BackupError(f"Missing manifest.xml in {backup_dir}")
 
+    budget = _BackupBudget()
     manifest_data = read_file_bytes(manifest_path)
+    budget.add_file(len(manifest_data))
     backup = parse_manifest(manifest_data)
+    if len(backup.gpos) > _MAX_BACKUP_GPO_COUNT:
+        raise BackupError(
+            f"Backup contains {len(backup.gpos)} GPOs, "
+            f"exceeding limit of {_MAX_BACKUP_GPO_COUNT}"
+        )
 
     bkup_info_path = backup_dir / "bkupInfo.xml"
-    if bkup_info_path.is_symlink():
+    if is_link_or_junction(bkup_info_path):
         raise BackupError(f"Symlinks are not allowed: {bkup_info_path}")
     if bkup_info_path.exists():
-        bkup = parse_bkup_info(read_file_bytes(bkup_info_path))
+        bkup_data = read_file_bytes(bkup_info_path)
+        budget.add_file(len(bkup_data))
+        bkup = parse_bkup_info(bkup_data)
         backup_time = bkup.backup_time or backup.backup_time
         backup_id = bkup.backup_id or backup.backup_id
         backup_type = bkup.backup_type or backup.backup_type
@@ -403,12 +437,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         if not _GUID_RE.match(gpo.guid):
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
         gpo_dir = backup_dir / gpo.guid
-        # A symlinked GPO directory would let a backup escape the inbox: the
-        # per-side scan only rejects symlinks *within* the side dir, and checks
-        # ``(gpo_dir / "Machine").is_symlink()`` — not gpo_dir itself. Guard it
-        # here so the whole subtree (and the later Registry.pol read) stays
-        # inside the validated backup directory.
-        if gpo_dir.is_symlink():
+        if is_link_or_junction(gpo_dir):
             raise BackupError(f"Symlinks are not allowed in backup content: {gpo_dir}")
 
         display_name = gpo.display_name
@@ -431,10 +460,8 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
             )
             continue
 
-        machine_exts = _scan_side(gpo_dir / "Machine", gpo.machine_extensions)
-        user_exts = _scan_side(gpo_dir / "User", gpo.user_extensions)
-
-        _check_cpassword_in_preferences(gpo_dir)
+        machine_exts = _scan_side(gpo_dir / "Machine", gpo.machine_extensions, budget)
+        user_exts = _scan_side(gpo_dir / "User", gpo.user_extensions, budget)
 
         enriched_gpos.append(
             BackupGpo(
@@ -456,44 +483,88 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
     )
 
 
-def _scan_directory_for_files(
-    dir_path: Path, base: Path, depth: int = 0
-) -> list[tuple[Path, str]]:
+def _scan_directory_fd(
+    dir_fd: int,
+    dir_path: Path,
+    relative_dir: Path,
+    depth: int,
+    budget: _BackupBudget,
+    results: dict[str, CseFile],
+) -> None:
     if depth > _MAX_DEPTH:
         raise BackupError(f"Directory nesting depth exceeds {_MAX_DEPTH}")
-    results: list[tuple[Path, str]] = []
     try:
-        entries = list(os.scandir(dir_path))
-    except OSError as error:
-        raise BackupError(f"Cannot scan directory: {dir_path}") from error
-    for entry in entries:
-        if entry.is_symlink():
-            raise BackupError(f"Symlinks are not allowed in backup content: {entry.path}")
-        if entry.is_dir(follow_symlinks=False):
-            results.extend(
-                _scan_directory_for_files(Path(entry.path), base, depth + 1)
+        for entry in iter_directory(dir_fd):
+            budget.add_entry()
+            entry_path = dir_path / entry.name
+            relative_path = relative_dir / entry.name
+            if entry.is_directory:
+                _scan_directory_fd(
+                    entry.fd,
+                    entry_path,
+                    relative_path,
+                    depth + 1,
+                    budget,
+                    results,
+                )
+                continue
+
+            check_cpassword = bool(
+                relative_path.parts
+                and relative_path.parts[0].casefold() == "preferences"
             )
-        elif entry.is_file(follow_symlinks=False):
-            rel = str(Path(entry.path).relative_to(base))
-            results.append((Path(entry.path), rel))
-    return sorted(results)
+            content_hash, size, content = _inspect_open_file(
+                entry.fd,
+                entry_path,
+                collect_content=check_cpassword,
+            )
+            budget.add_bytes(size)
+            if content is not None and contains_cpassword(content):
+                raise BackupError(
+                    f"cpassword detected in backup file: {relative_path}"
+                )
+            rel = str(relative_path)
+            results[rel] = CseFile(
+                relative_path=rel,
+                content_hash=content_hash,
+                size=size,
+            )
+    except SafeOpenError as error:
+        if "link" in str(error).casefold() or "reparse" in str(error).casefold():
+            raise BackupError(
+                f"Symlinks are not allowed in backup content: {dir_path}"
+            ) from error
+        raise BackupError(f"Cannot scan directory: {dir_path}") from error
 
 
-def _scan_side(side_dir: Path, extensions: tuple[CseExtension, ...]) -> tuple[CseExtension, ...]:
+def _scan_side(
+    side_dir: Path, extensions: tuple[CseExtension, ...], budget: _BackupBudget
+) -> tuple[CseExtension, ...]:
     if not side_dir.exists():
         return extensions
-    if side_dir.is_symlink():
+    if is_link_or_junction(side_dir):
         raise BackupError(f"Symlinks are not allowed in backup content: {side_dir}")
 
     all_files: dict[str, CseFile] = {}
-    for path, rel in _scan_directory_for_files(side_dir, side_dir):
-        if ".." in Path(rel).parts:
-            raise BackupError(f"Path traversal detected: {rel}")
-        content_hash, size = _hash_file(path)
-        all_files[rel] = CseFile(
-            relative_path=rel, content_hash=content_hash, size=size
+    try:
+        side_fd = open_directory(side_dir)
+    except SafeOpenError:
+        raise BackupError(
+            f"Cannot open directory (symlink or inaccessible): {side_dir}"
+        ) from None
+    try:
+        _scan_directory_fd(
+            side_fd,
+            side_dir,
+            Path(),
+            0,
+            budget,
+            all_files,
         )
+    finally:
+        os.close(side_fd)
 
+    all_files = dict(sorted(all_files.items()))
     if not all_files:
         return extensions
 

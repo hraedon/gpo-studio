@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .model import StudioError
+from .safe_io import SafeOpenError, open_regular_file
 
 _MAX_FILE_SIZE = 50 * 1024 * 1024
 
@@ -32,8 +33,8 @@ class WmiCatalogue:
 
 def _read_file_safe(path: Path) -> bytes:
     try:
-        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
+        fd = open_regular_file(path)
+    except SafeOpenError:
         raise WmiCatalogueError(
             f"Cannot open file (symlink or inaccessible): {path}"
         ) from None

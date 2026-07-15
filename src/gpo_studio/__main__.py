@@ -18,7 +18,10 @@ from .workspace_ops import (
 
 
 def _cmd_workspace_check(args: argparse.Namespace) -> int:
+    import contextlib
     import sqlite3
+
+    from .workspace_ops import record_integrity_check
 
     db_path = args.database
     if not os.path.exists(db_path):
@@ -28,6 +31,9 @@ def _cmd_workspace_check(args: argparse.Namespace) -> int:
     conn = sqlite3.connect(db_path)
     try:
         result = full_integrity_check(conn) if args.full else quick_check(conn)
+        check_type = "full" if args.full else "quick"
+        with contextlib.suppress(sqlite3.Error):
+            record_integrity_check(conn, result.ok, check_type)
     except Exception as e:
         print(f"error: integrity check failed: {e}", file=sys.stderr)
         return 1
@@ -137,6 +143,20 @@ def main() -> None:
         db = args.database or "gpo-studio.db"
         host = args.host
         port = args.port
+
+    _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+    if host not in _LOOPBACK_HOSTS and os.getenv(
+        "GPO_STUDIO_UNSAFE_BIND", ""
+    ).lower() not in ("1", "true", "yes"):
+        print(
+            f"error: non-loopback bind address '{host}' requires "
+            "GPO_STUDIO_UNSAFE_BIND=1. The web server has no "
+            "authentication; binding to a non-loopback address "
+            "exposes it to the network.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     os.environ["GPO_STUDIO_DB"] = db
     uvicorn.run("gpo_studio.api:app", host=host, port=port)
 

@@ -8,9 +8,13 @@ from pathlib import Path
 from typing import Literal, assert_never, cast
 
 from .model import RegistryType
+from .xml_safety import parse_xml_bounded
 
 _MAX_FILE_SIZE = 10 * 1024 * 1024
 _MAX_DEPTH = 100
+_MAX_ELEMENT_COUNT = 100_000
+_MAX_TEXT_LENGTH = 1024 * 1024
+_MAX_ATTR_LENGTH = 4096
 _ADMX_NS = "http://www.microsoft.com/GroupPolicy/PolicyDefinitions"
 
 
@@ -84,24 +88,16 @@ def _local_name(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
 
-def _check_depth(elem: ET.Element, depth: int = 0) -> None:
-    if depth > _MAX_DEPTH:
-        raise AdmxError(f"XML nesting depth exceeds {_MAX_DEPTH}")
-    for child in elem:
-        _check_depth(child, depth + 1)
-
-
 def _safe_parse(data: bytes) -> ET.Element:
-    if len(data) > _MAX_FILE_SIZE:
-        raise AdmxError(f"File exceeds {_MAX_FILE_SIZE} bytes")
-    if b"<!ENTITY" in data:
-        raise AdmxError("XML entity declarations are not allowed")
-    try:
-        root = ET.fromstring(data)
-    except ET.ParseError as error:
-        raise AdmxError(f"Malformed XML: {error}") from error
-    _check_depth(root)
-    return root
+    return parse_xml_bounded(
+        data,
+        max_size=_MAX_FILE_SIZE,
+        max_elements=_MAX_ELEMENT_COUNT,
+        max_depth=_MAX_DEPTH,
+        max_text_length=_MAX_TEXT_LENGTH,
+        max_attr_length=_MAX_ATTR_LENGTH,
+        error_class=AdmxError,
+    )
 
 
 def _text_or_empty(elem: ET.Element | None) -> str:

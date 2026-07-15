@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import struct
+
 import pytest
 
 from gpo_studio.model import RegistrySetting
 from gpo_studio.registry_pol import RegistryPolError, parse, serialize
+
+_HEADER = b"PReg" + struct.pack("<I", 1)
 
 
 def setting(name: str, registry_type: str, value: object, action: str = "set") -> RegistrySetting:
@@ -57,3 +61,40 @@ def test_delete_marker_round_trip() -> None:
 def test_rejects_malformed_header() -> None:
     with pytest.raises(RegistryPolError, match="header"):
         parse(b"not-a-policy")
+
+
+def test_rejects_excessive_record_count(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.registry_pol._MAX_POL_RECORDS", 3)
+    records = [setting(f"Val{i}", "REG_DWORD", i) for i in range(5)]
+    data = serialize(records)
+    with pytest.raises(RegistryPolError, match="record count exceeds"):
+        parse(data)
+
+
+def test_rejects_excessive_multi_sz_items(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.registry_pol._MAX_MULTI_SZ_ITEMS", 3)
+    rec = setting("Multi", "REG_MULTI_SZ", [f"item{i}" for i in range(5)])
+    with pytest.raises(RegistryPolError, match="item count exceeds"):
+        serialize([rec])
+
+
+def test_parse_rejects_excessive_multi_sz_items(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.registry_pol._MAX_MULTI_SZ_ITEMS", 3)
+    items = [f"item{i}" for i in range(5)]
+    raw_value = ("\0".join(items) + "\0\0").encode("utf-16le")
+    record_bytes = (
+        "[".encode("utf-16le")
+        + "K".encode("utf-16le")
+        + ";".encode("utf-16le")
+        + "V".encode("utf-16le")
+        + ";".encode("utf-16le")
+        + struct.pack("<I", 7)
+        + ";".encode("utf-16le")
+        + struct.pack("<I", len(raw_value))
+        + ";".encode("utf-16le")
+        + raw_value
+        + "]".encode("utf-16le")
+    )
+    data = _HEADER + record_bytes
+    with pytest.raises(RegistryPolError, match="item count exceeds"):
+        parse(data)

@@ -233,3 +233,11 @@ def test_validate_special_chars_in_value() -> None:
     issues = validate_gpo(gpo)
     assert isinstance(issues, list)
     assert parse(serialize([setting]))[0].value == special
+
+
+def test_bounded_xml_rejects_during_parsing_not_after() -> None:
+    from gpo_studio.xml_safety import parse_xml_bounded
+
+    xml = b"<root>" + b"<a>" * 200 + b"</a>" * 200 + b"</root>"
+    with pytest.raises(ValueError, match="depth"):
+        parse_xml_bounded(xml, max_size=10000, max_depth=50, error_class=ValueError)

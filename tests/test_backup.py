@@ -6,6 +6,7 @@ import pytest
 
 from gpo_studio.backup import (
     BackupError,
+    _BackupBudget,
     parse_bkup_info,
     parse_manifest,
     read_backup,
@@ -347,7 +348,7 @@ def test_scan_side_rejects_symlinked_file(tmp_path: Path) -> None:
     (side_dir / "link.txt").symlink_to(target)
 
     with pytest.raises(BackupError, match="Symlinks are not allowed"):
-        _scan_side(side_dir, ())
+        _scan_side(side_dir, (), _BackupBudget())
 
 
 def test_scan_side_rejects_symlinked_subdirectory(tmp_path: Path) -> None:
@@ -361,7 +362,7 @@ def test_scan_side_rejects_symlinked_subdirectory(tmp_path: Path) -> None:
     (side_dir / "link_dir").symlink_to(real_dir)
 
     with pytest.raises(BackupError, match="Symlinks are not allowed"):
-        _scan_side(side_dir, ())
+        _scan_side(side_dir, (), _BackupBudget())
 
 
 def test_safe_path_rejects_symlink_within_base(tmp_path: Path) -> None:
@@ -593,3 +594,214 @@ def test_read_backup_rejects_symlinked_backup_dir(tmp_path: Path) -> None:
 
     with pytest.raises(BackupError, match="Symlinks are not allowed"):
         read_backup(link_dir)
+
+
+def test_backup_rejects_total_bytes_exceeding_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_TOTAL_BACKUP_BYTES", 100)
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00" + b"x" * 200)
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    with pytest.raises(BackupError, match="exceeds"):
+        read_backup(backup_dir)
+
+
+def test_backup_rejects_total_file_count_exceeding_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_TOTAL_FILE_COUNT", 1)
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    with pytest.raises(BackupError, match="exceeds"):
+        read_backup(backup_dir)
+
+
+def test_backup_rejects_xml_with_too_many_elements(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_XML_ELEMENT_COUNT", 5)
+    with pytest.raises(BackupError, match="exceeds"):
+        parse_manifest(_MANIFEST_XML)
+
+
+def test_backup_rejects_utf16_entity_declaration() -> None:
+    xml_str = (
+        '<?xml version="1.0" encoding="utf-16"?>'
+        '<!DOCTYPE root [<!ENTITY x "test">]><root>&x;</root>'
+    )
+    xml = xml_str.encode("utf-16-le")
+    with pytest.raises(BackupError, match="entity declarations"):
+        parse_manifest(xml)
+
+
+def test_backup_rejects_xml_with_oversized_tail_text(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_XML_TEXT_LENGTH", 10)
+    xml = b'<?xml version="1.0"?><Root><Child/>' + b"x" * 20 + b"</Root>"
+    with pytest.raises(BackupError, match="text length"):
+        parse_manifest(xml)
+
+
+def test_backup_rejects_oversized_file_count_incrementally(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_TOTAL_FILE_COUNT", 2)
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    for i in range(5):
+        (machine_dir / f"file{i}.pol").write_bytes(b"data")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    with pytest.raises(BackupError, match="entry count"):
+        read_backup(backup_dir)
+
+
+def test_backup_counts_empty_directories_toward_entry_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_TOTAL_FILE_COUNT", 4)
+    backup_dir = tmp_path / "backup"
+    machine_dir = (
+        backup_dir
+        / "11111111-2222-3333-4444-555555555555"
+        / "Machine"
+    )
+    machine_dir.mkdir(parents=True)
+    for index in range(4):
+        (machine_dir / f"empty-{index}").mkdir()
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    # The manifest consumes one entry and every empty directory consumes one.
+    with pytest.raises(BackupError, match="entry count"):
+        read_backup(backup_dir)
+
+
+def test_backup_uses_one_entry_budget_across_machine_and_user(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_TOTAL_FILE_COUNT", 4)
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    user_dir = gpo_dir / "User"
+    machine_dir.mkdir(parents=True)
+    user_dir.mkdir()
+    for side_dir in (machine_dir, user_dir):
+        (side_dir / "one.pol").write_bytes(b"one")
+        (side_dir / "two.pol").write_bytes(b"two")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    # Manifest + two Machine files fit. The second User file exceeds the
+    # request-wide budget; separate per-side counters would incorrectly pass.
+    with pytest.raises(BackupError, match="entry count"):
+        read_backup(backup_dir)
+
+
+def test_preferences_cpassword_scan_does_not_recount_entries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_TOTAL_FILE_COUNT", 4)
+    backup_dir = tmp_path / "backup"
+    groups_dir = (
+        backup_dir
+        / "11111111-2222-3333-4444-555555555555"
+        / "Machine"
+        / "Preferences"
+        / "Groups"
+    )
+    groups_dir.mkdir(parents=True)
+    (groups_dir / "Groups.xml").write_bytes(b"<Groups />")
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    # Manifest, Preferences, Groups, and Groups.xml exactly consume the
+    # budget. A second Preferences enumeration would exceed it.
+    backup = read_backup(backup_dir)
+    assert backup.gpos[0].machine_extensions[0].files[0].relative_path == (
+        str(Path("Preferences") / "Groups" / "Groups.xml")
+    )
+
+
+def test_directory_scan_does_not_materialize_with_listdir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import gpo_studio.backup as backup_module
+
+    side_dir = tmp_path / "Machine"
+    side_dir.mkdir()
+    (side_dir / "one.pol").write_bytes(b"one")
+
+    def reject_listdir(*args, **kwargs):
+        raise AssertionError("POSIX backup enumeration must stream with scandir")
+
+    monkeypatch.setattr(backup_module.os, "listdir", reject_listdir)
+    result = backup_module._scan_side(
+        side_dir, (), backup_module._BackupBudget()
+    )
+    assert result[0].files[0].relative_path == "one.pol"
+
+
+def test_scan_consumes_children_from_safe_directory_handles(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import gpo_studio.backup as backup_module
+
+    side_dir = tmp_path / "Machine"
+    nested_dir = side_dir / "nested"
+    nested_dir.mkdir(parents=True)
+    (nested_dir / "one.pol").write_bytes(b"one")
+
+    def reject_path_reopen(path: Path) -> int:
+        raise AssertionError(f"child was reopened by path: {path}")
+
+    monkeypatch.setattr(backup_module, "open_regular_file", reject_path_reopen)
+    result = backup_module._scan_side(
+        side_dir, (), backup_module._BackupBudget()
+    )
+
+    assert result[0].files[0].relative_path == str(Path("nested") / "one.pol")
+    assert result[0].files[0].size == 3
+
+
+def test_scan_hashes_pinned_file_after_parent_swap(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import sys
+
+    import gpo_studio.backup as backup_module
+
+    if sys.platform == "win32":
+        pytest.skip("Directory handle pinning prevents rename on Windows")
+
+    side = tmp_path / "Machine"
+    original_side = tmp_path / "Machine-original"
+    outside = tmp_path / "outside"
+    side.mkdir()
+    outside.mkdir()
+    (side / "same.pol").write_bytes(b"inside")
+    (outside / "same.pol").write_bytes(b"outside-secret")
+
+    original_iter_directory = backup_module.iter_directory
+    swapped = False
+
+    def iter_then_swap(dir_fd: int):
+        nonlocal swapped
+        for entry in original_iter_directory(dir_fd):
+            if not swapped:
+                side.rename(original_side)
+                side.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            yield entry
+
+    monkeypatch.setattr(backup_module, "iter_directory", iter_then_swap)
+    result = backup_module._scan_side(
+        side, (), backup_module._BackupBudget()
+    )
+
+    assert swapped is True
+    assert result[0].files[0].size == len(b"inside")

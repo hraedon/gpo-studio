@@ -513,3 +513,39 @@ def test_disabled_side_with_empty_gpp_collection_no_warning() -> None:
         i.code == "disabled_side_populated" and i.path == "computer_enabled"
         for i in issues
     )
+
+
+def test_multi_sz_item_count_exceeded_in_setting() -> None:
+    from gpo_studio.registry_pol import _MAX_MULTI_SZ_ITEMS
+
+    s = RegistrySetting(
+        id="s1",
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Test",
+        value_name="Value",
+        registry_type="REG_MULTI_SZ",
+        value=[f"item{i}" for i in range(_MAX_MULTI_SZ_ITEMS + 1)],
+    )
+    issues = validate_setting(s)
+    assert any(i.code == "item_count_exceeded" for i in issues)
+
+
+def test_multi_sz_item_count_exceeded_in_gpp_registry() -> None:
+    from gpo_studio.gpp import GppRegistry, GppRegistryValue
+    from gpo_studio.registry_pol import _MAX_MULTI_SZ_ITEMS
+
+    reg = GppRegistry(
+        key=r"Software\Test",
+        hive="HKLM",
+        action="update",
+        value=GppRegistryValue(
+            name="Multi",
+            value=[f"item{i}" for i in range(_MAX_MULTI_SZ_ITEMS + 1)],
+            registry_type="REG_MULTI_SZ",
+        ),
+    )
+    col = GppCollection(scope="computer", registry=(reg,))
+    gpo = _gpo(gpp_collections=(col,))
+    issues = validate_gpo(gpo)
+    assert any(i.code == "item_count_exceeded" for i in issues)

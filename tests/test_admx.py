@@ -171,6 +171,29 @@ def test_entity_declaration_rejected() -> None:
         parse_admx(b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions"/>')
 
 
+def test_admx_element_count_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("gpo_studio.admx._MAX_ELEMENT_COUNT", 2)
+
+    with pytest.raises(AdmxError, match="XML element count exceeds 2"):
+        parse_admx(b"<policyDefinitions><categories><category/></categories></policyDefinitions>")
+
+
+def test_admx_attribute_length_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("gpo_studio.admx._MAX_ATTR_LENGTH", 6)
+
+    with pytest.raises(AdmxError, match="XML attribute length exceeds 6"):
+        parse_admx(b'<policyDefinitions version="1234567"/>')
+
+
+def test_adml_text_length_is_bounded_across_comments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("gpo_studio.admx._MAX_TEXT_LENGTH", 6)
+
+    with pytest.raises(AdmxError, match="XML text length exceeds 6"):
+        parse_adml(b"<resources>12345<!-- split -->67890</resources>")
+
+
 def test_load_catalogue_from_directory(tmp_path) -> None:
     (tmp_path / "test.admx").write_bytes(_ADMX_MINIMAL)
     (tmp_path / "test.adml").write_bytes(_ADML_MINIMAL)

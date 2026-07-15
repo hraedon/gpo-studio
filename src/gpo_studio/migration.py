@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .backup import BackupError, _safe_parse, _text_or_empty
 from .model import GPO, SecurityFilter
+from .safe_io import SafeOpenError, regular_file_descriptor
 
 _GPMC_NS = "http://www.microsoft.com/GroupPolicy/Types"
+_MAX_MIGRATION_TABLE_SIZE = 10 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,8 +30,23 @@ class MigrationTable:
 
 def parse_migration_table(path: Path) -> MigrationTable:
     """Parse a GPMC migration table XML file."""
-    data = path.read_bytes()
-    root = _safe_parse(data)
+    try:
+        with regular_file_descriptor(path) as fd:
+            data = bytearray()
+            while True:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if len(data) > _MAX_MIGRATION_TABLE_SIZE:
+                    raise BackupError(
+                        f"Migration table exceeds {_MAX_MIGRATION_TABLE_SIZE} bytes"
+                    )
+    except SafeOpenError as error:
+        raise BackupError(
+            f"Cannot open migration table (symlink or inaccessible): {error}"
+        ) from None
+    root = _safe_parse(bytes(data))
 
     domain = ""
     domain_elem = root.find(f"./{{{_GPMC_NS}}}Domain")
