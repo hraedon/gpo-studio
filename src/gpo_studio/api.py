@@ -2191,6 +2191,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         security_filters=security_filters,
         wmi_filter=wmi_filter,
         domain=backup_gpo.domain or "studio.local",
+        gpp_collections=gpp_collections,
     )
     gpo_issues = [i for i in validate_gpo(temp_gpo) if i.severity == "error"]
     if gpo_issues:

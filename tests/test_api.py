@@ -2063,3 +2063,38 @@ def test_backup_import_malformed_gpp_returns_422(tmp_path, monkeypatch) -> None:
         })
         assert resp.status_code == 422
         assert str(tmp_path) not in resp.json()["error"]["message"]
+
+
+def test_backup_import_rejects_invalid_gpp_group_name(
+    tmp_path, monkeypatch
+) -> None:
+    """GPP collections must be validated before persistence (Plan 015)."""
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    gpp_dir = gpo_dir / "Machine" / "Preferences" / "Groups"
+    gpp_dir.mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    (gpp_dir / "Groups.xml").write_bytes(
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<Groups xmlns="http://www.microsoft.com/GroupPolicy/GroupObjects">'
+        b'<Group name="">'
+        b'<Properties action="U" />'
+        b'</Group>'
+        b'</Groups>'
+    )
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "test invalid GPP",
+        })
+        assert resp.status_code == 422
+        issues = resp.json()["error"].get("issues", [])
+        assert any(i["code"] == "empty_gpp_group_name" for i in issues)
+
+        gpos = client.get("/api/gpos").json()["items"]
+        assert len(gpos) == 0, "Invalid GPO must not be persisted"
