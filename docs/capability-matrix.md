@@ -428,10 +428,12 @@ require a build step or npm install.
 
 ### Workspace schema
 
-The SQLite workspace schema is **planned** for explicit versioning (Plan 018)
-but is not yet implemented. Migrations are currently additive and guarded by
-`CREATE TABLE IF NOT EXISTS`. Exported artifacts include an explicit
-`schema_version` so downstream tooling can detect breaking changes.
+The SQLite workspace schema has explicit versioning (Plan 018, WP-1).
+A `workspace_meta` table records the schema version, application version,
+and last integrity check. Migrations are forward-only, transactional, and
+preflight-checked. Unknown newer schemas are refused with an actionable
+error. Exported artifacts also include an explicit `schema_version` so
+downstream tooling can detect breaking changes.
 
 ### Deployment
 

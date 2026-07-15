@@ -1,6 +1,10 @@
 # Plan 018 — Workspace and runtime hardening
 
-Status: WP-1/2/3 completed; WP-4/5 substantially complete with gaps.
+Status: Signed off by Sol. WP-1/2/3 completed; WP-4/5 substantially
+complete with gaps. All P1 findings from the final review round
+addressed and validated on native Windows (1103 tests pass on
+mvmcitest01, 1095 locally). Remaining gaps are non-blocking for 1.0:
+fuzz targets and UI-exposed inbox workflow are deferred.
 WP-1/2/3 — CLI backup/restore/check, SQLite online backup API with WAL
 checkpoint, atomic metadata sidecar, crash-safe restore with rollback,
 startup quick-check with health degradation, /api/workspace/integrity
