@@ -5,6 +5,7 @@ import threading
 import uuid
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1612,4 +1613,212 @@ def test_import_baseline_gpos_maps_sqlite_errors_to_workspace_error(
             identity="alice",
             reason="test mutation",
         )
+    store.close()
+
+
+def test_list_gpos_maps_locked_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    mock_conn = MagicMock()
+    mock_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
+    with patch.object(store, "_connection", mock_conn), pytest.raises(
+        WorkspaceError, match="busy"
+    ):
+        store.list_gpos()
+    store.close()
+
+
+def test_get_gpo_maps_disk_full_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    mock_conn = MagicMock()
+    mock_conn.execute.side_effect = sqlite3.OperationalError(
+        "database or disk is full"
+    )
+    with patch.object(store, "_connection", mock_conn), pytest.raises(
+        WorkspaceError, match="disk is full"
+    ):
+        store.get_gpo("nonexistent-guid")
+    store.close()
+
+
+def test_workspace_meta_maps_corrupt_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    mock_conn = MagicMock()
+    mock_conn.execute.side_effect = sqlite3.OperationalError(
+        "database disk image is malformed"
+    )
+    with patch.object(store, "_connection", mock_conn), pytest.raises(
+        WorkspaceError, match="corrupt"
+    ):
+        store.workspace_meta()
+    store.close()
+
+
+def test_sqlite_disk_full_maps_to_workspace_error(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    error = sqlite3.OperationalError("database or disk is full")
+    with pytest.raises(WorkspaceError, match="disk is full"):
+        store._map_sqlite_error(error)
+    store.close()
+
+
+def test_get_gpo_not_found_not_swallowed(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    with pytest.raises(NotFoundError):
+        store.get_gpo("nonexistent-guid")
+    store.close()
+
+
+def test_concurrent_reads_are_safe(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo1 = store.create_gpo("Policy A", identity="alice", reason="initial")
+    gpo2 = store.create_gpo("Policy B", identity="bob", reason="initial")
+    errors: list[Exception] = []
+    errors_lock = threading.Lock()
+
+    def reader() -> None:
+        try:
+            for _ in range(20):
+                gpos = store.list_gpos()
+                assert len(gpos) == 2
+                store.get_gpo(gpo1.guid)
+                store.get_gpo(gpo2.guid)
+        except Exception as exc:
+            with errors_lock:
+                errors.append(exc)
+
+    threads = [threading.Thread(target=reader) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert errors == []
+    store.close()
+
+
+def test_concurrent_read_during_mutation(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Concurrent RW policy", identity="alice", reason="initial")
+    errors: list[Exception] = []
+    errors_lock = threading.Lock()
+
+    def writer() -> None:
+        try:
+            for i in range(10):
+                current = store.get_gpo(gpo.guid)
+                store.put_setting(
+                    current.guid,
+                    current.revision,
+                    {
+                        "side": "computer",
+                        "hive": "HKLM",
+                        "key": r"Software\Policies\Synthetic",
+                        "value_name": f"Setting{i}",
+                        "registry_type": "REG_DWORD",
+                        "value": i,
+                    },
+                    identity="alice",
+                    reason="concurrent write",
+                )
+        except Exception as exc:
+            with errors_lock:
+                errors.append(exc)
+
+    def reader() -> None:
+        try:
+            for _ in range(20):
+                gpos = store.list_gpos()
+                assert len(gpos) >= 1
+                store.get_gpo(gpo.guid)
+        except Exception as exc:
+            with errors_lock:
+                errors.append(exc)
+
+    threads = [
+        threading.Thread(target=writer),
+        threading.Thread(target=reader),
+        threading.Thread(target=reader),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert errors == []
+    final = store.get_gpo(gpo.guid)
+    assert len(final.settings) == 10
+    store.close()
+
+
+def test_concurrent_imports(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo_a = GPO(guid="aaaaaaaa-0000-0000-0000-000000000001", name="Import A")
+    gpo_b = GPO(guid="bbbbbbbb-0000-0000-0000-000000000002", name="Import B")
+    errors: list[Exception] = []
+    errors_lock = threading.Lock()
+
+    def importer(gpo: GPO) -> None:
+        try:
+            summary = store.import_baseline_gpos(
+                [gpo], identity="alice", reason="concurrent import"
+            )
+            assert summary["imported"] == 1
+        except Exception as exc:
+            with errors_lock:
+                errors.append(exc)
+
+    threads = [
+        threading.Thread(target=importer, args=(gpo_a,)),
+        threading.Thread(target=importer, args=(gpo_b,)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert errors == []
+    gpos = store.list_gpos()
+    assert len(gpos) == 2
+    store.close()
+
+
+def test_mutation_blocked_after_concurrent_degradation(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Synthetic policy", identity="alice", reason="initial")
+    store._degraded = True
+    with pytest.raises(WorkspaceError, match="degraded"):
+        store.create_gpo("Another", identity="bob", reason="test")
+    with pytest.raises(WorkspaceError, match="degraded"):
+        store.update_metadata(
+            gpo.guid,
+            gpo.revision,
+            {"description": "updated"},
+            identity="bob",
+            reason="should be blocked",
+        )
+    store.close()
+
+
+def test_sqlite_corruption_error_latches_degraded(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    store.create_gpo("Synthetic policy", identity="alice", reason="initial")
+    mock_conn = MagicMock()
+    mock_conn.execute.side_effect = sqlite3.OperationalError(
+        "database disk image is malformed"
+    )
+    with patch.object(store, "_connection", mock_conn), pytest.raises(
+        WorkspaceError, match="corrupt"
+    ):
+        store.list_gpos()
+    assert store.is_degraded is True
+    store.close()
+
+
+def test_sqlite_database_error_latches_degraded(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    store.create_gpo("Synthetic policy", identity="alice", reason="initial")
+    mock_conn = MagicMock()
+    mock_conn.execute.side_effect = sqlite3.DatabaseError("unknown database error")
+    with patch.object(store, "_connection", mock_conn), pytest.raises(
+        WorkspaceError, match="database error"
+    ):
+        store.list_gpos()
+    assert store.is_degraded is True
     store.close()

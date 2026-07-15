@@ -46,7 +46,12 @@ from .validation import (
     validate_ready_transition,
     validate_setting,
 )
-from .workspace_ops import IntegrityResult
+from .workspace_ops import (
+    IntegrityResult,
+    quick_check,
+    release_workspace_lock,
+    try_acquire_workspace_lock,
+)
 
 
 def _now() -> str:
@@ -260,19 +265,64 @@ class WorkspaceStore:
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
         self._lock = threading.RLock()
+        self._lock_fd: int | None = None
+        self._degraded = False
+        lock_fd = try_acquire_workspace_lock(self.path)
+        if lock_fd is None:
+            raise WorkspaceError(
+                "Cannot open workspace: it is in use by another process. "
+                "Stop the other process and retry."
+            )
+        self._lock_fd = lock_fd
         self._connection = sqlite3.connect(self.path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
+        startup_qc = quick_check(self._connection)
+        if not startup_qc.ok:
+            self._degraded = True
+            return
         self._apply_pragmas()
         self._migrate_schema()
 
+    @property
+    def is_degraded(self) -> bool:
+        return self._degraded
+
+    def _require_healthy(self) -> None:
+        """Raise WorkspaceError if the store is in degraded mode."""
+        if self._degraded:
+            raise WorkspaceError(
+                "Workspace is degraded due to corruption — "
+                "restart with a valid database or restore from backup."
+            )
+
     def close(self) -> None:
-        self._connection.close()
+        with contextlib.suppress(sqlite3.Error):
+            self._connection.close()
+        self._connection = None  # type: ignore[assignment]
+        lock_fd = self._lock_fd
+        self._lock_fd = None
+        if lock_fd is not None:
+            release_workspace_lock(lock_fd)
+
+    def __del__(self) -> None:
+        lock_fd = getattr(self, "_lock_fd", None)
+        conn = getattr(self, "_connection", None)
+        if lock_fd is not None:
+            self._lock_fd = None
+            with contextlib.suppress(Exception):
+                release_workspace_lock(lock_fd)
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
 
     def _apply_pragmas(self) -> None:
-        self._connection.execute("PRAGMA journal_mode = WAL")
-        self._connection.execute("PRAGMA foreign_keys = ON")
-        self._connection.execute("PRAGMA busy_timeout = 5000")
-        self._connection.execute("PRAGMA synchronous = NORMAL")
+        try:
+            self._connection.execute("PRAGMA journal_mode = WAL")
+            self._connection.execute("PRAGMA foreign_keys = ON")
+            self._connection.execute("PRAGMA busy_timeout = 5000")
+            self._connection.execute("PRAGMA synchronous = NORMAL")
+        except sqlite3.Error as error:
+            self._map_sqlite_error(error)
 
     def _migrate_schema(self) -> None:
         from .schema import SchemaError, migrate
@@ -287,19 +337,30 @@ class WorkspaceStore:
     def quick_check(self) -> IntegrityResult:
         """Run PRAGMA quick_check — fast, suitable for startup."""
         from .workspace_ops import quick_check as _quick_check
+        from .workspace_ops import record_integrity_check
 
         with self._lock:
-            return _quick_check(self._connection)
+            result = _quick_check(self._connection)
+            with contextlib.suppress(sqlite3.Error):
+                record_integrity_check(self._connection, result.ok, "quick")
+            if not result.ok:
+                self._degraded = True
+            return result
 
     def full_integrity_check(self) -> IntegrityResult:
         """Run PRAGMA integrity_check — thorough, for operator-invoked checks."""
         from .workspace_ops import full_integrity_check as _full_check
+        from .workspace_ops import record_integrity_check
 
         with self._lock:
-            return _full_check(self._connection)
+            result = _full_check(self._connection)
+            with contextlib.suppress(sqlite3.Error):
+                record_integrity_check(self._connection, result.ok, "full")
+            if not result.ok:
+                self._degraded = True
+            return result
 
-    @staticmethod
-    def _map_sqlite_error(error: sqlite3.Error) -> NoReturn:
+    def _map_sqlite_error(self, error: sqlite3.Error) -> NoReturn:
         """Map SQLite errors to domain exceptions. Never returns; always raises."""
         if isinstance(error, sqlite3.IntegrityError):
             raise ConflictError("A GPO with that name or GUID already exists") from error
@@ -309,32 +370,50 @@ class WorkspaceStore:
                 raise WorkspaceError("Workspace is busy. Try again.") from error
             if "read-only" in msg or "readonly" in msg:
                 raise WorkspaceError("Workspace is read-only.") from error
+            if "disk full" in msg or "database or disk is full" in msg or "database_full" in msg:
+                raise WorkspaceError("Workspace disk is full.") from error
             if "corrupt" in msg or "malformed" in msg:
+                self._degraded = True
                 raise WorkspaceError("Workspace database is corrupt.") from error
+        if isinstance(error, sqlite3.DatabaseError):
+            self._degraded = True
+            raise WorkspaceError("Workspace database error.") from error
         raise WorkspaceError(f"Workspace error: {error}") from error
 
     def workspace_meta(self) -> dict[str, str]:
         with self._lock:
-            rows = self._connection.execute(
-                "SELECT key, value FROM workspace_meta"
-            ).fetchall()
-            return {row["key"]: row["value"] for row in rows}
+            self._require_healthy()
+            try:
+                rows = self._connection.execute(
+                    "SELECT key, value FROM workspace_meta"
+                ).fetchall()
+                return {row["key"]: row["value"] for row in rows}
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
 
     def list_gpos(self) -> list[GPO]:
         with self._lock:
-            rows = self._connection.execute(
-                "SELECT snapshot_json FROM gpos ORDER BY name COLLATE NOCASE"
-            ).fetchall()
-            return [gpo_from_dict(json.loads(row["snapshot_json"])) for row in rows]
+            self._require_healthy()
+            try:
+                rows = self._connection.execute(
+                    "SELECT snapshot_json FROM gpos ORDER BY name COLLATE NOCASE"
+                ).fetchall()
+                return [gpo_from_dict(json.loads(row["snapshot_json"])) for row in rows]
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
 
     def get_gpo(self, guid: str) -> GPO:
         with self._lock:
-            row = self._connection.execute(
-                "SELECT snapshot_json FROM gpos WHERE guid = ?", (guid.lower(),)
-            ).fetchone()
-            if row is None:
-                raise NotFoundError(f"GPO {guid} was not found")
-            return gpo_from_dict(json.loads(row["snapshot_json"]))
+            self._require_healthy()
+            try:
+                row = self._connection.execute(
+                    "SELECT snapshot_json FROM gpos WHERE guid = ?", (guid.lower(),)
+                ).fetchone()
+                if row is None:
+                    raise NotFoundError(f"GPO {guid} was not found")
+                return gpo_from_dict(json.loads(row["snapshot_json"]))
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
 
     def create_gpo(
         self,
@@ -377,6 +456,7 @@ class WorkspaceStore:
         )
         payload = json.dumps(gpo.to_dict(), separators=(",", ":"), sort_keys=True)
         with self._lock:
+            self._require_healthy()
             try:
                 self._connection.execute("BEGIN IMMEDIATE")
                 self._connection.execute(
@@ -436,6 +516,7 @@ class WorkspaceStore:
             )
             try:
                 with self._lock:
+                    self._require_healthy()
                     try:
                         try:
                             self.get_gpo(normalized_guid)
@@ -529,6 +610,7 @@ class WorkspaceStore:
     ) -> GPO:
         actor = _resolve_actor(identity)
         with self._lock:
+            self._require_healthy()
             try:
                 self._connection.execute("BEGIN IMMEDIATE")
                 current = self.get_gpo(guid)
@@ -1210,39 +1292,47 @@ class WorkspaceStore:
 
     def revisions(self, guid: str) -> list[Revision]:
         with self._lock:
-            self.get_gpo(guid)
-            rows = self._connection.execute(
-                """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
-                   WHERE gpo_guid=? ORDER BY revision DESC""",
-                (guid.lower(),),
-            ).fetchall()
-            return [
-                Revision(
+            self._require_healthy()
+            try:
+                self.get_gpo(guid)
+                rows = self._connection.execute(
+                    """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
+                       WHERE gpo_guid=? ORDER BY revision DESC""",
+                    (guid.lower(),),
+                ).fetchall()
+                return [
+                    Revision(
+                        revision=int(row["revision"]),
+                        actor=str(row["actor"]),
+                        reason=str(row["reason"]),
+                        created_at=str(row["created_at"]),
+                        snapshot=json.loads(row["snapshot_json"]),
+                    )
+                    for row in rows
+                ]
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+
+    def get_revision(self, guid: str, revision: int) -> Revision:
+        with self._lock:
+            self._require_healthy()
+            try:
+                row = self._connection.execute(
+                    """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
+                       WHERE gpo_guid=? AND revision=?""",
+                    (guid.lower(), revision),
+                ).fetchone()
+                if row is None:
+                    raise NotFoundError(f"Revision {revision} was not found")
+                return Revision(
                     revision=int(row["revision"]),
                     actor=str(row["actor"]),
                     reason=str(row["reason"]),
                     created_at=str(row["created_at"]),
                     snapshot=json.loads(row["snapshot_json"]),
                 )
-                for row in rows
-            ]
-
-    def get_revision(self, guid: str, revision: int) -> Revision:
-        with self._lock:
-            row = self._connection.execute(
-                """SELECT revision, actor, reason, created_at, snapshot_json FROM revisions
-                   WHERE gpo_guid=? AND revision=?""",
-                (guid.lower(), revision),
-            ).fetchone()
-            if row is None:
-                raise NotFoundError(f"Revision {revision} was not found")
-            return Revision(
-                revision=int(row["revision"]),
-                actor=str(row["actor"]),
-                reason=str(row["reason"]),
-                created_at=str(row["created_at"]),
-                snapshot=json.loads(row["snapshot_json"]),
-            )
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
 
     def restore_revision(
         self,

@@ -284,3 +284,14 @@ def test_api_wmi_filters_empty_when_no_env(tmp_path: Path, monkeypatch) -> None:
         resp = client.get("/api/wmi-filters")
         assert resp.status_code == 200
         assert resp.json()["count"] == 0
+
+
+def test_catalogue_rejects_symlinked_parent_directory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "wmi.json").write_text(json.dumps({"filters": []}))
+    linked_parent = tmp_path / "linked"
+    linked_parent.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(WmiCatalogueError, match="symlink or inaccessible"):
+        load_wmi_catalogue(linked_parent / "wmi.json")

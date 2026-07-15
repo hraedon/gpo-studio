@@ -102,6 +102,11 @@ The generated plan is a starting point for controlled publication, not a
 transactional deployment engine. Test it in a lab, review it, and use delegated
 GPO permissions. Native Windows behavior and CSE-specific details still apply.
 
+Operator references:
+
+- [Workspace backup and recovery](docs/workspace-recovery.md)
+- [Import resource limits](docs/import-resource-limits.md)
+
 ## Project layout
 
 | Path | Responsibility |

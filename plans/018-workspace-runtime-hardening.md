@@ -1,11 +1,28 @@
 # Plan 018 — Workspace and runtime hardening
 
-Status: WP-1/2/4/5 completed; WP-3 completed — CLI backup/restore/check,
-SQLite online backup API with WAL checkpoint, atomic metadata sidecar,
-crash-safe restore with rollback, startup quick-check with health
-degradation, /api/workspace/integrity endpoint. Four rounds of adversarial
-review resolved all CRITICAL/MAJOR findings. 940 tests pass, ruff and mypy
---strict clean.
+Status: WP-1/2/3 completed; WP-4/5 substantially complete with gaps.
+WP-1/2/3 — CLI backup/restore/check, SQLite online backup API with WAL
+checkpoint, atomic metadata sidecar, crash-safe restore with rollback,
+startup quick-check with health degradation, /api/workspace/integrity
+endpoint. WP-4 — bounded input with total bytes, file count, depth, XML
+limits (text, tail, attributes, elements), symlink rejection; safe_io
+race-resistant file access on POSIX (openat) and Windows (NtOpenFile +
+RootDirectory walk with CreateFileW re-open + identity verification);
+migration table read through safe_io with size limit; PReg record count
+limit and REG_MULTI_SZ item-count limit; backup GPO count limit; body-size
+streaming enforcement; import error boundary sanitizing absolute paths.
+Gaps remain: fuzz targets and a documented/UI-exposed inbox workflow are
+not yet implemented. WP-5 — loopback binding, Host/Origin validation,
+CSP, structured logging with request ID, operation, GPO GUID, revision,
+outcome, duration. Directory enumeration applies file-count budget
+incrementally. Integrity endpoint is POST with Origin validation.
+Platform-specific lock abstraction supports POSIX and Windows.
+Numeric resource limits: dword range [0, 2^32-1], qword range
+[0, 2^64-1], REG_MULTI_SZ max 10000 items, PReg max 100000 records,
+backup max 100 GPOs, migration table max 10 MB, per-file max 50 MB,
+total backup max 500 MB, max 10000 filesystem entries, max depth 100,
+request body max 10 MB. The complete operator reference is
+`docs/import-resource-limits.md`.
 Scope: make the local SQLite workspace recoverable, concurrency-safe, bounded,
 and secure under the stated single-operator deployment model
 Depends on: Plan 015; may proceed in parallel with Plans 016 and 017
@@ -93,3 +110,12 @@ budgets rather than only per-file checks.
   authentication boundary.
 - Logs and error bodies pass synthetic-sensitive-data leakage tests.
 
+## Remaining gaps
+
+- Fuzz targets for PReg, XML, GPP, SDDL, estate JSON, canonical JSON, and
+  migration tables are not yet implemented (WP-4).
+- Documented/UI-exposed inbox workflow for server-side import staging is
+  not yet implemented (WP-4).
+- Import error boundary catches all exception types but individual error
+  messages from deep parsing layers (PReg, GPP) are generic; richer
+  context could improve operator diagnostics without leaking paths.

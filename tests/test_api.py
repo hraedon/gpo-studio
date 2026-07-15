@@ -699,6 +699,7 @@ def test_backup_import_outside_inbox_rejected(tmp_path: Path, monkeypatch) -> No
         assert resp.status_code == 422
         issues = resp.json()["error"]["issues"]
         assert issues[0]["code"] == "path_outside_inbox"
+        assert str(backup_dir) not in issues[0]["message"]
 
 
 def test_backup_import_no_inbox_configured(tmp_path: Path, monkeypatch) -> None:
@@ -1511,6 +1512,7 @@ def test_gpp_ilt_reserved_attr_returns_422_not_500(tmp_path) -> None:
         assert resp.status_code == 422
         issues = resp.json()["error"]["issues"]
         assert any("reserved" in i["message"].lower() for i in issues)
+    store.close()
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
     app.state.owns_store = False
@@ -1961,3 +1963,103 @@ def test_post_gpp_group_still_creates_after_must_exist_change(tmp_path) -> None:
         assert resp.status_code == 200
         gpo = resp.json()["gpo"]
         assert gpo["gpp_collections"][0]["groups"][0]["name"] == "Admins2"
+
+
+# --- Regression tests for Plan 018 hardening ---
+
+
+def test_backup_import_rejects_excessive_gpo_count(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.backup._MAX_BACKUP_GPO_COUNT", 3)
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    gpos_xml = []
+    for i in range(5):
+        guid = f"00000000-0000-0000-0000-{i:012d}"
+        gpo_dir = backup_dir / guid
+        (gpo_dir / "Machine").mkdir(parents=True)
+        gpos_xml.append(
+            f"<GPO><Identifier>{guid}</Identifier>"
+            f"<DisplayName>GPO {i}</DisplayName><Domain>test</Domain></GPO>"
+        )
+    manifest = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types">'
+        + b"".join(f"<BackupInstance>{g}</BackupInstance>".encode() for g in gpos_xml)
+        + b"</BackupInstances>"
+    )
+    (backup_dir / "manifest.xml").write_bytes(manifest)
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "test",
+        })
+        assert resp.status_code == 422
+        assert resp.json()["error"]["message"] == "Invalid or unsafe backup content"
+
+
+def test_backup_import_sanitizes_paths_in_errors(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(b"not valid xml")
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "test",
+        })
+        assert resp.status_code == 422
+        msg = resp.json()["error"]["message"]
+        assert str(tmp_path) not in msg
+        assert str(backup_dir) not in msg
+
+
+def test_backup_import_malformed_preg_returns_422(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    (machine_dir / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00\x00\x00")
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "test",
+        })
+        assert resp.status_code == 422
+        assert str(tmp_path) not in resp.json()["error"]["message"]
+
+
+def test_backup_import_malformed_gpp_returns_422(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    gpo_dir.mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    gpp_dir = gpo_dir / "Machine" / "Preferences" / "Groups"
+    gpp_dir.mkdir(parents=True)
+    (gpp_dir / "Groups.xml").write_bytes(b"<Groups><unclosed")
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/backups/import", json={
+            "path": str(backup_dir),
+            "actor": "tester",
+            "reason": "test",
+        })
+        assert resp.status_code == 422
+        assert str(tmp_path) not in resp.json()["error"]["message"]

@@ -560,3 +560,48 @@ def test_estate_diff_api_detects_changes(tmp_path) -> None:
         result = resp.json()
         assert len(result["settings"]) == 1
         assert result["settings"][0]["kind"] == "added"
+
+
+def test_parse_estate_rejects_too_many_gpos(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.estate.MAX_ESTATE_GPO_COUNT", 3)
+    gpos = []
+    for i in range(4):
+        gpos.append({
+            "guid": f"{i:08x}-2222-3333-4444-555555555555",
+            "display_name": f"GPO {i}",
+            "domain": "corp.example.test",
+            "settings": [],
+            "links": [],
+            "security_filters": [],
+            "wmi_filter": None,
+        })
+    estate = {"kind": "gpo-lens-estate", "domain": "corp.example.test", "gpos": gpos}
+    with pytest.raises(ValidationError) as exc_info:
+        parse_estate(estate)
+    assert exc_info.value.issues[0].code == "too_many_gpos"
+
+
+def test_parse_estate_rejects_deeply_nested_json() -> None:
+    nested = "value"
+    for _ in range(70):
+        nested = {"key": nested}
+    estate = {
+        "kind": "gpo-lens-estate",
+        "domain": "corp.example.test",
+        "gpos": [],
+        "extra": nested,
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        parse_estate(estate)
+    assert exc_info.value.issues[0].code == "json_nesting_too_deep"
+
+
+def test_parse_estate_rejects_non_dict_gpo_entry() -> None:
+    estate = {
+        "kind": "gpo-lens-estate",
+        "domain": "corp.example.test",
+        "gpos": ["not a dict"],
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        parse_estate(estate)
+    assert exc_info.value.issues[0].code == "invalid_gpo_entry"

@@ -90,6 +90,25 @@ def test_parse_migration_table_malformed(tmp_path: Path) -> None:
         parse_migration_table(mig_path)
 
 
+def test_parse_migration_table_rejects_symlink(tmp_path: Path) -> None:
+    import os
+
+    real = tmp_path / "real.xml"
+    real.write_bytes(_MIGRATION_XML)
+    link = tmp_path / "link.xml"
+    os.symlink(real, link)
+    with pytest.raises(BackupError, match="Cannot open migration table"):
+        parse_migration_table(link)
+
+
+def test_parse_migration_table_rejects_oversized(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.migration._MAX_MIGRATION_TABLE_SIZE", 100)
+    mig_path = tmp_path / "big.xml"
+    mig_path.write_bytes(_MIGRATION_XML)
+    with pytest.raises(BackupError, match="exceeds"):
+        parse_migration_table(mig_path)
+
+
 def test_apply_migration_replaces_sids_and_principals() -> None:
     gpo = GPO(
         guid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",

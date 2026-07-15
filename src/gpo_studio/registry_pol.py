@@ -17,6 +17,8 @@ _HEADER = b"PReg" + struct.pack("<I", 1)
 _OPEN = "[".encode("utf-16le")
 _CLOSE = "]".encode("utf-16le")
 _SEP = ";".encode("utf-16le")
+_MAX_POL_RECORDS = 100000
+_MAX_MULTI_SZ_ITEMS = 10000
 
 _TYPE_TO_CODE = {
     "REG_SZ": 1,
@@ -69,6 +71,10 @@ def _encode_data(registry_type: str, value: str | int | list[str]) -> bytes:
     if registry_type == "REG_MULTI_SZ":
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise RegistryPolError("REG_MULTI_SZ requires a string list")
+        if len(value) > _MAX_MULTI_SZ_ITEMS:
+            raise RegistryPolError(
+                f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}"
+            )
         return ("\0".join(value) + "\0\0").encode("utf-16le")
     raise RegistryPolError(f"unsupported registry type: {registry_type}")
 
@@ -87,7 +93,13 @@ def _decode_data(registry_type: str, data: bytes) -> str | int | list[str]:
             raise RegistryPolError("REG_QWORD payload is not eight bytes")
         return cast(int, struct.unpack("<Q", data)[0])
     if registry_type == "REG_MULTI_SZ":
-        return [item for item in data.decode("utf-16le").rstrip("\0").split("\0") if item]
+        decoded = data.decode("utf-16le").rstrip("\0")
+        item_count = decoded.count("\0") + 1 if decoded else 0
+        if item_count > _MAX_MULTI_SZ_ITEMS:
+            raise RegistryPolError(
+                f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}"
+            )
+        return [item for item in decoded.split("\0") if item]
     raise RegistryPolError(f"unsupported registry type: {registry_type}")
 
 
@@ -144,6 +156,10 @@ def parse(data: bytes) -> list[PolRecord]:
         if data[offset : offset + 2] != _OPEN:
             raise RegistryPolError(f"expected record at byte {offset}")
         offset += 2
+        if len(records) >= _MAX_POL_RECORDS:
+            raise RegistryPolError(
+                f"PReg record count exceeds {_MAX_POL_RECORDS}"
+            )
         key_bytes, offset = _read_until(data, offset, _SEP)
         name_bytes, offset = _read_until(data, offset, _SEP)
         if offset + 4 > len(data):

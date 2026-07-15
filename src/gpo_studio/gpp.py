@@ -13,6 +13,8 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal, assert_never
 
 from .ilt import IltFilter, IltPredicate, parse_ilt, serialize_ilt
+from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .xml_safety import parse_xml_bounded
 
 _GPP_NS = "http://www.microsoft.com/GroupPolicy/Settings"
 
@@ -129,6 +131,25 @@ class GppError(ValueError):
     """Malformed or unsupported GPP content."""
 
 
+_MAX_GPP_XML_SIZE = 10 * 1024 * 1024
+_MAX_GPP_XML_DEPTH = 100
+_MAX_GPP_XML_ELEMENTS = 100000
+_MAX_GPP_XML_TEXT_LENGTH = 1024 * 1024
+_MAX_GPP_XML_ATTR_LENGTH = 4096
+
+
+def _bounded_parse(data: bytes) -> ET.Element:
+    return parse_xml_bounded(
+        data,
+        max_size=_MAX_GPP_XML_SIZE,
+        max_elements=_MAX_GPP_XML_ELEMENTS,
+        max_depth=_MAX_GPP_XML_DEPTH,
+        max_text_length=_MAX_GPP_XML_TEXT_LENGTH,
+        max_attr_length=_MAX_GPP_XML_ATTR_LENGTH,
+        error_class=GppError,
+    )
+
+
 def _capture_unknown_attrs(
     elem: ET.Element, known: frozenset[str]
 ) -> tuple[tuple[str, str], ...]:
@@ -172,10 +193,19 @@ def _validate_unknown_children(
 ) -> None:
     """Raise GppError if any unknown child local name collides with a reserved name."""
     for raw in unknown:
+        data = raw.encode("utf-8")
+        if len(data) > _MAX_GPP_XML_SIZE:
+            raise GppError(
+                f"Unknown child XML exceeds {_MAX_GPP_XML_SIZE} bytes in {context}"
+            )
+        if b"<!ENTITY" in data:
+            raise GppError(f"XML entity declarations not allowed in {context}")
         try:
-            child = ET.fromstring(raw)
-        except ET.ParseError:
-            continue
+            child = _bounded_parse(data)
+        except GppError as error:
+            raise GppError(
+                f"Malformed unknown child XML in {context}: {error}"
+            ) from error
         if _local_name(child.tag) in reserved:
             raise GppError(
                 f"Unknown child <{_local_name(child.tag)}> in {context} "
@@ -193,8 +223,9 @@ def _append_unknown_children(
 ) -> None:
     for raw in unknown:
         try:
-            elem.append(ET.fromstring(raw))
-        except ET.ParseError as error:
+            child = _bounded_parse(raw.encode("utf-8"))
+            elem.append(child)
+        except GppError as error:
             raise GppError(
                 f"Corrupted unknown XML in {context}: {error}"
             ) from error
@@ -528,10 +559,7 @@ def _parse_group(elem: ET.Element) -> GppGroup:
 
 def parse_gpp_groups(data: bytes) -> tuple[GppGroup, ...]:
     """Parse GPP Groups XML bytes into a tuple of GppGroup."""
-    try:
-        root = ET.fromstring(data)
-    except ET.ParseError as error:
-        raise GppError(f"Malformed GPP Groups XML: {error}") from error
+    root = _bounded_parse(data)
     return tuple(_parse_group(elem) for elem in _findall_local(root, "Group"))
 
 
@@ -548,6 +576,10 @@ def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
             raise GppError(f"Invalid {reg_type} value: {raw!r}") from error
     elif reg_type == "REG_MULTI_SZ":
         value = raw.split(";") if raw else []
+        if len(value) > _MAX_MULTI_SZ_ITEMS:
+            raise GppError(
+                f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}"
+            )
     else:
         value = raw
     return GppRegistryValue(
@@ -619,10 +651,7 @@ def parse_gpp_registry(data: bytes) -> tuple[GppRegistry, ...]:
     Each <Registry> XML element becomes one GppRegistry with exactly
     one value per MS-GPPREF.
     """
-    try:
-        root = ET.fromstring(data)
-    except ET.ParseError as error:
-        raise GppError(f"Malformed GPP Registry XML: {error}") from error
+    root = _bounded_parse(data)
 
     parsed: list[GppRegistry] = []
     for elem in _findall_local(root, "Registry"):
@@ -644,8 +673,8 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
         if normalized.endswith("Groups/Groups.xml"):
             groups = parse_gpp_groups(content)
             try:
-                root = ET.fromstring(content)
-            except ET.ParseError:
+                root = _bounded_parse(content)
+            except GppError:
                 root = None
             if root is not None:
                 groups_unknown_attrs = _capture_unknown_attrs(
@@ -657,8 +686,8 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
         elif normalized.endswith("Registry/Registry.xml"):
             registry = parse_gpp_registry(content)
             try:
-                root = ET.fromstring(content)
-            except ET.ParseError:
+                root = _bounded_parse(content)
+            except GppError:
                 root = None
             if root is not None:
                 registry_unknown_attrs = _capture_unknown_attrs(
@@ -1074,8 +1103,8 @@ def contains_cpassword(xml: bytes) -> bool:
     if b"cpassword" not in xml.lower():
         return False
     try:
-        root = ET.fromstring(xml)
-    except ET.ParseError:
+        root = _bounded_parse(xml)
+    except GppError:
         return True
     for elem in root.iter():
         for attr_name in elem.attrib:

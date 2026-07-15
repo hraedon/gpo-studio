@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from typing import Protocol
 
@@ -71,9 +72,16 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
         row = conn.execute(
             "SELECT value FROM workspace_meta WHERE key = 'schema_version'"
         ).fetchone()
-        return int(row[0]) if row else 0
     except sqlite3.OperationalError:
         return 0
+    if not row:
+        return 0
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        raise SchemaError(
+            f"Workspace schema_version metadata is not a valid integer: {row[0]!r}"
+        ) from None
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -89,20 +97,39 @@ def migrate(conn: sqlite3.Connection) -> None:
             f"Workspace schema version {current} is too old. "
             f"Minimum supported version is {MIN_READ_VERSION}."
         )
-    for version in range(current, SCHEMA_VERSION):
-        migration = _MIGRATIONS.get(version)
-        if migration is None:
-            raise SchemaError(f"No migration path from schema version {version}.")
-        migration(conn)
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO workspace_meta(key, value) VALUES
-        ('schema_version', ?),
-        ('app_version', ?)
-        """,
-        (str(SCHEMA_VERSION), _get_app_version()),
-    )
-    conn.commit()
+    if current == SCHEMA_VERSION:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO workspace_meta(key, value) VALUES ('app_version', ?)",
+                (_get_app_version(),),
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            with contextlib.suppress(sqlite3.Error):
+                conn.execute("ROLLBACK")
+            raise
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for version in range(current, SCHEMA_VERSION):
+            migration = _MIGRATIONS.get(version)
+            if migration is None:
+                raise SchemaError(f"No migration path from schema version {version}.")
+            migration(conn)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO workspace_meta(key, value) VALUES
+            ('schema_version', ?),
+            ('app_version', ?)
+            """,
+            (str(SCHEMA_VERSION), _get_app_version()),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        with contextlib.suppress(sqlite3.Error):
+            conn.execute("ROLLBACK")
+        raise
 
 
 def _get_app_version() -> str:

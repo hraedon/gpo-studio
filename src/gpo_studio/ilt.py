@@ -15,7 +15,31 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
 
+from .xml_safety import parse_xml_bounded
+
 _ILT_NS = "http://www.microsoft.com/GroupPolicy/Settings"
+
+_MAX_ILT_XML_SIZE = 1 * 1024 * 1024
+_MAX_ILT_XML_DEPTH = 50
+_MAX_ILT_XML_ELEMENTS = 10000
+_MAX_ILT_XML_TEXT_LENGTH = 65536
+_MAX_ILT_XML_ATTR_LENGTH = 4096
+
+
+class IltError(ValueError):
+    """Malformed or unsupported ILT expression."""
+
+
+def _bounded_parse_ilt(raw: str) -> ET.Element:
+    return parse_xml_bounded(
+        raw,
+        max_size=_MAX_ILT_XML_SIZE,
+        max_elements=_MAX_ILT_XML_ELEMENTS,
+        max_depth=_MAX_ILT_XML_DEPTH,
+        max_text_length=_MAX_ILT_XML_TEXT_LENGTH,
+        max_attr_length=_MAX_ILT_XML_ATTR_LENGTH,
+        error_class=IltError,
+    )
 
 
 def _ns(tag: str) -> str:
@@ -28,10 +52,6 @@ def _local_name(tag: str) -> str:
 IltPredicateType = Literal[
     "ou", "group", "registry", "ip_range", "environment", "wmi_query"
 ]
-
-
-class IltError(ValueError):
-    """Malformed or unsupported ILT content."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,12 +170,7 @@ def serialize_ilt(filter: IltFilter) -> ET.Element:
         if isinstance(item, IltPredicate):
             root.append(_serialize_predicate(item))
         else:
-            try:
-                root.append(ET.fromstring(item))
-            except ET.ParseError as error:
-                raise IltError(
-                    f"Corrupted unknown ILT predicate XML: {error}"
-                ) from error
+            root.append(_bounded_parse_ilt(item))
     return root
 
 

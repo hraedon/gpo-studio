@@ -1109,3 +1109,30 @@ def test_ensure_editor_ids_preserves_existing_uid() -> None:
     assert result.registry[0].uid == "{existing-uid}"
     assert result.registry[0].id == "reg-1"
     assert result.registry[0].value.id == "val-1"
+
+
+def test_parse_groups_rejects_oversized_tail_text(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.gpp._MAX_GPP_XML_TEXT_LENGTH", 10)
+    xml = (
+        b'<?xml version="1.0"?>'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Admins">'
+        b'<Properties action="U" groupName="Admins" deleteAllUsers="0" deleteAllGroups="0"/>'
+        b'</Group>' + b"x" * 20 + b'</Groups>'
+    )
+    with pytest.raises(GppError, match="text length"):
+        parse_gpp_groups(xml)
+
+
+def test_parse_registry_rejects_oversized_tail_text(monkeypatch) -> None:
+    monkeypatch.setattr("gpo_studio.gpp._MAX_GPP_XML_TEXT_LENGTH", 10)
+    xml = (
+        b'<?xml version="1.0"?>'
+        b'<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+        b'<Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="K">'
+        b'<Properties action="C" hive="HKEY_LOCAL_MACHINE" key="K"'
+        b' name="V" type="REG_SZ" value="x"/>'
+        b'</Registry>' + b"x" * 20 + b'</RegistrySettings>'
+    )
+    with pytest.raises(GppError, match="text length"):
+        parse_gpp_registry(xml)
