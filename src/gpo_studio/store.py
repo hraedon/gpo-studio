@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, NoReturn, cast
+from typing import Any, Literal, NoReturn, cast
 
 from .gpp import (
     GppCollection,
@@ -430,6 +430,7 @@ class WorkspaceStore:
         domain: str = "studio.local",
         computer_enabled: bool = True,
         user_enabled: bool = True,
+        status: Literal["draft", "ready", "archived"] = "draft",
         security_filters: tuple[SecurityFilter, ...] = (),
         wmi_filter: WmiFilter | None = None,
         gpp_collections: tuple[GppCollection, ...] = (),
@@ -442,6 +443,7 @@ class WorkspaceStore:
             description=description.strip(),
             computer_enabled=computer_enabled,
             user_enabled=user_enabled,
+            status=status,
             revision=1,
             settings=settings,
             links=links,
@@ -617,7 +619,9 @@ class WorkspaceStore:
                 if current.revision != expected_revision:
                     raise ConflictError(
                         f"Expected revision {expected_revision}, "
-                        f"but the current revision is {current.revision}"
+                        f"but the current revision is {current.revision}",
+                        expected_revision=expected_revision,
+                        current_revision=current.revision,
                     )
                 timestamp = _now()
                 changed = mutation(current)
@@ -873,6 +877,79 @@ class WorkspaceStore:
         return tuple(
             new_collection if i == idx else c
             for i, c in enumerate(gpo.gpp_collections)
+        )
+
+    def reorder_gpp(
+        self,
+        guid: str,
+        expected_revision: int,
+        scope: GppScope,
+        kind: str,
+        ordered_ids: tuple[str, ...],
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Atomically reorder one GPP collection without changing its items."""
+
+        if kind not in ("groups", "registry"):
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_gpp_reorder_kind",
+                    message="GPP reorder kind must be groups or registry.",
+                    path="kind",
+                )
+            ])
+
+        def mutate(gpo: GPO) -> GPO:
+            found = self._find_collection(gpo, scope)
+            if found is None:
+                raise NotFoundError(f"GPP {scope} collection was not found")
+            idx, existing = found
+            current_ids = tuple(
+                item.id
+                for item in (
+                    existing.groups if kind == "groups" else existing.registry
+                )
+            )
+            if (
+                len(ordered_ids) != len(current_ids)
+                or len(set(ordered_ids)) != len(ordered_ids)
+                or set(ordered_ids) != set(current_ids)
+            ):
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="invalid_gpp_reorder_ids",
+                        message="ordered_ids must contain every current item exactly once.",
+                        path="ordered_ids",
+                    )
+                ])
+            if kind == "groups":
+                groups_by_id = {item.id: item for item in existing.groups}
+                reordered_groups = tuple(
+                    groups_by_id[item_id] for item_id in ordered_ids
+                )
+                new_collection = replace(existing, groups=reordered_groups)
+            else:
+                registry_by_id = {item.id: item for item in existing.registry}
+                reordered_registry = tuple(
+                    registry_by_id[item_id] for item_id in ordered_ids
+                )
+                new_collection = replace(existing, registry=reordered_registry)
+            self._validate_gpp(new_collection)
+            return replace(
+                gpo,
+                gpp_collections=self._replace_collection(gpo, idx, new_collection),
+            )
+
+        return self._mutate(
+            guid,
+            expected_revision,
+            mutate,
+            identity=identity,
+            reason=reason,
         )
 
     def put_gpp_group(

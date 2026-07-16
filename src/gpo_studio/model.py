@@ -130,6 +130,17 @@ class NotFoundError(StudioError):
 class ConflictError(StudioError):
     """The expected revision is stale."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        expected_revision: int | None = None,
+        current_revision: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.expected_revision = expected_revision
+        self.current_revision = current_revision
+
 
 class ValidationError(StudioError):
     """The requested mutation is invalid."""

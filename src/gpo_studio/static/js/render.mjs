@@ -1,4 +1,4 @@
-import {state,$,$$,escapeHtml} from './state.mjs';
+import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
 import {api} from './api.mjs';
 import {openSetting,deleteSetting,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
@@ -15,21 +15,27 @@ export function renderList(){
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}
 export async function selectGpo(guid){
-  const data=await api(`/api/gpos/${guid}`);state.current=data.gpo;state.validation=data.validation;state.policyHash=data.policy_semantic_sha256||"";
+  const data=await api(`/api/gpos/${guid}`);applyPayload(data);
   $("#empty").hidden=true;$("#workspace").hidden=false;$("#top-actions").hidden=false;
   renderAll();renderList();
 }
 export function renderAll(){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
+  $$("form").forEach(form=>{form.dataset.gpoGuid=g.guid});
   $("#fork-gpo").hidden=!(g.source_guid||g.status==="archived");
-  $("#plan").href=`/api/gpos/${g.guid}/plan.ps1`;$("#export").href=`/api/gpos/${g.guid}/export.zip`;$("#gpmc-backup").href=`/api/gpos/${g.guid}/gpmc-backup`;
+  $("#policy-report").href=`/api/gpos/${g.guid}/report.txt`;$("#plan").href=`/api/gpos/${g.guid}/plan.ps1`;$("#export").href=`/api/gpos/${g.guid}/export.zip`;$("#gpmc-backup").href=`/api/gpos/${g.guid}/gpmc-backup`;
+  $("#plan").dataset.exportKind="powershell_plan";$("#export").dataset.exportKind="studio_export";$("#gpmc-backup").dataset.exportKind="gpmc_export";
   $("#setting-count").textContent=g.settings.length;$("#link-count").textContent=g.links.length;$("#filter-count").textContent=g.security_filters?g.security_filters.length:0;$("#gpp-count").textContent=(g.gpp_collections||[]).reduce((n,c)=>n+(c.groups?c.groups.length:0)+(c.registry?c.registry.length:0),0);
   const metaParts=[`<dt>GUID</dt><dd class="mono">${escapeHtml(g.guid)}</dd><dt>Description</dt><dd>${escapeHtml(g.description)||"—"}</dd><dt>Status</dt><dd><span class="pill ${g.status==='ready'?'ok':'warn'}">${escapeHtml(g.status)}</span></dd><dt>Computer</dt><dd>${g.computer_enabled?"Enabled":"Disabled"}</dd><dt>User</dt><dd>${g.user_enabled?"Enabled":"Disabled"}</dd><dt>Domain</dt><dd>${escapeHtml(g.domain||"studio.local")}</dd>`];
   if(g.source_guid)metaParts.push(`<dt>Source GUID</dt><dd class="mono">${escapeHtml(g.source_guid)}</dd>`);
   if(g.cse_metadata&&g.cse_metadata.length)metaParts.push(`<dt>CSE extensions</dt><dd>${g.cse_metadata.length} extension${g.cse_metadata.length===1?'':'s'}</dd>`);
-  metaParts.push(`<dt>Policy hash</dt><dd class="mono" title="${escapeHtml(state.policyHash)}">${escapeHtml(state.policyHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
+  metaParts.push(`<dt>Policy semantic hash</dt><dd class="mono" title="${escapeHtml(state.policyHash)}">${escapeHtml(state.policyHash.slice(0,16))}…</dd><dt>Review model hash</dt><dd class="mono" title="${escapeHtml(state.reviewHash)}">${escapeHtml(state.reviewHash.slice(0,16))}…</dd><dt>Updated</dt><dd>${new Date(g.updated_at).toLocaleString()}</dd>`);
   $("#metadata").innerHTML=metaParts.join("");
   renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();renderGpp();
+  const readOnly=g.status==="archived";
+  ["edit-metadata","add-setting","add-link","add-filter","edit-wmi","add-gpp-group","add-gpp-registry"].forEach(id=>{const control=$("#"+id);if(!control)return;control.disabled=readOnly;control.title=readOnly?"Archived policies are read-only. Fork this policy to edit it.":""});
+  $$('[data-edit-setting],[data-delete-setting],[data-edit-link],[data-delete-link],[data-edit-filter],[data-delete-filter],[data-edit-gpp-group],[data-delete-gpp-group],[data-edit-gpp-registry],[data-delete-gpp-registry],[data-clone-gpp-group],[data-clone-gpp-registry],[data-move-gpp-group],[data-move-gpp-registry],[data-restore-gpp-group],[data-restore-gpp-registry]').forEach(control=>{if(readOnly){control.disabled=true;control.title="Archived policies are read-only. Fork this policy to edit it."}});
+  $$('[data-export-kind]').forEach(link=>{const capability=state.artifactCapabilities[link.dataset.exportKind]||{};const blocked=capability.enabled===false;link.setAttribute("aria-disabled",String(blocked));link.classList.toggle("disabled",blocked);link.title=blocked?(capability.reason||"Validation errors block this artifact. Open export review for details."):"Review this artifact before downloading."});
   if($("#panel-history").classList.contains("active"))loadHistory();
 }
 export function renderValidation(){
@@ -37,7 +43,7 @@ export function renderValidation(){
   const readiness=errors.length?['error',`${errors.length} error${errors.length===1?'':'s'}`]:warnings.length?['warn',`${warnings.length} warning${warnings.length===1?'':'s'}`]:['ok','Ready'];
   $("#readiness-pill").innerHTML=`<span class="pill ${readiness[0]}">${readiness[1]}</span>`;
   $("#validation-list").innerHTML=state.validation.length?state.validation.map(i=>`<div class="validation-item ${i.severity}"><span class="symbol">${i.severity==='error'?'×':'!'}</span><div>${escapeHtml(i.message)}<small>${escapeHtml(i.code)} · ${escapeHtml(i.path)}</small></div></div>`).join(""):`<div class="validation-item"><span class="symbol">✓</span><div>No validation findings<small>The draft can be exported.</small></div></div>`;
-  $("#issue-strip").innerHTML=errors.length?`<div class="issue-banner"><strong>Export blocked.</strong> Resolve ${errors.length} validation error${errors.length===1?'':'s'} before creating a publication bundle.</div>`:"";
+  $("#issue-strip").innerHTML=errors.length?`<div class="issue-banner"><strong>Error: export blocked.</strong> Resolve ${errors.length} validation error${errors.length===1?'':'s'} before creating a publication bundle.</div>`:"";
 }
 export function formatValue(setting){if(setting.action==="delete")return "Delete value";if(Array.isArray(setting.value))return setting.value.join(" · ");return String(setting.value)}
 export function renderSettings(){
