@@ -168,6 +168,44 @@ def test_dangerous_alias_ri_detected() -> None:
     assert any(i.code == "dangerous_token" for i in result.errors)
 
 
+def test_lowercase_cmdlet_bypass_detected() -> None:
+    plan = powershell_plan(_sample_gpo())
+    injected = plan + "\ninvoke-expression 'malicious'\n"
+    result = validate_plan(injected)
+    assert not result.valid
+    assert any(i.code == "dangerous_token" for i in result.errors)
+
+
+def test_uppercase_cmdlet_bypass_detected() -> None:
+    plan = powershell_plan(_sample_gpo())
+    injected = plan + "\nINVOKE-EXPRESSION 'malicious'\n"
+    result = validate_plan(injected)
+    assert not result.valid
+
+
+def test_mixed_case_cmdlet_bypass_detected() -> None:
+    plan = powershell_plan(_sample_gpo())
+    injected = plan + "\nInvoke-expression 'malicious'\n"
+    result = validate_plan(injected)
+    assert not result.valid
+
+
+def test_lowercase_remove_item_detected() -> None:
+    plan = powershell_plan(_sample_gpo())
+    injected = plan + "\nremove-item -path C:\\Windows\n"
+    result = validate_plan(injected)
+    assert not result.valid
+    assert any(i.code == "disallowed_cmdlet" for i in result.errors)
+
+
+def test_uppercase_alias_iex_detected() -> None:
+    plan = powershell_plan(_sample_gpo())
+    injected = plan + "\nIEX 'malicious'\n"
+    result = validate_plan(injected)
+    assert not result.valid
+    assert any(i.code == "dangerous_token" for i in result.errors)
+
+
 def test_plan_with_backtick_in_name_validates() -> None:
     gpo = replace(_sample_gpo(), name="Test`Name")
     plan = powershell_plan(gpo)
