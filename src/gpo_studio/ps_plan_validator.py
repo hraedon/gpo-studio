@@ -25,6 +25,11 @@ _ALLOWED_CMDLETS: frozenset[str] = frozenset({
     "Out-Null",
 })
 
+_DANGEROUS_TOKENS: frozenset[str] = frozenset({
+    "iex", "irm", "iwr", "ri", "ni", "start",
+    "Invoke-Expression",
+})
+
 _CMDLET_RE = re.compile(r"(?<![A-Za-z-])([A-Z][a-z]+-[A-Z][A-Za-z]+)")
 
 
@@ -50,9 +55,17 @@ class PlanValidationResult:
         return tuple(i for i in self.issues if i.severity == "warning")
 
 
-def _strip_single_quoted(line: str) -> str:
+def _strip_single_quoted_tracked(
+    line: str, in_string: bool
+) -> tuple[str, bool]:
+    """Strip single-quoted string content from a line.
+
+    Returns (code_outside_strings, still_in_string_at_eol). When
+    *in_string* is True on entry, the line begins inside an open string
+    (multi-line continuation) and characters are suppressed until a
+    closing quote is found.
+    """
     result: list[str] = []
-    in_string = False
     i = 0
     while i < len(line):
         ch = line[i]
@@ -70,7 +83,7 @@ def _strip_single_quoted(line: str) -> str:
         if not in_string:
             result.append(ch)
         i += 1
-    return "".join(result)
+    return "".join(result), in_string
 
 
 def _is_comment_line(line: str) -> bool:
@@ -119,18 +132,30 @@ def validate_plan(plan_text: str) -> PlanValidationResult:
         ))
 
     gpo_assigned = False
+    in_string = False
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
         if not stripped or _is_comment_line(line):
             continue
 
-        code = _strip_single_quoted(line)
+        code, in_string = _strip_single_quoted_tracked(line, in_string)
 
-        if "`" in line and not _is_comment_line(line):
+        if not code:
+            continue
+
+        if "`" in code:
             issues.append(PlanValidationIssue(
                 "error", "backtick_injection",
-                f"Backtick character found (line {i})", i,
+                f"Backtick character found outside string (line {i})", i,
             ))
+
+        for token in _DANGEROUS_TOKENS:
+            pattern = r"(?<![A-Za-z])" + re.escape(token) + r"(?![A-Za-z])"
+            if re.search(pattern, code):
+                issues.append(PlanValidationIssue(
+                    "error", "dangerous_token",
+                    f"Dangerous token '{token}' on line {i}", i,
+                ))
 
         if (
             "$gpo " in code or "$gpo=" in code.replace(" ", "") or "$gpo =" in code
@@ -151,7 +176,7 @@ def validate_plan(plan_text: str) -> PlanValidationResult:
                     f"Disallowed cmdlet '{cmdlet}' on line {i}", i,
                 ))
 
-        if ";" in code and not stripped.startswith("#"):
+        if ";" in code:
             issues.append(PlanValidationIssue(
                 "error", "semicolon_injection",
                 f"Semicolon chaining detected on line {i}", i,

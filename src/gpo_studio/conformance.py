@@ -50,6 +50,11 @@ def _normalize_settings_for_preg_roundtrip(
         if normalized.get("action") == "delete":
             normalized["registry_type"] = "REG_SZ"
             normalized["value"] = ""
+        if (
+            normalized.get("registry_type") == "REG_BINARY"
+            and isinstance(normalized.get("value"), str)
+        ):
+            normalized["value"] = normalized["value"].upper()
         if normalized.get("registry_type") == "REG_MULTI_SZ":
             val = normalized.get("value")
             if isinstance(val, list):
@@ -603,10 +608,6 @@ def unsupported_ilt_nested_collection_xml() -> bytes:
         b'</FilterCollection>'
         b'</Filters>'
     )
-
-
-def partial_backup_missing_manifest() -> bytes:
-    return b""
 
 
 def corrupt_backup_truncated_xml() -> bytes:
