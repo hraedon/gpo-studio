@@ -1,6 +1,9 @@
 # Plan 019 — Browser quality and accessibility
 
-Status: in progress — implementation complete; hands-on screen-reader pass open
+Status: implemented and accepted (2026-07-16). The browser test foundation,
+conflict and failure UX, review workflows, automated accessibility coverage,
+adversarial review, and CI evidence are complete. The hands-on screen-reader
+session remains release-candidate evidence work rather than open Plan 019 code.
 Scope: make the dependency-light browser application testable, resilient to
 conflicts and failures, and usable with keyboard and assistive technology
 Depends on: Plans 015 and 016 API contracts
@@ -104,10 +107,11 @@ dialogs, field-error relationships, persistent announcements, visible focus,
 target sizing, forced-colors/reduced-motion handling, and narrow reflow. Axe
 reports no serious or critical findings in covered primary states.
 
-The only open acceptance item is the hands-on screen-reader session documented
-in `docs/browser-accessibility-checklist.md`; the current environment has no
-screen reader installed. This is deliberately recorded as open rather than
-claiming an automated accessibility-tree inspection as a manual pass.
+The hands-on screen-reader session documented in
+`docs/browser-accessibility-checklist.md` remains release-candidate evidence;
+the current environment has no screen reader installed. This is deliberately
+recorded as pending rather than claiming an automated accessibility-tree
+inspection as a manual pass.
 
 ## Adversarial review resolution — 2026-07-16
 
