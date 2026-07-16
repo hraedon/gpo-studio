@@ -22,26 +22,32 @@
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <div class="shell">
     <aside class="rail">
       <div class="brand"><span class="brand-mark">GS</span><div><strong>GPO Studio</strong><small>Local workspace</small></div></div>
       <button class="primary full" id="new-gpo">＋ New GPO</button>
       <button class="full" id="import-estate">Import estate</button>
-      <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Filter policies"></label>
+      <button class="full" id="import-gpmc">Import GPMC backup</button>
+      <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span class="dot"></span> Offline authoring mode</footer>
     </aside>
 
-    <main>
+    <main id="main-content" tabindex="-1">
       <header class="topbar">
         <div><p class="eyebrow">Group Policy authoring workspace</p><h1 id="title">Choose a policy</h1></div>
         <div class="top-actions" id="top-actions" hidden>
           <span class="revision" id="revision"></span>
-          <a class="button" id="plan" target="_blank">Review PowerShell</a>
-          <a class="button" id="gpmc-backup">GPMC backup</a>
-          <a class="button primary" id="export">Export bundle</a>
+          <a class="button" id="policy-report">Policy report</a>
+          <a class="button" id="plan" data-export-kind="powershell_plan" target="_blank" rel="noopener">Review PowerShell</a>
+          <a class="button" id="gpmc-backup" data-export-kind="gpmc_export">GPMC backup</a>
+          <a class="button primary" id="export" data-export-kind="studio_export">Export bundle</a>
         </div>
       </header>
+
+      <div id="app-status" class="app-message status-message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+      <div id="error-summary" class="app-message error-summary" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1" hidden></div>
 
       <section id="empty" class="empty-state">
         <div class="empty-glyph">⌘</div>
@@ -51,19 +57,19 @@
       </section>
 
       <section id="workspace" hidden>
-        <div id="issue-strip"></div>
-        <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="overview">Overview</button>
-          <button class="tab" data-tab="settings">Policy settings <span id="setting-count"></span></button>
-          <button class="tab" data-tab="links">Scope & links <span id="link-count"></span></button>
-          <button class="tab" data-tab="security">Security <span id="filter-count"></span></button>
-          <button class="tab" data-tab="preferences">Preferences <span id="gpp-count"></span></button>
-          <button class="tab" data-tab="history">History</button>
-          <button class="tab" data-tab="diff">Diff</button>
-          <button class="tab" data-tab="admx">ADMX</button>
+        <div id="issue-strip" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div class="tabs" role="tablist" aria-label="Policy workspace sections">
+          <button class="tab active" id="tab-overview" role="tab" aria-selected="true" aria-controls="panel-overview" tabindex="0" data-tab="overview">Overview</button>
+          <button class="tab" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">Policy settings <span id="setting-count"></span></button>
+          <button class="tab" id="tab-links" role="tab" aria-selected="false" aria-controls="panel-links" tabindex="-1" data-tab="links">Scope & links <span id="link-count"></span></button>
+          <button class="tab" id="tab-security" role="tab" aria-selected="false" aria-controls="panel-security" tabindex="-1" data-tab="security">Security <span id="filter-count"></span></button>
+          <button class="tab" id="tab-preferences" role="tab" aria-selected="false" aria-controls="panel-preferences" tabindex="-1" data-tab="preferences">Preferences <span id="gpp-count"></span></button>
+          <button class="tab" id="tab-history" role="tab" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">History</button>
+          <button class="tab" id="tab-diff" role="tab" aria-selected="false" aria-controls="panel-diff" tabindex="-1" data-tab="diff">Diff</button>
+          <button class="tab" id="tab-admx" role="tab" aria-selected="false" aria-controls="panel-admx" tabindex="-1" data-tab="admx">ADMX</button>
         </div>
 
-        <div class="panel active" id="panel-overview">
+        <div class="panel active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
           <div class="grid two">
             <article class="card">
               <div class="card-heading"><div><p class="eyebrow">Identity</p><h2>Policy details</h2></div><button class="quiet" id="fork-gpo" hidden>Fork to draft</button><button class="quiet" id="edit-metadata">Edit</button></div>
@@ -80,39 +86,50 @@
           </article>
         </div>
 
-        <div class="panel" id="panel-settings">
+        <div class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Computer and User configuration</p><h2>Registry policy</h2></div><button class="primary" id="add-setting">＋ Add setting</button></div>
-          <div class="filter-row"><button class="chip active" data-side="all">All</button><button class="chip" data-side="computer">Computer</button><button class="chip" data-side="user">User</button></div>
-          <div class="table-card"><table><thead><tr><th>Side</th><th>Registry path</th><th>Name</th><th>Type</th><th>Value</th><th></th></tr></thead><tbody id="settings-table"></tbody></table><div class="table-empty" id="settings-empty">No registry policy settings yet.</div></div>
+          <div class="filter-row" role="group" aria-label="Filter registry policy by configuration"><button class="chip active" aria-pressed="true" data-side="all">All</button><button class="chip" aria-pressed="false" data-side="computer">Computer</button><button class="chip" aria-pressed="false" data-side="user">User</button></div>
+          <div class="table-card"><table><thead><tr><th>Side</th><th>Registry path</th><th>Name</th><th>Type</th><th>Value</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="settings-table"></tbody></table><div class="table-empty" id="settings-empty">No registry policy settings yet.</div></div>
         </div>
 
-        <div class="panel" id="panel-links">
+        <div class="panel" id="panel-links" role="tabpanel" aria-labelledby="tab-links" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Scope of management</p><h2>Link intent</h2></div><button class="primary" id="add-link">＋ Add link</button></div>
-          <div class="table-card"><table><thead><tr><th>Order</th><th>Target</th><th>State</th><th>Enforced</th><th></th></tr></thead><tbody id="links-table"></tbody></table><div class="table-empty" id="links-empty">No domain or OU links staged.</div></div>
+          <div class="table-card"><table><thead><tr><th>Order</th><th>Target</th><th>State</th><th>Enforced</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="links-table"></tbody></table><div class="table-empty" id="links-empty">No domain or OU links staged.</div></div>
         </div>
 
-        <div class="panel" id="panel-security">
+        <div class="panel" id="panel-security" role="tabpanel" aria-labelledby="tab-security" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Security filtering</p><h2>Security filters & WMI</h2></div><button class="primary" id="add-filter">＋ Add filter</button></div>
-          <div class="table-card"><table><thead><tr><th>Principal</th><th>Permission</th><th>Type</th><th>Inheritable</th><th></th></tr></thead><tbody id="filters-table"></tbody></table><div class="table-empty" id="filters-empty">No security filters configured.</div></div>
+          <div class="table-card"><table><thead><tr><th>Principal</th><th>Permission</th><th>Type</th><th>Inheritable</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="filters-table"></tbody></table><div class="table-empty" id="filters-empty">No security filters configured.</div></div>
           <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">WMI filter</p><h2>WMI filtering</h2></div><button class="quiet" id="browse-wmi-catalogue">Browse catalogue</button><button class="quiet" id="edit-wmi">Edit</button></div>
           <div id="wmi-display" class="wmi-display"></div>
         </div>
 
-        <div class="panel" id="panel-preferences">
+        <div class="panel" id="panel-preferences" role="tabpanel" aria-labelledby="tab-preferences" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Group Policy Preferences</p><h2>Groups &amp; Registry</h2></div><div class="gpp-add-actions"><button class="primary" id="add-gpp-group">＋ Add group</button><button class="primary" id="add-gpp-registry">＋ Add registry</button></div></div>
-          <div class="gpp-scope-row"><button class="chip active" data-gpp-scope="computer">Computer</button><button class="chip" data-gpp-scope="user">User</button></div>
+          <div class="gpp-scope-row" role="group" aria-label="Group Policy Preferences scope"><button class="chip active" aria-pressed="true" data-gpp-scope="computer">Computer</button><button class="chip" aria-pressed="false" data-gpp-scope="user">User</button></div>
           <div class="section-head" style="margin-top:1rem"><div><p class="eyebrow">Local groups</p><h2>GPP Groups</h2></div></div>
-          <div class="table-card"><table><thead><tr><th>Action</th><th>Group name</th><th>SID</th><th>Members</th><th>ILT</th><th></th></tr></thead><tbody id="gpp-groups-table"></tbody></table><div class="table-empty" id="gpp-groups-empty">No GPP groups configured.</div></div>
+          <div class="table-card"><table><thead><tr><th>Action</th><th>Group name</th><th>SID</th><th>Members</th><th>ILT</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="gpp-groups-table"></tbody></table><div class="table-empty" id="gpp-groups-empty">No GPP groups configured.</div></div>
           <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">Registry preferences</p><h2>GPP Registry</h2></div></div>
-          <div class="table-card"><table><thead><tr><th>Action</th><th>Key</th><th>Values</th><th>ILT</th><th></th></tr></thead><tbody id="gpp-registry-table"></tbody></table><div class="table-empty" id="gpp-registry-empty">No GPP registry items configured.</div></div>
+          <div class="table-card"><table><thead><tr><th>Action</th><th>Key</th><th>Values</th><th>ILT</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="gpp-registry-table"></tbody></table><div class="table-empty" id="gpp-registry-empty">No GPP registry items configured.</div></div>
         </div>
 
-        <div class="panel" id="panel-history">
+        <div class="panel" id="panel-history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Immutable audit trail</p><h2>Revision history</h2></div></div>
           <div class="timeline" id="history-list"></div>
         </div>
 
-        <div class="panel" id="panel-diff">
+        <div class="panel" id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" tabindex="0" hidden>
+          <article class="card">
+            <div class="section-head">
+              <div><p class="eyebrow">Revision comparison</p><h2>Compare this policy's history</h2></div>
+              <button class="primary" id="run-revision-diff">Compare revisions</button>
+            </div>
+            <div class="diff-selector">
+              <label>From revision<select id="revision-diff-from"></select></label>
+              <label>To revision<select id="revision-diff-to"></select></label>
+            </div>
+            <div id="revision-diff-results"></div>
+          </article>
           <div class="section-head">
             <div><p class="eyebrow">Three-way comparison</p><h2>Estate diff</h2></div>
             <button class="primary" id="run-diff">Run diff</button>
@@ -125,7 +142,7 @@
           <div id="diff-results"></div>
         </div>
 
-        <div class="panel" id="panel-admx">
+        <div class="panel" id="panel-admx" role="tabpanel" aria-labelledby="tab-admx" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Administrative Templates</p><h2>Policy catalogue</h2></div></div>
           <div id="admx-empty" class="table-empty">No ADMX directory configured. Set GPO_STUDIO_ADMX_DIR to enable policy browsing.</div>
           <div id="admx-content" hidden>
@@ -142,7 +159,7 @@
     </main>
   </div>
 
-  <dialog id="gpo-dialog">
+  <dialog id="gpo-dialog" aria-labelledby="gpo-dialog-title">
     <form method="dialog" id="gpo-form">
       <div class="dialog-head"><div><p class="eyebrow">Draft policy</p><h2 id="gpo-dialog-title">New GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <label>Name<input name="name" required maxlength="255" placeholder="Workstation security baseline"></label>
@@ -158,7 +175,7 @@
     </form>
   </dialog>
 
-  <dialog id="setting-dialog">
+  <dialog id="setting-dialog" aria-labelledby="setting-dialog-title">
     <form method="dialog" id="setting-form">
       <div class="dialog-head"><div><p class="eyebrow">Administrative Templates / Registry</p><h2 id="setting-dialog-title">Add policy setting</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <div class="grid two compact"><label>Configuration<select name="side"><option value="computer">Computer</option><option value="user">User</option></select></label><label>Action<select name="action"><option value="set">Set value</option><option value="delete">Delete value</option></select></label></div>
@@ -171,7 +188,7 @@
     </form>
   </dialog>
 
-  <dialog id="link-dialog">
+  <dialog id="link-dialog" aria-labelledby="link-dialog-title">
     <form method="dialog" id="link-form">
       <div class="dialog-head"><div><p class="eyebrow">Scope of management</p><h2 id="link-dialog-title">Add link</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <label>Domain or OU distinguished name<input name="target" required placeholder="OU=Workstations,DC=example,DC=test"></label>
@@ -181,7 +198,7 @@
     </form>
   </dialog>
 
-  <dialog id="configure-dialog">
+  <dialog id="configure-dialog" aria-labelledby="configure-title">
     <form method="dialog" id="configure-form">
       <div class="dialog-head"><div><p class="eyebrow">ADMX policy configuration</p><h2 id="configure-title">Configure policy</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <label>Target GPO<select name="target_gpo" id="configure-target-gpo" required></select></label>
@@ -191,7 +208,7 @@
     </form>
   </dialog>
 
-  <dialog id="filter-dialog">
+  <dialog id="filter-dialog" aria-labelledby="filter-dialog-title">
     <form method="dialog" id="filter-form">
       <div class="dialog-head"><div><p class="eyebrow">Security filtering</p><h2 id="filter-dialog-title">Add security filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <label>Principal (SID or account)<input name="principal" required maxlength="255" placeholder="S-1-5-32-544 or DOMAIN\Admins"></label>
@@ -203,9 +220,9 @@
     </form>
   </dialog>
 
-  <dialog id="wmi-dialog">
+  <dialog id="wmi-dialog" aria-labelledby="wmi-dialog-title">
     <form method="dialog" id="wmi-form">
-      <div class="dialog-head"><div><p class="eyebrow">WMI filtering</p><h2>WMI filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">WMI filtering</p><h2 id="wmi-dialog-title">WMI filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <label>Name<input name="name" required maxlength="255" placeholder="Workstation WMI filter"></label>
       <label>Description<input name="description" maxlength="2000" placeholder="Filter purpose"></label>
       <label>Language<input name="language" maxlength="50" value="WQL"></label>
@@ -215,20 +232,20 @@
     </form>
   </dialog>
 
-  <dialog id="wmi-catalogue-dialog">
+  <dialog id="wmi-catalogue-dialog" aria-labelledby="wmi-catalogue-dialog-title">
     <form method="dialog" id="wmi-catalogue-form">
-      <div class="dialog-head"><div><p class="eyebrow">WMI filter catalogue</p><h2>Select a filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">WMI filter catalogue</p><h2 id="wmi-catalogue-dialog-title">Select a filter</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <div id="wmi-catalogue-list" class="wmi-catalogue-list"></div>
       <div class="dialog-actions"><button value="cancel">Close</button></div>
     </form>
   </dialog>
 
-  <dialog id="estate-dialog">
+  <dialog id="estate-dialog" aria-labelledby="estate-dialog-title">
     <form method="dialog" id="estate-form">
-      <div class="dialog-head"><div><p class="eyebrow">Estate import</p><h2>Import gpo-lens estate</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
-      <div class="estate-toggle">
-        <button type="button" class="chip active" data-mode="upload">Upload file</button>
-        <button type="button" class="chip" data-mode="paste">Paste JSON</button>
+      <div class="dialog-head"><div><p class="eyebrow">Estate import</p><h2 id="estate-dialog-title">Import gpo-lens estate</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="estate-toggle" role="group" aria-label="Estate import source">
+        <button type="button" class="chip active" aria-pressed="true" data-mode="upload">Upload file</button>
+        <button type="button" class="chip" aria-pressed="false" data-mode="paste">Paste JSON</button>
       </div>
       <div id="estate-upload-section">
         <label class="file-upload">
@@ -244,16 +261,16 @@
     </form>
   </dialog>
 
-  <dialog id="fork-dialog">
+  <dialog id="fork-dialog" aria-labelledby="fork-dialog-title">
     <form method="dialog" id="fork-form">
-      <div class="dialog-head"><div><p class="eyebrow">Fork baseline</p><h2>Fork to draft</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">Fork baseline</p><h2 id="fork-dialog-title">Fork to draft</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <label>New GPO name<input name="name" required maxlength="255" placeholder="Forked policy"></label>
       <label>Change reason<input name="reason" required value="Fork from baseline"></label>
       <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Fork</button></div>
     </form>
   </dialog>
 
-  <dialog id="gpp-group-dialog">
+  <dialog id="gpp-group-dialog" aria-labelledby="gpp-group-dialog-title">
     <form method="dialog" id="gpp-group-form">
       <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-group-dialog-title">Add group</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="scope">
@@ -272,7 +289,7 @@
     </form>
   </dialog>
 
-  <dialog id="gpp-registry-dialog">
+  <dialog id="gpp-registry-dialog" aria-labelledby="gpp-registry-dialog-title">
     <form method="dialog" id="gpp-registry-form">
       <div class="dialog-head"><div><p class="eyebrow">Group Policy Preferences</p><h2 id="gpp-registry-dialog-title">Add registry</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <input type="hidden" name="scope">
@@ -289,7 +306,38 @@
     </form>
   </dialog>
 
-  <div id="toast" role="status"></div>
+  <dialog id="conflict-dialog" aria-labelledby="conflict-dialog-title" aria-describedby="conflict-dialog-description">
+    <form method="dialog" id="conflict-form">
+      <div class="dialog-head"><div><p class="eyebrow">Revision conflict</p><h2 id="conflict-dialog-title">Review changes before reapplying</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <p id="conflict-dialog-description">This policy changed after you opened the form. Your unsaved values have been retained; compare them with the current revision before choosing what to do.</p>
+      <div id="conflict-details" class="conflict-details" tabindex="0" aria-label="Revision conflict comparison"></div>
+      <div class="dialog-actions"><button value="cancel" id="conflict-cancel" data-initial-focus>Keep editing</button><button type="button" id="conflict-reload">Load current revision</button><button class="primary" type="button" id="conflict-reapply">Review and reapply</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="export-review-dialog" aria-labelledby="export-review-title" aria-describedby="export-review-description">
+    <form method="dialog" id="export-review-form">
+      <div class="dialog-head"><div><p class="eyebrow">Publication boundary</p><h2 id="export-review-title">Review export readiness</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <p id="export-review-description">Confirm the policy identity, validation state, semantic digest, and artifact capabilities before downloading.</p>
+      <div id="export-review-summary" class="review-summary" tabindex="0" aria-label="Export review summary"></div>
+      <div id="export-review-issues" class="review-issues" aria-live="polite"></div>
+      <div class="dialog-actions"><button value="cancel" id="export-review-cancel" data-initial-focus>Cancel</button><button class="primary" type="button" id="export-review-download">Download export</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="gpmc-import-dialog" aria-labelledby="gpmc-import-title" aria-describedby="gpmc-import-description">
+    <form method="dialog" id="gpmc-import-form">
+      <div class="dialog-head"><div><p class="eyebrow">Safe inbox import</p><h2 id="gpmc-import-title">Import GPMC backup</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <p id="gpmc-import-description">Enter a backup path relative to the configured import inbox. Absolute paths and parent-directory traversal are not allowed.</p>
+      <label>Inbox-relative backup path<input name="relative_path" required maxlength="1000" autocomplete="off" spellcheck="false" placeholder="incoming/backup-folder"></label>
+      <label>Actor<input name="actor" required maxlength="120" autocomplete="off" value="local-operator"></label>
+      <label>Import reason<input name="reason" required maxlength="500" value="Import GPMC backup"></label>
+      <div id="gpmc-import-preview" class="review-summary" aria-live="polite"></div>
+      <div class="dialog-actions"><button value="cancel" id="gpmc-import-cancel">Cancel</button><button class="primary" type="button" id="gpmc-import-submit">Review import</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <script type="module" src="/assets/js/main.mjs"></script>
 </body>
 </html>

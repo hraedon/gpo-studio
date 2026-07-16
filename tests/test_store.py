@@ -1822,3 +1822,65 @@ def test_sqlite_database_error_latches_degraded(tmp_path: Path) -> None:
         store.list_gpos()
     assert store.is_degraded is True
     store.close()
+
+
+def test_reorder_gpp_is_atomic_and_versioned(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP reorder", identity="alice", reason="draft")
+    for group_id in ("g1", "g2", "g3"):
+        gpo = store.put_gpp_group(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            GppGroup(name=f"Group {group_id}", id=group_id),
+            identity="alice",
+            reason="add group",
+        )
+
+    before_revision = gpo.revision
+    reordered = store.reorder_gpp(
+        gpo.guid,
+        gpo.revision,
+        "computer",
+        "groups",
+        ("g3", "g1", "g2"),
+        identity="alice",
+        reason="prioritize group",
+    )
+
+    assert reordered.revision == before_revision + 1
+    assert [item.id for item in reordered.gpp_collections[0].groups] == [
+        "g3",
+        "g1",
+        "g2",
+    ]
+    with pytest.raises(ValidationError, match="validation failed"):
+        store.reorder_gpp(
+            reordered.guid,
+            reordered.revision,
+            "computer",
+            "groups",
+            ("g1", "g1", "g2"),
+            identity="alice",
+            reason="invalid duplicate",
+        )
+
+
+def test_reorder_gpp_rejects_kind_before_mutation(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP reorder", identity="alice", reason="draft")
+
+    with patch.object(store, "_mutate") as mutate, pytest.raises(
+        ValidationError, match="validation failed"
+    ):
+        store.reorder_gpp(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            "services",  # type: ignore[arg-type]
+            (),
+            identity="alice",
+            reason="invalid kind",
+        )
+
+    mutate.assert_not_called()
