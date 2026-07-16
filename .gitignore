@@ -9,6 +9,8 @@ __pycache__/
 dist/
 build/
 exports/
+node_modules/
+test-results/
 
 
 # never commit the local denylist (identifier gate)
