@@ -334,6 +334,23 @@ def test_out_null_pipe_allowed() -> None:
     assert "Out-Null" in plan
 
 
+def test_valid_plan_with_binary_spaces() -> None:
+    gpo = GPO(
+        guid="11111111-2222-3333-4444-555555555555",
+        name="Binary Spaces",
+        settings=(
+            RegistrySetting(
+                id="s1", side="computer", hive="HKLM",
+                key=r"Software\T", value_name="Bin",
+                registry_type="REG_BINARY", value="DE AD BE EF",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    result = validate_plan(plan)
+    assert result.valid, f"Issues: {result.issues}"
+
+
 def test_plan_with_unicode_name_validates() -> None:
     gpo = replace(_sample_gpo(), name="Unicode \u30dd\u30ea\u30b7\u30fc")
     plan = powershell_plan(gpo)
