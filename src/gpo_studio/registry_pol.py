@@ -183,8 +183,11 @@ def parse(data: bytes) -> list[PolRecord]:
         if data[offset : offset + 2] != _CLOSE:
             raise RegistryPolError("missing record terminator")
         offset += 2
-        key = key_bytes.decode("utf-16le")
-        value_name = name_bytes.decode("utf-16le")
+        try:
+            key = key_bytes.decode("utf-16le")
+            value_name = name_bytes.decode("utf-16le")
+        except UnicodeDecodeError as error:
+            raise RegistryPolError("Registry.pol contains invalid UTF-16 text") from error
         registry_type = _CODE_TO_TYPE.get(type_code)
         if registry_type is None:
             raise RegistryPolError(f"unsupported registry type code: {type_code}")
@@ -192,9 +195,9 @@ def parse(data: bytes) -> list[PolRecord]:
         if value_name.casefold().startswith("**del."):
             value_name = value_name[6:]
             action = "delete"
-        records.append(
-            PolRecord(
-                key, value_name, registry_type, _decode_data(registry_type, raw_value), action
-            )
-        )
+        try:
+            value = _decode_data(registry_type, raw_value)
+        except UnicodeDecodeError as error:
+            raise RegistryPolError("Registry.pol contains invalid UTF-16 data") from error
+        records.append(PolRecord(key, value_name, registry_type, value, action))
     return records

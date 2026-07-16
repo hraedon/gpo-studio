@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gpo-studio"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Offline-first web workbench for safely authoring Group Policy changes"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -16,14 +16,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "hypothesis>=6.135,<7",
   "httpx2>=2.5,<3",
   "mypy>=1.15,<2",
   "pytest>=8.3,<10",
+  "pytest-cov>=6.1,<8",
   "ruff>=0.11,<1",
 ]
 
 [project.scripts]
 gpo-studio = "gpo_studio.__main__:main"
+
+[tool.hatch.version]
+path = "src/gpo_studio/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gpo_studio"]
@@ -38,8 +43,23 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  ".venv",
+  "node_modules",
+  "*.db",
+  "*.sqlite3",
+  "exports/",
+  "playwright-report/",
+  "test-results/",
+  ".claude/",
+  "githooks/",
+  "reflections/",
+  "dist/",
+  "build/",
+]
+
 [tool.mypy]
 python_version = "3.13"
 strict = true
 files = ["src"]
-

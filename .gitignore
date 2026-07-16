@@ -1,10 +1,15 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.hypothesis/
+.coverage
+coverage.json
+htmlcov/
 .ruff_cache/
 .mypy_cache/
 *.pyc
 *.db
+*.db.lock
 *.sqlite3
 dist/
 build/

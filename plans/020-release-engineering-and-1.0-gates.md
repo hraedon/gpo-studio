@@ -1,16 +1,20 @@
 # Plan 020 — Release engineering and 1.0 gates
 
-Status: proposed
+Status: WP-1–4 implementation under release review; WP-5 not started. The
+automated candidate pipeline is present, but external Windows-matrix and
+hands-on screen-reader evidence remain release blockers.
 Scope: turn the verified application into a supportable, reproducible 1.0
 release with explicit evidence and rollback
 Depends on: Plans 015 through 019
 
 ## Purpose
 
-The package builds cleanly, 517 tests pass, Ruff and strict mypy pass, and CI
-tests Python 3.13/3.14. There are no release tags, changelog, security policy,
-coverage/fuzz/browser gates, dependency audit, SBOM, or installed-wheel smoke
-test. A 1.0 needs a repeatable release process, not only a version bump.
+Plans 015–019 produced a verified development tree with more than 1,200 Python
+tests plus strict typing, frontend unit tests, and real-browser automation. Plan
+020 turns that tree into reproducible installed artifacts with explicit supply
+chain, compatibility, accessibility, upgrade, rollback, and release evidence.
+A 1.0 requires a repeatable process and one exact reviewed artifact identity,
+not only a version bump.
 
 ## WP-1 — Packaging and installed-product tests
 
@@ -96,3 +100,22 @@ Plans 016 and 018 can overlap after Plan 015 contracts stabilize. Plan 017
 fixture work can begin earlier, but release conformance should test the final
 Plan 016 formats. Plan 020 gates are established early and enforced fully at RC.
 
+## Release review — 2026-07-16
+
+The first WP-1–4 handoff passed its base unit, type, lint, frontend, build, and
+installed-wheel checks. Independent review found that the release evidence
+overstated a narrow Windows smoke run: it used over-privileged credentials,
+covered only DWORD/REG_SZ and side status, did not test a Studio-generated GPMC
+backup, and attached no sanitized report or artifact hashes. Those observations
+do not promote any capability-matrix row.
+
+The review added the missing risk-based branch-coverage gate, bounded Hypothesis
+parser/codec properties, license and secret scanning, reproducible wheel/sdist
+checks, installed-sdist validation, an operational synthetic upgrade/rollback
+rehearsal, and an attested tag-release workflow. It also removed local privileged
+lab helper scripts from the candidate and converted the evidence manifest to a
+fail-closed blocker ledger.
+
+WP-5 may begin only when the complete least-privileged Plan 017 matrix and the
+Plan 019 hands-on screen-reader pass are attached to the same clean candidate
+commit and all remote candidate jobs are green.

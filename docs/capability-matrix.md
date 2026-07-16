@@ -37,10 +37,14 @@ process never writes to Active Directory or SYSVOL.
 ## Capability matrix
 
 > **Windows-lab verification:** Plan 017's corpus, normalization, import
-> conformance, and generated-plan validation implementation is complete. Rows
-> remain **pending** until their sanitized native GPMC/CSE evidence is attached
-> at the release-candidate gate. Test every artifact in a lab before production
-> use; implementation completion alone is not a Windows-verification claim.
+> conformance, and generated-plan validation implementation is complete. A
+> limited Plan 020 smoke run exercised GPO creation, DWORD/REG_SZ plan commands,
+> and side status, and found the empty-comment fix recorded in
+> [`release-evidence.md`](release-evidence.md). That run used over-privileged
+> credentials, did not cover every registry type or supported capability, and
+> did not validate a Studio-generated GPMC backup. It therefore promotes no
+> matrix row. Rows remain **pending** until sanitized, least-privileged native
+> GPMC/CSE evidence is attached at the release-candidate gate.
 
 | Capability | State | Authoring | Import | Export | PS Plan | Diff | Hash | Win-lab |
 |---|---|---|---|---|---|---|---|---|

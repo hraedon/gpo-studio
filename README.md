@@ -57,7 +57,10 @@ The PowerShell plan applies registry values, links, security filtering, and
 side status. It does **not** apply WMI filter assignment or GPP content —
 those are included in GPMC backup export only.
 
-Windows-lab verification has not yet been performed.
+A limited Windows smoke run found and corrected an empty-comment incompatibility
+in the generated PowerShell plan. It did not satisfy the per-capability Windows
+evidence matrix; those claims remain pending in
+[`docs/release-evidence.md`](docs/release-evidence.md).
 
 ## Run it
 
