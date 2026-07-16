@@ -1,15 +1,22 @@
 name: ci
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
@@ -19,17 +26,25 @@ jobs:
       - name: Mypy
         run: mypy src
       - name: Pytest
-        run: pytest -q
+        run: >-
+          pytest -q --cov=src/gpo_studio --cov-branch
+          --cov-report=json:coverage.json
+      - name: Risk-based coverage floors
+        run: python scripts/check_coverage.py coverage.json
+
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "24"
           cache: npm
@@ -37,8 +52,10 @@ jobs:
         run: pip install -e '.[dev]'
       - name: Install frontend dependencies
         run: npm ci
+      - name: Audit frontend tooling dependencies
+        run: npm audit --audit-level=high
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
@@ -50,10 +67,235 @@ jobs:
         run: npm run test:browser
       - name: Upload browser failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
+
+  installed-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install build tools
+        run: pip install build
+      - name: Build sdist and wheel
+        env:
+          SOURCE_DATE_EPOCH: "315532800"
+        run: |
+          python -m build --outdir dist
+          python -m build --outdir dist-repro
+          for artifact in dist/*; do
+            cmp "$artifact" "dist-repro/$(basename "$artifact")"
+          done
+      - name: Install wheel and sdist in clean environments
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/pip install dist/gpo_studio-*.whl
+          python -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/pip install dist/gpo_studio-*.tar.gz
+      - name: Verify version consistency
+        run: |
+          VENV_VERSION=$(/tmp/smoke-venv/bin/python -c "from gpo_studio import __version__; print(__version__)")
+          META_VERSION=$(/tmp/smoke-venv/bin/python -c "import importlib.metadata as m; print(m.version('gpo-studio'))")
+          if [ "$VENV_VERSION" != "$META_VERSION" ]; then
+            echo "FAIL: __version__ ($VENV_VERSION) != metadata ($META_VERSION)"
+            exit 1
+          fi
+          echo "Version: $VENV_VERSION (consistent)"
+          SDIST_VERSION=$(/tmp/sdist-venv/bin/python -c "from gpo_studio import __version__; print(__version__)")
+          test "$VENV_VERSION" = "$SDIST_VERSION"
+      - name: Verify CLI entry point
+        run: /tmp/smoke-venv/bin/gpo-studio --help
+      - name: Start server and smoke-test API
+        run: |
+          set -euo pipefail
+          /tmp/smoke-venv/bin/gpo-studio run --database /tmp/smoke.db --port 8799 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8799/api/health > /tmp/health.json && break
+            sleep 0.25
+          done
+          /tmp/smoke-venv/bin/python - <<'PY'
+          import json
+          from gpo_studio import __version__
+          with open('/tmp/health.json', encoding='utf-8') as stream:
+              assert json.load(stream)['version'] == __version__
+          PY
+          # Create a GPO
+          curl -sf -X POST http://127.0.0.1:8799/api/gpos \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Smoke Test","domain":"test.local","actor":"ci","reason":"installed-package smoke test"}' > /dev/null
+          # List GPOs (verify 200)
+          curl -sf http://127.0.0.1:8799/api/gpos > /dev/null
+          # Static UI
+          curl -sf http://127.0.0.1:8799/ > /dev/null
+          kill $SERVER_PID
+          wait $SERVER_PID || true
+          trap - EXIT
+      - name: Verify sdist excludes
+        run: |
+          SDIST=$(ls dist/gpo_studio-*.tar.gz)
+          if tar tzf "$SDIST" | grep -qE '\.db$|\.sqlite3$|\.venv/|node_modules/|\.claude/|githooks/|reflections/|exports/|playwright-report/|test-results/'; then
+            echo "FAIL: sdist contains excluded content"
+            tar tzf "$SDIST" | grep -E '\.db$|\.sqlite3$|\.venv/|node_modules/|\.claude/|githooks/|reflections/|exports/|playwright-report/|test-results/'
+            exit 1
+          fi
+          echo "sdist excludes verified"
+      - name: Verify sdist contains required files
+        run: |
+          SDIST=$(ls dist/gpo_studio-*.tar.gz)
+          for required in README.md LICENSE pyproject.toml AGENTS.md SECURITY.md CHANGELOG.md CONTRIBUTING.md; do
+            if ! tar tzf "$SDIST" | grep -q "/$required$"; then
+              echo "FAIL: sdist missing $required"
+              exit 1
+            fi
+          done
+          echo "sdist contains all required files"
+      - name: Rehearse upgrade and rollback with installed wheel
+        run: /tmp/smoke-venv/bin/python scripts/rehearse_upgrade_rollback.py
+      - name: Upload candidate distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: distributions-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: |
+          pip install build pip-audit pip-licenses
+          python -m build --wheel
+          python -m venv /tmp/audit-venv
+          /tmp/audit-venv/bin/pip install dist/gpo_studio-*.whl
+          /tmp/audit-venv/bin/pip freeze | grep -v '^gpo-studio' > /tmp/runtime-requirements.txt
+          /tmp/audit-venv/bin/pip uninstall --yes pip
+      - name: Audit shipped dependencies
+        run: |
+          pip-audit --strict --requirement /tmp/runtime-requirements.txt
+          pip-licenses --python /tmp/audit-venv/bin/python \
+            --allow-only 'MIT;MIT License;BSD-2-Clause;BSD-3-Clause;Apache-2.0 OR BSD-2-Clause;MPL-2.0;Mozilla Public License 2.0 (MPL 2.0);PSF-2.0'
+
+  sbom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install build tools
+        run: pip install build cyclonedx-bom
+      - name: Build wheel
+        run: |
+          python -m build --wheel
+          python -m venv /tmp/sbom-venv
+          /tmp/sbom-venv/bin/pip install dist/gpo_studio-*.whl
+          /tmp/sbom-venv/bin/pip uninstall --yes pip
+      - name: Generate SBOM
+        run: |
+          cyclonedx-py environment \
+            /tmp/sbom-venv/bin/python \
+            --pyproject pyproject.toml \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file sbom.cdx.json
+      - name: Verify SBOM
+        run: |
+          if [ ! -s sbom.cdx.json ]; then
+            echo "FAIL: SBOM is empty or missing"
+            exit 1
+          fi
+          python -c "import json; json.load(open('sbom.cdx.json'))"
+          echo "SBOM generated: $(stat -c%s sbom.cdx.json) bytes"
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+  static-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: pip install -e '.[dev]'
+      - name: Run static safety checks
+        run: python scripts/check_safety.py
+
+  identifier-gate-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: pip install -e '.[dev]'
+      - name: Test identifier gate fail-closed behavior
+        run: pytest tests/test_identifier_gate.py -q
+
+  property-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: pip install -e '.[dev]'
+      - name: Run bounded parser and codec properties
+        run: pytest tests/test_properties.py -q
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+      - name: Scan repository history for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

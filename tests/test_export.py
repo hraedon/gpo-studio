@@ -64,6 +64,13 @@ def test_powershell_plan_escapes_names_and_maps_disabled_sides() -> None:
     assert "$gpo.GpoStatus = 'UserSettingsDisabled'" in plan
 
 
+def test_powershell_plan_uses_nonempty_comment_when_description_is_empty() -> None:
+    plan = powershell_plan(replace(sample_gpo(), description=""))
+
+    assert "-Comment 'Created by GPO Studio'" in plan
+    assert "-Comment ''" not in plan
+
+
 def test_bundle_is_byte_for_byte_deterministic() -> None:
     assert export_bundle(sample_gpo()) == export_bundle(sample_gpo())
 

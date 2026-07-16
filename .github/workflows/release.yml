@@ -1,0 +1,126 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install application and test dependencies
+        run: |
+          pip install -e '.[dev]'
+          npm ci
+          npx playwright install --with-deps chromium firefox
+      - name: Run release gates
+        run: |
+          ruff check .
+          mypy src
+          pytest -q --cov=src/gpo_studio --cov-branch --cov-report=json:coverage.json
+          python scripts/check_coverage.py coverage.json
+          python scripts/check_safety.py
+          python scripts/rehearse_upgrade_rollback.py
+          npm run check
+          npm run test:browser
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Verify immutable release identity
+        run: |
+          VERSION=$(python -c "exec(open('src/gpo_studio/__init__.py').read()); print(__version__)")
+          TAG_VERSION=${VERSION/rc/-rc.}
+          test "${GITHUB_REF_NAME}" = "v${TAG_VERSION}"
+          grep -q '^> \*\*Status:\*\* approved for release' docs/release-evidence.md
+          case "$VERSION" in
+            *dev*) echo "Refusing release workflow for development version: $VERSION"; exit 1 ;;
+          esac
+      - name: Install release tools
+        run: pip install build cyclonedx-bom
+      - name: Build reproducible distributions
+        env:
+          SOURCE_DATE_EPOCH: "315532800"
+        run: |
+          python -m build --outdir dist
+          python -m build --outdir dist-repro
+          for artifact in dist/*; do
+            cmp "$artifact" "dist-repro/$(basename "$artifact")"
+          done
+      - name: Validate exact wheel
+        run: |
+          WHEEL=$(find dist -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)
+          PYTHON=python GPO_STUDIO_WHEEL="$WHEEL" bash scripts/installed_package_smoke.sh
+          python -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install "$WHEEL"
+      - name: Validate exact source distribution
+        run: |
+          python -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/pip install dist/gpo_studio-*.tar.gz
+          /tmp/sdist-venv/bin/gpo-studio --help > /dev/null
+      - name: Rehearse upgrade and rollback with exact wheel
+        run: /tmp/wheel-venv/bin/python scripts/rehearse_upgrade_rollback.py
+      - name: Generate resolved evidence, SBOM, and checksums
+        run: |
+          python -m venv /tmp/sbom-venv
+          /tmp/sbom-venv/bin/pip install dist/gpo_studio-*.whl
+          /tmp/sbom-venv/bin/pip uninstall --yes pip
+          cyclonedx-py environment /tmp/sbom-venv/bin/python \
+            --pyproject pyproject.toml \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file sbom.cdx.json
+          cp docs/release-evidence.md release-evidence.md
+          printf '\n## Resolved release identity\n\n- Source commit: `%s`\n- Tag: `%s`\n' \
+            "$GITHUB_SHA" "$GITHUB_REF_NAME" >> release-evidence.md
+          sha256sum dist/* sbom.cdx.json release-evidence.md > SHA256SUMS
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*
+            SHA256SUMS
+            release-evidence.md
+      - name: Attest release SBOM
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-path: dist/*
+          sbom-path: sbom.cdx.json
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FLAGS=()
+          case "$GITHUB_REF_NAME" in
+            *-rc.*) FLAGS+=(--prerelease) ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            dist/* sbom.cdx.json SHA256SUMS release-evidence.md \
+            --verify-tag --generate-notes \
+            --title "GPO Studio ${GITHUB_REF_NAME#v}" "${FLAGS[@]}"

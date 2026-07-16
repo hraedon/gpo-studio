@@ -61,7 +61,18 @@ def powershell_plan(gpo: GPO) -> str:
         f"    $gpo = Get-GPO -Name {_ps_quote(gpo.name)} -ErrorAction SilentlyContinue",
         "}",
         "if (-not $gpo) {",
-        f"    $gpo = New-GPO -Name {_ps_quote(gpo.name)} -Comment {_ps_quote(gpo.description)}",
+    ]
+    if gpo.description:
+        lines.append(
+            f"    $gpo = New-GPO -Name {_ps_quote(gpo.name)}"
+            f" -Comment {_ps_quote(gpo.description)}"
+        )
+    else:
+        lines.append(
+            f"    $gpo = New-GPO -Name {_ps_quote(gpo.name)}"
+            " -Comment 'Created by GPO Studio'"
+        )
+    lines += [
         "}",
         "elseif ($gpo.DisplayName -ne " + _ps_quote(gpo.name) + ") {",
         f"    Rename-GPO -Guid $gpo.Id -TargetName {_ps_quote(gpo.name)} | Out-Null",
