@@ -50,6 +50,11 @@ def _normalize_settings_for_preg_roundtrip(
         if normalized.get("action") == "delete":
             normalized["registry_type"] = "REG_SZ"
             normalized["value"] = ""
+        if (
+            normalized.get("registry_type") == "REG_BINARY"
+            and isinstance(normalized.get("value"), str)
+        ):
+            normalized["value"] = normalized["value"].upper()
         if normalized.get("registry_type") == "REG_MULTI_SZ":
             val = normalized.get("value")
             if isinstance(val, list):
@@ -508,6 +513,14 @@ def fixture_comprehensive() -> GPO:
             ),
         ),
     )
+    user_groups: tuple[GppGroup, ...] = (
+        GppGroup(
+            name="UserScopeGroup",
+            sid="S-1-5-21-1111111111-2222222222-3333333333-6004",
+            action="update",
+            description="User-scope GPP group",
+        ),
+    )
     return GPO(
         guid=_SYNTH_GUID_2,
         name="Comprehensive Fixture",
@@ -529,6 +542,7 @@ def fixture_comprehensive() -> GPO:
         ),
         gpp_collections=(
             GppCollection(scope="computer", groups=groups, registry=registry),
+            GppCollection(scope="user", groups=user_groups),
         ),
         domain=_SYNTH_DOMAIN,
     )
@@ -603,10 +617,6 @@ def unsupported_ilt_nested_collection_xml() -> bytes:
         b'</FilterCollection>'
         b'</Filters>'
     )
-
-
-def partial_backup_missing_manifest() -> bytes:
-    return b""
 
 
 def corrupt_backup_truncated_xml() -> bytes:
