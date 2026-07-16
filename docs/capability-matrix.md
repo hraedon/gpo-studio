@@ -36,10 +36,11 @@ process never writes to Active Directory or SYSVOL.
 
 ## Capability matrix
 
-> **Windows-lab verification** has not been performed for any capability. All
-> entries below are marked **pending** in the Windows-lab column. Native Windows
-> CSE behaviour and GPMC semantics still apply; test every artifact in a lab
-> before production use.
+> **Windows-lab verification:** Plan 017's corpus, normalization, import
+> conformance, and generated-plan validation implementation is complete. Rows
+> remain **pending** until their sanitized native GPMC/CSE evidence is attached
+> at the release-candidate gate. Test every artifact in a lab before production
+> use; implementation completion alone is not a Windows-verification claim.
 
 | Capability | State | Authoring | Import | Export | PS Plan | Diff | Hash | Win-lab |
 |---|---|---|---|---|---|---|---|---|

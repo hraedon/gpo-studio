@@ -22,7 +22,9 @@ The GPO Studio 1.0 product is an offline, single-operator authoring and review w
 
 ## Capability matrix
 
-Windows-lab verification is **not yet** performed for any capability; it is covered by Plan 017.
+Plan 017's conformance implementation is complete. Individual Windows-lab
+claims remain **pending** until sanitized evidence is attached at the
+release-candidate gate; the historical table below therefore retains “not yet.”
 
 ### Core GPO lifecycle
 

@@ -11,25 +11,28 @@ from dataclasses import dataclass
 from typing import Literal
 
 _ALLOWED_CMDLETS: frozenset[str] = frozenset({
-    "Get-GPO",
-    "New-GPO",
-    "Rename-GPO",
-    "Set-GPRegistryValue",
-    "Remove-GPRegistryValue",
-    "New-GPLink",
-    "Set-GPLink",
-    "Get-GPInheritance",
-    "Get-GPPermission",
-    "Set-GPPermission",
-    "Where-Object",
-    "Out-Null",
+    "get-gpo",
+    "new-gpo",
+    "rename-gpo",
+    "set-gpregistryvalue",
+    "remove-gpregistryvalue",
+    "new-gplink",
+    "set-gplink",
+    "get-gpinheritance",
+    "get-gppermission",
+    "set-gppermission",
+    "where-object",
+    "out-null",
 })
 
-_CMDLET_RE = re.compile(r"(?<![A-Za-z-])([A-Z][a-z]+-[A-Z][A-Za-z]+)")
-_GUID_RE = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
+_DANGEROUS_TOKENS: frozenset[str] = frozenset({
+    "iex", "irm", "iwr", "ri", "ni", "start",
+    "invoke-expression",
+})
+
+_CMDLET_RE = re.compile(
+    r"(?<![A-Za-z-])([A-Z][a-z]+-[A-Z][A-Za-z]+)", re.IGNORECASE
 )
-_HIVE_RE = re.compile(r"'(HKLM|HKCU)\\", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,9 +57,17 @@ class PlanValidationResult:
         return tuple(i for i in self.issues if i.severity == "warning")
 
 
-def _strip_single_quoted(line: str) -> str:
+def _strip_single_quoted_tracked(
+    line: str, in_string: bool
+) -> tuple[str, bool]:
+    """Strip single-quoted string content from a line.
+
+    Returns (code_outside_strings, still_in_string_at_eol). When
+    *in_string* is True on entry, the line begins inside an open string
+    (multi-line continuation) and characters are suppressed until a
+    closing quote is found.
+    """
     result: list[str] = []
-    in_string = False
     i = 0
     while i < len(line):
         ch = line[i]
@@ -74,7 +85,7 @@ def _strip_single_quoted(line: str) -> str:
         if not in_string:
             result.append(ch)
         i += 1
-    return "".join(result)
+    return "".join(result), in_string
 
 
 def _is_comment_line(line: str) -> bool:
@@ -123,18 +134,31 @@ def validate_plan(plan_text: str) -> PlanValidationResult:
         ))
 
     gpo_assigned = False
+    in_string = False
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
         if not stripped or _is_comment_line(line):
             continue
 
-        code = _strip_single_quoted(line)
+        code, in_string = _strip_single_quoted_tracked(line, in_string)
 
-        if "`" in line and not _is_comment_line(line):
+        if not code:
+            continue
+
+        if "`" in code:
             issues.append(PlanValidationIssue(
                 "error", "backtick_injection",
-                f"Backtick character found (line {i})", i,
+                f"Backtick character found outside string (line {i})", i,
             ))
+
+        code_lower = code.casefold()
+        for token in _DANGEROUS_TOKENS:
+            pattern = r"(?<![a-z])" + re.escape(token) + r"(?![a-z])"
+            if re.search(pattern, code_lower):
+                issues.append(PlanValidationIssue(
+                    "error", "dangerous_token",
+                    f"Dangerous token '{token}' on line {i}", i,
+                ))
 
         if (
             "$gpo " in code or "$gpo=" in code.replace(" ", "") or "$gpo =" in code
@@ -148,14 +172,14 @@ def validate_plan(plan_text: str) -> PlanValidationResult:
             ))
 
         for match in _CMDLET_RE.finditer(code):
-            cmdlet = match.group(1)
+            cmdlet = match.group(1).casefold()
             if cmdlet not in _ALLOWED_CMDLETS:
                 issues.append(PlanValidationIssue(
                     "error", "disallowed_cmdlet",
-                    f"Disallowed cmdlet '{cmdlet}' on line {i}", i,
+                    f"Disallowed cmdlet '{match.group(1)}' on line {i}", i,
                 ))
 
-        if ";" in code and not stripped.startswith("#"):
+        if ";" in code:
             issues.append(PlanValidationIssue(
                 "error", "semicolon_injection",
                 f"Semicolon chaining detected on line {i}", i,
