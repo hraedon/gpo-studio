@@ -108,3 +108,25 @@ The only open acceptance item is the hands-on screen-reader session documented
 in `docs/browser-accessibility-checklist.md`; the current environment has no
 screen reader installed. This is deliberately recorded as open rather than
 claiming an automated accessibility-tree inspection as a manual pass.
+
+## Adversarial review resolution — 2026-07-16
+
+- Added configured-inbox tests for both relative traversal and absolute paths
+  outside the inbox. Both fail with the stable `path_outside_inbox` issue.
+- Replaced GPP module-level source variables with explicit shared state and
+  clear that state whenever its dialog closes, preventing cancel-cycle leaks.
+- Reject identical revision comparisons before either revision is loaded.
+- Narrowed GPP reorder kind to a `Literal`; its runtime validation was already
+  before `_mutate`, and a regression test now proves invalid kinds never enter
+  the mutation transaction.
+- Promoted ESLint empty-block and unused-variable rules to errors and removed
+  the four legacy violations.
+- Made the stale-conflict browser assertion relative to the concurrent
+  revision instead of assuming revision 3.
+- Rendered multi-string report values as human-readable semicolon-separated
+  text instead of Python representation syntax.
+- Retained archived-by-default GPMC imports intentionally. The explicit fork
+  endpoint is the safety boundary for editable drafts; coverage now verifies
+  an archived import forks to a draft.
+- Added a Playwright browser cache to CI and expanded documentation for the
+  `GPO_STUDIO_TEST_PYTHON` override.

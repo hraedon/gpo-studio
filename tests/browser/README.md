@@ -14,4 +14,11 @@ Fixtures are synthetic and are created through the public HTTP API. Chromium is
 the primary browser baseline; the tagged smoke journey also runs on Firefox.
 
 Set `GPO_STUDIO_TEST_PYTHON` to a Python executable with GPO Studio installed if
-`uv` is unavailable locally.
+`uv` is unavailable locally. For example:
+
+```bash
+GPO_STUDIO_TEST_PYTHON=.venv/bin/python npm run test:browser
+```
+
+When unset, the server harness uses `uv` locally and the active `python`
+executable in CI.

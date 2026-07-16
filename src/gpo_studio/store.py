@@ -884,7 +884,7 @@ class WorkspaceStore:
         guid: str,
         expected_revision: int,
         scope: GppScope,
-        kind: str,
+        kind: Literal["groups", "registry"],
         ordered_ids: tuple[str, ...],
         *,
         identity: Identity | str,

@@ -2120,6 +2120,15 @@ def revision_diff(
     from_revision: int = Query(ge=1),
     to_revision: int = Query(ge=1),
 ) -> dict[str, Any]:
+    if from_revision == to_revision:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="identical_revisions",
+                message="Choose two different revisions to compare.",
+                path="to_revision",
+            )
+        ])
     old = gpo_from_dict(_store(request).get_revision(guid, from_revision).snapshot)
     new = gpo_from_dict(_store(request).get_revision(guid, to_revision).snapshot)
     return asdict(diff_gpos(old, new))
@@ -2301,6 +2310,8 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         security_filters=security_filters,
         wmi_filter=wmi_filter,
         gpp_collections=gpp_collections,
+        # Imports are immutable evidence by default. Editing requires the
+        # explicit fork endpoint so the source snapshot remains reviewable.
         status="archived",
     )
     return _gpo_payload(gpo, request)

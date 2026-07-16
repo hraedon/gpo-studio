@@ -11,8 +11,6 @@ const REG_TYPES=["REG_SZ","REG_EXPAND_SZ","REG_BINARY","REG_DWORD","REG_MULTI_SZ
 const REG_VALUE_HINTS={REG_SZ:"Text value",REG_EXPAND_SZ:"Text with %VAR% expansion",REG_BINARY:"Hex bytes, e.g. 01FFA0",REG_DWORD:"Non-negative decimal integer",REG_MULTI_SZ:"Semicolon or newline-separated values",REG_QWORD:"Non-negative decimal integer"};
 const REG_VALUE_ACTIONS=["create","replace","update","delete"];
 const GROUP_ACTIONS=["add","replace","remove","update"];
-let groupSource=null;
-let registrySource=null;
 function applyCurrent(data){applyPayload(data);renderAll();renderList()}
 
 function copy(value){return JSON.parse(JSON.stringify(value))}
@@ -119,12 +117,14 @@ export function initGpp(){
   $("#gpp-add-ilt-registry").onclick=()=>addPredicateRow("gpp-ilt-registry-list","gpp-ilt-registry-preview");
   $("#gpp-group-form").onsubmit=submitGppGroup;
   $("#gpp-registry-form").onsubmit=submitGppRegistry;
+  $("#gpp-group-dialog").addEventListener("close",()=>{state.gppGroupSource=null});
+  $("#gpp-registry-dialog").addEventListener("close",()=>{state.gppRegistrySource=null});
 }
 
 export function openGppGroup(scope,group=null,cloning=false){
   const f=$("#gpp-group-form");f.reset();clearFormErrors(f);
   state.editingGppGroup=group&&!cloning?group:null;
-  groupSource=group;
+  state.gppGroupSource=group;
   f.scope.value=scope;
   $("#gpp-group-dialog-title").textContent=cloning?"Clone group":group?"Edit group":"Add group";
   $("#gpp-members-list").innerHTML="";
@@ -173,7 +173,8 @@ async function submitGppGroup(event){
   const partialMember=[...$("#gpp-members-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=name]').value.trim()&&!row.querySelector('[data-field=sid]').value.trim());
   if(partialMember){showFormErrors(f,{issues:[{message:"Each member with a name must also have a SID."}]});return}
   const group={name:f.name.value.trim(),sid:f.sid.value.trim(),action:f.action.value,description:f.description.value.trim(),remove_all_users:f.remove_all_users.checked,remove_all_groups:f.remove_all_groups.checked,members:collectMembers(),ilt_filter:collectIlt("gpp-ilt-list")};
-  if(groupSource){group.unknown_attrs=groupSource.unknown_attrs||[];group.unknown_props_attrs=groupSource.unknown_props_attrs||[];group.unknown_children=groupSource.unknown_children||[]}
+  const source=state.gppGroupSource;
+  if(source){group.unknown_attrs=source.unknown_attrs||[];group.unknown_props_attrs=source.unknown_props_attrs||[];group.unknown_children=source.unknown_children||[]}
   if(state.editingGppGroup)group.id=state.editingGppGroup.id;
   const broadMembershipChange=group.action==="replace"||group.action==="remove"||group.remove_all_users||group.remove_all_groups||group.members.some(member=>member.action==="replace"||member.action==="remove");
   if(broadMembershipChange&&!confirm(`Save broad membership change for group "${group.name}"?\n\nAction: ${group.action}. Remove all users: ${group.remove_all_users?'yes':'no'}. Remove all groups: ${group.remove_all_groups?'yes':'no'}. Review the required change reason before continuing.`))return;
@@ -224,7 +225,7 @@ export async function restoreGppItem(scope,kind,id){
 export function openGppRegistry(scope,registry=null,cloning=false){
   const f=$("#gpp-registry-form");f.reset();clearFormErrors(f);
   state.editingGppRegistry=registry&&!cloning?registry:null;
-  registrySource=registry;
+  state.gppRegistrySource=registry;
   f.scope.value=scope;
   $("#gpp-registry-dialog-title").textContent=cloning?"Clone registry":registry?"Edit registry":"Add registry";
   $("#gpp-values-list").innerHTML="";
@@ -301,7 +302,8 @@ async function submitGppRegistry(event){
   const badDword=(value.action!=="delete"&&(value.registry_type==="REG_DWORD"||value.registry_type==="REG_QWORD")&&!/^(?:0|[1-9][0-9]*)$/.test(value.value));
   if(badDword){showFormErrors(f,{issues:[{message:`${value.registry_type} value for "${value.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,value,ilt_filter:commonIlt};
-  if(registrySource){if(registrySource.uid)registry.uid=registrySource.uid;if(registrySource.unknown_attrs)registry.unknown_attrs=registrySource.unknown_attrs;if(registrySource.unknown_children)registry.unknown_children=registrySource.unknown_children}
+  const source=state.gppRegistrySource;
+  if(source){if(source.uid)registry.uid=source.uid;if(source.unknown_attrs)registry.unknown_attrs=source.unknown_attrs;if(source.unknown_children)registry.unknown_children=source.unknown_children}
   if(state.editingGppRegistry)registry.id=state.editingGppRegistry.id;
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();applyCurrent(data);toast("GPP registry saved")}catch(error){await handleFormFailure(f,error,{onCurrent:applyCurrent})}

@@ -133,6 +133,7 @@ test("retains a stale security edit and explicitly reapplies it", async ({
     },
   });
   expect(concurrent.status()).toBe(200);
+  const concurrentRevision = (await concurrent.json()).gpo.revision;
 
   await form.getByRole("button", { name: "Save filter" }).click();
   const conflict = page.getByRole("dialog", {
@@ -145,7 +146,12 @@ test("retains a stale security edit and explicitly reapplies it", async ({
   );
   await form.getByRole("button", { name: "Save filter" }).click();
   await expect(page.getByRole("cell", { name: "S-1-5-32-544" })).toBeVisible();
-  await expect(page.getByText("Revision 3", { exact: true })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const label = await page.locator("#revision").textContent();
+      return Number(label?.match(/\d+/)?.[0]);
+    })
+    .toBeGreaterThan(concurrentRevision);
 });
 
 test("restores history as a new append-only revision", async ({
