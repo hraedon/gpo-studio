@@ -1,6 +1,6 @@
 # Plan 019 — Browser quality and accessibility
 
-Status: proposed
+Status: in progress — implementation complete; hands-on screen-reader pass open
 Scope: make the dependency-light browser application testable, resilient to
 conflicts and failures, and usable with keyboard and assistive technology
 Depends on: Plans 015 and 016 API contracts
@@ -79,3 +79,32 @@ Automate these journeys with screenshots/traces on failure:
 - GPP, preserved content, validation blockers, and all diff kinds are visible
   and understandable in the UI.
 
+## Implementation reflection — 2026-07-15
+
+Implemented the browser-quality foundation with a pinned ESLint, Prettier,
+Vitest, Playwright, and axe-core toolchain. CI now exercises the packaged CLI
+against a temporary real SQLite workspace in Chromium, with a Firefox smoke
+baseline and failure traces/screenshots.
+
+Conflict responses expose structured revision metadata. Edit forms retain
+unsaved values, map validation issues to fields, and require an explicit
+load-current or review-and-reapply choice. Offline and server failures use a
+persistent alert instead of relying on a toast. Export actions now open a
+review boundary showing both digests, validation, preserved content, and
+artifact capability before download.
+
+Review workflows now include revision-to-revision diff selection and a
+deterministic inert text policy report. GPMC import exposes inbox capability and
+uses inbox-relative paths. Archived imports disable edit actions and surface an
+explicit fork path. GPP gained clone, atomic reorder, per-item revision restore,
+destructive confirmations, and preserved/read-only unsupported ILT rendering.
+
+The accessibility work adds semantic keyboard tabs, labelled/focus-managed
+dialogs, field-error relationships, persistent announcements, visible focus,
+target sizing, forced-colors/reduced-motion handling, and narrow reflow. Axe
+reports no serious or critical findings in covered primary states.
+
+The only open acceptance item is the hands-on screen-reader session documented
+in `docs/browser-accessibility-checklist.md`; the current environment has no
+screen reader installed. This is deliberately recorded as open rather than
+claiming an automated accessibility-tree inspection as a manual pass.

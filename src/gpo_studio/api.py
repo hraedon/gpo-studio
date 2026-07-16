@@ -68,6 +68,7 @@ from .model import (
 from .numeric import coerce_dword_qword
 from .policy_config import PolicyConfiguration, resolve_policy
 from .registry_pol import RegistryPolError
+from .report import policy_report
 from .store import WorkspaceStore, gpo_from_dict
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
@@ -169,6 +170,12 @@ class WmiFilterMutation(Audit):
 
 class DeleteMutation(Audit):
     pass
+
+
+class GppReorderMutation(Audit):
+    scope: Literal["computer", "user"]
+    kind: Literal["groups", "registry"]
+    ordered_ids: list[str] = Field(min_length=1)
 
 
 class RestoreMutation(Audit):
@@ -816,6 +823,7 @@ class GpoPayloadResponse(BaseModel):
     validation: list[ValidationIssueResponse]
     policy_semantic_sha256: str
     review_model_sha256: str
+    artifact_capabilities: dict[str, Any]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1089,11 +1097,32 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     if request is not None:
         request.state.gpo_guid = gpo.guid
         request.state.gpo_revision = gpo.revision
+    validation = validate_gpo(gpo)
+    blocked = any(item.severity == "error" for item in validation)
+    preserved_files = sum(len(entry.files) for entry in gpo.cse_metadata)
     return {
         "gpo": _gpo_to_api_dict(gpo),
-        "validation": [asdict(item) for item in validate_gpo(gpo)],
+        "validation": [asdict(item) for item in validation],
         "policy_semantic_sha256": policy_semantic_sha256(gpo),
         "review_model_sha256": review_model_sha256(gpo),
+        "artifact_capabilities": {
+            "studio_export": {"enabled": not blocked, "format": "zip"},
+            "gpmc_export": {
+                "enabled": not blocked and preserved_files == 0,
+                "format": "zip",
+                "reason": (
+                    "Preserved extension content cannot be emitted as a GPMC backup."
+                    if preserved_files
+                    else ""
+                ),
+            },
+            "powershell_plan": {"enabled": not blocked, "format": "text"},
+            "policy_report": {"enabled": True, "format": "text"},
+            "preserved_content": {
+                "present": preserved_files > 0,
+                "file_count": preserved_files,
+            },
+        },
     }
 
 
@@ -1122,7 +1151,10 @@ def _validate_inbox_path(path: str) -> Path:
         return p
     try:
         inbox_resolved = Path(inbox).resolve()
-        requested_resolved = Path(path).resolve()
+        requested = Path(path)
+        requested_resolved = (
+            requested if requested.is_absolute() else inbox_resolved / requested
+        ).resolve()
     except OSError:
         raise ValidationError([
             ValidationIssue(
@@ -1411,6 +1443,10 @@ async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
     detail: dict[str, Any] = {"message": str(error)}
     if isinstance(error, ValidationError):
         detail["issues"] = [asdict(item) for item in error.issues]
+    if isinstance(error, ConflictError):
+        detail["code"] = "revision_conflict"
+        detail["expected_revision"] = error.expected_revision
+        detail["current_revision"] = error.current_revision
     return JSONResponse({"error": detail}, status_code=status)
 
 
@@ -1762,6 +1798,25 @@ def clear_wmi_filter(request: Request, guid: str, body: DeleteMutation) -> dict[
     return _gpo_payload(gpo, request)
 
 
+@app.post(
+    "/api/gpos/{guid}/preferences/reorder",
+    response_model=GpoPayloadResponse,
+)
+def reorder_gpp(
+    request: Request, guid: str, body: GppReorderMutation
+) -> dict[str, Any]:
+    gpo = _store(request).reorder_gpp(
+        guid,
+        body.expected_revision,
+        body.scope,
+        body.kind,
+        tuple(body.ordered_ids),
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
 @app.post("/api/gpos/{guid}/preferences/groups", status_code=201, response_model=GpoPayloadResponse)
 def add_gpp_group(
     request: Request, guid: str, body: GppGroupMutation
@@ -2058,6 +2113,18 @@ def revisions(request: Request, guid: str) -> dict[str, Any]:
     }
 
 
+@app.get("/api/gpos/{guid}/revisions/diff")
+def revision_diff(
+    request: Request,
+    guid: str,
+    from_revision: int = Query(ge=1),
+    to_revision: int = Query(ge=1),
+) -> dict[str, Any]:
+    old = gpo_from_dict(_store(request).get_revision(guid, from_revision).snapshot)
+    new = gpo_from_dict(_store(request).get_revision(guid, to_revision).snapshot)
+    return asdict(diff_gpos(old, new))
+
+
 @app.get("/api/gpos/{guid}/revisions/{revision}")
 def revision(request: Request, guid: str, revision: int) -> dict[str, Any]:
     item = _store(request).get_revision(guid, revision)
@@ -2095,6 +2162,17 @@ def plan(request: Request, guid: str) -> Response:
     return Response(powershell_plan(gpo), media_type="text/plain; charset=utf-8")
 
 
+@app.get("/api/gpos/{guid}/report.txt")
+def report(request: Request, guid: str) -> Response:
+    gpo = _store(request).get_gpo(guid)
+    headers = {"Content-Disposition": f'attachment; filename="{gpo.guid}-report.txt"'}
+    return Response(
+        policy_report(gpo),
+        media_type="text/plain; charset=utf-8",
+        headers=headers,
+    )
+
+
 def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
     return resolve_gpo(_store(request), ref)
 
@@ -2115,6 +2193,19 @@ def ad_hoc_diff(request: Request, body: ThreeWayDiffRequest) -> dict[str, Any]:
     observed = _resolve_gpo(request, body.observed)
     result = three_way_diff(baseline, draft, observed)
     return asdict(result)
+
+
+@app.get("/api/imports/capabilities")
+def import_capabilities() -> dict[str, Any]:
+    inbox = os.getenv("GPO_STUDIO_INBOX_DIR")
+    return {
+        "gpmc_backup": {
+            "enabled": bool(inbox),
+            "requires_inbox": True,
+            "inbox_configured": bool(inbox),
+            "path_mode": "relative-to-inbox" if inbox else "relative-working-directory",
+        }
+    }
 
 
 @app.post("/api/backups/import", status_code=201)
@@ -2192,6 +2283,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         wmi_filter=wmi_filter,
         domain=backup_gpo.domain or "studio.local",
         gpp_collections=gpp_collections,
+        status="archived",
     )
     gpo_issues = [i for i in validate_gpo(temp_gpo) if i.severity == "error"]
     if gpo_issues:
@@ -2209,6 +2301,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         security_filters=security_filters,
         wmi_filter=wmi_filter,
         gpp_collections=gpp_collections,
+        status="archived",
     )
     return _gpo_payload(gpo, request)
 

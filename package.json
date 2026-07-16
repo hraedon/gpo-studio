@@ -1,0 +1,28 @@
+{
+  "name": "gpo-studio-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "format": "prettier --write eslint.config.mjs playwright.config.mjs vitest.config.mjs tests/browser tests/frontend",
+    "format:check": "prettier --check eslint.config.mjs playwright.config.mjs vitest.config.mjs tests/browser tests/frontend",
+    "lint": "eslint src/gpo_studio/static/js tests/browser tests/frontend *.config.mjs",
+    "test:unit": "vitest run",
+    "test:browser": "playwright test",
+    "check": "npm run format:check && npm run lint && npm run test:unit",
+    "test": "npm run check && npm run test:browser"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.61.1",
+    "eslint": "10.7.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.7.0",
+    "prettier": "3.9.5",
+    "vitest": "4.1.10"
+  }
+}

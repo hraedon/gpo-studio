@@ -10,12 +10,31 @@ function formatGppRegistry(r){if(!r)return '—';const v=Array.isArray(r.value)?
 function formatCse(c){if(!c)return '—';return `${c.guid||''} · ${c.side||''} · ${(c.files||[]).length} file(s)`}
 function kindClass(kind){return kind==='added'?'diff-added':kind==='removed'?'diff-removed':'diff-modified'}
 
-export function loadDiffSelectors(){
+export async function loadDiffSelectors(){
   const opts=state.gpos.map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join('');
   ['diff-baseline','diff-draft','diff-observed'].forEach(id=>{const sel=$('#'+id),prev=sel.value;sel.innerHTML=opts;if(prev)sel.value=prev});
+  if(!state.current)return;
+  try{
+    const history=await api(`/api/gpos/${state.current.guid}/revisions`);
+    const revisionOptions=history.items.map(item=>`<option value="${item.revision}">Revision ${item.revision} — ${escapeHtml(item.reason)}</option>`).join('');
+    const from=$('#revision-diff-from'),to=$('#revision-diff-to');
+    from.innerHTML=revisionOptions;to.innerHTML=revisionOptions;
+    if(history.items.length>1)from.value=String(history.items.at(-1).revision);
+    if(history.items.length)to.value=String(history.items[0].revision);
+    $('#run-revision-diff').disabled=history.items.length<2;
+    $('#revision-diff-results').innerHTML=history.items.length<2?'<div class="table-empty">Create another revision to compare policy history.</div>':'';
+  }catch(error){$('#revision-diff-results').innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}
 }
 
 export function initDiff(){
+  $('#run-revision-diff').onclick=async()=>{
+    const button=$('#run-revision-diff'),from=$('#revision-diff-from').value,to=$('#revision-diff-to').value;
+    if(from===to){$('#revision-diff-results').innerHTML='<div class="table-empty">Choose two different revisions.</div>';return}
+    button.disabled=true;$('#revision-diff-results').innerHTML='<div class="table-empty">Comparing revisions…</div>';
+    try{const data=await api(`/api/gpos/${state.current.guid}/revisions/diff?from_revision=${encodeURIComponent(from)}&to_revision=${encodeURIComponent(to)}`);renderDiff(data,$('#revision-diff-results'))}
+    catch(error){$('#revision-diff-results').innerHTML=`<div class="table-empty">Error: ${escapeHtml(error.message)}</div>`}
+    finally{button.disabled=false}
+  };
   $('#run-diff').onclick=async()=>{
     const btn=$('#run-diff');btn.disabled=true;
     try{
@@ -29,9 +48,10 @@ export function initDiff(){
   };
 }
 
-function renderDiff(data){
+export function renderDiff(data,target=$('#diff-results')){
+  data={settings:[],links:[],security_filters:[],wmi_filter:null,gpp_groups:[],gpp_registry:[],gpp_collection:[],metadata:[],cse_metadata:[],conflicts:[],security_filter_conflicts:[],wmi_filter_conflict:null,link_conflicts:[],gpp_conflicts:[],gpp_reorder_conflicts:[],gpp_collection_conflicts:[],metadata_conflicts:[],cse_metadata_conflicts:[],...data};
   const parts=[];
-  const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length);
+  const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.gpp_collection&&data.gpp_collection.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length);
   const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.gpp_reorder_conflicts&&data.gpp_reorder_conflicts.length)||(data.gpp_collection_conflicts&&data.gpp_collection_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length);
   if(data.settings.length){
     parts.push(`<div class="diff-section"><h3>Settings (${data.settings.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Key</th><th>Value name</th><th>Old</th><th>New</th></tr></thead><tbody>${data.settings.map(s=>{
@@ -54,6 +74,9 @@ function renderDiff(data){
   }
   if(data.gpp_registry&&data.gpp_registry.length){
     parts.push(`<div class="diff-section"><h3>GPP registry (${data.gpp_registry.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Key</th><th>Old</th><th>New</th></tr></thead><tbody>${data.gpp_registry.map(r=>`<tr><td class="${kindClass(r.kind)}">${escapeHtml(r.kind)}</td><td>${escapeHtml(r.scope)}</td><td class="mono">${escapeHtml((r.new||r.old||{}).key||'')}</td><td>${escapeHtml(formatGppRegistry(r.old))}</td><td>${escapeHtml(formatGppRegistry(r.new))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.gpp_collection&&data.gpp_collection.length){
+    parts.push(`<div class="diff-section"><h3>GPP collection metadata (${data.gpp_collection.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Old</th><th>New</th></tr></thead><tbody>${data.gpp_collection.map(c=>`<tr><td class="${kindClass(c.kind)}">${escapeHtml(c.kind)}</td><td>${escapeHtml(c.scope)}</td><td>${escapeHtml(c.old?'present':'absent')}</td><td>${escapeHtml(c.new?'present':'absent')}</td></tr>`).join('')}</tbody></table></div>`);
   }
   if(data.metadata&&data.metadata.length){
     parts.push(`<div class="diff-section"><h3>Metadata (${data.metadata.length})</h3><table class="diff-table"><thead><tr><th>Field</th><th>Old</th><th>New</th></tr></thead><tbody>${data.metadata.map(m=>`<tr><td class="mono">${escapeHtml(m.field)}</td><td>${escapeHtml(String(m.old))}</td><td>${escapeHtml(String(m.new))}</td></tr>`).join('')}</tbody></table></div>`);
@@ -103,5 +126,5 @@ function renderDiff(data){
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: GPP collection metadata (${data.gpp_collection_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Scope</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.gpp_collection_conflicts.map(c=>`<tr class="diff-conflict"><td>${escapeHtml(c.scope||'')}</td><td>${escapeHtml(c.baseline?'modified':'absent')}</td><td>${escapeHtml(c.draft?'modified':'absent')}</td><td>${escapeHtml(c.observed?'modified':'absent')}</td></tr>`).join('')}</tbody></table></div>`);
   }
   if(!hasChanges&&!hasConflicts)parts.push('<div class="table-empty">No differences found</div>');
-  $('#diff-results').innerHTML=parts.join('');
+  target.innerHTML=parts.join('');
 }
