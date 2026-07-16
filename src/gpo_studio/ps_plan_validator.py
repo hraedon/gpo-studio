@@ -11,26 +11,28 @@ from dataclasses import dataclass
 from typing import Literal
 
 _ALLOWED_CMDLETS: frozenset[str] = frozenset({
-    "Get-GPO",
-    "New-GPO",
-    "Rename-GPO",
-    "Set-GPRegistryValue",
-    "Remove-GPRegistryValue",
-    "New-GPLink",
-    "Set-GPLink",
-    "Get-GPInheritance",
-    "Get-GPPermission",
-    "Set-GPPermission",
-    "Where-Object",
-    "Out-Null",
+    "get-gpo",
+    "new-gpo",
+    "rename-gpo",
+    "set-gpregistryvalue",
+    "remove-gpregistryvalue",
+    "new-gplink",
+    "set-gplink",
+    "get-gpinheritance",
+    "get-gppermission",
+    "set-gppermission",
+    "where-object",
+    "out-null",
 })
 
 _DANGEROUS_TOKENS: frozenset[str] = frozenset({
     "iex", "irm", "iwr", "ri", "ni", "start",
-    "Invoke-Expression",
+    "invoke-expression",
 })
 
-_CMDLET_RE = re.compile(r"(?<![A-Za-z-])([A-Z][a-z]+-[A-Z][A-Za-z]+)")
+_CMDLET_RE = re.compile(
+    r"(?<![A-Za-z-])([A-Z][a-z]+-[A-Z][A-Za-z]+)", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,9 +151,10 @@ def validate_plan(plan_text: str) -> PlanValidationResult:
                 f"Backtick character found outside string (line {i})", i,
             ))
 
+        code_lower = code.casefold()
         for token in _DANGEROUS_TOKENS:
-            pattern = r"(?<![A-Za-z])" + re.escape(token) + r"(?![A-Za-z])"
-            if re.search(pattern, code):
+            pattern = r"(?<![a-z])" + re.escape(token) + r"(?![a-z])"
+            if re.search(pattern, code_lower):
                 issues.append(PlanValidationIssue(
                     "error", "dangerous_token",
                     f"Dangerous token '{token}' on line {i}", i,
@@ -169,11 +172,11 @@ def validate_plan(plan_text: str) -> PlanValidationResult:
             ))
 
         for match in _CMDLET_RE.finditer(code):
-            cmdlet = match.group(1)
+            cmdlet = match.group(1).casefold()
             if cmdlet not in _ALLOWED_CMDLETS:
                 issues.append(PlanValidationIssue(
                     "error", "disallowed_cmdlet",
-                    f"Disallowed cmdlet '{cmdlet}' on line {i}", i,
+                    f"Disallowed cmdlet '{match.group(1)}' on line {i}", i,
                 ))
 
         if ";" in code:

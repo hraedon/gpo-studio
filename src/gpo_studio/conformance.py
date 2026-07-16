@@ -513,6 +513,14 @@ def fixture_comprehensive() -> GPO:
             ),
         ),
     )
+    user_groups: tuple[GppGroup, ...] = (
+        GppGroup(
+            name="UserScopeGroup",
+            sid="S-1-5-21-1111111111-2222222222-3333333333-6004",
+            action="update",
+            description="User-scope GPP group",
+        ),
+    )
     return GPO(
         guid=_SYNTH_GUID_2,
         name="Comprehensive Fixture",
@@ -534,6 +542,7 @@ def fixture_comprehensive() -> GPO:
         ),
         gpp_collections=(
             GppCollection(scope="computer", groups=groups, registry=registry),
+            GppCollection(scope="user", groups=user_groups),
         ),
         domain=_SYNTH_DOMAIN,
     )
