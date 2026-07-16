@@ -26,10 +26,6 @@ _ALLOWED_CMDLETS: frozenset[str] = frozenset({
 })
 
 _CMDLET_RE = re.compile(r"(?<![A-Za-z-])([A-Z][a-z]+-[A-Z][A-Za-z]+)")
-_GUID_RE = re.compile(
-    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
-)
-_HIVE_RE = re.compile(r"'(HKLM|HKCU)\\", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)

@@ -289,13 +289,19 @@ def test_cpassword_detected_in_gpp_xml() -> None:
     assert contains_cpassword(cpassword_gpp_xml())
 
 
-def test_cpassword_rejected_in_gpp_parse() -> None:
+def test_cpassword_rejected_in_gpp_parse(tmp_path: Path) -> None:
     from gpo_studio.backup import BackupError
+    from gpo_studio.import_export import collect_gpp_collections
 
     xml_bytes = cpassword_gpp_xml()
     assert contains_cpassword(xml_bytes)
-    with pytest.raises(BackupError):
-        raise BackupError("cpassword detected in Groups.xml")
+    backup_dir = tmp_path / "cpassword_backup"
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    groups_dir = gpo_dir / "Machine" / "Preferences" / "Groups"
+    groups_dir.mkdir(parents=True)
+    (groups_dir / "Groups.xml").write_bytes(xml_bytes)
+    with pytest.raises(BackupError, match="cpassword"):
+        collect_gpp_collections(backup_dir, "11111111-2222-3333-4444-555555555555")
 
 
 def test_unsupported_ilt_nested_collection_preserved_as_unknown() -> None:
