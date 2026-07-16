@@ -20,6 +20,15 @@ def test_policy_report_is_deterministic_plain_text() -> None:
                 registry_type="REG_QWORD",
                 value="18446744073709551615",
             ),
+            RegistrySetting(
+                id="setting-2",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\Policies\Synthetic",
+                value_name="Reviewers",
+                registry_type="REG_MULTI_SZ",
+                value=["alpha", "beta"],
+            ),
         ),
     )
 
@@ -28,5 +37,7 @@ def test_policy_report_is_deterministic_plain_text() -> None:
     assert "GPO Studio policy report" in first
     assert "Unicode policy — 東京" in first
     assert "18446744073709551615" in first
+    assert "alpha; beta" in first
+    assert "['alpha', 'beta']" not in first
     assert "Policy semantic SHA-256:" in first
     assert "<script>" in first  # safe because the API serves text/plain

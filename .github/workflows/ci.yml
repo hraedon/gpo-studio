@@ -37,6 +37,11 @@ jobs:
         run: pip install -e '.[dev]'
       - name: Install frontend dependencies
         run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
       - name: Install browser binaries
         run: npx playwright install --with-deps chromium firefox
       - name: Frontend checks

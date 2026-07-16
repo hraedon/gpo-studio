@@ -738,6 +738,27 @@ def test_backup_import_path_traversal_rejected(tmp_path: Path, monkeypatch) -> N
         assert issues[0]["code"] == "path_outside_inbox"
 
 
+def test_backup_import_relative_traversal_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    inbox_dir = tmp_path / "inbox"
+    inbox_dir.mkdir()
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox_dir))
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/backups/import",
+            json={"path": "../../../../etc/passwd"},
+        )
+
+    assert response.status_code == 422
+    issue = response.json()["error"]["issues"][0]
+    assert issue["code"] == "path_outside_inbox"
+    assert "passwd" not in issue["message"]
+
+
 def test_import_backup_rejects_symlinked_manifest(tmp_path: Path, monkeypatch) -> None:
     inbox_dir = tmp_path / "inbox"
     inbox_dir.mkdir()
@@ -2130,6 +2151,13 @@ def test_plan_019_review_endpoints_and_structured_conflict(tmp_path: Path) -> No
         assert comparison.status_code == 200
         assert any(item["field"] == "description" for item in comparison.json()["metadata"])
 
+        identical = client.get(
+            f"/api/gpos/{guid}/revisions/diff",
+            params={"from_revision": 2, "to_revision": 2},
+        )
+        assert identical.status_code == 422
+        assert identical.json()["error"]["issues"][0]["code"] == "identical_revisions"
+
         report = client.get(f"/api/gpos/{guid}/report.txt")
         assert report.status_code == 200
         assert report.headers["content-type"].startswith("text/plain")
@@ -2174,3 +2202,9 @@ def test_backup_import_accepts_path_relative_to_configured_inbox(
         assert imported.status_code == 201
         assert imported.json()["gpo"]["name"] == "Imported Policy"
         assert imported.json()["gpo"]["status"] == "archived"
+        forked = client.post(
+            f"/api/gpos/{imported.json()['gpo']['guid']}/fork",
+            json={"name": "Editable imported policy"},
+        )
+        assert forked.status_code == 201
+        assert forked.json()["gpo"]["status"] == "draft"

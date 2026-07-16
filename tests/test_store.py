@@ -1864,3 +1864,23 @@ def test_reorder_gpp_is_atomic_and_versioned(tmp_path: Path) -> None:
             identity="alice",
             reason="invalid duplicate",
         )
+
+
+def test_reorder_gpp_rejects_kind_before_mutation(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("GPP reorder", identity="alice", reason="draft")
+
+    with patch.object(store, "_mutate") as mutate, pytest.raises(
+        ValidationError, match="validation failed"
+    ):
+        store.reorder_gpp(
+            gpo.guid,
+            gpo.revision,
+            "computer",
+            "services",  # type: ignore[arg-type]
+            (),
+            identity="alice",
+            reason="invalid kind",
+        )
+
+    mutate.assert_not_called()

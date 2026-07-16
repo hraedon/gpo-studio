@@ -15,10 +15,8 @@ export default [
       globals: globals.browser,
     },
     rules: {
-      // Existing modules predate the lint gate. Keep this legacy cleanup visible
-      // without blocking WP-1; undefined names remain release-blocking errors.
-      "no-empty": "warn",
-      "no-unused-vars": "warn",
+      "no-empty": "error",
+      "no-unused-vars": "error",
     },
   },
   {

@@ -14,6 +14,12 @@ def _section(title: str, lines: Iterable[str]) -> list[str]:
     return [title, "-" * len(title), *(body or ["(none)"]), ""]
 
 
+def _format_value(value: str | int | list[str]) -> str:
+    if isinstance(value, list):
+        return "; ".join(value)
+    return str(value)
+
+
 def policy_report(gpo: GPO) -> str:
     """Return a stable plain-text summary suitable for a ticket or review."""
 
@@ -45,7 +51,7 @@ def policy_report(gpo: GPO) -> str:
         "Registry policy settings",
         (
             f"{item.side}/{item.hive} {item.key} :: {item.value_name or '(Default)'} "
-            f"[{item.registry_type}, {item.action}] = {item.value!r}"
+            f"[{item.registry_type}, {item.action}] = {_format_value(item.value)}"
             for item in gpo.settings
         ),
     )

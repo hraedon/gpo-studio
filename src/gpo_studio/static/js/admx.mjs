@@ -4,7 +4,7 @@ import {loadList} from './render.mjs';
 
 let admxLoaded=null,admxTimer=null,admxCatsLoaded=false;
 export async function checkAdmx(){
-  if(admxLoaded===null){try{const h=await api("/api/health");admxLoaded=h.admx_loaded===true}catch(e){admxLoaded=false}$("#admx-empty").hidden=admxLoaded;$("#admx-content").hidden=!admxLoaded}
+  if(admxLoaded===null){try{const h=await api("/api/health");admxLoaded=h.admx_loaded===true}catch{admxLoaded=false}$("#admx-empty").hidden=admxLoaded;$("#admx-content").hidden=!admxLoaded}
   if(admxLoaded){if(!admxCatsLoaded){admxCatsLoaded=true;loadAdmxCategories()}loadAdmxResults($("#admx-search").value)}
 }
 async function loadAdmxResults(q){
@@ -39,7 +39,7 @@ async function loadAdmxDetail(id){
 }
 async function loadAdmxCategories(){
   try{const data=await api("/api/admx/categories");$("#admx-categories").innerHTML=data.items.length?data.items.map(c=>`<div class="admx-cat">${escapeHtml(c.display_name)}<small class="mono">${escapeHtml(c.id)}</small></div>`).join(""):'<div class="table-empty">No categories.</div>';
-  }catch(e){}
+  }catch(error){toast(error.message)}
 }
 function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
   const form=$("#configure-form");form.reset();
@@ -67,7 +67,7 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     else if(kind==="multitext"||kind==="list"){values[id]=el.value.split(/\r?\n/).filter(Boolean)}
   });
   if(!ok)return;
-  try{const data=await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
+  try{await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
     $("#configure-dialog").close();await loadList(targetGuid);toast("Policy settings applied to GPO")}
   catch(error){toast(error.message)}
 };
