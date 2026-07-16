@@ -146,10 +146,45 @@ def test_valid_plan_with_wmi_filter() -> None:
 
 def test_backtick_injection_detected() -> None:
     plan = powershell_plan(_sample_gpo())
-    injected = plan.replace("Synthetic Policy", "Synthetic`$(Get-Process)Policy")
+    injected = plan + "\n$x = `$(Get-Process)\n"
     result = validate_plan(injected)
     assert not result.valid
     assert any(i.code == "backtick_injection" for i in result.errors)
+
+
+def test_dangerous_alias_iex_detected() -> None:
+    plan = powershell_plan(_sample_gpo())
+    injected = plan + "\niex 'malicious'\n"
+    result = validate_plan(injected)
+    assert not result.valid
+    assert any(i.code == "dangerous_token" for i in result.errors)
+
+
+def test_dangerous_alias_ri_detected() -> None:
+    plan = powershell_plan(_sample_gpo())
+    injected = plan + "\nri C:\\important.txt\n"
+    result = validate_plan(injected)
+    assert not result.valid
+    assert any(i.code == "dangerous_token" for i in result.errors)
+
+
+def test_plan_with_backtick_in_name_validates() -> None:
+    gpo = replace(_sample_gpo(), name="Test`Name")
+    plan = powershell_plan(gpo)
+    result = validate_plan(plan)
+    assert result.valid, (
+        f"Backtick inside single-quoted string should not trigger false positive: "
+        f"{result.issues}"
+    )
+
+
+def test_multiline_description_validates() -> None:
+    gpo = replace(_sample_gpo(), description="Line one\nLine two with Remove-Item")
+    plan = powershell_plan(gpo)
+    result = validate_plan(plan)
+    assert result.valid, (
+        f"Multi-line string should not trigger false positive: {result.issues}"
+    )
 
 
 def test_semicolon_injection_detected() -> None:
