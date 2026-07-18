@@ -1,9 +1,10 @@
 # Plan 019 — Browser quality and accessibility
 
-Status: implemented and accepted (2026-07-16). The browser test foundation,
-conflict and failure UX, review workflows, automated accessibility coverage,
-adversarial review, and CI evidence are complete. The hands-on screen-reader
-session remains release-candidate evidence work rather than open Plan 019 code.
+Status: implemented and accepted (2026-07-16); closed 2026-07-18. The browser
+test foundation, conflict and failure UX, review workflows, automated
+accessibility coverage, adversarial review, and CI evidence are complete. The
+hands-on NVDA acceptance journey passed against the promoted v1.0.0 candidate
+(recorded in `docs/release-evidence.md`); no Plan 019 work remains open.
 Scope: make the dependency-light browser application testable, resilient to
 conflicts and failures, and usable with keyboard and assistive technology
 Depends on: Plans 015 and 016 API contracts

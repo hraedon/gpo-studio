@@ -1,9 +1,9 @@
 # Plan 020 — Release engineering and 1.0 gates
 
-Status: WP-1–4 release-candidate publication prepared; WP-5 not started. The
-automated candidate pipeline and Windows-matrix evidence are present, but the
-tagged remote pipeline and hands-on screen-reader evidence remain
-final-release gates.
+Status: implemented and accepted — v1.0.0 released 2026-07-18. The tagged
+remote pipeline ran through rc.1–rc.3, the hands-on NVDA acceptance journey
+passed on the promoted candidate, and the release evidence is recorded in
+`docs/release-evidence.md`. No Plan 020 work remains open.
 Scope: turn the verified application into a supportable, reproducible 1.0
 release with explicit evidence and rollback
 Depends on: Plans 015 through 019

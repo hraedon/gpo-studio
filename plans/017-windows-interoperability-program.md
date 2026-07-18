@@ -1,10 +1,10 @@
 # Plan 017 — Windows and GPMC interoperability program
 
-Status: implemented and accepted (2026-07-16). The compatibility corpus,
-normalization/import conformance, generated-plan validator, adversarial review,
-and CI evidence are complete. Per-capability Windows-lab claims remain pending
-until their sanitized release-candidate evidence is attached to the capability
-matrix; this evidence gate is operational release work, not open Plan 017 code.
+Status: implemented and accepted (2026-07-16); closed 2026-07-18. The
+compatibility corpus, normalization/import conformance, generated-plan
+validator, adversarial review, and CI evidence are complete. The WP-5
+Windows-lab evidence (hash-pinned `docs/release-evidence-report.json`) was
+recorded and shipped with the v1.0.0 release; no Plan 017 work remains open.
 Scope: replace format plausibility with reproducible evidence from real Windows
 and Group Policy tooling
 Depends on: Plans 015 and 016
