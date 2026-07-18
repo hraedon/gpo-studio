@@ -53,3 +53,13 @@ complete task. Follow the
 candidate, screen reader, browser versions, tester, date, findings, and gate
 decision here. Until that session is complete, Plan 019's manual screen-reader
 acceptance gate remains open.
+
+### Interrupted 1.0.0rc2 session
+
+On 2026-07-18, the initial hands-on Windows/NVDA session found a blocker before
+policy creation: NVDA announced each button, but activating a button had no
+effect. A direct request showed `/assets/js/main.mjs` was served as
+`text/plain; charset=utf-8`; the browser therefore rejected it under the
+application's `nosniff` policy and no interaction handlers were installed.
+The server-side MIME fix and regression coverage are included in `1.0.0rc3`.
+No screen-reader checklist item is credited from the interrupted session.
