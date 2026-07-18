@@ -5,9 +5,19 @@ All notable changes to GPO Studio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current version: `1.0.0rc2` (release candidate).
+Current version: `1.0.0rc3` (release candidate).
 
 ## [Unreleased]
+
+## [1.0.0-rc.3] - 2026-07-18
+
+### Fixed
+
+- JavaScript modules are now served as `text/javascript` on Windows regardless
+  of the machine's MIME registry. Previously, a `text/plain` association made
+  browsers reject every module under the application's `nosniff` policy,
+  leaving all browser controls inert.
+- Added a GPO Studio favicon.
 
 ## [1.0.0-rc.2] - 2026-07-18
 

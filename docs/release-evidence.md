@@ -1,4 +1,4 @@
-# Release evidence manifest — GPO Studio 1.0.0rc2
+# Release evidence manifest — GPO Studio 1.0.0rc3
 
 > **Date:** 2026-07-18
 > **Source commit:** resolved by the tagged release workflow
@@ -11,8 +11,8 @@ placeholder or smoke observation never promotes a capability-matrix row.
 
 ## Reproduced automated evidence
 
-- Python: 1,234 passed and 10 platform skips after the review-fix regression
-  tests were added.
+- Python: 1,238 passed and 10 platform skips after the Windows static-delivery
+  regression tests were added.
 - Branch coverage: 84.57% overall; API, backup, canonical, export, GPP,
   PowerShell validation, Registry.pol, store, validation, and workspace
   operations all exceed their separately enforced risk-based floors.
@@ -224,10 +224,19 @@ hands-on NVDA session: nobody listened to the spoken interface or exercised
 NVDA's navigation model. The manual Edge and Firefox ESR sessions in
 `docs/browser-accessibility-checklist.md` therefore remain open for this RC.
 
+An initial hands-on Windows/NVDA session against `1.0.0rc2` found a blocker:
+NVDA announced the buttons correctly, but none could be activated. The exact
+server response confirmed `/assets/js/main.mjs` was delivered as `text/plain`
+on that Windows host, so the browser rejected the module under the intentional
+`X-Content-Type-Options: nosniff` policy. `1.0.0rc3` makes the JavaScript MIME
+type independent of the host registry and adds a regression test that
+simulates the incorrect mapping. The hands-on journey must restart against the
+new candidate; the interrupted session does not satisfy the manual gate.
+
 ## Schema and artifact identity
 
 - Workspace schema version: 1
-- Application version: 1.0.0rc2
+- Application version: 1.0.0rc3
 - Source commit: resolved in the release attachment by the tagged workflow
 - Wheel SHA-256: resolved in the release attachment and `SHA256SUMS`
 - Source distribution SHA-256: resolved in the release attachment and `SHA256SUMS`
@@ -270,7 +279,7 @@ NVDA's navigation model. The manual Edge and Firefox ESR sessions in
 3. Land the reviewed Plan 020 pipeline and record all successful remote jobs,
    candidate artifact hashes, SBOM hash, and upgrade/rollback output. The
    tagged RC workflow resolves and attaches these identities.
-4. Publish `1.0.0-rc.2` so items 1–3 can refer to the same immutable candidate.
+4. Publish `1.0.0-rc.3` so items 1–3 can refer to the same immutable candidate.
 
 The RC is test material, not final-release approval. No `1.0.0` tag may be
 created while this section is non-empty.

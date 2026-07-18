@@ -61,6 +61,32 @@ def test_security_headers_on_static_file(tmp_path: Path) -> None:
         assert resp.headers["Referrer-Policy"] == "no-referrer"
 
 
+def test_javascript_module_content_type_ignores_host_mime_mapping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup_store(tmp_path)
+    monkeypatch.setattr(
+        "starlette.responses.guess_type",
+        lambda _path: ("application/octet-stream", None),
+    )
+    with TestClient(app) as client:
+        resp = client.get("/assets/js/main.mjs")
+        assert resp.status_code == 200
+        assert resp.headers["Content-Type"] == "text/javascript; charset=utf-8"
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_favicon_is_linked_and_served(tmp_path: Path) -> None:
+    _setup_store(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/")
+        icon = client.get("/assets/favicon.svg")
+        assert page.status_code == 200
+        assert 'rel="icon" href="/assets/favicon.svg"' in page.text
+        assert icon.status_code == 200
+        assert icon.headers["Content-Type"] == "image/svg+xml"
+
+
 def test_security_headers_on_421_host_rejection(tmp_path: Path, monkeypatch) -> None:
     _setup_store(tmp_path)
     monkeypatch.delenv("GPO_STUDIO_UNSAFE_BIND")
