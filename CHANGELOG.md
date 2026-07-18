@@ -9,12 +9,36 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- Plan 021 WP-1: authoritative GPMC capability inventory
+  (`docs/plan-021/capability-inventory.md`) — a versioned, pre-gate matrix of
+  GPMC lifecycle/scope/report surfaces, principal-bearing fields, every in-box
+  CSE and editor by GUID/side/storage/OS/deprecation/management-API, the GPP
+  item/action/option space, and the complete ILT predicate AST. Each row is
+  classified (`verified-rw` … `unknown`) and linked to Microsoft documentation
+  and lab evidence. No row is `verified-rw` without Windows and endpoint
+  evidence.
+- Plan 021 WP-4: reference estates and evidence schema
+  (`docs/plan-021/reference-estates-and-evidence.md`) — the provisional Windows
+  target matrix (WS2019/2022/2025 + Win11; Win10 behind an ESU decision), the
+  ADMX/ADML licensing classification rules, the redaction contract enforced by
+  the identifier gate, the versioned evidence-pack JSON schema, and the
+  negative/downgrade fixture requirements.
+- Plan 021 WP-4: public matrix generator (`scripts/generate_public_matrix.py`
+  and `src/gpo_studio/evidence.py`) — loads versioned evidence packs, refuses
+  to derive claims from packs whose redaction or licensing gates are
+  unsatisfied, and derives a public capability matrix containing only claims
+  backed by passing evidence. A `verified-rw` claim requires both a passing
+  Windows-side and a passing endpoint record.
+
 ### Changed
 
 - Documentation: closed out pre-release status language in `SECURITY.md` and
   Plans 017/019/020, wrote the 1.0.x support/compatibility/deprecation
   policy, and refined Plan 021 with a provisional target matrix, corpus
   licensing/redaction rules, and a pre-review spike boundary.
+- Risk-based coverage floors now include `src/gpo_studio/evidence.py` (90%).
 
 ## [1.0.0] - 2026-07-18
 
