@@ -396,10 +396,15 @@ raw registry editor.
 
 ## Windows-lab compatibility notes
 
-Per-capability Windows-lab verification remains pending. A limited smoke run
-exercised generated-plan GPO creation, DWORD/REG_SZ commands, and side status,
-but did not meet the complete, least-privileged evidence matrix. The following
-notes describe the intended compatibility surface.
+Plan 017 WP-5 lab validation on Windows Server 2025 exercised all 12
+conformance-corpus fixtures through their PowerShell plans on a domain
+controller: GPO creation, all six registry value types, delete operations,
+side enablement, and idempotency. The per-capability outcome (including
+capabilities not validated by native Windows tooling and the known
+`Import-GPO` incompatibility) is recorded in the
+[capability matrix](capability-matrix.md) and
+[release evidence](release-evidence.md). The following notes describe the
+supported compatibility surface.
 
 ### PowerShell module requirements
 

@@ -63,6 +63,14 @@ Current version: `1.0.0.dev0` (pre-release).
 - Three adversarial review rounds fixing real bypasses in multiline quoted
   strings, case-insensitive PowerShell names and aliases, and user-scope
   GPP coverage.
+- WP-5 Windows lab validation on Windows Server 2025: all 12
+  conformance-corpus fixtures exercised through their PowerShell plans on a
+  domain controller (all six registry types, deletes, side enablement,
+  idempotency, `Backup-GPO`). Sanitized, hash-pinned evidence report
+  (`docs/release-evidence-report.json` +
+  `scripts/generate_evidence_report.py`), capability-matrix Win-lab column
+  promotions, and a root-cause diagnosis of the `Import-GPO` `Backup.xml`
+  v2.0 incompatibility recorded as a known issue.
 
 #### Workspace and runtime hardening (Plan 018)
 
@@ -162,7 +170,15 @@ Current version: `1.0.0.dev0` (pre-release).
   dependency vulnerability and license checks, history secret scanning,
   reproducible builds, sdist installation, and an upgrade/rollback rehearsal.
 - Tag-triggered release workflow producing checksums, CycloneDX SBOM, GitHub
-  provenance/SBOM attestations, and exact-artifact installation tests.
+  provenance/SBOM attestations, and exact-artifact installation tests. The
+  sanitized Windows lab evidence report is attached to each release and
+  covered by the checksums and attestation.
+- `docs/windows-quickstart.md`: single-operator Windows installation guide
+  requiring no Git, `uv`, IIS, or service installation.
+- `docs/nvda-validation-runbook.md`: scripted manual NVDA screen-reader
+  session for the open Plan 019 acceptance gate.
+- Plan 032 (hardened hosted control plane) authored as the executable plan
+  for Plan 001 Phase 3, sequenced before Plan 030 controlled publication.
 
 ### Changed
 
@@ -244,3 +260,16 @@ Current version: `1.0.0.dev0` (pre-release).
   description, causing a validation error (New-GPO requires non-empty
   comment). Now emits `-Comment 'Created by GPO Studio'` as fallback. Found
   during a limited Windows smoke run.
+- Generated PowerShell plan emitted `REG_BINARY` values as a bare
+  `[byte[]](...)` cast, which fails parameter binding under Windows
+  PowerShell 5.1. Now parenthesized (`([byte[]](...))`), with
+  `([byte[]]@())` for empty values. Found during the Plan 017 WP-5 lab
+  validation.
+- `Registry.pol` serialization omitted the UTF-16LE null terminator on key
+  and value-name strings that Windows includes. Serializer now emits the
+  terminator; parser strips it and remains compatible with unterminated
+  legacy files. Found during the Plan 017 WP-5 lab validation.
+- GPMC backup `Registry.pol` included the `HKLM\`/`HKCU\` hive prefix in
+  key paths; Windows infers the hive from the `Machine`/`User` directory
+  and a prefixed key produces incorrect paths on import. Found during the
+  Plan 017 WP-5 lab validation.
