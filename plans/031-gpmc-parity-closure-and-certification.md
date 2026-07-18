@@ -19,6 +19,14 @@ Review gate: **FINAL INDEPENDENT REVIEW REQUIRED before parity claim**
 
 - Test realistic mixed-CSE, multi-domain/site/OU, Starter GPO, WMI, loopback,
   migration, delegation, Modeling/Results, and concurrent-admin scenarios.
+- Compare the per-GPO configured-settings browser and reports with GPMC across
+  friendly ADMX descriptions, adapter-specific descriptions, raw registry
+  settings, and opaque/unknown content; no setting may disappear for lack of a
+  renderer.
+- Exercise administrator-selected SID reconciliation across current SID,
+  SID-history, rename, deletion, recreation with the same name, foreign
+  security principals, inaccessible objects, trust boundaries, and replication
+  lag, including stale mapping rejection immediately before publication.
 - Run backup/import/copy/restore, edit, publish, replication, endpoint apply,
   removal, drift, and recovery across supported version combinations.
 - Measure semantic diff false negatives/positives and opaque-content retention.
@@ -61,5 +69,8 @@ affected adapter plan and may require refining downstream gates.
 - No matrix row is implied by marketing rather than generated evidence.
 - Cross-feature estates pass GPMC, endpoint, concurrency, and recovery tests.
 - Unknown content survives every eligible no-edit lifecycle byte-for-byte.
+- Every configured setting is browsable as verified semantic detail or explicit
+  raw/opaque evidence, and every principal rewrite traces to a reviewed,
+  administrator-selected AD object.
 - Independent reviews contain no unresolved critical/high findings.
 - Operators complete restore, partial-failure, and credential-compromise drills.
