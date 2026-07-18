@@ -1,6 +1,6 @@
 # GPO Studio capability matrix
 
-> **Version:** 1.0.0rc1 (release candidate)
+> **Version:** 1.0.0rc2 (release candidate)
 > **Source of truth:** This document defines the GPO Studio 1.0 capability
 > contract. If code and this document disagree on what is supported, that is a
 > bug. See [Plan 015](../plans/015-1.0-contract-and-model-consistency.md) for

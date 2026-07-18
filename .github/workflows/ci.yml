@@ -223,13 +223,16 @@ jobs:
             --output-reproducible \
             --output-format JSON \
             --output-file sbom.cdx.json
+          python scripts/finalize_sbom.py sbom.cdx.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-commit "$GITHUB_SHA"
       - name: Verify SBOM
         run: |
           if [ ! -s sbom.cdx.json ]; then
             echo "FAIL: SBOM is empty or missing"
             exit 1
           fi
-          python -c "import json; json.load(open('sbom.cdx.json'))"
+          python -c "import json; data=json.load(open('sbom.cdx.json')); assert data['bomFormat'] == 'CycloneDX'; assert data['serialNumber'].startswith('urn:uuid:')"
           echo "SBOM generated: $(stat -c%s sbom.cdx.json) bytes"
       - name: Upload SBOM
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
