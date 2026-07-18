@@ -12,6 +12,7 @@ _FLOORS = {
     "src/gpo_studio/api.py": 90.0,
     "src/gpo_studio/backup.py": 88.0,
     "src/gpo_studio/canonical.py": 90.0,
+    "src/gpo_studio/evidence.py": 90.0,
     "src/gpo_studio/export.py": 92.0,
     "src/gpo_studio/gpp.py": 88.0,
     "src/gpo_studio/ps_plan_validator.py": 94.0,
