@@ -1,4 +1,4 @@
-# Release evidence manifest — GPO Studio 1.0.0rc1
+# Release evidence manifest — GPO Studio 1.0.0rc2
 
 > **Date:** 2026-07-18
 > **Source commit:** resolved by the tagged release workflow
@@ -227,7 +227,7 @@ NVDA's navigation model. The manual Edge and Firefox ESR sessions in
 ## Schema and artifact identity
 
 - Workspace schema version: 1
-- Application version: 1.0.0rc1
+- Application version: 1.0.0rc2
 - Source commit: resolved in the release attachment by the tagged workflow
 - Wheel SHA-256: resolved in the release attachment and `SHA256SUMS`
 - Source distribution SHA-256: resolved in the release attachment and `SHA256SUMS`
@@ -270,7 +270,7 @@ NVDA's navigation model. The manual Edge and Firefox ESR sessions in
 3. Land the reviewed Plan 020 pipeline and record all successful remote jobs,
    candidate artifact hashes, SBOM hash, and upgrade/rollback output. The
    tagged RC workflow resolves and attaches these identities.
-4. Publish `1.0.0-rc.1` so items 1–3 can refer to the same immutable candidate.
+4. Publish `1.0.0-rc.2` so items 1–3 can refer to the same immutable candidate.
 
 The RC is test material, not final-release approval. No `1.0.0` tag may be
 created while this section is non-empty.

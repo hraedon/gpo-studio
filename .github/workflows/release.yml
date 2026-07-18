@@ -102,6 +102,9 @@ jobs:
             --output-reproducible \
             --output-format JSON \
             --output-file sbom.cdx.json
+          python scripts/finalize_sbom.py sbom.cdx.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-commit "$GITHUB_SHA"
           cp docs/release-evidence.md release-evidence.md
           cp docs/release-evidence-report.json release-evidence-report.json
           python - <<'PY'
@@ -153,7 +156,7 @@ jobs:
             release-evidence.md
             release-evidence-report.json
       - name: Attest release SBOM
-        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: dist/*
           sbom-path: sbom.cdx.json
