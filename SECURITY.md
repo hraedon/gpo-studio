@@ -10,8 +10,8 @@ GPO Studio is pre-1.0 software. Security fixes are applied to the latest
 | 1.0.x   | Yes       |
 | < 1.0   | No        |
 
-Pre-1.0 builds (`1.0.0.dev0` and earlier) receive no backported fixes. Upgrade
-to the latest release before reporting an issue.
+Pre-1.0 builds, including development builds and release candidates, receive
+no backported fixes. Upgrade to the latest release before reporting an issue.
 
 ## Reporting a vulnerability
 

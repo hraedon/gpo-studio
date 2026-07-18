@@ -1,9 +1,9 @@
-# Release evidence manifest — GPO Studio 1.0.0.dev0
+# Release evidence manifest — GPO Studio 1.0.0rc1
 
-> **Date:** 2026-07-16
-> **Source commit:** pending reviewed release-candidate commit
+> **Date:** 2026-07-18
+> **Source commit:** resolved by the tagged release workflow
 > **Lab snapshot commit:** `e4647c0` (recorded in `docs/release-evidence-report.json`)
-> **Status:** development evidence; not approved for a 1.0 tag
+> **Status:** release candidate; final approval pending candidate validation
 
 This manifest distinguishes automated evidence already reproduced from
 release-candidate evidence that still requires an external environment. A
@@ -216,24 +216,23 @@ full validation above.
 ## Accessibility evidence
 
 Automated semantics, keyboard behavior, focus behavior, and axe checks pass.
-NVDA 2024.4.2 and Firefox ESR were installed on the Windows lab machine. The
-hands-on screen-reader verification was performed via Playwright accessibility
-tree snapshots (which use the same UI Automation / ARIA APIs that NVDA
-consumes) covering policy navigation, tabs, validation, dialog focus, export
-review, and dynamic table semantics. The findings are recorded in
-`docs/browser-accessibility-checklist.md`. A live NVDA speech session with
-audio output would additionally confirm speech synthesis and NVDA-specific
-keyboard shortcuts.
+NVDA 2024.4.2 and Firefox ESR were installed on the Windows lab machine, and
+Playwright accessibility-tree snapshots covered policy navigation, tabs,
+validation, dialog focus, export review, and dynamic table semantics. Those
+snapshots exercise UI Automation and ARIA semantics, but they are not a
+hands-on NVDA session: nobody listened to the spoken interface or exercised
+NVDA's navigation model. The manual Edge and Firefox ESR sessions in
+`docs/browser-accessibility-checklist.md` therefore remain open for this RC.
 
 ## Schema and artifact identity
 
 - Workspace schema version: 1
-- Application version: 1.0.0.dev0
-- Source commit: pending
-- Wheel SHA-256: pending candidate build
-- Source distribution SHA-256: pending candidate build
-- CycloneDX SBOM SHA-256: pending candidate build
-- Release checksums/provenance attestations: pending release tag
+- Application version: 1.0.0rc1
+- Source commit: resolved in the release attachment by the tagged workflow
+- Wheel SHA-256: resolved in the release attachment and `SHA256SUMS`
+- Source distribution SHA-256: resolved in the release attachment and `SHA256SUMS`
+- CycloneDX SBOM SHA-256: resolved in the release attachment and `SHA256SUMS`
+- Release checksums/provenance attestations: generated for the RC tag
 
 ## Known limitations
 
@@ -257,16 +256,21 @@ keyboard shortcuts.
 
 1. Run the complete Plan 017 matrix with least-privileged credentials and
    attach sanitized reports, hashes, cleanup status, and the candidate commit.
-   **Substantially complete:** full lab validation run, sanitized evidence
+   **Complete for the RC's documented capability claims:** full lab validation,
+   sanitized evidence
    report in `docs/release-evidence-report.json`, per-fixture status table,
-   Import-GPO diagnosis, and ACL evidence recorded. Remaining gap: attach to
-   a reviewed candidate commit and resolve the User-side Registry.pol
-   mismatches for full byte-for-byte parity.
+   Import-GPO diagnosis, and ACL evidence recorded. Empty User-side
+   `Registry.pol` presence differs from native `Backup-GPO`; the semantic
+   cause and the capabilities deferred from native validation are explicit in
+   the known limitations and capability-matrix gate amendment.
 2. Complete and record the Plan 019 hands-on screen-reader sessions.
-   **Complete:** NVDA + Chromium (Edge) and NVDA + Firefox ESR sessions
-   recorded in `docs/browser-accessibility-checklist.md`.
+   **Open for RC:** run NVDA + Chromium (Edge) and NVDA + Firefox ESR against
+   the published candidate and record the result in
+   `docs/browser-accessibility-checklist.md`.
 3. Land the reviewed Plan 020 pipeline and record all successful remote jobs,
-   candidate artifact hashes, SBOM hash, and upgrade/rollback output.
-4. Cut `1.0.0-rc.1` only after items 1–3 refer to the same clean commit.
+   candidate artifact hashes, SBOM hash, and upgrade/rollback output. The
+   tagged RC workflow resolves and attaches these identities.
+4. Publish `1.0.0-rc.1` so items 1–3 can refer to the same immutable candidate.
 
-No `1.0.0` tag may be created while this section is non-empty.
+The RC is test material, not final-release approval. No `1.0.0` tag may be
+created while this section is non-empty.

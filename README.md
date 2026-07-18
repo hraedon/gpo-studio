@@ -29,7 +29,7 @@ review surface with publication kept at an explicit adapter boundary.
 
 ## Capabilities
 
-GPO Studio 1.0 (in development) supports the following areas as a single-operator
+GPO Studio 1.0 release candidate supports the following areas as a single-operator
 offline authoring workbench. See
 [`docs/capability-matrix.md`](docs/capability-matrix.md) for the full contract
 with per-action fidelity, capability states, and known limitations.
