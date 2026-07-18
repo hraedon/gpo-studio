@@ -5,9 +5,11 @@ All notable changes to GPO Studio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current version: `1.0.0.dev0` (pre-release).
+Current version: `1.0.0rc1` (release candidate).
 
 ## [Unreleased]
+
+## [1.0.0-rc.1] - 2026-07-18
 
 ### Added
 
@@ -173,6 +175,10 @@ Current version: `1.0.0.dev0` (pre-release).
   provenance/SBOM attestations, and exact-artifact installation tests. The
   sanitized Windows lab evidence report is attached to each release and
   covered by the checksums and attestation.
+- Separate fail-closed publication gates for prerelease candidates and the
+  final release: an RC can be published as immutable test material while the
+  final tag still requires an explicitly approved evidence manifest. Attached
+  evidence resolves the tagged commit and wheel, sdist, and SBOM hashes.
 - `docs/windows-quickstart.md`: single-operator Windows installation guide
   requiring no Git, `uv`, IIS, or service installation.
 - `docs/nvda-validation-runbook.md`: scripted manual NVDA screen-reader
