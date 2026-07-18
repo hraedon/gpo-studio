@@ -31,9 +31,12 @@ tools.
 ## Screen-reader pass
 
 The automated semantic pass verifies roles, names, relationships, live regions,
-dialog labelling, and serious/critical axe findings. A hands-on screen-reader
-session still requires an environment with NVDA, JAWS, VoiceOver, or Orca;
-none is installed in the current Linux validation environment.
+dialog labelling, and serious/critical axe findings. NVDA 2024.4.2 and Firefox
+ESR are installed on the Windows Server 2025 lab machine, and the candidate's
+accessibility tree has been inspected there. That is useful automated evidence,
+but it is not a hands-on NVDA speech session and cannot establish announcement
+order, verbosity, browse-mode behavior, or the usability of NVDA-specific
+commands.
 
 - [ ] Windows: NVDA + Chromium — announce policy navigation, tabs, validation,
   field errors, conflict choices, and export review in a sensible order.
@@ -41,6 +44,12 @@ none is installed in the current Linux validation environment.
 - [ ] Confirm repeated announcements are not noisy and dynamic tables retain
   useful row/action context.
 
-Record the screen reader, browser versions, tester, date, and findings here when
-that final hands-on gate is run. Until then, Plan 019's manual screen-reader
-acceptance gate remains explicitly open.
+The automated snapshot confirms named navigation and main landmarks, a level-1
+policy heading, tabs and tab panels, labelled dialogs and fields, tables with
+headers and rows, and named export and row-action controls. A human must now
+confirm what NVDA actually speaks and whether those semantics support the
+complete task. Follow the
+[NVDA validation runbook](nvda-validation-runbook.md), then record the exact
+candidate, screen reader, browser versions, tester, date, findings, and gate
+decision here. Until that session is complete, Plan 019's manual screen-reader
+acceptance gate remains open.

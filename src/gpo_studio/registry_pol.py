@@ -123,9 +123,9 @@ def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
             raise RegistryPolError(f"unsupported registry type: {registry_type}")
         data = _encode_data(registry_type, value)
         output.extend(_OPEN)
-        output.extend(_text(record.key))
+        output.extend(_text(record.key + "\0"))
         output.extend(_SEP)
-        output.extend(_text(value_name))
+        output.extend(_text(value_name + "\0"))
         output.extend(_SEP)
         output.extend(struct.pack("<I", type_code))
         output.extend(_SEP)
@@ -184,8 +184,8 @@ def parse(data: bytes) -> list[PolRecord]:
             raise RegistryPolError("missing record terminator")
         offset += 2
         try:
-            key = key_bytes.decode("utf-16le")
-            value_name = name_bytes.decode("utf-16le")
+            key = key_bytes.decode("utf-16le").rstrip("\0")
+            value_name = name_bytes.decode("utf-16le").rstrip("\0")
         except UnicodeDecodeError as error:
             raise RegistryPolError("Registry.pol contains invalid UTF-16 text") from error
         registry_type = _CODE_TO_TYPE.get(type_code)

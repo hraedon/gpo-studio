@@ -3,7 +3,7 @@
 Status: proposed (post-1.0)
 Scope: safely orchestrate every verified GPMC lifecycle/scope/adapter operation
 through the isolated Windows publisher
-Depends on: Plans 023–029 and all associated review gates
+Depends on: Plans 023–029, Plan 032, and all associated review gates
 Review gate: **REVIEW AND REFINE — REQUIRED at every rollout phase**
 
 ## Permanent architecture
@@ -73,4 +73,3 @@ offline editor parity.
 - Every enabled matrix row has adapter-specific Windows/client/rollback evidence.
 - No worker identity has universal forest or all-adapter write capability.
 - Partial/manual outcomes are durable, visible, paged, and never blindly retried.
-

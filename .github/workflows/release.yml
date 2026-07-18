@@ -97,9 +97,10 @@ jobs:
             --output-format JSON \
             --output-file sbom.cdx.json
           cp docs/release-evidence.md release-evidence.md
+          cp docs/release-evidence-report.json release-evidence-report.json
           printf '\n## Resolved release identity\n\n- Source commit: `%s`\n- Tag: `%s`\n' \
             "$GITHUB_SHA" "$GITHUB_REF_NAME" >> release-evidence.md
-          sha256sum dist/* sbom.cdx.json release-evidence.md > SHA256SUMS
+          sha256sum dist/* sbom.cdx.json release-evidence.md release-evidence-report.json > SHA256SUMS
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
@@ -107,6 +108,7 @@ jobs:
             dist/*
             SHA256SUMS
             release-evidence.md
+            release-evidence-report.json
       - name: Attest release SBOM
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
         with:
@@ -121,6 +123,6 @@ jobs:
             *-rc.*) FLAGS+=(--prerelease) ;;
           esac
           gh release create "$GITHUB_REF_NAME" \
-            dist/* sbom.cdx.json SHA256SUMS release-evidence.md \
+            dist/* sbom.cdx.json SHA256SUMS release-evidence.md release-evidence-report.json \
             --verify-tag --generate-notes \
             --title "GPO Studio ${GITHUB_REF_NAME#v}" "${FLAGS[@]}"

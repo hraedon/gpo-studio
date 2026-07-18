@@ -64,6 +64,10 @@ evidence matrix; those claims remain pending in
 
 ## Run it
 
+Installing a release on Windows? Use the
+[Windows quickstart](docs/windows-quickstart.md); it requires no Git, `uv`,
+IIS, service installation, or virtual-environment activation.
+
 ```bash
 uv sync --extra dev
 uv run gpo-studio --database ./gpo-studio.db
@@ -107,6 +111,8 @@ GPO permissions. Native Windows behavior and CSE-specific details still apply.
 
 Operator references:
 
+- [Windows quickstart](docs/windows-quickstart.md)
+- [Manual NVDA validation runbook](docs/nvda-validation-runbook.md)
 - [Workspace backup and recovery](docs/workspace-recovery.md)
 - [Import resource limits](docs/import-resource-limits.md)
 

@@ -3,7 +3,7 @@
 Status: proposed (post-1.0)
 Scope: close matrix gaps, independently validate claims, and release the first
 version carrying a qualified full-GPMC-parity claim
-Depends on: Plans 021–030
+Depends on: Plans 021–030 and Plan 032
 Review gate: **FINAL INDEPENDENT REVIEW REQUIRED before parity claim**
 
 ## WP-1 — Matrix closure
@@ -63,4 +63,3 @@ affected adapter plan and may require refining downstream gates.
 - Unknown content survives every eligible no-edit lifecycle byte-for-byte.
 - Independent reviews contain no unresolved critical/high findings.
 - Operators complete restore, partial-failure, and credential-compromise drills.
-

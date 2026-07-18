@@ -1,0 +1,362 @@
+{
+  "report_type": "GPO Studio Windows lab validation evidence",
+  "report_date": "2026-07-16",
+  "report_version": 2,
+  "source_commit": "e4647c057d4a7eaca0e03dc041a351f471e41ad9",
+  "os": "Windows Server 2025 (build 26100)",
+  "domain": "ad.hraedon.com",
+  "dc": "mvmdc03.ad.hraedon.com",
+  "identity": "HRAENET\\svc-da (Domain Admin; follow-up diagnosis session)",
+  "prior_session_identity": "gpstudio-lab (least-privileged; initial validation, account removed after testing)",
+  "generation_script": "scripts/generate_evidence_report.py",
+  "conformance_corpus": [
+    {
+      "fixture": "all_registry_types",
+      "contents": "REG_SZ, REG_EXPAND_SZ, REG_BINARY, REG_DWORD, REG_MULTI_SZ, REG_QWORD (computer-side, HKLM)",
+      "powershell_plan_sha256": "bb6e764a1c7bc0ce99053373f27c827ac2e9379426a2e7a2a67beaee7a7c7670",
+      "machine_registry_pol_sha256": "ebb3123cdd01d229b974db5060790169bd5b9ecea8d1b426adffd427648dd6e3",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "12e177ff3a06c67988f3bce4319b45dacaf00c12a6241cc663523de450c7ffee",
+      "export_bundle_sha256": "fb4d32e1f911b176b925403b41206203e5d3de4d8577be33ddf4de93afedc635",
+      "lab_status": {
+        "ps_plan": "pass",
+        "gpo_creation": "pass",
+        "registry_value_verified": true,
+        "backup_gpo": "pass",
+        "registry_pol_hash_match": "mismatch",
+        "mismatch_cause": "User-side Registry.pol not created by Set-GPRegistryValue when only computer side is enabled",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "delete_operations",
+      "contents": "Two delete-action settings (REG_DWORD, REG_SZ with **del. marker)",
+      "powershell_plan_sha256": "77f9f0e864da957c6a6bf735e6d0e6e0cc015179a5f6eefbd15847edbc7443b5",
+      "machine_registry_pol_sha256": "cf20c748eeed5c9a2f6cc97b0a17d1e890b8842dc4c3571c79dea45966d6227a",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "f1b7fbeddda79ef05ba19f6f458573e4936996fb6936df2275c88f5135d82b2f",
+      "export_bundle_sha256": "8c7451e63eb54d5cb735ee66ee7cabb3a8e73a597699c8063980ed9b1654217f",
+      "lab_status": {
+        "ps_plan": "pass",
+        "gpo_creation": "pass",
+        "delete_verified": true,
+        "backup_gpo": "pass",
+        "registry_pol_hash_match": "mismatch",
+        "mismatch_cause": "User-side Registry.pol not created by Set-GPRegistryValue",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "side_status",
+      "contents": "Computer enabled, user disabled; one computer-side and one user-side setting",
+      "powershell_plan_sha256": "6be5cdf9a1cd0d832eb4004f9016465d4ad6311ee0d9351cd707599b73165c4b",
+      "machine_registry_pol_sha256": "d57940ae93c1cc822b7c6035c53e40bcbf62c03101fa7d4252d907f4270049b7",
+      "user_registry_pol_sha256": "b6c20678604bc693dd394ef7ea1b9498facabd92a0542d9da3ccc7e4ac31a240",
+      "gpmc_backup_sha256": "93e13eff0cc339caae7fe451b40c2a4824eac7b7a2a8879318aef632958ffe6f",
+      "export_bundle_sha256": "c87037c8b192acbbc785447931c36ab555300bff20981660539b5250c9082fa1",
+      "lab_status": {
+        "ps_plan": "pass",
+        "gpo_creation": "pass",
+        "side_enablement_verified": true,
+        "backup_gpo": "pass",
+        "registry_pol_hash_match": "exact_match",
+        "mismatch_cause": null,
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "link_shapes",
+      "contents": "Three links: enabled/not-enforced, disabled/enforced, enabled/enforced",
+      "powershell_plan_sha256": "a05709f55d2527beab6c2bc56aacfd011d7fecab863643ea7abfcd32a0bdf509",
+      "machine_registry_pol_sha256": "31bfb42769005b6f681b75f5f9f09062f9ff3f696bf984b99a7de89337342ff9",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "d680854c51218117b63f366c5654ee24bffcde270d25ad30af5cee744f2cf7dc",
+      "export_bundle_sha256": "dd0621e789171db19af635adc5092a4d6af69dee0d5b0cdd28d2e9e184dd5dbc",
+      "lab_status": {
+        "ps_plan": "expected_failure",
+        "gpo_creation": "pass",
+        "registry_value_verified": true,
+        "link_step": "failed",
+        "failure_cause": "Synthetic OUs do not exist in real AD",
+        "backup_gpo": "pass",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "security_filter_types",
+      "contents": "Three security filters: group/apply, user/read, computer/apply with synthetic SIDs",
+      "powershell_plan_sha256": "68f94ee265073393c9352d582bebe4f189bcd11cfbc93a6b7f0cf1409f3fb722",
+      "machine_registry_pol_sha256": "31bfb42769005b6f681b75f5f9f09062f9ff3f696bf984b99a7de89337342ff9",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "eac5417aa4603449204c0b237003b527d13969a6caaefb57fa6654a429905b03",
+      "export_bundle_sha256": "410ba10cccf399c19ec2866ddb21693599eaab5595255bc47add497b60e29a60",
+      "lab_status": {
+        "ps_plan": "expected_failure",
+        "gpo_creation": "pass",
+        "registry_value_verified": true,
+        "security_filter_step": "failed",
+        "failure_cause": "Synthetic principals do not exist in real AD",
+        "backup_gpo": "pass",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "wmi_filter",
+      "contents": "WMI filter with WQL query (SELECT * FROM Win32_OperatingSystem WHERE ProductType = 1)",
+      "powershell_plan_sha256": "b7165ad01b2c2d5b3d334e0777aeb7b7e3ffdfa2a9d5e4530a5c32240af9e6cc",
+      "machine_registry_pol_sha256": "31bfb42769005b6f681b75f5f9f09062f9ff3f696bf984b99a7de89337342ff9",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "bb5fd9ba9a2bafea5c091d0fcbda0c21fc1055176f92f6b5beaba0c07df453ce",
+      "export_bundle_sha256": "7ddd10ff9c37396e1f87e764e594fae46e9503d32cfcd4c18abbbd4434770024",
+      "lab_status": {
+        "ps_plan": "partial",
+        "gpo_creation": "pass",
+        "registry_value_verified": true,
+        "wmi_assignment": "not_applied",
+        "wmi_note": "Plan emits WMI filter as comment only; not applied via PowerShell",
+        "backup_gpo": "pass",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "gpp_groups_all_actions",
+      "contents": "Four GPP group actions: add, replace, update, remove (computer-scope)",
+      "powershell_plan_sha256": "8e858ae55a6d49bc9cc404f565af9b2f86443d8018cbe30743c4d5d9d34f3364",
+      "machine_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "0ea51dc4bdfc59bac8c30e6a29659949588eb2d2a3956ac3d508b0594ec30e17",
+      "export_bundle_sha256": "1770cf7d3cfbb627bbdcd0451dfb1391a17c208affe89338e47596cd3926d4c1",
+      "lab_status": {
+        "ps_plan": "not_applied",
+        "gpo_creation": "pass",
+        "gpp_groups_step": "not_in_plan",
+        "gpp_note": "GPP Groups not applied by PowerShell plan; emitted in GPMC backup XML only",
+        "backup_gpo": "pass",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "gpp_registry_all_actions",
+      "contents": "Four GPP registry value actions: create, replace, update, delete (computer-scope)",
+      "powershell_plan_sha256": "e5b58597c8d3b55e5ca3a708bbc1ca952e503c9ea2c972a5629ba2243befa76f",
+      "machine_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "d4d381ced7c66378b7d37794fcc2d3f89caa68b3a04f09ca8e71ad968dff6b82",
+      "export_bundle_sha256": "23ad6d5f159d43566b4f2c0f8ed2eb3c9d75cb8742b4261d8855d8f3a2a36078",
+      "lab_status": {
+        "ps_plan": "not_applied",
+        "gpo_creation": "pass",
+        "gpp_registry_step": "not_in_plan",
+        "gpp_note": "GPP Registry not applied by PowerShell plan; emitted in GPMC backup XML only",
+        "backup_gpo": "pass",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "ilt_all_predicates",
+      "contents": "All six ILT predicate types (ou, group, registry, ip_range, environment, wmi_query) plus negated copies",
+      "powershell_plan_sha256": "d8abf71acc76957ba5503f32fa50ae5e5d89162254038ea19eadb9a28f49dcb5",
+      "machine_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "c8950c76b4be129adc3aa2aec49c305bb9cdb095f372c0da60ff2dad43e5268d",
+      "export_bundle_sha256": "f61d152a6b5d56ca21928bfbf9135cbf2e3bd99e78ae480cdd09c770e0aa823d",
+      "lab_status": {
+        "ps_plan": "not_applied",
+        "gpo_creation": "pass",
+        "ilt_step": "not_in_plan",
+        "ilt_note": "ILT predicates not applied by PowerShell plan; emitted in GPMC backup XML only",
+        "backup_gpo": "pass",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "unicode_names_and_data",
+      "contents": "Unicode GPO name, REG_SZ and REG_MULTI_SZ with Japanese/Chinese/Korean values",
+      "powershell_plan_sha256": "5c663cab759b70d682c239e464f00e64832d10c2fb7fefebbd1089a540994aab",
+      "machine_registry_pol_sha256": "2ff9593ce2e434b3533d28921989e957bec2f53534ca0f763bc8103ddb243225",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "71888cee0a7b6ccdd8d541c03e562f2009335f183415925c0fe996569b46f291",
+      "export_bundle_sha256": "54293eb52ec579667a36d5c34f07450f7502ce5f7c917af9a5cdf303a3d4cd24",
+      "lab_status": {
+        "ps_plan": "pass",
+        "gpo_creation": "pass",
+        "registry_value_verified": true,
+        "backup_gpo": "pass",
+        "registry_pol_hash_match": "mismatch",
+        "mismatch_cause": "User-side Registry.pol not created by Set-GPRegistryValue",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "empty_and_default_values",
+      "contents": "Empty REG_SZ, empty REG_MULTI_SZ, empty REG_BINARY, zero REG_DWORD",
+      "powershell_plan_sha256": "a5a44b59df2920fad0032b26bc6c656b0b2237ac30c98a0326dacd848ead4045",
+      "machine_registry_pol_sha256": "a6e086aca961d77e415347a8d21ff08a0e0d26aeee493806b7b3982d17e137ea",
+      "user_registry_pol_sha256": "5bb1f21f806938a043563024b13b33d74a2b95b767c5f81bde8456e9d0413a89",
+      "gpmc_backup_sha256": "370dd4d0ed2237e29627188d1d532c8a770bcd1fe618ca0b0f964373d3fbb339",
+      "export_bundle_sha256": "56c3daea389c994815d993050c5e9548fbfe424bbf212f7f6fda7f5a0cf9874b",
+      "lab_status": {
+        "ps_plan": "pass",
+        "gpo_creation": "pass",
+        "registry_value_verified": true,
+        "backup_gpo": "pass",
+        "registry_pol_hash_match": "mismatch",
+        "mismatch_cause": "User-side Registry.pol not created by Set-GPRegistryValue",
+        "idempotent": true
+      }
+    },
+    {
+      "fixture": "comprehensive",
+      "contents": "All features simultaneously: 3 settings, GPP group with ILT, GPP registry, security filter, WMI filter, user-scope GPP",
+      "powershell_plan_sha256": "637ff4268ec8fa77256514dab78c4e2dc3fdcfa488daa3de93c756fcc29f06f5",
+      "machine_registry_pol_sha256": "614437ec19f518aa9a3e2196e11b44b09edd6f953e90608651ebb6fa19c72628",
+      "user_registry_pol_sha256": "0101f8269e03d45642e6000c3f2c0519c4fcc2d5e1fbd67891f3b3cb4e971660",
+      "gpmc_backup_sha256": "4c638cee1d4ca6b81bcd4f256e438184301b4e546363536945512a5546fe2388",
+      "export_bundle_sha256": "2bce0a8ef87168f8132979a146134bee124dcd3392a176ac31e6009ab79bba6f",
+      "lab_status": {
+        "ps_plan": "partial",
+        "gpo_creation": "pass",
+        "registry_value_verified": true,
+        "gpp_wmi_ilt_step": "not_applied",
+        "gpp_wmi_ilt_note": "GPP Groups, GPP Registry, WMI filter, and ILT not applied by PS plan; emitted in GPMC backup XML only",
+        "backup_gpo": "pass",
+        "idempotent": true
+      }
+    }
+  ],
+  "import_gpo_diagnosis": {
+    "studio_backup_format": "manifest.xml + bkupInfo.xml (legacy)",
+    "native_backup_format": "Backup.xml v2.0 (GroupPolicyBackupScheme)",
+    "native_backup_tree": [
+      "{BACKUP_ID}/Backup.xml",
+      "{BACKUP_ID}/gpreport.xml",
+      "{BACKUP_ID}/DomainSysvol/GPO/Machine/registry.pol"
+    ],
+    "studio_backup_tree": [
+      "bkupInfo.xml",
+      "manifest.xml",
+      "{GPO_GUID}/DomainController.xml",
+      "{GPO_GUID}/gpreport.xml",
+      "{GPO_GUID}/Machine/Registry.pol",
+      "{GPO_GUID}/User/Registry.pol"
+    ],
+    "key_differences": [
+      "Native uses Backup.xml; Studio uses manifest.xml/bkupInfo.xml (no Backup.xml)",
+      "Native path: {BACKUP_ID}/DomainSysvol/GPO/Machine/registry.pol; Studio: {GPO_GUID}/Machine/Registry.pol",
+      "Native file: registry.pol (lowercase); Studio: Registry.pol (mixed case)",
+      "Native has no DomainController.xml; Studio includes it"
+    ],
+    "import_error": "A GPO backup with Id 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' could not be found in directory 'C:\\temp\\gpo-studio-backup'.",
+    "import_error_type": "System.ArgumentException",
+    "import_error_inner": "The system cannot find the file specified. (Exception from HRESULT: 0x80070002)",
+    "minimized_experiment": "Copied native Backup.xml into Studio backup root; import still failed because the BackupId in Backup.xml does not match the -BackupId argument and the directory structure does not match"
+  },
+  "acl_evidence": {
+    "sysvol_policies_path": "\\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies",
+    "sysvol_owner": "BUILTIN\\Administrators",
+    "sysvol_acl": [
+      {
+        "identity": "NT AUTHORITY\\Authenticated Users",
+        "rights": "ReadAndExecute, Synchronize",
+        "type": "Allow",
+        "inheritance": "None"
+      },
+      {
+        "identity": "NT AUTHORITY\\SYSTEM",
+        "rights": "FullControl",
+        "type": "Allow",
+        "inheritance": "None"
+      },
+      {
+        "identity": "BUILTIN\\Administrators",
+        "rights": "FullControl",
+        "type": "Allow",
+        "inheritance": "None"
+      },
+      {
+        "identity": "HRAENET\\Domain Admins",
+        "rights": "Write, ReadAndExecute, Synchronize",
+        "type": "Allow",
+        "inheritance": "None"
+      },
+      {
+        "identity": "HRAENET\\Group Policy Creator Owners",
+        "rights": "Write, ReadAndExecute, Synchronize",
+        "type": "Allow",
+        "inheritance": "None"
+      },
+      {
+        "identity": "svc-da (lab service account; SID redacted)",
+        "rights": "Modify, Synchronize",
+        "type": "Allow",
+        "inheritance": "ContainerInherit, ObjectInherit",
+        "propagation": "None",
+        "note": "Modify is inherited by all child folders and files, permitting modification of existing GPO templates in SYSVOL. SID redacted per no-real-SIDs policy."
+      }
+    ],
+    "ad_container": "CN=Policies,CN=System,DC=ad,DC=hraedon,DC=com",
+    "ad_owner": "HRAENET\\Domain Admins",
+    "ad_acl_relevant": [
+      {
+        "identity": "HRAENET\\Group Policy Creator Owners",
+        "rights": "CreateChild",
+        "type": "Allow",
+        "object_type": "00000000-0000-0000-0000-000000000000 (all child types)"
+      },
+      {
+        "identity": "svc-da (lab service account; SID redacted)",
+        "rights": "CreateChild, DeleteChild",
+        "type": "Allow",
+        "object_type": "f30e3bc1-9ff0-11d1-abcd-00c04fd8d5cd (GPO object class)"
+      },
+      {
+        "identity": "svc-da (lab service account; SID redacted)",
+        "rights": "WriteProperty",
+        "type": "Allow",
+        "object_type": "gPLink/gPOptions (write gPLink/gPOptions on domain DN)",
+        "inheritance": "All"
+      }
+    ],
+    "least_privilege_assessment": "The Modify permission on SYSVOL Policies folder is inherited recursively (ContainerInherit, ObjectInherit, Propagate=None), which permits modification of existing GPO templates. This is a known limitation of the delegated permissions model. The test used disposable GPOs with unique random names and cleaned up all created objects after validation."
+  },
+  "bugs_found_and_fixed": [
+    {
+      "bug": "Binary array syntax",
+      "location": "export.py:_ps_value",
+      "description": "[byte[]](0xDE,...) was not wrapped in parentheses, causing a parameter-binding error in PS 5.1. Fixed to ([byte[]](0xDE,...)). Empty binary now emits ([byte[]]@()).",
+      "regression_test": "tests/test_export.py::test_powershell_plan_binary_value_uses_parenthesized_form"
+    },
+    {
+      "bug": "PReg null terminators",
+      "location": "registry_pol.py:serialize",
+      "description": "Key and value_name fields were missing the UTF-16LE null terminator that Windows includes. Fixed in both serializer and parser (parser strips for backward compatibility).",
+      "regression_test": "tests/test_registry_pol.py::test_preg_key_and_value_name_include_null_terminators"
+    },
+    {
+      "bug": "GPMC backup hive prefix",
+      "location": "export.py:_gpmc_preg_bytes",
+      "description": "The GPMC backup Registry.pol included the HKLM\\\\HKCU hive prefix in the key path; Windows does not (the hive is implied by the Machine/User directory). Fixed.",
+      "regression_test": "tests/test_export.py::test_gpmc_backup_omits_hive_prefix_in_preg"
+    }
+  ],
+  "capabilities_not_validated_by_windows_tooling": [
+    "WMI filter assignment (emitted as comment in PS plan only; not applied)",
+    "GPP Groups (emitted in GPMC backup XML only; not applied by PS plan)",
+    "GPP Registry (emitted in GPMC backup XML only; not applied by PS plan)",
+    "ILT predicates (emitted in GPMC backup XML only; not applied by PS plan)",
+    "GPMC backup import (Import-GPO does not recognize the legacy manifest.xml/bkupInfo.xml format)",
+    "GPMC backup export (Backup-GPO succeeds on plan-created GPOs but does not validate Studio-emitted backup format)"
+  ],
+  "cleanup": {
+    "test_gpos_removed": true,
+    "test_account_note": "svc-da is a permanent service account; not removed. gpstudio-lab was removed after the initial validation session.",
+    "temp_files_removed": true,
+    "scheduled_tasks_removed": true
+  },
+  "artifact_hashes": {
+    "wheel_sha256": "pending candidate build",
+    "sdist_sha256": "pending candidate build",
+    "sbom_sha256": "pending candidate build",
+    "evidence_report_sha256": "computed by scripts/generate_evidence_report.py --check"
+  }
+}

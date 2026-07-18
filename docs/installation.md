@@ -17,6 +17,12 @@ architecture and trust boundaries, see
 
 ## Installation
 
+Windows operators who are installing a release wheel should use the
+[Windows quickstart](windows-quickstart.md). It is a self-contained,
+copy-and-paste guide for a local, non-administrator installation, including
+release checksum verification, startup, backup, upgrade, rollback, uninstall,
+and troubleshooting.
+
 ### With uv (recommended)
 
 ```bash
@@ -33,6 +39,9 @@ uv run gpo-studio run
 ```
 
 ### With pip
+
+The commands in this section use POSIX paths. On Windows, use the
+[Windows quickstart](windows-quickstart.md) instead.
 
 ```bash
 python -m venv .venv
