@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
+from starlette.types import Scope
 
 from . import __version__
 from .admx import AdmxCatalogue, AdmxError, load_catalogue
@@ -74,6 +75,22 @@ from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
 
 STATIC = Path(__file__).with_name("static")
+
+
+class StudioStaticFiles(StaticFiles):
+    """Serve browser modules with a MIME type independent of the host registry."""
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> StarletteResponse:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if Path(full_path).suffix.casefold() == ".mjs":
+            response.headers["Content-Type"] = "text/javascript; charset=utf-8"
+        return response
 
 
 class Audit(BaseModel):
@@ -1426,7 +1443,7 @@ app.add_middleware(OriginValidationMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
+app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
 
 
 @app.exception_handler(StudioError)
