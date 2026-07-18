@@ -31,6 +31,18 @@ Review gate: **REVIEW AND REFINE — REQUIRED after the template corpus tranche*
 - Implement typed controls, raw mappings, explain/support text, configured-state
   search, category navigation, copy/paste, comments, bulk changes, and policy
   state reset.
+- Add a per-GPO configured-settings browser that joins stored registry tuples to
+  the exact locked ADMX policy identity and shows Computer/User side, Enabled/
+  Disabled/Not Configured state, display name, full explanation, support
+  requirements, category path, source ADMX/locale, element values, and raw
+  registry mappings.
+- Never infer a friendly policy from a registry path alone when template
+  versions, namespaces, or mappings are ambiguous. Keep unresolved and
+  third-party raw registry settings visible, searchable, and clearly marked
+  instead of omitting them or borrowing an inaccurate description.
+- Make the settings browser keyboard/screen-reader operable and able to move
+  between the friendly policy view and the exact raw evidence without losing
+  GPO, side, category, or configured-state context.
 - Compare generated Registry.pol and normalized GPMC reports for all states.
 - Support legacy ADM import in preserve/read-only mode unless the Plan 021
   matrix explicitly approves an editable compatibility adapter.
@@ -47,6 +59,9 @@ Review gate: **REVIEW AND REFINE — REQUIRED after the template corpus tranche*
 
 - The representative Microsoft/vendor corpus parses without silent loss.
 - Every observed presentation form has UI/model/PReg/report golden tests.
+- Imported, authored, and raw settings appear in the configured-settings
+  browser; exact template matches show GPMC-equivalent descriptions and every
+  non-match remains discoverable with raw evidence and a reason.
 - GPMC and Studio agree on all three states and mixed Computer/User policies.
 - Template upgrades cannot change an existing draft without explicit review.
 - Starter GPO lifecycle and derivation round-trip through GPMC.
@@ -56,4 +71,3 @@ Review gate: **REVIEW AND REFINE — REQUIRED after the template corpus tranche*
 After the first full Microsoft template corpus and at least three vendor packs,
 stop to review parser generality, identity rules, and UI scalability. Refine the
 remaining adapter plans if the corpus exposes new shared value/control types.
-

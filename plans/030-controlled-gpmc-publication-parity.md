@@ -13,6 +13,9 @@ Review gate: **REVIEW AND REFINE — REQUIRED at every rollout phase**
   never scripts, command lines, or arbitrary PowerShell.
 - Separate capability profiles cover read-only, create, settings by adapter,
   SOM links, WMI, security/ACL, lifecycle, artifacts, and quarantine/delete.
+- Directory identity resolution has its own read-only capability profile bound
+  to approved forests/domains/containers, named DCs, and typed lookup shapes;
+  it accepts no arbitrary LDAP filter and grants no directory write rights.
 - Every operation uses native GroupPolicy/GPMC interfaces, expected-state
   fingerprints, pre-backup/scope snapshot, journaling, read-back verification,
   replication evidence, and explicit compensation/manual states.
@@ -22,6 +25,10 @@ Review gate: **REVIEW AND REFINE — REQUIRED at every rollout phase**
 - Prove identity, mTLS, audience, leases, replay defense, target policy,
   inventory, fingerprints, backups, reports, audit, crash recovery, and DC loss
   with no write rights.
+- Prove Plan 023 SID/object reconciliation through the isolated resolver,
+  including explicit object selection, stable `objectGUID` anchoring,
+  SID-history disclosure, access gaps, replication divergence, expiry, and
+  re-resolution before a signed mapping can enter any later write operation.
 
 ### REVIEW AND REFINE — REQUIRED
 
@@ -70,6 +77,8 @@ offline editor parity.
 
 - Control-plane compromise cannot produce an unsigned/out-of-policy mutation.
 - Native concurrent edits always diverge instead of being overwritten.
+- A stale, broadened-scope, name-only, or unselected-object principal mapping
+  can never reach a publication operation.
 - Every enabled matrix row has adapter-specific Windows/client/rollback evidence.
 - No worker identity has universal forest or all-adapter write capability.
 - Partial/manual outcomes are durable, visible, paged, and never blindly retried.

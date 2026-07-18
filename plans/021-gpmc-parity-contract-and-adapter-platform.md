@@ -27,11 +27,27 @@ support for removed legacy components. Unknown and legacy content must be
 losslessly preserved, visibly classified, and blocked from lossy publication.
 The permanent `cpassword` ban remains an intentional safety divergence.
 
+## Explicit operator outcomes
+
+The parity program carries these operator-visible outcomes across plan
+boundaries; they are not satisfied by a parser or API existing in isolation.
+
+| Outcome | Foundation | Product delivery | Closure evidence |
+|---|---|---|---|
+| Browse a GPO's configured settings with useful names, state, descriptions, support requirements, source template/adapter, and raw fallback | This plan's renderer/reporter contract | Plan 022 WP-3 for Administrative Templates; Plan 028 WP-4 for the complete per-GPO settings explorer and reports | Plan 031 mixed-CSE browse/report comparison against GPMC |
+| Reconcile stored SIDs/principals against administrator-specified AD objects without silently guessing identity | This plan's principal-reference and resolution model | Plan 023 WP-1/WP-3 for read-only object selection and resolution; Plan 028 WP-2 for reviewed migration mappings; Plan 030 Phase A for the isolated live resolver | Plan 031 cross-domain, SID-history, deleted-object, ambiguity, and stale-resolution evidence |
+
 ## WP-1 — Authoritative capability inventory
 
 - Inventory GPMC lifecycle operations, forest/domain/site/OU views, links,
   inheritance, ACL/delegation, WMI filters, Starter GPOs, backup/import/copy/
   restore, migration tables, reports, Modeling, Results, and search.
+- Inventory the GPMC settings/report browse surfaces, including configured-only
+  views, explanation/support text, unresolved settings, and extension-owned
+  descriptions.
+- Inventory every principal-bearing field and every supported AD object type,
+  including current SID, SID history, foreign security principals, deleted or
+  inaccessible objects, and cross-domain/forest identity boundaries.
 - Inventory every in-box editor and client-side extension by side, CSE/tool
   GUID, storage format, OS availability, deprecation state, and management API.
 - Record preference item types, common options, actions, and complete ILT AST.
@@ -57,8 +73,15 @@ The permanent `cpassword` ban remains an intentional safety divergence.
 - Require adapter manifests with GUIDs, sides, Windows versions, risk class,
   dependencies, privileges, artifact handling, and evidence status.
 - Isolate untrusted/third-party parsers and renderers out of process.
+- Provide a common configured-setting rendering contract with semantic state,
+  display/explanation/support text, source provenance, and an explicit raw or
+  opaque fallback when no verified renderer owns the setting.
 - Provide common principals, paths, schedules, ACLs, artifacts, common options,
-  ILT, unknown fields, and version-list primitives.
+  ILT, unknown fields, and version-list primitives. A principal reference must
+  distinguish observed SID/name from a selected AD object's immutable
+  `objectGUID`, current `objectSid`, `sIDHistory`, object class, domain/forest,
+  source DC/snapshot, resolution time, and resolution state; names alone are
+  never stable identity.
 - Reject adapter registration with incomplete dispatch or missing evidence.
 
 ## WP-4 — Reference estates and evidence schema
@@ -72,6 +95,11 @@ The permanent `cpassword` ban remains an intentional safety divergence.
 ## Acceptance gates
 
 - Every target GPMC surface has a matrix row, owner, test oracle, and state.
+- The contract can render every configured setting as verified semantic detail
+  or an explicit raw/opaque entry; an unknown setting is never silently absent.
+- Principal-resolution fixtures prove that only explicitly selected AD objects
+  can become reconciliation targets and that ambiguous, stale, inaccessible,
+  deleted, or SID-history-only matches require an explicit review outcome.
 - Unknown bytes survive no-edit round trips byte-for-byte.
 - Editing one adapter leaves all other adapter bytes unchanged.
 - Two independent implementations reproduce canonical/hash vectors.
@@ -83,4 +111,3 @@ Stop here. Review the capability inventory with Windows/GPMC operators, compare
 it against the actual supported reference estates, and refine Plans 022–031.
 Resolve scope disputes, OS-version policy, intentional safety divergences, and
 adapter boundaries before expanding authoring breadth.
-
