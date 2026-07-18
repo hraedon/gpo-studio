@@ -13,6 +13,12 @@ Review gate: **REVIEW AND REFINE — REQUIRED before Plan 022 implementation**
 > below will revise them. Do not treat a 022–031 work package as a contract
 > until it has passed the review gate at the end of this plan. This is the same
 > discipline that reframed Plan 001 from an execution plan into a charter.
+>
+> **Pre-review spike boundary.** WP-2/WP-3 architecture spikes are welcome
+> before the review gate, but they must not land bundle schema migrations,
+> hash-profile definitions, or canonical/hash vectors on `main`. Those
+> artifacts are exactly the contract the review gate exists to ratify; explore
+> them on throwaway branches.
 
 ## Purpose
 
@@ -86,10 +92,23 @@ boundaries; they are not satisfied by a parser or API existing in isolation.
 
 ## WP-4 — Reference estates and evidence schema
 
+- Adopt a **provisional target matrix immediately** so fixture generation is
+  not blocked on the review gate: Windows Server 2019/2022/2025 for domain
+  roles and current-GA Windows 11 for clients, with Windows 10 rows admitted
+  only behind an explicit ESU decision. The review gate ratifies or amends
+  this matrix; it does not initiate it.
 - Expand the Plan 017 lab across supported Windows versions and client roles.
 - Generate one minimal GPMC-origin fixture per matrix row plus mixed-CSE GPOs.
 - Define normalized GPMC report, backup, RSoP, and endpoint-observation records.
 - Version and sign evidence packs; include negative and downgrade fixtures.
+- Define licensing rules for corpus content before any fixture pack is
+  assembled: ADMX/ADML files are Microsoft- or vendor-copyrighted, so each
+  pack must be classified as storable in-repo, referenced by hash with
+  regeneration instructions, or excluded from distribution entirely.
+- Define the redaction contract for Windows-generated fixtures, GPMC reports,
+  and endpoint observations: synthetic directory names, SIDs, paths, and
+  exports only, with sanitization verified by the identifier gate before an
+  evidence pack is signed.
 - Add a public matrix generator that derives claims only from passing evidence.
 
 ## Acceptance gates
@@ -104,6 +123,8 @@ boundaries; they are not satisfied by a parser or API existing in isolation.
 - Editing one adapter leaves all other adapter bytes unchanged.
 - Two independent implementations reproduce canonical/hash vectors.
 - The matrix cannot show `verified-rw` without Windows and endpoint evidence.
+- No fixture or evidence pack is signed while any of its content lacks a
+  licensing classification or identifier-gate-verified redaction.
 
 ## REVIEW AND REFINE — REQUIRED
 
