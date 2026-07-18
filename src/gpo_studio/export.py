@@ -41,8 +41,10 @@ def _ps_value(setting: RegistrySetting) -> str:
         return "@(" + ", ".join(_ps_quote(item) for item in setting.value) + ")"
     if setting.registry_type == "REG_BINARY":
         clean = setting.value.replace(" ", "")
+        if not clean:
+            return "([byte[]]@())"
         return (
-            "[byte[]](" + ",".join(f"0x{clean[i : i + 2]}" for i in range(0, len(clean), 2)) + ")"
+            "([byte[]](" + ",".join(f"0x{clean[i : i + 2]}" for i in range(0, len(clean), 2)) + "))"
         )
     return _ps_quote(setting.value)
 
@@ -237,7 +239,7 @@ def export_bundle(gpo: GPO) -> bytes:
 def _gpmc_preg_bytes(settings: list[RegistrySetting]) -> bytes:
     records = [
         PolRecord(
-            key=f"{s.hive}\\{s.key}",
+            key=s.key,
             value_name=s.value_name,
             registry_type=s.registry_type,
             value=s.value,

@@ -62,6 +62,7 @@ def test_powershell_plan_escapes_names_and_maps_disabled_sides() -> None:
     assert "New-GPLink" in plan
     assert "Set-GPLink" in plan
     assert "$gpo.GpoStatus = 'UserSettingsDisabled'" in plan
+    assert "-Key 'HKLM\\Software\\Policies\\Synthetic'" in plan
 
 
 def test_powershell_plan_uses_nonempty_comment_when_description_is_empty() -> None:
@@ -479,6 +480,111 @@ def test_powershell_plan_security_filter_only_reconciles_apply() -> None:
     assert "$desiredApply = @('DOMAIN\\User1')" in plan
     assert "DOMAIN\\Readers" not in plan.split("$desiredApply")[1].split("\n")[0]
     assert "$perm.Permission -eq 'GpoApply'" in plan
+
+
+def test_gpmc_backup_omits_hive_prefix_in_preg() -> None:
+    """GPMC backup Registry.pol must NOT include HKLM\\HKCU hive prefix.
+
+    Windows infers the hive from the Machine/User directory; including the
+    prefix causes Import-GPO to produce incorrect key paths.
+    """
+    gpo = replace(
+        sample_gpo(),
+        settings=(
+            RegistrySetting(
+                id="s1",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\Policies\Test",
+                value_name="Setting",
+                registry_type="REG_DWORD",
+                value=1,
+            ),
+            RegistrySetting(
+                id="s2",
+                side="user",
+                hive="HKCU",
+                key=r"Software\Policies\UserTest",
+                value_name="UserSetting",
+                registry_type="REG_SZ",
+                value="hello",
+            ),
+        ),
+    )
+    bundle = gpmc_backup_bundle(gpo)
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        machine_pol = archive.read(f"{gpo.guid}/Machine/Registry.pol")
+        user_pol = archive.read(f"{gpo.guid}/User/Registry.pol")
+
+    machine_records = parse(machine_pol)
+    assert len(machine_records) == 1
+    assert machine_records[0].key == r"Software\Policies\Test"
+    assert not machine_records[0].key.startswith("HKLM")
+
+    user_records = parse(user_pol)
+    assert len(user_records) == 1
+    assert user_records[0].key == r"Software\Policies\UserTest"
+    assert not user_records[0].key.startswith("HKCU")
+
+
+def test_powershell_plan_binary_value_uses_parenthesized_form() -> None:
+    """Non-empty REG_BINARY must emit ([byte[]](0x..,..)) — parenthesized."""
+    gpo = replace(
+        sample_gpo(),
+        settings=(
+            RegistrySetting(
+                id="s1",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\T",
+                value_name="Bin",
+                registry_type="REG_BINARY",
+                value="DEADBEEF",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "([byte[]](0xDE,0xAD,0xBE,0xEF))" in plan
+
+
+def test_powershell_plan_binary_with_spaces_uses_parenthesized_form() -> None:
+    """REG_BINARY with spaces must still produce the parenthesized form."""
+    gpo = replace(
+        sample_gpo(),
+        settings=(
+            RegistrySetting(
+                id="s1",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\T",
+                value_name="Bin",
+                registry_type="REG_BINARY",
+                value="DE AD BE EF",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "([byte[]](0xDE,0xAD,0xBE,0xEF))" in plan
+
+
+def test_powershell_plan_empty_binary_uses_empty_array_form() -> None:
+    """Empty REG_BINARY must emit ([byte[]]@())."""
+    gpo = replace(
+        sample_gpo(),
+        settings=(
+            RegistrySetting(
+                id="s1",
+                side="computer",
+                hive="HKLM",
+                key=r"Software\T",
+                value_name="EmptyBin",
+                registry_type="REG_BINARY",
+                value="",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    assert "([byte[]]@())" in plan
 
 
 def test_powershell_plan_security_filter_empty_desired() -> None:

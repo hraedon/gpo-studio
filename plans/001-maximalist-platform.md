@@ -862,6 +862,9 @@ Exit criteria:
 
 Purpose: establish trusted collaboration before privilege.
 
+Executable plan:
+[`Plan 032 — Hardened hosted control plane`](032-hardened-hosted-control-plane.md).
+
 Scope:
 
 - WS-H authentication, RBAC/ABAC, branches, reviews, approval, signatures,

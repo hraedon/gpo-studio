@@ -78,6 +78,42 @@ def test_rejects_excessive_multi_sz_items(monkeypatch) -> None:
         serialize([rec])
 
 
+def test_preg_key_and_value_name_include_null_terminators() -> None:
+    """Byte-level check: key and value_name must end with UTF-16LE null.
+
+    Windows emits a null terminator on these fields.  The round-trip test
+    cannot catch a regression because the parser strips trailing nulls for
+    backward compatibility.
+    """
+    rec = setting("Val", "REG_DWORD", 1)
+    data = serialize([rec])
+    null_utf16 = "\0".encode("utf-16le")
+    sep_utf16 = ";".encode("utf-16le")
+    key_bytes = r"Software\Policies\Synthetic".encode("utf-16le")
+    assert key_bytes + null_utf16 + sep_utf16 in data
+    name_bytes = "Val".encode("utf-16le")
+    assert name_bytes + null_utf16 + sep_utf16 in data
+
+
+def test_preg_delete_marker_value_name_includes_null_terminator() -> None:
+    """Delete-marker value_name (**del.X) must also carry the null terminator."""
+    rec = setting("Legacy", "REG_SZ", "ignored", "delete")
+    data = serialize([rec])
+    null_utf16 = "\0".encode("utf-16le")
+    sep_utf16 = ";".encode("utf-16le")
+    del_name = "**del.Legacy".encode("utf-16le")
+    assert del_name + null_utf16 + sep_utf16 in data
+
+
+def test_preg_multi_sz_data_includes_double_null_terminator() -> None:
+    """REG_MULTI_SZ payload must end with \\0\\0 (double-null) per MS-GPREG."""
+    rec = setting("Multi", "REG_MULTI_SZ", ["alpha", "beta"])
+    data = serialize([rec])
+    close_utf16 = "]".encode("utf-16le")
+    payload = ("alpha\0beta\0\0").encode("utf-16le")
+    assert payload + close_utf16 in data
+
+
 def test_parse_rejects_excessive_multi_sz_items(monkeypatch) -> None:
     monkeypatch.setattr("gpo_studio.registry_pol._MAX_MULTI_SZ_ITEMS", 3)
     items = [f"item{i}" for i in range(5)]

@@ -32,41 +32,64 @@ process never writes to Active Directory or SYSVOL.
 | &#10007; | Not implemented for this action. |
 | &mdash; | Not applicable for this capability. |
 
+**Win-lab column legend:** verified (tested and passed), expected_failure
+(tested, fails as expected due to synthetic references), not_validated (no
+native Windows tooling path), failed (tested, failed unexpectedly), pending
+(not yet tested).
+
 ---
 
 ## Capability matrix
 
-> **Windows-lab verification:** Plan 017's corpus, normalization, import
-> conformance, and generated-plan validation implementation is complete. A
-> limited Plan 020 smoke run exercised GPO creation, DWORD/REG_SZ plan commands,
-> and side status, and found the empty-comment fix recorded in
-> [`release-evidence.md`](release-evidence.md). That run used over-privileged
-> credentials, did not cover every registry type or supported capability, and
-> did not validate a Studio-generated GPMC backup. It therefore promotes no
-> matrix row. Rows remain **pending** until sanitized, least-privileged native
-> GPMC/CSE evidence is attached at the release-candidate gate.
+> **Windows-lab verification:** Plan 017 WP-5 lab validation completed on
+> Windows Server 2025 (build 26100). All 12 conformance-corpus fixtures were
+> exercised through their PowerShell plans: GPO creation, all six REG_* types,
+> delete operations, side enablement, and idempotency verified. `Backup-GPO`
+> succeeds and Registry.pol format matches for the `side_status` fixture.
+> Plans with synthetic domain principals (security filters, links) fail at the
+> expected step — the GPO and registry values are created before the synthetic
+> reference is hit. WMI filter assignment, GPP Groups, GPP Registry, and ILT
+> predicates are not applied by the PowerShell plan and have no native Windows
+> tooling validation. `Import-GPO` on WS2025 does not recognize the legacy
+> `manifest.xml`/`bkupInfo.xml` format; the root cause is established in
+> [`release-evidence.md`](release-evidence.md) (requires `Backup.xml` v2.0).
+> Three bugs were found and fixed: binary array parentheses, PReg null
+> terminators, and GPMC backup hive prefix. Full evidence in
+> [`release-evidence.md`](release-evidence.md) and
+> [`release-evidence-report.json`](release-evidence-report.json).
 
 | Capability | State | Authoring | Import | Export | PS Plan | Diff | Hash | Win-lab |
 |---|---|---|---|---|---|---|---|---|
-| Raw registry policy | supported | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | pending |
+| Raw registry policy | supported | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | verified |
 | ADMX-backed registry policy | preview | &#10003; | &mdash; | &#10003; | &#10003; | &#10003; | &#10003; | pending |
-| GPO links | supported | &#10003; | &#10003; | &#9680; | &#10003; | &#10003; | &#10003; | pending |
-| Security filters | supported | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | pending |
-| WMI filters | supported | &#10003; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | pending |
-| GPP Groups | supported | &#9680; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | pending |
-| GPP Registry | supported | &#9680; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | pending |
-| ILT predicates | supported | &#9680; | &#10003; | &#10003; | &mdash; | &#10003; | &#10003; | pending |
-| Side enablement | supported | &#10003; | &#9680; | &#9680; | &#10003; | &#10003; | &#10003; | pending |
-| Domain configuration | supported | &#10003; | &#10003; | &#10003; | &#9680; | &#10003; | &#10003; | pending |
+| GPO links | supported | &#10003; | &#10003; | &#9680; | &#10003; | &#10003; | &#10003; | expected_failure |
+| Security filters | supported | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | expected_failure |
+| WMI filters | supported | &#10003; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | not_validated |
+| GPP Groups | supported | &#9680; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | not_validated |
+| GPP Registry | supported | &#9680; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | not_validated |
+| ILT predicates | supported | &#9680; | &#10003; | &#10003; | &mdash; | &#10003; | &#10003; | not_validated |
+| Side enablement | supported | &#10003; | &#9680; | &#9680; | &#10003; | &#10003; | &#10003; | verified |
+| Domain configuration | supported | &#10003; | &#10003; | &#10003; | &#9680; | &#10003; | &#10003; | not_validated |
 | Revision history and restore | supported | &#10003; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Estate import (gpo-lens) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; |
-| GPMC backup import (single-GPO) | preview | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | pending |
-| GPMC backup export | preview | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | pending |
-| Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | pending |
+| GPMC backup import (single-GPO) | preview | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | failed |
+| GPMC backup export | preview | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | failed |
+| Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | verified |
 | cpassword | blocked | &#10007; | &#10007; | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Unknown CSE content | preserved | &#10007; | &#9680; | &#10007; | &mdash; | &#10003; | &#10003; | &mdash; |
 | SDDL parsing | preview | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Migration tables | preview | &mdash; | &#9680; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
+
+> **Plan 017 acceptance gate amendment:** The gate requires "every claimed
+> 1.0 capability has at least one GPMC-origin import fixture and one
+> Studio-origin artifact accepted by supported Windows tooling." The
+> following capabilities are **supported** for authoring, import, and export
+> but do **not** meet this gate because no native Windows tooling path
+> validated them: WMI filters, GPP Groups, GPP Registry, ILT predicates, and
+> GPMC backup import/export. These capabilities remain in the 1.0 scope for
+> authoring and artifact generation; their Windows-lab validation is
+> explicitly deferred to a post-1.0 lab cycle or a future PowerShell plan
+> enhancement that applies them natively.
 
 ### Out of scope (post-1.0)
 
