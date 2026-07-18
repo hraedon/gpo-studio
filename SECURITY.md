@@ -2,16 +2,28 @@
 
 ## Supported versions
 
-GPO Studio is pre-1.0 software. Security fixes are applied to the latest
-`main` branch only.
+The current stable release line is `1.0.x`. Security fixes land on `main` and
+ship as the next `1.0.x` patch release; only the latest patch release in the
+line is supported.
 
 | Version | Supported |
 |---------|-----------|
-| 1.0.x   | Yes       |
-| < 1.0   | No        |
+| 1.0.x (latest patch)   | Yes |
+| Older 1.0.x patches    | No — upgrade to the latest patch |
+| < 1.0 (dev builds, release candidates) | No |
 
-Pre-1.0 builds, including development builds and release candidates, receive
-no backported fixes. Upgrade to the latest release before reporting an issue.
+### Compatibility and deprecation policy for the 1.0 line
+
+- `1.0.x` patch releases contain fixes only: no workspace schema migrations,
+  no export or bundle format changes, and no removal of documented CLI or
+  API surface.
+- Workspace databases and exported artifacts produced by any `1.0.x` release
+  are readable by every later `1.0.x` release.
+- Deprecations are announced in the changelog at least one minor release
+  before removal, with the replacement named. Nothing is deprecated-and-
+  removed within the `1.0.x` line itself.
+
+Upgrade to the latest release before reporting an issue.
 
 ## Reporting a vulnerability
 

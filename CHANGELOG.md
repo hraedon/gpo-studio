@@ -9,6 +9,13 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation: closed out pre-release status language in `SECURITY.md` and
+  Plans 017/019/020, wrote the 1.0.x support/compatibility/deprecation
+  policy, and refined Plan 021 with a provisional target matrix, corpus
+  licensing/redaction rules, and a pre-review spike boundary.
+
 ## [1.0.0] - 2026-07-18
 
 ### Changed
