@@ -5,9 +5,18 @@ All notable changes to GPO Studio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current version: `1.0.0rc1` (release candidate).
+Current version: `1.0.0rc2` (release candidate).
 
 ## [Unreleased]
+
+## [1.0.0-rc.2] - 2026-07-18
+
+### Fixed
+
+- CycloneDX release SBOMs now receive a deterministic UUID serial number before
+  GitHub attestation. The reproducible generator intentionally omitted this
+  optional field, but GitHub's attestation parser requires it. The workflow now
+  uses the current pinned `actions/attest` interface directly.
 
 ## [1.0.0-rc.1] - 2026-07-18
 

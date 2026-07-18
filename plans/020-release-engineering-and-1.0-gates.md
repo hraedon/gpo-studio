@@ -53,7 +53,9 @@ not only a version bump.
 
 ## WP-4 — Release candidate process
 
-- Cut an immutable `1.0.0-rc.1` from a clean main branch.
+- Cut an immutable release candidate from a clean main branch. RC1 retained the
+  failed private-repository/SBOM-attestation attempt; RC2 is the first candidate
+  eligible for publication.
 - Publish the RC as a clearly marked prerelease with its wheel, source
   distribution, checksums, SBOM, and evidence. Candidate publication precedes
   hands-on external gates so every result can name the exact artifact tested;
