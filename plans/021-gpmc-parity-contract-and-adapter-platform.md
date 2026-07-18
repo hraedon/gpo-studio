@@ -45,6 +45,10 @@ boundaries; they are not satisfied by a parser or API existing in isolation.
 
 ## WP-1 — Authoritative capability inventory
 
+> **Pre-gate deliverable:** [`docs/plan-021/capability-inventory.md`](../docs/plan-021/capability-inventory.md)
+> (version `0.1.0-pre-gate`). Realizes the inventory below as a versioned
+> matrix; the review gate ratifies or amends it.
+
 - Inventory GPMC lifecycle operations, forest/domain/site/OU views, links,
   inheritance, ACL/delegation, WMI filters, Starter GPOs, backup/import/copy/
   restore, migration tables, reports, Modeling, Results, and search.
@@ -91,6 +95,13 @@ boundaries; they are not satisfied by a parser or API existing in isolation.
 - Reject adapter registration with incomplete dispatch or missing evidence.
 
 ## WP-4 — Reference estates and evidence schema
+
+> **Pre-gate deliverables:**
+> [`docs/plan-021/reference-estates-and-evidence.md`](../docs/plan-021/reference-estates-and-evidence.md)
+> (provisional target matrix, licensing/redaction rules, evidence-pack schema,
+> negative/downgrade fixtures) and `scripts/generate_public_matrix.py` +
+> `src/gpo_studio/evidence.py` (the public matrix generator that derives claims
+> only from passing evidence). The review gate ratifies or amends these.
 
 - Adopt a **provisional target matrix immediately** so fixture generation is
   not blocked on the review gate: Windows Server 2019/2022/2025 for domain
