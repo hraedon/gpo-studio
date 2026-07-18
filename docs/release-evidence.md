@@ -1,13 +1,13 @@
-# Release evidence manifest — GPO Studio 1.0.0rc3
+# Release evidence manifest — GPO Studio 1.0.0
 
 > **Date:** 2026-07-18
 > **Source commit:** resolved by the tagged release workflow
 > **Lab snapshot commit:** `e4647c0` (recorded in `docs/release-evidence-report.json`)
-> **Status:** release candidate; final approval pending candidate validation
+> **Status:** approved for release
 
-This manifest distinguishes automated evidence already reproduced from
-release-candidate evidence that still requires an external environment. A
-placeholder or smoke observation never promotes a capability-matrix row.
+This manifest distinguishes automated evidence from the completed Windows lab
+and hands-on release-candidate evidence. A placeholder or smoke observation
+never promotes a capability-matrix row.
 
 ## Reproduced automated evidence
 
@@ -32,8 +32,8 @@ The reviewed CI adds risk-based branch-coverage floors, bounded Hypothesis
 properties for critical parsers/codecs, production-dependency vulnerability
 and license checks, history secret scanning, a reproducible installed-sdist
 test, a CycloneDX SBOM, and an operational upgrade/rollback rehearsal. Their
-remote run IDs and artifact hashes must be recorded after the candidate commit
-lands; local success alone is not release evidence.
+remote run IDs and artifact hashes are resolved in the tagged release
+attachments; local success alone is not release evidence.
 
 ## Windows lab validation (Plan 017 WP-5)
 
@@ -177,7 +177,7 @@ GPMC backup, export bundle), the Import-GPO diagnosis with the exact
 error and native backup tree comparison, ACL evidence for the SYSVOL
 Policies folder and AD container, cleanup status, the list of
 capabilities not validated by Windows tooling, and the source commit.
-Wheel, sdist, and SBOM hashes are pending the candidate build. The
+Wheel, sdist, and SBOM hashes are resolved by the tagged release build. The
 report is sanitized: it contains no credentials or secrets. Lab
 identifiers (`hraedon`, `mvm*`) are allowed per the identifier gate;
 real SIDs have been redacted.
@@ -216,13 +216,24 @@ full validation above.
 ## Accessibility evidence
 
 Automated semantics, keyboard behavior, focus behavior, and axe checks pass.
-NVDA 2024.4.2 and Firefox ESR were installed on the Windows lab machine, and
-Playwright accessibility-tree snapshots covered policy navigation, tabs,
-validation, dialog focus, export review, and dynamic table semantics. Those
-snapshots exercise UI Automation and ARIA semantics, but they are not a
-hands-on NVDA session: nobody listened to the spoken interface or exercised
-NVDA's navigation model. The manual Edge and Firefox ESR sessions in
-`docs/browser-accessibility-checklist.md` therefore remain open for this RC.
+Playwright accessibility-tree snapshots cover policy navigation, tabs,
+validation, dialog focus, export review, and dynamic table semantics.
+
+Paul Merritt (PLM) completed the hands-on acceptance gate on 2026-07-18 using
+Windows 11 Pro 25H2 build 26200.8875 and NVDA 2026.1.1
+(`2026.1.1.55980`). The complete Edge 150.0.4078.65 64-bit journey and the
+Firefox 140.12.0esr 32-bit smoke journey passed. A supplementary Firefox
+152.0.6 64-bit release-channel run also passed. The exact candidate was
+`v1.0.0-rc.3`, source commit
+`bae7395837de76efdf279651741c32d1457bd52d`, wheel
+`gpo_studio-1.0.0rc3-py3-none-any.whl`, SHA-256
+`93c43610bd0fa5a2198e3e3933bfbe5aeb9f4bbc78565402619e8775b391e6ce`.
+
+The only accepted minor observation was that landmark navigation did not
+reliably produce a useful announcement for the work pane, although it worked
+in the navigation rail and elsewhere. The work pane remained reachable and
+all core tasks were completed. No blocker or significant finding remains; the
+detailed record is in `docs/browser-accessibility-checklist.md`.
 
 An initial hands-on Windows/NVDA session against `1.0.0rc2` found a blocker:
 NVDA announced the buttons correctly, but none could be activated. The exact
@@ -230,18 +241,18 @@ server response confirmed `/assets/js/main.mjs` was delivered as `text/plain`
 on that Windows host, so the browser rejected the module under the intentional
 `X-Content-Type-Options: nosniff` policy. `1.0.0rc3` makes the JavaScript MIME
 type independent of the host registry and adds a regression test that
-simulates the incorrect mapping. The hands-on journey must restart against the
-new candidate; the interrupted session does not satisfy the manual gate.
+simulates the incorrect mapping. The later `1.0.0rc3` session above supersedes
+that interrupted run.
 
 ## Schema and artifact identity
 
 - Workspace schema version: 1
-- Application version: 1.0.0rc3
+- Application version: 1.0.0
 - Source commit: resolved in the release attachment by the tagged workflow
 - Wheel SHA-256: resolved in the release attachment and `SHA256SUMS`
 - Source distribution SHA-256: resolved in the release attachment and `SHA256SUMS`
 - CycloneDX SBOM SHA-256: resolved in the release attachment and `SHA256SUMS`
-- Release checksums/provenance attestations: generated for the RC tag
+- Release checksums/provenance attestations: generated for the release tag
 
 ## Known limitations
 
@@ -261,7 +272,7 @@ new candidate; the interrupted session does not satisfy the manual gate.
 - Actor identity is claimed and unauthenticated in the single-operator 1.0
   deployment profile.
 
-## Release blockers
+## Release approval
 
 1. Run the complete Plan 017 matrix with least-privileged credentials and
    attach sanitized reports, hashes, cleanup status, and the candidate commit.
@@ -273,13 +284,17 @@ new candidate; the interrupted session does not satisfy the manual gate.
    cause and the capabilities deferred from native validation are explicit in
    the known limitations and capability-matrix gate amendment.
 2. Complete and record the Plan 019 hands-on screen-reader sessions.
-   **Open for RC:** run NVDA + Chromium (Edge) and NVDA + Firefox ESR against
-   the published candidate and record the result in
-   `docs/browser-accessibility-checklist.md`.
+   **Complete:** the Edge full journey and Firefox ESR smoke passed against the
+   exact `1.0.0rc3` wheel. The accepted minor landmark observation did not
+   impede any task.
 3. Land the reviewed Plan 020 pipeline and record all successful remote jobs,
    candidate artifact hashes, SBOM hash, and upgrade/rollback output. The
    tagged RC workflow resolves and attaches these identities.
+   **Complete:** the RC3 release workflow passed every verification and
+   publication job and attached the resolved identities.
 4. Publish `1.0.0-rc.3` so items 1–3 can refer to the same immutable candidate.
+   **Complete:** the candidate and its checksums, evidence, SBOM, and
+   attestations are public and immutable.
 
-The RC is test material, not final-release approval. No `1.0.0` tag may be
-created while this section is non-empty.
+All release blockers are closed. The tested candidate is approved for the
+final `1.0.0` release.

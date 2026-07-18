@@ -29,8 +29,8 @@ review surface with publication kept at an explicit adapter boundary.
 
 ## Capabilities
 
-GPO Studio 1.0 release candidate supports the following areas as a single-operator
-offline authoring workbench. See
+GPO Studio 1.0 supports the following areas as a single-operator offline
+authoring workbench. See
 [`docs/capability-matrix.md`](docs/capability-matrix.md) for the full contract
 with per-action fidelity, capability states, and known limitations.
 
@@ -57,9 +57,9 @@ The PowerShell plan applies registry values, links, security filtering, and
 side status. It does **not** apply WMI filter assignment or GPP content —
 those are included in GPMC backup export only.
 
-A limited Windows smoke run found and corrected an empty-comment incompatibility
-in the generated PowerShell plan. It did not satisfy the per-capability Windows
-evidence matrix; those claims remain pending in
+The complete Windows compatibility matrix and hands-on NVDA acceptance gate
+passed for 1.0. The exact environments, artifact identities, limitations, and
+accepted minor accessibility observation are recorded in
 [`docs/release-evidence.md`](docs/release-evidence.md).
 
 ## Run it

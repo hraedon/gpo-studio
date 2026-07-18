@@ -31,28 +31,43 @@ tools.
 ## Screen-reader pass
 
 The automated semantic pass verifies roles, names, relationships, live regions,
-dialog labelling, and serious/critical axe findings. NVDA 2024.4.2 and Firefox
-ESR are installed on the Windows Server 2025 lab machine, and the candidate's
-accessibility tree has been inspected there. That is useful automated evidence,
-but it is not a hands-on NVDA speech session and cannot establish announcement
-order, verbosity, browse-mode behavior, or the usability of NVDA-specific
-commands.
+dialog labelling, and serious/critical axe findings. A hands-on NVDA session
+against the exact release candidate supplements that automated evidence with
+announcement order, browse-mode behavior, and NVDA-specific navigation.
 
-- [ ] Windows: NVDA + Chromium — announce policy navigation, tabs, validation,
+- [x] Windows: NVDA + Chromium — announce policy navigation, tabs, validation,
   field errors, conflict choices, and export review in a sensible order.
-- [ ] Windows: NVDA + Firefox ESR — repeat the smoke path and dialog focus pass.
-- [ ] Confirm repeated announcements are not noisy and dynamic tables retain
+- [x] Windows: NVDA + Firefox ESR — repeat the smoke path and dialog focus pass.
+- [x] Confirm repeated announcements are not noisy and dynamic tables retain
   useful row/action context.
 
 The automated snapshot confirms named navigation and main landmarks, a level-1
 policy heading, tabs and tab panels, labelled dialogs and fields, tables with
-headers and rows, and named export and row-action controls. A human must now
-confirm what NVDA actually speaks and whether those semantics support the
-complete task. Follow the
-[NVDA validation runbook](nvda-validation-runbook.md), then record the exact
-candidate, screen reader, browser versions, tester, date, findings, and gate
-decision here. Until that session is complete, Plan 019's manual screen-reader
-acceptance gate remains open.
+headers and rows, and named export and row-action controls. The exact hands-on
+session below followed the [NVDA validation runbook](nvda-validation-runbook.md)
+and confirmed that those semantics support the complete task.
+
+### 1.0.0rc3 acceptance session
+
+- Date: 2026-07-18
+- Tester: Paul Merritt (PLM)
+- Candidate: `v1.0.0-rc.3`
+- Source commit: `bae7395837de76efdf279651741c32d1457bd52d`
+- Wheel: `gpo_studio-1.0.0rc3-py3-none-any.whl`
+- Wheel SHA-256: `93c43610bd0fa5a2198e3e3933bfbe5aeb9f4bbc78565402619e8775b391e6ce`
+- Windows: Windows 11 Pro 25H2, build 26200.8875
+- NVDA: 2026.1.1 (`2026.1.1.55980`)
+- Edge: 150.0.4078.65, official 64-bit build
+- Firefox ESR: 140.12.0esr, 32-bit
+- Supplementary Firefox release-channel run: 152.0.6, 64-bit
+- Gate decision: **Pass**
+
+The complete Edge journey and the Firefox ESR smoke journey passed without a
+task-blocking or significant finding. The supplementary current Firefox run
+also passed. One minor observation was accepted: landmark navigation reliably
+worked in the navigation rail and elsewhere, but did not reliably produce a
+useful announcement for the work pane. The work pane remains reachable and
+the tester completed every core task, so this did not affect the gate result.
 
 ### Interrupted 1.0.0rc2 session
 
