@@ -1,8 +1,9 @@
 # Plan 020 — Release engineering and 1.0 gates
 
-Status: WP-1–4 implementation under release review; WP-5 not started. The
-automated candidate pipeline is present, but external Windows-matrix and
-hands-on screen-reader evidence remain release blockers.
+Status: WP-1–4 release-candidate publication prepared; WP-5 not started. The
+automated candidate pipeline and Windows-matrix evidence are present, but the
+tagged remote pipeline and hands-on screen-reader evidence remain
+final-release gates.
 Scope: turn the verified application into a supportable, reproducible 1.0
 release with explicit evidence and rollback
 Depends on: Plans 015 through 019
@@ -53,6 +54,10 @@ not only a version bump.
 ## WP-4 — Release candidate process
 
 - Cut an immutable `1.0.0-rc.1` from a clean main branch.
+- Publish the RC as a clearly marked prerelease with its wheel, source
+  distribution, checksums, SBOM, and evidence. Candidate publication precedes
+  hands-on external gates so every result can name the exact artifact tested;
+  publishing an RC is not approval for the final release.
 - Run normal CI, installed-artifact tests, browser/accessibility journeys,
   parser fuzz budget, migration/recovery drills, and the Windows lab suite.
 - Conduct focused reviews of trust boundaries, canonical/hash completeness,
@@ -117,5 +122,7 @@ lab helper scripts from the candidate and converted the evidence manifest to a
 fail-closed blocker ledger.
 
 WP-5 may begin only when the complete least-privileged Plan 017 matrix and the
-Plan 019 hands-on screen-reader pass are attached to the same clean candidate
-commit and all remote candidate jobs are green.
+Plan 019 hands-on screen-reader pass are attached to the same immutable RC and
+all remote candidate jobs are green. The RC must therefore be published under
+WP-4 before the hands-on screen-reader pass; only the final tag requires the
+evidence manifest's `approved for release` status.

@@ -53,7 +53,7 @@ python -m venv .venv
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install gpo_studio-1.0.0.dev0-py3-none-any.whl
+.venv/bin/pip install gpo_studio-1.0.0rc1-py3-none-any.whl
 .venv/bin/gpo-studio run
 ```
 

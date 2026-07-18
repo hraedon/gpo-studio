@@ -59,6 +59,13 @@ Download the wheel and `SHA256SUMS` from the same GitHub release into your
 Downloads folder. Open that folder in File Explorer, click the address bar,
 type `powershell`, and press Enter.
 
+Use the files listed under **Assets** on the
+[GitHub Releases page](https://github.com/hraedon/gpo-studio/releases). The green
+**Code** button's ZIP file and Git source checkouts contain source code, not a
+built wheel. For release-candidate testing, expand the prerelease entry and
+download its wheel and `SHA256SUMS`; do not substitute a wheel from an Actions
+run or a local build when recording release-gate evidence.
+
 Copy this entire block into PowerShell. It stops with an error if it finds no
 wheel, more than one wheel, no matching checksum, or a damaged file.
 
