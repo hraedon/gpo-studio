@@ -8,6 +8,10 @@ Run this procedure against the exact release candidate. Do not mark the manual
 items in [`browser-accessibility-checklist.md`](browser-accessibility-checklist.md)
 complete until a person has performed and recorded this session.
 
+The candidate is intentionally published as a GitHub prerelease before this
+manual gate is complete. Its publication does not approve the final release;
+it creates the immutable wheel and checksum identity that this gate evaluates.
+
 ## Scope and pass rule
 
 Run the full journey in Microsoft Edge, then the shorter smoke journey in the
@@ -41,6 +45,8 @@ Record all of the following before testing:
 - Tester and date.
 
 Install the candidate using the [Windows quickstart](windows-quickstart.md).
+Download the wheel and `SHA256SUMS` from the candidate's GitHub Release
+**Assets**, not from the source-code ZIP or a CI Actions artifact.
 Use a new disposable workspace, for example:
 
 ```powershell

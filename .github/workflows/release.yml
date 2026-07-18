@@ -58,9 +58,15 @@ jobs:
           VERSION=$(python -c "exec(open('src/gpo_studio/__init__.py').read()); print(__version__)")
           TAG_VERSION=${VERSION/rc/-rc.}
           test "${GITHUB_REF_NAME}" = "v${TAG_VERSION}"
-          grep -q '^> \*\*Status:\*\* approved for release' docs/release-evidence.md
           case "$VERSION" in
             *dev*) echo "Refusing release workflow for development version: $VERSION"; exit 1 ;;
+            *rc*)
+              grep -q '^> \*\*Status:\*\* release candidate; final approval pending' \
+                docs/release-evidence.md
+              ;;
+            *)
+              grep -q '^> \*\*Status:\*\* approved for release' docs/release-evidence.md
+              ;;
           esac
       - name: Install release tools
         run: pip install build cyclonedx-bom
@@ -98,8 +104,45 @@ jobs:
             --output-file sbom.cdx.json
           cp docs/release-evidence.md release-evidence.md
           cp docs/release-evidence-report.json release-evidence-report.json
-          printf '\n## Resolved release identity\n\n- Source commit: `%s`\n- Tag: `%s`\n' \
-            "$GITHUB_SHA" "$GITHUB_REF_NAME" >> release-evidence.md
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          def sha256(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          wheel = next(Path("dist").glob("gpo_studio-*.whl"))
+          sdist = next(Path("dist").glob("gpo_studio-*.tar.gz"))
+          sbom = Path("sbom.cdx.json")
+          artifacts = {
+              "wheel_sha256": sha256(wheel),
+              "sdist_sha256": sha256(sdist),
+              "sbom_sha256": sha256(sbom),
+          }
+
+          report_path = Path("release-evidence-report.json")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          report["release_identity"] = {
+              "source_commit": os.environ["GITHUB_SHA"],
+              "tag": os.environ["GITHUB_REF_NAME"],
+          }
+          report["artifact_hashes"].update(artifacts)
+          report["artifact_hashes"].pop("evidence_report_sha256", None)
+          report_path.write_text(
+              json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+
+          with Path("release-evidence.md").open("a", encoding="utf-8") as stream:
+              stream.write("\n## Resolved release identity\n\n")
+              stream.write(f"- Source commit: `{os.environ['GITHUB_SHA']}`\n")
+              stream.write(f"- Tag: `{os.environ['GITHUB_REF_NAME']}`\n")
+              stream.write(f"- Wheel `{wheel.name}` SHA-256: `{artifacts['wheel_sha256']}`\n")
+              stream.write(f"- Source distribution `{sdist.name}` SHA-256: `{artifacts['sdist_sha256']}`\n")
+              stream.write(f"- SBOM SHA-256: `{artifacts['sbom_sha256']}`\n")
+          PY
           sha256sum dist/* sbom.cdx.json release-evidence.md release-evidence-report.json > SHA256SUMS
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
@@ -119,10 +162,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           FLAGS=()
+          NOTES_ARGS=(--generate-notes)
           case "$GITHUB_REF_NAME" in
-            *-rc.*) FLAGS+=(--prerelease) ;;
+            *-rc.*)
+              FLAGS+=(--prerelease)
+              NOTES_ARGS=(--notes "Immutable release candidate for hands-on NVDA validation. This prerelease is not approved for production or the final 1.0 release. Download the wheel and SHA256SUMS from Assets and follow docs/nvda-validation-runbook.md.")
+              ;;
           esac
           gh release create "$GITHUB_REF_NAME" \
             dist/* sbom.cdx.json SHA256SUMS release-evidence.md release-evidence-report.json \
-            --verify-tag --generate-notes \
+            --verify-tag "${NOTES_ARGS[@]}" \
             --title "GPO Studio ${GITHUB_REF_NAME#v}" "${FLAGS[@]}"
