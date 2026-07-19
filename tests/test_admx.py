@@ -204,6 +204,48 @@ def test_load_catalogue_from_directory(tmp_path) -> None:
     assert len(cat.supported_on) == 1
 
 
+# A minimal real-namespace ADMX + locale-varying ADML, for locale-selection tests.
+_ADMX_ONE = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policies>
+    <policy name="P" class="Machine" key="Software\\Policies\\Synthetic" valueName="V"
+            displayName="$(string.P)" explainText="$(string.P)" supportedOn="S" />
+  </policies>
+</policyDefinitions>"""
+
+
+def _adml_one(display: str) -> bytes:
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<policyDefinitionResources '
+        'xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">'
+        f"<resources><stringTable><string id=\"P\">{display}</string>"
+        "</stringTable></resources></policyDefinitionResources>"
+    ).encode()
+
+
+def test_load_catalogue_prefers_en_us_locale(tmp_path) -> None:
+    (tmp_path / "x.admx").write_bytes(_ADMX_ONE)
+    (tmp_path / "en-US").mkdir()
+    (tmp_path / "de-DE").mkdir()
+    (tmp_path / "en-US" / "x.adml").write_bytes(_adml_one("English Name"))
+    (tmp_path / "de-DE" / "x.adml").write_bytes(_adml_one("German Name"))
+    cat = load_catalogue(tmp_path)
+    assert cat.policies[0].display_name == "English Name"
+
+
+def test_load_catalogue_locale_fallback_is_deterministic(tmp_path) -> None:
+    # No en-US present: the sorted-first locale (de-DE before fr-FR) is chosen
+    # deterministically, not whatever iterdir() happens to yield first.
+    (tmp_path / "x.admx").write_bytes(_ADMX_ONE)
+    (tmp_path / "fr-FR").mkdir()
+    (tmp_path / "de-DE").mkdir()
+    (tmp_path / "fr-FR" / "x.adml").write_bytes(_adml_one("French Name"))
+    (tmp_path / "de-DE" / "x.adml").write_bytes(_adml_one("German Name"))
+    cat = load_catalogue(tmp_path)
+    assert cat.policies[0].display_name == "German Name"
+
+
 def test_load_catalogue_empty_dir(tmp_path) -> None:
     cat = load_catalogue(tmp_path)
     assert cat.policies == ()
