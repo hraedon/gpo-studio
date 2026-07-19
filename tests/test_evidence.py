@@ -624,3 +624,67 @@ def test_render_escapes_pipe_in_capability() -> None:
     pack = parse_pack(_pack([rec]))
     out = render_matrix_markdown(derive_claims([pack]))
     assert "weird\\|capability" in out
+
+
+# --- doc/code contract ----------------------------------------------------
+#
+# The evidence-pack schema is documented in
+# docs/plan-021/reference-estates-and-evidence.md, and the doc carries a
+# fenced ``json`` example pack. The doc and the loader were authored
+# separately, so they can silently drift (the 2026-07-18 review found the
+# doc's example did not parse against the loader). These tests pin the doc's
+# examples to the loader mechanically, so any future drift fails CI.
+
+_WP4_DOC = (
+    Path(__file__).resolve().parent.parent
+    / "docs"
+    / "plan-021"
+    / "reference-estates-and-evidence.md"
+)
+
+
+def _fenced_json_blocks(markdown: str) -> list[str]:
+    """Return the bodies of every ```json fenced block in *markdown*."""
+    blocks: list[str] = []
+    lines = markdown.splitlines()
+    inside = False
+    current: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not inside and stripped == "```json":
+            inside = True
+            current = []
+            continue
+        if inside and stripped == "```":
+            inside = False
+            blocks.append("\n".join(current))
+            continue
+        if inside:
+            current.append(line)
+    return blocks
+
+
+def test_wp4_doc_has_a_json_example() -> None:
+    assert _WP4_DOC.is_file(), f"WP-4 reference doc missing: {_WP4_DOC}"
+    blocks = _fenced_json_blocks(_WP4_DOC.read_text(encoding="utf-8"))
+    assert blocks, "WP-4 doc must carry at least one ```json example pack"
+
+
+def test_wp4_doc_example_packs_parse_against_loader() -> None:
+    """Every ```json example in the WP-4 doc must parse via the loader.
+
+    This is the doc/code contract: the schema the doc teaches operators to
+    author must be exactly the schema the loader accepts.
+    """
+    blocks = _fenced_json_blocks(_WP4_DOC.read_text(encoding="utf-8"))
+    for i, block in enumerate(blocks):
+        try:
+            raw = json.loads(block)
+        except json.JSONDecodeError as exc:  # pragma: no cover - failure detail
+            raise AssertionError(f"WP-4 doc json block #{i} is not valid JSON: {exc}") from exc
+        pack = parse_pack(raw, source=f"{_WP4_DOC.name}#json[{i}]")
+        # The documented example must be signable and derive without raising —
+        # a reviewer following the doc should get a usable pack, not a subset
+        # the loader rejects.
+        assert pack.signable, f"WP-4 doc json block #{i} example is not signable"
+        derive_claims([pack])
