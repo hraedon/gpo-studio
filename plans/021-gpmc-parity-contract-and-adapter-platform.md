@@ -4,7 +4,13 @@ Status: proposed (post-1.0)
 Scope: define a falsifiable meaning of GPMC parity and establish the lossless
 model, extension inventory, and adapter lifecycle required by every later plan
 Depends on: Plan 020
-Review gate: **REVIEW AND REFINE — REQUIRED before Plan 022 implementation**
+Review gate: **RATIFIED 2026-07-19** — see
+[`docs/plan-021/gate-decision-2026-07-19.md`](../docs/plan-021/gate-decision-2026-07-19.md).
+The operator ruled on OS-version policy (drop Win10), first evidence corpus
+(falsifiable studio-authors/gpo-lens-verifies loop), intentional safety
+divergences (correctness-first footgun test), ADMX licensing (link-or-require +
+arbitrary-pack generalization), and release enforcement (provenance signature,
+not pinned-hash manifest). Plan 022 implementation is unblocked.
 
 > **Program status.** Plan 021 is the head of the post-1.0 parity program.
 > Plans 022–031 are **provisional pre-inventory drafts**, not settled execution
@@ -19,6 +25,13 @@ Review gate: **REVIEW AND REFINE — REQUIRED before Plan 022 implementation**
 > hash-profile definitions, or canonical/hash vectors on `main`. Those
 > artifacts are exactly the contract the review gate exists to ratify; explore
 > them on throwaway branches.
+>
+> **Gate passed 2026-07-19.** The review gate is ratified
+> ([`docs/plan-021/gate-decision-2026-07-19.md`](../docs/plan-021/gate-decision-2026-07-19.md)).
+> Plan 022 is unblocked and its work packages may now become contracts; the
+> spike boundary is lifted for work in service of the ratified decisions.
+> Plans 023–031 remain provisional and are refined per the decision record as
+> each is reached.
 
 ## Purpose
 
