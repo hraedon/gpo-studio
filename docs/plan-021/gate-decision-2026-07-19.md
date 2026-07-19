@@ -71,6 +71,19 @@ and "gpo-lens can read it today," so it is the only set for which a `verified-rw
 claim can be *proven* rather than *asserted*. cpassword is included first because
 it is the correctness keystone for Decision 3.
 
+**Grounding in a real environment (hard redaction invariant):** the corpus is
+grounded against a **real, operator-held production reference estate** captured
+in gpo-lens — used privately to decide *which CSEs and GPO structures actually
+occur in a production domain*, so the corpus reflects reality rather than a toy.
+That reference estate is **never committed to this repository, and its
+identifiers never enter any gpo-studio fixture, evidence pack, or document.**
+The committed corpus is **synthetic derivations only**: every fixture and every
+evidence pack is `redaction_verified` and passes the identifier gate before it
+lands. The real estate grounds *what to model*; the redaction gate guarantees
+*what is committed* carries no production identifiers. (This is the same
+discipline that governs the whole evidence architecture — synthetic-only,
+redaction-gated — applied to corpus selection.)
+
 ---
 
 ## Decision 3 — Intentional safety divergence: correctness first, the footgun test
@@ -126,12 +139,24 @@ the complete licensing taxonomy — no fourth "vendored copyrighted content" cla
 exists.
 
 **Product direction (feeds the roadmap, not this gate's contract):**
-generalize gpo-studio to **import and render arbitrary ADMX packs** supplied by
-the operator (point studio at a `PolicyDefinitions`-shaped tree; it ingests the
-`.admx` + language `.adml`, renders the catalogue, never redistributes the
-bytes). The pack is *required input the operator provides*, not content studio
-ships. Tracked as a Plan 022+ workstream (ADMX ingest generalization); the
-licensing rule above is the invariant that workstream must satisfy.
+
+- **Production default — ingest/reconcile against SYSVOL, no manual step.** In a
+  live deployment gpo-studio **reads the domain's ADMX central store from SYSVOL**
+  (`\\<domain>\SYSVOL\<domain>\Policies\PolicyDefinitions`) and reconciles its
+  catalogue against it, so the operator does not hand-import packs. This is a
+  **read-only** ingestion — consistent with the charter's "the web process never
+  writes to AD/SYSVOL"; it composes with the same read boundary gpo-lens uses.
+- **Manual import — always offered, for pre-authoring.** The operator can still
+  point studio at a `PolicyDefinitions`-shaped tree (`.admx` + language `.adml`)
+  and import it explicitly. This path exists so **changes can be authored before
+  the ADMX files are present** (e.g. drafting policy against a pack not yet on
+  SYSVOL), and as the fallback when no central store is reachable.
+- Under both paths studio **renders** the catalogue and **never redistributes**
+  the bytes; ingested MS/vendor ADMX is `hash-reference` or `excluded` per the
+  licensing rule above.
+
+Tracked as a Plan 022+ workstream (ADMX SYSVOL ingest + generalized manual
+import); the licensing rule above is the invariant that workstream must satisfy.
 
 ---
 
@@ -149,9 +174,11 @@ A pack is **release-eligible** iff:
    enforced; the identifier gate covers redaction, the licensing taxonomy above
    covers licensing); **and**
 2. it carries a **valid detached provenance signature** over its
-   `canonical_pack_hash`, from a signer trusted by the suite's existing offline
-   signature scheme (regista bundle v2 / cairn — the same offline-verification
-   infrastructure the 1.0 release and the suite already use).
+   `canonical_pack_hash`, produced by **cairn** (the suite's cryptographic
+   provenance instrument) — the operator's ratified choice of signer. cairn
+   already attests agent actions offline; signing the pack's canonical hash
+   makes the evidence pack's provenance verifiable with the same infrastructure
+   the 1.0 release and the suite already use.
 
 The generator verifies *that a valid signature is present*, not *that a hash
 appears in a curated allowlist*. This is friendlier (a pack is signed once, at
@@ -166,10 +193,9 @@ who ran the gather.
 - The doc's "hash-pinned manifest" language and the never-implemented
   `--pinned-manifest` CLI argument are **withdrawn**. `reference-estates-and-evidence.md`
   is updated to describe signature-based eligibility instead.
-- Implementation (signature verification in the generator + a signing step in the
-  gather path) is a **Plan 022+ contract-shaped workstream**, now unblocked by
-  this ratification. It must reuse the suite offline-signature scheme, not invent
-  a new one.
+- Implementation (signature verification in the generator + a cairn signing step
+  in the gather path) is a **Plan 022+ contract-shaped workstream**, now unblocked
+  by this ratification. It uses **cairn** (Decision 5), not a new scheme.
 - **`schema_version: 0` legacy adapter — stays out of scope.** The 1.0
   `release-evidence-report.json` is a conceptual ancestor only; `load_pack`
   rejects `schema_version != 1` with a clear error, and no adapter will be built.
@@ -196,8 +222,8 @@ who ran the gather.
 2. **ADMX ingest generalization** (Decision 4) — import/render arbitrary
    operator-supplied ADMX packs under the `hash-reference` / `excluded` rule.
 3. **Signature-based release eligibility** (Decision 5) — generator verifies a
-   valid detached signature over `canonical_pack_hash`; withdraw pinned-manifest
-   language; reuse the suite offline-signature scheme.
+   valid detached **cairn** signature over `canonical_pack_hash`; withdraw
+   pinned-manifest language.
 4. **WP-4 evidence gathering unblocked** — acb WI-010 (per-capability
    `env_prefix`) resolves the composed lab-credential checkout; verified live on
    the operator box 2026-07-19. Tranche A is the first gather target.
