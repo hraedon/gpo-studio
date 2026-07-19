@@ -374,6 +374,11 @@ _VALUE_TYPE_MAP: dict[
     "delete": ("delete", None),
 }
 
+# ADMX ``decimal`` is ``xs:unsignedInt`` (32-bit); ``longDecimal`` is
+# ``xs:unsignedLong`` (64-bit). MS-GPREG §7.2.
+_UINT32_MAX = 2**32 - 1
+_UINT64_MAX = 2**64 - 1
+
 
 def _parse_policy_value(container: ET.Element) -> PolicyValue | None:
     """Parse the ADMX ``Value`` choice (decimal/longDecimal/string/delete).
@@ -381,6 +386,10 @@ def _parse_policy_value(container: ET.Element) -> PolicyValue | None:
     ``container`` is the element whose direct children hold the choice — an
     ``<enabledValue>``/``<disabledValue>`` element, or the ``<value>`` wrapper
     inside a list ``<item>``. Returns ``None`` if no known value form is present.
+
+    Numeric values are validated at parse time (fail early) so downstream
+    Registry.pol generation can trust ``int(data)`` on any ``decimal``/
+    ``longDecimal`` this returns.
     """
     for child in container:
         mapping = _VALUE_TYPE_MAP.get(_local_name(child.tag))
@@ -389,12 +398,26 @@ def _parse_policy_value(container: ET.Element) -> PolicyValue | None:
         kind, registry_type = mapping
         if kind == "delete":
             return PolicyValue(kind="delete", data="", registry_type=None)
-        # A string value may carry its text as a ``value`` attribute or as
-        # element text; accept either. Numeric forms use the ``value`` attr.
-        data = child.get("value")
-        if data is None:
-            data = (child.text or "").strip()
-        return PolicyValue(kind=kind, data=data, registry_type=registry_type)
+        if kind == "string":
+            # A string value may carry its text as a ``value`` attribute or as
+            # element text; accept either.
+            data = child.get("value")
+            if data is None:
+                data = (child.text or "").strip()
+            return PolicyValue(kind="string", data=data, registry_type=registry_type)
+        # decimal / longDecimal: reject non-integer or out-of-range now rather
+        # than letting a malformed third-party ADMX fail deep in generation.
+        raw = child.get("value", "")
+        bound = _UINT32_MAX if kind == "decimal" else _UINT64_MAX
+        try:
+            parsed = int(raw)
+        except ValueError:
+            raise AdmxError(f"ADMX {kind} value {raw!r} is not an integer") from None
+        if not 0 <= parsed <= bound:
+            raise AdmxError(
+                f"ADMX {kind} value {parsed} is out of range [0, {bound}]"
+            )
+        return PolicyValue(kind=kind, data=raw, registry_type=registry_type)
     return None
 
 
@@ -497,6 +520,50 @@ def parse_admx(
     supported_on = _parse_supported_on(root, strings)
     policies = _parse_policies(root, strings)
     return policies, categories, supported_on
+
+
+# The implicit default a policy writes when it declares a ``valueName`` but no
+# explicit ``<enabledValue>``/``<disabledValue>``. This bridges legacy ``.adm``
+# semantics (Enabled -> REG_DWORD 1, Disabled -> delete the value) and is
+# UNDOCUMENTED at the ADMX schema level — see WI-008 (verify empirically before
+# production reliance). It lives here, in the single resolver a consumer uses,
+# so the parser stays byte-faithful and this undocumented rule is encoded in
+# exactly one place.
+_IMPLICIT_ENABLED = PolicyValue(kind="decimal", data="1", registry_type="REG_DWORD")
+_IMPLICIT_DISABLED = PolicyValue(kind="delete", data="", registry_type=None)
+
+
+def effective_enabled_value(policy: PolicyDefinition) -> PolicyValue | None:
+    """The registry value a policy writes when Enabled, implicit default applied.
+
+    Returns the explicit ``<enabledValue>`` when present; otherwise the implicit
+    default (``REG_DWORD`` 1) when the policy declares a ``value_name`` but no
+    explicit value; otherwise ``None`` (the policy expresses its Enabled state
+    only through ``enabled_list`` or child ``elements``). Consumers MUST resolve
+    state writes through this function, never by reading ``enabled_value``
+    directly, so the undocumented implicit default (WI-008) is applied in one
+    place and no consumer re-derives it.
+    """
+    if policy.enabled_value is not None:
+        return policy.enabled_value
+    if policy.value_name:
+        return _IMPLICIT_ENABLED
+    return None
+
+
+def effective_disabled_value(policy: PolicyDefinition) -> PolicyValue | None:
+    """The registry value a policy writes when Disabled, implicit default applied.
+
+    Explicit ``<disabledValue>`` when present; otherwise, for a ``value_name``
+    policy, the implicit default is to *delete* the value (not write 0);
+    otherwise ``None``. See :func:`effective_enabled_value` for why this is the
+    single place the undocumented default is encoded.
+    """
+    if policy.disabled_value is not None:
+        return policy.disabled_value
+    if policy.value_name:
+        return _IMPLICIT_DISABLED
+    return None
 
 
 def build_catalogue(admx_data: bytes, adml_data: bytes) -> AdmxCatalogue:
