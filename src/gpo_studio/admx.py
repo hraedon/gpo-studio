@@ -15,6 +15,14 @@ _MAX_DEPTH = 100
 _MAX_ELEMENT_COUNT = 100_000
 _MAX_TEXT_LENGTH = 1024 * 1024
 _MAX_ATTR_LENGTH = 4096
+# The canonical ADMX namespace as published in the MS-GPREG schema. Real
+# Windows and vendor ADMX/ADML files in the wild almost always declare a
+# DIFFERENT namespace — ``http://schemas.microsoft.com/GroupPolicy/2006/07/
+# PolicyDefinitions`` — so this parser matches elements by local name in ANY
+# namespace (ElementTree ``{*}`` wildcard), not against a single hardcoded URI.
+# Pinning one namespace silently parsed zero policies from real central-store
+# files (lesson carried over from gpo-lens, which is tested against real
+# SYSVOL exports). This constant is retained for reference/emission only.
 _ADMX_NS = "http://www.microsoft.com/GroupPolicy/PolicyDefinitions"
 
 
@@ -167,7 +175,7 @@ def parse_adml(data: bytes) -> dict[str, str]:
     """Parse ADML XML bytes and return a mapping of string IDs to display text."""
     root = _safe_parse(data)
     strings: dict[str, str] = {}
-    string_table = root.find(f"{{{_ADMX_NS}}}resources/{{{_ADMX_NS}}}stringTable")
+    string_table = root.find("{*}resources/{*}stringTable")
     if string_table is not None:
         for string_elem in string_table:
             sid = string_elem.get("id", "")
@@ -179,14 +187,14 @@ def parse_adml(data: bytes) -> dict[str, str]:
 
 def _parse_categories(root: ET.Element, strings: dict[str, str]) -> list[Category]:
     categories: list[Category] = []
-    cat_container = root.find(f"{{{_ADMX_NS}}}categories")
+    cat_container = root.find("{*}categories")
     if cat_container is None:
         return categories
     for cat_elem in cat_container:
         if _local_name(cat_elem.tag) != "category":
             continue
         cat_id = cat_elem.get("name", "")
-        parent_elem = cat_elem.find(f"{{{_ADMX_NS}}}parentCategory")
+        parent_elem = cat_elem.find("{*}parentCategory")
         parent_ref = parent_elem.get("ref", "") if parent_elem is not None else ""
         display_ref = cat_elem.get("displayName", "")
         display_name = _resolve_string_ref(display_ref, strings)
@@ -200,7 +208,7 @@ def _parse_supported_on(
     root: ET.Element, strings: dict[str, str]
 ) -> list[SupportedOnDefinition]:
     defs: list[SupportedOnDefinition] = []
-    container = root.find(f"{{{_ADMX_NS}}}supportedOn")
+    container = root.find("{*}supportedOn")
     if container is None:
         return defs
     for def_elem in container:
@@ -285,7 +293,7 @@ def _parse_elements(
     policy_elem: ET.Element, strings: dict[str, str]
 ) -> tuple[PolicyElement, ...]:
     elements: list[PolicyElement] = []
-    elem_container = policy_elem.find(f"{{{_ADMX_NS}}}elements")
+    elem_container = policy_elem.find("{*}elements")
     if elem_container is None:
         return ()
     kind_map: dict[
@@ -335,7 +343,7 @@ def _parse_presentation(
     policy_elem: ET.Element, strings: dict[str, str]
 ) -> tuple[PresentationElement, ...]:
     presentation: list[PresentationElement] = []
-    pres_elem = policy_elem.find(f"{{{_ADMX_NS}}}presentation")
+    pres_elem = policy_elem.find("{*}presentation")
     if pres_elem is None:
         return ()
     kind_map: dict[
@@ -427,7 +435,7 @@ def _parse_value_list(list_elem: ET.Element) -> PolicyValueList:
     for item_elem in list_elem:
         if _local_name(item_elem.tag) != "item":
             continue
-        value_container = item_elem.find(f"{{{_ADMX_NS}}}value")
+        value_container = item_elem.find("{*}value")
         # Faithful fallback: if the item does not wrap its value in <value>,
         # scan the item element itself for the value choice.
         value = _parse_policy_value(value_container if value_container is not None else item_elem)
@@ -446,14 +454,14 @@ def _parse_value_list(list_elem: ET.Element) -> PolicyValueList:
 def _parse_state_value(
     policy_elem: ET.Element, tag: str
 ) -> PolicyValue | None:
-    elem = policy_elem.find(f"{{{_ADMX_NS}}}{tag}")
+    elem = policy_elem.find(f"{{*}}{tag}")
     return _parse_policy_value(elem) if elem is not None else None
 
 
 def _parse_state_list(
     policy_elem: ET.Element, tag: str
 ) -> PolicyValueList | None:
-    elem = policy_elem.find(f"{{{_ADMX_NS}}}{tag}")
+    elem = policy_elem.find(f"{{*}}{tag}")
     return _parse_value_list(elem) if elem is not None else None
 
 
@@ -461,7 +469,7 @@ def _parse_policies(
     root: ET.Element, strings: dict[str, str]
 ) -> list[PolicyDefinition]:
     policies: list[PolicyDefinition] = []
-    pol_container = root.find(f"{{{_ADMX_NS}}}policies")
+    pol_container = root.find("{*}policies")
     if pol_container is None:
         return policies
     for pol_elem in pol_container:
@@ -474,10 +482,10 @@ def _parse_policies(
         pol_class = cast(Literal["Machine", "User", "Both"], pol_class_raw)
         key = pol_elem.get("key", "")
 
-        parent_cat_elem = pol_elem.find(f"{{{_ADMX_NS}}}parentCategory")
+        parent_cat_elem = pol_elem.find("{*}parentCategory")
         parent_cat = parent_cat_elem.get("ref", "") if parent_cat_elem is not None else ""
 
-        supported_elem = pol_elem.find(f"{{{_ADMX_NS}}}supportedOn")
+        supported_elem = pol_elem.find("{*}supportedOn")
         supported_ref = supported_elem.get("ref", "") if supported_elem is not None else ""
 
         display_ref = pol_elem.get("displayName", "")
@@ -581,12 +589,26 @@ def build_catalogue(admx_data: bytes, adml_data: bytes) -> AdmxCatalogue:
 
 
 def _find_adml(admx_path: Path) -> Path | None:
-    adml_path = admx_path.with_suffix(".adml")
-    if adml_path.exists():
-        return adml_path
-    for child in admx_path.parent.iterdir():
+    """Locate the ADML resource file for an ADMX, preferring en-US.
+
+    Search order (lesson from gpo-lens, which reads real central stores):
+    a sibling ``<stem>.adml``; then the ``en-US`` locale subdirectory (the
+    shipped-Windows layout); then, deterministically, the first locale
+    subdirectory in sorted order that carries the file. The prior version
+    iterated ``iterdir()`` in arbitrary order, so on a multi-locale central
+    store it could non-deterministically resolve display names in the wrong
+    language.
+    """
+    sibling = admx_path.with_suffix(".adml")
+    if sibling.exists():
+        return sibling
+    stem = admx_path.stem + ".adml"
+    en_us = admx_path.parent / "en-US" / stem
+    if en_us.exists():
+        return en_us
+    for child in sorted(admx_path.parent.iterdir()):
         if child.is_dir():
-            candidate = child / (admx_path.stem + ".adml")
+            candidate = child / stem
             if candidate.exists():
                 return candidate
     return None
