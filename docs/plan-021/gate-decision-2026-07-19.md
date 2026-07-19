@@ -84,6 +84,14 @@ lands. The real estate grounds *what to model*; the redaction gate guarantees
 discipline that governs the whole evidence architecture — synthetic-only,
 redaction-gated — applied to corpus selection.)
 
+The invariant extends beyond identifiers to **structure** (cross-lineage review,
+2026-07-19): CSE presence/absence and ordering can fingerprint a production
+topology even when identifiers are scrubbed. The committed corpus therefore
+models **representative** production patterns, not a 1:1 structural clone of the
+reference estate. Practical risk is low (the reference estate is not sensitive
+per the operator), but the invariant is named on topology, not only identifiers.
+Tracked as **WI-007**.
+
 ---
 
 ## Decision 3 — Intentional safety divergence: correctness first, the footgun test
@@ -155,6 +163,17 @@ exists.
   the bytes; ingested MS/vendor ADMX is `hash-reference` or `excluded` per the
   licensing rule above.
 
+**Accepted tradeoff (operator ruling, 2026-07-19):** SYSVOL ingest is a
+*read-only* operation but still a **trust-boundary expansion** — it needs domain
+credentials and network reachability, and a poisoned central store is an
+ingestion path the charter's write ban does not cover. The operator accepts this
+as a small, bounded cost for a significantly simpler ingest story (no manual
+step), with the maximal plan expected to expand these limits anyway. The
+read-trust model (treat ingested ADMX/settings as untrusted input; no-retention
+of transient copyrighted bytes) and **mechanical** license classification at
+import (detect MS/vendor ADMX; refuse a mislabeled `in-repo`) are the required
+mitigations, tracked as **WI-006** — not left to operator process.
+
 Tracked as a Plan 022+ workstream (ADMX SYSVOL ingest + generalized manual
 import); the licensing rule above is the invariant that workstream must satisfy.
 
@@ -187,6 +206,19 @@ in sync) and stronger (cryptographic, tamper-evident provenance rather than a
 mutable list). It composes with the existing byte-deterministic
 `canonical_pack_bytes` and the acb→cairn attestation path that already records
 who ran the gather.
+
+**Signature is eligibility, not verification — two orthogonal gates, both
+required** (clarified after cross-lineage review, 2026-07-19). A cairn signature
+attests *who gathered* a pack and that it is unmodified; it does **not** attest
+that the pack's `verified-rw` rows passed the read/write loop. Verification is a
+separate gate: the classification derivation still requires a passing
+`windows-side` **and** a passing `endpoint` record per (capability, estate)
+before any row reaches `verified-rw` (Decision 2's falsifiable loop). The
+signature makes a pack *release-eligible*; the evidence content is what makes a
+*claim* true. A signed pack full of unverified rows yields no `verified-rw`
+claims. Trust-anchor custody and offline trust bootstrap for the cairn signer
+(the verification key must not ship with the pack producer, or the gate becomes
+self-attesting) are tracked as **WI-005**.
 
 **Consequences:**
 
