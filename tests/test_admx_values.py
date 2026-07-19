@@ -12,8 +12,11 @@ from __future__ import annotations
 import pytest
 
 from gpo_studio.admx import (
+    AdmxError,
     PolicyDefinition,
     PolicyValue,
+    effective_disabled_value,
+    effective_enabled_value,
     parse_admx,
 )
 
@@ -132,3 +135,76 @@ def test_no_explicit_values_are_none_not_defaulted(
     assert p.disabled_value is None
     assert p.enabled_list is None
     assert p.disabled_list is None
+
+
+# --- resolver: the single place the implicit default is applied ---------------
+
+
+def test_effective_values_return_explicit_when_present(
+    policies: dict[str, PolicyDefinition],
+) -> None:
+    p = policies["DecimalToggle"]
+    assert effective_enabled_value(p) == PolicyValue("decimal", "1", "REG_DWORD")
+    assert effective_disabled_value(p) == PolicyValue("decimal", "0", "REG_DWORD")
+
+
+def test_effective_values_synthesize_implicit_default(
+    policies: dict[str, PolicyDefinition],
+) -> None:
+    # valueName present, no explicit enabled/disabled: resolver applies the
+    # implicit default (Enabled=REG_DWORD 1, Disabled=delete) in ONE place.
+    p = policies["NoExplicitValues"]
+    assert effective_enabled_value(p) == PolicyValue("decimal", "1", "REG_DWORD")
+    assert effective_disabled_value(p) == PolicyValue("delete", "", None)
+
+
+def test_effective_values_none_without_value_name(
+    policies: dict[str, PolicyDefinition],
+) -> None:
+    # ListStates writes only through enabled/disabled lists (no policy valueName),
+    # so there is no policy-level state value to synthesize.
+    p = policies["ListStates"]
+    assert p.value_name == ""
+    assert effective_enabled_value(p) is None
+    assert effective_disabled_value(p) is None
+
+
+# --- parse-time validation of numeric values ---------------------------------
+
+
+def _admx_with_enabled(value_xml: str) -> bytes:
+    return (
+        b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <policies>
+    <policy name="P" class="Machine" key="Software\\Policies\\Synthetic"
+            valueName="V" displayName="$(string.x)" explainText="$(string.x)"
+            supportedOn="S">
+      <enabledValue>"""
+        + value_xml.encode("ascii")
+        + b"""</enabledValue>
+    </policy>
+  </policies>
+</policyDefinitions>"""
+    )
+
+
+def test_non_integer_decimal_is_rejected() -> None:
+    with pytest.raises(AdmxError, match="not an integer"):
+        parse_admx(_admx_with_enabled('<decimal value="abc" />'))
+
+
+def test_out_of_range_decimal_is_rejected() -> None:
+    with pytest.raises(AdmxError, match="out of range"):
+        parse_admx(_admx_with_enabled('<decimal value="4294967296" />'))  # 2**32
+
+
+def test_out_of_range_longdecimal_is_rejected() -> None:
+    with pytest.raises(AdmxError, match="out of range"):
+        parse_admx(_admx_with_enabled('<longDecimal value="18446744073709551616" />'))  # 2**64
+
+
+def test_max_uint_values_are_accepted() -> None:
+    # Boundary values at the top of each range parse cleanly.
+    parsed, _c, _s = parse_admx(_admx_with_enabled('<decimal value="4294967295" />'))
+    assert parsed[0].enabled_value == PolicyValue("decimal", "4294967295", "REG_DWORD")
