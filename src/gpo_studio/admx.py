@@ -65,6 +65,41 @@ class PresentationElement:
 
 
 @dataclass(frozen=True, slots=True)
+class PolicyValue:
+    """A single registry value an Enabled/Disabled state writes (ADMX ``Value``).
+
+    ``kind`` is the ADMX value form; ``registry_type`` is the corresponding
+    registry type, or ``None`` for ``delete`` (which removes the value rather
+    than writing one). ``data`` is the raw value text ("" for ``delete``).
+    """
+
+    kind: Literal["decimal", "longDecimal", "string", "delete"]
+    data: str
+    registry_type: RegistryType | None
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyListItem:
+    """One ``<item>`` in an ``enabledList``/``disabledList`` (ADMX ``ValueItem``)."""
+
+    value_name: str
+    value: PolicyValue
+    key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyValueList:
+    """An ``enabledList``/``disabledList`` (ADMX ``ValueList``).
+
+    ``default_key`` is the list's ``defaultKey`` attribute; each item may
+    override it with its own ``key``.
+    """
+
+    items: tuple[PolicyListItem, ...] = ()
+    default_key: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyDefinition:
     id: str
     class_: Literal["Machine", "User", "Both"]
@@ -75,6 +110,18 @@ class PolicyDefinition:
     elements: tuple[PolicyElement, ...] = ()
     presentation: tuple[PresentationElement, ...] = ()
     parent_category: str = ""
+    # Policy-level registry value semantics (ADMX WP-1). ``value_name`` is the
+    # registry value the on/off policy toggles; ``enabled_value``/
+    # ``disabled_value`` are the explicit ``<enabledValue>``/``<disabledValue>``
+    # writes; ``enabled_list``/``disabled_list`` are ``<enabledList>``/
+    # ``<disabledList>``. All are ``None``/"" when the ADMX omits them — default
+    # application (e.g. an implicit enabled=1) is a consumer concern, not baked
+    # into the parsed model, so the model stays faithful to the source bytes.
+    value_name: str = ""
+    enabled_value: PolicyValue | None = None
+    disabled_value: PolicyValue | None = None
+    enabled_list: PolicyValueList | None = None
+    disabled_list: PolicyValueList | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +365,75 @@ def _parse_presentation(
     return tuple(presentation)
 
 
+_VALUE_TYPE_MAP: dict[
+    str, tuple[Literal["decimal", "longDecimal", "string", "delete"], RegistryType | None]
+] = {
+    "decimal": ("decimal", "REG_DWORD"),
+    "longDecimal": ("longDecimal", "REG_QWORD"),
+    "string": ("string", "REG_SZ"),
+    "delete": ("delete", None),
+}
+
+
+def _parse_policy_value(container: ET.Element) -> PolicyValue | None:
+    """Parse the ADMX ``Value`` choice (decimal/longDecimal/string/delete).
+
+    ``container`` is the element whose direct children hold the choice — an
+    ``<enabledValue>``/``<disabledValue>`` element, or the ``<value>`` wrapper
+    inside a list ``<item>``. Returns ``None`` if no known value form is present.
+    """
+    for child in container:
+        mapping = _VALUE_TYPE_MAP.get(_local_name(child.tag))
+        if mapping is None:
+            continue
+        kind, registry_type = mapping
+        if kind == "delete":
+            return PolicyValue(kind="delete", data="", registry_type=None)
+        # A string value may carry its text as a ``value`` attribute or as
+        # element text; accept either. Numeric forms use the ``value`` attr.
+        data = child.get("value")
+        if data is None:
+            data = (child.text or "").strip()
+        return PolicyValue(kind=kind, data=data, registry_type=registry_type)
+    return None
+
+
+def _parse_value_list(list_elem: ET.Element) -> PolicyValueList:
+    """Parse an ADMX ``enabledList``/``disabledList`` (``ValueList``)."""
+    items: list[PolicyListItem] = []
+    for item_elem in list_elem:
+        if _local_name(item_elem.tag) != "item":
+            continue
+        value_container = item_elem.find(f"{{{_ADMX_NS}}}value")
+        # Faithful fallback: if the item does not wrap its value in <value>,
+        # scan the item element itself for the value choice.
+        value = _parse_policy_value(value_container if value_container is not None else item_elem)
+        if value is None:
+            continue
+        items.append(
+            PolicyListItem(
+                value_name=item_elem.get("valueName", ""),
+                value=value,
+                key=item_elem.get("key", ""),
+            )
+        )
+    return PolicyValueList(items=tuple(items), default_key=list_elem.get("defaultKey", ""))
+
+
+def _parse_state_value(
+    policy_elem: ET.Element, tag: str
+) -> PolicyValue | None:
+    elem = policy_elem.find(f"{{{_ADMX_NS}}}{tag}")
+    return _parse_policy_value(elem) if elem is not None else None
+
+
+def _parse_state_list(
+    policy_elem: ET.Element, tag: str
+) -> PolicyValueList | None:
+    elem = policy_elem.find(f"{{{_ADMX_NS}}}{tag}")
+    return _parse_value_list(elem) if elem is not None else None
+
+
 def _parse_policies(
     root: ET.Element, strings: dict[str, str]
 ) -> list[PolicyDefinition]:
@@ -361,6 +477,11 @@ def _parse_policies(
                 elements=elements,
                 presentation=presentation,
                 parent_category=parent_cat,
+                value_name=pol_elem.get("valueName", ""),
+                enabled_value=_parse_state_value(pol_elem, "enabledValue"),
+                disabled_value=_parse_state_value(pol_elem, "disabledValue"),
+                enabled_list=_parse_state_list(pol_elem, "enabledList"),
+                disabled_list=_parse_state_list(pol_elem, "disabledList"),
             )
         )
     return policies
