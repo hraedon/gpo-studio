@@ -281,14 +281,22 @@ both `true`. Signing is the act of:
    `docs/.evidence-report-sha256`, and verifying each consumed pack against it
    (`--verify <sha256>` CLI for a single pack).
 
-The pinned manifest is the intended trust root for downstream consumers (the
-public matrix generator, release evidence, and review). A pack whose hash is
-not in the pinned manifest is unsigned and MUST NOT be treated as release
-evidence. The pre-gate generator enforces the signable gate (`redaction_verified
-&& licensing_complete`) mechanically and refuses unsigned packs by default; the
-full pinned-manifest lookup (consume only packs whose hash appears in a
-supplied manifest file) is a WP-4 follow-up tracked against the review gate,
-not part of this pre-gate deliverable.
+> **Superseded by the review gate (2026-07-19).** The pinned-hash-manifest
+> mechanism described in this section is **withdrawn**. The ratified
+> release-eligibility rule is *signable + a valid detached provenance signature
+> over `canonical_pack_hash`* (reusing the suite offline-signature scheme), not a
+> hand-curated allowlist of pack hashes. See
+> [`gate-decision-2026-07-19.md` Decision 5](./gate-decision-2026-07-19.md#decision-5--release-evidence-enforcement-provenance-signature-not-a-pinned-hash-manifest).
+> The canonical-hash machinery below (`canonical_pack_bytes` / `canonical_pack_hash`)
+> is retained — it is what the signature signs.
+
+The pinned manifest was the *previously intended* trust root for downstream
+consumers (the public matrix generator, release evidence, and review); under the
+ratified decision the trust root is the provenance signature instead. The
+pre-gate generator enforces the signable gate (`redaction_verified &&
+licensing_complete`) mechanically and refuses unsigned packs by default;
+signature verification is the Plan 022+ workstream that replaces the withdrawn
+pinned-manifest lookup.
 
 ### Minimal example pack
 
