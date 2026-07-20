@@ -741,6 +741,42 @@ class WorkspaceStore:
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 
+    def replace_settings_with_prefix(
+        self,
+        guid: str,
+        expected_revision: int,
+        prefix: str,
+        new_settings: list[RegistrySetting],
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        """Swap every setting whose id starts with ``prefix`` for ``new_settings``.
+
+        Unlike :meth:`put_settings`, an EMPTY ``new_settings`` is meaningful
+        here: it removes the prefix's settings and leaves the rest of the GPO
+        alone. That is what setting an Administrative Template policy to Not
+        Configured requires — the policy must vanish from Registry.pol, not be
+        written as a zero. ``put_settings`` cannot express this because it
+        upserts by id and treats an empty list as a no-op.
+
+        Always creates a revision, even when nothing matched, so that
+        "I set this to Not Configured" is recorded rather than silently dropped.
+        """
+        if not prefix:
+            raise ValueError("prefix must be non-empty")
+        if any(not setting.id.startswith(prefix) for setting in new_settings):
+            raise ValueError("every new setting id must start with prefix")
+        self._validate_settings(new_settings)
+
+        def mutate(gpo: GPO) -> GPO:
+            kept = [s for s in gpo.settings if not s.id.startswith(prefix)]
+            combined = kept + new_settings
+            combined.sort(key=lambda item: item.identity())
+            return replace(gpo, settings=tuple(combined))
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
     def delete_setting(
         self,
         guid: str,

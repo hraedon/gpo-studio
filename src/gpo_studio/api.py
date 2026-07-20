@@ -74,7 +74,12 @@ from .model import (
     WorkspaceError,
 )
 from .numeric import coerce_dword_qword
-from .policy_config import PolicyConfiguration, resolve_policy
+from .policy_config import (
+    PolicyConfiguration,
+    PolicyState,
+    policy_setting_prefix,
+    resolve_policy,
+)
 from .registry_pol import RegistryPolError
 from .report import policy_report
 from .store import WorkspaceStore, gpo_from_dict
@@ -868,7 +873,10 @@ class BackupImportRequest(BaseModel):
 class ConfigurePolicyRequest(Audit):
     gpo_guid: str = Field(min_length=1, max_length=255)
     side: Literal["computer", "user"]
-    values: dict[str, bool | int | str | list[str]]
+    values: dict[str, bool | int | str | list[str]] = Field(default_factory=dict)
+    # Defaults to "enabled" so existing clients keep their behaviour; disabled
+    # and not_configured are the states GPMC offers that had no representation.
+    state: PolicyState = "enabled"
 
 
 class ForkGPO(BaseModel):
@@ -1635,16 +1643,21 @@ def configure_policy(
     request: Request, policy_id: str, body: ConfigurePolicyRequest
 ) -> dict[str, Any]:
     policy = _resolve_policy(request, policy_id)
-    config = PolicyConfiguration(side=body.side, values=body.values)
+    config = PolicyConfiguration(side=body.side, values=body.values, state=body.state)
     settings = resolve_policy(policy, config)
     issues: list[ValidationIssue] = []
     for s in settings:
         issues.extend(validate_setting(s))
     if any(i.severity == "error" for i in issues):
         raise ValidationError(issues)
-    gpo = _store(request).put_settings(
+    # Replace by prefix rather than upsert: re-configuring a policy must drop the
+    # settings its PREVIOUS state wrote. Enabled -> Disabled would otherwise
+    # leave the Enabled element values behind alongside the Disabled value, and
+    # Not Configured (no settings at all) would be a silent no-op.
+    gpo = _store(request).replace_settings_with_prefix(
         body.gpo_guid,
         body.expected_revision,
+        policy_setting_prefix(policy, body.side),
         settings,
         identity=_identity(body.actor),
         reason=body.reason,
