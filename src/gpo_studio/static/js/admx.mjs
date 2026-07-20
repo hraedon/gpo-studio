@@ -33,7 +33,11 @@ async function loadAdmxDetail(id){
       return `<div class="config-field"><small>Unsupported element kind: ${escapeHtml(e.kind)}</small></div>`;
     }).join("");
     $("#admx-detail").innerHTML=`<div class="admx-detail-head"><button class="quiet" id="admx-back">← Back</button><h3>${escapeHtml(p.display_name)}</h3></div><dl class="details"><dt>ID</dt><dd class="mono">${escapeHtml(p.id)}</dd>${p.namespace?`<dt>Namespace</dt><dd class="mono">${escapeHtml(p.namespace)}</dd>`:""}<dt>Class</dt><dd>${escapeHtml(p.class_)}</dd><dt>Key</dt><dd class="mono">${escapeHtml(p.key)}</dd><dt>Category</dt><dd>${escapeHtml(p.parent_category)||"—"}</dd><dt>Supported on</dt><dd>${escapeHtml(p.supported_on)||"—"}</dd><dt>Explanation</dt><dd>${escapeHtml(p.explain_text)||"—"}</dd>${p.elements&&p.elements.length?`<dt>Elements</dt><dd>${p.elements.map(e=>`<div class="mono">${escapeHtml(e.kind)}: ${escapeHtml(e.id)}</div>`).join("")}</dd>`:""}${p.presentation&&p.presentation.length?`<dt>Presentation</dt><dd>${p.presentation.map(e=>`<div>${escapeHtml(e.kind)}: ${escapeHtml(e.label||e.id)}</div>`).join("")}</dd>`:""}</dl>`;
-    if(fields){const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,p.display_name,p.class_,fields)}
+    // Always offered, including for policies with no elements: a plain on/off
+    // policy is the most common kind, and Enabled/Disabled/Not configured is
+    // exactly what it needs. Previously the button only rendered when the
+    // policy had element fields, so such policies could not be configured.
+    {const btn=document.createElement("button");btn.className="primary";btn.textContent="Configure policy";btn.id="admx-configure-btn";$("#admx-detail").appendChild(btn);btn.onclick=()=>openConfigureDialog(p.qualified_id||p.id,p.display_name,p.class_,fields)}
     $("#admx-back").onclick=()=>{$("#admx-detail").hidden=true;$("#admx-results").hidden=false};
   }catch(e){toast(e.message)}
 }
@@ -41,13 +45,27 @@ async function loadAdmxCategories(){
   try{const data=await api("/api/admx/categories");$("#admx-categories").innerHTML=data.items.length?data.items.map(c=>`<div class="admx-cat">${escapeHtml(c.display_name)}<small class="mono">${escapeHtml(c.id)}</small></div>`).join(""):'<div class="table-empty">No categories.</div>';
   }catch(error){toast(error.message)}
 }
+// Element options only apply when the policy is Enabled: GPMC greys out the
+// options panel for Disabled and Not Configured, and the API rejects element
+// values in those states rather than silently dropping them.
+function syncConfigureState(){
+  const enabled=$("#configure-state").value==="enabled";
+  const options=$("#configure-options");
+  if(!options)return;
+  options.hidden=!enabled;
+  $$("[data-elem-id]",options).forEach(el=>{el.disabled=!enabled});
+}
 function openConfigureDialog(policyId,policyName,policyClass,fieldsHtml){
   const form=$("#configure-form");form.reset();
   $("#configure-title").textContent=`Configure: ${policyName}`;
   const gpoSelect=$("#configure-target-gpo");
   gpoSelect.innerHTML=state.gpos.map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join("");
   const sideHtml=policyClass==="Both"?`<label class="config-field">Configuration side<select id="configure-side"><option value="computer">Computer</option><option value="user">User</option></select></label>`:"";
-  $("#configure-fields").innerHTML=sideHtml+fieldsHtml;
+  const stateHtml=`<label class="config-field">Policy state<select id="configure-state"><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="not_configured">Not configured</option></select></label>`;
+  const optionsHtml=fieldsHtml?`<div id="configure-options">${fieldsHtml}</div>`:"";
+  $("#configure-fields").innerHTML=stateHtml+sideHtml+optionsHtml;
+  $("#configure-state").onchange=syncConfigureState;
+  syncConfigureState();
   form.dataset.policyId=policyId;
   form.dataset.policyClass=policyClass;
   $("#configure-dialog").showModal();
@@ -57,9 +75,12 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
   const targetGuid=$("#configure-target-gpo").value;if(!targetGuid){toast("Select a target GPO");return}
   const targetGpo=state.gpos.find(g=>g.guid===targetGuid);if(!targetGpo){toast("Target GPO not found");return}
   let side=policyClass==="Machine"?"computer":policyClass==="User"?"user":$("#configure-side").value;
+  const policyState=$("#configure-state").value;
   const values={};
   let ok=true;
-  $$("[data-elem-id]",f).forEach(el=>{
+  // Only Enabled carries element values; sending them in another state is a
+  // 422 by design, so don't collect them.
+  if(policyState==="enabled")$$("[data-elem-id]",f).forEach(el=>{
     if(!ok)return;const kind=el.dataset.kind;const id=el.dataset.elemId;
     if(kind==="boolean"){values[id]=el.checked}
     else if(kind==="decimal"){const n=parseInt(el.value,10);if(!Number.isFinite(n)){toast(`Invalid number for ${id}`);ok=false;return}values[id]=n}
@@ -67,8 +88,9 @@ $("#configure-form").onsubmit=async event=>{event.preventDefault();if(event.subm
     else if(kind==="multitext"||kind==="list"){values[id]=el.value.split(/\r?\n/).filter(Boolean)}
   });
   if(!ok)return;
-  try{await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
-    $("#configure-dialog").close();await loadList(targetGuid);toast("Policy settings applied to GPO")}
+  try{await api(`/api/admx/policies/${encodeURIComponent(policyId)}/configure`,{method:"POST",body:JSON.stringify({gpo_guid:targetGuid,side,values,state:policyState,actor:"local-operator",reason:f.reason.value,expected_revision:targetGpo.revision})});
+    $("#configure-dialog").close();await loadList(targetGuid);
+    toast(policyState==="not_configured"?"Policy set to Not configured":"Policy settings applied to GPO")}
   catch(error){toast(error.message)}
 };
 $("#admx-search").oninput=e=>{clearTimeout(admxTimer);admxTimer=setTimeout(()=>loadAdmxResults(e.target.value),250)};

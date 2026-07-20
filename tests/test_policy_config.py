@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from gpo_studio.admx import EnumItem, PolicyDefinition, PolicyElement
@@ -305,10 +307,24 @@ def test_multiple_elements() -> None:
 
 
 def test_setting_id_is_deterministic() -> None:
+    # Side precedes the element so every id a policy owns shares one prefix,
+    # which is what lets Not Configured find and remove them.
     policy = _policy((_element("boolean", "Enabled", value_name="Enabled"),))
     config = PolicyConfiguration(side="computer", values={"Enabled": True})
     settings = resolve_policy(policy, config)
-    assert settings[0].id == "admx-TestPolicy-Enabled-computer"
+    assert settings[0].id == "admx-TestPolicy-computer-Enabled"
+
+
+def test_setting_ids_are_namespace_qualified() -> None:
+    # Two vendors' identically named policies must not derive colliding setting
+    # ids, or configuring both in one GPO silently overwrites one with the other.
+    vendor_a = replace(_policy((_element(),)), namespace="Synthetic.Policies.VendorA")
+    vendor_b = replace(_policy((_element(),)), namespace="Synthetic.Policies.VendorB")
+    config = PolicyConfiguration(side="computer", values={"Enabled": True})
+    id_a = resolve_policy(vendor_a, config)[0].id
+    id_b = resolve_policy(vendor_b, config)[0].id
+    assert id_a != id_b
+    assert id_a.startswith("admx-Synthetic.Policies.VendorA:TestPolicy-computer-")
 
 
 def test_empty_elements_returns_empty_list() -> None:
@@ -340,8 +356,8 @@ def test_both_class_ids_include_side() -> None:
     settings_c = resolve_policy(policy, config_c)
     settings_u = resolve_policy(policy, config_u)
     assert settings_c[0].id != settings_u[0].id
-    assert settings_c[0].id == "admx-TestPolicy-Enabled-computer"
-    assert settings_u[0].id == "admx-TestPolicy-Enabled-user"
+    assert settings_c[0].id == "admx-TestPolicy-computer-Enabled"
+    assert settings_u[0].id == "admx-TestPolicy-user-Enabled"
 
 
 def test_enum_decimal_items_produce_dword() -> None:
