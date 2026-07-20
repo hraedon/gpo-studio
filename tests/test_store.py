@@ -1884,3 +1884,105 @@ def test_reorder_gpp_rejects_kind_before_mutation(tmp_path: Path) -> None:
         )
 
     mutate.assert_not_called()
+
+
+def _setting(setting_id: str, value_name: str, value: int = 1) -> RegistrySetting:
+    return RegistrySetting(
+        id=setting_id,
+        side="computer",
+        hive="HKLM",
+        key=r"Software\Policies\Synthetic",
+        value_name=value_name,
+        registry_type="REG_DWORD",
+        value=value,
+    )
+
+
+def test_replace_settings_with_prefix_swaps_only_the_prefixed_settings(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Prefix", identity="alice", reason="draft")
+    gpo = store.put_settings(
+        gpo.guid,
+        gpo.revision,
+        [_setting("admx-P-computer-a", "A"), _setting("other-1", "Keep")],
+        identity="alice",
+        reason="seed",
+    )
+    gpo = store.replace_settings_with_prefix(
+        gpo.guid,
+        gpo.revision,
+        "admx-P-computer-",
+        [_setting("admx-P-computer-b", "B")],
+        identity="alice",
+        reason="swap",
+    )
+    assert {s.value_name for s in gpo.settings} == {"B", "Keep"}
+
+
+def test_replace_settings_with_prefix_empty_list_removes_and_is_not_a_no_op(
+    tmp_path,
+) -> None:
+    # put_settings treats an empty list as a no-op; this method must not, or
+    # "set the policy to Not Configured" silently leaves it configured.
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Prefix", identity="alice", reason="draft")
+    gpo = store.put_settings(
+        gpo.guid,
+        gpo.revision,
+        [_setting("admx-P-computer-a", "A"), _setting("other-1", "Keep")],
+        identity="alice",
+        reason="seed",
+    )
+    gpo = store.replace_settings_with_prefix(
+        gpo.guid, gpo.revision, "admx-P-computer-", [], identity="alice", reason="clear"
+    )
+    assert [s.value_name for s in gpo.settings] == ["Keep"]
+
+
+def test_replace_settings_with_prefix_records_a_revision_when_nothing_matched(
+    tmp_path,
+) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Prefix", identity="alice", reason="draft")
+    before = gpo.revision
+    gpo = store.replace_settings_with_prefix(
+        gpo.guid, before, "admx-absent-", [], identity="alice", reason="clear"
+    )
+    assert gpo.revision > before
+
+
+def test_replace_settings_with_prefix_rejects_ids_outside_the_prefix(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Prefix", identity="alice", reason="draft")
+    with pytest.raises(ValueError):
+        store.replace_settings_with_prefix(
+            gpo.guid,
+            gpo.revision,
+            "admx-P-computer-",
+            [_setting("elsewhere-1", "A")],
+            identity="alice",
+            reason="bad",
+        )
+
+
+def test_replace_settings_with_prefix_rejects_empty_prefix(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Prefix", identity="alice", reason="draft")
+    with pytest.raises(ValueError):
+        store.replace_settings_with_prefix(
+            gpo.guid, gpo.revision, "", [], identity="alice", reason="bad"
+        )
+
+
+def test_replace_settings_with_prefix_honours_optimistic_concurrency(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    gpo = store.create_gpo("Prefix", identity="alice", reason="draft")
+    with pytest.raises(ConflictError):
+        store.replace_settings_with_prefix(
+            gpo.guid,
+            gpo.revision + 5,
+            "admx-P-computer-",
+            [],
+            identity="alice",
+            reason="stale",
+        )
