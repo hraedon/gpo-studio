@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A second synthetic vendor that reuses the policy name "SharedPolicyName" under
+  a different target namespace, writing a DIFFERENT registry key. This collision
+  is ordinary in a real central store: policy names are unique per namespace, not
+  per store. It is the fixture behind the ambiguity contract in find_policy().
+-->
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="vendorb" namespace="Synthetic.Policies.VendorB" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="VendorBRoot" displayName="$(string.VendorBRoot)" />
+  </categories>
+  <supportedOn>
+    <definition name="SUPPORTED_VendorB_v1" displayName="$(string.SUPPORTED_VendorB_v1)" />
+  </supportedOn>
+  <policies>
+    <policy name="SharedPolicyName" class="User"
+            displayName="$(string.SharedPolicyName)"
+            explainText="$(string.SharedPolicyName_Explain)"
+            key="Software\Policies\SyntheticVendorB\Feature"
+            valueName="FeatureState"
+            presentation="$(presentation.SharedPolicyName)">
+      <parentCategory ref="VendorBRoot" />
+      <supportedOn ref="SUPPORTED_VendorB_v1" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="VendorBOnlyPolicy" class="Machine"
+            displayName="$(string.VendorBOnlyPolicy)"
+            explainText="$(string.VendorBOnlyPolicy_Explain)"
+            key="Software\Policies\SyntheticVendorB\Unique"
+            valueName="UniqueState"
+            presentation="$(presentation.VendorBOnlyPolicy)">
+      <parentCategory ref="VendorBRoot" />
+      <supportedOn ref="SUPPORTED_VendorB_v1" />
+    </policy>
+  </policies>
+</policyDefinitions>
