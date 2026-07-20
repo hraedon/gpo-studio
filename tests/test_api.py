@@ -446,6 +446,69 @@ def test_admx_policy_detail(tmp_path, monkeypatch) -> None:
         assert not_found.status_code == 404
 
 
+def _setup_real_shape_admx_env(tmp_path, monkeypatch):
+    """Point the app at the real-shaped fixtures, which collide on policy name."""
+    fixtures = Path(__file__).parent / "fixtures" / "admx_real_shape"
+    monkeypatch.setenv("GPO_STUDIO_ADMX_DIR", str(fixtures))
+    if hasattr(app.state, "admx_catalogue"):
+        del app.state.admx_catalogue
+    app.state.store = WorkspaceStore(tmp_path / "api.db")
+    app.state.owns_store = False
+
+
+def test_admx_search_exposes_qualified_id(tmp_path, monkeypatch) -> None:
+    _setup_real_shape_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        data = client.get("/api/admx/search?q=SharedPolicyName").json()
+        qualified = {p["qualified_id"] for p in data["items"]}
+        assert qualified == {
+            "Synthetic.Policies.VendorA:SharedPolicyName",
+            "Synthetic.Policies.VendorB:SharedPolicyName",
+        }
+
+
+def test_admx_detail_by_qualified_id(tmp_path, monkeypatch) -> None:
+    _setup_real_shape_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        resp = client.get(
+            "/api/admx/policies/Synthetic.Policies.VendorA%3ASharedPolicyName"
+        )
+        assert resp.status_code == 200
+        policy = resp.json()
+        assert policy["namespace"] == "Synthetic.Policies.VendorA"
+        assert policy["key"] == "Software\\Policies\\SyntheticVendorA\\Feature"
+        # Presentation comes from the ADML presentationTable, not inline ADMX.
+        assert [p["kind"] for p in policy["presentation"]] == [
+            "checkbox",
+            "decimal",
+            "text",
+            "list",
+        ]
+
+
+def test_admx_detail_ambiguous_name_is_409_not_arbitrary(
+    tmp_path, monkeypatch
+) -> None:
+    _setup_real_shape_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        resp = client.get("/api/admx/policies/SharedPolicyName")
+        assert resp.status_code == 409
+        error = resp.json()["error"]
+        assert error["code"] == "ambiguous_policy"
+        assert error["candidates"] == [
+            "Synthetic.Policies.VendorA:SharedPolicyName",
+            "Synthetic.Policies.VendorB:SharedPolicyName",
+        ]
+
+
+def test_admx_detail_unambiguous_bare_name_still_works(tmp_path, monkeypatch) -> None:
+    _setup_real_shape_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        resp = client.get("/api/admx/policies/VendorBOnlyPolicy")
+        assert resp.status_code == 200
+        assert resp.json()["namespace"] == "Synthetic.Policies.VendorB"
+
+
 def test_admx_categories(tmp_path, monkeypatch) -> None:
     _setup_admx_env(tmp_path, monkeypatch)
     with TestClient(app) as client:

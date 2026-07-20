@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Synthetic Vendor B administrative templates</displayName>
+  <description>Synthetic fixture for cross-namespace policy name collision.</description>
+  <resources>
+    <stringTable>
+      <string id="VendorBRoot">Synthetic Vendor B</string>
+      <string id="SUPPORTED_VendorB_v1">Synthetic Vendor B version 1 and later</string>
+      <string id="SharedPolicyName">Configure the synthetic feature (Vendor B)</string>
+      <string id="SharedPolicyName_Explain">Controls the synthetic feature for Vendor B.</string>
+      <string id="VendorBOnlyPolicy">Configure the unique Vendor B policy</string>
+      <string id="VendorBOnlyPolicy_Explain">A policy whose name appears in only one namespace.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="SharedPolicyName" />
+      <presentation id="VendorBOnlyPolicy" />
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>
