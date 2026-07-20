@@ -89,7 +89,7 @@ def powershell_plan(gpo: GPO) -> str:
                 f" -Key {_ps_quote(key)} -ValueName {_ps_quote(setting.value_name)}"
                 " -ErrorAction SilentlyContinue"
             )
-        else:
+        elif setting.action == "set":
             type_map = {
                 "REG_SZ": "String",
                 "REG_EXPAND_SZ": "ExpandString",
@@ -104,6 +104,8 @@ def powershell_plan(gpo: GPO) -> str:
                 f" -Type {type_map[setting.registry_type]}"
                 f" -Value {_ps_value(setting)}"
             )
+        else:
+            assert_never(setting.action)
     if gpo.links:
         lines.extend(["", "# Link intent (New-GPLink updates an existing link when present)."])
     for link in gpo.links:

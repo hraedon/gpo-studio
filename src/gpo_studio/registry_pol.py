@@ -114,6 +114,11 @@ def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
         value_name = record.value_name
         registry_type = record.registry_type
         value = record.value
+        # ``record.action`` is a runtime str here, not a closed Literal: serialize
+        # also accepts PolRecord, the loosely-typed parse output for arbitrary
+        # PReg (import_export validates and narrows it at the trust boundary). A
+        # non-"delete" action is therefore treated as a plain set by design, so
+        # there is no assert_never to add — the dispatch is over an open string.
         if record.action == "delete":
             value_name = f"**del.{value_name}"
             registry_type = "REG_SZ"

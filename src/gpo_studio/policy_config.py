@@ -168,7 +168,11 @@ def _policy_value_write(
         )
     if value.kind == "string":
         return value.registry_type, value.data, "set"
-    return value.registry_type, int(value.data), "set"
+    match value.kind:
+        case "decimal" | "longDecimal":
+            return value.registry_type, int(value.data), "set"
+        case _:
+            assert_never(value.kind)
 
 
 def _resolve_enabled(
