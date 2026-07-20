@@ -24,7 +24,14 @@ from starlette.responses import Response as StarletteResponse
 from starlette.types import Scope
 
 from . import __version__
-from .admx import AdmxCatalogue, AdmxError, load_catalogue
+from .admx import (
+    AdmxCatalogue,
+    AdmxError,
+    AmbiguousPolicyError,
+    PolicyDefinition,
+    find_policy,
+    load_catalogue,
+)
 from .backup import BackupError, read_backup
 from .canonical import policy_semantic_sha256, review_model_sha256
 from .diff import diff_gpos, three_way_diff
@@ -884,6 +891,18 @@ def _catalogue(request: Request) -> AdmxCatalogue:
     return cast(AdmxCatalogue, getattr(request.app.state, "admx_catalogue", AdmxCatalogue()))
 
 
+def _resolve_policy(request: Request, policy_id: str) -> PolicyDefinition:
+    """Look up a policy by qualified id or bare name, 404 when absent.
+
+    An ambiguous bare name propagates as :class:`AmbiguousPolicyError` and is
+    answered 409 by its handler — never resolved to an arbitrary candidate.
+    """
+    policy = find_policy(_catalogue(request), policy_id)
+    if policy is None:
+        raise NotFoundError(f"Policy '{policy_id}' not found")
+    return policy
+
+
 def _wmi_catalogue(request: Request) -> WmiCatalogue:
     return cast(WmiCatalogue, getattr(request.app.state, "wmi_catalogue", WmiCatalogue()))
 
@@ -1467,6 +1486,24 @@ async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
     return JSONResponse({"error": detail}, status_code=status)
 
 
+@app.exception_handler(AmbiguousPolicyError)
+async def ambiguous_policy(
+    _request: Request, error: AmbiguousPolicyError
+) -> JSONResponse:
+    """409: the caller must qualify the policy name with its namespace."""
+    return JSONResponse(
+        {
+            "error": {
+                "message": str(error),
+                "code": "ambiguous_policy",
+                "policy_id": error.policy_id,
+                "candidates": list(error.candidates),
+            }
+        },
+        status_code=409,
+    )
+
+
 def _json_safe_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
     try:
         safe = json.loads(json.dumps(ctx, default=str))
@@ -1561,6 +1598,7 @@ def admx_search(request: Request, q: str = "") -> dict[str, Any]:
             or query in p.explain_text.lower()
             or query in p.parent_category.lower()
             or query in p.key.lower()
+            or query in p.namespace.lower()
         ]
     else:
         policies = list(catalogue.policies)
@@ -1568,6 +1606,10 @@ def admx_search(request: Request, q: str = "") -> dict[str, Any]:
     items = [
         {
             "id": p.id,
+            # Clients must address policies by qualified_id: `id` alone is not
+            # unique across a multi-namespace central store.
+            "qualified_id": p.qualified_id,
+            "namespace": p.namespace,
             "class_": p.class_,
             "key": p.key,
             "display_name": p.display_name,
@@ -1582,25 +1624,17 @@ def admx_search(request: Request, q: str = "") -> dict[str, Any]:
 
 @app.get("/api/admx/policies/{policy_id}")
 def admx_policy_detail(request: Request, policy_id: str) -> dict[str, Any]:
-    catalogue = _catalogue(request)
-    for policy in catalogue.policies:
-        if policy.id == policy_id:
-            return asdict(policy)
-    raise NotFoundError(f"Policy '{policy_id}' not found")
+    policy = _resolve_policy(request, policy_id)
+    payload = asdict(policy)
+    payload["qualified_id"] = policy.qualified_id
+    return payload
 
 
 @app.post("/api/admx/policies/{policy_id}/configure")
 def configure_policy(
     request: Request, policy_id: str, body: ConfigurePolicyRequest
 ) -> dict[str, Any]:
-    catalogue = _catalogue(request)
-    policy = None
-    for p in catalogue.policies:
-        if p.id == policy_id:
-            policy = p
-            break
-    if policy is None:
-        raise NotFoundError(f"Policy '{policy_id}' not found")
+    policy = _resolve_policy(request, policy_id)
     config = PolicyConfiguration(side=body.side, values=body.values)
     settings = resolve_policy(policy, config)
     issues: list[ValidationIssue] = []

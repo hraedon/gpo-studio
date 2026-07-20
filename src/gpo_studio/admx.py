@@ -37,6 +37,18 @@ class SupportedOnDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class NamespaceDeclaration:
+    """One ``<target>``/``<using>`` entry from ``<policyNamespaces>``.
+
+    ``prefix`` is the document-local alias; ``namespace`` is the globally unique
+    URI-like identifier that gives a policy its cross-file identity.
+    """
+
+    prefix: str
+    namespace: str
+
+
+@dataclass(frozen=True, slots=True)
 class Category:
     id: str
     parent_id: str
@@ -53,6 +65,18 @@ class EnumItem:
 
 @dataclass(frozen=True, slots=True)
 class PolicyElement:
+    """One ``<elements>`` child of a policy.
+
+    ``attributes`` holds every XML attribute on the source element, sorted, for
+    EVERY kind — not just ``unknown``. ADMX carries element semantics in
+    attributes this model does not (yet) promote to typed fields:
+    ``valuePrefix``/``explicitValue``/``additive`` on ``<list>``, ``expandable``/
+    ``maxLength``/``required`` on ``<text>``, ``minValue``/``maxValue``/
+    ``storeAsText`` on ``<decimal>``. Dropping them silently loses authoring
+    semantics, so they are preserved verbatim and a consumer that needs one can
+    read it without a parser change (WP-1 "no silent loss").
+    """
+
     kind: Literal["boolean", "decimal", "text", "enum", "list", "multitext", "unknown"]
     id: str
     registry_key: str = ""
@@ -130,6 +154,22 @@ class PolicyDefinition:
     disabled_value: PolicyValue | None = None
     enabled_list: PolicyValueList | None = None
     disabled_list: PolicyValueList | None = None
+    # The declaring file's target namespace (``<policyNamespaces><target>``).
+    # Empty only when the ADMX omits the declaration. Policy ``name`` is unique
+    # within a namespace but NOT across a central store — Microsoft and vendor
+    # files reuse names freely — so identity is (namespace, name, class).
+    namespace: str = ""
+    # The ADML presentation this policy references (``presentation="$(presentation.X)"``).
+    presentation_ref: str = ""
+
+    @property
+    def qualified_id(self) -> str:
+        """Cross-file identity: ``namespace:name``, or bare ``name`` if undeclared.
+
+        Use this, not ``id``, whenever policies from more than one ADMX file
+        share a lookup space.
+        """
+        return f"{self.namespace}:{self.id}" if self.namespace else self.id
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +177,11 @@ class AdmxCatalogue:
     policies: tuple[PolicyDefinition, ...] = field(default_factory=tuple)
     categories: tuple[Category, ...] = field(default_factory=tuple)
     supported_on: tuple[SupportedOnDefinition, ...] = field(default_factory=tuple)
+    # Namespaces declared by the ADMX files that built this catalogue: the
+    # ``<target>`` each file defines, and the ``<using>`` references it imports.
+    # WP-2 collision detection reads these.
+    target_namespaces: tuple[NamespaceDeclaration, ...] = field(default_factory=tuple)
+    used_namespaces: tuple[NamespaceDeclaration, ...] = field(default_factory=tuple)
 
 
 def _local_name(tag: str) -> str:
@@ -174,6 +219,10 @@ def _resolve_string_ref(ref: str, strings: dict[str, str]) -> str:
 def parse_adml(data: bytes) -> dict[str, str]:
     """Parse ADML XML bytes and return a mapping of string IDs to display text."""
     root = _safe_parse(data)
+    return _parse_string_table(root)
+
+
+def _parse_string_table(root: ET.Element) -> dict[str, str]:
     strings: dict[str, str] = {}
     string_table = root.find("{*}resources/{*}stringTable")
     if string_table is not None:
@@ -183,6 +232,62 @@ def parse_adml(data: bytes) -> dict[str, str]:
             if sid:
                 strings[sid] = text
     return strings
+
+
+def parse_adml_presentations(data: bytes) -> dict[str, ET.Element]:
+    """Parse the ADML ``<presentationTable>``, keyed by presentation ``id``.
+
+    This is where the controls for a policy actually live in real ADMX/ADML
+    pairs: the ADMX ``<policy>`` carries only a
+    ``presentation="$(presentation.Foo)"`` reference, and the ``<checkBox>``/
+    ``<decimalTextBox>``/... elements sit in the ADML under that id. An inline
+    ``<presentation>`` child of ``<policy>`` is not valid ADMX and does not
+    occur in shipped Windows or vendor files.
+    """
+    root = _safe_parse(data)
+    return _parse_presentation_table(root)
+
+
+def _parse_presentation_table(root: ET.Element) -> dict[str, ET.Element]:
+    table: dict[str, ET.Element] = {}
+    container = root.find("{*}resources/{*}presentationTable")
+    if container is None:
+        return table
+    for pres_elem in container:
+        if _local_name(pres_elem.tag) != "presentation":
+            continue
+        pres_id = pres_elem.get("id", "")
+        if pres_id:
+            table[pres_id] = pres_elem
+    return table
+
+
+def _presentation_ref_id(ref: str) -> str:
+    """Extract ``Foo`` from ``$(presentation.Foo)``; pass anything else through."""
+    if ref.startswith("$(presentation.") and ref.endswith(")"):
+        return ref[len("$(presentation.") : -1]
+    return ref
+
+
+def _parse_policy_namespaces(
+    root: ET.Element,
+) -> tuple[list[NamespaceDeclaration], list[NamespaceDeclaration]]:
+    """Parse ``<policyNamespaces>``. Returns (targets, usings)."""
+    targets: list[NamespaceDeclaration] = []
+    usings: list[NamespaceDeclaration] = []
+    container = root.find("{*}policyNamespaces")
+    if container is None:
+        return targets, usings
+    for child in container:
+        local = _local_name(child.tag)
+        declaration = NamespaceDeclaration(
+            prefix=child.get("prefix", ""), namespace=child.get("namespace", "")
+        )
+        if local == "target":
+            targets.append(declaration)
+        elif local == "using":
+            usings.append(declaration)
+    return targets, usings
 
 
 def _parse_categories(root: ET.Element, strings: dict[str, str]) -> list[Category]:
@@ -333,17 +438,37 @@ def _parse_elements(
                 id=elem_id,
                 registry_key=reg_key,
                 registry_value_name=reg_val,
+                tag_name=local,
+                attributes=tuple(sorted(child.attrib.items())),
                 enum_items=enum_items,
             )
         )
     return tuple(elements)
 
 
+def _resolve_presentation_source(
+    policy_elem: ET.Element, presentations: dict[str, ET.Element]
+) -> ET.Element | None:
+    """Find the element whose children are this policy's controls.
+
+    Prefers the ADML ``<presentationTable>`` entry named by the policy's
+    ``presentation`` attribute — the real-file shape. Falls back to an inline
+    ``<presentation>`` child, which some hand-written and generated ADMX carries
+    even though the schema does not define it; accepting both keeps such files
+    parsing rather than silently yielding a control-less policy.
+    """
+    ref = policy_elem.get("presentation", "")
+    if ref:
+        from_adml = presentations.get(_presentation_ref_id(ref))
+        if from_adml is not None:
+            return from_adml
+    return policy_elem.find("{*}presentation")
+
+
 def _parse_presentation(
-    policy_elem: ET.Element, strings: dict[str, str]
+    pres_elem: ET.Element | None, strings: dict[str, str]
 ) -> tuple[PresentationElement, ...]:
     presentation: list[PresentationElement] = []
-    pres_elem = policy_elem.find("{*}presentation")
     if pres_elem is None:
         return ()
     kind_map: dict[
@@ -363,14 +488,34 @@ def _parse_presentation(
         kind = kind_map.get(local)
         if kind is None:
             continue
-        elem_id = child.get("id", "")
         ref_id = child.get("refId", "")
-        label_key = child.get("label", "")
-        label = _resolve_string_ref(label_key, strings) if label_key else ""
+        # ADML presentation controls carry no ``id``; ``refId`` is what binds a
+        # control to its ``<elements>`` entry, so it doubles as the identity.
+        elem_id = child.get("id", "") or ref_id
         presentation.append(
-            PresentationElement(kind=kind, id=elem_id, label=label, ref_id=ref_id)
+            PresentationElement(
+                kind=kind, id=elem_id, label=_control_label(child, strings), ref_id=ref_id
+            )
         )
     return tuple(presentation)
+
+
+def _control_label(child: ET.Element, strings: dict[str, str]) -> str:
+    """Extract a presentation control's label across the three shapes ADML uses.
+
+    ``checkBox``/``decimalTextBox``/``dropdownList`` carry the label as the
+    element's own text; ``textBox``/``listBox``/``multiTextBox`` wrap it in a
+    ``<label>`` child; inline-ADMX style uses a ``label`` attribute holding a
+    ``$(string.X)`` reference. Reading only the attribute (the previous
+    behaviour) produced empty labels for every control in a real ADML file.
+    """
+    label_key = child.get("label", "")
+    if label_key:
+        return _resolve_string_ref(label_key, strings)
+    label_child = child.find("{*}label")
+    if label_child is not None:
+        return _text_or_empty(label_child)
+    return (child.text or "").strip()
 
 
 _VALUE_TYPE_MAP: dict[
@@ -466,8 +611,13 @@ def _parse_state_list(
 
 
 def _parse_policies(
-    root: ET.Element, strings: dict[str, str]
+    root: ET.Element,
+    strings: dict[str, str],
+    presentations: dict[str, ET.Element] | None = None,
 ) -> list[PolicyDefinition]:
+    presentations = presentations if presentations is not None else {}
+    targets, _ = _parse_policy_namespaces(root)
+    target_namespace = targets[0].namespace if targets else ""
     policies: list[PolicyDefinition] = []
     pol_container = root.find("{*}policies")
     if pol_container is None:
@@ -495,7 +645,9 @@ def _parse_policies(
         explain_text = _resolve_string_ref(explain_ref, strings)
 
         elements = _parse_elements(pol_elem, strings)
-        presentation = _parse_presentation(pol_elem, strings)
+        presentation = _parse_presentation(
+            _resolve_presentation_source(pol_elem, presentations), strings
+        )
 
         policies.append(
             PolicyDefinition(
@@ -513,6 +665,8 @@ def _parse_policies(
                 disabled_value=_parse_state_value(pol_elem, "disabledValue"),
                 enabled_list=_parse_state_list(pol_elem, "enabledList"),
                 disabled_list=_parse_state_list(pol_elem, "disabledList"),
+                namespace=target_namespace,
+                presentation_ref=_presentation_ref_id(pol_elem.get("presentation", "")),
             )
         )
     return policies
@@ -575,17 +729,59 @@ def effective_disabled_value(policy: PolicyDefinition) -> PolicyValue | None:
 
 
 def build_catalogue(admx_data: bytes, adml_data: bytes) -> AdmxCatalogue:
-    """Parse ADMX and ADML together, resolving display names from ADML."""
+    """Parse ADMX and ADML together, resolving display names and presentations."""
     root = _safe_parse(admx_data)
-    strings = parse_adml(adml_data)
+    adml_root = _safe_parse(adml_data)
+    strings = _parse_string_table(adml_root)
+    presentations = _parse_presentation_table(adml_root)
     categories = _parse_categories(root, strings)
     supported_on = _parse_supported_on(root, strings)
-    policies = _parse_policies(root, strings)
+    policies = _parse_policies(root, strings, presentations)
+    targets, usings = _parse_policy_namespaces(root)
     return AdmxCatalogue(
         policies=tuple(policies),
         categories=tuple(categories),
         supported_on=tuple(supported_on),
+        target_namespaces=tuple(targets),
+        used_namespaces=tuple(usings),
     )
+
+
+class AmbiguousPolicyError(AdmxError):
+    """A bare policy name matched more than one namespace.
+
+    Carries the qualified ids so a caller can tell the user which to ask for.
+    """
+
+    def __init__(self, policy_id: str, candidates: tuple[str, ...]) -> None:
+        self.policy_id = policy_id
+        self.candidates = candidates
+        super().__init__(
+            f"Policy name {policy_id!r} is ambiguous across namespaces; "
+            f"qualify it as one of: {', '.join(candidates)}"
+        )
+
+
+def find_policy(
+    catalogue: AdmxCatalogue, policy_id: str
+) -> PolicyDefinition | None:
+    """Resolve a policy by qualified id (``namespace:name``) or bare name.
+
+    A bare name that matches policies in more than one namespace raises
+    :class:`AmbiguousPolicyError` rather than returning an arbitrary one. Across
+    a real central store, name collisions between Microsoft and vendor templates
+    are ordinary, and first-match-wins silently configures the wrong policy.
+    """
+    for policy in catalogue.policies:
+        if policy.qualified_id == policy_id:
+            return policy
+    matches = [p for p in catalogue.policies if p.id == policy_id]
+    if not matches:
+        return None
+    distinct = tuple(sorted({p.qualified_id for p in matches}))
+    if len(distinct) > 1:
+        raise AmbiguousPolicyError(policy_id, distinct)
+    return matches[0]
 
 
 def _find_adml(admx_path: Path) -> Path | None:
@@ -621,6 +817,8 @@ def load_catalogue(directory: Path) -> AdmxCatalogue:
     policies: list[PolicyDefinition] = []
     categories: list[Category] = []
     supported_on: list[SupportedOnDefinition] = []
+    targets: list[NamespaceDeclaration] = []
+    usings: list[NamespaceDeclaration] = []
     for admx_path in sorted(directory.glob("*.admx")):
         adml_path = _find_adml(admx_path)
         if adml_path is None:
@@ -629,8 +827,12 @@ def load_catalogue(directory: Path) -> AdmxCatalogue:
         policies.extend(catalogue.policies)
         categories.extend(catalogue.categories)
         supported_on.extend(catalogue.supported_on)
+        targets.extend(catalogue.target_namespaces)
+        usings.extend(catalogue.used_namespaces)
     return AdmxCatalogue(
         policies=tuple(policies),
         categories=tuple(categories),
         supported_on=tuple(supported_on),
+        target_namespaces=tuple(targets),
+        used_namespaces=tuple(usings),
     )

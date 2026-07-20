@@ -100,12 +100,112 @@ def test_multitext_policy_produces_multi_sz() -> None:
     assert settings[0].value == ["line1", "line2"]
 
 
-def test_list_policy_produces_multi_sz() -> None:
-    policy = _policy((_element("list", "Items", value_name="Items"),))
+def _list_element(id: str = "Items", **attributes: str) -> PolicyElement:
+    return PolicyElement(
+        kind="list",
+        id=id,
+        tag_name="list",
+        attributes=tuple(sorted(attributes.items())),
+    )
+
+
+# An ADMX <list> is "a hive of REG_SZ registry strings", one registry value per
+# item — NOT a single REG_MULTI_SZ (that is multiText). This suite previously
+# asserted the REG_MULTI_SZ shape, which would have produced a Registry.pol that
+# Windows applies differently from what the operator authored.
+
+
+def test_list_policy_writes_one_reg_sz_per_item() -> None:
+    policy = _policy((_list_element(),))
     config = PolicyConfiguration(side="computer", values={"Items": ["a", "b"]})
     settings = resolve_policy(policy, config)
-    assert settings[0].registry_type == "REG_MULTI_SZ"
-    assert settings[0].value == ["a", "b"]
+    assert len(settings) == 2
+    assert [s.registry_type for s in settings] == ["REG_SZ", "REG_SZ"]
+    assert [s.value for s in settings] == ["a", "b"]
+
+
+def test_list_without_value_prefix_names_values_after_the_item() -> None:
+    policy = _policy((_list_element(),))
+    config = PolicyConfiguration(
+        side="computer", values={"Items": ["http://one", "http://two"]}
+    )
+    settings = resolve_policy(policy, config)
+    assert [(s.value_name, s.value) for s in settings] == [
+        ("http://one", "http://one"),
+        ("http://two", "http://two"),
+    ]
+
+
+def test_list_with_value_prefix_names_values_by_index() -> None:
+    policy = _policy((_list_element(valuePrefix="Host"),))
+    config = PolicyConfiguration(side="computer", values={"Items": ["x", "y", "z"]})
+    settings = resolve_policy(policy, config)
+    assert [(s.value_name, s.value) for s in settings] == [
+        ("Host1", "x"),
+        ("Host2", "y"),
+        ("Host3", "z"),
+    ]
+
+
+def test_list_with_empty_value_prefix_still_uses_index_names() -> None:
+    # valuePrefix="" is meaningfully different from an absent attribute: the
+    # DeviceInstall_Classes_Deny_List example stores 1 -> deviceId1, 2 -> deviceId2.
+    policy = _policy((_list_element(valuePrefix=""),))
+    config = PolicyConfiguration(
+        side="computer", values={"Items": ["deviceId1", "deviceId2"]}
+    )
+    settings = resolve_policy(policy, config)
+    assert [(s.value_name, s.value) for s in settings] == [
+        ("1", "deviceId1"),
+        ("2", "deviceId2"),
+    ]
+
+
+def test_list_settings_have_distinct_ids() -> None:
+    policy = _policy((_list_element(valuePrefix="Host"),))
+    config = PolicyConfiguration(side="computer", values={"Items": ["x", "y"]})
+    settings = resolve_policy(policy, config)
+    assert len({s.id for s in settings}) == 2
+
+
+def test_list_uses_element_key_when_present() -> None:
+    element = PolicyElement(
+        kind="list",
+        id="Items",
+        registry_key=r"Software\Policies\Test\Hosts",
+        tag_name="list",
+        attributes=(("valuePrefix", "Host"),),
+    )
+    settings = resolve_policy(
+        _policy((element,)),
+        PolicyConfiguration(side="computer", values={"Items": ["x"]}),
+    )
+    assert settings[0].key == r"Software\Policies\Test\Hosts"
+
+
+def test_empty_list_writes_nothing() -> None:
+    policy = _policy((_list_element(valuePrefix="Host"),))
+    settings = resolve_policy(
+        policy, PolicyConfiguration(side="computer", values={"Items": []})
+    )
+    assert settings == []
+
+
+def test_explicit_value_list_is_refused_not_guessed() -> None:
+    # explicitValue="true" means the operator supplies name/data pairs; emitting
+    # prefix-indexed values instead would be silently wrong registry data.
+    policy = _policy((_list_element(explicitValue="true", valuePrefix="Host"),))
+    config = PolicyConfiguration(side="computer", values={"Items": ["a"]})
+    with pytest.raises(ValidationError) as excinfo:
+        resolve_policy(policy, config)
+    assert excinfo.value.issues[0].code == "unsupported_list_variant"
+
+
+def test_list_rejects_non_list_value() -> None:
+    policy = _policy((_list_element(),))
+    config = PolicyConfiguration(side="computer", values={"Items": "not-a-list"})
+    with pytest.raises(ValidationError):
+        resolve_policy(policy, config)
 
 
 def test_enum_policy_produces_sz() -> None:

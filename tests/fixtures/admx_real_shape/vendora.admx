@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Real-shaped synthetic ADMX (Plan 022 WP-1).
+
+  Unlike tests/fixtures/admx/, this file matches the shape shipped Windows and
+  vendor templates actually use:
+    * the 2006/07 namespace, not the MS-GPREG schema URI
+    * a <policyNamespaces> block with a target and a using
+    * presentation carried ONLY as a presentation="$(presentation.X)" reference;
+      there is NO inline <presentation> child, because that is not valid ADMX
+    * element attributes (valuePrefix, explicitValue, maxLength, ...) that the
+      typed model does not promote to fields and must preserve losslessly
+-->
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="vendora" namespace="Synthetic.Policies.VendorA" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="VendorARoot" displayName="$(string.VendorARoot)" />
+  </categories>
+  <supportedOn>
+    <definition name="SUPPORTED_VendorA_v1" displayName="$(string.SUPPORTED_VendorA_v1)" />
+  </supportedOn>
+  <policies>
+    <policy name="SharedPolicyName" class="Machine"
+            displayName="$(string.SharedPolicyName)"
+            explainText="$(string.SharedPolicyName_Explain)"
+            key="Software\Policies\SyntheticVendorA\Feature"
+            presentation="$(presentation.SharedPolicyName)">
+      <parentCategory ref="VendorARoot" />
+      <supportedOn ref="SUPPORTED_VendorA_v1" />
+      <elements>
+        <boolean id="FeatureEnabled" valueName="FeatureEnabled" />
+        <decimal id="RetryCount" valueName="RetryCount" minValue="1" maxValue="99"
+                 storeAsText="false" />
+        <text id="ServerName" valueName="ServerName" expandable="true" maxLength="255"
+              required="true" />
+        <list id="AllowedHosts" key="Software\Policies\SyntheticVendorA\Feature\Hosts"
+              valuePrefix="Host" explicitValue="false" additive="true" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>
