@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeGuard, assert_never
+from typing import Literal, TypeGuard, assert_never
 
 from .admx import EnumItem, PolicyDefinition, PolicyElement
 from .model import (
@@ -39,21 +39,90 @@ def resolve_policy(
                     )
                 ]
             )
-        reg_type, reg_value = _resolve_value(element, config.values[element.id])
-        settings.append(
-            RegistrySetting(
-                id=f"admx-{policy.id}-{element.id}-{config.side}",
-                side=config.side,
-                hive="HKLM" if config.side == "computer" else "HKCU",
-                key=element.registry_key if element.registry_key else policy.key,
-                value_name=element.registry_value_name,
-                registry_type=reg_type,
-                value=reg_value,
-                action="set",
-                comment="",
-            )
+        key = element.registry_key if element.registry_key else policy.key
+        hive: Literal["HKLM", "HKCU"] = (
+            "HKLM" if config.side == "computer" else "HKCU"
         )
+        for suffix, value_name, reg_type, reg_value in _resolve_writes(
+            element, config.values[element.id]
+        ):
+            settings.append(
+                RegistrySetting(
+                    id=f"admx-{policy.id}-{element.id}{suffix}-{config.side}",
+                    side=config.side,
+                    hive=hive,
+                    key=key,
+                    value_name=value_name,
+                    registry_type=reg_type,
+                    value=reg_value,
+                    action="set",
+                    comment="",
+                )
+            )
     return settings
+
+
+def _resolve_writes(
+    element: PolicyElement, value: bool | int | str | list[str]
+) -> list[tuple[str, str, RegistryType, int | str | list[str]]]:
+    """Registry writes for one element: (id suffix, value name, type, data).
+
+    Every element kind writes exactly one value EXCEPT ``list``, which writes one
+    REG_SZ per item under the element's key — see :func:`_resolve_list_writes`.
+    """
+    if element.kind == "list":
+        if not _is_str_list(value):
+            raise _type_error(element.id, "list", "list[str]")
+        return _resolve_list_writes(element, value)
+    reg_type, reg_value = _resolve_value(element, value)
+    return [("", element.registry_value_name, reg_type, reg_value)]
+
+
+def _resolve_list_writes(
+    element: PolicyElement, items: list[str]
+) -> list[tuple[str, str, RegistryType, int | str | list[str]]]:
+    """Expand an ADMX ``<list>`` into one REG_SZ registry value per item.
+
+    A list is "a hive of REG_SZ registry strings ... each pair is a REG_SZ
+    name/value key" (Understanding ADMX policies, "List Element (and its
+    variations)"). It is never a single REG_MULTI_SZ — that is ``multiText``.
+    Naming follows the two documented examples on that page:
+
+    * ``valuePrefix`` present (including ``valuePrefix=""``) — value names are
+      the prefix followed by a 1-based index, data is the item. The
+      ``DeviceInstall_Classes_Deny_List`` example has ``valuePrefix=""`` and
+      stores ``1 -> deviceId1``, ``2 -> deviceId2``.
+    * ``valuePrefix`` absent — value name and data are both the item itself.
+      The ``SecondaryHomePages`` example stores each URL as its own name/value.
+
+    ``explicitValue="true"`` is refused rather than guessed: it means the
+    operator supplies each name/data pair, which this element's ``list[str]``
+    input cannot express, and writing prefix-indexed values instead would put
+    silently wrong data in Registry.pol. The ADMX schema reference documents
+    these attributes as "TBD", so the semantics above come from the worked
+    examples; see WI-011 for lab confirmation before production reliance, and
+    WI-012 for supporting the explicitValue variant.
+    """
+    attributes = dict(element.attributes)
+    if attributes.get("explicitValue", "false").lower() == "true":
+        raise ValidationError(
+            [
+                ValidationIssue(
+                    "error",
+                    "unsupported_list_variant",
+                    f"Element {element.id!r} declares explicitValue=\"true\", which "
+                    f"requires explicit name/data pairs that this input cannot "
+                    f"express. Configure it as raw registry values instead.",
+                    f"elements/{element.id}",
+                )
+            ]
+        )
+    prefix = attributes.get("valuePrefix")
+    writes: list[tuple[str, str, RegistryType, int | str | list[str]]] = []
+    for index, item in enumerate(items, start=1):
+        value_name = f"{prefix}{index}" if prefix is not None else item
+        writes.append((f"-{index}", value_name, "REG_SZ", item))
+    return writes
 
 
 def _check_side(policy: PolicyDefinition, side: Side) -> None:
@@ -133,9 +202,9 @@ def _resolve_value(
             raise _type_error(element.id, "multitext", "list[str]")
         return "REG_MULTI_SZ", value
     if element.kind == "list":
-        if not _is_str_list(value):
-            raise _type_error(element.id, "list", "list[str]")
-        return "REG_MULTI_SZ", value
+        # Lists never reach here: _resolve_writes expands them into one REG_SZ
+        # per item before this single-value path is consulted.
+        raise _type_error(element.id, "list", "list[str] via _resolve_list_writes")
     if element.kind == "enum":
         if not isinstance(value, str):
             raise _type_error(element.id, "enum", "str")

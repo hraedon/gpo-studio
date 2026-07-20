@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Real-shaped synthetic ADML: the presentation controls live HERE, in a
+  <presentationTable>, not inside the ADMX policy. Labels appear in all three
+  shapes real ADML uses: element text (checkBox, decimalTextBox, dropdownList),
+  a <label> child (textBox, listBox), and defaults alongside them.
+-->
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Synthetic Vendor A administrative templates</displayName>
+  <description>Synthetic fixture for real-shaped ADMX/ADML parsing.</description>
+  <resources>
+    <stringTable>
+      <string id="VendorARoot">Synthetic Vendor A</string>
+      <string id="SUPPORTED_VendorA_v1">Synthetic Vendor A version 1 and later</string>
+      <string id="SharedPolicyName">Configure the synthetic feature</string>
+      <string id="SharedPolicyName_Explain">Controls the synthetic feature for Vendor A.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="SharedPolicyName">
+        <checkBox refId="FeatureEnabled" defaultChecked="true">Enable the synthetic feature</checkBox>
+        <decimalTextBox refId="RetryCount" defaultValue="3">Retry count</decimalTextBox>
+        <textBox refId="ServerName">
+          <label>Server name</label>
+          <defaultValue>synthetic-host</defaultValue>
+        </textBox>
+        <listBox refId="AllowedHosts">Allowed hosts</listBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>
