@@ -64,6 +64,52 @@ _ADML_MINIMAL = b"""<?xml version="1.0" encoding="utf-8"?>
   </resources>
 </policyDefinitionResources>"""
 
+# A policy carrying BOTH a policy-level valueName (with explicit enabled/disabled
+# values) and a child element, so state transitions have something to write and
+# something to clean up. _ADMX_MINIMAL's policies have no valueName at all.
+_ADMX_STATEFUL = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="stateful" namespace="Synthetic.Policies.Stateful" />
+  </policyNamespaces>
+  <categories>
+    <category name="StatefulCategory" displayName="$(string.StatefulCategory)" />
+  </categories>
+  <supportedOn>
+    <definition name="Supported_Stateful" displayName="$(string.Supported_Stateful)" />
+  </supportedOn>
+  <policies>
+    <policy name="StatefulPolicy" class="Machine" key="Software\\Policies\\Stateful"
+            displayName="$(string.StatefulPolicy)" explainText="$(string.StatefulPolicy)"
+            valueName="FeatureState" presentation="$(presentation.StatefulPolicy)">
+      <parentCategory ref="StatefulCategory" />
+      <supportedOn ref="Supported_Stateful" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+      <elements>
+        <boolean id="SubOption" valueName="SubOption" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>"""
+
+_ADML_STATEFUL = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <resources>
+    <stringTable>
+      <string id="StatefulCategory">Stateful Category</string>
+      <string id="Supported_Stateful">Synthetic OS Support</string>
+      <string id="StatefulPolicy">Stateful Policy</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="StatefulPolicy">
+        <checkBox refId="SubOption">Sub option</checkBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>"""
+
+
 def test_full_api_authoring_flow(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
@@ -507,6 +553,150 @@ def test_admx_detail_unambiguous_bare_name_still_works(tmp_path, monkeypatch) ->
         resp = client.get("/api/admx/policies/VendorBOnlyPolicy")
         assert resp.status_code == 200
         assert resp.json()["namespace"] == "Synthetic.Policies.VendorB"
+
+
+def _setup_stateful_admx_env(tmp_path, monkeypatch):
+    admx_dir = tmp_path / "stateful"
+    admx_dir.mkdir()
+    (admx_dir / "stateful.admx").write_bytes(_ADMX_STATEFUL)
+    (admx_dir / "stateful.adml").write_bytes(_ADML_STATEFUL)
+    monkeypatch.setenv("GPO_STUDIO_ADMX_DIR", str(admx_dir))
+    if hasattr(app.state, "admx_catalogue"):
+        del app.state.admx_catalogue
+    app.state.store = WorkspaceStore(tmp_path / "api.db")
+    app.state.owns_store = False
+
+
+_STATEFUL_ID = "Synthetic.Policies.Stateful%3AStatefulPolicy"
+
+
+def _configure(client, gpo, *, state: str, values: dict | None = None):
+    return client.post(
+        f"/api/admx/policies/{_STATEFUL_ID}/configure",
+        json={
+            "gpo_guid": gpo["guid"],
+            "side": "computer",
+            "values": values or {},
+            "state": state,
+            "expected_revision": gpo["revision"],
+            "actor": "tester",
+            "reason": f"Set {state}",
+        },
+    )
+
+
+def test_configure_policy_enabled_writes_state_and_element(
+    tmp_path, monkeypatch
+) -> None:
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        resp = _configure(client, gpo, state="enabled", values={"SubOption": True})
+        assert resp.status_code == 200
+        settings = resp.json()["gpo"]["settings"]
+        assert {s["value_name"] for s in settings} == {"FeatureState", "SubOption"}
+
+
+def test_configure_policy_disabled_writes_the_disabled_value(
+    tmp_path, monkeypatch
+) -> None:
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        settings = _configure(client, gpo, state="disabled").json()["gpo"]["settings"]
+        assert len(settings) == 1
+        assert settings[0]["value_name"] == "FeatureState"
+        assert settings[0]["value"] == "0"
+
+
+def test_enabled_to_disabled_drops_the_element_settings(tmp_path, monkeypatch) -> None:
+    # The transition regression: put_settings upserts by id, so without a
+    # prefix-scoped replace the Enabled element value would survive alongside
+    # the Disabled state value and both would land in Registry.pol.
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        gpo = _configure(client, gpo, state="enabled", values={"SubOption": True}).json()["gpo"]
+        assert len(gpo["settings"]) == 2
+        settings = _configure(client, gpo, state="disabled").json()["gpo"]["settings"]
+        assert [s["value_name"] for s in settings] == ["FeatureState"]
+        assert settings[0]["value"] == "0"
+
+
+def test_not_configured_removes_the_settings_rather_than_no_op(
+    tmp_path, monkeypatch
+) -> None:
+    # An empty settings list through put_settings is a silent no-op, which would
+    # report success while leaving the policy configured.
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        gpo = _configure(client, gpo, state="enabled", values={"SubOption": True}).json()["gpo"]
+        assert gpo["settings"]
+        resp = _configure(client, gpo, state="not_configured")
+        assert resp.status_code == 200
+        assert resp.json()["gpo"]["settings"] == []
+
+
+def test_not_configured_leaves_other_policies_alone(tmp_path, monkeypatch) -> None:
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        gpo = _configure(client, gpo, state="enabled", values={"SubOption": True}).json()["gpo"]
+        # An unrelated hand-authored setting must survive the removal.
+        gpo = client.put(
+            f"/api/gpos/{gpo['guid']}/settings/unrelated",
+            json={
+                "setting": {
+                    "side": "computer",
+                    "hive": "HKLM",
+                    "key": r"Software\Policies\Other",
+                    "value_name": "Keep",
+                    "registry_type": "REG_DWORD",
+                    "value": "7",
+                },
+                "expected_revision": gpo["revision"],
+            },
+        ).json()["gpo"]
+        settings = _configure(client, gpo, state="not_configured").json()["gpo"]["settings"]
+        assert [s["value_name"] for s in settings] == ["Keep"]
+
+
+def test_element_values_with_disabled_state_are_rejected(tmp_path, monkeypatch) -> None:
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        resp = _configure(client, gpo, state="disabled", values={"SubOption": True})
+        assert resp.status_code == 422
+        assert "SubOption" in resp.json()["error"]["issues"][0]["message"]
+
+
+def test_unknown_state_is_rejected(tmp_path, monkeypatch) -> None:
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        assert _configure(client, gpo, state="sideways").status_code == 422
+
+
+def test_state_defaults_to_enabled_for_existing_clients(tmp_path, monkeypatch) -> None:
+    # Clients written before the state field must keep working unchanged.
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
+        resp = client.post(
+            f"/api/admx/policies/{_STATEFUL_ID}/configure",
+            json={
+                "gpo_guid": gpo["guid"],
+                "side": "computer",
+                "values": {"SubOption": True},
+                "expected_revision": gpo["revision"],
+            },
+        )
+        assert resp.status_code == 200
+        assert {s["value_name"] for s in resp.json()["gpo"]["settings"]} == {
+            "FeatureState",
+            "SubOption",
+        }
 
 
 def test_admx_categories(tmp_path, monkeypatch) -> None:

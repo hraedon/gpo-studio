@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeGuard, assert_never
 
-from .admx import EnumItem, PolicyDefinition, PolicyElement
+from .admx import (
+    EnumItem,
+    PolicyDefinition,
+    PolicyElement,
+    PolicyValue,
+    PolicyValueList,
+    effective_disabled_value,
+    effective_enabled_value,
+)
 from .model import (
     RegistrySetting,
     RegistryType,
@@ -15,18 +23,162 @@ from .model import (
 )
 from .numeric import coerce_dword_qword
 
+# The three states GPMC exposes for an Administrative Template policy. These are
+# NOT interchangeable with "has settings / has no settings": Disabled is an
+# active authoring decision that writes its own registry values (often a 0 or a
+# **del.), whereas Not Configured leaves the policy out of Registry.pol entirely
+# so a lower-precedence GPO can still win.
+PolicyState = Literal["enabled", "disabled", "not_configured"]
+
 
 @dataclass(frozen=True, slots=True)
 class PolicyConfiguration:
     side: Side
     values: dict[str, bool | int | str | list[str]]
+    state: PolicyState = "enabled"
+
+
+def policy_setting_prefix(policy: PolicyDefinition, side: Side) -> str:
+    """The setting-id prefix owned by one policy on one side.
+
+    Built from ``qualified_id``, not the bare name: two vendors' identically
+    named policies configured in the same GPO would otherwise derive the same
+    setting ids and silently overwrite each other in the store.
+    """
+    return f"admx-{policy.qualified_id}-{side}-"
 
 
 def resolve_policy(
     policy: PolicyDefinition, config: PolicyConfiguration
 ) -> list[RegistrySetting]:
+    """Registry settings this policy writes in the configured state.
+
+    Not Configured resolves to NO settings by design — the policy must be absent
+    from Registry.pol so a lower-precedence GPO can still apply. Callers must
+    therefore also REMOVE the policy's existing settings (see
+    :func:`policy_setting_prefix`); writing an empty list through
+    ``put_settings`` alone is a silent no-op that leaves the old state in place.
+    """
     _check_side(policy, config.side)
+    match config.state:
+        case "enabled":
+            return _resolve_enabled(policy, config)
+        case "disabled":
+            return _resolve_disabled(policy, config)
+        case "not_configured":
+            _reject_element_values(policy, config, "not_configured")
+            return []
+        case _:
+            assert_never(config.state)
+
+
+def _hive_for(side: Side) -> Literal["HKLM", "HKCU"]:
+    return "HKLM" if side == "computer" else "HKCU"
+
+
+def _reject_element_values(
+    policy: PolicyDefinition, config: PolicyConfiguration, state: str
+) -> None:
+    """Refuse element values in a state that cannot write them.
+
+    GPMC greys out the options panel for Disabled and Not Configured. Silently
+    dropping supplied values would let an operator believe an element value took
+    effect when nothing was written for it.
+    """
+    supplied = sorted(set(config.values) & {e.id for e in policy.elements})
+    if supplied:
+        raise ValidationError(
+            [
+                ValidationIssue(
+                    "error",
+                    "element_values_in_non_enabled_state",
+                    f"Policy {policy.id!r} is {state}; element values "
+                    f"{', '.join(repr(item) for item in supplied)} would not be "
+                    f"written. Set the policy to enabled to configure elements.",
+                    "state",
+                )
+            ]
+        )
+
+
+def _state_settings(
+    policy: PolicyDefinition,
+    config: PolicyConfiguration,
+    value: PolicyValue | None,
+    value_list: PolicyValueList | None,
+) -> list[RegistrySetting]:
+    """The policy-LEVEL writes for a state: its own value plus its value list."""
     settings: list[RegistrySetting] = []
+    prefix = policy_setting_prefix(policy, config.side)
+    hive = _hive_for(config.side)
+    if value is not None and policy.value_name:
+        registry_type, data, action = _policy_value_write(value)
+        settings.append(
+            RegistrySetting(
+                id=f"{prefix}state",
+                side=config.side,
+                hive=hive,
+                key=policy.key,
+                value_name=policy.value_name,
+                registry_type=registry_type,
+                value=data,
+                action=action,
+                comment="",
+            )
+        )
+    if value_list is not None:
+        for index, item in enumerate(value_list.items, start=1):
+            registry_type, data, action = _policy_value_write(item.value)
+            settings.append(
+                RegistrySetting(
+                    id=f"{prefix}listitem-{index}",
+                    side=config.side,
+                    hive=hive,
+                    key=item.key or value_list.default_key or policy.key,
+                    value_name=item.value_name,
+                    registry_type=registry_type,
+                    value=data,
+                    action=action,
+                    comment="",
+                )
+            )
+    return settings
+
+
+def _policy_value_write(
+    value: PolicyValue,
+) -> tuple[RegistryType, int | str, Literal["set", "delete"]]:
+    """Map an ADMX ``Value`` onto a registry write.
+
+    The ``delete`` form removes the value rather than writing one; it becomes a
+    ``**del.`` record in Registry.pol via the ``delete`` action.
+    """
+    if value.kind == "delete":
+        return "REG_SZ", "", "delete"
+    if value.registry_type is None:
+        raise ValidationError(
+            [
+                ValidationIssue(
+                    "error",
+                    "invalid_policy_value",
+                    f"ADMX value of kind {value.kind!r} carries no registry type.",
+                    "state",
+                )
+            ]
+        )
+    if value.kind == "string":
+        return value.registry_type, value.data, "set"
+    return value.registry_type, int(value.data), "set"
+
+
+def _resolve_enabled(
+    policy: PolicyDefinition, config: PolicyConfiguration
+) -> list[RegistrySetting]:
+    settings = _state_settings(
+        policy, config, effective_enabled_value(policy), policy.enabled_list
+    )
+    prefix = policy_setting_prefix(policy, config.side)
+    hive = _hive_for(config.side)
     for element in policy.elements:
         if element.id not in config.values:
             raise ValidationError(
@@ -40,15 +192,12 @@ def resolve_policy(
                 ]
             )
         key = element.registry_key if element.registry_key else policy.key
-        hive: Literal["HKLM", "HKCU"] = (
-            "HKLM" if config.side == "computer" else "HKCU"
-        )
         for suffix, value_name, reg_type, reg_value in _resolve_writes(
             element, config.values[element.id]
         ):
             settings.append(
                 RegistrySetting(
-                    id=f"admx-{policy.id}-{element.id}{suffix}-{config.side}",
+                    id=f"{prefix}{element.id}{suffix}",
                     side=config.side,
                     hive=hive,
                     key=key,
@@ -60,6 +209,15 @@ def resolve_policy(
                 )
             )
     return settings
+
+
+def _resolve_disabled(
+    policy: PolicyDefinition, config: PolicyConfiguration
+) -> list[RegistrySetting]:
+    _reject_element_values(policy, config, "disabled")
+    return _state_settings(
+        policy, config, effective_disabled_value(policy), policy.disabled_list
+    )
 
 
 def _resolve_writes(
