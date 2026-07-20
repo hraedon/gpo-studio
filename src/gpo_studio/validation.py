@@ -180,6 +180,10 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                             f"{path}/value",
                         )
                     )
+    elif setting.action == "delete":
+        pass
+    else:
+        assert_never(setting.action)
     return issues
 
 
