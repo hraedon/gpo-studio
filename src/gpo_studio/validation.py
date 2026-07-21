@@ -607,15 +607,6 @@ def validate_gpp_group(group: GppGroup, path: str) -> list[ValidationIssue]:
                     sid_path,
                 )
             )
-        if _has_xml_unsafe_text(group.sid):
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "invalid_gpp_group_sid",
-                    "GPP group SID contains control characters.",
-                    sid_path,
-                )
-            )
         if len(group.sid) > 255:
             issues.append(
                 ValidationIssue(

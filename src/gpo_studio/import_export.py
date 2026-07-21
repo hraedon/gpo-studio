@@ -52,7 +52,11 @@ def extract_settings(pol_path: Path, side: Side) -> list[RegistrySetting]:
     settings: list[RegistrySetting] = []
     for i, record in enumerate(records):
         key = record.key
-        for prefix in ("HKLM\\", "HKCU\\", "HKLM/", "HKCU/"):
+        for prefix in (
+            "HKLM\\", "HKCU\\", "HKLM/", "HKCU/",
+            "HKEY_LOCAL_MACHINE\\", "HKEY_CURRENT_USER\\",
+            "HKEY_LOCAL_MACHINE/", "HKEY_CURRENT_USER/",
+        ):
             if key.casefold().startswith(prefix.casefold()):
                 key = key[len(prefix):]
                 break

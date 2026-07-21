@@ -288,7 +288,9 @@ class WorkspaceStore:
         return self._degraded
 
     def _require_healthy(self) -> None:
-        """Raise WorkspaceError if the store is in degraded mode."""
+        """Raise WorkspaceError if the store is closed or degraded."""
+        if self._connection is None:
+            raise WorkspaceError("Workspace is closed.")
         if self._degraded:
             raise WorkspaceError(
                 "Workspace is degraded due to corruption — "

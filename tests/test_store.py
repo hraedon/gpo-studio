@@ -1986,3 +1986,11 @@ def test_replace_settings_with_prefix_honours_optimistic_concurrency(tmp_path) -
             identity="alice",
             reason="stale",
         )
+
+
+def test_operations_after_close_raise_workspace_error(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    store.create_gpo("Test", identity="alice", reason="draft")
+    store.close()
+    with pytest.raises(WorkspaceError, match="closed"):
+        store.list_gpos()

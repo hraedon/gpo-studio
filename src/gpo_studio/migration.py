@@ -125,8 +125,8 @@ def apply_migration(gpo: GPO, table: MigrationTable) -> GPO:
                 new_filters.append(
                     replace(
                         sf,
-                        sid=entry.target_sid,
-                        principal=entry.target_name,
+                        sid=entry.target_sid or sf.sid,
+                        principal=entry.target_name or sf.principal,
                     )
                 )
         else:
