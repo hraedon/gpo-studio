@@ -40,6 +40,7 @@ class TemplateSource:
 class IngestError:
     relative_path: str
     message: str
+    kind: Literal["missing_adml", "parse_error", "io_error"] = "parse_error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,17 +132,36 @@ def detect_central_store(root: Path) -> Path | None:
     return None
 
 
+_MAX_TEMPLATE_FILE_SIZE = 10 * 1024 * 1024
+
+
 def _scan_directory(directory: Path, source_name: str) -> tuple[TemplateFile, ...]:
     files: list[TemplateFile] = []
-    for path in sorted(directory.rglob("*.admx")):
-        data = path.read_bytes()
+    for path in sorted(directory.glob("*.admx")):
+        try:
+            size = path.stat().st_size
+            if size > _MAX_TEMPLATE_FILE_SIZE:
+                continue
+            data = path.read_bytes()
+        except OSError:
+            continue
         files.append(TemplateFile(
             relative_path=str(path.relative_to(directory)),
             sha256=_hash_bytes(data),
             size=len(data),
         ))
-    for path in sorted(directory.rglob("*.adml")):
-        data = path.read_bytes()
+    adml_paths = sorted(directory.glob("*.adml"))
+    for child in sorted(directory.iterdir()) if directory.is_dir() else []:
+        if child.is_dir():
+            adml_paths.extend(sorted(child.glob("*.adml")))
+    for path in adml_paths:
+        try:
+            size = path.stat().st_size
+            if size > _MAX_TEMPLATE_FILE_SIZE:
+                continue
+            data = path.read_bytes()
+        except OSError:
+            continue
         files.append(TemplateFile(
             relative_path=str(path.relative_to(directory)),
             sha256=_hash_bytes(data),
@@ -171,7 +191,7 @@ def ingest_source(
         NamespaceDeclaration,
         PolicyDefinition,
         SupportedOnDefinition,
-        _find_adml,
+        find_adml,
     )
 
     policies: list[PolicyDefinition] = []
@@ -183,16 +203,21 @@ def ingest_source(
 
     for admx_path in sorted(directory.glob("*.admx")):
         rel = str(admx_path.relative_to(directory))
-        adml_path = _find_adml(admx_path)
+        adml_path = find_adml(admx_path)
         if adml_path is None:
-            errors.append(IngestError(relative_path=rel, message="No matching ADML found"))
+            errors.append(IngestError(
+                relative_path=rel, message="No matching ADML found", kind="missing_adml"
+            ))
             continue
         try:
             admx_data = admx_path.read_bytes()
             adml_data = adml_path.read_bytes()
             catalogue = build_catalogue(admx_data, adml_data)
-        except (AdmxError, OSError, ValueError) as exc:
-            errors.append(IngestError(relative_path=rel, message=str(exc)))
+        except (AdmxError, ValueError) as exc:
+            errors.append(IngestError(relative_path=rel, message=str(exc), kind="parse_error"))
+            continue
+        except OSError as exc:
+            errors.append(IngestError(relative_path=rel, message=str(exc), kind="io_error"))
             continue
         policies.extend(catalogue.policies)
         categories.extend(catalogue.categories)
@@ -228,13 +253,18 @@ def detect_collisions(sources: tuple[IngestResult, ...]) -> CollisionReport:
 
         for policy in result.catalogue.policies:
             qid = policy.qualified_id
-            registry_key = policy.key
-            policy_map.setdefault(qid, []).append((src_name, registry_key, _hash_bytes(
-                f"{policy.key}|{policy.value_name}|{policy.namespace}".encode()
+            el_count = len(policy.enabled_list.items) if policy.enabled_list else 0
+            semantic = (
+                f"{policy.key}|{policy.value_name}|{policy.namespace}|"
+                f"{policy.class_}|{policy.enabled_value}|{policy.disabled_value}|"
+                f"{len(policy.elements)}|{el_count}"
+            )
+            policy_map.setdefault(qid, []).append((src_name, "", _hash_bytes(
+                semantic.encode()
             )))
 
         for err in result.errors:
-            if "ADML" in err.message:
+            if err.kind == "missing_adml":
                 missing.append(MissingAdml(admx_path=err.relative_path, source=src_name))
 
     ns_collisions: list[NamespaceCollision] = []
