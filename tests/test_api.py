@@ -2461,3 +2461,62 @@ def test_backup_import_accepts_path_relative_to_configured_inbox(
         )
         assert forked.status_code == 201
         assert forked.json()["gpo"]["status"] == "draft"
+
+
+def test_template_list_empty(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    if hasattr(app.state, "template_sources"):
+        del app.state.template_sources
+    with TestClient(app) as client:
+        resp = client.get("/api/templates")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] >= 0
+
+
+def test_template_ingest_and_list(tmp_path, monkeypatch) -> None:
+    admx_dir = tmp_path / "admx_ingest"
+    admx_dir.mkdir()
+    (admx_dir / "test.admx").write_bytes(_ADMX_MINIMAL)
+    (admx_dir / "test.adml").write_bytes(_ADML_MINIMAL)
+    _setup_admx_env(tmp_path, monkeypatch)
+    if hasattr(app.state, "template_sources"):
+        del app.state.template_sources
+    if hasattr(app.state, "admx_catalogue"):
+        del app.state.admx_catalogue
+    with TestClient(app) as client:
+        resp = client.post("/api/templates/ingest", json={
+            "name": "test-source",
+            "kind": "local",
+            "path": str(admx_dir),
+        })
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["name"] == "test-source"
+        assert data["policy_count"] >= 1
+        listing = client.get("/api/templates")
+        assert listing.status_code == 200
+        assert listing.json()["count"] >= 1
+        names = [s["name"] for s in listing.json()["items"]]
+        assert "test-source" in names
+
+
+def test_template_ingest_bad_path(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        resp = client.post("/api/templates/ingest", json={
+            "name": "bad",
+            "kind": "local",
+            "path": str(tmp_path / "nonexistent"),
+        })
+        assert resp.status_code == 422
+
+
+def test_template_collisions_empty(tmp_path, monkeypatch) -> None:
+    _setup_admx_env(tmp_path, monkeypatch)
+    if hasattr(app.state, "template_sources"):
+        del app.state.template_sources
+    with TestClient(app) as client:
+        resp = client.get("/api/templates/collisions")
+        assert resp.status_code == 200
+        assert resp.json()["has_issues"] is False
