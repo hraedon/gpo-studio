@@ -93,13 +93,19 @@ def _decode_data(registry_type: str, data: bytes) -> str | int | list[str]:
             raise RegistryPolError("REG_QWORD payload is not eight bytes")
         return cast(int, struct.unpack("<Q", data)[0])
     if registry_type == "REG_MULTI_SZ":
-        decoded = data.decode("utf-16le").rstrip("\0")
-        item_count = decoded.count("\0") + 1 if decoded else 0
+        decoded = data.decode("utf-16le")
+        if decoded.endswith("\0\0"):
+            decoded = decoded[:-2]
+        elif decoded.endswith("\0"):
+            decoded = decoded[:-1]
+        if not decoded:
+            return []
+        item_count = decoded.count("\0") + 1
         if item_count > _MAX_MULTI_SZ_ITEMS:
             raise RegistryPolError(
                 f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}"
             )
-        return [item for item in decoded.split("\0") if item]
+        return decoded.split("\0")
     raise RegistryPolError(f"unsupported registry type: {registry_type}")
 
 

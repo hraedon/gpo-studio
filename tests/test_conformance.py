@@ -369,3 +369,22 @@ def test_normalize_gpo_for_backup_roundtrip_excludes_links() -> None:
     assert "links" not in norm
     assert "computer_enabled" not in norm
     assert "user_enabled" not in norm
+
+
+def test_extract_settings_strips_long_form_hive_prefixes(tmp_path: Path) -> None:
+    """HKEY_LOCAL_MACHINE\\ and HKEY_CURRENT_USER\\ prefixes must be stripped."""
+    from gpo_studio.registry_pol import PolRecord
+    from gpo_studio.registry_pol import serialize as serialize_pol
+
+    records = [
+        PolRecord(
+            key="HKEY_LOCAL_MACHINE\\Software\\Policies\\Synthetic",
+            value_name="Val",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+    ]
+    pol_path = tmp_path / "Registry.pol"
+    pol_path.write_bytes(serialize_pol(records))
+    settings = extract_settings(pol_path, "computer")
+    assert settings[0].key == "Software\\Policies\\Synthetic"

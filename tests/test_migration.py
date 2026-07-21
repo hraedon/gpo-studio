@@ -358,3 +358,25 @@ def test_import_backup_with_migration_table(
         assert len(gpo["security_filters"]) == 1
         assert gpo["security_filters"][0]["principal"] == "CONTOSO\\DomainAdmins"
         assert gpo["security_filters"][0]["sid"] == "S-1-5-32-544"
+
+
+def test_partial_migration_entry_preserves_original_fields() -> None:
+    """A migration entry with only target_sid should preserve the original principal."""
+    gpo = GPO(
+        guid="{00000000-0000-0000-0000-000000000001}",
+        name="Test",
+        security_filters=(
+            SecurityFilter(id="sf-1", sid="S-1-5-32-544", principal="BUILTIN\\Administrators"),
+        ),
+    )
+    table = MigrationTable(entries=(
+        MigrationEntry(
+            source_sid="S-1-5-32-544",
+            source_name="BUILTIN\\Administrators",
+            target_sid="S-1-5-21-1-2-3-512",
+            target_name="",
+        ),
+    ))
+    result = apply_migration(gpo, table)
+    assert result.security_filters[0].sid == "S-1-5-21-1-2-3-512"
+    assert result.security_filters[0].principal == "BUILTIN\\Administrators"

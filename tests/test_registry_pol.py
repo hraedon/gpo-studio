@@ -134,3 +134,31 @@ def test_parse_rejects_excessive_multi_sz_items(monkeypatch) -> None:
     data = _HEADER + record_bytes
     with pytest.raises(RegistryPolError, match="item count exceeds"):
         parse(data)
+
+
+def test_multi_sz_round_trip_preserves_empty_strings() -> None:
+    """Empty strings within a REG_MULTI_SZ list must survive round-trip."""
+    rec = setting("Multi", "REG_MULTI_SZ", ["alpha", "", "beta"])
+    data = serialize([rec])
+    records = parse(data)
+    assert records[0].value == ["alpha", "", "beta"]
+
+
+def test_multi_sz_single_empty_string_collapses_to_empty_list() -> None:
+    """REG_MULTI_SZ [""] is indistinguishable from [] at the byte level.
+
+    Both encode to a bare double-null terminator. This is a format
+    limitation, not a codec bug.
+    """
+    rec = setting("Multi", "REG_MULTI_SZ", [""])
+    data = serialize([rec])
+    records = parse(data)
+    assert records[0].value == []
+
+
+def test_multi_sz_empty_list_round_trip() -> None:
+    """An empty REG_MULTI_SZ list must round-trip to an empty list."""
+    rec = setting("Multi", "REG_MULTI_SZ", [])
+    data = serialize([rec])
+    records = parse(data)
+    assert records[0].value == []

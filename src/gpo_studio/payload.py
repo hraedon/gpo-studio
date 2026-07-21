@@ -149,6 +149,10 @@ def validate_job(job: PublisherJob) -> None:
             raise PayloadError("operation_id must be non-empty")
         if not op.reason.strip():
             raise PayloadError("reason must be non-empty")
+        if op.registry_type == "DWord" and not (
+            isinstance(op.value, int) and 0 <= op.value <= 0xFFFFFFFF
+        ):
+            raise PayloadError("DWord values must be integers in the unsigned 32-bit range")
         if op.registry_type == "QWord" and not isinstance(op.value, str):
             raise PayloadError("QWord values must be strings to avoid JSON precision loss")
         if op.registry_type == "MultiString" and not (
