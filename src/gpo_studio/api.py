@@ -1782,8 +1782,13 @@ def build_template_lock(request: Request) -> dict[str, Any]:
     return {"source_hashes": [{"name": n, "sha256": h} for n, h in lock.source_hashes]}
 
 
+class SourceHashEntry(BaseModel):
+    name: str = Field(min_length=1)
+    sha256: str = Field(min_length=64, max_length=64)
+
+
 class ValidateLockRequest(BaseModel):
-    source_hashes: list[dict[str, str]]
+    source_hashes: list[SourceHashEntry]
 
 
 @app.post("/api/templates/lock/validate")
@@ -1792,7 +1797,7 @@ def validate_template_lock(request: Request, body: ValidateLockRequest) -> dict[
 
     sources: list[Any] = getattr(request.app.state, "template_sources", [])
     lock = TemplateLock(
-        source_hashes=tuple((h["name"], h["sha256"]) for h in body.source_hashes)
+        source_hashes=tuple((h.name, h.sha256) for h in body.source_hashes)
     )
     violations = validate_lock(lock, tuple(sources))
     return {"valid": len(violations) == 0, "violations": violations}

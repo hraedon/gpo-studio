@@ -203,7 +203,11 @@ def ingest_source(
 
     for admx_path in sorted(directory.glob("*.admx")):
         rel = str(admx_path.relative_to(directory))
-        adml_path = find_adml(admx_path)
+        try:
+            adml_path = find_adml(admx_path)
+        except OSError as exc:
+            errors.append(IngestError(relative_path=rel, message=str(exc), kind="io_error"))
+            continue
         if adml_path is None:
             errors.append(IngestError(
                 relative_path=rel, message="No matching ADML found", kind="missing_adml"
@@ -239,14 +243,16 @@ def detect_collisions(sources: tuple[IngestResult, ...]) -> CollisionReport:
     """Detect collisions across multiple ingested template sources."""
     namespace_map: dict[str, list[str]] = {}
     file_map: dict[str, list[tuple[str, str]]] = {}
-    policy_map: dict[str, list[tuple[str, str, str]]] = {}
+    policy_map: dict[str, list[tuple[str, str]]] = {}
     missing: list[MissingAdml] = []
 
     for result in sources:
         src_name = result.source.name
 
         for ns_decl in result.catalogue.target_namespaces:
-            namespace_map.setdefault(ns_decl.namespace, []).append(src_name)
+            bucket = namespace_map.setdefault(ns_decl.namespace, [])
+            if src_name not in bucket:
+                bucket.append(src_name)
 
         for tf in result.source.files:
             file_map.setdefault(tf.relative_path, []).append((src_name, tf.sha256))
@@ -254,12 +260,13 @@ def detect_collisions(sources: tuple[IngestResult, ...]) -> CollisionReport:
         for policy in result.catalogue.policies:
             qid = policy.qualified_id
             el_count = len(policy.enabled_list.items) if policy.enabled_list else 0
+            dl_count = len(policy.disabled_list.items) if policy.disabled_list else 0
             semantic = (
                 f"{policy.key}|{policy.value_name}|{policy.namespace}|"
                 f"{policy.class_}|{policy.enabled_value}|{policy.disabled_value}|"
-                f"{len(policy.elements)}|{el_count}"
+                f"{len(policy.elements)}|{el_count}|{dl_count}"
             )
-            policy_map.setdefault(qid, []).append((src_name, "", _hash_bytes(
+            policy_map.setdefault(qid, []).append((src_name, _hash_bytes(
                 semantic.encode()
             )))
 
@@ -270,7 +277,7 @@ def detect_collisions(sources: tuple[IngestResult, ...]) -> CollisionReport:
     ns_collisions: list[NamespaceCollision] = []
     for ns, srcs in sorted(namespace_map.items()):
         if len(srcs) > 1:
-            ns_collisions.append(NamespaceCollision(namespace=ns, sources=tuple(sorted(set(srcs)))))
+            ns_collisions.append(NamespaceCollision(namespace=ns, sources=tuple(sorted(srcs))))
 
     file_collisions: list[FileCollision] = []
     for rel_path, entries in sorted(file_map.items()):
@@ -285,11 +292,11 @@ def detect_collisions(sources: tuple[IngestResult, ...]) -> CollisionReport:
     drift: list[PolicyDrift] = []
     for qid, policy_entries in sorted(policy_map.items()):
         if len(policy_entries) > 1:
-            hashes = {h for _, _, h in policy_entries}
+            hashes = {h for _, h in policy_entries}
             if len(hashes) > 1:
                 drift.append(PolicyDrift(
                     qualified_id=qid,
-                    sources=tuple(sorted(set(s for s, _, _ in policy_entries))),
+                    sources=tuple(sorted(set(s for s, _ in policy_entries))),
                     reason="Registry mapping differs across sources",
                 ))
 
