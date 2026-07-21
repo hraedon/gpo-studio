@@ -784,7 +784,7 @@ def find_policy(
     return matches[0]
 
 
-def _find_adml(admx_path: Path) -> Path | None:
+def find_adml(admx_path: Path) -> Path | None:
     """Locate the ADML resource file for an ADMX, preferring en-US.
 
     Search order (lesson from gpo-lens, which reads real central stores):
@@ -820,7 +820,7 @@ def load_catalogue(directory: Path) -> AdmxCatalogue:
     targets: list[NamespaceDeclaration] = []
     usings: list[NamespaceDeclaration] = []
     for admx_path in sorted(directory.glob("*.admx")):
-        adml_path = _find_adml(admx_path)
+        adml_path = find_adml(admx_path)
         if adml_path is None:
             continue
         catalogue = build_catalogue(admx_path.read_bytes(), adml_path.read_bytes())
