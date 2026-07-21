@@ -1706,7 +1706,14 @@ def list_template_sources(request: Request) -> dict[str, Any]:
 def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
     from .template_store import TemplateError, ingest_source
 
-    directory = Path(body.path)
+    directory = Path(body.path).resolve()
+    template_root = os.getenv("GPO_STUDIO_TEMPLATE_ROOT", "")
+    if template_root:
+        root = Path(template_root).resolve()
+        if not directory.is_relative_to(root):
+            raise StudioError(
+                f"Path escapes template root: {directory}"
+            )
     try:
         result = ingest_source(body.name, body.kind, directory)
     except TemplateError as exc:
@@ -1764,6 +1771,31 @@ def template_collisions(request: Request) -> dict[str, Any]:
             for m in report.missing_adml
         ],
     }
+
+
+@app.post("/api/templates/lock")
+def build_template_lock(request: Request) -> dict[str, Any]:
+    from .template_store import build_lock
+
+    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    lock = build_lock(tuple(sources))
+    return {"source_hashes": [{"name": n, "sha256": h} for n, h in lock.source_hashes]}
+
+
+class ValidateLockRequest(BaseModel):
+    source_hashes: list[dict[str, str]]
+
+
+@app.post("/api/templates/lock/validate")
+def validate_template_lock(request: Request, body: ValidateLockRequest) -> dict[str, Any]:
+    from .template_store import TemplateLock, validate_lock
+
+    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    lock = TemplateLock(
+        source_hashes=tuple((h["name"], h["sha256"]) for h in body.source_hashes)
+    )
+    violations = validate_lock(lock, tuple(sources))
+    return {"valid": len(violations) == 0, "violations": violations}
 
 
 def _merge_template_catalogues(sources: list[Any]) -> AdmxCatalogue:
