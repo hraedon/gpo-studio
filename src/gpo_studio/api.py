@@ -26,11 +26,9 @@ from starlette.types import Scope
 from . import __version__
 from .admx import (
     AdmxCatalogue,
-    AdmxError,
     AmbiguousPolicyError,
     PolicyDefinition,
     find_policy,
-    load_catalogue,
 )
 from .backup import BackupError, read_backup
 from .canonical import policy_semantic_sha256, review_model_sha256
@@ -1414,10 +1412,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "admx_catalogue"):
         admx_dir = os.getenv("GPO_STUDIO_ADMX_DIR", "./admx")
         try:
-            app.state.admx_catalogue = load_catalogue(Path(admx_dir))
-        except AdmxError as error:
+            from .template_store import ingest_source
+
+            result = ingest_source("default", "local", Path(admx_dir))
+            app.state.template_sources = [result]
+            app.state.admx_catalogue = result.catalogue
+        except Exception as error:
             _logger.warning("Failed to load ADMX catalogue: %s", error)
+            app.state.template_sources = []
             app.state.admx_catalogue = AdmxCatalogue()
+    if not hasattr(app.state, "template_sources"):
+        app.state.template_sources = []
     if not hasattr(app.state, "wmi_catalogue"):
         wmi_catalogue_path = os.getenv("GPO_STUDIO_WMI_CATALOGUE", "")
         if wmi_catalogue_path:
@@ -1673,6 +1678,100 @@ def admx_categories(request: Request) -> dict[str, Any]:
         for c in catalogue.categories
     ]
     return {"items": items, "count": len(items)}
+
+
+class IngestTemplateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["local", "central-store", "vendor-pack", "curated"] = "local"
+    path: str = Field(min_length=1)
+
+
+@app.get("/api/templates")
+def list_template_sources(request: Request) -> dict[str, Any]:
+    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    items = []
+    for result in sources:
+        items.append({
+            "name": result.source.name,
+            "kind": result.source.kind,
+            "path": result.source.path,
+            "file_count": len(result.source.files),
+            "policy_count": len(result.catalogue.policies),
+            "error_count": len(result.errors),
+        })
+    return {"items": items, "count": len(items)}
+
+
+@app.post("/api/templates/ingest", status_code=201)
+def ingest_template_source(request: Request, body: IngestTemplateRequest) -> dict[str, Any]:
+    from .template_store import TemplateError, ingest_source
+
+    directory = Path(body.path)
+    try:
+        result = ingest_source(body.name, body.kind, directory)
+    except TemplateError as exc:
+        raise StudioError(str(exc)) from exc
+    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    sources = [s for s in sources if s.source.name != body.name]
+    sources.append(result)
+    request.app.state.template_sources = sources
+    merged = _merge_template_catalogues(sources)
+    request.app.state.admx_catalogue = merged
+    return {
+        "name": result.source.name,
+        "kind": result.source.kind,
+        "path": result.source.path,
+        "file_count": len(result.source.files),
+        "policy_count": len(result.catalogue.policies),
+        "errors": [{"path": e.relative_path, "message": e.message} for e in result.errors],
+    }
+
+
+@app.get("/api/templates/collisions")
+def template_collisions(request: Request) -> dict[str, Any]:
+    from .template_store import detect_collisions
+
+    sources: list[Any] = getattr(request.app.state, "template_sources", [])
+    if not sources:
+        return {
+            "has_issues": False,
+            "namespace_collisions": [],
+            "file_collisions": [],
+            "policy_drift": [],
+            "missing_adml": [],
+        }
+    report = detect_collisions(tuple(sources))
+    return {
+        "has_issues": report.has_issues,
+        "namespace_collisions": [
+            {"namespace": c.namespace, "sources": list(c.sources)}
+            for c in report.namespace_collisions
+        ],
+        "file_collisions": [
+            {
+                "relative_path": c.relative_path,
+                "sources": list(c.sources),
+                "hashes_differ": c.hashes_differ,
+            }
+            for c in report.file_collisions
+        ],
+        "policy_drift": [
+            {"qualified_id": d.qualified_id, "sources": list(d.sources), "reason": d.reason}
+            for d in report.policy_drift
+        ],
+        "missing_adml": [
+            {"admx_path": m.admx_path, "source": m.source}
+            for m in report.missing_adml
+        ],
+    }
+
+
+def _merge_template_catalogues(sources: list[Any]) -> AdmxCatalogue:
+    from .template_store import merge_catalogues
+
+    if not sources:
+        return AdmxCatalogue()
+    return merge_catalogues(tuple(sources))
 
 
 @app.get("/api/gpos")
