@@ -162,3 +162,36 @@ def test_multi_sz_empty_list_round_trip() -> None:
     data = serialize([rec])
     records = parse(data)
     assert records[0].value == []
+
+
+def test_delete_all_values_round_trip() -> None:
+    record = parse(serialize([setting("Ignored", "REG_SZ", "", "delete_all_values")]))[0]
+    assert record.action == "delete_all_values"
+    assert record.value_name == ""
+
+
+def test_delete_all_values_serializes_before_set_records() -> None:
+    dav = setting("Ignored", "REG_SZ", "", "delete_all_values")
+    val = setting("Alpha", "REG_DWORD", 1)
+    records = parse(serialize([val, dav]))
+    assert records[0].action == "delete_all_values"
+    assert records[1].action == "set"
+    assert records[1].value_name == "Alpha"
+
+
+def test_delete_all_values_byte_format() -> None:
+    rec = setting("Ignored", "REG_SZ", "", "delete_all_values")
+    data = serialize([rec])
+    null_utf16 = "\0".encode("utf-16le")
+    sep_utf16 = ";".encode("utf-16le")
+    delvals_name = "**delvals.".encode("utf-16le")
+    assert delvals_name + null_utf16 + sep_utf16 in data
+    assert struct.pack("<I", 1) + sep_utf16 + struct.pack("<I", 0) in data
+
+
+def test_delete_all_values_and_delete_ordering() -> None:
+    dav = setting("Ignored", "REG_SZ", "", "delete_all_values")
+    dele = setting("Old", "REG_SZ", "x", "delete")
+    val = setting("New", "REG_DWORD", 42)
+    records = parse(serialize([val, dele, dav]))
+    assert [r.action for r in records] == ["delete_all_values", "delete", "set"]

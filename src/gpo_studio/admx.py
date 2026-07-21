@@ -693,6 +693,9 @@ def parse_admx(
 # exactly one place.
 _IMPLICIT_ENABLED = PolicyValue(kind="decimal", data="1", registry_type="REG_DWORD")
 _IMPLICIT_DISABLED = PolicyValue(kind="delete", data="", registry_type=None)
+# Lab-verified 2026-07-21 on mvmcitest01 (Windows Server DC) via LGPO 3.0:
+# Enabled writes REG_DWORD 1; Disabled deletes the value (key removed if sole
+# value). See WI-008.
 
 
 def effective_enabled_value(policy: PolicyDefinition) -> PolicyValue | None:
@@ -703,8 +706,10 @@ def effective_enabled_value(policy: PolicyDefinition) -> PolicyValue | None:
     explicit value; otherwise ``None`` (the policy expresses its Enabled state
     only through ``enabled_list`` or child ``elements``). Consumers MUST resolve
     state writes through this function, never by reading ``enabled_value``
-    directly, so the undocumented implicit default (WI-008) is applied in one
-    place and no consumer re-derives it.
+    directly, so the undocumented implicit default is applied in one place and
+    no consumer re-derives it.
+
+    Lab-verified 2026-07-21 on mvmcitest01 via LGPO 3.0 (WI-008).
     """
     if policy.enabled_value is not None:
         return policy.enabled_value
@@ -720,6 +725,9 @@ def effective_disabled_value(policy: PolicyDefinition) -> PolicyValue | None:
     policy, the implicit default is to *delete* the value (not write 0);
     otherwise ``None``. See :func:`effective_enabled_value` for why this is the
     single place the undocumented default is encoded.
+
+    Lab-verified 2026-07-21 on mvmcitest01 via LGPO 3.0 (WI-008): Disabled
+    deletes the value; the key is removed entirely when it was the sole value.
     """
     if policy.disabled_value is not None:
         return policy.disabled_value

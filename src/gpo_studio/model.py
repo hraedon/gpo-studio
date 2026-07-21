@@ -23,7 +23,7 @@ class RegistrySetting:
     value_name: str
     registry_type: RegistryType
     value: str | int | list[str]
-    action: Literal["set", "delete"] = "set"
+    action: Literal["set", "delete", "delete_all_values"] = "set"
     comment: str = ""
 
     def identity(self) -> tuple[str, str, str, str]:
