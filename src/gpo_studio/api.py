@@ -80,6 +80,11 @@ from .policy_config import (
 )
 from .registry_pol import RegistryPolError
 from .report import policy_report
+from .settings_browser import (
+    build_category_tree,
+    build_settings_browser,
+    search_configured_settings,
+)
 from .store import WorkspaceStore, gpo_from_dict
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
@@ -143,7 +148,7 @@ class SettingData(BaseModel):
         "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD"
     ]
     value: str | int | list[str]
-    action: Literal["set", "delete"] = "set"
+    action: Literal["set", "delete", "delete_all_values"] = "set"
     comment: str = Field(default="", max_length=1000)
 
     @model_validator(mode="after")
@@ -1678,6 +1683,85 @@ def admx_categories(request: Request) -> dict[str, Any]:
         for c in catalogue.categories
     ]
     return {"items": items, "count": len(items)}
+
+
+@app.get("/api/admx/categories/tree")
+def admx_category_tree(request: Request) -> dict[str, Any]:
+    from .settings_browser import CategoryNode
+
+    catalogue = _catalogue(request)
+    roots = build_category_tree(catalogue)
+
+    def _node_dict(node: CategoryNode) -> dict[str, Any]:
+        return {
+            "id": node.id,
+            "display_name": node.display_name,
+            "parent_id": node.parent_id,
+            "policy_count": node.policy_count,
+            "children": [_node_dict(c) for c in node.children],
+        }
+
+    return {"items": [_node_dict(r) for r in roots], "count": len(roots)}
+
+
+@app.get("/api/gpos/{guid}/configured-settings")
+def configured_settings(
+    request: Request,
+    guid: str,
+    q: str | None = Query(default=None, max_length=200),
+    state: Literal["enabled", "disabled"] | None = None,
+    category: str | None = Query(default=None, max_length=255),
+    side: Literal["computer", "user"] | None = None,
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+    gpo = _store(request).get_gpo(guid)
+    catalogue = _catalogue(request)
+    result = build_settings_browser(catalogue, gpo.settings)
+    if q or state or category:
+        result = search_configured_settings(result, q, state, category)
+    if side:
+        result = type(result)(
+            resolved=tuple(cs for cs in result.resolved if cs.side == side),
+            unresolved=tuple(
+                u for u in result.unresolved if u.setting.side == side
+            ),
+        )
+    resolved_items = [
+        {
+            "policy_id": cs.policy_id,
+            "display_name": cs.display_name,
+            "explain_text": cs.explain_text,
+            "category_path": cs.category_path,
+            "category_ids": cs.category_ids,
+            "side": cs.side,
+            "state": cs.state,
+            "element_values": cs.element_values,
+            "supported_on": cs.supported_on,
+            "namespace": cs.namespace,
+            "raw_setting_count": len(cs.raw_settings),
+        }
+        for cs in result.resolved[:limit]
+    ]
+    unresolved_items = [
+        {
+            "id": u.setting.id,
+            "side": u.setting.side,
+            "hive": u.setting.hive,
+            "key": u.setting.key,
+            "value_name": u.setting.value_name,
+            "registry_type": u.setting.registry_type,
+            "value": u.setting.value,
+            "action": u.setting.action,
+            "reason": u.reason,
+        }
+        for u in result.unresolved[:limit]
+    ]
+    return {
+        "resolved": resolved_items,
+        "unresolved": unresolved_items,
+        "resolved_count": len(result.resolved),
+        "unresolved_count": len(result.unresolved),
+    }
 
 
 class IngestTemplateRequest(BaseModel):
