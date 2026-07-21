@@ -180,7 +180,7 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
                             f"{path}/value",
                         )
                     )
-    elif setting.action == "delete":
+    elif setting.action == "delete" or setting.action == "delete_all_values":  # noqa: SIM114
         pass
     else:
         assert_never(setting.action)

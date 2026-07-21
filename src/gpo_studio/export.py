@@ -89,6 +89,12 @@ def powershell_plan(gpo: GPO) -> str:
                 f" -Key {_ps_quote(key)} -ValueName {_ps_quote(setting.value_name)}"
                 " -ErrorAction SilentlyContinue"
             )
+        elif setting.action == "delete_all_values":
+            lines.append(
+                "Remove-GPRegistryValue -Guid $gpo.Id"
+                f" -Key {_ps_quote(key)} -ValueName '*'"
+                " -ErrorAction SilentlyContinue"
+            )
         elif setting.action == "set":
             type_map = {
                 "REG_SZ": "String",

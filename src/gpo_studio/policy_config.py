@@ -257,13 +257,15 @@ def _resolve_list_writes(
     * ``valuePrefix`` absent — value name and data are both the item itself.
       The ``SecondaryHomePages`` example stores each URL as its own name/value.
 
+    Lab-verified 2026-07-21 on mvmcitest01 via LGPO 3.0 (WI-011): all three
+    variants (empty prefix, named prefix, no prefix) confirmed.
+
     ``explicitValue="true"`` is refused rather than guessed: it means the
     operator supplies each name/data pair, which this element's ``list[str]``
     input cannot express, and writing prefix-indexed values instead would put
     silently wrong data in Registry.pol. The ADMX schema reference documents
     these attributes as "TBD", so the semantics above come from the worked
-    examples; see WI-011 for lab confirmation before production reliance, and
-    WI-012 for supporting the explicitValue variant.
+    examples; see WI-012 for supporting the explicitValue variant.
     """
     attributes = dict(element.attributes)
     if attributes.get("explicitValue", "false").lower() == "true":

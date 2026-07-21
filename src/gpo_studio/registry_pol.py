@@ -109,30 +109,37 @@ def _decode_data(registry_type: str, data: bytes) -> str | int | list[str]:
     raise RegistryPolError(f"unsupported registry type: {registry_type}")
 
 
+_ACTION_ORDER = {"delete_all_values": 0, "delete": 1, "set": 2}
+
+
 def serialize(records: Iterable[RegistrySetting | PolRecord]) -> bytes:
     """Serialize deterministic PReg bytes sorted by registry identity."""
     ordered = sorted(
         records,
-        key=lambda item: (item.key.casefold(), item.value_name.casefold()),
+        key=lambda item: (
+            item.key.casefold(),
+            _ACTION_ORDER.get(item.action, 2),
+            item.value_name.casefold(),
+        ),
     )
     output = bytearray(_HEADER)
     for record in ordered:
         value_name = record.value_name
         registry_type = record.registry_type
         value = record.value
-        # ``record.action`` is a runtime str here, not a closed Literal: serialize
-        # also accepts PolRecord, the loosely-typed parse output for arbitrary
-        # PReg (import_export validates and narrows it at the trust boundary). A
-        # non-"delete" action is therefore treated as a plain set by design, so
-        # there is no assert_never to add — the dispatch is over an open string.
-        if record.action == "delete":
+        if record.action == "delete_all_values":
+            value_name = "**delvals."
+            registry_type = "REG_SZ"
+            data = b""
+        elif record.action == "delete":
             value_name = f"**del.{value_name}"
             registry_type = "REG_SZ"
-            value = ""
+            data = _encode_data(registry_type, "")
+        else:
+            data = _encode_data(registry_type, value)
         type_code = _TYPE_TO_CODE.get(registry_type)
         if type_code is None:
             raise RegistryPolError(f"unsupported registry type: {registry_type}")
-        data = _encode_data(registry_type, value)
         output.extend(_OPEN)
         output.extend(_text(record.key + "\0"))
         output.extend(_SEP)
@@ -203,7 +210,10 @@ def parse(data: bytes) -> list[PolRecord]:
         if registry_type is None:
             raise RegistryPolError(f"unsupported registry type code: {type_code}")
         action = "set"
-        if value_name.casefold().startswith("**del."):
+        if value_name.casefold() == "**delvals.":
+            value_name = ""
+            action = "delete_all_values"
+        elif value_name.casefold().startswith("**del."):
             value_name = value_name[6:]
             action = "delete"
         try:
