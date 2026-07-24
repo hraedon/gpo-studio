@@ -86,6 +86,7 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
 
 def migrate(conn: sqlite3.Connection) -> None:
     """Run forward-only migrations to bring the workspace up to SCHEMA_VERSION."""
+    conn.execute("PRAGMA busy_timeout = 5000")
     current = get_schema_version(conn)
     if current > SCHEMA_VERSION:
         raise SchemaError(

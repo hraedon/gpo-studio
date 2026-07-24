@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from gpo_studio.gpp import GppCollection, GppGroup
-from gpo_studio.model import GPO, RegistrySetting, SecurityFilter, WmiFilter
+from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
 from gpo_studio.validation import validate_gpo, validate_setting
 
 _GUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -529,6 +529,16 @@ def test_multi_sz_item_count_exceeded_in_setting() -> None:
     )
     issues = validate_setting(s)
     assert any(i.code == "item_count_exceeded" for i in issues)
+
+
+def test_link_target_cn_container_passes_validation() -> None:
+    gpo = _gpo(
+        links=(
+            GPOLink(id="l1", target="CN=Domain Controllers,DC=ad,DC=hraedon,DC=com"),
+        ),
+    )
+    issues = validate_gpo(gpo)
+    assert not any(i.code == "invalid_link_target" for i in issues)
 
 
 def test_multi_sz_item_count_exceeded_in_gpp_registry() -> None:

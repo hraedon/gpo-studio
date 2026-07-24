@@ -894,6 +894,11 @@ class EstateDiffRequest(BaseModel):
     observed_guid: str = Field(min_length=1, max_length=255)
 
 
+class EstateImportRequest(BaseModel):
+    kind: Literal["gpo-lens-estate"]
+    gpos: list[dict[str, Any]]
+
+
 def _store(request: Request) -> WorkspaceStore:
     return cast(WorkspaceStore, request.app.state.store)
 
@@ -1241,6 +1246,11 @@ def _sanitize_log_value(value: str) -> str:
 
 def _sanitize_log_path(value: str) -> str:
     return "".join(c if c.isalnum() or c in "-_/" else "_" for c in value)
+
+
+def _safe_filename(raw: str) -> str:
+    safe = "".join(c for c in raw if c in "0123456789abcdefABCDEF-")
+    return safe if safe else "gpo"
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -2442,7 +2452,8 @@ def bundle(request: Request, guid: str) -> Response:
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    headers = {"Content-Disposition": f'attachment; filename="{gpo.guid}-publication.zip"'}
+    fname = f"{_safe_filename(gpo.guid)}-publication.zip"
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
     return Response(export_bundle(gpo), media_type="application/zip", headers=headers)
 
 
@@ -2458,7 +2469,8 @@ def plan(request: Request, guid: str) -> Response:
 @app.get("/api/gpos/{guid}/report.txt")
 def report(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
-    headers = {"Content-Disposition": f'attachment; filename="{gpo.guid}-report.txt"'}
+    fname = f"{_safe_filename(gpo.guid)}-report.txt"
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
     return Response(
         policy_report(gpo),
         media_type="text/plain; charset=utf-8",
@@ -2616,18 +2628,19 @@ def gpmc_backup(request: Request, guid: str) -> Response:
                 path="cse_metadata",
             )
         ])
-    headers = {"Content-Disposition": f'attachment; filename="{gpo.guid}-gpmc-backup.zip"'}
+    fname = f"{_safe_filename(gpo.guid)}-gpmc-backup.zip"
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
     return Response(gpmc_backup_bundle(gpo), media_type="application/zip", headers=headers)
 
 
 @app.post("/api/estate/import")
 def import_estate(
     request: Request,
-    body: dict[str, Any],
+    body: EstateImportRequest,
     actor: str = Query(default="local-operator", min_length=1, max_length=120),
     reason: str = Query(default="Import gpo-lens estate", min_length=1, max_length=500),
 ) -> dict[str, Any]:
-    gpos = parse_estate(body)
+    gpos = parse_estate(body.model_dump())
     return _store(request).import_baseline_gpos(
         gpos, identity=_identity(actor), reason=reason
     )

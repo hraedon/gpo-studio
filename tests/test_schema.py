@@ -143,6 +143,22 @@ def test_malformed_schema_version_raises_schema_error(tmp_path: Path) -> None:
     conn2.close()
 
 
+def test_migrate_sets_busy_timeout(tmp_path: Path) -> None:
+    db_path = tmp_path / "timeout.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute(
+        "INSERT INTO workspace_meta(key, value) VALUES ('schema_version', ?)",
+        (str(SCHEMA_VERSION),),
+    )
+    conn.commit()
+    migrate(conn)
+    row = conn.execute("PRAGMA busy_timeout").fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] >= 5000
+
+
 def test_migration_is_transactional_on_failure(tmp_path: Path) -> None:
     conn = _seed_v0_database(tmp_path / "failing.db")
 

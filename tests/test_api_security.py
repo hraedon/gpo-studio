@@ -682,6 +682,32 @@ def test_import_error_does_not_expose_policy_values(tmp_path: Path, monkeypatch)
         assert "policy data" in msg.lower()
 
 
+def test_content_disposition_sanitizes_guid(tmp_path: Path) -> None:
+    _setup_store(tmp_path)
+    with TestClient(app) as client:
+        create_resp = client.post(
+            "/api/gpos",
+            json={"name": "Test", "actor": "a", "reason": "b"},
+        )
+        guid = create_resp.json()["gpo"]["guid"]
+        resp = client.get(f"/api/gpos/{guid}/report.txt")
+        assert resp.status_code == 200
+        cd = resp.headers["Content-Disposition"]
+        assert "\r" not in cd
+        assert "\n" not in cd
+        assert '"' not in cd.split("filename=")[1].strip('"').replace(guid, "")
+
+
+def test_safe_filename_strips_injection_chars() -> None:
+    from gpo_studio.api import _safe_filename
+
+    assert _safe_filename("abc123-def") == "abc123-def"
+    assert _safe_filename('evil"\r\nX-Injected: yes') == "e-ecede"
+    assert _safe_filename("{AABB0011-2233}") == "AABB0011-2233"
+    assert _safe_filename("!!!") == "gpo"
+    assert _safe_filename("") == "gpo"
+
+
 @pytest.mark.parametrize(
     "error",
     [

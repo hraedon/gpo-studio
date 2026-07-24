@@ -404,8 +404,6 @@ def test_estate_import_api_invalid_kind(tmp_path) -> None:
     with TestClient(app) as client:
         resp = client.post("/api/estate/import", json={"kind": "wrong", "gpos": []})
         assert resp.status_code == 422
-        issues = resp.json()["error"]["issues"]
-        assert issues[0]["code"] == "invalid_estate_kind"
 
 
 def test_estate_import_api_validation_error(tmp_path) -> None:
@@ -441,6 +439,15 @@ def test_estate_import_api_validation_error(tmp_path) -> None:
         assert resp.status_code == 422
         issues = resp.json()["error"]["issues"]
         assert any(i["code"] == "side_hive_mismatch" for i in issues)
+
+
+def test_estate_import_api_missing_kind_returns_422(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/estate/import", json={"gpos": []})
+        assert resp.status_code == 422
 
 
 def test_fork_api(tmp_path) -> None:
