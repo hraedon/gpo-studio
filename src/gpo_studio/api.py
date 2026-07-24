@@ -876,7 +876,7 @@ class BackupImportRequest(BaseModel):
 class ConfigurePolicyRequest(Audit):
     gpo_guid: str = Field(min_length=1, max_length=255)
     side: Literal["computer", "user"]
-    values: dict[str, bool | int | str | list[str]] = Field(default_factory=dict)
+    values: dict[str, bool | int | str | list[str] | list[list[str]]] = Field(default_factory=dict)
     # Defaults to "enabled" so existing clients keep their behaviour; disabled
     # and not_configured are the states GPMC offers that had no representation.
     state: PolicyState = "enabled"
