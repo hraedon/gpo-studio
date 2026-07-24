@@ -193,14 +193,50 @@ def test_empty_list_writes_nothing() -> None:
     assert settings == []
 
 
-def test_explicit_value_list_is_refused_not_guessed() -> None:
-    # explicitValue="true" means the operator supplies name/data pairs; emitting
-    # prefix-indexed values instead would be silently wrong registry data.
-    policy = _policy((_list_element(explicitValue="true", valuePrefix="Host"),))
-    config = PolicyConfiguration(side="computer", values={"Items": ["a"]})
-    with pytest.raises(ValidationError) as excinfo:
+def test_explicit_value_list_writes_name_data_pairs() -> None:
+    policy = _policy((_list_element(explicitValue="true"),))
+    config = PolicyConfiguration(
+        side="computer", values={"Items": [["name1", "data1"], ["name2", "data2"]]}
+    )
+    settings = resolve_policy(policy, config)
+    assert len(settings) == 2
+    assert [(s.value_name, s.value) for s in settings] == [
+        ("name1", "data1"),
+        ("name2", "data2"),
+    ]
+    assert [s.registry_type for s in settings] == ["REG_SZ", "REG_SZ"]
+
+
+def test_explicit_value_list_rejects_plain_str_list() -> None:
+    policy = _policy((_list_element(explicitValue="true"),))
+    config = PolicyConfiguration(side="computer", values={"Items": ["a", "b"]})
+    with pytest.raises(ValidationError) as exc_info:
         resolve_policy(policy, config)
-    assert excinfo.value.issues[0].code == "unsupported_list_variant"
+    assert exc_info.value.issues[0].code == "type_mismatch"
+
+
+def test_explicit_value_list_rejects_malformed_pairs() -> None:
+    policy = _policy((_list_element(explicitValue="true"),))
+    config_short = PolicyConfiguration(side="computer", values={"Items": [["only-one"]]})
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config_short)
+    assert exc_info.value.issues[0].code == "type_mismatch"
+    config_long = PolicyConfiguration(
+        side="computer", values={"Items": [["a", "b", "c"]]}
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        resolve_policy(policy, config_long)
+    assert exc_info.value.issues[0].code == "type_mismatch"
+
+
+def test_non_explicit_list_still_works() -> None:
+    policy = _policy((_list_element(valuePrefix="Host"),))
+    config = PolicyConfiguration(side="computer", values={"Items": ["x", "y"]})
+    settings = resolve_policy(policy, config)
+    assert [(s.value_name, s.value) for s in settings] == [
+        ("Host1", "x"),
+        ("Host2", "y"),
+    ]
 
 
 def test_list_rejects_non_list_value() -> None:

@@ -34,7 +34,7 @@ PolicyState = Literal["enabled", "disabled", "not_configured"]
 @dataclass(frozen=True, slots=True)
 class PolicyConfiguration:
     side: Side
-    values: dict[str, bool | int | str | list[str]]
+    values: dict[str, bool | int | str | list[str] | list[list[str]]]
     state: PolicyState = "enabled"
 
 
@@ -225,7 +225,7 @@ def _resolve_disabled(
 
 
 def _resolve_writes(
-    element: PolicyElement, value: bool | int | str | list[str]
+    element: PolicyElement, value: bool | int | str | list[str] | list[list[str]]
 ) -> list[tuple[str, str, RegistryType, int | str | list[str]]]:
     """Registry writes for one element: (id suffix, value name, type, data).
 
@@ -233,6 +233,22 @@ def _resolve_writes(
     REG_SZ per item under the element's key — see :func:`_resolve_list_writes`.
     """
     if element.kind == "list":
+        attributes = dict(element.attributes)
+        if attributes.get("explicitValue", "false").lower() == "true":
+            if not _is_pair_list(value):
+                raise ValidationError(
+                    [
+                        ValidationIssue(
+                            "error",
+                            "type_mismatch",
+                            f"Element {element.id!r} of kind 'list' with "
+                            f"explicitValue=\"true\" expects list[list[str]] "
+                            f"where each inner list is a [name, data] pair.",
+                            f"elements/{element.id}",
+                        )
+                    ]
+                )
+            return _resolve_list_writes(element, value)
         if not _is_str_list(value):
             raise _type_error(element.id, "list", "list[str]")
         return _resolve_list_writes(element, value)
@@ -241,7 +257,7 @@ def _resolve_writes(
 
 
 def _resolve_list_writes(
-    element: PolicyElement, items: list[str]
+    element: PolicyElement, items: list[str] | list[list[str]]
 ) -> list[tuple[str, str, RegistryType, int | str | list[str]]]:
     """Expand an ADMX ``<list>`` into one REG_SZ registry value per item.
 
@@ -260,32 +276,43 @@ def _resolve_list_writes(
     Lab-verified 2026-07-21 on mvmcitest01 via LGPO 3.0 (WI-011): all three
     variants (empty prefix, named prefix, no prefix) confirmed.
 
-    ``explicitValue="true"`` is refused rather than guessed: it means the
-    operator supplies each name/data pair, which this element's ``list[str]``
-    input cannot express, and writing prefix-indexed values instead would put
-    silently wrong data in Registry.pol. The ADMX schema reference documents
-    these attributes as "TBD", so the semantics above come from the worked
-    examples; see WI-012 for supporting the explicitValue variant.
+    ``explicitValue="true"`` means the operator supplies each registry value
+    NAME and its DATA as ``[[name, data], ...]`` pairs. Each pair produces a
+    REG_SZ write with the given name and data.
     """
     attributes = dict(element.attributes)
     if attributes.get("explicitValue", "false").lower() == "true":
-        raise ValidationError(
-            [
-                ValidationIssue(
-                    "error",
-                    "unsupported_list_variant",
-                    f"Element {element.id!r} declares explicitValue=\"true\", which "
-                    f"requires explicit name/data pairs that this input cannot "
-                    f"express. Configure it as raw registry values instead.",
-                    f"elements/{element.id}",
-                )
-            ]
-        )
+        return _resolve_explicit_value_list(element, items)
+    if not _is_str_list(items):
+        raise _type_error(element.id, "list", "list[str]")
     prefix = attributes.get("valuePrefix")
     writes: list[tuple[str, str, RegistryType, int | str | list[str]]] = []
     for index, item in enumerate(items, start=1):
         value_name = f"{prefix}{index}" if prefix is not None else item
         writes.append((f"-{index}", value_name, "REG_SZ", item))
+    return writes
+
+
+def _resolve_explicit_value_list(
+    element: PolicyElement, items: list[str] | list[list[str]]
+) -> list[tuple[str, str, RegistryType, int | str | list[str]]]:
+    writes: list[tuple[str, str, RegistryType, int | str | list[str]]] = []
+    for index, pair in enumerate(items, start=1):
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise ValidationError(
+                [
+                    ValidationIssue(
+                        "error",
+                        "malformed_explicit_value_pair",
+                        f"Element {element.id!r} explicitValue pair at index "
+                        f"{index} must be a [name, data] pair with exactly 2 "
+                        f"elements.",
+                        f"elements/{element.id}",
+                    )
+                ]
+            )
+        name, data = pair
+        writes.append((f"-{index}", name, "REG_SZ", data))
     return writes
 
 
@@ -321,7 +348,7 @@ def _check_side(policy: PolicyDefinition, side: Side) -> None:
 
 
 def _resolve_value(
-    element: PolicyElement, value: bool | int | str | list[str]
+    element: PolicyElement, value: bool | int | str | list[str] | list[list[str]]
 ) -> tuple[RegistryType, int | str | list[str]]:
     if element.kind == "boolean":
         if not isinstance(value, bool):
@@ -417,6 +444,16 @@ def _type_error(element_id: str, kind: str, expected: str) -> ValidationError:
 
 def _is_str_list(value: object) -> TypeGuard[list[str]]:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _is_pair_list(value: object) -> TypeGuard[list[list[str]]]:
+    return (
+        isinstance(value, list)
+        and all(
+            isinstance(pair, list) and len(pair) == 2 and all(isinstance(s, str) for s in pair)
+            for pair in value
+        )
+    )
 
 
 def _check_enum_value_range(element_id: str, item: EnumItem) -> None:
