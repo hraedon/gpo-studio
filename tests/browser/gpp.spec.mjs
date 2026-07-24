@@ -141,3 +141,157 @@ test("renders GPP additions in the revision diff", async ({
   await expect(results).toContainText("GPP groups");
   await expect(results).toContainText("DiffAdmins");
 });
+
+test("authors a GPP registry with REG_MULTI_SZ value", async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await seedPolicy(request, testInfo);
+  await openPreferences(page, seeded);
+
+  await page.getByRole("button", { name: "＋ Add registry" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add registry" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Registry key").fill("SOFTWARE\\LabApp\\MultiString");
+
+  const valueRow = dialog.locator("#gpp-values-list .gpp-row");
+  await valueRow.locator('[data-field="name"]').fill("AllowedHosts");
+  await valueRow.locator('[data-field="type"]').selectOption("REG_MULTI_SZ");
+  await valueRow.locator('[data-field="value"]').fill("host-a;host-b;host-c");
+
+  await dialog.getByRole("button", { name: "Save registry" }).click();
+
+  await expect(dialog).toBeHidden();
+  const table = page.locator("#gpp-registry-table");
+  await expect(table).toContainText("SOFTWARE\\LabApp\\MultiString");
+  await expect(table).toContainText("AllowedHosts=host-a;host-b;host-c");
+  await expect(page.getByText("Revision 2", { exact: true })).toBeVisible();
+});
+
+test("authors a GPP group in the user scope", async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await seedPolicy(request, testInfo);
+  await openPreferences(page, seeded);
+
+  await page
+    .locator('.gpp-scope-row .chip[data-gpp-scope="user"]')
+    .click();
+
+  await page.getByRole("button", { name: "＋ Add group" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add group" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Group name").fill("UserScopeAdmins");
+  await dialog.getByLabel("SID", { exact: true }).fill("S-1-5-32-544");
+  await dialog.getByRole("button", { name: "Save group" }).click();
+
+  await expect(dialog).toBeHidden();
+  const table = page.locator("#gpp-groups-table");
+  await expect(table).toContainText("UserScopeAdmins");
+  await expect(page.getByText("Revision 2", { exact: true })).toBeVisible();
+});
+
+test("cancel closes dialog without creating a revision", async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await seedPolicy(request, testInfo);
+  await openPreferences(page, seeded);
+
+  await page.getByRole("button", { name: "＋ Add group" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add group" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Group name").fill("ShouldNotPersist");
+  await dialog.getByLabel("SID", { exact: true }).fill("S-1-5-32-544");
+
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("#gpp-groups-table")).not.toContainText(
+    "ShouldNotPersist",
+  );
+  await expect(page.getByText("Revision 1", { exact: true })).toBeVisible();
+});
+
+test("stale write is rejected with conflict message", async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await seedPolicy(request, testInfo);
+  const guid = seeded.payload.gpo.guid;
+  await openPreferences(page, seeded);
+
+  await page.getByRole("button", { name: "＋ Add group" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add group" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Group name").fill("StaleGroup");
+  await dialog.getByLabel("SID", { exact: true }).fill("S-1-5-32-544");
+
+  const concurrent = await request.patch(`/api/gpos/${guid}`, {
+    data: {
+      expected_revision: 1,
+      actor: "other-session",
+      reason: "Concurrent edit behind the UI",
+      name: seeded.name,
+      description: "Changed concurrently",
+      computer_enabled: true,
+      user_enabled: true,
+      status: "draft",
+    },
+  });
+  expect(concurrent.status()).toBe(200);
+
+  await dialog.getByRole("button", { name: "Save group" }).click();
+
+  const conflict = page.getByRole("dialog", {
+    name: "Review changes before reapplying",
+  });
+  await expect(conflict).toBeVisible();
+  await expect(conflict).toContainText("Your form revision");
+  await expect(conflict).toContainText("Current workspace revision");
+  await expect(conflict).toContainText("Unsaved fields retained");
+});
+
+test("removes a GPP group member", async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await seedPolicy(request, testInfo);
+  await openPreferences(page, seeded);
+
+  await page.getByRole("button", { name: "＋ Add group" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add group" });
+  await dialog.getByLabel("Group name").fill("MemberTestGroup");
+  await dialog.getByLabel("SID", { exact: true }).fill("S-1-5-32-544");
+  await dialog.getByRole("button", { name: "＋ Add member" }).click();
+  await dialog
+    .getByPlaceholder("SID (required)")
+    .fill("S-1-5-21-99-99-99-1001");
+  await dialog.getByPlaceholder("Name", { exact: true }).fill("Temp Member");
+  await dialog.getByRole("button", { name: "Save group" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("#gpp-groups-table")).toContainText("Temp Member");
+
+  await page
+    .locator("#gpp-groups-table")
+    .getByRole("button", { name: "Edit group MemberTestGroup" })
+    .click();
+  const editDialog = page.getByRole("dialog", { name: "Edit group" });
+  await expect(editDialog).toBeVisible();
+
+  await editDialog
+    .locator("#gpp-members-list .gpp-row")
+    .getByRole("button", { name: "Remove member row" })
+    .click();
+  await expect(editDialog.locator("#gpp-members-list .gpp-row")).toHaveCount(
+    0,
+  );
+
+  await editDialog.getByRole("button", { name: "Save group" }).click();
+  await expect(editDialog).toBeHidden();
+  await expect(page.locator("#gpp-groups-table")).not.toContainText(
+    "Temp Member",
+  );
+  await expect(page.getByText("Revision 3", { exact: true })).toBeVisible();
+});
