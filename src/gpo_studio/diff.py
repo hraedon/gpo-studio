@@ -444,12 +444,31 @@ def _reordered_common_identities[IdentityT](
     common_new = [ident for ident in new_identities if ident in old_id_set]
     if common_old == common_new:
         return []
-    old_positions = {ident: idx for idx, ident in enumerate(common_old)}
-    reordered: list[IdentityT] = []
-    for new_idx, ident in enumerate(common_new):
-        if old_positions.get(ident, -1) != new_idx:
-            reordered.append(ident)
-    return reordered
+    lcs = _lcs_set(common_old, common_new)
+    return [ident for ident in common_new if ident not in lcs]
+
+
+def _lcs_set[T](a: list[T], b: list[T]) -> set[T]:
+    n, m = len(a), len(b)
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            if a[i - 1] == b[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1] + 1
+            else:
+                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+    result: set[T] = set()
+    i, j = n, m
+    while i > 0 and j > 0:
+        if a[i - 1] == b[j - 1]:
+            result.add(a[i - 1])
+            i -= 1
+            j -= 1
+        elif dp[i - 1][j] >= dp[i][j - 1]:
+            i -= 1
+        else:
+            j -= 1
+    return result
 
 
 def _diff_wmi_filter(old: WmiFilter | None, new: WmiFilter | None) -> WmiFilterChange | None:
