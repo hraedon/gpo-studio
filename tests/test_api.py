@@ -90,6 +90,14 @@ _ADMX_STATEFUL = b"""<?xml version="1.0" encoding="utf-8"?>
         <boolean id="SubOption" valueName="SubOption" />
       </elements>
     </policy>
+    <policy name="BothClassPolicy" class="Both" key="Software\\Policies\\StatefulBoth"
+            displayName="$(string.BothClassPolicy)" explainText="$(string.BothClassPolicy)"
+            valueName="BothState" presentation="$(presentation.BothClassPolicy)">
+      <parentCategory ref="StatefulCategory" />
+      <supportedOn ref="Supported_Stateful" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
   </policies>
 </policyDefinitions>"""
 
@@ -100,10 +108,13 @@ _ADML_STATEFUL = b"""<?xml version="1.0" encoding="utf-8"?>
       <string id="StatefulCategory">Stateful Category</string>
       <string id="Supported_Stateful">Synthetic OS Support</string>
       <string id="StatefulPolicy">Stateful Policy</string>
+      <string id="BothClassPolicy">Both Class Policy</string>
     </stringTable>
     <presentationTable>
       <presentation id="StatefulPolicy">
         <checkBox refId="SubOption">Sub option</checkBox>
+      </presentation>
+      <presentation id="BothClassPolicy">
       </presentation>
     </presentationTable>
   </resources>
@@ -2791,6 +2802,123 @@ def test_bulk_policy_state(tmp_path, monkeypatch) -> None:
             },
         )
         assert empty.status_code == 422
+        per_policy = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": resp.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "per-policy side",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "policy_sides": {
+                    "Synthetic.Policies.Stateful:StatefulPolicy": "computer"
+                },
+                "target_state": "disabled",
+            },
+        )
+        assert per_policy.status_code == 200
+        inferred = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": per_policy.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "inferred side",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "target_state": "disabled",
+            },
+        )
+        assert inferred.status_code == 200
+
+
+def test_bulk_policy_state_both_class_requires_side(tmp_path, monkeypatch) -> None:
+    # A Both-class policy with neither policy_sides[id] nor body.side must be
+    # rejected with 422 (side_required), never 500. The ADMX parser validates
+    # class_ at parse time, so the assert_never branch in _policy_side stays
+    # dead code; this test exercises the legitimate Both-without-side path.
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Both class bulk"}).json()["gpo"]
+        both_qid = "Synthetic.Policies.Stateful:BothClassPolicy"
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "both without side",
+                "policy_ids": [both_qid],
+                "target_state": "enabled",
+            },
+        )
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert any(i["code"] == "side_required" for i in issues)
+        # The GPO is untouched: no revision bump, no settings written.
+        fresh = client.get(f"/api/gpos/{gpo['guid']}").json()["gpo"]
+        assert fresh["revision"] == gpo["revision"]
+        assert fresh["settings"] == []
+
+
+def test_bulk_policy_state_legacy_side_only_client(tmp_path, monkeypatch) -> None:
+    # Backward compatibility: an old client that sends only ``side`` (no
+    # ``policy_sides`` dict) must keep working — every policy uses that side.
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Legacy side"}).json()["gpo"]
+        gpo = client.post(
+            f"/api/admx/policies/{_STATEFUL_ID}/configure",
+            json={
+                "gpo_guid": gpo["guid"],
+                "side": "computer",
+                "values": {"SubOption": True},
+                "state": "enabled",
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "enable",
+            },
+        ).json()["gpo"]
+        # Legacy request shape: top-level ``side`` only, no ``policy_sides``.
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "legacy bulk disabled",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "side": "computer",
+                "target_state": "disabled",
+            },
+        )
+        assert resp.status_code == 200
+        disabled = resp.json()["gpo"]
+        assert [s["value_name"] for s in disabled["settings"]] == ["FeatureState"]
+        assert disabled["settings"][0]["value"] == "0"
+
+
+def test_bulk_policy_state_rejects_unknown_policy_sides_key(
+    tmp_path, monkeypatch
+) -> None:
+    # policy_sides keys not in policy_ids must be rejected, not silently
+    # ignored — a typo in the key would otherwise leave a Both-class policy
+    # un-sided with no signal.
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Unknown side key"}).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "typo in policy_sides",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "policy_sides": {
+                    "Synthetic.Policies.Stateful:StatefulPolicy": "computer",
+                    "Synthetic.Policies.Stateful:TypoPolicy": "computer",
+                },
+                "target_state": "disabled",
+            },
+        )
+        assert resp.status_code == 422
+        issues = resp.json()["error"]["issues"]
+        assert any(i["code"] == "unknown_policy_side_key" for i in issues)
 
 
 def test_starter_gpo_crud(tmp_path) -> None:

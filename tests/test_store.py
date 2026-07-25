@@ -27,6 +27,7 @@ from gpo_studio.model import (
     WmiFilter,
     WorkspaceError,
 )
+from gpo_studio.schema import SCHEMA_VERSION
 from gpo_studio.store import WorkspaceStore
 
 
@@ -1581,7 +1582,7 @@ def test_workspace_meta_returns_schema_and_app_version(tmp_path: Path) -> None:
     meta = store.workspace_meta()
     assert "schema_version" in meta
     assert "app_version" in meta
-    assert meta["schema_version"] == "1"
+    assert meta["schema_version"] == str(SCHEMA_VERSION)
     store.close()
 
 
@@ -2121,6 +2122,13 @@ def test_delete_starter_gpo(tmp_path: Path) -> None:
     with pytest.raises(NotFoundError):
         store.get_gpo(starter.guid)
     assert store.list_starter_gpos() == []
+    log = store.deletion_log()
+    assert len(log) == 1
+    assert log[0]["guid"] == starter.guid
+    assert log[0]["name"] == "Starter"
+    assert log[0]["actor"] == "alice"
+    assert log[0]["reason"] == "delete starter"
+    assert log[0]["revision"] == starter.revision
     store.close()
 
 
@@ -2131,6 +2139,11 @@ def test_delete_starter_gpo_rejects_regular_gpo(tmp_path: Path) -> None:
         store.delete_starter_gpo(
             regular.guid, regular.revision, identity="alice", reason="delete regular"
         )
+    # The non-starter rejection must happen before the transaction opens, so
+    # no audit row may be left behind in deletion_log.
+    assert store.deletion_log() == []
+    # The regular GPO itself must be untouched.
+    assert store.get_gpo(regular.guid).guid == regular.guid
     store.close()
 
 
@@ -2140,6 +2153,7 @@ def test_delete_starter_gpo_rejects_missing_guid(tmp_path: Path) -> None:
         store.delete_starter_gpo(
             "nonexistent-guid", 1, identity="alice", reason="delete missing"
         )
+    assert store.deletion_log() == []
     store.close()
 
 
@@ -2152,4 +2166,10 @@ def test_delete_starter_gpo_rejects_stale_revision(tmp_path: Path) -> None:
         store.delete_starter_gpo(
             starter.guid, starter.revision + 1, identity="alice", reason="stale"
         )
+    # The stale-revision check runs before the transaction opens, so the audit
+    # insert never executes and deletion_log must stay empty. Locking this in
+    # guards against a refactor that moves the insert ahead of the check.
+    assert store.deletion_log() == []
+    # The starter must still exist and be unchanged.
+    assert store.get_gpo(starter.guid).revision == starter.revision
     store.close()

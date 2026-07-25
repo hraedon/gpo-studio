@@ -19,7 +19,9 @@
     </category>
   </categories>
   <supportedOn>
-    <definition name="SUPPORTED_WU_v10" displayName="$(string.SUPPORTED_WU_v10)" />
+    <definitions>
+      <definition name="SUPPORTED_WU_v10" displayName="$(string.SUPPORTED_WU_v10)" />
+    </definitions>
   </supportedOn>
   <policies>
     <policy name="ConfigureActiveHours" class="Machine"

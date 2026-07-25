@@ -18,7 +18,9 @@
     </category>
   </categories>
   <supportedOn>
-    <definition name="SUPPORTED_UserConfig_v10" displayName="$(string.SUPPORTED_UserConfig_v10)" />
+    <definitions>
+      <definition name="SUPPORTED_UserConfig_v10" displayName="$(string.SUPPORTED_UserConfig_v10)" />
+    </definitions>
   </supportedOn>
   <policies>
     <policy name="SetWallpaper" class="User"

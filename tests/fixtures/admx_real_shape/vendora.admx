@@ -22,7 +22,9 @@
     <category name="VendorARoot" displayName="$(string.VendorARoot)" />
   </categories>
   <supportedOn>
-    <definition name="SUPPORTED_VendorA_v1" displayName="$(string.SUPPORTED_VendorA_v1)" />
+    <definitions>
+      <definition name="SUPPORTED_VendorA_v1" displayName="$(string.SUPPORTED_VendorA_v1)" />
+    </definitions>
   </supportedOn>
   <policies>
     <policy name="SharedPolicyName" class="Machine"

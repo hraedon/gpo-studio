@@ -6,7 +6,7 @@ import contextlib
 import sqlite3
 from typing import Protocol
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 MIN_READ_VERSION = 0
 
 
@@ -64,6 +64,51 @@ def _v0_to_v1(conn: sqlite3.Connection) -> None:
 
 
 _MIGRATIONS[0] = _v0_to_v1
+
+
+def _v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Add deletion_log for GPO removal audit records."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS deletion_log (
+            guid TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            deleted_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+_MIGRATIONS[1] = _v1_to_v2
+
+
+def _v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Add estate_discovery cache table for AD topology snapshots."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estate_discovery (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            key TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            source_dc TEXT,
+            collected_at TEXT,
+            UNIQUE(kind, key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_estate_discovery_kind_key
+            ON estate_discovery(kind, key)
+        """
+    )
+
+
+_MIGRATIONS[2] = _v2_to_v3
 
 
 def get_schema_version(conn: sqlite3.Connection) -> int:

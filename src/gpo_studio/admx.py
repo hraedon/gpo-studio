@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Literal, assert_never, cast
 
 from .model import RegistryType
 from .xml_safety import parse_xml_bounded
+
+_logger = logging.getLogger("gpo_studio.admx")
 
 _MAX_FILE_SIZE = 10 * 1024 * 1024
 _MAX_DEPTH = 100
@@ -182,6 +185,7 @@ class AdmxCatalogue:
     # WP-2 collision detection reads these.
     target_namespaces: tuple[NamespaceDeclaration, ...] = field(default_factory=tuple)
     used_namespaces: tuple[NamespaceDeclaration, ...] = field(default_factory=tuple)
+    load_errors: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _local_name(tag: str) -> str:
@@ -309,6 +313,15 @@ def _parse_categories(root: ET.Element, strings: dict[str, str]) -> list[Categor
     return categories
 
 
+def _add_supported_on(
+    defs: list[SupportedOnDefinition], elem: ET.Element, strings: dict[str, str]
+) -> None:
+    name = elem.get("name", "")
+    display_ref = elem.get("displayName", "")
+    display_name = _resolve_string_ref(display_ref, strings)
+    defs.append(SupportedOnDefinition(name=name, display_name=display_name))
+
+
 def _parse_supported_on(
     root: ET.Element, strings: dict[str, str]
 ) -> list[SupportedOnDefinition]:
@@ -316,13 +329,14 @@ def _parse_supported_on(
     container = root.find("{*}supportedOn")
     if container is None:
         return defs
-    for def_elem in container:
-        if _local_name(def_elem.tag) != "definition":
-            continue
-        name = def_elem.get("name", "")
-        display_ref = def_elem.get("displayName", "")
-        display_name = _resolve_string_ref(display_ref, strings)
-        defs.append(SupportedOnDefinition(name=name, display_name=display_name))
+    for child in container:
+        local = _local_name(child.tag)
+        if local == "definitions":
+            for def_elem in child:
+                if _local_name(def_elem.tag) == "definition":
+                    _add_supported_on(defs, def_elem, strings)
+        elif local == "definition":
+            _add_supported_on(defs, child, strings)
     return defs
 
 
@@ -409,7 +423,7 @@ def _parse_elements(
         "text": "text",
         "enum": "enum",
         "list": "list",
-        "multitext": "multitext",
+        "multiText": "multitext",
     }
     for child in elem_container:
         local = _local_name(child.tag)
@@ -792,6 +806,32 @@ def find_policy(
     return matches[0]
 
 
+def _find_file_case_insensitive(directory: Path, name: str) -> Path | None:
+    exact = directory / name
+    if exact.is_file():
+        return exact
+    if not directory.is_dir():
+        return None
+    target = name.lower()
+    for entry in directory.iterdir():
+        if entry.is_file() and entry.name.lower() == target:
+            return entry
+    return None
+
+
+def _find_dir_case_insensitive(parent: Path, name: str) -> Path | None:
+    exact = parent / name
+    if exact.is_dir():
+        return exact
+    if not parent.is_dir():
+        return None
+    target = name.lower()
+    for entry in parent.iterdir():
+        if entry.is_dir() and entry.name.lower() == target:
+            return entry
+    return None
+
+
 def find_adml(admx_path: Path) -> Path | None:
     """Locate the ADML resource file for an ADMX, preferring en-US.
 
@@ -802,19 +842,31 @@ def find_adml(admx_path: Path) -> Path | None:
     iterated ``iterdir()`` in arbitrary order, so on a multi-locale central
     store it could non-deterministically resolve display names in the wrong
     language.
+
+    On case-sensitive filesystems (Linux), the ADML filename may not match
+    the ADMX stem's case (e.g. ``inetres.admx`` vs ``InetRes.adml``). Each
+    lookup falls back to a case-insensitive directory scan when the exact
+    path does not exist.
     """
-    sibling = admx_path.with_suffix(".adml")
-    if sibling.exists():
-        return sibling
-    stem = admx_path.stem + ".adml"
-    en_us = admx_path.parent / "en-US" / stem
-    if en_us.exists():
-        return en_us
-    for child in sorted(admx_path.parent.iterdir()):
-        if child.is_dir():
-            candidate = child / stem
-            if candidate.exists():
-                return candidate
+    stem_adml = admx_path.stem + ".adml"
+    parent = admx_path.parent
+
+    found = _find_file_case_insensitive(parent, stem_adml)
+    if found is not None:
+        return found
+
+    en_us_dir = _find_dir_case_insensitive(parent, "en-US")
+    if en_us_dir is not None:
+        found = _find_file_case_insensitive(en_us_dir, stem_adml)
+        if found is not None:
+            return found
+
+    for child in sorted(parent.iterdir()):
+        if not child.is_dir():
+            continue
+        found = _find_file_case_insensitive(child, stem_adml)
+        if found is not None:
+            return found
     return None
 
 
@@ -835,7 +887,12 @@ def extract_namespaces(data: bytes) -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 
 def load_catalogue(directory: Path) -> AdmxCatalogue:
-    """Load all ADMX/ADML file pairs from a directory."""
+    """Load all ADMX/ADML file pairs from a directory.
+
+    A single malformed file does not abort the load: the error is recorded in
+    ``AdmxCatalogue.load_errors`` and logged as a warning, and remaining files
+    continue to load.
+    """
     if not directory.is_dir():
         return AdmxCatalogue()
     policies: list[PolicyDefinition] = []
@@ -843,11 +900,21 @@ def load_catalogue(directory: Path) -> AdmxCatalogue:
     supported_on: list[SupportedOnDefinition] = []
     targets: list[NamespaceDeclaration] = []
     usings: list[NamespaceDeclaration] = []
+    errors: list[str] = []
     for admx_path in sorted(directory.glob("*.admx")):
         adml_path = find_adml(admx_path)
         if adml_path is None:
+            errors.append(f"{admx_path.name}: ADML not found")
             continue
-        catalogue = build_catalogue(admx_path.read_bytes(), adml_path.read_bytes())
+        try:
+            catalogue = build_catalogue(
+                admx_path.read_bytes(), adml_path.read_bytes()
+            )
+        except Exception as error:
+            message = f"{admx_path.name}: {error}"
+            errors.append(message)
+            _logger.warning("Skipping ADMX file %s: %s", admx_path.name, error)
+            continue
         policies.extend(catalogue.policies)
         categories.extend(catalogue.categories)
         supported_on.extend(catalogue.supported_on)
@@ -859,4 +926,5 @@ def load_catalogue(directory: Path) -> AdmxCatalogue:
         supported_on=tuple(supported_on),
         target_namespaces=tuple(targets),
         used_namespaces=tuple(usings),
+        load_errors=tuple(errors),
     )
