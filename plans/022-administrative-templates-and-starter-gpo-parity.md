@@ -1,10 +1,11 @@
 # Plan 022 — Administrative Templates and Starter GPO parity
 
-Status: proposed (post-1.0)
+Status: implemented — REVIEW AND REFINE gate passed 2026-07-25 (see
+[`docs/plan-022/gate-decision-2026-07-25.md`](../docs/plan-022/gate-decision-2026-07-25.md)).
 Scope: complete ADMX/ADML semantics, central-store management, classic registry
 policy reporting, and Starter GPO lifecycle
 Depends on: Plan 021 review gate
-Review gate: **REVIEW AND REFINE — REQUIRED after the template corpus tranche**
+Review gate: **REVIEW AND REFINE — PASSED 2026-07-25**
 
 ## WP-1 — Complete ADMX/ADML semantics
 
@@ -66,8 +67,15 @@ Review gate: **REVIEW AND REFINE — REQUIRED after the template corpus tranche*
 - Template upgrades cannot change an existing draft without explicit review.
 - Starter GPO lifecycle and derivation round-trip through GPMC.
 
-## REVIEW AND REFINE — REQUIRED
+## REVIEW AND REFINE — PASSED 2026-07-25
 
 After the first full Microsoft template corpus and at least three vendor packs,
 stop to review parser generality, identity rules, and UI scalability. Refine the
 remaining adapter plans if the corpus exposes new shared value/control types.
+
+**Outcome:** Gate passed. The full 223-file Microsoft Windows Server 2025 corpus
+(3 532 policies) and three vendor packs (Google Chrome, Mozilla Firefox, Adobe
+Reader DC — 1 178 policies) parse with zero errors. Four parser bugs were found
+and fixed. No new shared value/control types were exposed. See
+[`docs/plan-022/gate-decision-2026-07-25.md`](../docs/plan-022/gate-decision-2026-07-25.md)
+for the full decision record.

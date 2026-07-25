@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -16,6 +17,24 @@ _ENTITY_MARKERS = (
 
 def _has_entity_decl(data: bytes) -> bool:
     return any(marker in data for marker in _ENTITY_MARKERS)
+
+
+_ENCODING_ATTR_RE = re.compile(
+    r"\s+encoding\s*=\s*(['\"])[^'\"]*\1", re.IGNORECASE
+)
+
+
+def _normalize_xml_encoding(data: bytes) -> bytes:
+    if data.startswith(b"\xff\xfe"):
+        text = data.decode("utf-16-le")
+    elif data.startswith(b"\xfe\xff"):
+        text = data.decode("utf-16-be")
+    else:
+        return data
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    text = _ENCODING_ATTR_RE.sub("", text, count=1)
+    return text.encode("utf-8")
 
 
 class BoundedTreeBuilder(ET.TreeBuilder):
@@ -108,6 +127,7 @@ def parse_xml_bounded(
     """
     if isinstance(data, str):
         data = data.encode("utf-8")
+    data = _normalize_xml_encoding(data)
     if len(data) > max_size:
         raise error_class(f"XML exceeds {max_size} bytes")
     if _has_entity_decl(data):

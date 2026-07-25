@@ -6,6 +6,7 @@ from gpo_studio.admx import (
     AdmxError,
     EnumItem,
     build_catalogue,
+    find_adml,
     load_catalogue,
     parse_adml,
     parse_admx,
@@ -33,7 +34,7 @@ _ADMX_MINIMAL = b"""<?xml version="1.0" encoding="utf-8"?>
         <text id="Label" key="Software\\Policies\\Synthetic" valueName="Label" />
         <enum id="Mode" key="Software\\Policies\\Synthetic" valueName="Mode" />
         <list id="AllowedList" key="Software\\Policies\\Synthetic" valueName="AllowedList" />
-        <multitext id="MultiLine" key="Software\\Policies\\Synthetic" valueName="MultiLine" />
+        <multiText id="MultiLine" key="Software\\Policies\\Synthetic" valueName="MultiLine" />
       </elements>
       <presentation>
         <checkBox id="Enabled" refId="Enabled" label="$(string.EnableLabel)" />
@@ -119,6 +120,14 @@ def test_parse_all_policy_element_types() -> None:
     assert kinds == {"boolean", "decimal", "text", "enum", "list", "multitext"}
 
 
+def test_multitext_element_capital_t_not_unknown() -> None:
+    cat = build_catalogue(_ADMX_MINIMAL, _ADML_MINIMAL)
+    elements = cat.policies[0].elements
+    multi = [e for e in elements if e.id == "MultiLine"][0]
+    assert multi.kind == "multitext"
+    assert multi.tag_name == "multiText"
+
+
 def test_unknown_element_preserved() -> None:
     admx_with_unknown = _ADMX_MINIMAL.replace(
         b"</elements>",
@@ -158,6 +167,41 @@ def test_supported_on_definitions() -> None:
     assert len(cat.supported_on) == 1
     assert cat.supported_on[0].name == "Supported_Synthetic"
     assert cat.supported_on[0].display_name == "Synthetic OS Support"
+
+
+def test_supported_on_definitions_wrapper() -> None:
+    admx = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_Windows7" displayName="$(string.SUPPORTED_Windows7)" />
+      <definition name="SUPPORTED_Windows8" displayName="$(string.SUPPORTED_Windows8)" />
+    </definitions>
+  </supportedOn>
+  <policies>
+    <policy name="P" class="Machine" key="Software\\Policies\\Synthetic"
+            displayName="$(string.P)" explainText="$(string.P)" supportedOn="SUPPORTED_Windows7"
+            presentation="$(presentation.P)">
+      <supportedOn ref="SUPPORTED_Windows7" />
+      <presentation />
+    </policy>
+  </policies>
+</policyDefinitions>"""
+    adml = b"""<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <resources>
+    <stringTable>
+      <string id="SUPPORTED_Windows7">Windows 7</string>
+      <string id="SUPPORTED_Windows8">Windows 8</string>
+      <string id="P">Synthetic Policy</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>"""
+    cat = build_catalogue(admx, adml)
+    assert len(cat.supported_on) == 2
+    names = {d.name: d.display_name for d in cat.supported_on}
+    assert names["SUPPORTED_Windows7"] == "Windows 7"
+    assert names["SUPPORTED_Windows8"] == "Windows 8"
 
 
 def test_invalid_class_raises_admx_error() -> None:
@@ -258,6 +302,35 @@ def test_load_catalogue_nonexistent_dir(tmp_path) -> None:
     assert cat.policies == ()
     assert cat.categories == ()
     assert cat.supported_on == ()
+
+
+def test_load_catalogue_skips_bad_file_loads_good(tmp_path) -> None:
+    (tmp_path / "good.admx").write_bytes(_ADMX_MINIMAL)
+    (tmp_path / "good.adml").write_bytes(_ADML_MINIMAL)
+    (tmp_path / "bad.admx").write_bytes(b"<not valid xml")
+    (tmp_path / "bad.adml").write_bytes(_ADML_MINIMAL)
+    cat = load_catalogue(tmp_path)
+    assert len(cat.policies) == 2
+    assert cat.policies[0].display_name == "Synthetic Policy"
+    assert len(cat.load_errors) == 1
+    assert "bad.admx" in cat.load_errors[0]
+
+
+def test_find_adml_sibling_case_insensitive(tmp_path) -> None:
+    (tmp_path / "policy.admx").write_bytes(b"<x/>")
+    (tmp_path / "Policy.adml").write_bytes(b"<x/>")
+    result = find_adml(tmp_path / "policy.admx")
+    assert result is not None
+    assert result.name == "Policy.adml"
+
+
+def test_find_adml_locale_dir_case_insensitive(tmp_path) -> None:
+    (tmp_path / "policy.admx").write_bytes(b"<x/>")
+    (tmp_path / "EN-US").mkdir()
+    (tmp_path / "EN-US" / "Policy.adml").write_bytes(b"<x/>")
+    result = find_adml(tmp_path / "policy.admx")
+    assert result is not None
+    assert result.name == "Policy.adml"
 
 
 _ADMX_ENUM = b"""<?xml version="1.0" encoding="utf-8"?>

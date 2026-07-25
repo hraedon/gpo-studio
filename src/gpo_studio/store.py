@@ -395,6 +395,138 @@ class WorkspaceStore:
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
+    DiscoveryKind = Literal[
+        "forest", "domain", "site", "subnet", "ou", "principal", "gpos", "sites"
+    ]
+
+    def cache_discovery(
+        self,
+        kind: DiscoveryKind,
+        key: str,
+        data_json: str,
+        source_dc: str = "",
+        collected_at: str = "",
+    ) -> None:
+        """Cache a read-only AD topology snapshot, replacing any prior entry for kind+key."""
+        with self._lock:
+            self._require_healthy()
+            try:
+                self._connection.execute(
+                    """
+                    INSERT INTO estate_discovery(kind, key, data_json, source_dc, collected_at)
+                    VALUES(?,?,?,?,?)
+                    ON CONFLICT(kind, key) DO UPDATE SET
+                        data_json=excluded.data_json,
+                        source_dc=excluded.source_dc,
+                        collected_at=excluded.collected_at
+                    """,
+                    (kind, key, data_json, source_dc, collected_at),
+                )
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+
+    def get_discovery(self, kind: str, key: str) -> dict[str, Any]:
+        """Return a cached discovery snapshot by kind and key."""
+        with self._lock:
+            self._require_healthy()
+            try:
+                row = self._connection.execute(
+                    "SELECT data_json FROM estate_discovery WHERE kind=? AND key=?",
+                    (kind, key),
+                ).fetchone()
+                if row is None:
+                    raise NotFoundError(
+                        f"{kind} discovery entry {key} was not found"
+                    )
+                return cast(dict[str, Any], json.loads(row["data_json"]))
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+
+    def list_discovery(self, kind: str) -> list[dict[str, Any]]:
+        """Return all cached discovery snapshots of a given kind."""
+        with self._lock:
+            self._require_healthy()
+            try:
+                rows = self._connection.execute(
+                    "SELECT data_json FROM estate_discovery WHERE kind=? ORDER BY key",
+                    (kind,),
+                ).fetchall()
+                return [json.loads(row["data_json"]) for row in rows]
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+
+    def search_principals(self, query: str, domain: str = "") -> list[dict[str, Any]]:
+        """Search cached principals by name, SID, or distinguished name."""
+        with self._lock:
+            self._require_healthy()
+            try:
+                if domain:
+                    rows = self._connection.execute(
+                        """
+                        SELECT data_json FROM estate_discovery
+                        WHERE kind='principal' AND json_extract(data_json, '$.domain') = ?
+                        ORDER BY key
+                        """,
+                        (domain,),
+                    ).fetchall()
+                else:
+                    rows = self._connection.execute(
+                        """
+                        SELECT data_json FROM estate_discovery
+                        WHERE kind='principal'
+                        ORDER BY key
+                        """
+                    ).fetchall()
+            except sqlite3.OperationalError as error:
+                if "no such function: json_extract" in str(error).lower():
+                    rows = self._connection.execute(
+                        "SELECT data_json FROM estate_discovery WHERE kind='principal' ORDER BY key"
+                    ).fetchall()
+                else:
+                    self._map_sqlite_error(error)
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+            query_lower = query.casefold()
+            domain_lower = domain.casefold() if domain else ""
+            results: list[dict[str, Any]] = []
+            for row in rows:
+                data = json.loads(row["data_json"])
+                if (
+                    query_lower in str(data.get("sam_account_name", "")).casefold()
+                    or query_lower in str(data.get("display_name", "")).casefold()
+                    or query_lower in str(data.get("object_sid", "")).casefold()
+                    or query_lower in str(data.get("distinguished_name", "")).casefold()
+                ) and (
+                    not domain_lower
+                    or str(data.get("domain", "")).casefold() == domain_lower
+                ):
+                    results.append(data)
+            return results
+
+    def list_discovery_kinds(self) -> list[str]:
+        """Return the distinct discovery kinds currently cached."""
+        with self._lock:
+            self._require_healthy()
+            try:
+                rows = self._connection.execute(
+                    "SELECT DISTINCT kind FROM estate_discovery ORDER BY kind"
+                ).fetchall()
+                return [row["kind"] for row in rows]
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+
+    def discovery_summary(self) -> dict[str, int]:
+        """Return counts of cached discovery entries by kind."""
+        with self._lock:
+            self._require_healthy()
+            try:
+                rows = self._connection.execute(
+                    "SELECT kind, COUNT(*) AS n FROM estate_discovery GROUP BY kind"
+                ).fetchall()
+                return {str(row["kind"]): int(row["n"]) for row in rows}
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+
     def list_gpos(self) -> list[GPO]:
         with self._lock:
             self._require_healthy()
@@ -584,6 +716,11 @@ class WorkspaceStore:
             try:
                 self._connection.execute("BEGIN IMMEDIATE")
                 self._connection.execute(
+                    """INSERT INTO deletion_log(guid, name, actor, reason, revision, deleted_at)
+                       VALUES(?,?,?,?,?,?)""",
+                    (current.guid, current.name, actor, reason, current.revision, _now()),
+                )
+                self._connection.execute(
                     "DELETE FROM revisions WHERE gpo_guid = ?",
                     (current.guid,),
                 )
@@ -597,7 +734,6 @@ class WorkspaceStore:
                     self._connection.execute("ROLLBACK")
                 self._map_sqlite_error(exc)
                 raise
-            _ = actor
 
     def import_baseline_gpos(
         self,
@@ -1649,3 +1785,15 @@ class WorkspaceStore:
             )
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def deletion_log(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self._require_healthy()
+            try:
+                rows = self._connection.execute(
+                    """SELECT guid, name, actor, reason, revision, deleted_at
+                       FROM deletion_log ORDER BY deleted_at DESC"""
+                ).fetchall()
+                return [dict(row) for row in rows]
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)

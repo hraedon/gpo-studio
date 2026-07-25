@@ -807,6 +807,59 @@ def test_api_configured_settings_filter_by_side(tmp_path, monkeypatch) -> None:
         assert data["resolved"][0]["side"] == "user"
 
 
+def test_api_bulk_policy_state_mixed_sides(tmp_path, monkeypatch) -> None:
+    _setup_browser_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Mixed sides"}).json()["gpo"]
+        comp_qid = f"{_BROWSER_QID}%3AComputerPolicy"
+        user_qid = f"{_BROWSER_QID}%3AUserPolicy"
+        gpo = client.post(
+            f"/api/admx/policies/{comp_qid}/configure",
+            json={
+                "gpo_guid": gpo["guid"],
+                "side": "computer",
+                "values": {"CompOption": True},
+                "state": "enabled",
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "Enable comp",
+            },
+        ).json()["gpo"]
+        gpo = client.post(
+            f"/api/admx/policies/{user_qid}/configure",
+            json={
+                "gpo_guid": gpo["guid"],
+                "side": "user",
+                "values": {},
+                "state": "enabled",
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "Enable user",
+            },
+        ).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "Disable all",
+                "policy_ids": [
+                    f"{_BROWSER_QID}:ComputerPolicy",
+                    f"{_BROWSER_QID}:UserPolicy",
+                ],
+                "policy_sides": {
+                    f"{_BROWSER_QID}:ComputerPolicy": "computer",
+                    f"{_BROWSER_QID}:UserPolicy": "user",
+                },
+                "target_state": "disabled",
+            },
+        )
+        assert resp.status_code == 200
+        disabled = resp.json()["gpo"]
+        assert disabled["revision"] == gpo["revision"] + 1
+        assert all(s["value"] in ("0", 0) for s in disabled["settings"])
+
+
 def test_api_category_tree(tmp_path, monkeypatch) -> None:
     _setup_browser_env(tmp_path, monkeypatch)
     with TestClient(app) as client:

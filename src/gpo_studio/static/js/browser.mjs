@@ -212,28 +212,27 @@ async function applyBulkState(targetState) {
     return;
   }
   const checkboxes = $$(".browser-bulk-checkbox:checked");
-  const bySide = new Map();
+  const policyIds = [];
+  const policySides = {};
   for (const cb of checkboxes) {
-    const side = cb.dataset.bulkSide;
-    if (!bySide.has(side)) bySide.set(side, []);
-    bySide.get(side).push(cb.dataset.bulkPolicyId);
+    const id = cb.dataset.bulkPolicyId;
+    policyIds.push(id);
+    policySides[id] = cb.dataset.bulkSide;
   }
   try {
-    for (const [side, policyIds] of bySide) {
-      const data = await api(
-        `/api/gpos/${state.current.guid}/bulk-policy-state`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            ...audit(reason),
-            policy_ids: policyIds,
-            side,
-            target_state: targetState,
-          }),
-        },
-      );
-      applyPayload(data);
-    }
+    const data = await api(
+      `/api/gpos/${state.current.guid}/bulk-policy-state`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...audit(reason),
+          policy_ids: policyIds,
+          policy_sides: policySides,
+          target_state: targetState,
+        }),
+      },
+    );
+    applyPayload(data);
     selectedPolicyIds.clear();
     $("#browser-bulk-reason").value = "";
     await loadBrowser();

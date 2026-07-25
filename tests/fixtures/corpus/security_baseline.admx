@@ -18,8 +18,10 @@
     </category>
   </categories>
   <supportedOn>
-    <definition name="SUPPORTED_SecBase_v10" displayName="$(string.SUPPORTED_SecBase_v10)" />
-    <definition name="SUPPORTED_SecBase_v11" displayName="$(string.SUPPORTED_SecBase_v11)" />
+    <definitions>
+      <definition name="SUPPORTED_SecBase_v10" displayName="$(string.SUPPORTED_SecBase_v10)" />
+      <definition name="SUPPORTED_SecBase_v11" displayName="$(string.SUPPORTED_SecBase_v11)" />
+    </definitions>
   </supportedOn>
   <policies>
     <policy name="AccountLockoutDuration" class="Machine"

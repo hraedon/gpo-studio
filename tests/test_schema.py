@@ -95,7 +95,7 @@ def test_v1_fixture_preserves_gpo_data(tmp_path: Path) -> None:
     store.close()
 
 
-def test_v1_fixture_already_at_current_version(tmp_path: Path) -> None:
+def test_v1_fixture_migrates_to_current_version(tmp_path: Path) -> None:
     db_path = tmp_path / "current_v1.db"
     db_path.write_bytes(V1_FIXTURE_PATH.read_bytes())
     conn = sqlite3.connect(str(db_path))
@@ -103,8 +103,23 @@ def test_v1_fixture_already_at_current_version(tmp_path: Path) -> None:
     migrate(conn)
     version_after = get_schema_version(conn)
     conn.close()
-    assert version_before == SCHEMA_VERSION
+    assert version_before == 1
     assert version_after == SCHEMA_VERSION
+
+
+def test_v1_to_v2_migration_creates_deletion_log(tmp_path: Path) -> None:
+    db_path = tmp_path / "v1_to_v2.db"
+    db_path.write_bytes(V1_FIXTURE_PATH.read_bytes())
+    conn = sqlite3.connect(str(db_path))
+    migrate(conn)
+    tables = [
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='deletion_log'"
+        ).fetchall()
+    ]
+    conn.close()
+    assert tables == ["deletion_log"]
 
 
 def test_refusing_newer_schema_version(tmp_path: Path) -> None:

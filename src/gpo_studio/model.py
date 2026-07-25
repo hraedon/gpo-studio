@@ -13,6 +13,10 @@ RegistryType = Literal[
     "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD"
 ]
 
+TrustDirection = Literal["inbound", "outbound", "bidirectional", "unknown"]
+TrustType = Literal["parent-child", "cross-link", "external", "forest", "unknown"]
+ResolutionState = Literal["resolved", "ambiguous", "deleted", "inaccessible", "stale"]
+
 
 @dataclass(frozen=True, slots=True)
 class RegistrySetting:
@@ -119,6 +123,97 @@ class Revision:
     reason: str
     created_at: str
     snapshot: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ForestInfo:
+    name: str
+    schema_master: str
+    domain_naming_master: str
+    domains: tuple[str, ...]
+    global_catalogs: tuple[str, ...]
+    trusts: tuple[TrustInfo, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustInfo:
+    source: str
+    target: str
+    direction: TrustDirection
+    trust_type: TrustType
+    transitive: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainInfo:
+    dns_name: str
+    netbios_name: str
+    domain_controllers: tuple[str, ...]
+    pdc_emulator: str
+    rid_master: str
+    infrastructure_master: str
+    functional_level: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SiteInfo:
+    name: str
+    description: str = ""
+    subnets: tuple[str, ...] = field(default_factory=tuple)
+    site_links: tuple[str, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SubnetInfo:
+    cidr: str
+    site_name: str
+    description: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class OrganizationalUnit:
+    distinguished_name: str
+    name: str
+    parent_dn: str = ""
+    description: str = ""
+    gpo_links: tuple[GPOLink, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class PrincipalInfo:
+    object_guid: str
+    object_sid: str
+    object_class: str
+    sid_history: tuple[str, ...] = field(default_factory=tuple)
+    sam_account_name: str = ""
+    display_name: str = ""
+    canonical_name: str = ""
+    distinguished_name: str = ""
+    domain: str = ""
+    source_dc: str = ""
+    collected_at: str = ""
+    resolution_state: ResolutionState = "resolved"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class StudioError(Exception):

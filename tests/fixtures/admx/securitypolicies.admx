@@ -53,7 +53,7 @@
       <supportedOn ref="Supported_SyntheticSecure_v1" />
       <elements>
         <list id="BlockedApps" key="Software\Policies\Synthetic\BlockList" valueName="BlockedApps" />
-        <multitext id="BlockNotes" key="Software\Policies\Synthetic\BlockList" valueName="BlockNotes" />
+        <multiText id="BlockNotes" key="Software\Policies\Synthetic\BlockList" valueName="BlockNotes" />
       </elements>
       <presentation>
         <listBox id="BlockedApps" refId="BlockedApps" label="$(string.BlockedAppsLabel)" />

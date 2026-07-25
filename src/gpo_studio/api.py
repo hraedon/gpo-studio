@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Literal, cast, get_args
+from typing import Any, Literal, assert_never, cast, get_args
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Query, Request
@@ -24,6 +24,20 @@ from starlette.responses import Response as StarletteResponse
 from starlette.types import Scope
 
 from . import __version__
+from .ad_discovery import (
+    discovery_script_domain,
+    discovery_script_forest,
+    discovery_script_gpos,
+    discovery_script_ous,
+    discovery_script_principal_search,
+    discovery_script_sites,
+    parse_domain,
+    parse_forest,
+    parse_gpos_discovery,
+    parse_ous,
+    parse_principals,
+    parse_sites,
+)
 from .adm import parse_adm
 from .admx import (
     AdmxCatalogue,
@@ -87,7 +101,7 @@ from .settings_browser import (
     build_settings_browser,
     search_configured_settings,
 )
-from .store import WorkspaceStore, gpo_from_dict
+from .store import WorkspaceStore, _now, gpo_from_dict
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
 
@@ -858,6 +872,47 @@ class GpoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ConfiguredSettingResponse(BaseModel):
+    policy_id: str
+    display_name: str
+    explain_text: str
+    category_path: list[str]
+    category_ids: list[str]
+    side: str
+    state: str
+    element_values: dict[str, bool | int | str | list[str]]
+    supported_on: str
+    namespace: str
+    raw_setting_count: int
+    ambiguous: bool = False
+    ambiguous_with: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UnresolvedSettingResponse(BaseModel):
+    id: str
+    side: str
+    hive: str
+    key: str
+    value_name: str
+    registry_type: str
+    value: str | int | list[str]
+    action: str
+    reason: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConfiguredSettingsResponse(BaseModel):
+    resolved: list[ConfiguredSettingResponse]
+    unresolved: list[UnresolvedSettingResponse]
+    resolved_count: int
+    unresolved_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class GpoPayloadResponse(BaseModel):
     gpo: GpoResponse
     validation: list[ValidationIssueResponse]
@@ -896,8 +951,9 @@ class ConfigurePolicyRequest(Audit):
 
 class BulkPolicyStateMutation(Audit):
     policy_ids: list[str] = Field(min_length=1, max_length=100)
-    side: Literal["computer", "user"]
+    side: Literal["computer", "user"] | None = None
     target_state: PolicyState
+    policy_sides: dict[str, Literal["computer", "user"]] | None = None
 
 
 class CopySettingsMutation(Audit):
@@ -1724,23 +1780,69 @@ def configure_policy(
     return _gpo_payload(gpo, request)
 
 
+def _policy_side(
+    policy: PolicyDefinition,
+    side: Literal["computer", "user"] | None,
+) -> Literal["computer", "user"]:
+    if side is not None:
+        return side
+    match policy.class_:
+        case "Machine":
+            return "computer"
+        case "User":
+            return "user"
+        case "Both":
+            raise ValidationError(
+                [
+                    ValidationIssue(
+                        severity="error",
+                        code="side_required",
+                        message=(
+                            f"Policy {policy.id!r} targets both classes; "
+                            "side must be provided."
+                        ),
+                        path="side",
+                    )
+                ]
+            )
+        case _:
+            assert_never(policy.class_)
+
+
 @app.post("/api/gpos/{guid}/bulk-policy-state")
 def bulk_policy_state(
     request: Request, guid: str, body: BulkPolicyStateMutation
 ) -> dict[str, Any]:
+    # Reject policy_sides keys that are not in policy_ids rather than silently
+    # dropping them; a typo in a key would otherwise leave a policy un-sided
+    # with no signal to the caller.
+    if body.policy_sides:
+        extra = set(body.policy_sides) - set(body.policy_ids)
+        if extra:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="unknown_policy_side_key",
+                    message=(
+                        "policy_sides contains keys not present in policy_ids: "
+                        + ", ".join(sorted(extra))
+                    ),
+                    path="policy_sides",
+                )
+            ])
     replacements: list[tuple[str, list[RegistrySetting]]] = []
+    per_policy_side = body.policy_sides or {}
     for policy_id in body.policy_ids:
         policy = _resolve_policy(request, policy_id)
-        config = PolicyConfiguration(
-            side=body.side, values={}, state=body.target_state
-        )
+        side = _policy_side(policy, per_policy_side.get(policy_id, body.side))
+        config = PolicyConfiguration(side=side, values={}, state=body.target_state)
         settings = resolve_policy(policy, config)
         issues: list[ValidationIssue] = []
         for s in settings:
             issues.extend(validate_setting(s))
         if any(i.severity == "error" for i in issues):
             raise ValidationError(issues)
-        prefix = policy_setting_prefix(policy, body.side)
+        prefix = policy_setting_prefix(policy, side)
         replacements.append((prefix, settings))
     gpo = _store(request).bulk_replace_settings_by_prefix(
         guid,
@@ -1781,7 +1883,10 @@ def admx_category_tree(request: Request) -> dict[str, Any]:
     return {"items": [_node_dict(r) for r in roots], "count": len(roots)}
 
 
-@app.get("/api/gpos/{guid}/configured-settings")
+@app.get(
+    "/api/gpos/{guid}/configured-settings",
+    response_model=ConfiguredSettingsResponse,
+)
 def configured_settings(
     request: Request,
     guid: str,
@@ -1791,6 +1896,23 @@ def configured_settings(
     side: Literal["computer", "user"] | None = None,
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> dict[str, Any]:
+    """List ADMX-resolved policies and unresolved raw settings for a GPO.
+
+    Response fields:
+    - resolved: policies matched against the loaded ADMX catalogue.
+      Each item includes policy_id, display_name, explain_text,
+      category_path, category_ids, side, state, element_values,
+      supported_on, namespace, raw_setting_count, ambiguous, and
+      ambiguous_with.
+    - unresolved: registry settings that could not be matched to a policy.
+      Each item includes id, side, hive, key, value_name, registry_type,
+      value, action, and reason.
+    - resolved_count: total resolved policies before the limit slice.
+    - unresolved_count: total unresolved settings before the limit slice.
+
+    ``ambiguous`` is true when the policy matches multiple ADMX policies;
+    ``ambiguous_with`` lists the qualified IDs of those other policies.
+    """
     gpo = _store(request).get_gpo(guid)
     catalogue = _catalogue(request)
     result = build_settings_browser(catalogue, gpo.settings)
@@ -2829,3 +2951,168 @@ def estate_diff(request: Request, body: EstateDiffRequest) -> dict[str, Any]:
     observed = store.get_gpo(body.observed_guid)
     result = three_way_diff(baseline, draft, observed)
     return asdict(result)
+
+
+@app.get("/api/discovery/forest/script")
+def get_forest_discovery_script(request: Request) -> dict[str, str]:
+    """Return the PowerShell script for forest discovery."""
+    return {"script": discovery_script_forest()}
+
+
+@app.post("/api/discovery/forest")
+def import_forest_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """Import forest discovery JSON output."""
+    info = parse_forest(body)
+    _store(request).cache_discovery(
+        "forest",
+        info.name,
+        json.dumps(info.to_dict(), separators=(",", ":"), sort_keys=True),
+        source_dc=info.schema_master,
+        collected_at=_now(),
+    )
+    return {"cached": True, "kind": "forest", "key": info.name}
+
+
+@app.get("/api/discovery/domain/script")
+def get_domain_discovery_script(
+    request: Request, domain: str = ""
+) -> dict[str, str]:
+    """Return the PowerShell script for domain discovery."""
+    return {"script": discovery_script_domain(domain)}
+
+
+@app.post("/api/discovery/domain")
+def import_domain_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """Import domain discovery JSON output."""
+    info = parse_domain(body)
+    _store(request).cache_discovery(
+        "domain",
+        info.dns_name,
+        json.dumps(info.to_dict(), separators=(",", ":"), sort_keys=True),
+        source_dc=info.pdc_emulator,
+        collected_at=_now(),
+    )
+    return {"cached": True, "kind": "domain", "key": info.dns_name}
+
+
+@app.get("/api/discovery/sites/script")
+def get_sites_discovery_script(request: Request) -> dict[str, str]:
+    """Return the PowerShell script for AD sites and subnets discovery."""
+    return {"script": discovery_script_sites()}
+
+
+@app.post("/api/discovery/sites")
+def import_sites_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """Import AD sites and subnets discovery JSON output."""
+    sites, subnets = parse_sites(body)
+    store = _store(request)
+    for site in sites:
+        store.cache_discovery(
+            "site",
+            site.name,
+            json.dumps(site.to_dict(), separators=(",", ":"), sort_keys=True),
+            collected_at=_now(),
+        )
+    for subnet in subnets:
+        store.cache_discovery(
+            "subnet",
+            subnet.cidr,
+            json.dumps(subnet.to_dict(), separators=(",", ":"), sort_keys=True),
+            collected_at=_now(),
+        )
+    return {"cached": True, "sites": len(sites), "subnets": len(subnets)}
+
+
+@app.get("/api/discovery/ous/script")
+def get_ous_discovery_script(
+    request: Request, domain: str, search_base: str = ""
+) -> dict[str, str]:
+    """Return the PowerShell script for OU discovery."""
+    return {"script": discovery_script_ous(domain, search_base)}
+
+
+@app.post("/api/discovery/ous")
+def import_ous_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """Import OU discovery JSON output."""
+    ous = parse_ous(body)
+    store = _store(request)
+    for ou in ous:
+        store.cache_discovery(
+            "ou",
+            ou.distinguished_name,
+            json.dumps(ou.to_dict(), separators=(",", ":"), sort_keys=True),
+            collected_at=_now(),
+        )
+    return {"cached": True, "count": len(ous)}
+
+
+@app.get("/api/discovery/gpos/script")
+def get_gpos_discovery_script(
+    request: Request, domain: str = ""
+) -> dict[str, str]:
+    """Return the PowerShell script for GPO inventory discovery."""
+    return {"script": discovery_script_gpos(domain)}
+
+
+@app.post("/api/discovery/gpos")
+def import_gpos_discovery(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """Import GPO inventory discovery JSON output."""
+    validated = parse_gpos_discovery(body)
+    store = _store(request)
+    key = str(validated.get("domain", ""))
+    store.cache_discovery(
+        "gpos",
+        key,
+        json.dumps(validated, separators=(",", ":"), sort_keys=True),
+        collected_at=_now(),
+    )
+    return {"cached": True, "count": len(validated.get("gpos", []))}
+
+
+@app.get("/api/discovery/principals/script")
+def get_principals_discovery_script(
+    request: Request,
+    q: str,
+    domain: str = "",
+    object_class: str = "",
+    search_base: str = "",
+) -> dict[str, str]:
+    """Return the PowerShell script for principal search."""
+    return {
+        "script": discovery_script_principal_search(
+            q, domain, object_class, search_base
+        )
+    }
+
+
+@app.post("/api/discovery/principals")
+def import_principals_discovery(
+    request: Request, body: dict[str, Any]
+) -> dict[str, Any]:
+    """Import principal search discovery JSON output."""
+    principals = parse_principals(body)
+    store = _store(request)
+    for principal in principals:
+        store.cache_discovery(
+            "principal",
+            principal.object_guid,
+            json.dumps(principal.to_dict(), separators=(",", ":"), sort_keys=True),
+            source_dc=principal.source_dc,
+            collected_at=principal.collected_at,
+        )
+    return {"cached": True, "count": len(principals)}
+
+
+@app.get("/api/discovery/principals")
+def search_principals(
+    request: Request, q: str, domain: str = ""
+) -> dict[str, Any]:
+    """Search cached principals by name, SID, or distinguished name."""
+    results = _store(request).search_principals(q, domain)
+    return {"items": results, "count": len(results)}
+
+
+@app.get("/api/discovery/summary")
+def discovery_summary(request: Request) -> dict[str, Any]:
+    """Return counts of cached discovery entries by kind."""
+    return _store(request).discovery_summary()

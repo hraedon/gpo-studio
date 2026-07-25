@@ -18,7 +18,9 @@
     </category>
   </categories>
   <supportedOn>
-    <definition name="SUPPORTED_Defender_v4" displayName="$(string.SUPPORTED_Defender_v4)" />
+    <definitions>
+      <definition name="SUPPORTED_Defender_v4" displayName="$(string.SUPPORTED_Defender_v4)" />
+    </definitions>
   </supportedOn>
   <policies>
     <policy name="RealTimeProtection" class="Machine"
@@ -79,7 +81,7 @@
       <parentCategory ref="FirewallIntegration" />
       <supportedOn ref="SUPPORTED_Defender_v4" />
       <elements>
-        <multitext id="ExclusionPaths"
+        <multiText id="ExclusionPaths"
                    key="Software\Policies\TestLab\Defender\Exclusions"
                    valueName="ExclusionPaths" />
       </elements>

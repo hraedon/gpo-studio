@@ -27,3 +27,19 @@ def test_text_and_each_child_tail_have_independent_limits() -> None:
 
     assert root.text == "123456"
     assert [child.tail for child in root] == ["123456", "123456"]
+
+
+def test_parse_xml_unicode_encoding_alias() -> None:
+    xml_str = '<?xml version="1.0" encoding="unicode"?>\n<root>test</root>'
+    data = b"\xff\xfe" + xml_str.encode("utf-16-le")
+    root = parse_xml_bounded(data, max_size=10240)
+    assert root.tag == "root"
+    assert (root.text or "").strip() == "test"
+
+
+def test_parse_xml_utf16_encoding_with_bom() -> None:
+    xml_str = '<?xml version="1.0" encoding="utf-16"?>\n<root>hello</root>'
+    data = b"\xff\xfe" + xml_str.encode("utf-16-le")
+    root = parse_xml_bounded(data, max_size=10240)
+    assert root.tag == "root"
+    assert (root.text or "").strip() == "hello"

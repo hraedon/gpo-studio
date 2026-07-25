@@ -19,8 +19,10 @@
     </category>
   </categories>
   <supportedOn>
-    <definition name="SUPPORTED_Network_v10" displayName="$(string.SUPPORTED_Network_v10)" />
-    <definition name="SUPPORTED_Network_v11" displayName="$(string.SUPPORTED_Network_v11)" />
+    <definitions>
+      <definition name="SUPPORTED_Network_v10" displayName="$(string.SUPPORTED_Network_v10)" />
+      <definition name="SUPPORTED_Network_v11" displayName="$(string.SUPPORTED_Network_v11)" />
+    </definitions>
   </supportedOn>
   <policies>
     <policy name="NetworkBandwidthLimit" class="Machine"
