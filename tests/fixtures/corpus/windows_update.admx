@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="wu" namespace="Synthetic.Policies.WindowsUpdate" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+    <using prefix="secbase" namespace="Synthetic.Policies.SecurityBaseline" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="WindowsUpdateRoot" displayName="$(string.WindowsUpdateRoot)">
+      <parentCategory ref="windows:WindowsComponents" />
+    </category>
+    <category name="UpdateBehavior" displayName="$(string.UpdateBehavior)">
+      <parentCategory ref="WindowsUpdateRoot" />
+    </category>
+    <category name="DeliveryOptimization" displayName="$(string.DeliveryOptimization)">
+      <parentCategory ref="WindowsUpdateRoot" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="SUPPORTED_WU_v10" displayName="$(string.SUPPORTED_WU_v10)" />
+  </supportedOn>
+  <policies>
+    <policy name="ConfigureActiveHours" class="Machine"
+            key="Software\Policies\TestLab\WindowsUpdate\ActiveHours"
+            displayName="$(string.ConfigureActiveHours)"
+            explainText="$(string.ConfigureActiveHours_Explain)"
+            supportedOn="SUPPORTED_WU_v10"
+            presentation="$(presentation.ConfigureActiveHours)">
+      <parentCategory ref="UpdateBehavior" />
+      <supportedOn ref="SUPPORTED_WU_v10" />
+      <elements>
+        <decimal id="ActiveHoursStart"
+                 key="Software\Policies\TestLab\WindowsUpdate\ActiveHours"
+                 valueName="Start"
+                 minValue="0" maxValue="23" />
+        <decimal id="ActiveHoursEnd"
+                 key="Software\Policies\TestLab\WindowsUpdate\ActiveHours"
+                 valueName="End"
+                 minValue="0" maxValue="23" />
+      </elements>
+    </policy>
+    <policy name="DeferFeatureUpdates" class="Machine"
+            key="Software\Policies\TestLab\WindowsUpdate\Defer"
+            displayName="$(string.DeferFeatureUpdates)"
+            explainText="$(string.DeferFeatureUpdates_Explain)"
+            supportedOn="SUPPORTED_WU_v10"
+            presentation="$(presentation.DeferFeatureUpdates)">
+      <parentCategory ref="UpdateBehavior" />
+      <supportedOn ref="SUPPORTED_WU_v10" />
+      <elements>
+        <enum id="DeferMode" key="Software\Policies\TestLab\WindowsUpdate\Defer"
+              valueName="DeferMode">
+          <item displayName="$(string.DeferModeNone)">
+            <decimal value="0" />
+          </item>
+          <item displayName="$(string.DeferModeShort)">
+            <decimal value="1" />
+          </item>
+          <item displayName="$(string.DeferModeLong)">
+            <decimal value="2" />
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="UpdateAllowList" class="Machine"
+            key="Software\Policies\TestLab\WindowsUpdate\AllowList"
+            displayName="$(string.UpdateAllowList)"
+            explainText="$(string.UpdateAllowList_Explain)"
+            supportedOn="SUPPORTED_WU_v10"
+            presentation="$(presentation.UpdateAllowList)">
+      <parentCategory ref="DeliveryOptimization" />
+      <supportedOn ref="SUPPORTED_WU_v10" />
+      <elements>
+        <list id="AllowedUpdates"
+              key="Software\Policies\TestLab\WindowsUpdate\AllowList"
+              explicitValue="true" />
+      </elements>
+    </policy>
+    <policy name="WUDeleteOnDisable" class="Machine"
+            key="Software\Policies\TestLab\WindowsUpdate\Delete"
+            valueName="WUDeleteOnDisable"
+            displayName="$(string.WUDeleteOnDisable)"
+            explainText="$(string.WUDeleteOnDisable_Explain)"
+            supportedOn="SUPPORTED_WU_v10"
+            presentation="$(presentation.WUDeleteOnDisable)">
+      <parentCategory ref="UpdateBehavior" />
+      <supportedOn ref="SUPPORTED_WU_v10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><delete /></disabledValue>
+    </policy>
+  </policies>
+</policyDefinitions>

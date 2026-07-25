@@ -20,7 +20,27 @@
     .ilt-preview{background:var(--green-soft);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:13px;color:var(--green-dark)}
     .ilt-preview:empty{display:none}
     .gpp-readonly-warn{color:var(--red);font-size:12px;white-space:nowrap;font-weight:400}
-  </style>
+    .browser-filter-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:-7px 0 12px}
+    .browser-filter-row label{font-weight:650;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+    .browser-filter-row select{margin:0}
+    .browser-filter-row input[type=search]{flex:1;min-width:200px;margin:0}
+    .browser-policy-toggle{background:transparent;border:0;padding:0;color:var(--green);font-weight:650;cursor:pointer;text-align:left;text-decoration:underline;min-height:0;display:inline}
+    .browser-policy-toggle:hover{color:var(--green-dark)}
+    .browser-detail-row td{background:#f7f8f7}
+    .browser-detail-row .details{grid-template-columns:140px 1fr}
+    .browser-ambiguous{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.04em;background:var(--amber-soft);color:var(--amber);border-radius:99px;padding:2px 6px;margin-left:4px}
+    .browser-unresolved-card{border-left:4px solid var(--amber)}
+    .starter-list{max-height:60vh;overflow:auto}
+    .starter-list-entry{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border-bottom:1px solid var(--line)}
+    .starter-list-entry:last-child{border-bottom:0}
+    .starter-list-entry strong{display:block}
+    .starter-list-entry small{color:var(--muted);display:block;margin-top:2px}
+    .starter-list-entry .row-actions{flex:0 0 auto}
+    .setting-comment{display:block;font-size:12px;color:var(--muted);margin-top:3px;font-style:italic}
+    .bulk-actions-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--green-soft);border:1px solid var(--green);border-radius:8px;padding:10px 12px;margin:12px 0}
+    .bulk-actions-bar .bulk-count{font-weight:650;white-space:nowrap}
+    .bulk-actions-bar input[name="reason"]{flex:1;min-width:180px;margin:0}
+   </style>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -30,6 +50,7 @@
       <button class="primary full" id="new-gpo">＋ New GPO</button>
       <button class="full" id="import-estate">Import estate</button>
       <button class="full" id="import-gpmc">Import GPMC backup</button>
+      <button class="full" id="open-starter-gpos">Starter GPOs</button>
       <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span class="dot"></span> Offline authoring mode</footer>
@@ -62,6 +83,7 @@
         <div class="tabs" role="tablist" aria-label="Policy workspace sections">
           <button class="tab active" id="tab-overview" role="tab" aria-selected="true" aria-controls="panel-overview" tabindex="0" data-tab="overview">Overview</button>
           <button class="tab" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">Policy settings <span id="setting-count"></span></button>
+          <button class="tab" id="tab-browser" role="tab" aria-selected="false" aria-controls="panel-browser" tabindex="-1" data-tab="browser">Settings browser <span id="browser-count"></span></button>
           <button class="tab" id="tab-links" role="tab" aria-selected="false" aria-controls="panel-links" tabindex="-1" data-tab="links">Scope & links <span id="link-count"></span></button>
           <button class="tab" id="tab-security" role="tab" aria-selected="false" aria-controls="panel-security" tabindex="-1" data-tab="security">Security <span id="filter-count"></span></button>
           <button class="tab" id="tab-preferences" role="tab" aria-selected="false" aria-controls="panel-preferences" tabindex="-1" data-tab="preferences">Preferences <span id="gpp-count"></span></button>
@@ -73,7 +95,7 @@
         <div class="panel active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
           <div class="grid two">
             <article class="card">
-              <div class="card-heading"><div><p class="eyebrow">Identity</p><h2>Policy details</h2></div><button class="quiet" id="fork-gpo" hidden>Fork to draft</button><button class="quiet" id="edit-metadata">Edit</button></div>
+              <div class="card-heading"><div><p class="eyebrow">Identity</p><h2>Policy details</h2></div><button class="quiet" id="fork-gpo" hidden>Fork to draft</button><button class="quiet" id="copy-settings" hidden>Copy settings</button><button class="quiet" id="edit-metadata">Edit</button></div>
               <dl class="details" id="metadata"></dl>
             </article>
             <article class="card">
@@ -91,6 +113,30 @@
           <div class="section-head"><div><p class="eyebrow">Computer and User configuration</p><h2>Registry policy</h2></div><button class="primary" id="add-setting">＋ Add setting</button></div>
           <div class="filter-row" role="group" aria-label="Filter registry policy by configuration"><button class="chip active" aria-pressed="true" data-side="all">All</button><button class="chip" aria-pressed="false" data-side="computer">Computer</button><button class="chip" aria-pressed="false" data-side="user">User</button></div>
           <div class="table-card"><table><thead><tr><th>Side</th><th>Registry path</th><th>Name</th><th>Type</th><th>Value</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="settings-table"></tbody></table><div class="table-empty" id="settings-empty">No registry policy settings yet.</div></div>
+        </div>
+
+        <div class="panel" id="panel-browser" role="tabpanel" aria-labelledby="tab-browser" tabindex="0" hidden>
+          <div class="section-head"><div><p class="eyebrow">Configured policy browser</p><h2>Settings browser</h2></div></div>
+          <div id="browser-empty" class="table-empty">No ADMX catalogue configured. Set GPO_STUDIO_ADMX_DIR to enable the settings browser.</div>
+          <div id="browser-content" hidden>
+            <div class="filter-row" role="group" aria-label="Filter configured settings by configuration side"><button class="chip active" aria-pressed="true" data-side="all">All</button><button class="chip" aria-pressed="false" data-side="computer">Computer</button><button class="chip" aria-pressed="false" data-side="user">User</button></div>
+            <div class="browser-filter-row">
+              <label>State<select id="browser-state-filter"><option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+              <label>Category<select id="browser-category-filter"><option value="">All categories</option></select></label>
+              <input id="browser-search" type="search" placeholder="Search by policy name or ID" aria-label="Search configured policies by name or ID">
+            </div>
+            <div class="section-head" style="margin-top:1rem"><div><p class="eyebrow">Matched to ADMX policies</p><h2>Configured policies <span id="browser-resolved-count"></span></h2></div></div>
+            <div class="bulk-actions-bar" id="browser-bulk-bar" hidden>
+              <span class="bulk-count" id="browser-bulk-count">0 selected</span>
+              <button type="button" class="quiet" data-bulk-state="enabled">Enable</button>
+              <button type="button" class="quiet" data-bulk-state="disabled">Disable</button>
+              <button type="button" class="quiet" data-bulk-state="not_configured">Not configured</button>
+              <input type="text" id="browser-bulk-reason" placeholder="Reason for bulk change" maxlength="500" aria-label="Bulk change reason">
+            </div>
+            <div class="table-card"><table><thead><tr><th><input type="checkbox" id="browser-bulk-select-all" aria-label="Select all policies"></th><th>Side</th><th>Policy</th><th>State</th><th>Category</th><th>Support</th></tr></thead><tbody id="browser-resolved-table"></tbody></table><div class="table-empty" id="browser-resolved-empty">No configured policies match the current filters.</div></div>
+            <div class="section-head" style="margin-top:1.5rem"><div><p class="eyebrow">Raw registry values with no matching policy</p><h2>Unmatched registry settings <span id="browser-unresolved-count"></span></h2></div></div>
+            <div class="table-card browser-unresolved-card"><table><thead><tr><th>Side</th><th>Registry path</th><th>Name</th><th>Type</th><th>Value</th><th>Reason</th></tr></thead><tbody id="browser-unresolved-table"></tbody></table><div class="table-empty" id="browser-unresolved-empty">No unmatched registry settings.</div></div>
+          </div>
         </div>
 
         <div class="panel" id="panel-links" role="tabpanel" aria-labelledby="tab-links" tabindex="0" hidden>
@@ -335,6 +381,55 @@
       <label>Import reason<input name="reason" required maxlength="500" value="Import GPMC backup"></label>
       <div id="gpmc-import-preview" class="review-summary" aria-live="polite"></div>
       <div class="dialog-actions"><button value="cancel" id="gpmc-import-cancel">Cancel</button><button class="primary" type="button" id="gpmc-import-submit">Review import</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="starter-list-dialog" aria-labelledby="starter-list-dialog-title">
+    <form method="dialog" id="starter-list-form">
+      <div class="dialog-head"><div><p class="eyebrow">Starter GPO catalogue</p><h2 id="starter-list-dialog-title">Starter GPOs</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <div id="starter-list" class="starter-list"></div>
+      <div class="dialog-actions"><button value="cancel">Close</button><button type="button" class="primary" id="create-starter-gpo">＋ Create Starter GPO</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="starter-gpo-dialog" aria-labelledby="starter-gpo-dialog-title">
+    <form method="dialog" id="starter-gpo-form">
+      <div class="dialog-head"><div><p class="eyebrow">Starter GPO</p><h2 id="starter-gpo-dialog-title">Create starter GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Name<input name="name" required maxlength="255" placeholder="Security baseline template"></label>
+      <label>Description<textarea name="description" rows="3" maxlength="2000" placeholder="Purpose and rollout notes"></textarea></label>
+      <label>Template version<input name="template_version" maxlength="255" placeholder="v1.0"></label>
+      <label>Change reason<input name="reason" required value="Create starter GPO"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Create starter</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="derive-dialog" aria-labelledby="derive-dialog-title">
+    <form method="dialog" id="derive-form">
+      <div class="dialog-head"><div><p class="eyebrow">Derive from starter</p><h2 id="derive-dialog-title">Derive GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <input type="hidden" name="source_guid">
+      <label>New GPO name<input name="name" required maxlength="255" placeholder="Derived policy"></label>
+      <label>Change reason<input name="reason" required value="Derive from starter GPO"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Derive GPO</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="copy-settings-dialog" aria-labelledby="copy-settings-dialog-title">
+    <form method="dialog" id="copy-settings-form">
+      <div class="dialog-head"><div><p class="eyebrow">Copy settings</p><h2 id="copy-settings-dialog-title">Copy from another GPO</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <label>Source GPO<select name="source_guid" required></select></label>
+      <label>Side filter<select name="side"><option value="">All settings</option><option value="computer">Computer only</option><option value="user">User only</option></select></label>
+      <label>Change reason<input name="reason" required value="Copy settings from another GPO"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Copy settings</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="comment-dialog" aria-labelledby="comment-dialog-title">
+    <form method="dialog" id="comment-form">
+      <div class="dialog-head"><div><p class="eyebrow">Registry policy comment</p><h2 id="comment-dialog-title">Update comment</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <input type="hidden" name="setting_id">
+      <label>Comment<textarea name="comment" rows="4" maxlength="1000" placeholder="Why this setting exists"></textarea></label>
+      <label>Change reason<input name="reason" required value="Update setting comment"></label>
+      <div class="dialog-actions"><button value="cancel">Cancel</button><button class="primary" value="default">Save comment</button></div>
     </form>
   </dialog>
 

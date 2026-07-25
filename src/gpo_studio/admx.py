@@ -818,6 +818,22 @@ def find_adml(admx_path: Path) -> Path | None:
     return None
 
 
+def extract_namespaces(data: bytes) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the target and using namespaces declared in ADMX bytes.
+
+    The XML schema namespace itself (``xmlns``) is ignored; only the
+    ``<policyNamespaces>`` declarations are returned. This lets callers decide
+    licensing based on the file's declared policy namespace, not on the
+    generic ADMX schema URI that real and synthetic files both reuse.
+    """
+    root = _safe_parse(data)
+    targets, usings = _parse_policy_namespaces(root)
+    return (
+        tuple(t.namespace for t in targets),
+        tuple(u.namespace for u in usings),
+    )
+
+
 def load_catalogue(directory: Path) -> AdmxCatalogue:
     """Load all ADMX/ADML file pairs from a directory."""
     if not directory.is_dir():

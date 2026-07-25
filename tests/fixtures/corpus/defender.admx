@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="defender" namespace="Synthetic.Policies.Defender" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="DefenderRoot" displayName="$(string.DefenderRoot)">
+      <parentCategory ref="windows:WindowsComponents" />
+    </category>
+    <category name="Antivirus" displayName="$(string.Antivirus)">
+      <parentCategory ref="DefenderRoot" />
+    </category>
+    <category name="FirewallIntegration" displayName="$(string.FirewallIntegration)">
+      <parentCategory ref="DefenderRoot" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="SUPPORTED_Defender_v4" displayName="$(string.SUPPORTED_Defender_v4)" />
+  </supportedOn>
+  <policies>
+    <policy name="RealTimeProtection" class="Machine"
+            key="Software\Policies\TestLab\Defender\Antivirus"
+            valueName="RealTimeProtection"
+            displayName="$(string.RealTimeProtection)"
+            explainText="$(string.RealTimeProtection_Explain)"
+            supportedOn="SUPPORTED_Defender_v4"
+            presentation="$(presentation.RealTimeProtection)">
+      <parentCategory ref="Antivirus" />
+      <supportedOn ref="SUPPORTED_Defender_v4" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="SubmitSamplesConsent" class="Machine"
+            key="Software\Policies\TestLab\Defender\Antivirus"
+            displayName="$(string.SubmitSamplesConsent)"
+            explainText="$(string.SubmitSamplesConsent_Explain)"
+            supportedOn="SUPPORTED_Defender_v4"
+            presentation="$(presentation.SubmitSamplesConsent)">
+      <parentCategory ref="Antivirus" />
+      <supportedOn ref="SUPPORTED_Defender_v4" />
+      <elements>
+        <enum id="SubmitMode" key="Software\Policies\TestLab\Defender\Antivirus"
+              valueName="SubmitMode">
+          <item displayName="$(string.SubmitModeAlways)">
+            <decimal value="0" />
+          </item>
+          <item displayName="$(string.SubmitModeNever)">
+            <decimal value="1" />
+          </item>
+          <item displayName="$(string.SubmitModePrompt)">
+            <decimal value="2" />
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="ThreatSeverityDefaultAction" class="Machine"
+            key="Software\Policies\TestLab\Defender\Actions"
+            displayName="$(string.ThreatSeverityDefaultAction)"
+            explainText="$(string.ThreatSeverityDefaultAction_Explain)"
+            supportedOn="SUPPORTED_Defender_v4"
+            presentation="$(presentation.ThreatSeverityDefaultAction)">
+      <parentCategory ref="Antivirus" />
+      <supportedOn ref="SUPPORTED_Defender_v4" />
+      <elements>
+        <list id="SeverityActions"
+              key="Software\Policies\TestLab\Defender\Actions"
+              valuePrefix="Severity" explicitValue="false" additive="true" />
+      </elements>
+    </policy>
+    <policy name="DefenderExclusions" class="Machine"
+            key="Software\Policies\TestLab\Defender\Exclusions"
+            displayName="$(string.DefenderExclusions)"
+            explainText="$(string.DefenderExclusions_Explain)"
+            supportedOn="SUPPORTED_Defender_v4"
+            presentation="$(presentation.DefenderExclusions)">
+      <parentCategory ref="FirewallIntegration" />
+      <supportedOn ref="SUPPORTED_Defender_v4" />
+      <elements>
+        <multitext id="ExclusionPaths"
+                   key="Software\Policies\TestLab\Defender\Exclusions"
+                   valueName="ExclusionPaths" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>

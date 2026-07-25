@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Synthetic Network administrative templates</displayName>
+  <description>Representative network ADMX/ADML corpus fixtures.</description>
+  <resources>
+    <stringTable>
+      <string id="NetworkRoot">Synthetic Network</string>
+      <string id="TCPIPSettings">TCP/IP Settings</string>
+      <string id="FirewallSettings">Firewall Settings</string>
+      <string id="SUPPORTED_Network_v10">Synthetic Network v10 and later</string>
+      <string id="SUPPORTED_Network_v11">Synthetic Network v11 and later</string>
+      <string id="NetworkBandwidthLimit">Network Bandwidth Limit</string>
+      <string id="NetworkBandwidthLimit_Explain">Sets a synthetic 64-bit bandwidth limit.</string>
+      <string id="DNSPreferredServers">DNS Preferred Servers</string>
+      <string id="DNSPreferredServers_Explain">Lists synthetic preferred DNS servers.</string>
+      <string id="FirewallProfile">Firewall Profile</string>
+      <string id="FirewallProfile_Explain">Selects a synthetic firewall profile.</string>
+      <string id="NetworkBothClass">Network Common Setting</string>
+      <string id="NetworkBothClass_Explain">Applies a synthetic network setting to both sides.</string>
+      <string id="ProfileTypeDomain">Domain</string>
+      <string id="ProfileTypePrivate">Private</string>
+      <string id="ProfileTypePublic">Public</string>
+      <string id="BandwidthLimitLabel">Bandwidth limit (bytes/sec)</string>
+      <string id="PreferredServersLabel">Preferred DNS servers</string>
+      <string id="ProfileTypeLabel">Firewall profile</string>
+      <string id="NetworkCommonEnabledLabel">Enable common network setting</string>
+      <string id="NetworkCommonPortLabel">Common port</string>
+      <string id="NetworkCommonCommentLabel">Comment</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="NetworkBandwidthLimit" />
+      <presentation id="DNSPreferredServers">
+        <listBox refId="PreferredServers">
+          <label>Preferred DNS servers</label>
+        </listBox>
+      </presentation>
+      <presentation id="FirewallProfile">
+        <dropdownList refId="ProfileType">Firewall profile</dropdownList>
+      </presentation>
+      <presentation id="NetworkBothClass">
+        <checkBox refId="NetworkCommonEnabled" defaultChecked="false">Enable common network setting</checkBox>
+        <decimalTextBox refId="NetworkCommonPort" defaultValue="443">Common port</decimalTextBox>
+        <textBox refId="NetworkCommonComment">
+          <label>Comment</label>
+        </textBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

@@ -13,13 +13,14 @@ Usage::
     uv run python scripts/generate_public_matrix.py --pack path/to/pack.json --check
 
     # Emit the public matrix (markdown) from signed packs
-    uv run python scripts/generate_public_matrix.py --pack a.json --pack b.json --matrix
+    uv run python scripts/generate_public_matrix.py \
+        --pack a.json --pack b.json \
+        --trust-anchor cairn-anchor.json \
+        --signature a.json.sig --signature b.json.sig \
+        --matrix
 
-    # Derive the canonical hash of a single pack (for pinning)
+    # Derive the canonical hash of a single pack
     uv run python scripts/generate_public_matrix.py --pack path/to/pack.json --hash
-
-    # Verify a pack's canonical hash against an expected value
-    uv run python scripts/generate_public_matrix.py --pack path/to/pack.json --verify <sha256>
 
 A non-signable pack (``redaction_verified`` or ``licensing_complete`` false) is
 refused by default. ``--allow-unsigned`` admits unsigned packs for development
@@ -40,6 +41,12 @@ from gpo_studio.evidence import (
     load_pack,
     render_matrix_markdown,
     signability_report,
+)
+from gpo_studio.provenance import (
+    ProvenanceError,
+    load_trust_anchor,
+    parse_signature,
+    verify_provenance_signature,
 )
 
 
@@ -71,15 +78,29 @@ def main(argv: list[str] | None = None) -> int:
         help="Print the canonical SHA-256 of a single pack.",
     )
     parser.add_argument(
-        "--verify",
-        metavar="SHA256",
-        help="Verify a single pack's canonical hash matches the expected value.",
+        "--trust-anchor",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Path to the cairn trust-anchor JSON file. "
+            "Required for --matrix unless --allow-unsigned."
+        ),
+    )
+    parser.add_argument(
+        "--signature",
+        action="append",
+        type=Path,
+        default=[],
+        metavar="PATH",
+        help="Path to a detached provenance sidecar (.sig) for each --pack. Repeatable.",
     )
     parser.add_argument(
         "--allow-unsigned",
         action="store_true",
-        help="Admit packs that have not satisfied the redaction/licensing gates. "
-        "The output is stamped DRAFT and MUST NOT be used as release evidence.",
+        help=(
+            "Admit packs that fail the redaction, licensing, or provenance-signature gates. "
+            "The output is stamped DRAFT and MUST NOT be used as release evidence."
+        ),
     )
     parser.add_argument(
         "-o",
@@ -108,20 +129,6 @@ def main(argv: list[str] | None = None) -> int:
         print(canonical_pack_hash(packs[0]))
         return 0
 
-    if args.verify:
-        if len(packs) != 1:
-            print("ERROR: --verify requires exactly one --pack", file=sys.stderr)
-            return 1
-        actual = canonical_pack_hash(packs[0])
-        if actual != args.verify:
-            print(
-                f"ERROR: hash mismatch. expected {args.verify}, got {actual}",
-                file=sys.stderr,
-            )
-            return 1
-        print(f"verified: {actual}")
-        return 0
-
     if args.check or not args.matrix:
         # Report signability.
         any_unsigned = False
@@ -139,6 +146,52 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if any_unsigned and not args.allow_unsigned else 0
 
     if args.matrix:
+        if args.trust_anchor or args.signature:
+            if not args.trust_anchor:
+                print(
+                    "ERROR: --signature requires --trust-anchor",
+                    file=sys.stderr,
+                )
+                return 1
+            if len(args.signature) != len(packs):
+                print(
+                    "ERROR: refusing to derive claims from unsigned packs: "
+                    "sidecar count does not match pack count. "
+                    "Pass --signature for each --pack or --allow-unsigned for a DRAFT derivation.",
+                    file=sys.stderr,
+                )
+                return 1
+            try:
+                anchor = load_trust_anchor(args.trust_anchor)
+            except ProvenanceError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
+            for pack, sig_path in zip(packs, args.signature, strict=True):
+                try:
+                    sig = parse_signature(sig_path.read_bytes())
+                except ProvenanceError as exc:
+                    print(f"ERROR: {exc}", file=sys.stderr)
+                    return 1
+                pack_hash = bytes.fromhex(canonical_pack_hash(pack))
+                if not verify_provenance_signature(pack_hash, sig, anchor):
+                    print(
+                        f"ERROR: refusing to derive claims from unsigned packs: "
+                        f"invalid provenance signature for pack {pack.pack_id}. "
+                        "Pass --allow-unsigned for a DRAFT derivation.",
+                        file=sys.stderr,
+                    )
+                    return 1
+        elif not args.allow_unsigned:
+            print(
+                "ERROR: refusing to derive claims from unsigned packs: "
+                "no trust anchor provided. "
+                "Pass --trust-anchor/--signature or --allow-unsigned for a DRAFT derivation.",
+                file=sys.stderr,
+            )
+            return 1
+
+        skipped_signature_verification = args.allow_unsigned and not args.trust_anchor
+
         result = derive_claims(packs, allow_unsigned=args.allow_unsigned)
         if result.unsigned_pack_ids and not args.allow_unsigned:
             print(
@@ -149,6 +202,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         output = render_matrix_markdown(result)
+        if skipped_signature_verification:
+            output = (
+                "> **DRAFT — PROVENANCE SIGNATURE NOT VERIFIED.** The matrix below "
+                "was derived without verifying detached provenance signatures. "
+                "It MUST NOT be used as release evidence.\n\n"
+            ) + output
         if args.output:
             args.output.write_text(output, encoding="utf-8")
             print(f"wrote {args.output}")

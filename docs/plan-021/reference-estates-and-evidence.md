@@ -277,26 +277,20 @@ both `true`. Signing is the act of:
    trailing whitespace, LF newlines) — implemented by
    `canonical_pack_bytes`/`canonical_pack_hash` in `src/gpo_studio/evidence.py`.
 2. Computing a pack-level SHA-256 over the canonical bytes (`--hash` CLI).
-3. Recording that SHA-256 in a pinned manifest mirroring
-   `docs/.evidence-report-sha256`, and verifying each consumed pack against it
-   (`--verify <sha256>` CLI for a single pack).
+3. Producing a detached Ed25519 provenance signature over that SHA-256 with the
+   cairn signing key, and writing it to a sidecar `.sig` file next to the pack.
 
-> **Superseded by the review gate (2026-07-19).** The pinned-hash-manifest
-> mechanism described in this section is **withdrawn**. The ratified
-> release-eligibility rule is *signable + a valid detached provenance signature
-> over `canonical_pack_hash`* (reusing the suite offline-signature scheme), not a
-> hand-curated allowlist of pack hashes. See
-> [`gate-decision-2026-07-19.md` Decision 5](./gate-decision-2026-07-19.md#decision-5--release-evidence-enforcement-provenance-signature-not-a-pinned-hash-manifest).
-> The canonical-hash machinery below (`canonical_pack_bytes` / `canonical_pack_hash`)
-> is retained — it is what the signature signs.
+The sidecar format is JSON with `key_id`, `algorithm` (always `Ed25519` in Phase 1),
+and `signature` (Base64-encoded raw Ed25519 signature). The matrix generator
+verifies the signature using a separate trust-anchor file
+that contains only the public key (see `docs/cairn-trust-anchor.md`). The
+private key never ships with the pack or the generator; it is held by the
+operator.
 
-The pinned manifest was the *previously intended* trust root for downstream
-consumers (the public matrix generator, release evidence, and review); under the
-ratified decision the trust root is the provenance signature instead. The
-pre-gate generator enforces the signable gate (`redaction_verified &&
-licensing_complete`) mechanically and refuses unsigned packs by default;
-signature verification is the Plan 022+ workstream that replaces the withdrawn
-pinned-manifest lookup.
+This ratified mechanism replaces the pre-gate pinned-hash manifest. The
+canonical-hash machinery (`canonical_pack_bytes` / `canonical_pack_hash`) is
+retained — it is what the signature signs. See
+[`gate-decision-2026-07-19.md` Decision 5](./gate-decision-2026-07-19.md#decision-5--release-evidence-enforcement-provenance-signature-not-a-pinned-hash-manifest).
 
 ### Minimal example pack
 

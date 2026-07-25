@@ -431,6 +431,26 @@ def test_plan_with_unicode_name_validates() -> None:
     assert result.valid, f"Issues: {result.issues}"
 
 
+def test_plan_with_delete_all_values_validates() -> None:
+    gpo = replace(
+        _sample_gpo(),
+        settings=(
+            RegistrySetting(
+                id="delvals1", side="computer", hive="HKLM",
+                key=r"Software\Policies\Test", value_name="",
+                registry_type="REG_SZ", value="",
+                action="delete_all_values",
+            ),
+        ),
+    )
+    plan = powershell_plan(gpo)
+    result = validate_plan(plan)
+    assert result.valid, f"Issues: {result.issues}"
+    assert "Get-GPRegistryValue" in plan
+    assert "ForEach-Object" in plan
+    assert "Remove-GPRegistryValue" in plan
+
+
 def test_plan_with_empty_settings_validates() -> None:
     gpo = GPO(
         guid="11111111-2222-3333-4444-555555555555",

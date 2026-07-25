@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Synthetic User Configuration administrative templates</displayName>
+  <description>Representative user configuration ADMX/ADML corpus fixtures.</description>
+  <resources>
+    <stringTable>
+      <string id="UserConfigRoot">Synthetic User Configuration</string>
+      <string id="DesktopSettings">Desktop Settings</string>
+      <string id="StartMenu">Start Menu</string>
+      <string id="SUPPORTED_UserConfig_v10">Synthetic Windows v10 and later</string>
+      <string id="SetWallpaper">Set Wallpaper</string>
+      <string id="SetWallpaper_Explain">Sets a synthetic wallpaper path.</string>
+      <string id="StartMenuLayout">Start Menu Layout</string>
+      <string id="StartMenuLayout_Explain">Provides a synthetic Start Menu layout.</string>
+      <string id="TaskbarLock">Lock the Taskbar</string>
+      <string id="TaskbarLock_Explain">Locks the synthetic taskbar.</string>
+      <string id="ScreenSaverTimeout">Screen Saver Timeout</string>
+      <string id="ScreenSaverTimeout_Explain">Sets the synthetic screen saver timeout.</string>
+      <string id="WallpaperPathLabel">Wallpaper path</string>
+      <string id="LayoutXmlLabel">Layout XML</string>
+      <string id="TimeoutSecondsLabel">Timeout (seconds)</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="SetWallpaper">
+        <textBox refId="WallpaperPath">
+          <label>Wallpaper path</label>
+          <defaultValue>C:\TestLab\Wallpaper\synthetic.jpg</defaultValue>
+        </textBox>
+      </presentation>
+      <presentation id="StartMenuLayout">
+        <textBox refId="LayoutXml">
+          <label>Layout XML</label>
+          <defaultValue>&lt;Layout&gt;&lt;/Layout&gt;</defaultValue>
+        </textBox>
+      </presentation>
+      <presentation id="TaskbarLock" />
+      <presentation id="ScreenSaverTimeout">
+        <decimalTextBox refId="TimeoutSeconds" defaultValue="300">Timeout (seconds)</decimalTextBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

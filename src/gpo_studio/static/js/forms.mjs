@@ -61,6 +61,16 @@ export function openFork(){
   if(state.current)form.name.value=`${state.current.name} (fork)`;
   $("#fork-dialog").showModal();
 }
+export function openCopySettings(){
+  const form=$("#copy-settings-form");form.reset();clearFormErrors(form);
+  const select=form.source_guid;select.innerHTML=state.gpos.filter(g=>g.guid!==state.current.guid).map(g=>`<option value="${escapeHtml(g.guid)}">${escapeHtml(g.name)} (r${g.revision})</option>`).join("");
+  $("#copy-settings-dialog").showModal();
+}
+export function openComment(setting){
+  const form=$("#comment-form");form.reset();clearFormErrors(form);form.setting_id.value=setting.id;
+  form.comment.value=setting.comment||"";
+  $("#comment-dialog").showModal();
+}
 function applyCurrent(data){applyPayload(data);renderAll();renderList()}
 async function mutationFailure(form,error){await handleFormFailure(form,error,{onCurrent:applyCurrent})}
 export function initForms(){
@@ -78,7 +88,9 @@ $("#wmi-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&
     try{const text=await file.text();estateParsedJson=JSON.parse(text);info.hidden=false;info.innerHTML=`<strong>${escapeHtml(file.name)}</strong> (${sizeKb} KB)${file.size>1048576?' <span class="diff-modified">⚠ File exceeds 1 MB</span>':''}`}catch(e){estateParsedJson=null;info.hidden=false;info.innerHTML=`<strong>${escapeHtml(file.name)}</strong> (${sizeKb} KB) <span class="diff-removed">✗ Invalid JSON: ${escapeHtml(e.message)}</span>`}
   };
   $$('.estate-toggle .chip').forEach(c=>c.onclick=()=>setEstateMode(c.dataset.mode));
-$("#fork-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;try{const data=await api(`/api/gpos/${state.current.guid}/fork`,{method:"POST",body:JSON.stringify({name:f.name.value,actor:"local-operator",reason:f.reason.value})});$("#fork-dialog").close();await loadList(data.gpo.guid);toast("Forked to draft")}catch(error){showFormErrors(f,error)}};
+  $("#fork-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;try{const data=await api(`/api/gpos/${state.current.guid}/fork`,{method:"POST",body:JSON.stringify({name:f.name.value,actor:"local-operator",reason:f.reason.value})});$("#fork-dialog").close();await loadList(data.gpo.guid);toast("Forked to draft")}catch(error){showFormErrors(f,error)}};
+  $("#copy-settings-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;const side=f.side.value||null;try{const data=await api(`/api/gpos/${state.current.guid}/copy-settings`,{method:"POST",body:JSON.stringify({...audit(f.reason.value),source_guid:f.source_guid.value,side})});$("#copy-settings-dialog").close();applyCurrent(data);toast("Settings copied")}catch(error){await mutationFailure(f,error)}};
+  $("#comment-form").onsubmit=async event=>{event.preventDefault();if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}const f=event.currentTarget;try{const data=await api(`/api/gpos/${state.current.guid}/settings/${f.setting_id.value}/comment`,{method:"PATCH",body:JSON.stringify({...audit(f.reason.value),comment:f.comment.value})});$("#comment-dialog").close();applyCurrent(data);toast("Comment saved")}catch(error){await mutationFailure(f,error)}};
 }
 export async function deleteSetting(id){if(!confirm(`Remove registry setting ${id} from ${state.current.name}? This creates a new revision.`))return;try{const data=await api(`/api/gpos/${state.current.guid}/settings/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove registry policy")})});applyCurrent(data);toast("Setting removed")}catch(error){showPersistentError(error.message)}}
 export async function deleteLink(id){const target=state.current.links.find(item=>item.id===id)?.target||id;if(!confirm(`Remove link intent for ${target} from ${state.current.name}? This creates a new revision.`))return;try{const data=await api(`/api/gpos/${state.current.guid}/links/${id}`,{method:"DELETE",body:JSON.stringify({...audit("Remove link intent")})});applyCurrent(data);toast("Link removed")}catch(error){showPersistentError(error.message)}}

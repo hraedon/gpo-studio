@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi.testclient import TestClient
 
 from gpo_studio.admx import (
@@ -28,22 +30,33 @@ KEY = r"Software\Policies\Synthetic\Test"
 def _policy(
     *,
     id: str = "TestPolicy",
+    class_: str = "Machine",
     namespace: str = NS,
     display_name: str = "Test Policy",
     explain_text: str = "Explains the test policy.",
     parent_category: str = "TestCategory",
     supported_on: str = "Supported_Test",
+    value_name: str = "",
+    enabled_value: Any | None = None,
+    disabled_value: Any | None = None,
+    enabled_list: Any | None = None,
+    disabled_list: Any | None = None,
     elements: tuple[PolicyElement, ...] = (),
 ) -> PolicyDefinition:
     return PolicyDefinition(
         id=id,
-        class_="Machine",
+        class_=class_,
         key=KEY,
         display_name=display_name,
         explain_text=explain_text,
         supported_on=supported_on,
         namespace=namespace,
         parent_category=parent_category,
+        value_name=value_name,
+        enabled_value=enabled_value,
+        disabled_value=disabled_value,
+        enabled_list=enabled_list,
+        disabled_list=disabled_list,
         elements=elements,
     )
 
@@ -163,6 +176,230 @@ def test_no_state_setting_defaults_to_enabled() -> None:
     ]
     result = build_settings_browser(cat, settings)
     assert result.resolved[0].state == "enabled"
+
+
+# --- build_settings_browser: registry-tuple reverse-index -------------------
+
+
+def test_registry_tuple_state_value_resolves_without_admx_id() -> None:
+    policy = _policy(value_name="TestValue")
+    cat = _catalogue(policies=(policy,))
+    settings = [
+        RegistrySetting(
+            id="raw-imported-state",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="TestValue",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 1
+    assert result.resolved[0].policy_id == policy.qualified_id
+    assert result.resolved[0].state == "enabled"
+    assert len(result.unresolved) == 0
+
+
+def test_registry_tuple_delete_resolves_as_disabled() -> None:
+    policy = _policy(value_name="TestValue")
+    cat = _catalogue(policies=(policy,))
+    settings = [
+        RegistrySetting(
+            id="raw-imported-state",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="TestValue",
+            registry_type="REG_SZ",
+            value="",
+            action="delete",
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 1
+    assert result.resolved[0].state == "disabled"
+
+
+def test_registry_tuple_element_value_decodes() -> None:
+    elem = PolicyElement(kind="decimal", id="Count", registry_value_name="Count")
+    policy = _policy(value_name="State", elements=(elem,))
+    cat = _catalogue(policies=(policy,))
+    settings = [
+        RegistrySetting(
+            id="raw-element",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="Count",
+            registry_type="REG_DWORD",
+            value=42,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 1
+    assert result.resolved[0].element_values["Count"] == 42
+
+
+def test_both_class_policy_matches_both_sides() -> None:
+    policy = _policy(class_="Both", value_name="SharedState")
+    cat = _catalogue(policies=(policy,))
+    settings = [
+        RegistrySetting(
+            id="comp-state",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="SharedState",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+        RegistrySetting(
+            id="user-state",
+            side="user",
+            hive="HKCU",
+            key=KEY,
+            value_name="SharedState",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 2
+    assert {cs.side for cs in result.resolved} == {"computer", "user"}
+    assert len(result.unresolved) == 0
+
+
+def test_ambiguous_registry_tuple_surfaces_all_matches() -> None:
+    ns1 = "NS.One"
+    ns2 = "NS.Two"
+    p1 = _policy(id="Policy1", namespace=ns1, value_name="SharedValue")
+    p2 = _policy(id="Policy2", namespace=ns2, value_name="SharedValue")
+    cat = _catalogue(policies=(p1, p2))
+    settings = [
+        RegistrySetting(
+            id="ambiguous-raw",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="SharedValue",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 2
+    qids = {cs.policy_id for cs in result.resolved}
+    assert qids == {p1.qualified_id, p2.qualified_id}
+    assert all(cs.ambiguous for cs in result.resolved)
+    for cs in result.resolved:
+        assert len(cs.ambiguous_with) == 1
+        assert cs.ambiguous_with[0] != cs.policy_id
+        assert cs.ambiguous_with[0] in qids
+    assert len(result.unresolved) == 0
+
+
+def test_enabled_list_value_resolves_to_policy() -> None:
+    from gpo_studio.admx import PolicyListItem, PolicyValue, PolicyValueList
+
+    policy = _policy(
+        value_name="",
+        enabled_list=PolicyValueList(
+            default_key=KEY,
+            items=(
+                PolicyListItem(
+                    value_name="ListVal",
+                    value=PolicyValue(
+                        kind="decimal", data="1", registry_type="REG_DWORD"
+                    ),
+                ),
+            ),
+        ),
+    )
+    cat = _catalogue(policies=(policy,))
+    settings = [
+        RegistrySetting(
+            id="raw-listitem",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="ListVal",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 1
+    assert result.resolved[0].policy_id == policy.qualified_id
+    assert result.resolved[0].state == "enabled"
+
+
+def test_explicit_disabled_value_resolves_as_disabled() -> None:
+    from gpo_studio.admx import PolicyValue
+
+    policy = _policy(
+        value_name="State",
+        enabled_value=PolicyValue(
+            kind="decimal", data="1", registry_type="REG_DWORD"
+        ),
+        disabled_value=PolicyValue(
+            kind="decimal", data="0", registry_type="REG_DWORD"
+        ),
+    )
+    cat = _catalogue(policies=(policy,))
+    settings = [
+        RegistrySetting(
+            id="raw-state",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="State",
+            registry_type="REG_DWORD",
+            value=0,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 1
+    assert result.resolved[0].state == "disabled"
+
+
+def test_synthetic_id_with_ambiguous_tuple_match_marks_ambiguous() -> None:
+    p1 = _policy(id="Policy1", value_name="SharedValue")
+    p2 = _policy(id="Policy2", value_name="SharedValue")
+    cat = _catalogue(policies=(p1, p2))
+    settings = [
+        RegistrySetting(
+            id=f"admx-{p1.qualified_id}-computer-state",
+            side="computer",
+            hive="HKLM",
+            key=KEY,
+            value_name="SharedValue",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 2
+    assert all(cs.ambiguous for cs in result.resolved)
+
+
+def test_registry_tuple_matching_is_case_insensitive() -> None:
+    policy = _policy(value_name="TestValue")
+    cat = _catalogue(policies=(policy,))
+    settings = [
+        RegistrySetting(
+            id="raw-state",
+            side="computer",
+            hive="HKLM",
+            key=KEY.upper(),
+            value_name="TESTVALUE",
+            registry_type="REG_DWORD",
+            value=1,
+        ),
+    ]
+    result = build_settings_browser(cat, settings)
+    assert len(result.resolved) == 1
 
 
 # --- build_settings_browser: element value decoding -------------------------
@@ -315,7 +552,7 @@ def _browser_result(
             display_name=name,
             explain_text=f"Explains {name}",
             category_path=path,
-            category_ids=path,
+            category_ids=[f"cat-{n.lower()}" for n in path],
             side="computer",
             state=state,
             element_values={},
@@ -363,7 +600,7 @@ def test_search_filter_by_category_id() -> None:
         ("Policy A", "enabled", ["Security", "Windows"]),
         ("Policy B", "enabled", ["Network"]),
     )
-    filtered = search_configured_settings(result, None, None, "Security")
+    filtered = search_configured_settings(result, None, None, "cat-security")
     assert len(filtered.resolved) == 1
     assert filtered.resolved[0].display_name == "Policy A"
 

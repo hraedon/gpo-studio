@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="usercfg" namespace="Synthetic.Policies.UserConfig" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="UserConfigRoot" displayName="$(string.UserConfigRoot)">
+      <parentCategory ref="windows:WindowsComponents" />
+    </category>
+    <category name="DesktopSettings" displayName="$(string.DesktopSettings)">
+      <parentCategory ref="UserConfigRoot" />
+    </category>
+    <category name="StartMenu" displayName="$(string.StartMenu)">
+      <parentCategory ref="UserConfigRoot" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="SUPPORTED_UserConfig_v10" displayName="$(string.SUPPORTED_UserConfig_v10)" />
+  </supportedOn>
+  <policies>
+    <policy name="SetWallpaper" class="User"
+            key="Software\Policies\TestLab\UserConfig\Desktop"
+            displayName="$(string.SetWallpaper)"
+            explainText="$(string.SetWallpaper_Explain)"
+            supportedOn="SUPPORTED_UserConfig_v10"
+            presentation="$(presentation.SetWallpaper)">
+      <parentCategory ref="DesktopSettings" />
+      <supportedOn ref="SUPPORTED_UserConfig_v10" />
+      <elements>
+        <text id="WallpaperPath"
+              key="Software\Policies\TestLab\UserConfig\Desktop"
+              valueName="WallpaperPath"
+              expandable="true" maxLength="260" required="true" />
+      </elements>
+    </policy>
+    <policy name="StartMenuLayout" class="User"
+            key="Software\Policies\TestLab\UserConfig\StartMenu"
+            displayName="$(string.StartMenuLayout)"
+            explainText="$(string.StartMenuLayout_Explain)"
+            supportedOn="SUPPORTED_UserConfig_v10"
+            presentation="$(presentation.StartMenuLayout)">
+      <parentCategory ref="StartMenu" />
+      <supportedOn ref="SUPPORTED_UserConfig_v10" />
+      <elements>
+        <text id="LayoutXml"
+              key="Software\Policies\TestLab\UserConfig\StartMenu"
+              valueName="LayoutXml"
+              expandable="false" maxLength="4096" />
+      </elements>
+    </policy>
+    <policy name="TaskbarLock" class="User"
+            key="Software\Policies\TestLab\UserConfig\Taskbar"
+            valueName="TaskbarLock"
+            displayName="$(string.TaskbarLock)"
+            explainText="$(string.TaskbarLock_Explain)"
+            supportedOn="SUPPORTED_UserConfig_v10"
+            presentation="$(presentation.TaskbarLock)">
+      <parentCategory ref="DesktopSettings" />
+      <supportedOn ref="SUPPORTED_UserConfig_v10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><delete /></disabledValue>
+    </policy>
+    <policy name="ScreenSaverTimeout" class="User"
+            key="Software\Policies\TestLab\UserConfig\Desktop"
+            displayName="$(string.ScreenSaverTimeout)"
+            explainText="$(string.ScreenSaverTimeout_Explain)"
+            supportedOn="SUPPORTED_UserConfig_v10"
+            presentation="$(presentation.ScreenSaverTimeout)">
+      <parentCategory ref="DesktopSettings" />
+      <supportedOn ref="SUPPORTED_UserConfig_v10" />
+      <elements>
+        <decimal id="TimeoutSeconds"
+                 key="Software\Policies\TestLab\UserConfig\Desktop"
+                 valueName="TimeoutSeconds"
+                 minValue="0" maxValue="3600" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>

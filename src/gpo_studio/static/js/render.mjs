@@ -1,7 +1,8 @@
 import {state,$,$$,escapeHtml,applyPayload} from './state.mjs';
 import {api} from './api.mjs';
-import {openSetting,deleteSetting,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
+import {openSetting,deleteSetting,openComment,openLink,deleteLink,openFilter,deleteFilter,restoreRevision} from './forms.mjs';
 import {renderGpp} from './gpp.mjs';
+import {loadBrowser} from './browser.mjs';
 
 export async function loadList(selectGuid){
   const data=await api("/api/gpos");state.gpos=data.items;renderList();
@@ -22,7 +23,7 @@ export async function selectGpo(guid){
 export function renderAll(){
   const g=state.current;$("#title").textContent=g.name;$("#revision").textContent=`Revision ${g.revision}`;
   $$("form").forEach(form=>{form.dataset.gpoGuid=g.guid});
-  $("#fork-gpo").hidden=!(g.source_guid||g.status==="archived");
+  $("#fork-gpo").hidden=!(g.source_guid||g.status==="archived");$("#copy-settings").hidden=g.status==="archived";
   $("#policy-report").href=`/api/gpos/${g.guid}/report.txt`;$("#plan").href=`/api/gpos/${g.guid}/plan.ps1`;$("#export").href=`/api/gpos/${g.guid}/export.zip`;$("#gpmc-backup").href=`/api/gpos/${g.guid}/gpmc-backup`;
   $("#plan").dataset.exportKind="powershell_plan";$("#export").dataset.exportKind="studio_export";$("#gpmc-backup").dataset.exportKind="gpmc_export";
   $("#setting-count").textContent=g.settings.length;$("#link-count").textContent=g.links.length;$("#filter-count").textContent=g.security_filters?g.security_filters.length:0;$("#gpp-count").textContent=(g.gpp_collections||[]).reduce((n,c)=>n+(c.groups?c.groups.length:0)+(c.registry?c.registry.length:0),0);
@@ -33,10 +34,11 @@ export function renderAll(){
   $("#metadata").innerHTML=metaParts.join("");
   renderValidation();renderSettings();renderLinks();renderFilters();renderWmi();renderGpp();
   const readOnly=g.status==="archived";
-  ["edit-metadata","add-setting","add-link","add-filter","edit-wmi","add-gpp-group","add-gpp-registry"].forEach(id=>{const control=$("#"+id);if(!control)return;control.disabled=readOnly;control.title=readOnly?"Archived policies are read-only. Fork this policy to edit it.":""});
-  $$('[data-edit-setting],[data-delete-setting],[data-edit-link],[data-delete-link],[data-edit-filter],[data-delete-filter],[data-edit-gpp-group],[data-delete-gpp-group],[data-edit-gpp-registry],[data-delete-gpp-registry],[data-clone-gpp-group],[data-clone-gpp-registry],[data-move-gpp-group],[data-move-gpp-registry],[data-restore-gpp-group],[data-restore-gpp-registry]').forEach(control=>{if(readOnly){control.disabled=true;control.title="Archived policies are read-only. Fork this policy to edit it."}});
+  ["edit-metadata","add-setting","add-link","add-filter","copy-settings","edit-wmi","add-gpp-group","add-gpp-registry"].forEach(id=>{const control=$("#"+id);if(!control)return;control.disabled=readOnly;control.title=readOnly?"Archived policies are read-only. Fork this policy to edit it.":""});
+  $$('[data-edit-setting],[data-delete-setting],[data-comment-setting],[data-edit-link],[data-delete-link],[data-edit-filter],[data-delete-filter],[data-edit-gpp-group],[data-delete-gpp-group],[data-edit-gpp-registry],[data-delete-gpp-registry],[data-clone-gpp-group],[data-clone-gpp-registry],[data-move-gpp-group],[data-move-gpp-registry],[data-restore-gpp-group],[data-restore-gpp-registry]').forEach(control=>{if(readOnly){control.disabled=true;control.title="Archived policies are read-only. Fork this policy to edit it."}});
   $$('[data-export-kind]').forEach(link=>{const capability=state.artifactCapabilities[link.dataset.exportKind]||{};const blocked=capability.enabled===false;link.setAttribute("aria-disabled",String(blocked));link.classList.toggle("disabled",blocked);link.title=blocked?(capability.reason||"Validation errors block this artifact. Open export review for details."):"Review this artifact before downloading."});
   if($("#panel-history").classList.contains("active"))loadHistory();
+  if($("#panel-browser").classList.contains("active"))loadBrowser();
 }
 export function renderValidation(){
   const errors=state.validation.filter(i=>i.severity==="error"),warnings=state.validation.filter(i=>i.severity==="warning");
@@ -48,9 +50,10 @@ export function renderValidation(){
 export function formatValue(setting){if(setting.action==="delete")return "Delete value";if(Array.isArray(setting.value))return setting.value.join(" · ");return String(setting.value)}
 export function renderSettings(){
   const items=state.current.settings.filter(s=>state.side==="all"||s.side===state.side);
-  $("#settings-table").innerHTML=items.map(s=>`<tr><td><span class="side ${s.side}">${s.side}</span></td><td><div class="mono truncate" title="${escapeHtml(s.hive+'\\'+s.key)}">${escapeHtml(s.hive+'\\'+s.key)}</div></td><td>${escapeHtml(s.value_name)||"(Default)"}</td><td class="mono">${escapeHtml(s.registry_type)}</td><td><div class="truncate" title="${escapeHtml(formatValue(s))}">${escapeHtml(formatValue(s))}</div></td><td><div class="row-actions"><button data-edit-setting="${escapeHtml(s.id)}">Edit</button><button data-delete-setting="${escapeHtml(s.id)}">×</button></div></td></tr>`).join("");
+  $("#settings-table").innerHTML=items.map(s=>`<tr><td><span class="side ${s.side}">${s.side}</span></td><td><div class="mono truncate" title="${escapeHtml(s.hive+'\\'+s.key)}">${escapeHtml(s.hive+'\\'+s.key)}</div></td><td>${escapeHtml(s.value_name)||"(Default)"}</td><td class="mono">${escapeHtml(s.registry_type)}</td><td><div class="truncate" title="${escapeHtml(formatValue(s))}">${escapeHtml(formatValue(s))}</div>${s.comment?`<div class="setting-comment truncate" title="${escapeHtml(s.comment)}">${escapeHtml(s.comment)}</div>`:""}</td><td><div class="row-actions"><button data-edit-setting="${escapeHtml(s.id)}">Edit</button><button data-comment-setting="${escapeHtml(s.id)}">Comment</button><button data-delete-setting="${escapeHtml(s.id)}">×</button></div></td></tr>`).join("");
   $("#settings-empty").hidden=items.length>0;
   $$('[data-edit-setting]').forEach(el=>el.onclick=()=>openSetting(state.current.settings.find(s=>s.id===el.dataset.editSetting)));
+  $$('[data-comment-setting]').forEach(el=>el.onclick=()=>openComment(state.current.settings.find(s=>s.id===el.dataset.commentSetting)));
   $$('[data-delete-setting]').forEach(el=>el.onclick=()=>deleteSetting(el.dataset.deleteSetting));
 }
 export function renderLinks(){

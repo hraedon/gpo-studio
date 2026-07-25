@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="secbase" namespace="Synthetic.Policies.SecurityBaseline" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="SecurityBaselineRoot" displayName="$(string.SecurityBaselineRoot)">
+      <parentCategory ref="windows:WindowsComponents" />
+    </category>
+    <category name="AccountPolicies" displayName="$(string.AccountPolicies)">
+      <parentCategory ref="SecurityBaselineRoot" />
+    </category>
+    <category name="AuditPolicies" displayName="$(string.AuditPolicies)">
+      <parentCategory ref="SecurityBaselineRoot" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="SUPPORTED_SecBase_v10" displayName="$(string.SUPPORTED_SecBase_v10)" />
+    <definition name="SUPPORTED_SecBase_v11" displayName="$(string.SUPPORTED_SecBase_v11)" />
+  </supportedOn>
+  <policies>
+    <policy name="AccountLockoutDuration" class="Machine"
+            key="Software\Policies\TestLab\SecurityBaseline\Account"
+            displayName="$(string.AccountLockoutDuration)"
+            explainText="$(string.AccountLockoutDuration_Explain)"
+            supportedOn="SUPPORTED_SecBase_v10"
+            presentation="$(presentation.AccountLockoutDuration)">
+      <parentCategory ref="AccountPolicies" />
+      <supportedOn ref="SUPPORTED_SecBase_v10" />
+      <elements>
+        <decimal id="LockoutDuration"
+                 key="Software\Policies\TestLab\SecurityBaseline\Account"
+                 valueName="LockoutDuration"
+                 minValue="0" maxValue="999" />
+      </elements>
+    </policy>
+    <policy name="AuditProcessTracking" class="Machine"
+            key="Software\Policies\TestLab\SecurityBaseline\Audit"
+            valueName="AuditProcessTracking"
+            displayName="$(string.AuditProcessTracking)"
+            explainText="$(string.AuditProcessTracking_Explain)"
+            supportedOn="SUPPORTED_SecBase_v10"
+            presentation="$(presentation.AuditProcessTracking)">
+      <parentCategory ref="AuditPolicies" />
+      <supportedOn ref="SUPPORTED_SecBase_v10" />
+    </policy>
+    <policy name="SecurityOptionsList" class="Machine"
+            key="Software\Policies\TestLab\SecurityBaseline\Options"
+            displayName="$(string.SecurityOptionsList)"
+            explainText="$(string.SecurityOptionsList_Explain)"
+            supportedOn="SUPPORTED_SecBase_v11"
+            presentation="$(presentation.SecurityOptionsList)">
+      <parentCategory ref="SecurityBaselineRoot" />
+      <supportedOn ref="SUPPORTED_SecBase_v11" />
+      <enabledList defaultKey="Software\Policies\TestLab\SecurityBaseline\Options">
+        <item valueName="OptionA">
+          <value><decimal value="1" /></value>
+        </item>
+        <item key="Software\Policies\TestLab\SecurityBaseline\Options\Extra"
+              valueName="OptionB">
+          <value><string>enabled</string></value>
+        </item>
+      </enabledList>
+      <disabledList>
+        <item valueName="OptionA">
+          <value><delete /></value>
+        </item>
+      </disabledList>
+    </policy>
+    <policy name="BaselineBothClass" class="Both"
+            key="Software\Policies\TestLab\SecurityBaseline\Common"
+            valueName="CommonBaseline"
+            displayName="$(string.BaselineBothClass)"
+            explainText="$(string.BaselineBothClass_Explain)"
+            supportedOn="SUPPORTED_SecBase_v10"
+            presentation="$(presentation.BaselineBothClass)">
+      <parentCategory ref="SecurityBaselineRoot" />
+      <supportedOn ref="SUPPORTED_SecBase_v10" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+      <elements>
+        <boolean id="BaselineEnforced"
+                 key="Software\Policies\TestLab\SecurityBaseline\Common"
+                 valueName="BaselineEnforced" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>
