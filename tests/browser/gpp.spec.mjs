@@ -175,9 +175,7 @@ test("authors a GPP group in the user scope", async ({
   const seeded = await seedPolicy(request, testInfo);
   await openPreferences(page, seeded);
 
-  await page
-    .locator('.gpp-scope-row .chip[data-gpp-scope="user"]')
-    .click();
+  await page.locator('.gpp-scope-row .chip[data-gpp-scope="user"]').click();
 
   await page.getByRole("button", { name: "＋ Add group" }).click();
   const dialog = page.getByRole("dialog", { name: "Add group" });
@@ -253,10 +251,7 @@ test("stale write is rejected with conflict message", async ({
   await expect(conflict).toContainText("Unsaved fields retained");
 });
 
-test("removes a GPP group member", async ({
-  page,
-  request,
-}, testInfo) => {
+test("removes a GPP group member", async ({ page, request }, testInfo) => {
   const seeded = await seedPolicy(request, testInfo);
   await openPreferences(page, seeded);
 
@@ -284,9 +279,7 @@ test("removes a GPP group member", async ({
     .locator("#gpp-members-list .gpp-row")
     .getByRole("button", { name: "Remove member row" })
     .click();
-  await expect(editDialog.locator("#gpp-members-list .gpp-row")).toHaveCount(
-    0,
-  );
+  await expect(editDialog.locator("#gpp-members-list .gpp-row")).toHaveCount(0);
 
   await editDialog.getByRole("button", { name: "Save group" }).click();
   await expect(editDialog).toBeHidden();
