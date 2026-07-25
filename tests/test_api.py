@@ -2520,3 +2520,427 @@ def test_template_collisions_empty(tmp_path, monkeypatch) -> None:
         resp = client.get("/api/templates/collisions")
         assert resp.status_code == 200
         assert resp.json()["has_issues"] is False
+
+
+def test_update_setting_comment(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Comment test"}).json()["gpo"]
+        gpo = client.post(
+            f"/api/gpos/{gpo['guid']}/settings",
+            json={
+                "expected_revision": gpo["revision"],
+                "reason": "add setting",
+                "setting": {
+                    "side": "computer",
+                    "hive": "HKLM",
+                    "key": r"Software\Policies\Comment",
+                    "value_name": "Value",
+                    "registry_type": "REG_DWORD",
+                    "value": "1",
+                    "comment": "original",
+                },
+            },
+        ).json()["gpo"]
+        setting_id = gpo["settings"][0]["id"]
+        resp = client.patch(
+            f"/api/gpos/{gpo['guid']}/settings/{setting_id}/comment",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "update comment",
+                "comment": "updated comment",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["gpo"]["revision"] == 3
+        assert resp.json()["gpo"]["settings"][0]["comment"] == "updated comment"
+        stale = client.patch(
+            f"/api/gpos/{gpo['guid']}/settings/{setting_id}/comment",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "stale",
+                "comment": "stale",
+            },
+        )
+        assert stale.status_code == 409
+        not_found = client.patch(
+            f"/api/gpos/{gpo['guid']}/settings/missing/comment",
+            json={
+                "expected_revision": 3,
+                "actor": "tester",
+                "reason": "missing",
+                "comment": "missing",
+            },
+        )
+        assert not_found.status_code == 404
+        invalid = client.patch(
+            f"/api/gpos/{gpo['guid']}/settings/{setting_id}/comment",
+            json={
+                "expected_revision": 3,
+                "actor": "tester",
+                "reason": "long",
+                "comment": "x" * 1001,
+            },
+        )
+        assert invalid.status_code == 422
+
+
+def test_copy_settings(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        source = client.post("/api/gpos", json={"name": "Source"}).json()["gpo"]
+        source = client.post(
+            f"/api/gpos/{source['guid']}/settings",
+            json={
+                "expected_revision": source["revision"],
+                "reason": "add computer setting",
+                "setting": {
+                    "side": "computer",
+                    "hive": "HKLM",
+                    "key": r"Software\Policies\Copy",
+                    "value_name": "Computer",
+                    "registry_type": "REG_DWORD",
+                    "value": "1",
+                },
+            },
+        ).json()["gpo"]
+        source = client.post(
+            f"/api/gpos/{source['guid']}/settings",
+            json={
+                "expected_revision": source["revision"],
+                "reason": "add user setting",
+                "setting": {
+                    "side": "user",
+                    "hive": "HKCU",
+                    "key": r"Software\Policies\Copy",
+                    "value_name": "User",
+                    "registry_type": "REG_DWORD",
+                    "value": "2",
+                },
+            },
+        ).json()["gpo"]
+        target = client.post("/api/gpos", json={"name": "Target"}).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{target['guid']}/copy-settings",
+            json={
+                "expected_revision": target["revision"],
+                "actor": "tester",
+                "reason": "copy all",
+                "source_guid": source["guid"],
+            },
+        )
+        assert resp.status_code == 200
+        copied = resp.json()["gpo"]
+        assert copied["revision"] == 2
+        assert {s["value_name"] for s in copied["settings"]} == {"Computer", "User"}
+        target2 = client.post("/api/gpos", json={"name": "Target 2"}).json()["gpo"]
+        user_only = client.post(
+            f"/api/gpos/{target2['guid']}/copy-settings",
+            json={
+                "expected_revision": target2["revision"],
+                "actor": "tester",
+                "reason": "copy user only",
+                "source_guid": source["guid"],
+                "side": "user",
+            },
+        )
+        assert user_only.status_code == 200
+        assert {s["value_name"] for s in user_only.json()["gpo"]["settings"]} == {"User"}
+        stale = client.post(
+            f"/api/gpos/{target2['guid']}/copy-settings",
+            json={
+                "expected_revision": 1,
+                "actor": "tester",
+                "reason": "stale",
+                "source_guid": source["guid"],
+            },
+        )
+        assert stale.status_code == 409
+        missing_source = client.post(
+            f"/api/gpos/{target2['guid']}/copy-settings",
+            json={
+                "expected_revision": user_only.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "missing",
+                "source_guid": "does-not-exist",
+            },
+        )
+        assert missing_source.status_code == 404
+        invalid = client.post(
+            f"/api/gpos/{target2['guid']}/copy-settings",
+            json={
+                "expected_revision": user_only.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "invalid side",
+                "source_guid": source["guid"],
+                "side": "machine",
+            },
+        )
+        assert invalid.status_code == 422
+
+
+def test_bulk_policy_state(tmp_path, monkeypatch) -> None:
+    _setup_stateful_admx_env(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "Bulk state"}).json()["gpo"]
+        gpo = client.post(
+            f"/api/admx/policies/{_STATEFUL_ID}/configure",
+            json={
+                "gpo_guid": gpo["guid"],
+                "side": "computer",
+                "values": {"SubOption": True},
+                "state": "enabled",
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "enable",
+            },
+        ).json()["gpo"]
+        assert len(gpo["settings"]) == 2
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "bulk disabled",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "side": "computer",
+                "target_state": "disabled",
+            },
+        )
+        assert resp.status_code == 200
+        disabled = resp.json()["gpo"]
+        assert disabled["revision"] == 3
+        assert [s["value_name"] for s in disabled["settings"]] == ["FeatureState"]
+        assert disabled["settings"][0]["value"] == "0"
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": disabled["revision"],
+                "actor": "tester",
+                "reason": "bulk not configured",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "side": "computer",
+                "target_state": "not_configured",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["gpo"]["settings"] == []
+        stale = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": 1,
+                "actor": "tester",
+                "reason": "stale",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "side": "computer",
+                "target_state": "disabled",
+            },
+        )
+        assert stale.status_code == 409
+        not_found = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": resp.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "missing policy",
+                "policy_ids": ["Synthetic.Policies.Stateful:MissingPolicy"],
+                "side": "computer",
+                "target_state": "disabled",
+            },
+        )
+        assert not_found.status_code == 404
+        side_mismatch = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": resp.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "side mismatch",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "side": "user",
+                "target_state": "disabled",
+            },
+        )
+        assert side_mismatch.status_code == 422
+        invalid = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": resp.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "bad state",
+                "policy_ids": ["Synthetic.Policies.Stateful:StatefulPolicy"],
+                "side": "computer",
+                "target_state": "enabled",
+            },
+        )
+        assert invalid.status_code == 422
+        empty = client.post(
+            f"/api/gpos/{gpo['guid']}/bulk-policy-state",
+            json={
+                "expected_revision": resp.json()["gpo"]["revision"],
+                "actor": "tester",
+                "reason": "empty",
+                "policy_ids": [],
+                "side": "computer",
+                "target_state": "disabled",
+            },
+        )
+        assert empty.status_code == 422
+
+
+def test_starter_gpo_crud(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/starter-gpos",
+            json={
+                "name": "Starter",
+                "description": "Template",
+                "template_version": "v1",
+                "actor": "tester",
+                "reason": "create starter",
+            },
+        )
+        assert resp.status_code == 201
+        starter = resp.json()["gpo"]
+        assert starter["is_starter"] is True
+        assert starter["template_version"] == "v1"
+        assert starter["status"] == "draft"
+
+        resp = client.get("/api/starter-gpos")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 1
+        assert data["items"][0]["guid"] == starter["guid"]
+
+        regular = client.post("/api/gpos", json={"name": "Regular"}).json()["gpo"]
+        resp = client.get("/api/starter-gpos")
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 1
+
+        resp = client.patch(
+            f"/api/gpos/{starter['guid']}",
+            json={
+                "expected_revision": starter["revision"],
+                "name": "Starter",
+                "description": "Updated starter",
+                "computer_enabled": True,
+                "user_enabled": True,
+                "status": "draft",
+                "actor": "tester",
+                "reason": "update metadata",
+            },
+        )
+        assert resp.status_code == 200
+        starter = resp.json()["gpo"]
+        assert starter["description"] == "Updated starter"
+
+        resp = client.post(
+            f"/api/gpos/{starter['guid']}/settings",
+            json={
+                "expected_revision": starter["revision"],
+                "actor": "tester",
+                "reason": "add setting",
+                "setting": {
+                    "side": "computer",
+                    "hive": "HKLM",
+                    "key": r"Software\Policies\Starter",
+                    "value_name": "Enabled",
+                    "registry_type": "REG_DWORD",
+                    "value": "1",
+                },
+            },
+        )
+        assert resp.status_code == 201
+        starter = resp.json()["gpo"]
+        assert len(starter["settings"]) == 1
+
+        resp = client.post(
+            f"/api/starter-gpos/{starter['guid']}/derive",
+            json={
+                "name": "Derived",
+                "actor": "tester",
+                "reason": "derive",
+            },
+        )
+        assert resp.status_code == 201
+        derived = resp.json()["gpo"]
+        assert derived["is_starter"] is False
+        assert derived["source_guid"] == starter["guid"]
+        assert derived["name"] == "Derived"
+        assert len(derived["settings"]) == 1
+
+        resp = client.post(
+            f"/api/starter-gpos/{starter['guid']}/derive",
+            json={
+                "name": "Derived stale",
+                "actor": "tester",
+                "reason": "stale",
+                "expected_revision": 1,
+            },
+        )
+        assert resp.status_code == 409
+
+        resp = client.post(
+            "/api/starter-gpos/nonexistent-guid/derive",
+            json={
+                "name": "Derived",
+                "actor": "tester",
+                "reason": "missing",
+            },
+        )
+        assert resp.status_code == 404
+
+        resp = client.request(
+            "DELETE",
+            f"/api/starter-gpos/{starter['guid']}",
+            json={"actor": "tester", "reason": "delete", "expected_revision": starter["revision"]},
+        )
+        assert resp.status_code == 204
+        assert client.get(f"/api/gpos/{starter['guid']}").status_code == 404
+
+        resp = client.request(
+            "DELETE",
+            "/api/starter-gpos/nonexistent-guid",
+            json={"actor": "tester", "reason": "delete", "expected_revision": 1},
+        )
+        assert resp.status_code == 404
+
+        resp = client.request(
+            "DELETE",
+            f"/api/starter-gpos/{regular['guid']}",
+            json={
+                "actor": "tester",
+                "reason": "delete regular",
+                "expected_revision": regular["revision"],
+            },
+        )
+        assert resp.status_code == 404
+
+
+def test_create_starter_gpo_requires_name(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/starter-gpos",
+            json={"actor": "tester", "reason": "missing name"},
+        )
+        assert resp.status_code == 422
+
+
+def test_create_starter_gpo_requires_actor_and_reason(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        resp = client.post("/api/starter-gpos", json={"name": "Starter"})
+        assert resp.status_code == 422

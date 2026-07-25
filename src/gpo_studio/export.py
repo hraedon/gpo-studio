@@ -91,9 +91,13 @@ def powershell_plan(gpo: GPO) -> str:
             )
         elif setting.action == "delete_all_values":
             lines.append(
-                "Remove-GPRegistryValue -Guid $gpo.Id"
-                f" -Key {_ps_quote(key)} -ValueName '*'"
-                " -ErrorAction SilentlyContinue"
+                f"$existing = Get-GPRegistryValue -Guid $gpo.Id"
+                f" -Key {_ps_quote(key)} -ErrorAction SilentlyContinue"
+            )
+            lines.append(
+                "if ($existing) { $existing | ForEach-Object"
+                f" {{ Remove-GPRegistryValue -Guid $gpo.Id -Key {_ps_quote(key)}"
+                " -ValueName $_.ValueName -ErrorAction SilentlyContinue } }"
             )
         elif setting.action == "set":
             type_map = {

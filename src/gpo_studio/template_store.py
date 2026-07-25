@@ -7,12 +7,21 @@ never writes to SYSVOL or any domain path; ingest is read-only.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, assert_never
 
-from .admx import AdmxCatalogue, AdmxError, build_catalogue
+from .admx import (
+    AdmxCatalogue,
+    AdmxError,
+    build_catalogue,
+    extract_namespaces,
+    find_adml,
+)
+from .evidence import ContentClassification
 
 SourceKind = Literal["local", "central-store", "vendor-pack", "curated"]
 
@@ -26,6 +35,8 @@ class TemplateFile:
     relative_path: str
     sha256: str
     size: int
+    content_classification: ContentClassification
+    license_note: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +44,8 @@ class TemplateSource:
     name: str
     kind: SourceKind
     path: str
+    content_classification: ContentClassification
+    license_note: str
     files: tuple[TemplateFile, ...] = field(default_factory=tuple)
 
 
@@ -111,6 +124,132 @@ def _hash_files(files: tuple[TemplateFile, ...]) -> str:
     return h.hexdigest()
 
 
+_MICROSOFT_FILE_NAMES: frozenset[str] = frozenset({
+    "windows.admx",
+    "windows.adml",
+    "win10.admx",
+    "win10.adml",
+    "win11.admx",
+    "win11.adml",
+    "inetres.admx",
+    "inetres.adml",
+    "wuau.admx",
+    "wuau.adml",
+    "defender.admx",
+    "defender.adml",
+    "onedrive.admx",
+    "onedrive.adml",
+    "office.admx",
+    "office.adml",
+    "office16.admx",
+    "office16.adml",
+})
+
+
+_RESTRICTIVENESS: dict[ContentClassification, int] = {
+    "excluded": 0,
+    "hash-reference": 1,
+    "in-repo": 2,
+}
+
+
+_MICROSOFT_COPYRIGHT_RE = re.compile(
+    r"microsoft.*(?:copyright|\(c\)|©)|(?:copyright|\(c\)|©).*microsoft",
+    re.IGNORECASE,
+)
+
+
+def _has_microsoft_copyright(data: bytes) -> bool:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return bool(_MICROSOFT_COPYRIGHT_RE.search(text))
+
+
+def _is_synthetic_namespace(namespace: str) -> bool:
+    return namespace.startswith(
+        ("Synthetic.Test.", "Test.", "Local.")
+    ) or namespace.startswith("http://studio.local/")
+
+
+def classify_template_file(
+    relative_path: str,
+    admx_data: bytes | None,
+    adml_data: bytes | None,
+) -> tuple[ContentClassification, str]:
+    """Mechanically classify the license posture of an ADMX/ADML pair.
+
+    Microsoft-copyrighted material is never classified as ``in-repo``.
+    Vendor and unmarked third-party content defaults to ``hash-reference`` so
+    only the SHA-256 is retained. Clearly synthetic or test namespaces may be
+    ``in-repo``.
+    """
+    filename = Path(relative_path).name.lower()
+    ms_reasons: list[str] = []
+    if filename in _MICROSOFT_FILE_NAMES:
+        ms_reasons.append(f"known Microsoft file name {filename}")
+
+    targets: tuple[str, ...] = ()
+    usings: tuple[str, ...] = ()
+    if admx_data is not None:
+        with contextlib.suppress(AdmxError):
+            targets, usings = extract_namespaces(admx_data)
+    for namespace in (*targets, *usings):
+        if namespace.startswith("Microsoft."):
+            ms_reasons.append(f"Microsoft namespace {namespace}")
+
+    if adml_data is not None and _has_microsoft_copyright(adml_data):
+        ms_reasons.append("Microsoft copyright in ADML")
+
+    if ms_reasons:
+        return "hash-reference", f"Microsoft-copyrighted: {'; '.join(ms_reasons)}"
+
+    synth_reasons: list[str] = []
+    for namespace in (*targets, *usings):
+        if _is_synthetic_namespace(namespace):
+            synth_reasons.append(f"synthetic namespace {namespace}")
+
+    if synth_reasons:
+        return "in-repo", f"Synthetic: {'; '.join(synth_reasons)}"
+
+    if targets or usings:
+        return "hash-reference", f"Vendor namespace: {', '.join((*targets, *usings))}"
+    return "hash-reference", "Vendor or unknown content (no synthetic namespace declared)"
+
+
+def _more_restrictive(
+    a: ContentClassification, b: ContentClassification
+) -> ContentClassification:
+    return a if _RESTRICTIVENESS[a] <= _RESTRICTIVENESS[b] else b
+
+
+def _source_classification(
+    files: tuple[TemplateFile, ...],
+) -> tuple[ContentClassification, str]:
+    if not files:
+        return "in-repo", "No files ingested"
+    aggregate: ContentClassification = "in-repo"
+    for file in files:
+        aggregate = _more_restrictive(aggregate, file.content_classification)
+    notes = "; ".join(
+        f"{file.relative_path}: {file.content_classification}"
+        for file in files
+        if file.content_classification != "in-repo"
+    )
+    return aggregate, notes or "All files classified as in-repo"
+
+
+def _retention_policy(classification: ContentClassification) -> str:
+    if classification == "in-repo":
+        return "full bytes may be retained"
+    if classification == "hash-reference":
+        return "hash only, no redistribution"
+    if classification == "excluded":
+        return "not retained"
+    assert_never(classification)
+
+
 def detect_central_store(root: Path) -> Path | None:
     """Detect the PolicyDefinitions directory from a SYSVOL-like layout.
 
@@ -137,24 +276,59 @@ _MAX_TEMPLATE_FILE_SIZE = 10 * 1024 * 1024
 
 def _scan_directory(directory: Path, source_name: str) -> tuple[TemplateFile, ...]:
     files: list[TemplateFile] = []
+    seen_adml: set[Path] = set()
     for path in sorted(directory.glob("*.admx")):
         try:
             size = path.stat().st_size
             if size > _MAX_TEMPLATE_FILE_SIZE:
                 continue
-            data = path.read_bytes()
+            admx_data = path.read_bytes()
         except OSError:
             continue
+        relative = str(path.relative_to(directory))
+        adml_path = find_adml(path)
+        adml_data: bytes | None = None
+        if adml_path is not None:
+            try:
+                adml_size = adml_path.stat().st_size
+                if adml_size <= _MAX_TEMPLATE_FILE_SIZE:
+                    adml_data = adml_path.read_bytes()
+                    seen_adml.add(adml_path)
+            except OSError:
+                pass
+        classification, note = classify_template_file(relative, admx_data, adml_data)
         files.append(TemplateFile(
-            relative_path=str(path.relative_to(directory)),
-            sha256=_hash_bytes(data),
-            size=len(data),
+            relative_path=relative,
+            sha256=_hash_bytes(admx_data),
+            size=len(admx_data),
+            content_classification=classification,
+            license_note=note,
         ))
+        if adml_path is not None and adml_data is not None:
+            adml_relative = str(adml_path.relative_to(directory))
+            adml_classification = classification
+            adml_note = note
+            if (
+                adml_path.name.lower() in _MICROSOFT_FILE_NAMES
+                or _has_microsoft_copyright(adml_data)
+            ):
+                adml_classification = "hash-reference"
+                adml_note = f"Microsoft indicator in paired ADML {adml_relative}"
+            files.append(TemplateFile(
+                relative_path=adml_relative,
+                sha256=_hash_bytes(adml_data),
+                size=len(adml_data),
+                content_classification=adml_classification,
+                license_note=adml_note,
+            ))
+
     adml_paths = sorted(directory.glob("*.adml"))
     for child in sorted(directory.iterdir()) if directory.is_dir() else []:
         if child.is_dir():
             adml_paths.extend(sorted(child.glob("*.adml")))
     for path in adml_paths:
+        if path in seen_adml:
+            continue
         try:
             size = path.stat().st_size
             if size > _MAX_TEMPLATE_FILE_SIZE:
@@ -162,10 +336,14 @@ def _scan_directory(directory: Path, source_name: str) -> tuple[TemplateFile, ..
             data = path.read_bytes()
         except OSError:
             continue
+        relative = str(path.relative_to(directory))
+        classification, note = classify_template_file(relative, None, data)
         files.append(TemplateFile(
-            relative_path=str(path.relative_to(directory)),
+            relative_path=relative,
             sha256=_hash_bytes(data),
             size=len(data),
+            content_classification=classification,
+            license_note=note,
         ))
     return tuple(files)
 
@@ -174,24 +352,47 @@ def ingest_source(
     name: str,
     kind: SourceKind,
     directory: Path,
+    claimed_classification: ContentClassification | None = None,
 ) -> IngestResult:
     """Ingest a template source directory with per-file resilience.
 
     Malformed ADMX/ADML files are skipped and reported in errors; they do
-    not abort the entire ingest.
+    not abort the entire ingest. Each file is mechanically classified for
+    licensing; if ``claimed_classification`` is ``in-repo`` but any file is
+    mechanically classified as non-``in-repo`` (e.g. Microsoft or vendor
+    ADMX), ingestion is rejected.
     """
     if not directory.is_dir():
         raise TemplateError(f"Template directory does not exist: {directory}")
 
     files = _scan_directory(directory, name)
-    source = TemplateSource(name=name, kind=kind, path=str(directory), files=files)
+    if claimed_classification == "in-repo":
+        for file in files:
+            if file.content_classification != "in-repo":
+                raise TemplateError(
+                    f"Source {name!r} claims in-repo classification but "
+                    f"{file.relative_path} is classified as "
+                    f"{file.content_classification}: {file.license_note}"
+                )
+
+    aggregate_classification, aggregate_note = _source_classification(files)
+    if claimed_classification is not None:
+        aggregate_classification = claimed_classification
+        aggregate_note = f"Claimed {claimed_classification}; {aggregate_note}"
+    source = TemplateSource(
+        name=name,
+        kind=kind,
+        path=str(directory),
+        content_classification=aggregate_classification,
+        license_note=aggregate_note,
+        files=files,
+    )
 
     from .admx import (
         Category,
         NamespaceDeclaration,
         PolicyDefinition,
         SupportedOnDefinition,
-        find_adml,
     )
 
     policies: list[PolicyDefinition] = []

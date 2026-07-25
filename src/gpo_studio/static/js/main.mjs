@@ -2,10 +2,12 @@ import {state,$,$$} from './state.mjs';
 import {api,toast,clearPersistentError} from './api.mjs';
 import {clearFormErrors,showFormErrors} from './errors.mjs';
 import {loadList,renderList,renderSettings,loadHistory} from './render.mjs';
-import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,syncSettingForm,initForms} from './forms.mjs';
+import {openGpo,openSetting,openLink,openFilter,openWmi,openWmiCatalogue,openEstate,openFork,openCopySettings,syncSettingForm,initForms} from './forms.mjs';
 import {initGpp} from './gpp.mjs';
 import {checkAdmx,initAdmx} from './admx.mjs';
 import {initDiff,loadDiffSelectors} from './diff.mjs';
+import {initBrowser,loadBrowser} from './browser.mjs';
+import {initStarter} from './starter.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -35,6 +37,7 @@ function activateTab(tab,{moveFocus=false}={}){
   if(tab.dataset.tab==="history")loadHistory().catch(error=>reportPersistentError(error.message));
   if(tab.dataset.tab==="diff")loadDiffSelectors();
   if(tab.dataset.tab==="admx")checkAdmx();
+  if(tab.dataset.tab==="browser")loadBrowser().catch(error=>reportPersistentError(error.message));
 }
 
 tabs.forEach((tab,index)=>{
@@ -131,8 +134,8 @@ function initialisePressedGroups(){
   });
 }
 
-$$('.filter-row .chip').forEach(chip=>chip.onclick=()=>{
-  $$('.filter-row .chip').forEach(item=>item.classList.toggle("active",item===chip));
+$$('#panel-settings .filter-row .chip').forEach(chip=>chip.onclick=()=>{
+  $$('#panel-settings .filter-row .chip').forEach(item=>item.classList.toggle("active",item===chip));
   state.side=chip.dataset.side;
   renderSettings();
 });
@@ -146,6 +149,7 @@ $("#edit-wmi").onclick=()=>openWmi();
 $("#browse-wmi-catalogue").onclick=()=>openWmiCatalogue();
 $("#import-estate").onclick=()=>openEstate();
 $("#fork-gpo").onclick=()=>openFork();
+$("#copy-settings").onclick=()=>openCopySettings();
 $("#search").oninput=renderList;
 
 let pendingExportUrl="";
@@ -214,6 +218,8 @@ initForms();
 initGpp();
 initAdmx();
 initDiff();
+initBrowser();
+initStarter();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 loadList().then(()=>setAppStatus("")).catch(error=>{

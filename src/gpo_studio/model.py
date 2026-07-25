@@ -94,6 +94,8 @@ class GPO:
     security_filters: tuple[SecurityFilter, ...] = field(default_factory=tuple)
     wmi_filter: WmiFilter | None = None
     gpp_collections: tuple[GppCollection, ...] = field(default_factory=tuple)
+    is_starter: bool = False
+    template_version: str = ""
     domain: str = "studio.local"
     created_at: str = ""
     updated_at: str = ""

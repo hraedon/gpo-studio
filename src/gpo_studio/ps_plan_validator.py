@@ -15,6 +15,7 @@ _ALLOWED_CMDLETS: frozenset[str] = frozenset({
     "new-gpo",
     "rename-gpo",
     "set-gpregistryvalue",
+    "get-gpregistryvalue",
     "remove-gpregistryvalue",
     "new-gplink",
     "set-gplink",
@@ -22,6 +23,7 @@ _ALLOWED_CMDLETS: frozenset[str] = frozenset({
     "get-gppermission",
     "set-gppermission",
     "where-object",
+    "foreach-object",
     "out-null",
 })
 
@@ -191,6 +193,7 @@ def validate_plan(plan_text: str) -> PlanValidationResult:
             known_pipe_patterns = [
                 "Where-Object",
                 "Out-Null",
+                "ForEach-Object",
             ]
             if not is_trailing_pipe and not any(p in code for p in known_pipe_patterns):
                 issues.append(PlanValidationIssue(

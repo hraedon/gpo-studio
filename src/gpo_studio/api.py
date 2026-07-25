@@ -24,6 +24,7 @@ from starlette.responses import Response as StarletteResponse
 from starlette.types import Scope
 
 from . import __version__
+from .adm import parse_adm
 from .admx import (
     AdmxCatalogue,
     AmbiguousPolicyError,
@@ -66,6 +67,7 @@ from .model import (
     GPO,
     ConflictError,
     NotFoundError,
+    RegistrySetting,
     StudioError,
     ValidationError,
     ValidationIssue,
@@ -164,6 +166,10 @@ class SettingData(BaseModel):
 
 class SettingMutation(Audit):
     setting: SettingData
+
+
+class CommentMutation(Audit):
+    comment: str = Field(default="", max_length=1000)
 
 
 class LinkData(BaseModel):
@@ -843,6 +849,8 @@ class GpoResponse(BaseModel):
     security_filters: list[SecurityFilterResponse]
     wmi_filter: WmiFilterResponse | None
     gpp_collections: list[GppCollectionResponse]
+    is_starter: bool = False
+    template_version: str = ""
     domain: str
     created_at: str
     updated_at: str
@@ -873,6 +881,10 @@ class BackupImportRequest(BaseModel):
     reason: str = Field(default="Import GPMC backup", min_length=1, max_length=500)
 
 
+class ImportAdmRequest(Audit):
+    adm_content: str = Field(max_length=100000)
+
+
 class ConfigurePolicyRequest(Audit):
     gpo_guid: str = Field(min_length=1, max_length=255)
     side: Literal["computer", "user"]
@@ -882,10 +894,37 @@ class ConfigurePolicyRequest(Audit):
     state: PolicyState = "enabled"
 
 
+class BulkPolicyStateMutation(Audit):
+    policy_ids: list[str] = Field(min_length=1, max_length=100)
+    side: Literal["computer", "user"]
+    target_state: PolicyState
+
+
+class CopySettingsMutation(Audit):
+    source_guid: str = Field(min_length=1, max_length=255)
+    side: Literal["computer", "user"] | None = None
+
+
 class ForkGPO(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     actor: str = Field(default="local-operator", min_length=1, max_length=120)
     reason: str = Field(default="Fork from baseline", min_length=1, max_length=500)
+
+
+class CreateStarterGPO(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str = Field(default="", max_length=2000)
+    template_version: str = Field(default="", max_length=255)
+    domain: str = Field(default="studio.local", max_length=255)
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class DeriveFromStarter(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=1, max_length=500)
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
 class EstateDiffRequest(BaseModel):
@@ -1685,6 +1724,34 @@ def configure_policy(
     return _gpo_payload(gpo, request)
 
 
+@app.post("/api/gpos/{guid}/bulk-policy-state")
+def bulk_policy_state(
+    request: Request, guid: str, body: BulkPolicyStateMutation
+) -> dict[str, Any]:
+    replacements: list[tuple[str, list[RegistrySetting]]] = []
+    for policy_id in body.policy_ids:
+        policy = _resolve_policy(request, policy_id)
+        config = PolicyConfiguration(
+            side=body.side, values={}, state=body.target_state
+        )
+        settings = resolve_policy(policy, config)
+        issues: list[ValidationIssue] = []
+        for s in settings:
+            issues.extend(validate_setting(s))
+        if any(i.severity == "error" for i in issues):
+            raise ValidationError(issues)
+        prefix = policy_setting_prefix(policy, body.side)
+        replacements.append((prefix, settings))
+    gpo = _store(request).bulk_replace_settings_by_prefix(
+        guid,
+        body.expected_revision,
+        replacements,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
 @app.get("/api/admx/categories")
 def admx_categories(request: Request) -> dict[str, Any]:
     catalogue = _catalogue(request)
@@ -1730,12 +1797,7 @@ def configured_settings(
     if q or state or category:
         result = search_configured_settings(result, q, state, category)
     if side:
-        result = type(result)(
-            resolved=tuple(cs for cs in result.resolved if cs.side == side),
-            unresolved=tuple(
-                u for u in result.unresolved if u.setting.side == side
-            ),
-        )
+        result = result.filter_by_side(side)
     resolved_items = [
         {
             "policy_id": cs.policy_id,
@@ -1749,6 +1811,8 @@ def configured_settings(
             "supported_on": cs.supported_on,
             "namespace": cs.namespace,
             "raw_setting_count": len(cs.raw_settings),
+            "ambiguous": cs.ambiguous,
+            "ambiguous_with": cs.ambiguous_with,
         }
         for cs in result.resolved[:limit]
     ]
@@ -1919,6 +1983,54 @@ def create_gpo(request: Request, body: CreateGPO) -> dict[str, Any]:
     return _gpo_payload(gpo, request)
 
 
+@app.get("/api/starter-gpos")
+def list_starter_gpos(request: Request) -> dict[str, Any]:
+    gpos = _store(request).list_starter_gpos()
+    return {"items": [_gpo_to_api_dict(gpo) for gpo in gpos], "count": len(gpos)}
+
+
+@app.post("/api/starter-gpos", status_code=201)
+def create_starter_gpo(request: Request, body: CreateStarterGPO) -> dict[str, Any]:
+    gpo = _store(request).create_starter_gpo(
+        body.name,
+        body.description,
+        identity=_identity(body.actor),
+        reason=body.reason,
+        template_version=body.template_version,
+        domain=body.domain,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post("/api/starter-gpos/{guid}/derive", status_code=201)
+def derive_gpo_from_starter(
+    request: Request, guid: str, body: DeriveFromStarter
+) -> dict[str, Any]:
+    gpo = _store(request).derive_gpo_from_starter(
+        guid,
+        body.name,
+        identity=_identity(body.actor),
+        reason=body.reason,
+        expected_revision=body.expected_revision,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.delete("/api/starter-gpos/{guid}", status_code=204)
+def delete_starter_gpo(
+    request: Request,
+    guid: str,
+    body: DeleteMutation,
+) -> Response:
+    _store(request).delete_starter_gpo(
+        guid,
+        body.expected_revision,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return Response(status_code=204)
+
+
 @app.get("/api/gpos/{guid}")
 def get_gpo(request: Request, guid: str) -> dict[str, Any]:
     return _gpo_payload(_store(request).get_gpo(guid), request)
@@ -1974,6 +2086,21 @@ def edit_setting(
     return _gpo_payload(gpo, request)
 
 
+@app.patch("/api/gpos/{guid}/settings/{setting_id}/comment")
+def update_setting_comment(
+    request: Request, guid: str, setting_id: str, body: CommentMutation
+) -> dict[str, Any]:
+    gpo = _store(request).patch_setting_comment(
+        guid,
+        body.expected_revision,
+        setting_id,
+        body.comment,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
 @app.delete("/api/gpos/{guid}/settings/{setting_id}")
 def delete_setting(
     request: Request, guid: str, setting_id: str, body: DeleteMutation
@@ -1986,6 +2113,46 @@ def delete_setting(
         reason=body.reason,
     )
     return _gpo_payload(gpo, request)
+
+
+@app.post("/api/gpos/{guid}/copy-settings")
+def copy_settings(request: Request, guid: str, body: CopySettingsMutation) -> dict[str, Any]:
+    source = _store(request).get_gpo(body.source_guid)
+    settings = list(source.settings)
+    if body.side is not None:
+        settings = [s for s in settings if s.side == body.side]
+    gpo = _store(request).put_settings(
+        guid,
+        body.expected_revision,
+        settings,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    return _gpo_payload(gpo, request)
+
+
+@app.post("/api/gpos/{guid}/import-adm")
+def import_adm(request: Request, guid: str, body: ImportAdmRequest) -> dict[str, Any]:
+    settings, warnings = parse_adm(body.adm_content)
+    if not settings:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="adm_no_settings",
+                message="No parseable settings found in .adm content.",
+                path="adm_content",
+            )
+        ])
+    gpo = _store(request).put_settings(
+        guid,
+        body.expected_revision,
+        settings,
+        identity=_identity(body.actor),
+        reason=body.reason,
+    )
+    payload = _gpo_payload(gpo, request)
+    payload["warnings"] = warnings
+    return payload
 
 
 @app.post("/api/gpos/{guid}/links", status_code=201)

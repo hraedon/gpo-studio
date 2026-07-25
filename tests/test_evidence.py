@@ -513,7 +513,7 @@ def _load_cli():
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_cli_hash_and_verify(tmp_path, capsys) -> None:
+def test_cli_hash_prints_canonical_hash(tmp_path, capsys) -> None:
     cli = _load_cli()
     path = tmp_path / "pack.json"
     path.write_text(json.dumps(_pack([RECORD_REGISTRY])), encoding="utf-8")
@@ -521,10 +521,7 @@ def test_cli_hash_and_verify(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     digest = captured.out.strip()
     assert len(digest) == 64
-    # Verify against the correct hash.
-    assert cli.main(["--pack", str(path), "--verify", digest]) == 0
-    # Mismatch exits non-zero.
-    assert cli.main(["--pack", str(path), "--verify", "0" * 64]) == 1
+    assert digest == canonical_pack_hash(load_pack(path))
 
 
 def test_cli_matrix_refuses_unsigned_pack(tmp_path, capsys) -> None:

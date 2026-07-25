@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Synthetic Security Baseline administrative templates</displayName>
+  <description>Representative security-baseline ADMX/ADML corpus fixtures.</description>
+  <resources>
+    <stringTable>
+      <string id="SecurityBaselineRoot">Synthetic Security Baseline</string>
+      <string id="AccountPolicies">Account Policies</string>
+      <string id="AuditPolicies">Audit Policies</string>
+      <string id="SUPPORTED_SecBase_v10">Synthetic Security Baseline v10 and later</string>
+      <string id="SUPPORTED_SecBase_v11">Synthetic Security Baseline v11 and later</string>
+      <string id="AccountLockoutDuration">Account Lockout Duration</string>
+      <string id="AccountLockoutDuration_Explain">Sets the synthetic account lockout duration in minutes.</string>
+      <string id="AuditProcessTracking">Audit Process Tracking</string>
+      <string id="AuditProcessTracking_Explain">Enables synthetic audit of process creation events.</string>
+      <string id="SecurityOptionsList">Security Options List</string>
+      <string id="SecurityOptionsList_Explain">Configures a list of synthetic security options.</string>
+      <string id="BaselineBothClass">Baseline Common Setting</string>
+      <string id="BaselineBothClass_Explain">Applies a synthetic setting to both computer and user sides.</string>
+      <string id="LockoutDurationLabel">Lockout duration (minutes)</string>
+      <string id="BaselineEnforcedLabel">Enforce baseline</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="AccountLockoutDuration">
+        <decimalTextBox refId="LockoutDuration" defaultValue="30">Lockout duration (minutes)</decimalTextBox>
+      </presentation>
+      <presentation id="AuditProcessTracking" />
+      <presentation id="SecurityOptionsList" />
+      <presentation id="BaselineBothClass">
+        <checkBox refId="BaselineEnforced" defaultChecked="false">Enforce baseline</checkBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

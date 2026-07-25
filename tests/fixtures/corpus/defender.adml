@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Synthetic Defender administrative templates</displayName>
+  <description>Representative Defender/antivirus ADMX/ADML corpus fixtures.</description>
+  <resources>
+    <stringTable>
+      <string id="DefenderRoot">Synthetic Defender</string>
+      <string id="Antivirus">Antivirus</string>
+      <string id="FirewallIntegration">Firewall Integration</string>
+      <string id="SUPPORTED_Defender_v4">Synthetic Defender v4 and later</string>
+      <string id="RealTimeProtection">Real-time Protection</string>
+      <string id="RealTimeProtection_Explain">Enables synthetic real-time protection.</string>
+      <string id="SubmitSamplesConsent">Submit Samples Consent</string>
+      <string id="SubmitSamplesConsent_Explain">Configures synthetic sample submission consent.</string>
+      <string id="ThreatSeverityDefaultAction">Threat Severity Default Action</string>
+      <string id="ThreatSeverityDefaultAction_Explain">Maps synthetic severity levels to actions.</string>
+      <string id="DefenderExclusions">Defender Exclusions</string>
+      <string id="DefenderExclusions_Explain">Lists synthetic exclusion paths.</string>
+      <string id="SubmitModeAlways">Always submit</string>
+      <string id="SubmitModeNever">Never submit</string>
+      <string id="SubmitModePrompt">Prompt before submitting</string>
+      <string id="SubmitModeLabel">Sample submission mode</string>
+      <string id="SeverityActionsLabel">Severity actions</string>
+      <string id="ExclusionPathsLabel">Exclusion paths</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="RealTimeProtection" />
+      <presentation id="SubmitSamplesConsent">
+        <dropdownList refId="SubmitMode">Sample submission mode</dropdownList>
+      </presentation>
+      <presentation id="ThreatSeverityDefaultAction">
+        <listBox refId="SeverityActions">
+          <label>Severity actions</label>
+        </listBox>
+      </presentation>
+      <presentation id="DefenderExclusions">
+        <multiTextBox refId="ExclusionPaths">
+          <label>Exclusion paths</label>
+        </multiTextBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

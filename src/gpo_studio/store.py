@@ -252,6 +252,8 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         gpp_collections=tuple(
             _gpp_collection(item) for item in data.get("gpp_collections", [])
         ),
+        is_starter=bool(data.get("is_starter", False)),
+        template_version=str(data.get("template_version", "")),
         domain=str(data.get("domain", "studio.local")),
         created_at=str(data.get("created_at", "")),
         updated_at=str(data.get("updated_at", "")),
@@ -433,6 +435,8 @@ class WorkspaceStore:
         computer_enabled: bool = True,
         user_enabled: bool = True,
         status: Literal["draft", "ready", "archived"] = "draft",
+        is_starter: bool = False,
+        template_version: str = "",
         security_filters: tuple[SecurityFilter, ...] = (),
         wmi_filter: WmiFilter | None = None,
         gpp_collections: tuple[GppCollection, ...] = (),
@@ -452,6 +456,8 @@ class WorkspaceStore:
             source_guid=source_guid,
             cse_metadata=cse_metadata,
             domain=domain,
+            is_starter=is_starter,
+            template_version=template_version,
             security_filters=security_filters,
             wmi_filter=wmi_filter,
             gpp_collections=gpp_collections,
@@ -478,6 +484,120 @@ class WorkspaceStore:
                     self._connection.execute("ROLLBACK")
                 self._map_sqlite_error(error)
         return gpo
+
+    def list_starter_gpos(self) -> list[GPO]:
+        with self._lock:
+            self._require_healthy()
+            try:
+                rows = self._connection.execute(
+                    """SELECT snapshot_json FROM gpos
+                       WHERE json_extract(snapshot_json, '$.is_starter') = 1
+                       ORDER BY name COLLATE NOCASE"""
+                ).fetchall()
+                return [gpo_from_dict(json.loads(row["snapshot_json"])) for row in rows]
+            except sqlite3.OperationalError as error:
+                if "no such function: json_extract" in str(error).lower():
+                    return [gpo for gpo in self.list_gpos() if gpo.is_starter]
+                self._map_sqlite_error(error)
+            except sqlite3.Error as error:
+                self._map_sqlite_error(error)
+
+    def create_starter_gpo(
+        self,
+        name: str,
+        description: str = "",
+        *,
+        identity: Identity | str,
+        reason: str,
+        template_version: str = "",
+        settings: tuple[RegistrySetting, ...] = (),
+        domain: str = "studio.local",
+        computer_enabled: bool = True,
+        user_enabled: bool = True,
+    ) -> GPO:
+        return self.create_gpo(
+            name=name,
+            description=description,
+            identity=identity,
+            reason=reason,
+            template_version=template_version,
+            settings=settings,
+            domain=domain,
+            computer_enabled=computer_enabled,
+            user_enabled=user_enabled,
+            status="draft",
+            is_starter=True,
+        )
+
+    def derive_gpo_from_starter(
+        self,
+        starter_guid: str,
+        name: str,
+        *,
+        identity: Identity | str,
+        reason: str,
+        expected_revision: int | None = None,
+    ) -> GPO:
+        starter = self.get_gpo(starter_guid)
+        if not starter.is_starter:
+            raise NotFoundError(f"Starter GPO {starter_guid} was not found")
+        if expected_revision is not None and starter.revision != expected_revision:
+            raise ConflictError(
+                f"Expected revision {expected_revision}, "
+                f"but the current revision is {starter.revision}",
+                expected_revision=expected_revision,
+                current_revision=starter.revision,
+            )
+        return self.create_gpo(
+            name=name,
+            description=starter.description,
+            identity=identity,
+            reason=reason,
+            settings=starter.settings,
+            domain=starter.domain,
+            computer_enabled=starter.computer_enabled,
+            user_enabled=starter.user_enabled,
+            source_guid=starter.guid,
+            status="draft",
+        )
+
+    def delete_starter_gpo(
+        self,
+        guid: str,
+        expected_revision: int,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> None:
+        actor = _resolve_actor(identity)
+        with self._lock:
+            self._require_healthy()
+            current = self.get_gpo(guid)
+            if not current.is_starter:
+                raise NotFoundError(f"Starter GPO {guid} was not found")
+            if current.revision != expected_revision:
+                raise ConflictError(
+                    f"Expected revision {expected_revision} but current is {current.revision}",
+                    expected_revision=expected_revision,
+                    current_revision=current.revision,
+                )
+            try:
+                self._connection.execute("BEGIN IMMEDIATE")
+                self._connection.execute(
+                    "DELETE FROM revisions WHERE gpo_guid = ?",
+                    (current.guid,),
+                )
+                self._connection.execute(
+                    "DELETE FROM gpos WHERE guid = ?",
+                    (current.guid,),
+                )
+                self._connection.execute("COMMIT")
+            except sqlite3.Error as exc:
+                with contextlib.suppress(sqlite3.Error):
+                    self._connection.execute("ROLLBACK")
+                self._map_sqlite_error(exc)
+                raise
+            _ = actor
 
     def import_baseline_gpos(
         self,
@@ -776,6 +896,59 @@ class WorkspaceStore:
             combined = kept + new_settings
             combined.sort(key=lambda item: item.identity())
             return replace(gpo, settings=tuple(combined))
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def bulk_replace_settings_by_prefix(
+        self,
+        guid: str,
+        expected_revision: int,
+        replacements: list[tuple[str, list[RegistrySetting]]],
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        if not replacements:
+            return self.get_gpo(guid)
+        prefixes: list[str] = []
+        all_new_settings: list[RegistrySetting] = []
+        for prefix, settings in replacements:
+            if not prefix:
+                raise ValueError("prefix must be non-empty")
+            for setting in settings:
+                if not setting.id.startswith(prefix):
+                    raise ValueError("every new setting id must start with prefix")
+            prefixes.append(prefix)
+            all_new_settings.extend(settings)
+        self._validate_settings(all_new_settings)
+
+        def mutate(gpo: GPO) -> GPO:
+            kept = [s for s in gpo.settings if not any(s.id.startswith(p) for p in prefixes)]
+            combined = kept + all_new_settings
+            combined.sort(key=lambda item: item.identity())
+            return replace(gpo, settings=tuple(combined))
+
+        return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
+
+    def patch_setting_comment(
+        self,
+        guid: str,
+        expected_revision: int,
+        setting_id: str,
+        comment: str,
+        *,
+        identity: Identity | str,
+        reason: str,
+    ) -> GPO:
+        def mutate(gpo: GPO) -> GPO:
+            setting = next((s for s in gpo.settings if s.id == setting_id), None)
+            if setting is None:
+                raise NotFoundError(f"Setting {setting_id} was not found")
+            new_setting = replace(setting, comment=comment)
+            self._validate_settings([new_setting])
+            settings = [s if s.id != setting_id else new_setting for s in gpo.settings]
+            settings.sort(key=lambda item: item.identity())
+            return replace(gpo, settings=tuple(settings))
 
         return self._mutate(guid, expected_revision, mutate, identity=identity, reason=reason)
 

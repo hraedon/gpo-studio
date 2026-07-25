@@ -1994,3 +1994,162 @@ def test_operations_after_close_raise_workspace_error(tmp_path) -> None:
     store.close()
     with pytest.raises(WorkspaceError, match="closed"):
         store.list_gpos()
+
+
+def test_create_starter_gpo(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    starter = store.create_starter_gpo(
+        "Starter",
+        "A starter template",
+        identity="alice",
+        reason="create starter",
+        template_version="v1",
+    )
+    assert starter.is_starter is True
+    assert starter.template_version == "v1"
+    assert starter.status == "draft"
+    assert starter.name == "Starter"
+    fetched = store.get_gpo(starter.guid)
+    assert fetched.is_starter is True
+    assert fetched.template_version == "v1"
+    store.close()
+
+
+def test_list_starter_gpos_excludes_regular_gpos(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    starter = store.create_starter_gpo(
+        "Starter", identity="alice", reason="create starter"
+    )
+    store.create_gpo("Regular", identity="alice", reason="create regular")
+    starters = store.list_starter_gpos()
+    assert len(starters) == 1
+    assert starters[0].guid == starter.guid
+    store.close()
+
+
+def test_derive_gpo_from_starter(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    starter = store.create_starter_gpo(
+        "Starter",
+        identity="alice",
+        reason="create starter",
+        template_version="v1",
+    )
+    starter = store.put_setting(
+        starter.guid,
+        starter.revision,
+        {
+            "side": "computer",
+            "hive": "HKLM",
+            "key": r"Software\Policies\Starter",
+            "value_name": "Enabled",
+            "registry_type": "REG_DWORD",
+            "value": 1,
+        },
+        identity="alice",
+        reason="add setting",
+    )
+    derived = store.derive_gpo_from_starter(
+        starter.guid,
+        "Derived",
+        identity="bob",
+        reason="derive from starter",
+    )
+    assert derived.is_starter is False
+    assert derived.source_guid == starter.guid
+    assert derived.name == "Derived"
+    assert derived.status == "draft"
+    assert len(derived.settings) == 1
+    assert derived.template_version == ""
+    assert derived.computer_enabled == starter.computer_enabled
+    assert derived.user_enabled == starter.user_enabled
+    assert derived.domain == starter.domain
+    store.close()
+
+
+def test_derive_gpo_from_starter_uses_expected_revision(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    starter = store.create_starter_gpo(
+        "Starter", identity="alice", reason="create starter"
+    )
+    store.put_setting(
+        starter.guid,
+        starter.revision,
+        {
+            "side": "computer",
+            "hive": "HKLM",
+            "key": r"Software\Policies\Starter",
+            "value_name": "Enabled",
+            "registry_type": "REG_DWORD",
+            "value": 1,
+        },
+        identity="alice",
+        reason="add setting",
+    )
+    with pytest.raises(ConflictError, match="current revision is"):
+        store.derive_gpo_from_starter(
+            starter.guid,
+            "Derived",
+            identity="bob",
+            reason="stale",
+            expected_revision=1,
+        )
+    store.close()
+
+
+def test_derive_gpo_from_starter_rejects_non_starter(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    regular = store.create_gpo("Regular", identity="alice", reason="create regular")
+    with pytest.raises(NotFoundError, match="Starter GPO"):
+        store.derive_gpo_from_starter(
+            regular.guid,
+            "Derived",
+            identity="bob",
+            reason="derive from regular",
+        )
+    store.close()
+
+
+def test_delete_starter_gpo(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    starter = store.create_starter_gpo(
+        "Starter", identity="alice", reason="create starter"
+    )
+    store.delete_starter_gpo(
+        starter.guid, starter.revision, identity="alice", reason="delete starter"
+    )
+    with pytest.raises(NotFoundError):
+        store.get_gpo(starter.guid)
+    assert store.list_starter_gpos() == []
+    store.close()
+
+
+def test_delete_starter_gpo_rejects_regular_gpo(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    regular = store.create_gpo("Regular", identity="alice", reason="create regular")
+    with pytest.raises(NotFoundError, match="Starter GPO"):
+        store.delete_starter_gpo(
+            regular.guid, regular.revision, identity="alice", reason="delete regular"
+        )
+    store.close()
+
+
+def test_delete_starter_gpo_rejects_missing_guid(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    with pytest.raises(NotFoundError, match="was not found"):
+        store.delete_starter_gpo(
+            "nonexistent-guid", 1, identity="alice", reason="delete missing"
+        )
+    store.close()
+
+
+def test_delete_starter_gpo_rejects_stale_revision(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    starter = store.create_starter_gpo(
+        "Starter", identity="alice", reason="create starter"
+    )
+    with pytest.raises(ConflictError):
+        store.delete_starter_gpo(
+            starter.guid, starter.revision + 1, identity="alice", reason="stale"
+        )
+    store.close()

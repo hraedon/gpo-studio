@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Synthetic Windows Update administrative templates</displayName>
+  <description>Representative Windows Update ADMX/ADML corpus fixtures.</description>
+  <resources>
+    <stringTable>
+      <string id="WindowsUpdateRoot">Synthetic Windows Update</string>
+      <string id="UpdateBehavior">Update Behavior</string>
+      <string id="DeliveryOptimization">Delivery Optimization</string>
+      <string id="SUPPORTED_WU_v10">Synthetic Windows v10 and later</string>
+      <string id="ConfigureActiveHours">Configure Active Hours</string>
+      <string id="ConfigureActiveHours_Explain">Sets the synthetic active hours window.</string>
+      <string id="DeferFeatureUpdates">Defer Feature Updates</string>
+      <string id="DeferFeatureUpdates_Explain">Defers synthetic feature updates by a chosen mode.</string>
+      <string id="UpdateAllowList">Update Allow List</string>
+      <string id="UpdateAllowList_Explain">Lists synthetic updates that are explicitly allowed.</string>
+      <string id="WUDeleteOnDisable">Delete Update Key on Disable</string>
+      <string id="WUDeleteOnDisable_Explain">Deletes the synthetic value when disabled.</string>
+      <string id="DeferModeNone">Do not defer</string>
+      <string id="DeferModeShort">Defer short term</string>
+      <string id="DeferModeLong">Defer long term</string>
+      <string id="ActiveHoursStartLabel">Active hours start</string>
+      <string id="ActiveHoursEndLabel">Active hours end</string>
+      <string id="AllowedUpdatesLabel">Allowed update identifiers</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="ConfigureActiveHours">
+        <decimalTextBox refId="ActiveHoursStart" defaultValue="8">Active hours start</decimalTextBox>
+        <decimalTextBox refId="ActiveHoursEnd" defaultValue="17">Active hours end</decimalTextBox>
+      </presentation>
+      <presentation id="DeferFeatureUpdates">
+        <dropdownList refId="DeferMode">Defer feature updates mode</dropdownList>
+      </presentation>
+      <presentation id="UpdateAllowList">
+        <listBox refId="AllowedUpdates">
+          <label>Allowed update identifiers</label>
+        </listBox>
+      </presentation>
+      <presentation id="WUDeleteOnDisable" />
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

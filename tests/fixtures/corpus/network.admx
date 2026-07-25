@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="net" namespace="Synthetic.Policies.Network" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+    <using prefix="secbase" namespace="Synthetic.Policies.SecurityBaseline" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="NetworkRoot" displayName="$(string.NetworkRoot)">
+      <parentCategory ref="windows:WindowsComponents" />
+    </category>
+    <category name="TCPIPSettings" displayName="$(string.TCPIPSettings)">
+      <parentCategory ref="NetworkRoot" />
+    </category>
+    <category name="FirewallSettings" displayName="$(string.FirewallSettings)">
+      <parentCategory ref="NetworkRoot" />
+    </category>
+  </categories>
+  <supportedOn>
+    <definition name="SUPPORTED_Network_v10" displayName="$(string.SUPPORTED_Network_v10)" />
+    <definition name="SUPPORTED_Network_v11" displayName="$(string.SUPPORTED_Network_v11)" />
+  </supportedOn>
+  <policies>
+    <policy name="NetworkBandwidthLimit" class="Machine"
+            key="Software\Policies\TestLab\Network\QoS"
+            valueName="BandwidthLimit"
+            displayName="$(string.NetworkBandwidthLimit)"
+            explainText="$(string.NetworkBandwidthLimit_Explain)"
+            supportedOn="SUPPORTED_Network_v11"
+            presentation="$(presentation.NetworkBandwidthLimit)">
+      <parentCategory ref="TCPIPSettings" />
+      <supportedOn ref="SUPPORTED_Network_v11" />
+      <enabledValue><longDecimal value="4294967296" /></enabledValue>
+      <disabledValue><longDecimal value="0" /></disabledValue>
+    </policy>
+    <policy name="DNSPreferredServers" class="Machine"
+            key="Software\Policies\TestLab\Network\DNS"
+            displayName="$(string.DNSPreferredServers)"
+            explainText="$(string.DNSPreferredServers_Explain)"
+            supportedOn="SUPPORTED_Network_v10"
+            presentation="$(presentation.DNSPreferredServers)">
+      <parentCategory ref="TCPIPSettings" />
+      <supportedOn ref="SUPPORTED_Network_v10" />
+      <elements>
+        <list id="PreferredServers"
+              key="Software\Policies\TestLab\Network\DNS"
+              valuePrefix="Server" additive="true" />
+      </elements>
+    </policy>
+    <policy name="FirewallProfile" class="Machine"
+            key="Software\Policies\TestLab\Network\Firewall"
+            displayName="$(string.FirewallProfile)"
+            explainText="$(string.FirewallProfile_Explain)"
+            supportedOn="SUPPORTED_Network_v10"
+            presentation="$(presentation.FirewallProfile)">
+      <parentCategory ref="FirewallSettings" />
+      <supportedOn ref="SUPPORTED_Network_v10" />
+      <elements>
+        <enum id="ProfileType" key="Software\Policies\TestLab\Network\Firewall"
+              valueName="ProfileType">
+          <item displayName="$(string.ProfileTypeDomain)">
+            <decimal value="0" />
+          </item>
+          <item displayName="$(string.ProfileTypePrivate)">
+            <decimal value="1" />
+          </item>
+          <item displayName="$(string.ProfileTypePublic)">
+            <decimal value="2" />
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="NetworkBothClass" class="Both"
+            key="Software\Policies\TestLab\Network\Common"
+            displayName="$(string.NetworkBothClass)"
+            explainText="$(string.NetworkBothClass_Explain)"
+            supportedOn="SUPPORTED_Network_v10"
+            presentation="$(presentation.NetworkBothClass)">
+      <parentCategory ref="NetworkRoot" />
+      <supportedOn ref="SUPPORTED_Network_v10" />
+      <elements>
+        <boolean id="NetworkCommonEnabled"
+                 key="Software\Policies\TestLab\Network\Common"
+                 valueName="NetworkCommonEnabled" />
+        <decimal id="NetworkCommonPort"
+                 key="Software\Policies\TestLab\Network\Common"
+                 valueName="NetworkCommonPort"
+                 minValue="1" maxValue="65535" />
+        <text id="NetworkCommonComment"
+              key="Software\Policies\TestLab\Network\Common"
+              valueName="NetworkCommonComment" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>

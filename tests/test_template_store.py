@@ -7,6 +7,7 @@ import pytest
 from gpo_studio.template_store import (
     TemplateError,
     build_lock,
+    classify_template_file,
     detect_central_store,
     detect_collisions,
     ingest_source,
@@ -59,6 +60,23 @@ _ADML_TEMPLATE = """\
 
 def _write_admx_pair(directory: Path, filename: str, ns: str, policy_name: str) -> None:
     admx = _ADMX_TEMPLATE.format(ns=ns, policy_name=policy_name)
+    adml = _ADML_TEMPLATE.format(policy_name=policy_name)
+    (directory / f"{filename}.admx").write_text(admx, encoding="utf-8")
+    en_us = directory / "en-US"
+    en_us.mkdir(exist_ok=True)
+    (en_us / f"{filename}.adml").write_text(adml, encoding="utf-8")
+
+
+_ADMX_TEMPLATE_RAW = _ADMX_TEMPLATE.replace(
+    'namespace="Synthetic.{ns}"', 'namespace="{ns}"'
+)
+
+
+def _write_admx_pair_exact(
+    directory: Path, filename: str, namespace: str, policy_name: str
+) -> None:
+    """Write an ADMX/ADML pair with the exact declared target namespace."""
+    admx = _ADMX_TEMPLATE_RAW.format(ns=namespace, policy_name=policy_name)
     adml = _ADML_TEMPLATE.format(policy_name=policy_name)
     (directory / f"{filename}.admx").write_text(admx, encoding="utf-8")
     en_us = directory / "en-US"
@@ -249,3 +267,72 @@ class TestMergeCatalogues:
         qids = {p.qualified_id for p in merged.policies}
         assert "Synthetic.NS1:PolicyA" in qids
         assert "Synthetic.NS2:PolicyB" in qids
+
+
+class TestLicenseClassification:
+    def test_classify_microsoft_namespace(self, tmp_path: Path) -> None:
+        _write_admx_pair_exact(tmp_path, "ms", "Microsoft.Policies.Windows", "MSPolicy")
+        result = ingest_source("ms-src", "central-store", tmp_path)
+        admx = next(f for f in result.source.files if f.relative_path == "ms.admx")
+        assert admx.content_classification == "hash-reference"
+        assert "Microsoft" in admx.license_note
+        assert result.source.content_classification == "hash-reference"
+
+    def test_classify_microsoft_by_filename(self) -> None:
+        classification, note = classify_template_file(
+            "windows.admx", b"<x/>", None
+        )
+        assert classification == "hash-reference"
+        assert "known Microsoft file name" in note
+
+    def test_classify_microsoft_by_adml_copyright(self) -> None:
+        adml = b"<!-- Copyright (c) Microsoft Corporation -->\n<r/>"
+        classification, note = classify_template_file("x.adml", None, adml)
+        assert classification == "hash-reference"
+        assert "Microsoft copyright" in note
+
+    def test_classify_vendor_namespace(self, tmp_path: Path) -> None:
+        _write_admx_pair_exact(
+            tmp_path, "vendor", "Synthetic.Policies.VendorA", "VendorPolicy"
+        )
+        result = ingest_source("vendor-src", "vendor-pack", tmp_path)
+        admx = next(f for f in result.source.files if f.relative_path == "vendor.admx")
+        assert admx.content_classification == "hash-reference"
+        assert "Vendor namespace" in admx.license_note
+
+    def test_classify_synthetic_namespace(self, tmp_path: Path) -> None:
+        _write_admx_pair_exact(
+            tmp_path, "synth", "Synthetic.Test.Fixture", "SynthPolicy"
+        )
+        result = ingest_source("synth-src", "local", tmp_path)
+        admx = next(f for f in result.source.files if f.relative_path == "synth.admx")
+        assert admx.content_classification == "in-repo"
+        assert "Synthetic" in admx.license_note
+        assert result.source.content_classification == "in-repo"
+
+    def test_reject_claimed_in_repo_for_microsoft(self, tmp_path: Path) -> None:
+        _write_admx_pair_exact(tmp_path, "ms", "Microsoft.Policies.Windows", "MSPolicy")
+        with pytest.raises(TemplateError, match="in-repo"):
+            ingest_source(
+                "ms-src", "central-store", tmp_path, claimed_classification="in-repo"
+            )
+
+    def test_reject_claimed_in_repo_for_vendor(self, tmp_path: Path) -> None:
+        _write_admx_pair_exact(
+            tmp_path, "vendor", "Synthetic.Policies.VendorA", "VendorPolicy"
+        )
+        with pytest.raises(TemplateError, match="in-repo"):
+            ingest_source(
+                "vendor-src", "vendor-pack", tmp_path, claimed_classification="in-repo"
+            )
+
+    def test_no_retention_of_raw_bytes_for_hash_reference(self, tmp_path: Path) -> None:
+        _write_admx_pair_exact(
+            tmp_path, "vendor", "Synthetic.Policies.VendorA", "VendorPolicy"
+        )
+        result = ingest_source("vendor-src", "vendor-pack", tmp_path)
+        for file in result.source.files:
+            assert file.content_classification == "hash-reference"
+            assert not hasattr(file, "raw_bytes")
+            assert len(file.sha256) == 64
+            assert file.size > 0

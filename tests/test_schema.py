@@ -12,6 +12,7 @@ from gpo_studio.schema import SCHEMA_VERSION, SchemaError, get_schema_version, m
 from gpo_studio.store import WorkspaceStore
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "workspace_v0.db"
+V1_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "workspace_v1.db"
 
 
 def test_fresh_database_gets_schema_version_1(tmp_path: Path) -> None:
@@ -66,6 +67,44 @@ def test_legacy_v0_database_preserves_gpo_data(tmp_path: Path) -> None:
     assert len(revs) == 1
     assert revs[0].actor == "fixture-generator"
     store.close()
+
+
+def test_v1_fixture_has_schema_version_1() -> None:
+    conn = sqlite3.connect(str(V1_FIXTURE_PATH))
+    version = get_schema_version(conn)
+    conn.close()
+    assert version == 1
+
+
+def test_v1_fixture_preserves_gpo_data(tmp_path: Path) -> None:
+    db_path = tmp_path / "from_v1.db"
+    db_path.write_bytes(V1_FIXTURE_PATH.read_bytes())
+    store = WorkspaceStore(db_path)
+    gpos = store.list_gpos()
+    assert len(gpos) == 1
+    gpo = gpos[0]
+    assert gpo.guid == "bbb22222-3333-4444-5555-666677778888"
+    assert gpo.name == "Versioned Synthetic Policy"
+    assert gpo.revision == 1
+    assert len(gpo.settings) == 1
+    assert gpo.settings[0].value_name == "ConfigPath"
+    assert gpo.settings[0].registry_type == "REG_SZ"
+    revs = store.revisions(gpo.guid)
+    assert len(revs) == 1
+    assert revs[0].actor == "v1-fixture-generator"
+    store.close()
+
+
+def test_v1_fixture_already_at_current_version(tmp_path: Path) -> None:
+    db_path = tmp_path / "current_v1.db"
+    db_path.write_bytes(V1_FIXTURE_PATH.read_bytes())
+    conn = sqlite3.connect(str(db_path))
+    version_before = get_schema_version(conn)
+    migrate(conn)
+    version_after = get_schema_version(conn)
+    conn.close()
+    assert version_before == SCHEMA_VERSION
+    assert version_after == SCHEMA_VERSION
 
 
 def test_refusing_newer_schema_version(tmp_path: Path) -> None:
