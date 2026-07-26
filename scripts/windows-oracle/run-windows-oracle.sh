@@ -63,12 +63,23 @@ if [[ -z "$RUN_DIR" ]]; then
 fi
 
 echo "=== retrieving run dir ==="
-LOCAL_DIR="/tmp/opencode/oracle-run-${RUN_LABEL}"
-rm -rf "$LOCAL_DIR"
+# Use a unique local dir so stale, permission-locked files from a previous run
+# can never block this retrieval.
+LOCAL_DIR="/tmp/opencode/oracle-run-${RUN_LABEL}-$(date +%Y%m%d%H%M%S)"
 mkdir -p "$LOCAL_DIR"
-scp -r "${HOST}:$(printf '%s' "$RUN_DIR" | sed 's#\\#/#g')/." "$LOCAL_DIR/" 2>/dev/null
+REMOTE_PATH=$(printf '%s' "$RUN_DIR" | sed 's#\\#/#g')
+if ! scp -r "${HOST}:${REMOTE_PATH}/." "$LOCAL_DIR/"; then
+  echo "ERROR: scp retrieval failed for $REMOTE_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -f "$LOCAL_DIR/manifest.raw.json" ]]; then
+  echo "ERROR: retrieved run dir has no manifest.raw.json" >&2
+  exit 1
+fi
 
 echo "=== retrieved files ==="
 find "$LOCAL_DIR" -type f | sort
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
+echo "NEXT: uv run python scripts/windows-oracle/finalize_oracle_run.py $LOCAL_DIR --repo-root $REPO_ROOT"
