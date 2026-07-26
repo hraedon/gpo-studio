@@ -51,6 +51,8 @@ sources = {
     "scripts/run-evidence.ps1": script_dir / "run-evidence.ps1",
     "scripts/common.psm1": script_dir / "common.psm1",
     "scripts/recipe.json": repo_root / "tests/fixtures/recipes/synthetic-registry-basic.json",
+    "scripts/remote-run.ps1": script_dir / "remote-run.ps1",
+    "orchestrator/run-windows-oracle.sh": script_dir / "run-windows-oracle.sh",
 }
 files = {}
 for rel, src in sources.items():
@@ -115,9 +117,12 @@ fi
 # Pull the deployed harness inputs (the exact scripts + recipe that ran) and the
 # deploy-time record into the local run dir so finalize can verify them against
 # the recorded commit.
-mkdir -p "$LOCAL_DIR/scripts"
-scp "$HOST:C:/gpo-studio/scripts/run-evidence.ps1" "$HOST:C:/gpo-studio/scripts/common.psm1" "$HOST:C:/gpo-studio/scripts/recipe.json" "$LOCAL_DIR/scripts/"
+mkdir -p "$LOCAL_DIR/scripts" "$LOCAL_DIR/orchestrator"
+scp "$HOST:C:/gpo-studio/scripts/run-evidence.ps1" "$HOST:C:/gpo-studio/scripts/common.psm1" "$HOST:C:/gpo-studio/scripts/recipe.json" "$HOST:C:/gpo-studio/scripts/remote-run.ps1" "$LOCAL_DIR/scripts/"
 scp "$HOST:C:/gpo-studio/harness-inputs.json" "$LOCAL_DIR/harness-inputs.json"
+# The orchestrator runs on the control host (not deployed to the box), so copy
+# the exact file that was hashed at deploy time into the run dir.
+cp "$SCRIPT_DIR/run-windows-oracle.sh" "$LOCAL_DIR/orchestrator/run-windows-oracle.sh"
 
 echo "=== retrieved files ==="
 find "$LOCAL_DIR" -type f | sort
