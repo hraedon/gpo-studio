@@ -10,10 +10,14 @@ from pathlib import Path
 from gpo_studio.oracle_evidence import (
     FROZEN_ENVIRONMENT,
     NORMALIZER_VERSION,
+    IntegrityViolation,
+    assert_evidence_pack,
+    build_harness_inputs,
     canonical_manifest_hash,
     finalize_oracle_run,
     git_source_state,
     parse_oracle_manifest,
+    verify_evidence_pack,
 )
 
 DRIVE_XML_A = (
@@ -49,6 +53,67 @@ def _init_clean_git_repo(path: Path) -> str:
     git("add", "README.md")
     git("commit", "-q", "-m", "fixture commit")
     return git("rev-parse", "HEAD")
+
+
+_TEST_HARNESS_FILES = {
+    # deployed relative path -> (repository path, content)
+    "scripts/run-evidence.ps1": (
+        "scripts/windows-oracle/run-evidence.ps1",
+        b"# fake run-evidence\n",
+    ),
+    "scripts/common.psm1": ("scripts/windows-oracle/common.psm1", b"# fake common\n"),
+    "scripts/recipe.json": (
+        "tests/fixtures/recipes/synthetic-registry-basic.json",
+        b'{"fixture_id": "x"}\n',
+    ),
+}
+
+
+def _setup_harness_repo_and_inputs(
+    repo: Path, run_dir: Path, *, commit: str | None = None
+) -> str:
+    """Create a repo whose committed harness files match the deployed copies.
+
+    Writes the deployed harness files into ``run_dir/scripts`` and a matching
+    ``harness-inputs.json``.  Returns the commit the inputs are bound to.
+    """
+    import hashlib
+
+    repo.mkdir(parents=True, exist_ok=True)
+    identity = ["-c", "user.email=test@example.invalid", "-c", "user.name=test"]
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *identity, *args],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    git("init", "-q")
+    for _deployed_rel, (repo_rel, data) in _TEST_HARNESS_FILES.items():
+        target = repo / repo_rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    git("add", "-A")
+    git("commit", "-q", "-m", "harness commit")
+    bound_commit = commit if commit is not None else git("rev-parse", "HEAD")
+
+    files: dict[str, dict[str, object]] = {}
+    for deployed_rel, (_repo_rel, data) in _TEST_HARNESS_FILES.items():
+        deployed_path = run_dir / deployed_rel
+        deployed_path.parent.mkdir(parents=True, exist_ok=True)
+        deployed_path.write_bytes(data)
+        files[deployed_rel] = {
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size_bytes": len(data),
+        }
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "harness-inputs.json").write_text(
+        json.dumps({"commit": bound_commit, "files": files}), encoding="utf-8"
+    )
+    return bound_commit
 
 
 def _raw_manifest(*, commands: list[dict], cleanup_succeeded: bool = True) -> dict:
@@ -114,16 +179,17 @@ def _write_run(
     backup_xml: str | None,
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
+    fixture_bytes = b"{}"
+    (run_dir / "fixture-input.json").write_bytes(fixture_bytes)
     artifacts: list[dict] = [
         {
             "artifact_id": "fixture-input",
             "role": "input",
             "relative_path": "fixture-input.json",
-            "sha256": "a" * 64,
-            "size_bytes": 2,
+            "sha256": hashlib.sha256(fixture_bytes).hexdigest(),
+            "size_bytes": len(fixture_bytes),
         }
     ]
-    (run_dir / "fixture-input.json").write_text("{}", encoding="utf-8")
     if standalone_xml is not None:
         data = standalone_xml.encode("utf-8")
         (run_dir / "gpreport.xml").write_bytes(data)
@@ -157,11 +223,42 @@ def _write_run(
     )
 
 
+def _commands_with_streams(run_dir: Path) -> list[dict]:
+    """Build commands whose stdout/stderr stream files exist and hash correctly.
+
+    Mirrors the Windows harness: each command tee's its output to
+    ``commands/<id>.stdout.txt`` / ``.stderr.txt`` and records those hashes.
+    """
+    import hashlib
+
+    cmd_dir = run_dir / "commands"
+    cmd_dir.mkdir(parents=True, exist_ok=True)
+    specs = [
+        ("new-gpo", b"DisplayName: WP0-Test\n", b""),
+        ("backup-gpo", b"backup created\n", b""),
+    ]
+    commands = []
+    for command_id, out, err in specs:
+        (cmd_dir / f"{command_id}.stdout.txt").write_bytes(out)
+        (cmd_dir / f"{command_id}.stderr.txt").write_bytes(err)
+        commands.append(
+            {
+                "command_id": command_id,
+                "command_line": f"{command_id} ...",
+                "exit_code": 0,
+                "stdout_sha256": hashlib.sha256(out).hexdigest(),
+                "stderr_sha256": hashlib.sha256(err).hexdigest(),
+                "relevant_event_ids": [],
+            }
+        )
+    return commands
+
+
 def test_finalize_success_passes_and_binds_normalized_artifacts(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
-    commit = _init_clean_git_repo(repo)
     run_dir = tmp_path / "run"
-    commands = [_ok_command("new-gpo", "a" * 64), _ok_command("backup-gpo", "b" * 64)]
+    commit = _setup_harness_repo_and_inputs(repo, run_dir)
+    commands = _commands_with_streams(run_dir)
     _write_run(
         run_dir,
         _raw_manifest(commands=commands),
@@ -195,11 +292,11 @@ def test_finalize_success_passes_and_binds_normalized_artifacts(tmp_path: Path) 
 
 def test_finalize_semantic_difference_is_inconclusive(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
-    _init_clean_git_repo(repo)
     run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
     _write_run(
         run_dir,
-        _raw_manifest(commands=[_ok_command("new-gpo", "a" * 64)]),
+        _raw_manifest(commands=_commands_with_streams(run_dir)),
         standalone_xml=DRIVE_XML_A,
         backup_xml=DRIVE_XML_DIFFERENT,
     )
@@ -212,11 +309,11 @@ def test_finalize_semantic_difference_is_inconclusive(tmp_path: Path) -> None:
 
 def test_finalize_equal_comparison_downgrades_when_source_dirty(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
-    _init_clean_git_repo(repo)
     run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
     _write_run(
         run_dir,
-        _raw_manifest(commands=[_ok_command("new-gpo", "a" * 64)]),
+        _raw_manifest(commands=_commands_with_streams(run_dir)),
         standalone_xml=DRIVE_XML_A,
         backup_xml=DRIVE_XML_B,
     )
@@ -228,24 +325,50 @@ def test_finalize_equal_comparison_downgrades_when_source_dirty(tmp_path: Path) 
     assert manifest.capability.evidence_state == "inconclusive"
 
 
+def _fail_commands_with_streams(run_dir: Path) -> list[dict]:
+    """new-gpo succeeds, then a step genuinely fails (with real stderr)."""
+    import hashlib
+
+    cmd_dir = run_dir / "commands"
+    cmd_dir.mkdir(parents=True, exist_ok=True)
+    new_out = b"DisplayName: WP0-Test\n"
+    (cmd_dir / "new-gpo.stdout.txt").write_bytes(new_out)
+    (cmd_dir / "new-gpo.stderr.txt").write_bytes(b"")
+    fail_err = b"GPO {00000000-...} was not found in the domain\n"
+    (cmd_dir / "failed-step.stdout.txt").write_bytes(b"")
+    (cmd_dir / "failed-step.stderr.txt").write_bytes(fail_err)
+    return [
+        {
+            "command_id": "new-gpo",
+            "command_line": "New-GPO ...",
+            "exit_code": 0,
+            "stdout_sha256": hashlib.sha256(new_out).hexdigest(),
+            "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+            "relevant_event_ids": [],
+        },
+        {
+            "command_id": "failed-step",
+            "command_line": "Set-GPRegistryValue ...",
+            "exit_code": 1,
+            "stdout_sha256": hashlib.sha256(b"").hexdigest(),
+            "stderr_sha256": hashlib.sha256(fail_err).hexdigest(),
+            "relevant_event_ids": [],
+        },
+    ]
+
+
 def test_finalize_failed_command_yields_valid_fail_manifest(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
     run_dir = tmp_path / "run"
-    failed = {
-        "command_id": "failed-step",
-        "command_line": "Set-GPRegistryValue ...",
-        "exit_code": 1,
-        "stdout_sha256": None,
-        "stderr_sha256": "c" * 64,
-        "relevant_event_ids": [],
-    }
+    _setup_harness_repo_and_inputs(repo, run_dir)
     _write_run(
         run_dir,
-        _raw_manifest(commands=[_ok_command("new-gpo", "a" * 64), failed]),
+        _raw_manifest(commands=_fail_commands_with_streams(run_dir)),
         standalone_xml=None,
         backup_xml=None,
     )
 
-    manifest = finalize_oracle_run(run_dir, tmp_path)
+    manifest = finalize_oracle_run(run_dir, repo)
 
     assert manifest.capability.evidence_state == "fail"
     assert any(c.exit_code == 1 for c in manifest.commands)
@@ -261,14 +384,18 @@ def test_finalize_failed_command_yields_valid_fail_manifest(tmp_path: Path) -> N
 
 
 def test_finalize_failed_cleanup_yields_fail_manifest(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
     run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
     _write_run(
         run_dir,
-        _raw_manifest(commands=[_ok_command("new-gpo", "a" * 64)], cleanup_succeeded=False),
+        _raw_manifest(
+            commands=_commands_with_streams(run_dir), cleanup_succeeded=False
+        ),
         standalone_xml=DRIVE_XML_A,
         backup_xml=DRIVE_XML_B,
     )
-    manifest = finalize_oracle_run(run_dir, tmp_path)
+    manifest = finalize_oracle_run(run_dir, repo)
     assert manifest.capability.evidence_state == "fail"
     assert manifest.cleanup.succeeded is False
 
@@ -293,3 +420,134 @@ def test_git_source_state_dirty_repo(tmp_path: Path) -> None:
     (repo / "untracked.txt").write_text("dirty\n", encoding="utf-8")
     state = git_source_state(repo)
     assert state.dirty is True
+
+
+# --- pack integrity verifier ------------------------------------------------
+
+
+def _finalized_run(tmp_path: Path) -> tuple[Path, Path, dict]:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
+    _write_run(
+        run_dir,
+        _raw_manifest(commands=_commands_with_streams(run_dir)),
+        standalone_xml=DRIVE_XML_A,
+        backup_xml=DRIVE_XML_B,
+    )
+    finalize_oracle_run(run_dir, repo)
+    final = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    return repo, run_dir, final
+
+
+def test_verify_evidence_pack_accepts_intact_finalized_run(tmp_path: Path) -> None:
+    _repo, run_dir, final = _finalized_run(tmp_path)
+    assert verify_evidence_pack(run_dir, final) == ()
+    assert_evidence_pack(run_dir, final)  # does not raise
+
+
+def test_verify_evidence_pack_detects_corrupted_artifact(tmp_path: Path) -> None:
+    _repo, run_dir, final = _finalized_run(tmp_path)
+    (run_dir / "gpreport.xml").write_bytes(b"tampered\n")
+    problems = verify_evidence_pack(run_dir, final)
+    assert any("gpreport" in p and "!=" in p for p in problems)
+    try:
+        assert_evidence_pack(run_dir, final)
+    except IntegrityViolation as exc:
+        assert "gpreport" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_verify_evidence_pack_detects_missing_command_stream(tmp_path: Path) -> None:
+    _repo, run_dir, final = _finalized_run(tmp_path)
+    (run_dir / "commands" / "new-gpo.stdout.txt").unlink()
+    problems = verify_evidence_pack(run_dir, final)
+    assert any("new-gpo" in p and "missing" in p for p in problems)
+
+
+def test_verify_evidence_pack_detects_tampered_command_stream(tmp_path: Path) -> None:
+    _repo, run_dir, final = _finalized_run(tmp_path)
+    (run_dir / "commands" / "new-gpo.stdout.txt").write_bytes(b"rewritten\n")
+    problems = verify_evidence_pack(run_dir, final)
+    assert any("new-gpo" in p and "stdout_sha256" in p for p in problems)
+
+
+# --- harness input binding --------------------------------------------------
+
+
+def test_build_harness_inputs_binds_to_commit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir)
+    artifacts = build_harness_inputs(run_dir, repo, commit=commit)
+    ids = {a["artifact_id"] for a in artifacts}
+    assert ids == {"harness-run-evidence", "harness-common", "harness-recipe"}
+    assert all(a["role"] == "input" for a in artifacts)
+
+
+def test_build_harness_inputs_detects_drift_from_commit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir)
+    # Tamper the deployed file AND its recorded hash so the deploy check passes,
+    # but the recorded content no longer matches the file at the bound commit.
+    changed = b"changed deploy\n"
+    (run_dir / "scripts/run-evidence.ps1").write_bytes(changed)
+    inputs = json.loads((run_dir / "harness-inputs.json").read_text(encoding="utf-8"))
+    inputs["files"]["scripts/run-evidence.ps1"]["sha256"] = hashlib.sha256(
+        changed
+    ).hexdigest()
+    inputs["files"]["scripts/run-evidence.ps1"]["size_bytes"] = len(changed)
+    (run_dir / "harness-inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        assert "differs from the file at commit" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_build_harness_inputs_detects_tampered_deployed_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir)
+    (run_dir / "scripts/run-evidence.ps1").write_bytes(b"tampered deploy\n")
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        assert "!= actual" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_build_harness_inputs_requires_manifest(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
+    (run_dir / "harness-inputs.json").unlink()
+    try:
+        build_harness_inputs(run_dir, repo)
+    except IntegrityViolation as exc:
+        assert "missing" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_finalize_rejects_run_with_tampered_harness_input(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
+    _write_run(
+        run_dir,
+        _raw_manifest(commands=_commands_with_streams(run_dir)),
+        standalone_xml=DRIVE_XML_A,
+        backup_xml=DRIVE_XML_B,
+    )
+    (run_dir / "scripts/run-evidence.ps1").write_bytes(b"tampered\n")
+    try:
+        finalize_oracle_run(run_dir, repo)
+    except IntegrityViolation:
+        pass
+    else:
+        raise AssertionError("expected IntegrityViolation")

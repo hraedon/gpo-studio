@@ -182,22 +182,59 @@ Write-HarnessLog "=== CLEANUP: Removing disposable GPO ==="
 $cleanupAttempted = $true
 $cleanupSucceeded = $false
 $stateRestored = $false
-try {
-    if ($gpoGuid) {
+if ($gpoGuid) {
+    try {
         Remove-GPO -Guid $gpoGuid -Confirm:$false
         $removedResources += "gpo:$gpoGuid"
         Write-HarnessLog "Removed GPO: $gpoGuid"
-        $check = Get-GPO -Guid $gpoGuid -ErrorAction SilentlyContinue
-        if ($check) {
-            throw "GPO still exists after removal"
-        }
+        $cleanupSucceeded = $true
+    } catch {
+        Write-HarnessLog "CLEANUP ERROR (removal): $_" -Level 'ERROR'
+        $cleanupFailures += "removal: $($_.Exception.Message)"
+    }
+
+    # Independent re-query, recorded as genuine command/artifact evidence rather
+    # than only a state_restored boolean.  The re-query runs whether or not the
+    # removal threw, so its output proves the resulting AD state.
+    $requeryStdout = Join-Path $cmdDir 'cleanup-requery.stdout.txt'
+    $requeryStderr = Join-Path $cmdDir 'cleanup-requery.stderr.txt'
+    $requeryExit = 0
+    $requeryMessage = ''
+    $check = Get-GPO -Guid $gpoGuid -ErrorAction SilentlyContinue
+    if ($check) {
+        $requeryExit = 1
+        $requeryMessage = "GPO $gpoGuid STILL EXISTS after removal"
+    } else {
+        $requeryMessage = "ABSENT: GPO $gpoGuid was not found (confirmed removed)"
+    }
+    $requeryMessage | Out-File -FilePath $requeryStdout -Encoding utf8
+    '' | Out-File -FilePath $requeryStderr -Encoding utf8 -NoNewline
+    $requeryStdoutRel = "commands\cleanup-requery.stdout.txt"
+    $artifacts += @{
+        artifact_id = 'cleanup-requery-stdout'
+        role = 'raw-log'
+        relative_path = $requeryStdoutRel
+        sha256 = Get-FileSha256 -Path $requeryStdout
+        size_bytes = (Get-Item $requeryStdout).Length
+    }
+    $commands += @{
+        command_id = 'cleanup-requery'
+        command_line = "Get-GPO -Guid $gpoGuid (post-removal re-query)"
+        exit_code = $requeryExit
+        stdout_sha256 = Get-FileSha256 -Path $requeryStdout
+        stderr_sha256 = $null
+        relevant_event_ids = @()
+    }
+    if ($requeryExit -ne 0) {
+        $cleanupFailures += "re-query: $requeryMessage"
+    } else {
+        $stateRestored = $true
         Write-HarnessLog "Verified: GPO no longer exists (independent re-query)"
     }
+} else {
+    # No GPO was created, so there is nothing to restore.
     $cleanupSucceeded = $true
     $stateRestored = $true
-} catch {
-    Write-HarnessLog "CLEANUP ERROR: $_" -Level 'ERROR'
-    $cleanupFailures += "$($_.Exception.Message)"
 }
 
 $completedAt = (Get-Date).ToUniversalTime().ToString('o')

@@ -27,7 +27,41 @@ echo "=== deploying harness to $HOST ==="
 ssh "$HOST" 'New-Item -ItemType Directory -Force -Path C:\gpo-studio\scripts,C:\gpo-studio\out | Out-Null; Get-ChildItem C:\gpo-studio\out -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force'
 scp "$SCRIPT_DIR/run-evidence.ps1" "$SCRIPT_DIR/common.psm1" "$SCRIPT_DIR/remote-run.ps1" "$HOST:C:/gpo-studio/scripts/"
 scp "$SCRIPT_DIR/remote-run.ps1" "$HOST:C:/gpo-studio/remote-run.ps1"
-scp "$REPO_ROOT/tests/fixtures/recipes/synthetic-registry-basic.json" "$HOST:C:/gpo-studio/recipe.json"
+scp "$REPO_ROOT/tests/fixtures/recipes/synthetic-registry-basic.json" "$HOST:C:/gpo-studio/scripts/recipe.json"
+
+# Record the deployed harness inputs (scripts + recipe) with their hashes and
+# the deploy-time commit.  This happens on the control host (which has git) and
+# BEFORE the credential boundary, so no secret is involved.  finalize re-verifies
+# the deployed bytes against this record and against the recorded commit.
+DEPLOY_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
+HARNESS_INPUTS_JSON=$(mktemp /tmp/opencode/harness-inputs.XXXXXX.json)
+uv run python - "$REPO_ROOT" "$SCRIPT_DIR" "$DEPLOY_COMMIT" "$HARNESS_INPUTS_JSON" <<'PYEOF'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+repo_root, script_dir, commit, out_path = (
+    Path(sys.argv[1]),
+    Path(sys.argv[2]),
+    sys.argv[3],
+    Path(sys.argv[4]),
+)
+sources = {
+    "scripts/run-evidence.ps1": script_dir / "run-evidence.ps1",
+    "scripts/common.psm1": script_dir / "common.psm1",
+    "scripts/recipe.json": repo_root / "tests/fixtures/recipes/synthetic-registry-basic.json",
+}
+files = {}
+for rel, src in sources.items():
+    data = src.read_bytes()
+    files[rel] = {"sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)}
+out_path.write_text(
+    json.dumps({"commit": commit, "files": files}, indent=2) + "\n", encoding="utf-8"
+)
+PYEOF
+scp "$HARNESS_INPUTS_JSON" "$HOST:C:/gpo-studio/harness-inputs.json"
+rm -f "$HARNESS_INPUTS_JSON"
 
 # Encode a tiny launcher as UTF-16LE base64 for -EncodedCommand.  The secret
 # is embedded in the encoded blob (not plaintext argv) and is never printed to
@@ -77,6 +111,13 @@ if [[ ! -f "$LOCAL_DIR/manifest.raw.json" ]]; then
   echo "ERROR: retrieved run dir has no manifest.raw.json" >&2
   exit 1
 fi
+
+# Pull the deployed harness inputs (the exact scripts + recipe that ran) and the
+# deploy-time record into the local run dir so finalize can verify them against
+# the recorded commit.
+mkdir -p "$LOCAL_DIR/scripts"
+scp "$HOST:C:/gpo-studio/scripts/run-evidence.ps1" "$HOST:C:/gpo-studio/scripts/common.psm1" "$HOST:C:/gpo-studio/scripts/recipe.json" "$LOCAL_DIR/scripts/"
+scp "$HOST:C:/gpo-studio/harness-inputs.json" "$LOCAL_DIR/harness-inputs.json"
 
 echo "=== retrieved files ==="
 find "$LOCAL_DIR" -type f | sort

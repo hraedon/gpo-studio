@@ -18,7 +18,7 @@ param(
 $taskName = "GPOStudioOracle-Run"
 schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
 
-$tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-evidence.ps1 -RecipePath C:\gpo-studio\recipe.json -OutputDir C:\gpo-studio\out $FailFlag"
+$tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-evidence.ps1 -RecipePath C:\gpo-studio\scripts\recipe.json -OutputDir C:\gpo-studio\out $FailFlag"
 schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 23:59 /RU $Upn /RP $Pw /RL HIGHEST /F | Out-Null
 schtasks.exe /Run /TN $taskName | Out-Null
 
