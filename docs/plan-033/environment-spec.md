@@ -2,20 +2,26 @@
 
 Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). A WP-0
 success-path run has been certified `pass` against a clean, committed source
-tree (commit `7eb3c14`). The harness also produces parser-valid `fail`
+tree (commit `954f419`). The harness also produces parser-valid `fail`
 manifests for deliberate failure paths.
 Last updated: 2026-07-26
 Validation host: mvmcitest01
 Certified passing manifest hash (success-path run
-`live-synthetic-registry-basic-20260725231015-9640`, source commit `7eb3c14`):
-`91dd0232d207220d8092fddcb7096777f8bd828deca7c862372ff61da1ade990`
+`live-synthetic-registry-basic-20260725234652-2364`, source commit `954f419`):
+`6d4b91b229a08e99a9851b5cb894f8f587bea577937b81dbec46754c1f3e1f47`
+
+This run carries the round-4 integrity pack: the deployed harness scripts and
+recipe are hashed input artifacts bound to the recorded commit, every artifact
+and command stream rehashes intact, and the cleanup re-query is recorded as
+command/artifact evidence.
 
 Note: the previously cited hashes
 `265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` (predates the
-comparison-to-artifact binding checks) and
+comparison-to-artifact binding checks),
 `930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19` (inconclusive;
-the source tree was dirty at run time) are both superseded by the certified
-pass above.
+dirty source), and
+`91dd0232d207220d8092fddcb7096777f8bd828deca7c862372ff61da1ade990` (genuine pass
+but predates the integrity pack) are all superseded by the certified pass above.
 
 Every Plan 033 run records the exact environment in the manifest's
 `environment` object. This document pins the supported builds and tool

@@ -70,21 +70,25 @@ Implementation status (2026-07-26, post-hardening):
   semantic normalization, comparison binding, and the final evidence state;
 - snapshot-backed dry-run orchestrator (`oracle_harness.py`): implemented;
 - live Windows lab runs against the frozen environment (2026-07-26): the
-  success-path run is a certified **pass** (source commit `7eb3c14`, clean
+  success-path run is a certified **pass** (source commit `954f419`, clean
   tree; genuine semantic equality of two independent GPO reports via
   normalizer v1; successful cleanup with independent LDAP re-query proving the
-  disposable GPO is absent). Certified passing manifest hash:
-  `91dd0232d207220d8092fddcb7096777f8bd828deca7c862372ff61da1ade990`.
+  disposable GPO is absent). This run carries the round-4 integrity pack: the
+  deployed harness scripts and recipe are hashed input artifacts bound to the
+  recorded commit, every artifact and command stream rehashes intact via
+  `verify_evidence_pack`, and the cleanup re-query is recorded as
+  command/artifact evidence. Certified passing manifest hash:
+  `6d4b91b229a08e99a9851b5cb894f8f587bea577937b81dbec46754c1f3e1f47`.
   A deliberate fail-path run is parser-valid **fail** (real failed command,
   real stderr, successful cleanup with independent re-query).
 
-Note: the previously cited hash
-`265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` is obsolete —
-it predates the comparison-to-artifact binding checks and no longer validates.
-The intermediate hash
-`930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19` was an honest
-`inconclusive` (equal comparison, but the source tree was dirty at run time)
-and is superseded by the certified pass above.
+Note: the previously cited hashes
+`265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` (predates the
+comparison-to-artifact binding checks),
+`930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19` (inconclusive;
+dirty source), and
+`91dd0232d207220d8092fddcb7096777f8bd828deca7c862372ff61da1ade990` (genuine pass
+but predates the integrity pack) are all superseded by the certified pass above.
 
 Note (forward dependency): the current pass was produced through a disposable
 scheduled-task harness (`scripts/windows-oracle/run-windows-oracle.sh`) that
