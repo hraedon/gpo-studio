@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpo-studio.invalid/schemas/fixture-recipe-v1.schema.json",
+  "title": "GPO Studio fixture recipe v1",
+  "description": "A recipe for generating a synthetic GPO fixture for Plan 033 validation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fixture_id", "description", "gpo_name_prefix", "settings"],
+  "properties": {
+    "fixture_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Unique identifier for this fixture recipe"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description of what this fixture tests"
+    },
+    "gpo_name_prefix": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "Prefix for disposable GPO names (harness appends unique suffix)"
+    },
+    "settings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["side", "hive", "key", "value_name", "value_type", "action"],
+        "properties": {
+          "side": {
+            "enum": ["computer", "user"]
+          },
+          "hive": {
+            "enum": ["HKLM", "HKCU"]
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value_name": {
+            "type": "string"
+          },
+          "value_type": {
+            "enum": ["REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_MULTI_SZ", "REG_QWORD"]
+          },
+          "value": {
+            "type": ["string", "array", "integer"],
+            "description": "Value data; type depends on value_type"
+          },
+          "action": {
+            "enum": ["set", "delete"]
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target_dn", "enabled", "enforced"],
+        "properties": {
+          "target_dn": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "enforced": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "security_filters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["principal", "permission"],
+        "properties": {
+          "principal": {
+            "type": "string",
+            "minLength": 1
+          },
+          "permission": {
+            "enum": ["apply", "read"]
+          },
+          "sid": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "wmi_filter": {
+      "type": ["object", "null"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "query": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

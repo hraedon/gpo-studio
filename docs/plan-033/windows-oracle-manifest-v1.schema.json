@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpo-studio.invalid/schemas/windows-oracle-manifest-v1.schema.json",
+  "title": "GPO Studio Windows external-oracle run manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "started_at",
+    "completed_at",
+    "source",
+    "fixture",
+    "environment",
+    "tools",
+    "artifacts",
+    "commands",
+    "comparisons",
+    "cleanup",
+    "capability"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "started_at": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "completed_at": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "dirty"],
+      "properties": {
+        "commit": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture_id", "generation_recipe"],
+      "properties": {
+        "fixture_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "generation_recipe": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "server_build",
+        "client_build",
+        "powershell_edition",
+        "powershell_version",
+        "group_policy_module_version",
+        "gpmc_version",
+        "locale",
+        "lgpo_sha256"
+      ],
+      "properties": {
+        "server_build": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "client_build": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "powershell_edition": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "powershell_version": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "group_policy_module_version": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "gpmc_version": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "locale": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "lgpo_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version", "sha256"],
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "version": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "sha256": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/sha256"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "role",
+          "relative_path",
+          "sha256",
+          "size_bytes"
+        ],
+        "properties": {
+          "artifact_id": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "role": {
+            "enum": ["input", "output", "raw-log", "snapshot"]
+          },
+          "relative_path": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "command_id",
+          "command_line",
+          "exit_code",
+          "stdout_sha256",
+          "stderr_sha256",
+          "relevant_event_ids"
+        ],
+        "properties": {
+          "command_id": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "command_line": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "stdout_sha256": {
+            "$ref": "#/$defs/nullableSha256"
+          },
+          "stderr_sha256": {
+            "$ref": "#/$defs/nullableSha256"
+          },
+          "relevant_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "comparisons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assertion_id",
+          "oracle",
+          "boundary_owner",
+          "normalizer_version",
+          "expected_sha256",
+          "observed_sha256",
+          "equal",
+          "differences"
+        ],
+        "properties": {
+          "assertion_id": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "oracle": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "boundary_owner": {
+            "enum": [
+              "gpo-backup-content",
+              "gpo-ad-object-security",
+              "wmi-filter-object-association",
+              "som-link-block-inheritance",
+              "endpoint-resultant-state"
+            ]
+          },
+          "normalizer_version": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "expected_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "observed_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "equal": {
+            "type": "boolean"
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/nonEmptyString"
+            }
+          }
+        }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempted",
+        "succeeded",
+        "snapshot_restored",
+        "removed_resources",
+        "failures"
+      ],
+      "properties": {
+        "attempted": {
+          "type": "boolean"
+        },
+        "succeeded": {
+          "type": "boolean"
+        },
+        "snapshot_restored": {
+          "type": "boolean"
+        },
+        "removed_resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["matrix_row", "evidence_state"],
+      "properties": {
+        "matrix_row": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "evidence_state": {
+          "enum": ["pass", "fail", "unsupported", "inconclusive"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "nullableSha256": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

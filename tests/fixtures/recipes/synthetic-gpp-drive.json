@@ -1,0 +1,16 @@
+{
+  "fixture_id": "synthetic-gpp-drive",
+  "description": "GPP Drive mapping for WP-1A native-origin reader validation",
+  "gpo_name_prefix": "WP1A-GPP-Drive",
+  "settings": [
+    {
+      "side": "user",
+      "hive": "HKCU",
+      "key": "SOFTWARE\\Policies\\GPOStudio\\Placeholder",
+      "value_name": "Placeholder",
+      "value_type": "REG_SZ",
+      "value": "This GPO contains GPP Drive content in the backup",
+      "action": "set"
+    }
+  ]
+}
