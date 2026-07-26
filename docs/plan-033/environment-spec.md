@@ -2,26 +2,32 @@
 
 Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). A WP-0
 success-path run has been certified `pass` against a clean, committed source
-tree (commit `954f419`). The harness also produces parser-valid `fail`
+tree (commit `000f1b5`). The harness also produces parser-valid `fail`
 manifests for deliberate failure paths.
 Last updated: 2026-07-26
 Validation host: mvmcitest01
 Certified passing manifest hash (success-path run
-`live-synthetic-registry-basic-20260725234652-2364`, source commit `954f419`):
-`6d4b91b229a08e99a9851b5cb894f8f587bea577937b81dbec46754c1f3e1f47`
+`live-synthetic-registry-basic-20260726070916`, source commit `000f1b5`):
+`0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`
 
-This run carries the round-4 integrity pack: the deployed harness scripts and
-recipe are hashed input artifacts bound to the recorded commit, every artifact
-and command stream rehashes intact, and the cleanup re-query is recorded as
-command/artifact evidence.
+This run carries the full integrity pack: the deployed harness scripts
+(`run-evidence.ps1`, `common.psm1`, `remote-run.ps1`), the recipe, and the
+control-plane orchestrator are hashed input artifacts bound to the recorded
+commit; every artifact and command stream rehashes intact; and the cleanup
+re-query is a strict `Get-GPO -All` probe (absent / present / query-error) with
+both streams recorded as command/artifact evidence.
 
 Note: the previously cited hashes
 `265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` (predates the
 comparison-to-artifact binding checks),
 `930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19` (inconclusive;
-dirty source), and
+dirty source),
 `91dd0232d207220d8092fddcb7096777f8bd828deca7c862372ff61da1ade990` (genuine pass
-but predates the integrity pack) are all superseded by the certified pass above.
+but predates the integrity pack), and
+`6d4b91b229a08e99a9851b5cb894f8f587bea577937b81dbec46754c1f3e1f47` (integrity
+pack but predates the strict cleanup probe, launcher binding, recorded-commit
+enforcement, and verifier hardening) are all superseded by the certified pass
+above.
 
 Every Plan 033 run records the exact environment in the manifest's
 `environment` object. This document pins the supported builds and tool
