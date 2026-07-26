@@ -52,18 +52,36 @@ privileged identity only where the operation requires it.
 
 ## WP-0 — Evidence contract, boundary matrix, and harness
 
-Implementation status (2026-07-26):
+Implementation status (2026-07-26, post-hardening):
 
 - run-level manifest parser and canonical hash: implemented;
-- conservative XML normalizer v1 and regression corpus: implemented;
+- conservative XML normalizer v1 and regression corpus: implemented
+  (now also normalizes GPO-report `CreatedTime`/`ModifiedTime`/`ReadTime`);
 - owning-boundary matrix and JSON Schema: implemented;
-- frozen environment spec (`docs/plan-033/environment-spec.md`): implemented;
-- fixture recipe schema and synthetic recipes: implemented;
-- Windows setup/collect/cleanup harness (`scripts/windows-oracle/`): implemented;
+- frozen environment spec (`docs/plan-033/environment-spec.md`): implemented
+  and enforced by the parser's `pass` gate (full environment + dirty source);
+- fixture recipe schema and synthetic recipes: implemented (the parser rejects
+  not-yet-supported recipe features — `delete`, links, security filters, WMI
+  filters — and enforces `side`/`hive` consistency);
+- two-phase Windows harness: `scripts/windows-oracle/run-evidence.ps1` captures
+  genuine raw evidence (real stdout/stderr/exit codes, real environment) on the
+  domain-joined host; `scripts/windows-oracle/finalize_oracle_run.py` runs where
+  the git repository lives and is the single authority for source provenance,
+  semantic normalization, comparison binding, and the final evidence state;
 - snapshot-backed dry-run orchestrator (`oracle_harness.py`): implemented;
-- live Windows lab dry run against frozen environment: **passed** 2026-07-26
-  (run `live-dry-run-20260725192622-3233`, canonical hash
-  `265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0`).
+- live Windows lab runs against the frozen environment (2026-07-26): the
+  success-path run is parser-valid and **inconclusive** (its semantic comparison
+  is genuinely equal, but the source tree was dirty at run time, which the pass
+  gate correctly refuses); the deliberate fail-path run is parser-valid **fail**
+  (real failed command, real stderr, successful cleanup with independent
+  re-query). Current valid success-path manifest hash:
+  `930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19`.
+
+Note: the previously cited hash
+`265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` is obsolete —
+it predates the comparison-to-artifact binding checks and no longer validates.
+A WP-0 `pass` requires re-running the success path against a clean, committed
+source tree.
 
 ### Work
 

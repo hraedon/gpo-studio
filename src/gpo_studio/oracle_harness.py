@@ -73,6 +73,12 @@ def _parse_setting(raw: object, index: int) -> RecipeSetting:
     hive = raw.get("hive")
     if hive not in ("HKLM", "HKCU"):
         raise RecipeError(f"{label}.hive must be HKLM or HKCU")
+    expected_hive = "HKLM" if side == "computer" else "HKCU"
+    if hive != expected_hive:
+        raise RecipeError(
+            f"{label} side {side!r} is inconsistent with hive {hive!r}; "
+            f"computer settings must use HKLM and user settings must use HKCU"
+        )
     value_type = raw.get("value_type")
     valid_types = (
         "REG_SZ",
@@ -85,13 +91,19 @@ def _parse_setting(raw: object, index: int) -> RecipeSetting:
     if value_type not in valid_types:
         raise RecipeError(f"{label}.value_type must be one of {valid_types}")
     action = raw.get("action")
-    if action not in ("set", "delete"):
-        raise RecipeError(f"{label}.action must be set or delete")
+    if action != "set":
+        raise RecipeError(
+            f"{label}.action must be 'set'; {action!r} is not yet supported "
+            "by the Windows oracle harness"
+        )
+    value_name = raw.get("value_name", "")
+    if not isinstance(value_name, str):
+        raise RecipeError(f"{label}.value_name must be a string")
     return RecipeSetting(
         side=side,
         hive=hive,
         key=_require_str(raw, "key", label),
-        value_name=raw.get("value_name", ""),
+        value_name=value_name,
         value_type=value_type,
         value=raw.get("value"),
         action=action,
@@ -114,14 +126,29 @@ def parse_recipe(raw: object) -> FixtureRecipe:
     links_raw = raw.get("links", [])
     if not isinstance(links_raw, list):
         raise RecipeError("recipe.links must be an array")
+    if links_raw:
+        raise RecipeError(
+            "recipe.links is not yet supported by the Windows oracle harness; "
+            "remove it until SOM link operations are implemented"
+        )
     links = tuple(links_raw)
     filters_raw = raw.get("security_filters", [])
     if not isinstance(filters_raw, list):
         raise RecipeError("recipe.security_filters must be an array")
+    if filters_raw:
+        raise RecipeError(
+            "recipe.security_filters is not yet supported by the Windows oracle "
+            "harness; remove it until security filtering is implemented"
+        )
     security_filters = tuple(filters_raw)
     wmi_filter = raw.get("wmi_filter")
     if wmi_filter is not None and not isinstance(wmi_filter, dict):
         raise RecipeError("recipe.wmi_filter must be an object or null")
+    if wmi_filter is not None:
+        raise RecipeError(
+            "recipe.wmi_filter is not yet supported by the Windows oracle "
+            "harness; remove it until WMI filtering is implemented"
+        )
     return FixtureRecipe(
         fixture_id=fixture_id,
         description=description,

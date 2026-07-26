@@ -105,15 +105,53 @@ def test_parse_recipe_rejects_non_object() -> None:
         parse_recipe("not a dict")
 
 
-def test_parse_recipe_with_optional_fields() -> None:
+def test_parse_recipe_rejects_unsupported_links() -> None:
     raw = _minimal_recipe()
     raw["links"] = [{"target_dn": "OU=Test,DC=example", "enabled": True, "enforced": False}]
+    with pytest.raises(RecipeError, match="links"):
+        parse_recipe(raw)
+
+
+def test_parse_recipe_rejects_unsupported_security_filters() -> None:
+    raw = _minimal_recipe()
     raw["security_filters"] = [{"principal": "TestGroup", "permission": "apply"}]
+    with pytest.raises(RecipeError, match="security_filters"):
+        parse_recipe(raw)
+
+
+def test_parse_recipe_rejects_unsupported_wmi_filter() -> None:
+    raw = _minimal_recipe()
     raw["wmi_filter"] = {"name": "TestFilter", "query": "SELECT * FROM Win32_OperatingSystem"}
+    with pytest.raises(RecipeError, match="wmi_filter"):
+        parse_recipe(raw)
+
+
+def test_parse_recipe_accepts_empty_optional_collections() -> None:
+    raw = _minimal_recipe()
+    raw["links"] = []
+    raw["security_filters"] = []
+    raw["wmi_filter"] = None
     recipe = parse_recipe(raw)
-    assert len(recipe.links) == 1
-    assert len(recipe.security_filters) == 1
-    assert recipe.wmi_filter is not None
+    assert recipe.links == ()
+    assert recipe.security_filters == ()
+    assert recipe.wmi_filter is None
+
+
+def test_parse_recipe_rejects_delete_action() -> None:
+    raw = _minimal_recipe()
+    assert isinstance(raw["settings"], list)
+    raw["settings"][0]["action"] = "delete"
+    with pytest.raises(RecipeError, match="not yet supported"):
+        parse_recipe(raw)
+
+
+def test_parse_recipe_rejects_side_hive_mismatch() -> None:
+    raw = _minimal_recipe()
+    assert isinstance(raw["settings"], list)
+    raw["settings"][0]["side"] = "user"
+    raw["settings"][0]["hive"] = "HKLM"
+    with pytest.raises(RecipeError, match="inconsistent"):
+        parse_recipe(raw)
 
 
 def test_parse_recipe_rejects_bad_links_type() -> None:
