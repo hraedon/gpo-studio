@@ -187,6 +187,8 @@ def generate_dry_run_manifest(config: DryRunConfig) -> dict[str, object]:
                 "oracle": "dry-run-synthetic",
                 "boundary_owner": "gpo-backup-content",
                 "normalizer_version": NORMALIZER_VERSION,
+                "expected_artifact_id": "synthetic-input",
+                "observed_artifact_id": "synthetic-output",
                 "expected_sha256": settings_hash,
                 "observed_sha256": settings_hash,
                 "equal": True,
@@ -254,7 +256,7 @@ def generate_dry_run_manifest(config: DryRunConfig) -> dict[str, object]:
         "cleanup": {
             "attempted": True,
             "succeeded": True,
-            "snapshot_restored": True,
+            "state_restored": True,
             "removed_resources": ["synthetic-gpo"],
             "failures": [],
         },

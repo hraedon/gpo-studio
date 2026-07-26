@@ -79,6 +79,8 @@ def _manifest() -> dict[str, object]:
                 "oracle": "GPMC Backup-GPO re-export",
                 "boundary_owner": "gpo-backup-content",
                 "normalizer_version": NORMALIZER_VERSION,
+                "expected_artifact_id": "input-xml",
+                "observed_artifact_id": "input-xml",
                 "expected_sha256": HASH_A,
                 "observed_sha256": HASH_A,
                 "equal": True,
@@ -88,7 +90,7 @@ def _manifest() -> dict[str, object]:
         "cleanup": {
             "attempted": True,
             "succeeded": True,
-            "snapshot_restored": True,
+            "state_restored": True,
             "removed_resources": ["synthetic-gpo"],
             "failures": [],
         },
@@ -165,12 +167,12 @@ def test_manifest_cannot_pass_with_failed_command_or_comparison() -> None:
         parse_oracle_manifest(failed_comparison)
 
 
-def test_manifest_cannot_pass_without_snapshot_restore() -> None:
+def test_manifest_cannot_pass_without_state_restore() -> None:
     raw = _manifest()
     cleanup = raw["cleanup"]
     assert isinstance(cleanup, dict)
-    cleanup["snapshot_restored"] = False
-    with pytest.raises(OracleEvidenceError, match="snapshot restore"):
+    cleanup["state_restored"] = False
+    with pytest.raises(OracleEvidenceError, match="state restore"):
         parse_oracle_manifest(raw)
 
 

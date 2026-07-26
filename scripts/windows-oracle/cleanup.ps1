@@ -10,10 +10,7 @@ param(
     [string]$OutputDir,
     
     [Parameter(Mandatory=$false)]
-    [string]$Domain = $env:USERDNSDOMAIN,
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$Force
+    [string]$Domain = $env:USERDNSDOMAIN
 )
 
 Import-Module (Join-Path $PSScriptRoot 'common.psm1') -Force
@@ -33,7 +30,7 @@ $manifest = @{
     domain = $Domain
     attempted = $true
     succeeded = $false
-    snapshot_restored = $false
+    state_restored = $false
     removed_resources = @()
     failures = @()
 }
@@ -50,7 +47,7 @@ try {
     }
     
     $manifest.succeeded = $true
-    $manifest.snapshot_restored = $true
+    $manifest.state_restored = $true
     $manifest.completed_at = Get-Date -Format 'o'
     
     $manifestPath = Join-Path $cleanupDir 'cleanup-manifest.json'
@@ -73,12 +70,5 @@ catch {
     
     Write-HarnessLog "Cleanup failed: $($_.Exception.Message)" -Level 'ERROR'
     
-    if (-not $Force) {
-        throw
-    }
-    
-    return @{
-        ManifestPath = $manifestPath
-        Succeeded = $false
-    }
+    throw
 }
