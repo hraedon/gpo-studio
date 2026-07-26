@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import difflib
 import hashlib
 import json
 import re
@@ -97,6 +98,15 @@ FROZEN_ENVIRONMENT = FrozenEnvironment(
 
 class OracleEvidenceError(ValueError):
     """Raised when evidence or normalization input violates the contract."""
+
+
+class IntegrityViolation(OracleEvidenceError):
+    """Raised when an evidence pack's files do not match their recorded hashes.
+
+    Distinct from a contract violation so callers can tell "the manifest is
+    malformed" apart from "the manifest is well-formed but its evidence files
+    have been altered or lost since the run".
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -1104,6 +1114,254 @@ def _build_normalized_artifact(
     )
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_evidence_pack(
+    run_dir: Path, manifest: Mapping[str, object]
+) -> tuple[str, ...]:
+    """Rehash every artifact file and command stream and compare to the manifest.
+
+    Returns the discrepancies (empty tuple means the pack is intact).  This is
+    the integrity check Sol requires: it runs before finalization and again
+    during later review, so any artifact or command stream that has been altered
+    or lost since the run is detected.
+
+    Two layers are checked:
+
+    * each artifact's file is rehashed against its recorded ``sha256``;
+    * each command's ``commands/<id>.stdout.txt`` / ``.stderr.txt`` is rehashed
+      against the command's recorded stream hash, and that recorded hash must
+      itself match the corresponding artifact (binding the command evidence to
+      the artifact set rather than trusting the command record alone).
+    """
+    problems: list[str] = []
+
+    artifacts_raw = _object_tuple(manifest.get("artifacts"), "artifacts")
+    artifact_hashes: dict[str, str] = {}
+    for index, item in enumerate(artifacts_raw):
+        data = _mapping(item, f"artifacts[{index}]")
+        artifact_id = _string(data, "artifact_id", f"artifacts[{index}]")
+        recorded_sha = _sha256(data, "sha256", f"artifacts[{index}]")
+        relative_path = _string(data, "relative_path", f"artifacts[{index}]")
+        artifact_hashes[artifact_id] = recorded_sha
+        try:
+            path = _resolve_artifact_path(run_dir, relative_path)
+        except OracleEvidenceError as exc:
+            problems.append(f"artifact {artifact_id!r}: {exc}")
+            continue
+        if not path.is_file():
+            problems.append(
+                f"artifact {artifact_id!r}: file missing at {relative_path!r}"
+            )
+            continue
+        actual = _sha256_file(path)
+        if actual != recorded_sha:
+            problems.append(
+                f"artifact {artifact_id!r}: recorded sha256 {recorded_sha} "
+                f"!= actual {actual}"
+            )
+
+    commands_raw = _object_tuple(manifest.get("commands"), "commands")
+    for index, item in enumerate(commands_raw):
+        label = f"commands[{index}]"
+        data = _mapping(item, label)
+        command_id = _string(data, "command_id", label)
+        for stream in ("stdout", "stderr"):
+            recorded = _optional_sha256(data, f"{stream}_sha256", label)
+            if recorded is None:
+                continue
+            stream_path = run_dir / "commands" / f"{command_id}.{stream}.txt"
+            if not stream_path.is_file():
+                problems.append(
+                    f"command {command_id!r}: {stream} stream missing at "
+                    f"{stream_path.name!r}"
+                )
+                continue
+            actual = _sha256_file(stream_path)
+            if actual != recorded:
+                problems.append(
+                    f"command {command_id!r}: recorded {stream}_sha256 "
+                    f"{recorded} != actual {actual}"
+                )
+            bound_artifact = f"{command_id}-{stream}"
+            if bound_artifact in artifact_hashes:
+                if artifact_hashes[bound_artifact] != recorded:
+                    problems.append(
+                        f"command {command_id!r}: {stream}_sha256 {recorded} does "
+                        f"not match artifact {bound_artifact!r} "
+                        f"{artifact_hashes[bound_artifact]}"
+                    )
+            else:
+                problems.append(
+                    f"command {command_id!r}: {stream}_sha256 {recorded} has no "
+                    f"matching artifact {bound_artifact!r}"
+                )
+
+    return tuple(problems)
+
+
+def assert_evidence_pack(run_dir: Path, manifest: Mapping[str, object]) -> None:
+    """Raise :class:`IntegrityViolation` if the evidence pack is not intact."""
+    problems = verify_evidence_pack(run_dir, manifest)
+    if problems:
+        raise IntegrityViolation(
+            "evidence pack integrity check failed:\n" + "\n".join(problems)
+        )
+
+
+# Deployed harness files recorded as hashed input artifacts so a run is bound to
+# the exact scripts and recipe that produced it (and, via git, to the commit).
+# Each entry is (artifact_id, deployed relative path, repository path).
+_HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
+    (
+        "harness-run-evidence",
+        "scripts/run-evidence.ps1",
+        "scripts/windows-oracle/run-evidence.ps1",
+    ),
+    ("harness-common", "scripts/common.psm1", "scripts/windows-oracle/common.psm1"),
+    (
+        "harness-recipe",
+        "scripts/recipe.json",
+        "tests/fixtures/recipes/synthetic-registry-basic.json",
+    ),
+)
+_HARNESS_INPUTS_MANIFEST = "harness-inputs.json"
+
+
+def _git_show_file(repo_root: Path, commit: str, relative_path: str) -> bytes:
+    result = subprocess.run(
+        ["git", "show", f"{commit}:{relative_path}"],
+        cwd=repo_root,
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout
+
+
+def build_harness_inputs(
+    run_dir: Path,
+    repo_root: Path,
+    *,
+    commit: str | None = None,
+    check_git: bool = True,
+) -> list[dict[str, object]]:
+    """Verify the deployed harness inputs and describe them as input artifacts.
+
+    Reads ``harness-inputs.json`` (written by the orchestrator at deploy time,
+    before the credential boundary), confirms each deployed file's hash matches,
+    and - when ``check_git`` is true - confirms the deployed bytes are identical
+    to the file at the recorded commit.  The result is a set of ``input``
+    artifacts that bind the run to the exact harness code that produced it.
+    """
+    inputs_path = run_dir / _HARNESS_INPUTS_MANIFEST
+    if not inputs_path.is_file():
+        raise IntegrityViolation(
+            f"{_HARNESS_INPUTS_MANIFEST} is missing; the harness inputs cannot "
+            "be verified"
+        )
+    try:
+        inputs = json.loads(inputs_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise IntegrityViolation(f"{_HARNESS_INPUTS_MANIFEST} is not valid JSON: {exc}") from exc
+    if not isinstance(inputs, dict):
+        raise IntegrityViolation(f"{_HARNESS_INPUTS_MANIFEST} must be a JSON object")
+
+    recorded_commit = inputs.get("commit")
+    if commit is None:
+        commit = recorded_commit if isinstance(recorded_commit, str) else ""
+
+    deployed = inputs.get("files")
+    if not isinstance(deployed, dict):
+        raise IntegrityViolation(f"{_HARNESS_INPUTS_MANIFEST}.files must be an object")
+
+    artifacts: list[dict[str, object]] = []
+    problems: list[str] = []
+    seen: set[str] = set()
+    for artifact_id, relative_path, repo_path in _HARNESS_INPUT_FILES:
+        entry = deployed.get(relative_path)
+        if not isinstance(entry, dict):
+            problems.append(f"deployed harness input {relative_path!r} is not recorded")
+            continue
+        seen.add(relative_path)
+        recorded_sha = entry.get("sha256")
+        size = entry.get("size_bytes")
+        if not isinstance(recorded_sha, str) or not _SHA256_RE.fullmatch(recorded_sha):
+            problems.append(f"harness input {relative_path!r} has no valid sha256")
+            continue
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            problems.append(f"harness input {relative_path!r} has no valid size_bytes")
+            continue
+        deployed_path = run_dir / relative_path
+        if not deployed_path.is_file():
+            problems.append(f"deployed harness input {relative_path!r} is missing")
+            continue
+        actual_sha = _sha256_file(deployed_path)
+        if actual_sha != recorded_sha:
+            problems.append(
+                f"deployed harness input {relative_path!r}: recorded sha256 "
+                f"{recorded_sha} != actual {actual_sha}"
+            )
+            continue
+        if check_git:
+            if not commit or not _COMMIT_SHA_RE.fullmatch(commit):
+                problems.append(
+                    "harness inputs cannot be bound to a commit: no valid "
+                    "commit recorded"
+                )
+                continue
+            try:
+                committed_bytes = _git_show_file(repo_root, commit, repo_path)
+            except (OSError, subprocess.CalledProcessError):
+                problems.append(
+                    f"harness input {relative_path!r} not found at commit {commit!r}"
+                )
+                continue
+            if _sha256_of_bytes(committed_bytes) != recorded_sha:
+                problems.append(
+                    f"deployed harness input {relative_path!r} differs from the "
+                    f"file at commit {commit!r}"
+                )
+                diff = "\n".join(
+                    difflib.unified_diff(
+                        committed_bytes.decode("utf-8", "replace").splitlines(),
+                        deployed_path.read_bytes()
+                        .decode("utf-8", "replace")
+                        .splitlines(),
+                        fromfile=f"{relative_path}@{commit}",
+                        tofile=f"deployed/{relative_path}",
+                        lineterm="",
+                    )
+                )
+                if diff:
+                    problems.append(diff)
+                continue
+        artifacts.append(
+            {
+                "artifact_id": artifact_id,
+                "role": "input",
+                "relative_path": relative_path,
+                "sha256": recorded_sha,
+                "size_bytes": size,
+            }
+        )
+
+    extra = sorted(set(deployed) - seen)
+    if extra:
+        problems.append(f"unexpected deployed harness inputs: {extra}")
+
+    if problems:
+        raise IntegrityViolation(
+            "harness input verification failed:\n" + "\n".join(problems)
+        )
+    return artifacts
+
+
 def finalize_oracle_run(
     run_dir: Path,
     repo_root: Path,
@@ -1139,6 +1397,46 @@ def finalize_oracle_run(
     artifacts_raw = list(_object_tuple(raw.get("artifacts"), "artifacts"))
     capability = _mapping(raw.get("capability"), "capability")
     matrix_row = capability.get("matrix_row")
+
+    # Bind every command stream to an artifact so the command evidence is part
+    # of the artifact set (not just an unverified hash on the command record).
+    # The harness may have registered some explicitly (e.g. the cleanup
+    # re-query); register the rest here.  verify_evidence_pack then rehashes the
+    # underlying file to confirm the recorded hash is genuine.
+    existing_artifact_ids = {
+        _artifact_field(item, "artifact_id") for item in artifacts_raw
+    }
+    for item in _object_tuple(commands_raw, "commands"):
+        command_data = _mapping(item, "command")
+        command_id = _string(command_data, "command_id", "command")
+        for stream in ("stdout", "stderr"):
+            stream_sha = _optional_sha256(command_data, f"{stream}_sha256", "command")
+            if stream_sha is None:
+                continue
+            stream_artifact_id = f"{command_id}-{stream}"
+            if stream_artifact_id in existing_artifact_ids:
+                continue
+            relative_path = f"commands/{command_id}.{stream}.txt"
+            stream_file = run_dir / relative_path
+            size_bytes = stream_file.stat().st_size if stream_file.is_file() else 0
+            artifacts_raw.append(
+                {
+                    "artifact_id": stream_artifact_id,
+                    "role": "raw-log",
+                    "relative_path": relative_path,
+                    "sha256": stream_sha,
+                    "size_bytes": size_bytes,
+                }
+            )
+            existing_artifact_ids.add(stream_artifact_id)
+
+    # Verify and bind the deployed harness scripts and recipe as input artifacts
+    # (tied to the recorded commit), then rehash the entire raw pack - every
+    # artifact file and every command stream - before building any comparisons.
+    # Both checks fail closed so altered or lost evidence is never finalized.
+    harness_inputs = build_harness_inputs(run_dir, repo_root, commit=source.commit)
+    artifacts_raw.extend(harness_inputs)
+    assert_evidence_pack(run_dir, {"artifacts": artifacts_raw, "commands": commands_raw})
 
     by_role: dict[str, Mapping[str, object]] = {}
     for item in artifacts_raw:
