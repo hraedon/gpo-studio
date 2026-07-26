@@ -59,6 +59,10 @@ _ARTIFACT_ROLES: frozenset[str] = frozenset(
 )
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+# command_id is interpolated into stream filenames (commands/<id>.stdout.txt),
+# so it must be a safe filename component: no path separators, traversal, drive
+# letters, or shell metacharacters.
+_COMMAND_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SUPPORTED_NORMALIZER_VERSIONS: frozenset[str] = frozenset({NORMALIZER_VERSION})
 FROZEN_LOCALES: frozenset[str] = frozenset({"en-US"})
 _BACKUP_ID_RE = re.compile(
@@ -1168,15 +1172,24 @@ def verify_evidence_pack(
             )
 
     commands_raw = _object_tuple(manifest.get("commands"), "commands")
+    commands_dir = run_dir / "commands"
     for index, item in enumerate(commands_raw):
         label = f"commands[{index}]"
         data = _mapping(item, label)
         command_id = _string(data, "command_id", label)
+        if not _COMMAND_ID_RE.fullmatch(command_id):
+            problems.append(
+                f"command {command_id!r}: command_id is not a safe filename "
+                "component"
+            )
+            continue
+        recorded_streams: set[str] = set()
         for stream in ("stdout", "stderr"):
             recorded = _optional_sha256(data, f"{stream}_sha256", label)
             if recorded is None:
                 continue
-            stream_path = run_dir / "commands" / f"{command_id}.{stream}.txt"
+            recorded_streams.add(stream)
+            stream_path = commands_dir / f"{command_id}.{stream}.txt"
             if not stream_path.is_file():
                 problems.append(
                     f"command {command_id!r}: {stream} stream missing at "
@@ -1202,6 +1215,18 @@ def verify_evidence_pack(
                     f"command {command_id!r}: {stream}_sha256 {recorded} has no "
                     f"matching artifact {bound_artifact!r}"
                 )
+        # Reject stream files that exist on disk but are not recorded on the
+        # command, so evidence cannot be smuggled in unverified.
+        if commands_dir.is_dir():
+            for stream in ("stdout", "stderr"):
+                if stream in recorded_streams:
+                    continue
+                stray = commands_dir / f"{command_id}.{stream}.txt"
+                if stray.is_file():
+                    problems.append(
+                        f"command {command_id!r}: unrecorded {stream} stream file "
+                        f"{stray.name!r} present on disk"
+                    )
 
     return tuple(problems)
 
@@ -1229,6 +1254,18 @@ _HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
         "harness-recipe",
         "scripts/recipe.json",
         "tests/fixtures/recipes/synthetic-registry-basic.json",
+    ),
+    # The privileged launcher the orchestrator deploys and executes on the host.
+    (
+        "harness-remote-run",
+        "scripts/remote-run.ps1",
+        "scripts/windows-oracle/remote-run.ps1",
+    ),
+    # The control-plane orchestrator that drives the run.
+    (
+        "harness-orchestrator",
+        "orchestrator/run-windows-oracle.sh",
+        "scripts/windows-oracle/run-windows-oracle.sh",
     ),
 )
 _HARNESS_INPUTS_MANIFEST = "harness-inputs.json"
@@ -1273,8 +1310,23 @@ def build_harness_inputs(
         raise IntegrityViolation(f"{_HARNESS_INPUTS_MANIFEST} must be a JSON object")
 
     recorded_commit = inputs.get("commit")
+    if not isinstance(recorded_commit, str) or not _COMMIT_SHA_RE.fullmatch(
+        recorded_commit
+    ):
+        raise IntegrityViolation(
+            f"{_HARNESS_INPUTS_MANIFEST}.commit must be a valid hexadecimal "
+            "commit SHA"
+        )
     if commit is None:
-        commit = recorded_commit if isinstance(recorded_commit, str) else ""
+        commit = recorded_commit
+    elif commit != recorded_commit:
+        # The recorded deploy-time commit is authoritative.  Finalization must
+        # not silently bind the deployed inputs to a different commit than the
+        # one recorded at deploy time.
+        raise IntegrityViolation(
+            f"harness inputs were recorded at commit {recorded_commit!r} but "
+            f"finalization supplied {commit!r}"
+        )
 
     deployed = inputs.get("files")
     if not isinstance(deployed, dict):

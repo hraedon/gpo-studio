@@ -66,6 +66,22 @@ _TEST_HARNESS_FILES = {
         "tests/fixtures/recipes/synthetic-registry-basic.json",
         b'{"fixture_id": "x"}\n',
     ),
+    "scripts/remote-run.ps1": (
+        "scripts/windows-oracle/remote-run.ps1",
+        b"# fake remote-run\n",
+    ),
+    "orchestrator/run-windows-oracle.sh": (
+        "scripts/windows-oracle/run-windows-oracle.sh",
+        b"# fake orchestrator\n",
+    ),
+}
+
+_HARNESS_ARTIFACT_IDS = {
+    "harness-run-evidence",
+    "harness-common",
+    "harness-recipe",
+    "harness-remote-run",
+    "harness-orchestrator",
 }
 
 
@@ -482,7 +498,7 @@ def test_build_harness_inputs_binds_to_commit(tmp_path: Path) -> None:
     commit = _setup_harness_repo_and_inputs(repo, run_dir)
     artifacts = build_harness_inputs(run_dir, repo, commit=commit)
     ids = {a["artifact_id"] for a in artifacts}
-    assert ids == {"harness-run-evidence", "harness-common", "harness-recipe"}
+    assert ids == _HARNESS_ARTIFACT_IDS
     assert all(a["role"] == "input" for a in artifacts)
 
 
@@ -532,6 +548,69 @@ def test_build_harness_inputs_requires_manifest(tmp_path: Path) -> None:
         assert "missing" in str(exc)
     else:
         raise AssertionError("expected IntegrityViolation")
+
+
+def _git(repo: Path, *args: str) -> str:
+    identity = ["-c", "user.email=test@example.invalid", "-c", "user.name=test"]
+    return subprocess.run(
+        ["git", *identity, *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_build_harness_inputs_rejects_commit_mismatch(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
+    # Advance HEAD so it differs from the recorded deploy-time commit.
+    (repo / "extra.txt").write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "second")
+    other_commit = _git(repo, "rev-parse", "HEAD")
+    try:
+        build_harness_inputs(run_dir, repo, commit=other_commit)
+    except IntegrityViolation as exc:
+        assert "recorded at commit" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_build_harness_inputs_rejects_invalid_recorded_commit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    _setup_harness_repo_and_inputs(repo, run_dir)
+    inputs = json.loads((run_dir / "harness-inputs.json").read_text(encoding="utf-8"))
+    inputs["commit"] = "not-a-sha"
+    (run_dir / "harness-inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
+    try:
+        build_harness_inputs(run_dir, repo)
+    except IntegrityViolation as exc:
+        assert "commit" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_verify_evidence_pack_rejects_unsafe_command_id(tmp_path: Path) -> None:
+    _repo, run_dir, final = _finalized_run(tmp_path)
+    final["commands"][0]["command_id"] = "../evil"
+    problems = verify_evidence_pack(run_dir, final)
+    assert any("safe filename" in p for p in problems)
+
+
+def test_verify_evidence_pack_rejects_unrecorded_stream(tmp_path: Path) -> None:
+    _repo, run_dir, final = _finalized_run(tmp_path)
+    command = next(c for c in final["commands"] if c["command_id"] == "new-gpo")
+    command["stderr_sha256"] = None
+    final["artifacts"] = [
+        a for a in final["artifacts"] if a["artifact_id"] != "new-gpo-stderr"
+    ]
+    # commands/new-gpo.stderr.txt still exists on disk but is no longer recorded.
+    assert (run_dir / "commands" / "new-gpo.stderr.txt").is_file()
+    problems = verify_evidence_pack(run_dir, final)
+    assert any("unrecorded stderr stream" in p for p in problems)
 
 
 def test_finalize_rejects_run_with_tampered_harness_input(tmp_path: Path) -> None:
