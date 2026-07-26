@@ -95,7 +95,7 @@ Implementation status (2026-07-26):
 
 ### Acceptance
 
-- A dry run produces a complete evidence record and restores the lab snapshot.
+- A dry run produces a complete evidence record and restores the lab state (verified by re-query of all created resources).
 - Every later assertion has exactly one named oracle and one owning boundary.
 - Any unsupported normalization difference fails loudly.
 

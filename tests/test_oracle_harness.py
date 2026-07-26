@@ -191,7 +191,7 @@ def test_dry_run_manifest_cleanup_is_clean() -> None:
     cleanup = manifest["cleanup"]
     assert isinstance(cleanup, dict)
     assert cleanup["succeeded"] is True
-    assert cleanup["snapshot_restored"] is True
+    assert cleanup["state_restored"] is True
     assert cleanup["failures"] == []
 
 
@@ -205,12 +205,13 @@ def test_dry_run_manifest_rejects_when_mutated() -> None:
 
 def test_dry_run_manifest_passing_state_rejected_with_synthetic_commands() -> None:
     """A manifest claiming 'pass' with synthetic data must fail validation
-    because the pass-state invariants require real cleanup and comparisons."""
+    because the pass-state invariants reject synthetic identifiers."""
     config = DryRunConfig(recipe=_recipe())
     manifest = generate_dry_run_manifest(config)
     assert isinstance(manifest["capability"], dict)
     manifest["capability"]["evidence_state"] = "pass"
-    validate_dry_run_manifest(manifest)
+    with pytest.raises(OracleEvidenceError):
+        validate_dry_run_manifest(manifest)
 
 
 def test_dry_run_with_custom_config() -> None:

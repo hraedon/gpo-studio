@@ -56,6 +56,9 @@ _ARTIFACT_ROLES: frozenset[str] = frozenset(
     {"input", "output", "raw-log", "snapshot"}
 )
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+SUPPORTED_NORMALIZER_VERSIONS: frozenset[str] = frozenset({NORMALIZER_VERSION})
+FROZEN_LOCALES: frozenset[str] = frozenset({"en-US"})
 _BACKUP_ID_RE = re.compile(
     r"^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$"
@@ -122,6 +125,8 @@ class SemanticComparison:
     oracle: str
     boundary_owner: BoundaryOwner
     normalizer_version: str
+    expected_artifact_id: str
+    observed_artifact_id: str
     expected_sha256: str
     observed_sha256: str
     equal: bool
@@ -132,7 +137,7 @@ class SemanticComparison:
 class CleanupEvidence:
     attempted: bool
     succeeded: bool
-    snapshot_restored: bool
+    state_restored: bool
     removed_resources: tuple[str, ...] = field(default_factory=tuple)
     failures: tuple[str, ...] = field(default_factory=tuple)
 
@@ -394,6 +399,8 @@ def _comparison(raw: object, index: int) -> SemanticComparison:
                 "oracle",
                 "boundary_owner",
                 "normalizer_version",
+                "expected_artifact_id",
+                "observed_artifact_id",
                 "expected_sha256",
                 "observed_sha256",
                 "equal",
@@ -416,6 +423,8 @@ def _comparison(raw: object, index: int) -> SemanticComparison:
         oracle=_string(data, "oracle", label),
         boundary_owner=cast(BoundaryOwner, boundary),
         normalizer_version=_string(data, "normalizer_version", label),
+        expected_artifact_id=_string(data, "expected_artifact_id", label),
+        observed_artifact_id=_string(data, "observed_artifact_id", label),
         expected_sha256=_sha256(data, "expected_sha256", label),
         observed_sha256=_sha256(data, "observed_sha256", label),
         equal=equal,
@@ -431,7 +440,7 @@ def _cleanup(raw: object) -> CleanupEvidence:
             {
                 "attempted",
                 "succeeded",
-                "snapshot_restored",
+                "state_restored",
                 "removed_resources",
                 "failures",
             }
@@ -448,7 +457,7 @@ def _cleanup(raw: object) -> CleanupEvidence:
     return CleanupEvidence(
         attempted=attempted,
         succeeded=succeeded,
-        snapshot_restored=_bool(data, "snapshot_restored", "cleanup"),
+        state_restored=_bool(data, "state_restored", "cleanup"),
         removed_resources=_string_tuple(
             data.get("removed_resources"), "cleanup.removed_resources"
         ),
@@ -541,12 +550,38 @@ def parse_oracle_manifest(raw: object) -> OracleEvidenceManifest:
     command_ids = [item.command_id for item in commands]
     if len(command_ids) != len(set(command_ids)):
         raise OracleEvidenceError("command_id values must be unique")
+    artifact_map = {item.artifact_id: item for item in artifacts}
+    for comparison in comparisons:
+        if comparison.expected_artifact_id not in artifact_map:
+            raise OracleEvidenceError(
+                f"comparison {comparison.assertion_id!r} expected_artifact_id "
+                f"{comparison.expected_artifact_id!r} does not reference a known artifact"
+            )
+        if comparison.observed_artifact_id not in artifact_map:
+            raise OracleEvidenceError(
+                f"comparison {comparison.assertion_id!r} observed_artifact_id "
+                f"{comparison.observed_artifact_id!r} does not reference a known artifact"
+            )
+        expected_artifact = artifact_map[comparison.expected_artifact_id]
+        if comparison.expected_sha256 != expected_artifact.sha256:
+            raise OracleEvidenceError(
+                f"comparison {comparison.assertion_id!r} expected_sha256 does not match "
+                f"artifact {comparison.expected_artifact_id!r}"
+            )
+        observed_artifact = artifact_map[comparison.observed_artifact_id]
+        if comparison.observed_sha256 != observed_artifact.sha256:
+            raise OracleEvidenceError(
+                f"comparison {comparison.assertion_id!r} observed_sha256 does not match "
+                f"artifact {comparison.observed_artifact_id!r}"
+            )
     started_at = _timestamp(data, "started_at")
     completed_at = _timestamp(data, "completed_at")
     if completed_at < started_at:
         raise OracleEvidenceError("manifest.completed_at cannot precede started_at")
     cleanup = _cleanup(data.get("cleanup"))
     capability = _capability(data.get("capability"))
+    source = _source(data.get("source"))
+    environment = _environment(data.get("environment"))
     if capability.evidence_state == "pass":
         if any(command.exit_code != 0 for command in commands):
             raise OracleEvidenceError(
@@ -556,18 +591,49 @@ def parse_oracle_manifest(raw: object) -> OracleEvidenceManifest:
             raise OracleEvidenceError(
                 "passing capability cannot contain a failed comparison"
             )
-        if not cleanup.succeeded or not cleanup.snapshot_restored:
+        if not cleanup.succeeded or not cleanup.state_restored:
             raise OracleEvidenceError(
-                "passing capability requires successful cleanup and snapshot restore"
+                "passing capability requires successful cleanup and state restore"
+            )
+        if not _COMMIT_SHA_RE.fullmatch(source.commit):
+            raise OracleEvidenceError(
+                "passing capability requires a valid hexadecimal commit SHA"
+            )
+        for comparison in comparisons:
+            if comparison.normalizer_version not in SUPPORTED_NORMALIZER_VERSIONS:
+                raise OracleEvidenceError(
+                    f"comparison {comparison.assertion_id!r} has unsupported "
+                    f"normalizer_version {comparison.normalizer_version!r}"
+                )
+        for command in commands:
+            if command.stdout_sha256 is None and command.stderr_sha256 is None:
+                raise OracleEvidenceError(
+                    f"command {command.command_id!r} must have at least one of "
+                    "stdout_sha256 or stderr_sha256"
+                )
+        if environment.locale not in FROZEN_LOCALES:
+            raise OracleEvidenceError(
+                f"passing capability requires locale in {sorted(FROZEN_LOCALES)}, "
+                f"got {environment.locale!r}"
+            )
+        for comparison in comparisons:
+            if "synthetic" in comparison.oracle.casefold():
+                raise OracleEvidenceError(
+                    f"comparison {comparison.assertion_id!r} oracle must not "
+                    "contain 'synthetic'"
+                )
+        if capability.matrix_row.startswith("dry-run."):
+            raise OracleEvidenceError(
+                "passing capability matrix_row must not start with 'dry-run.'"
             )
     return OracleEvidenceManifest(
         schema_version=schema_version,
         run_id=_string(data, "run_id", "manifest"),
         started_at=_string(data, "started_at", "manifest"),
         completed_at=_string(data, "completed_at", "manifest"),
-        source=_source(data.get("source")),
+        source=source,
         fixture=_fixture(data.get("fixture")),
-        environment=_environment(data.get("environment")),
+        environment=environment,
         tools=tools,
         artifacts=artifacts,
         commands=commands,

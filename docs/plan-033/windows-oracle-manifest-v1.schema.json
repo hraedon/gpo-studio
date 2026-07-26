@@ -209,6 +209,8 @@
           "oracle",
           "boundary_owner",
           "normalizer_version",
+          "expected_artifact_id",
+          "observed_artifact_id",
           "expected_sha256",
           "observed_sha256",
           "equal",
@@ -231,6 +233,12 @@
             ]
           },
           "normalizer_version": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "expected_artifact_id": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "observed_artifact_id": {
             "$ref": "#/$defs/nonEmptyString"
           },
           "expected_sha256": {
@@ -257,7 +265,7 @@
       "required": [
         "attempted",
         "succeeded",
-        "snapshot_restored",
+        "state_restored",
         "removed_resources",
         "failures"
       ],
@@ -268,7 +276,7 @@
         "succeeded": {
           "type": "boolean"
         },
-        "snapshot_restored": {
+        "state_restored": {
           "type": "boolean"
         },
         "removed_resources": {
