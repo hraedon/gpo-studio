@@ -1,19 +1,21 @@
 # Plan 033 frozen environment specification
 
-Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). No WP-0
-run has been certified `pass` yet: the current harness produces parser-valid
-`inconclusive` (success-path) and `fail` manifests, and `pass` additionally
-requires a clean, committed source tree.
+Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). A WP-0
+success-path run has been certified `pass` against a clean, committed source
+tree (commit `7eb3c14`). The harness also produces parser-valid `fail`
+manifests for deliberate failure paths.
 Last updated: 2026-07-26
 Validation host: mvmcitest01
-Current valid manifest hash (inconclusive success-path run live-synthetic-
-registry-basic-20260725221444-1816):
-`930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19`
+Certified passing manifest hash (success-path run
+`live-synthetic-registry-basic-20260725231015-9640`, source commit `7eb3c14`):
+`91dd0232d207220d8092fddcb7096777f8bd828deca7c862372ff61da1ade990`
 
-Note: the previously cited hash
-`265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` is obsolete.
-It predates the comparison-to-artifact binding checks in `oracle_evidence.py`
-and no longer validates under the current parser.
+Note: the previously cited hashes
+`265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` (predates the
+comparison-to-artifact binding checks) and
+`930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19` (inconclusive;
+the source tree was dirty at run time) are both superseded by the certified
+pass above.
 
 Every Plan 033 run records the exact environment in the manifest's
 `environment` object. This document pins the supported builds and tool
