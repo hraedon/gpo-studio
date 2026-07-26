@@ -70,18 +70,28 @@ Implementation status (2026-07-26, post-hardening):
   semantic normalization, comparison binding, and the final evidence state;
 - snapshot-backed dry-run orchestrator (`oracle_harness.py`): implemented;
 - live Windows lab runs against the frozen environment (2026-07-26): the
-  success-path run is parser-valid and **inconclusive** (its semantic comparison
-  is genuinely equal, but the source tree was dirty at run time, which the pass
-  gate correctly refuses); the deliberate fail-path run is parser-valid **fail**
-  (real failed command, real stderr, successful cleanup with independent
-  re-query). Current valid success-path manifest hash:
-  `930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19`.
+  success-path run is a certified **pass** (source commit `7eb3c14`, clean
+  tree; genuine semantic equality of two independent GPO reports via
+  normalizer v1; successful cleanup with independent LDAP re-query proving the
+  disposable GPO is absent). Certified passing manifest hash:
+  `91dd0232d207220d8092fddcb7096777f8bd828deca7c862372ff61da1ade990`.
+  A deliberate fail-path run is parser-valid **fail** (real failed command,
+  real stderr, successful cleanup with independent re-query).
 
 Note: the previously cited hash
 `265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` is obsolete —
 it predates the comparison-to-artifact binding checks and no longer validates.
-A WP-0 `pass` requires re-running the success path against a clean, committed
-source tree.
+The intermediate hash
+`930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19` was an honest
+`inconclusive` (equal comparison, but the source tree was dirty at run time)
+and is superseded by the certified pass above.
+
+Note (forward dependency): the current pass was produced through a disposable
+scheduled-task harness (`scripts/windows-oracle/run-windows-oracle.sh`) that
+passes the credential via `schtasks` argv — acceptable for this isolated lab
+but not a model to promote. Certification should migrate to the agent-
+capability-broker Plan 008 WI-3.2 Windows authenticated-launch boundary once it
+lands; the present orchestrator is throwaway scaffolding for that transition.
 
 ### Work
 
