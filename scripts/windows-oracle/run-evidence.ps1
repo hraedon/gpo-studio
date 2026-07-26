@@ -46,7 +46,7 @@ $fixtureInput = @{
     settings = $recipe.settings
 } | ConvertTo-Json -Depth 10
 $fixtureInputPath = Join-Path $workDir 'fixture-input.json'
-$fixtureInput | Out-File -FilePath $fixtureInputPath -Encoding utf8NoBOM
+[System.IO.File]::WriteAllText($fixtureInputPath, $fixtureInput)
 $artifacts += @{
     artifact_id = 'fixture-input'
     role = 'input'
@@ -111,8 +111,9 @@ try {
     $backupFiles = Get-ChildItem -Path $backupDir -Recurse -File
     foreach ($f in $backupFiles) {
         $rel = $f.FullName.Substring($backupDir.Length).TrimStart('\')
+        $safeId = ($rel -replace '[\\{}]', '-' -replace '--+', '-').Trim('-')
         $artifacts += @{
-            artifact_id = "backup-$($f.Name)"
+            artifact_id = "backup-$safeId"
             role = 'output'
             relative_path = "backup\$rel"
             sha256 = Get-FileSha256 -Path $f.FullName
@@ -193,24 +194,25 @@ $lgpoSha = if (Test-Path $LgpoPath) { Get-FileSha256 -Path $LgpoPath } else { $n
 
 $comparisons = @()
 if ($cleanupSucceeded -and $commands.Count -gt 0) {
-    $inputArtifact = $artifacts | Where-Object { $_.role -eq 'input' } | Select-Object -First 1
-    $outputArtifact = $artifacts | Where-Object { $_.artifact_id -eq 'gpreport' } | Select-Object -First 1
-    if ($inputArtifact -and $outputArtifact) {
+    $backupReport = $artifacts | Where-Object { $_.relative_path -like 'backup\*\gpreport.xml' } | Select-Object -First 1
+    $standaloneReport = $artifacts | Where-Object { $_.artifact_id -eq 'gpreport' } | Select-Object -First 1
+    if ($backupReport -and $standaloneReport) {
+        $hashesEqual = ($backupReport.sha256 -eq $standaloneReport.sha256)
+        $diffs = @()
+        if (-not $hashesEqual) {
+            $diffs = @('backup gpreport.xml and standalone gpreport.xml hashes differ')
+        }
         $comparisons += @{
             assertion_id = 'gpo-backup-content-roundtrip'
             oracle = 'Backup-GPO native output'
             boundary_owner = 'gpo-backup-content'
             normalizer_version = 'gpo-studio.windows-oracle-xml.v1'
-            expected_artifact_id = $inputArtifact.artifact_id
-            observed_artifact_id = $outputArtifact.artifact_id
-            expected_sha256 = $inputArtifact.sha256
-            observed_sha256 = $outputArtifact.sha256
-            equal = ($inputArtifact.sha256 -eq $outputArtifact.sha256)
-            differences = @()
-        }
-        if ($inputArtifact.sha256 -ne $outputArtifact.sha256) {
-            $comparisons[-1].differences = @('fixture-input and gpreport hashes differ (expected for registry-only fixture)')
-            $comparisons[-1].equal = $false
+            expected_artifact_id = $backupReport.artifact_id
+            observed_artifact_id = $standaloneReport.artifact_id
+            expected_sha256 = $backupReport.sha256
+            observed_sha256 = $standaloneReport.sha256
+            equal = $hashesEqual
+            differences = $diffs
         }
     }
 }
@@ -220,6 +222,9 @@ if (-not $cleanupSucceeded) { $evidenceState = 'fail' }
 if ($commands.Count -eq 0) { $evidenceState = 'inconclusive' }
 foreach ($cmd in $commands) {
     if ($cmd.exit_code -ne 0) { $evidenceState = 'fail' }
+}
+foreach ($cmp in $comparisons) {
+    if (-not $cmp.equal -and $evidenceState -eq 'pass') { $evidenceState = 'inconclusive' }
 }
 
 $manifest = @{
@@ -266,7 +271,8 @@ $manifest = @{
 }
 
 $manifestPath = Join-Path $workDir 'manifest.json'
-$manifest | ConvertTo-Json -Depth 100 | Out-File -FilePath $manifestPath -Encoding utf8NoBOM
+$manifestJson = $manifest | ConvertTo-Json -Depth 100
+[System.IO.File]::WriteAllText($manifestPath, $manifestJson)
 Write-HarnessLog "=== MANIFEST: $manifestPath ==="
 Write-HarnessLog "Evidence state: $evidenceState"
 Write-HarnessLog "Commands: $($commands.Count) | Artifacts: $($artifacts.Count) | Comparisons: $($comparisons.Count)"
