@@ -51,61 +51,8 @@
             "description": "Value data; type depends on value_type"
           },
           "action": {
-            "enum": ["set", "delete"]
+            "enum": ["set"]
           }
-        }
-      }
-    },
-    "links": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["target_dn", "enabled", "enforced"],
-        "properties": {
-          "target_dn": {
-            "type": "string",
-            "minLength": 1
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "enforced": {
-            "type": "boolean"
-          }
-        }
-      }
-    },
-    "security_filters": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["principal", "permission"],
-        "properties": {
-          "principal": {
-            "type": "string",
-            "minLength": 1
-          },
-          "permission": {
-            "enum": ["apply", "read"]
-          },
-          "sid": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "wmi_filter": {
-      "type": ["object", "null"],
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1
-        },
-        "query": {
-          "type": "string",
-          "minLength": 1
         }
       }
     }

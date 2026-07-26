@@ -1,9 +1,19 @@
 # Plan 033 frozen environment specification
 
-Status: frozen — WP-0 live dry run validated 2026-07-26
+Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). No WP-0
+run has been certified `pass` yet: the current harness produces parser-valid
+`inconclusive` (success-path) and `fail` manifests, and `pass` additionally
+requires a clean, committed source tree.
 Last updated: 2026-07-26
 Validation host: mvmcitest01
-Canonical manifest hash: 265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0
+Current valid manifest hash (inconclusive success-path run live-synthetic-
+registry-basic-20260725221444-1816):
+`930d37fca9aa7a314c7d40aeb2bf3d984ac114e4581d0df43663a624db901d19`
+
+Note: the previously cited hash
+`265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` is obsolete.
+It predates the comparison-to-artifact binding checks in `oracle_evidence.py`
+and no longer validates under the current parser.
 
 Every Plan 033 run records the exact environment in the manifest's
 `environment` object. This document pins the supported builds and tool
@@ -62,4 +72,10 @@ updating this document.
 3. The `locale` field must match this document for a run to be considered
    on-target.
 4. `dirty: true` in the manifest `source` object is acceptable for
-   development runs but must be `false` for certification evidence.
+   development runs but must be `false` for certification evidence. The
+   manifest parser enforces this: a `pass` capability with a dirty source is
+   rejected.
+5. The parser enforces the full frozen environment for a `pass`: any deviation
+   in `server_build`, `powershell_edition`, `powershell_version`,
+   `group_policy_module_version`, `gpmc_version`, `locale`, or `lgpo_sha256`
+   from the values in this document downgrades the run to `inconclusive`.

@@ -18,10 +18,11 @@ import datetime as dt
 import hashlib
 import json
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from typing import Literal, cast
 
 from .xml_safety import parse_xml_bounded
@@ -62,6 +63,35 @@ FROZEN_LOCALES: frozenset[str] = frozenset({"en-US"})
 _BACKUP_ID_RE = re.compile(
     r"^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenEnvironment:
+    """The single frozen qualification environment for Plan 033.
+
+    A passing manifest must have been produced on exactly this environment.
+    Any deviation makes the run ``inconclusive`` at best, never ``pass``.
+    Mirrors ``docs/plan-033/environment-spec.md``; keep the two in sync.
+    """
+
+    server_build: str
+    powershell_edition: str
+    powershell_version: str
+    group_policy_module_version: str
+    gpmc_version: str
+    locale: str
+    lgpo_sha256: str
+
+
+FROZEN_ENVIRONMENT = FrozenEnvironment(
+    server_build="Microsoft Windows Server 2025 Standard 26100",
+    powershell_edition="Desktop",
+    powershell_version="5.1.26100.32860",
+    group_policy_module_version="1.0.0.0",
+    gpmc_version="built-in",
+    locale="en-US",
+    lgpo_sha256="0c97f29543418b30340c4ff5d930d31e6196dd59c2cc74b6b890fa7b90c910c7",
 )
 
 
@@ -337,6 +367,7 @@ def _artifact(raw: object, index: int) -> ArtifactDigest:
     parsed_path = PureWindowsPath(relative_path)
     if (
         parsed_path.is_absolute()
+        or parsed_path.drive
         or relative_path.startswith(("/", "\\"))
         or ".." in parsed_path.parts
     ):
@@ -481,6 +512,42 @@ def _capability(raw: object) -> CapabilityResult:
     )
 
 
+def frozen_environment_violations(
+    environment: WindowsEnvironment,
+    frozen: FrozenEnvironment = FROZEN_ENVIRONMENT,
+) -> tuple[str, ...]:
+    """Return human-readable deviations from the frozen qualification environment.
+
+    An empty tuple means the environment matches the frozen spec exactly.
+    A ``lgpo_sha256`` placeholder (not yet captured from a qualification run)
+    is reported as a violation so a passing manifest cannot rely on it.
+    """
+    violations: list[str] = []
+    checks: tuple[tuple[str, str, str], ...] = (
+        ("server_build", environment.server_build, frozen.server_build),
+        ("powershell_edition", environment.powershell_edition, frozen.powershell_edition),
+        ("powershell_version", environment.powershell_version, frozen.powershell_version),
+        (
+            "group_policy_module_version",
+            environment.group_policy_module_version,
+            frozen.group_policy_module_version,
+        ),
+        ("gpmc_version", environment.gpmc_version, frozen.gpmc_version),
+        ("locale", environment.locale, frozen.locale),
+    )
+    for field_name, observed, expected in checks:
+        if observed != expected:
+            violations.append(
+                f"environment.{field_name} is {observed!r}, expected {expected!r}"
+            )
+    if environment.lgpo_sha256 != frozen.lgpo_sha256:
+        violations.append(
+            "environment.lgpo_sha256 is "
+            f"{environment.lgpo_sha256!r}, expected {frozen.lgpo_sha256!r}"
+        )
+    return tuple(violations)
+
+
 def parse_oracle_manifest(raw: object) -> OracleEvidenceManifest:
     """Parse and strictly validate one Plan 033 execution manifest."""
     data = _mapping(raw, "manifest")
@@ -599,6 +666,10 @@ def parse_oracle_manifest(raw: object) -> OracleEvidenceManifest:
             raise OracleEvidenceError(
                 "passing capability requires a valid hexadecimal commit SHA"
             )
+        if source.dirty:
+            raise OracleEvidenceError(
+                "passing capability requires a clean (non-dirty) source tree"
+            )
         for comparison in comparisons:
             if comparison.normalizer_version not in SUPPORTED_NORMALIZER_VERSIONS:
                 raise OracleEvidenceError(
@@ -615,6 +686,12 @@ def parse_oracle_manifest(raw: object) -> OracleEvidenceManifest:
             raise OracleEvidenceError(
                 f"passing capability requires locale in {sorted(FROZEN_LOCALES)}, "
                 f"got {environment.locale!r}"
+            )
+        env_violations = frozen_environment_violations(environment)
+        if env_violations:
+            raise OracleEvidenceError(
+                "passing capability requires the frozen qualification "
+                f"environment; deviations: {'; '.join(env_violations)}"
             )
         for comparison in comparisons:
             if "synthetic" in comparison.oracle.casefold():
@@ -712,6 +789,13 @@ _NORMALIZED_BACKUP_ID = "{NORMALIZED-BACKUP-ID}"
 _BACKUP_MANIFEST_NAMESPACE = (
     "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
 )
+# GPO report (Get-GPOReport / Backup-GPO gpreport.xml) metadata that records when
+# the report or GPO was created/modified/read.  These are generated timestamps
+# with no policy meaning, so two reports of the same GPO always differ on
+# ReadTime and must not be treated as a semantic difference.
+_GPO_REPORT_TIMESTAMPS: frozenset[str] = frozenset(
+    {"CreatedTime", "ModifiedTime", "ReadTime"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -796,6 +880,12 @@ def _normalized_element(
             if element_name == "ID"
             else _NORMALIZED_TIMESTAMP
         )
+    if (
+        element_name in _GPO_REPORT_TIMESTAMPS
+        and parent_name == "GPO"
+        and text is not None
+    ):
+        text = _NORMALIZED_TIMESTAMP
     return {
         "tag": element.tag,
         "attributes": attributes,
@@ -922,3 +1012,284 @@ def normalize_backup_relative_path(relative_path: str, backup_id: str) -> str:
         )
     parts[matching_indexes[0]] = _NORMALIZED_BACKUP_ID
     return str(PureWindowsPath(*parts))
+
+
+_WP0_COMPARISON_ASSERTION_ID = "wp0-gpo-report-self-consistency"
+_WP0_COMPARISON_ORACLE = "Backup-GPO native gpreport vs Get-GPOReport native output"
+
+
+def git_source_state(repo_root: Path) -> SourceState:
+    """Compute the authoritative source provenance from the git working tree.
+
+    Provenance is computed here (where the repository lives) rather than on the
+    Windows evidence host, which has no git.  A missing git binary or a
+    non-repository path is reported as a dirty state with a sentinel commit so
+    it can never be mistaken for a clean, passing source (and so the resulting
+    manifest still parses).
+    """
+    unknown = SourceState(commit="unknown", dirty=True)
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return unknown
+    if not commit:
+        return unknown
+    return SourceState(commit=commit, dirty=bool(status.strip()))
+
+
+def _sha256_of_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _artifact_field(item: object, key: str) -> str:
+    value = _mapping(item, "artifact").get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _resolve_artifact_path(run_dir: Path, relative_path: str) -> Path:
+    """Resolve a manifest relative_path (Windows-style) against the local run dir.
+
+    Manifests are produced on Windows and store backslash-separated paths; the
+    finalize step usually runs on a POSIX host, so the separators must be
+    translated before the file is read.  Absolute, drive-relative, and
+    parent-traversing paths are refused so a raw manifest can never reach
+    outside ``run_dir``.
+    """
+    parsed = PureWindowsPath(relative_path)
+    if parsed.is_absolute() or parsed.drive or ".." in parsed.parts:
+        raise OracleEvidenceError(
+            f"artifact relative_path must be a relative path: {relative_path!r}"
+        )
+    return run_dir.joinpath(*parsed.parts)
+
+
+def _build_normalized_artifact(
+    run_dir: Path,
+    *,
+    artifact_id: str,
+    source_relative_path: str,
+) -> ArtifactDigest:
+    """Normalize a raw XML artifact, persist it, and describe it as an artifact.
+
+    The persisted ``normalized/<id>.json`` file carries the normalized semantic
+    hash, which comparisons bind to.  The raw artifact hash is preserved
+    separately on the original artifact.
+    """
+    source_path = _resolve_artifact_path(run_dir, source_relative_path)
+    normalized = normalize_xml_semantics(source_path.read_bytes())
+    canonical = normalized.canonical_bytes()
+    normalized_dir = run_dir / "normalized"
+    normalized_dir.mkdir(parents=True, exist_ok=True)
+    relative_path = f"normalized/{artifact_id}.json"
+    (run_dir / relative_path).write_bytes(canonical)
+    return ArtifactDigest(
+        artifact_id=artifact_id,
+        role="output",
+        relative_path=relative_path,
+        sha256=_sha256_of_bytes(canonical),
+        size_bytes=len(canonical),
+    )
+
+
+def finalize_oracle_run(
+    run_dir: Path,
+    repo_root: Path,
+) -> OracleEvidenceManifest:
+    """Finalize a raw Windows evidence run into a validated manifest.
+
+    The Windows harness writes ``manifest.raw.json`` plus the captured artifacts
+    into ``run_dir``.  This step is the single authority for:
+
+    * source provenance (computed from the git repository, never the host);
+    * semantic comparisons (run through the versioned XML normalizer, bound to
+      persisted normalized artifacts);
+    * the final ``evidence_state``.
+
+    A run that failed during setup or collection still yields a parser-valid
+    ``fail`` manifest: the failed command and its logs are preserved, a sentinel
+    output artifact stands in for the missing report, and an explanatory
+    comparison records why no semantic comparison was possible.
+    """
+    raw_path = run_dir / "manifest.raw.json"
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise OracleEvidenceError("manifest.raw.json must be a JSON object")
+
+    source = git_source_state(repo_root)
+
+    commands_raw = raw.get("commands")
+    commands = tuple(
+        _command(item, index)
+        for index, item in enumerate(_object_tuple(commands_raw, "commands"))
+    )
+    cleanup = _cleanup(raw.get("cleanup"))
+    artifacts_raw = list(_object_tuple(raw.get("artifacts"), "artifacts"))
+    capability = _mapping(raw.get("capability"), "capability")
+    matrix_row = capability.get("matrix_row")
+
+    by_role: dict[str, Mapping[str, object]] = {}
+    for item in artifacts_raw:
+        mapping = _mapping(item, "artifact")
+        role = mapping.get("role")
+        if isinstance(role, str):
+            by_role.setdefault(role, mapping)
+
+    input_artifact = by_role.get("input")
+    if input_artifact is None:
+        raise OracleEvidenceError("raw manifest is missing an input artifact")
+
+    comparisons: list[dict[str, object]] = []
+    failed_command = next((c for c in commands if c.exit_code != 0), None)
+
+    if failed_command is not None or not cleanup.succeeded:
+        output_artifact = by_role.get("output")
+        if output_artifact is None:
+            failure_note = (
+                "run failed before producing an output artifact: "
+                f"command {failed_command.command_id!r} exited "
+                f"{failed_command.exit_code}"
+                if failed_command is not None
+                else "run failed during cleanup; no output artifact produced"
+            )
+            failure_bytes = failure_note.encode("utf-8")
+            output_dir = run_dir / "artifacts"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "failure.txt").write_bytes(failure_bytes)
+            output_artifact = {
+                "artifact_id": "failure-output",
+                "role": "output",
+                "relative_path": "artifacts/failure.txt",
+                "sha256": _sha256_of_bytes(failure_bytes),
+                "size_bytes": len(failure_bytes),
+            }
+            artifacts_raw.append(output_artifact)
+        reason = (
+            f"command {failed_command.command_id!r} exited "
+            f"{failed_command.exit_code}"
+            if failed_command is not None
+            else "cleanup did not succeed; state was not restored"
+        )
+        output_id = _string(output_artifact, "artifact_id", "output artifact")
+        output_sha = _sha256(output_artifact, "sha256", "output artifact")
+        comparisons.append(
+            {
+                "assertion_id": _WP0_COMPARISON_ASSERTION_ID,
+                "oracle": _WP0_COMPARISON_ORACLE,
+                "boundary_owner": "gpo-backup-content",
+                "normalizer_version": NORMALIZER_VERSION,
+                "expected_artifact_id": output_id,
+                "observed_artifact_id": output_id,
+                "expected_sha256": output_sha,
+                "observed_sha256": output_sha,
+                "equal": False,
+                "differences": [f"comparison not performed: {reason}"],
+            }
+        )
+        evidence_state = "fail"
+    else:
+        backup_report = next(
+            (
+                item
+                for item in artifacts_raw
+                if _artifact_field(item, "relative_path")
+                .casefold()
+                .endswith("gpreport.xml")
+                and "backup" in _artifact_field(item, "relative_path").casefold()
+            ),
+            None,
+        )
+        standalone_report = next(
+            (
+                item
+                for item in artifacts_raw
+                if _artifact_field(item, "artifact_id") == "gpreport"
+            ),
+            None,
+        )
+        if backup_report is None or standalone_report is None:
+            raise OracleEvidenceError(
+                "successful run must capture both a backup gpreport.xml and a "
+                "standalone gpreport.xml"
+            )
+        backup_rel = _string(
+            _mapping(backup_report, "backup report"), "relative_path", "backup report"
+        )
+        standalone_rel = _string(
+            _mapping(standalone_report, "standalone report"),
+            "relative_path",
+            "standalone report",
+        )
+        expected_artifact = _build_normalized_artifact(
+            run_dir,
+            artifact_id="normalized-backup-gpreport",
+            source_relative_path=backup_rel,
+        )
+        observed_artifact = _build_normalized_artifact(
+            run_dir,
+            artifact_id="normalized-standalone-gpreport",
+            source_relative_path=standalone_rel,
+        )
+        artifacts_raw.append(dataclasses.asdict(expected_artifact))
+        artifacts_raw.append(dataclasses.asdict(observed_artifact))
+        semantic = compare_xml_semantics(
+            _resolve_artifact_path(run_dir, backup_rel).read_bytes(),
+            _resolve_artifact_path(run_dir, standalone_rel).read_bytes(),
+        )
+        comparisons.append(
+            {
+                "assertion_id": _WP0_COMPARISON_ASSERTION_ID,
+                "oracle": _WP0_COMPARISON_ORACLE,
+                "boundary_owner": "gpo-backup-content",
+                "normalizer_version": NORMALIZER_VERSION,
+                "expected_artifact_id": expected_artifact.artifact_id,
+                "observed_artifact_id": observed_artifact.artifact_id,
+                "expected_sha256": expected_artifact.sha256,
+                "observed_sha256": observed_artifact.sha256,
+                "equal": semantic.equal,
+                "differences": list(semantic.differences),
+            }
+        )
+        environment_obj = _environment(raw.get("environment"))
+        # Mirror the parser's full `pass` gate so finalize never labels a run
+        # `pass` that parse_oracle_manifest would then reject.
+        pass_eligible = (
+            semantic.equal
+            and not source.dirty
+            and _COMMIT_SHA_RE.fullmatch(source.commit) is not None
+            and cleanup.state_restored
+            and not frozen_environment_violations(environment_obj)
+            and not (
+                isinstance(matrix_row, str) and matrix_row.startswith("dry-run.")
+            )
+        )
+        evidence_state = "pass" if pass_eligible else "inconclusive"
+
+    finalized: dict[str, object] = dict(raw)
+    finalized["source"] = {"commit": source.commit, "dirty": source.dirty}
+    finalized["artifacts"] = artifacts_raw
+    finalized["comparisons"] = comparisons
+    finalized["capability"] = {
+        "matrix_row": matrix_row,
+        "evidence_state": evidence_state,
+    }
+
+    manifest = parse_oracle_manifest(finalized)
+    out_path = run_dir / "manifest.json"
+    out_path.write_text(
+        json.dumps(finalized, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest

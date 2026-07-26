@@ -8,6 +8,7 @@ import json
 import pytest
 
 from gpo_studio.oracle_evidence import (
+    FROZEN_ENVIRONMENT,
     NORMALIZER_VERSION,
     OracleEvidenceError,
     canonical_manifest_bytes,
@@ -28,20 +29,22 @@ def _manifest() -> dict[str, object]:
         "run_id": "synthetic-run-001",
         "started_at": "2026-07-25T00:00:00Z",
         "completed_at": "2026-07-25T00:05:00Z",
-        "source": {"commit": "0123456789abcdef", "dirty": True},
+        "source": {"commit": "0123456789abcdef", "dirty": False},
         "fixture": {
             "fixture_id": "synthetic-gpp-drive-001",
             "generation_recipe": "fixtures/recipes/gpp-drive.json",
         },
         "environment": {
-            "server_build": "synthetic-server-build",
+            "server_build": FROZEN_ENVIRONMENT.server_build,
             "client_build": "synthetic-client-build",
-            "powershell_edition": "Desktop",
-            "powershell_version": "5.1.synthetic",
-            "group_policy_module_version": "synthetic-module-version",
-            "gpmc_version": "synthetic-gpmc-version",
-            "locale": "en-US",
-            "lgpo_sha256": HASH_A,
+            "powershell_edition": FROZEN_ENVIRONMENT.powershell_edition,
+            "powershell_version": FROZEN_ENVIRONMENT.powershell_version,
+            "group_policy_module_version": (
+                FROZEN_ENVIRONMENT.group_policy_module_version
+            ),
+            "gpmc_version": FROZEN_ENVIRONMENT.gpmc_version,
+            "locale": FROZEN_ENVIRONMENT.locale,
+            "lgpo_sha256": FROZEN_ENVIRONMENT.lgpo_sha256,
         },
         "tools": [
             {"name": "GPMC", "version": "synthetic-gpmc-version", "sha256": None},
@@ -330,8 +333,117 @@ def test_normalizer_hash_changes_when_unknown_attribute_changes() -> None:
     assert first.sha256() != second.sha256()
 
 
+def test_normalizer_ignores_gpo_report_generated_timestamps() -> None:
+    expected = (
+        "<GPO><Name>Fixture</Name>"
+        "<CreatedTime>2026-07-26T05:14:44</CreatedTime>"
+        "<ModifiedTime>2026-07-26T05:14:45</ModifiedTime>"
+        "<ReadTime>2026-07-26T05:14:54.0163058Z</ReadTime>"
+        "</GPO>"
+    )
+    observed = (
+        "<GPO><Name>Fixture</Name>"
+        "<CreatedTime>2026-07-26T09:00:00</CreatedTime>"
+        "<ModifiedTime>2026-07-26T09:00:01</ModifiedTime>"
+        "<ReadTime>2026-07-26T05:14:57.6125556Z</ReadTime>"
+        "</GPO>"
+    )
+    result = compare_xml_semantics(expected, observed)
+    assert result.equal is True
+    assert result.differences == ()
+
+
+def test_normalizer_still_detects_gpo_report_name_difference() -> None:
+    expected = "<GPO><Name>One</Name><ReadTime>t1</ReadTime></GPO>"
+    observed = "<GPO><Name>Two</Name><ReadTime>t2</ReadTime></GPO>"
+    assert compare_xml_semantics(expected, observed).equal is False
+
+
+def test_normalizer_preserves_timestamp_named_policy_content() -> None:
+    # A timestamp-named element that is not a direct child of the <GPO> report
+    # root is policy content and must not be normalized away.
+    expected = "<GPO><ExtensionData><ReadTime>t1</ReadTime></ExtensionData></GPO>"
+    observed = "<GPO><ExtensionData><ReadTime>t2</ReadTime></ExtensionData></GPO>"
+    assert compare_xml_semantics(expected, observed).equal is False
+
+
 def test_manifest_does_not_mutate_input() -> None:
     raw = _manifest()
     before = copy.deepcopy(raw)
     parse_oracle_manifest(raw)
     assert raw == before
+
+
+# --- extended pass gate: provenance and frozen environment ------------------
+
+
+def test_pass_rejected_when_source_dirty() -> None:
+    raw = _manifest()
+    source = raw["source"]
+    assert isinstance(source, dict)
+    source["dirty"] = True
+    with pytest.raises(OracleEvidenceError, match="non-dirty"):
+        parse_oracle_manifest(raw)
+
+
+def test_pass_rejected_when_environment_unfrozen() -> None:
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["powershell_version"] = "5.1.99999.0"
+    with pytest.raises(OracleEvidenceError, match="frozen qualification"):
+        parse_oracle_manifest(raw)
+
+
+def test_pass_rejected_when_lgpo_hash_unfrozen() -> None:
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["lgpo_sha256"] = HASH_B
+    with pytest.raises(OracleEvidenceError, match="frozen qualification"):
+        parse_oracle_manifest(raw)
+
+
+def test_frozen_environment_violations_reports_each_deviation() -> None:
+    from gpo_studio.oracle_evidence import (
+        FrozenEnvironment,
+        WindowsEnvironment,
+        frozen_environment_violations,
+    )
+
+    env = WindowsEnvironment(
+        server_build=FROZEN_ENVIRONMENT.server_build,
+        client_build="anything",
+        powershell_edition=FROZEN_ENVIRONMENT.powershell_edition,
+        powershell_version="different",
+        group_policy_module_version=FROZEN_ENVIRONMENT.group_policy_module_version,
+        gpmc_version=FROZEN_ENVIRONMENT.gpmc_version,
+        locale=FROZEN_ENVIRONMENT.locale,
+        lgpo_sha256=FROZEN_ENVIRONMENT.lgpo_sha256,
+    )
+    violations = frozen_environment_violations(env)
+    assert len(violations) == 1
+    assert "powershell_version" in violations[0]
+
+    frozen = FrozenEnvironment(
+        server_build=FROZEN_ENVIRONMENT.server_build,
+        powershell_edition=FROZEN_ENVIRONMENT.powershell_edition,
+        powershell_version="different",
+        group_policy_module_version=FROZEN_ENVIRONMENT.group_policy_module_version,
+        gpmc_version=FROZEN_ENVIRONMENT.gpmc_version,
+        locale=FROZEN_ENVIRONMENT.locale,
+        lgpo_sha256=FROZEN_ENVIRONMENT.lgpo_sha256,
+    )
+    assert frozen_environment_violations(env, frozen) == ()
+
+
+def test_inconclusive_manifest_tolerates_unfrozen_environment() -> None:
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["powershell_version"] = "5.1.99999.0"
+    capability = raw["capability"]
+    assert isinstance(capability, dict)
+    capability["evidence_state"] = "inconclusive"
+    manifest = parse_oracle_manifest(raw)
+    assert manifest.capability.evidence_state == "inconclusive"
