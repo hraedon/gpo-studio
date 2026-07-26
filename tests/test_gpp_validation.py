@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from gpo_studio.gpp import (
     GppCollection,
     GppGroup,
@@ -180,6 +182,75 @@ def test_ilt_invalid_wmi_query_error() -> None:
         and i.severity == "error"
         for i in issues
     )
+
+
+@pytest.mark.parametrize(
+    ("predicate_type", "expected_code"),
+    [
+        ("ou", "empty_ilt_ou_value"),
+        ("group", "empty_ilt_group_value"),
+        ("registry", "empty_ilt_registry_value"),
+        ("environment", "empty_ilt_environment_value"),
+        ("computer_name", "empty_ilt_value"),
+        ("domain", "empty_ilt_value"),
+        ("user", "empty_ilt_value"),
+        ("service", "empty_ilt_value"),
+        ("date", "empty_ilt_date_value"),
+        ("os", "empty_ilt_value"),
+        ("language", "empty_ilt_value"),
+        ("file", "empty_ilt_value"),
+        ("folder", "empty_ilt_value"),
+    ],
+)
+def test_ilt_blank_typed_values_are_rejected(
+    predicate_type: str, expected_code: str
+) -> None:
+    predicate = IltPredicate(type=predicate_type, value="")  # type: ignore[arg-type]
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(items=(predicate,)),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(issue.code == expected_code for issue in issues)
+
+
+@pytest.mark.parametrize("value", ["-1", "not-an-integer"])
+def test_ilt_disk_space_requires_non_negative_integer(value: str) -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(
+                    items=(IltPredicate(type="disk_space", value=value),)
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert any(issue.code == "invalid_ilt_disk_space" for issue in issues)
+
+
+@pytest.mark.parametrize("value", ["10.0.0.0/24", "10.0.0.1-10.0.0.10"])
+def test_ilt_valid_ip_ranges_are_accepted(value: str) -> None:
+    collection = GppCollection(
+        scope="computer",
+        groups=(
+            GppGroup(
+                name="Admins",
+                ilt_filter=IltFilter(
+                    items=(IltPredicate(type="ip_range", value=value),)
+                ),
+            ),
+        ),
+    )
+    issues = validate_gpp_collection(collection)
+    assert not any(issue.code == "invalid_ilt_ip_range" for issue in issues)
 
 
 def test_valid_gpp_collection_no_errors() -> None:

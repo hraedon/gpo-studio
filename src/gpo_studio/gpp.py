@@ -9,12 +9,36 @@ from __future__ import annotations
 
 import uuid
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field, replace
-from typing import Any, Literal, assert_never
+from copy import deepcopy
+from dataclasses import MISSING, dataclass, field, fields, replace
+from typing import TYPE_CHECKING, Any, Literal, assert_never
 
 from .ilt import IltFilter, IltPredicate, parse_ilt, serialize_ilt
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
 from .xml_safety import parse_xml_bounded
+
+if TYPE_CHECKING:
+    from .gpp_adapters import (
+        GppApplication,
+        GppDataSource,
+        GppDevice,
+        GppDrive,
+        GppEnvironment,
+        GppFile,
+        GppFolder,
+        GppFolderOptions,
+        GppImmediateTask,
+        GppIniFile,
+        GppLocalGroup,
+        GppLocalUser,
+        GppNetworkShare,
+        GppPowerOptions,
+        GppPrinter,
+        GppRegionalOptions,
+        GppScheduledTask,
+        GppService,
+        GppShortcut,
+    )
 
 _GPP_NS = "http://www.microsoft.com/GroupPolicy/Settings"
 
@@ -89,23 +113,35 @@ _CODE_TO_MEMBER_ACTION: dict[str, GppAction] = {
 # legacy Studio attributes (action, removeUsers, removeGroups, description)
 # for backward-compatible parsing of older Studio-generated XML — these are
 # typed fields so must not be captured as unknown.
+_COMMON_ITEM_ATTRS = frozenset({
+    "applyOnce",  # legacy Studio input; emitted as FilterRunOnce
+    "removePolicy",
+    "userContext",
+    "disabled",
+    "bypassErrors",
+})
 _GROUP_KNOWN_ATTRS = frozenset({
     "clsid", "name",
     "action", "removeUsers", "removeGroups", "description",
-})
+}) | _COMMON_ITEM_ATTRS
 _MEMBER_KNOWN_ATTRS = frozenset({"name", "sid", "action"})
-_REGISTRY_KNOWN_ATTRS = frozenset({"clsid", "name", "action", "uid"})
+_REGISTRY_KNOWN_ATTRS = (
+    frozenset({"clsid", "name", "action", "uid"}) | _COMMON_ITEM_ATTRS
+)
 _REGISTRY_VALUE_KNOWN_ATTRS = frozenset({
     "action", "hive", "key", "name", "type", "value", "default",
+    "applyOnce", "removePolicy", "userContext", "disabled", "bypassErrors",
 })
 _GROUP_KNOWN_CHILDREN = frozenset({"Properties", "Members", "Filters"})
 _REGISTRY_KNOWN_CHILDREN = frozenset({"Properties", "Filters"})
 _GROUP_PROPS_KNOWN_ATTRS = frozenset({
     "action", "groupName", "groupSid", "description",
     "deleteAllUsers", "deleteAllGroups",
+    "applyOnce", "removePolicy", "userContext", "disabled", "bypassErrors",
 })
 _GROUPS_ROOT_KNOWN_ATTRS = frozenset({"clsid"})
-_GROUPS_ROOT_KNOWN_CHILDREN = frozenset({"Group"})
+# MS-GPPREF <Groups> root holds both <Group> and <User> inner elements.
+_GROUPS_ROOT_KNOWN_CHILDREN = frozenset({"Group", "User"})
 _REGISTRY_SETTINGS_ROOT_KNOWN_ATTRS = frozenset({"clsid"})
 _REGISTRY_SETTINGS_ROOT_KNOWN_CHILDREN = frozenset({"Registry"})
 
@@ -310,6 +346,15 @@ class GppGroupMember:
 
 
 @dataclass(frozen=True, slots=True)
+class GppCommonOptions:
+    apply_once: bool = False
+    remove_when_unapplied: bool = False
+    user_security_context: bool = False
+    disabled: bool = False
+    stop_on_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class GppGroup:
     name: str
     sid: str = ""
@@ -318,6 +363,7 @@ class GppGroup:
     description: str = ""
     remove_all_users: bool = False
     remove_all_groups: bool = False
+    common: GppCommonOptions = field(default_factory=GppCommonOptions)
     ilt_filter: IltFilter | None = None
     id: str = ""
     unknown_attrs: tuple[tuple[str, str], ...] = ()
@@ -346,6 +392,7 @@ class GppRegistry:
     action: GppAction = "update"
     uid: str = ""
     id: str = ""
+    common: GppCommonOptions = field(default_factory=GppCommonOptions)
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
@@ -360,6 +407,66 @@ class GppCollection:
     groups_unknown_children: tuple[str, ...] = ()
     registry_unknown_attrs: tuple[tuple[str, str], ...] = ()
     registry_unknown_children: tuple[str, ...] = ()
+    # Low-artifact adapter batches (Plan 024 WP-2).
+    environment: tuple[GppEnvironment, ...] = field(default_factory=tuple)
+    environment_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    environment_unknown_children: tuple[str, ...] = ()
+    ini_files: tuple[GppIniFile, ...] = field(default_factory=tuple)
+    ini_files_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    ini_files_unknown_children: tuple[str, ...] = ()
+    regional_options: tuple[GppRegionalOptions, ...] = field(default_factory=tuple)
+    regional_options_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    regional_options_unknown_children: tuple[str, ...] = ()
+    power_options: tuple[GppPowerOptions, ...] = field(default_factory=tuple)
+    power_options_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    power_options_unknown_children: tuple[str, ...] = ()
+    devices: tuple[GppDevice, ...] = field(default_factory=tuple)
+    devices_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    devices_unknown_children: tuple[str, ...] = ()
+    folder_options: tuple[GppFolderOptions, ...] = field(default_factory=tuple)
+    folder_options_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    folder_options_unknown_children: tuple[str, ...] = ()
+    data_sources: tuple[GppDataSource, ...] = field(default_factory=tuple)
+    data_sources_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    data_sources_unknown_children: tuple[str, ...] = ()
+    # Plan 024 WP-3 resource adapter batch.
+    drives: tuple[GppDrive, ...] = field(default_factory=tuple)
+    drives_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    drives_unknown_children: tuple[str, ...] = ()
+    files: tuple[GppFile, ...] = field(default_factory=tuple)
+    files_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    files_unknown_children: tuple[str, ...] = ()
+    folders: tuple[GppFolder, ...] = field(default_factory=tuple)
+    folders_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    folders_unknown_children: tuple[str, ...] = ()
+    network_shares: tuple[GppNetworkShare, ...] = field(default_factory=tuple)
+    network_shares_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    network_shares_unknown_children: tuple[str, ...] = ()
+    printers: tuple[GppPrinter, ...] = field(default_factory=tuple)
+    printers_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    printers_unknown_children: tuple[str, ...] = ()
+    shortcuts: tuple[GppShortcut, ...] = field(default_factory=tuple)
+    shortcuts_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    shortcuts_unknown_children: tuple[str, ...] = ()
+    applications: tuple[GppApplication, ...] = field(default_factory=tuple)
+    applications_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    applications_unknown_children: tuple[str, ...] = ()
+    # Privileged execution adapter batch (Plan 024 WP-4).
+    services: tuple[GppService, ...] = field(default_factory=tuple)
+    services_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    services_unknown_children: tuple[str, ...] = ()
+    local_users: tuple[GppLocalUser, ...] = field(default_factory=tuple)
+    local_users_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    local_users_unknown_children: tuple[str, ...] = ()
+    local_groups: tuple[GppLocalGroup, ...] = field(default_factory=tuple)
+    local_groups_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    local_groups_unknown_children: tuple[str, ...] = ()
+    scheduled_tasks: tuple[GppScheduledTask, ...] = field(default_factory=tuple)
+    scheduled_tasks_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    scheduled_tasks_unknown_children: tuple[str, ...] = ()
+    immediate_tasks: tuple[GppImmediateTask, ...] = field(default_factory=tuple)
+    immediate_tasks_unknown_attrs: tuple[tuple[str, str], ...] = ()
+    immediate_tasks_unknown_children: tuple[str, ...] = ()
 
 
 def _xml_declaration(data: bytes) -> bytes:
@@ -369,6 +476,97 @@ def _xml_declaration(data: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
+
+def _apply_common_options(item: ET.Element, common: GppCommonOptions) -> None:
+    """Write MS-GPPREF common options on the inner preference item.
+
+    ``apply_once`` is not an XML attribute. GPMC represents it as a
+    ``FilterRunOnce`` item-level-targeting predicate, which is appended by
+    :func:`_append_item_filters`.
+    """
+    item.set("removePolicy", "1" if common.remove_when_unapplied else "0")
+    item.set("userContext", "1" if common.user_security_context else "0")
+    item.set("disabled", "1" if common.disabled else "0")
+    # MS-GPPREF: bypassErrors="1" continues after an error; "0" stops.
+    item.set("bypassErrors", "0" if common.stop_on_error else "1")
+
+
+def _parse_common_options(
+    source: ET.Element,
+    legacy_source: ET.Element | None = None,
+    *,
+    apply_once: bool = False,
+) -> GppCommonOptions:
+    """Parse common options from an item, accepting old Studio placement.
+
+    Before Plan 033, Studio incorrectly wrote these attributes on
+    ``Properties``. The fallback keeps those artifacts readable without
+    repeating the invalid placement on export.
+    """
+    def value(name: str, default: str) -> str:
+        if name in source.attrib:
+            return source.attrib[name]
+        if legacy_source is not None and name in legacy_source.attrib:
+            return legacy_source.attrib[name]
+        return default
+
+    return GppCommonOptions(
+        apply_once=apply_once or value("applyOnce", "0") == "1",
+        remove_when_unapplied=value("removePolicy", "0") == "1",
+        user_security_context=value("userContext", "0") == "1",
+        disabled=value("disabled", "0") == "1",
+        # bypassErrors="0" means stop on error; absent defaults to "0" (stop).
+        stop_on_error=value("bypassErrors", "0") == "0",
+    )
+
+
+def _parse_item_filters(
+    item: ET.Element,
+) -> tuple[IltFilter | None, bool]:
+    """Parse ILT while promoting ``FilterRunOnce`` to a common option."""
+    filters = _find_local(item, "Filters")
+    if filters is None:
+        return None, False
+
+    remaining = ET.Element(_ns("Filters"))
+    apply_once = False
+    for child in filters:
+        if _local_name(child.tag) == "FilterRunOnce":
+            apply_once = True
+        else:
+            remaining.append(deepcopy(child))
+    if not list(remaining):
+        return None, apply_once
+    return parse_ilt(remaining), apply_once
+
+
+def _append_item_filters(
+    item: ET.Element,
+    ilt_filter: IltFilter | None,
+    common: GppCommonOptions,
+    identity_seed: str,
+) -> None:
+    """Append ILT plus GPMC-compatible apply-once targeting."""
+    if ilt_filter is None and not common.apply_once:
+        return
+    filters = (
+        serialize_ilt(ilt_filter)
+        if ilt_filter is not None
+        else ET.Element(_ns("Filters"))
+    )
+    if common.apply_once:
+        run_once = ET.Element(_ns("FilterRunOnce"))
+        run_once.set("hidden", "1")
+        run_once.set("not", "0")
+        run_once.set("bool", "AND")
+        run_once_id = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"gpo-studio/gpp/run-once/{identity_seed}",
+        )
+        run_once.set("id", "{" + str(run_once_id).upper() + "}")
+        filters.append(run_once)
+    item.append(filters)
+
 
 def _serialize_member(member: GppGroupMember) -> ET.Element:
     elem = ET.Element(_ns("Member"))
@@ -386,6 +584,7 @@ def _serialize_group(group: GppGroup) -> ET.Element:
     elem = ET.Element(_ns("Group"))
     elem.set("clsid", _GROUP_CLSID)
     elem.set("name", group.name)
+    _apply_common_options(elem, group.common)
     _apply_unknown_attrs(elem, group.unknown_attrs)
     props = ET.SubElement(elem, _ns("Properties"))
     props.set("action", _action_to_code(group.action))
@@ -401,8 +600,12 @@ def _serialize_group(group: GppGroup) -> ET.Element:
         members_elem = ET.SubElement(props, _ns("Members"))
         for member in group.members:
             members_elem.append(_serialize_member(member))
-    if group.ilt_filter is not None:
-        elem.append(serialize_ilt(group.ilt_filter))
+    _append_item_filters(
+        elem,
+        group.ilt_filter,
+        group.common,
+        group.id or group.name,
+    )
     _append_unknown_children(elem, group.unknown_children, f"group {group.name!r}")
     return elem
 
@@ -431,6 +634,7 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
     elem.set("name", reg.key)
     if reg.uid:
         elem.set("uid", reg.uid)
+    _apply_common_options(elem, reg.common)
     _apply_unknown_attrs(elem, reg.unknown_attrs)
     props = ET.SubElement(elem, _ns("Properties"))
     props.set("action", _registry_action_to_code(value.action))
@@ -449,8 +653,12 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
     if value.default:
         props.set("default", "1")
     _apply_unknown_attrs(props, value.unknown_attrs)
-    if reg.ilt_filter is not None:
-        elem.append(serialize_ilt(reg.ilt_filter))
+    _append_item_filters(
+        elem,
+        reg.ilt_filter,
+        reg.common,
+        reg.uid or reg.id or f"{hive}/{reg.key}/{value.name}",
+    )
     _append_unknown_children(elem, reg.unknown_children, f"registry {reg.key!r}")
     return elem
 
@@ -483,7 +691,64 @@ def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
         files["Groups/Groups.xml"] = serialize_gpp_groups(collection)
     if has_registry:
         files["Registry/Registry.xml"] = serialize_gpp_registry(collection)
+    _serialize_adapter_files(collection, files)
     return files
+
+
+def _serialize_adapter_files(
+    collection: GppCollection, files: dict[str, bytes]
+) -> None:
+    """Serialize low-artifact adapter sections into the files dict.
+
+    Adapters that share a file path (per MS-GPPREF: local_users + local_groups
+    → Groups\\Groups.xml, scheduled_tasks + immediate_tasks →
+    ScheduledTasks\\ScheduledTasks.xml) are merged into a single root element.
+    """
+    from .gpp_adapters import (
+        ADAPTER_FILE_PATHS,
+        ADAPTER_KEYS,
+        _build_adapter_root,
+    )
+
+    # Group non-empty adapters by file path, preserving ADAPTER_KEYS order.
+    file_to_keys: dict[str, list[str]] = {}
+    for key in ADAPTER_KEYS:
+        items = getattr(collection, key)
+        unknown_attrs = getattr(collection, f"{key}_unknown_attrs")
+        unknown_children = getattr(collection, f"{key}_unknown_children")
+        if not items and not unknown_attrs and not unknown_children:
+            continue
+        file_path = ADAPTER_FILE_PATHS[key]
+        file_to_keys.setdefault(file_path, []).append(key)
+
+    for file_path, keys in file_to_keys.items():
+        if file_path in files:
+            # File already exists (e.g. from serialize_gpp_groups); parse the
+            # existing root and append adapter children into it.
+            existing_root = _bounded_parse(files[file_path])
+            for key in keys:
+                items = getattr(collection, key)
+                adapter_root = _build_adapter_root(key, items, collection.scope)
+                for child in adapter_root:
+                    existing_root.append(child)
+            files[file_path] = _xml_declaration(
+                ET.tostring(existing_root, encoding="utf-8")
+            )
+        else:
+            # Build a merged root from all adapters sharing this file path.
+            first_key = keys[0]
+            first_items = getattr(collection, first_key)
+            merged_root = _build_adapter_root(
+                first_key, first_items, collection.scope
+            )
+            for key in keys[1:]:
+                items = getattr(collection, key)
+                adapter_root = _build_adapter_root(key, items, collection.scope)
+                for child in adapter_root:
+                    merged_root.append(child)
+            files[file_path] = _xml_declaration(
+                ET.tostring(merged_root, encoding="utf-8")
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -519,12 +784,20 @@ def _parse_group(elem: ET.Element) -> GppGroup:
             "deleteAllGroups", elem.get("removeGroups", "0")
         ) == "1"
         sid = props.get("groupSid", "")
+        ilt_filter, apply_once = _parse_item_filters(elem)
+        common = _parse_common_options(
+            elem,
+            props,
+            apply_once=apply_once,
+        )
     else:
         action = _code_to_action(elem.get("action", "U"))
         description = elem.get("description", "")
         remove_all_users = elem.get("removeUsers", "0") == "1"
         remove_all_groups = elem.get("removeGroups", "0") == "1"
         sid = ""
+        ilt_filter, apply_once = _parse_item_filters(elem)
+        common = _parse_common_options(elem, apply_once=apply_once)
 
     # Members may be inside <Properties> (MS-GPPREF) or a sibling (legacy).
     members: list[GppGroupMember] = []
@@ -537,8 +810,6 @@ def _parse_group(elem: ET.Element) -> GppGroup:
         for member_elem in _findall_local(members_elem, "Member"):
             members.append(_parse_member(member_elem))
 
-    filters_elem = _find_local(elem, "Filters")
-    ilt_filter = parse_ilt(filters_elem) if filters_elem is not None else None
     return GppGroup(
         name=name,
         sid=sid,
@@ -547,6 +818,7 @@ def _parse_group(elem: ET.Element) -> GppGroup:
         description=description,
         remove_all_users=remove_all_users,
         remove_all_groups=remove_all_groups,
+        common=common,
         ilt_filter=ilt_filter,
         unknown_attrs=_capture_unknown_attrs(elem, _GROUP_KNOWN_ATTRS),
         unknown_props_attrs=(
@@ -608,8 +880,7 @@ def _parse_registry(elem: ET.Element) -> list[GppRegistry]:
     props_list = _findall_local(elem, "Properties")
     registry_name = elem.get("name", "")
     uid = elem.get("uid", "")
-    filters_elem = _find_local(elem, "Filters")
-    ilt_filter = parse_ilt(filters_elem) if filters_elem is not None else None
+    ilt_filter, apply_once = _parse_item_filters(elem)
     unknown_attrs = _capture_unknown_attrs(elem, _REGISTRY_KNOWN_ATTRS)
     unknown_children = _capture_unknown_children(elem, _REGISTRY_KNOWN_CHILDREN)
 
@@ -630,16 +901,22 @@ def _parse_registry(elem: ET.Element) -> list[GppRegistry]:
             hive = _normalize_hive(props.get("hive", "HKEY_LOCAL_MACHINE"))
             key = props.get("key", "") or registry_name
             value = _parse_registry_value(props)
+            common = _parse_common_options(
+                elem,
+                props,
+                apply_once=apply_once,
+            )
             if idx == 0:
                 results.append(GppRegistry(
                     key=key, hive=hive, value=value, uid=uid,
+                    common=common,
                     ilt_filter=ilt_filter,
                     unknown_attrs=unknown_attrs,
                     unknown_children=unknown_children,
                 ))
             else:
                 results.append(GppRegistry(
-                    key=key, hive=hive, value=value,
+                    key=key, hive=hive, value=value, common=common,
                 ))
 
     return results
@@ -696,13 +973,38 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
                 registry_unknown_children = _capture_unknown_children(
                     root, _REGISTRY_SETTINGS_ROOT_KNOWN_CHILDREN
                 )
+    adapter_data: dict[str, Any] = _parse_adapter_files(files)
     return GppCollection(
         scope=scope, groups=groups, registry=registry,
         groups_unknown_attrs=groups_unknown_attrs,
         groups_unknown_children=groups_unknown_children,
         registry_unknown_attrs=registry_unknown_attrs,
         registry_unknown_children=registry_unknown_children,
+        **adapter_data,
     )
+
+
+def _parse_adapter_files(files: dict[str, bytes]) -> dict[str, Any]:
+    """Parse low-artifact adapter files into GppCollection constructor kwargs.
+
+    A single file may contain multiple adapter types (per MS-GPPREF: local
+    users + local groups share Groups\\Groups.xml, scheduled tasks + immediate
+    tasks share ScheduledTasks\\ScheduledTasks.xml).
+    """
+    from .gpp_adapters import ROOT_PARSE_FUNCTIONS
+
+    results: dict[str, object] = {}
+    for filename, content in files.items():
+        normalized = filename.replace("\\", "/")
+        for suffix, parse_entries in ROOT_PARSE_FUNCTIONS.items():
+            if normalized.endswith(suffix):
+                for adapter_key, parse_fn in parse_entries:
+                    items, unknown_attrs, unknown_children = parse_fn(content)
+                    results[adapter_key] = items
+                    results[f"{adapter_key}_unknown_attrs"] = unknown_attrs
+                    results[f"{adapter_key}_unknown_children"] = unknown_children
+                break
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -735,13 +1037,27 @@ def _ensure_registry_editor_ids(registry: GppRegistry) -> GppRegistry:
     )
 
 
+def _ensure_simple_editor_id(item: Any) -> Any:
+    """Assign a UUID to the id field if empty. Works on any dataclass with id."""
+    if getattr(item, "id", ""):
+        return item
+    return replace(item, id=str(uuid.uuid4()))
+
+
 def ensure_editor_ids(collection: GppCollection) -> GppCollection:
-    """Return a copy with a uuid assigned to every empty-id group, member, registry, and value."""
+    """Return a copy with a uuid assigned to every empty-id item."""
     new_groups = tuple(_ensure_group_editor_ids(g) for g in collection.groups)
     new_registry = tuple(
         _ensure_registry_editor_ids(r) for r in collection.registry
     )
-    return replace(collection, groups=new_groups, registry=new_registry)
+    from .gpp_adapters import ADAPTER_KEYS
+    extra: dict[str, Any] = {}
+    for key in ADAPTER_KEYS:
+        items = getattr(collection, key)
+        extra[key] = tuple(_ensure_simple_editor_id(i) for i in items)
+    return replace(
+        collection, groups=new_groups, registry=new_registry, **extra
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -816,6 +1132,28 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
         return IltFilter(items=preds)
 
 
+def _common_options_to_dict(common: GppCommonOptions) -> dict[str, bool]:
+    return {
+        "apply_once": common.apply_once,
+        "remove_when_unapplied": common.remove_when_unapplied,
+        "user_security_context": common.user_security_context,
+        "disabled": common.disabled,
+        "stop_on_error": common.stop_on_error,
+    }
+
+
+def _common_options_from_dict(data: Any) -> GppCommonOptions:
+    if not isinstance(data, dict):
+        return GppCommonOptions()
+    return GppCommonOptions(
+        apply_once=bool(data.get("apply_once", False)),
+        remove_when_unapplied=bool(data.get("remove_when_unapplied", False)),
+        user_security_context=bool(data.get("user_security_context", False)),
+        disabled=bool(data.get("disabled", False)),
+        stop_on_error=bool(data.get("stop_on_error", False)),
+    )
+
+
 def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
     """Serialize a GppCollection to a plain dict for JSON storage."""
     return {
@@ -838,6 +1176,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "description": g.description,
                 "remove_all_users": g.remove_all_users,
                 "remove_all_groups": g.remove_all_groups,
+                "common": _common_options_to_dict(g.common),
                 "ilt_filter": _ilt_filter_to_dict(g.ilt_filter),
                 "id": g.id,
                 "unknown_attrs": list(g.unknown_attrs) if g.unknown_attrs else [],
@@ -852,6 +1191,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "hive": r.hive,
                 "action": r.action,
                 "uid": r.uid,
+                "common": _common_options_to_dict(r.common),
                 "value": {
                     "name": r.value.name,
                     "value": r.value.value,
@@ -884,7 +1224,42 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
             list(collection.registry_unknown_children)
             if collection.registry_unknown_children else []
         ),
+        **_adapters_to_dict(collection),
     }
+
+
+def _adapter_item_to_dict(item: Any) -> dict[str, Any]:
+    """Serialize a low-artifact adapter item to a dict."""
+    d: dict[str, Any] = {"id": item.id}
+    for f in fields(type(item)):
+        if f.name in ("id",):
+            continue
+        value = getattr(item, f.name)
+        if isinstance(value, tuple):
+            d[f.name] = list(value)
+        elif f.name == "common":
+            d[f.name] = _common_options_to_dict(value)
+        elif f.name == "ilt_filter":
+            d[f.name] = _ilt_filter_to_dict(value)
+        else:
+            d[f.name] = value
+    return d
+
+
+def _adapters_to_dict(collection: GppCollection) -> dict[str, Any]:
+    """Serialize all low-artifact adapter sections to dict entries."""
+    from .gpp_adapters import ADAPTER_KEYS
+    result: dict[str, Any] = {}
+    for key in ADAPTER_KEYS:
+        items = getattr(collection, key)
+        result[key] = [_adapter_item_to_dict(i) for i in items]
+        unknown_attrs = getattr(collection, f"{key}_unknown_attrs")
+        result[f"{key}_unknown_attrs"] = list(unknown_attrs) if unknown_attrs else []
+        unknown_children = getattr(collection, f"{key}_unknown_children")
+        result[f"{key}_unknown_children"] = (
+            list(unknown_children) if unknown_children else []
+        )
+    return result
 
 
 def _promote_from_unknown_attrs(
@@ -940,6 +1315,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             description=str(g.get("description", "")),
             remove_all_users=bool(g.get("remove_all_users", False)),
             remove_all_groups=bool(g.get("remove_all_groups", False)),
+            common=_common_options_from_dict(g.get("common")),
             ilt_filter=_parse_ilt_filter_from_dict(g.get("ilt_filter")),
             id=str(g.get("id", "")),
             unknown_attrs=tuple(
@@ -1010,6 +1386,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 uid=new_uid,
                 value=value,
                 id=str(r.get("id", "")),
+                common=_common_options_from_dict(r.get("common")),
                 ilt_filter=ilt_filter,
                 unknown_attrs=new_elem_attrs,
                 unknown_children=elem_unknown_children,
@@ -1061,6 +1438,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     uid=v_uid,
                     value=value,
                     id=str(r.get("id", "")) if idx == 0 else "",
+                    common=_common_options_from_dict(r.get("common")),
                     ilt_filter=v_ilt,
                     unknown_attrs=v_elem_attrs,
                     unknown_children=v_elem_children,
@@ -1095,7 +1473,104 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             for k, v in data.get("registry_unknown_attrs", [])
         ),
         registry_unknown_children=tuple(data.get("registry_unknown_children", [])),
+        **_adapters_from_dict(data),
     )
+
+
+def _adapter_item_from_dict(
+    item_data: dict[str, Any],
+    adapter_cls: type,
+) -> Any:
+    """Reconstruct a low-artifact adapter item from a dict."""
+    kwargs: dict[str, Any] = {}
+    for f in fields(adapter_cls):
+        if f.name == "common":
+            kwargs[f.name] = _common_options_from_dict(item_data.get("common"))
+        elif f.name == "ilt_filter":
+            kwargs[f.name] = _parse_ilt_filter_from_dict(item_data.get("ilt_filter"))
+        elif f.name == "unknown_attrs":
+            kwargs[f.name] = tuple(
+                (str(k), str(v))
+                for k, v in item_data.get("unknown_attrs", [])
+            )
+        elif f.name == "unknown_children":
+            kwargs[f.name] = tuple(item_data.get("unknown_children", []))
+        else:
+            if f.default is not MISSING:
+                raw = item_data.get(f.name, f.default)
+            elif f.default_factory is not MISSING:
+                raw = item_data.get(f.name, f.default_factory())
+            else:
+                raw = item_data.get(f.name)
+            if isinstance(raw, list):
+                raw = tuple(raw)
+            kwargs[f.name] = raw
+    return adapter_cls(**kwargs)
+
+
+def _adapters_from_dict(data: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruct all low-artifact adapter sections from a dict."""
+    from .gpp_adapters import (
+        ADAPTER_KEYS,
+        GppApplication,
+        GppDataSource,
+        GppDevice,
+        GppDrive,
+        GppEnvironment,
+        GppFile,
+        GppFolder,
+        GppFolderOptions,
+        GppImmediateTask,
+        GppIniFile,
+        GppLocalGroup,
+        GppLocalUser,
+        GppNetworkShare,
+        GppPowerOptions,
+        GppPrinter,
+        GppRegionalOptions,
+        GppScheduledTask,
+        GppService,
+        GppShortcut,
+    )
+    adapter_classes: dict[str, type] = {
+        "environment": GppEnvironment,
+        "ini_files": GppIniFile,
+        "regional_options": GppRegionalOptions,
+        "power_options": GppPowerOptions,
+        "devices": GppDevice,
+        "folder_options": GppFolderOptions,
+        "data_sources": GppDataSource,
+        "drives": GppDrive,
+        "files": GppFile,
+        "folders": GppFolder,
+        "network_shares": GppNetworkShare,
+        "printers": GppPrinter,
+        "shortcuts": GppShortcut,
+        "applications": GppApplication,
+        # Privileged execution adapters (Plan 024 WP-4).
+        "services": GppService,
+        "local_users": GppLocalUser,
+        "local_groups": GppLocalGroup,
+        "scheduled_tasks": GppScheduledTask,
+        "immediate_tasks": GppImmediateTask,
+    }
+    result: dict[str, object] = {}
+    for key in ADAPTER_KEYS:
+        cls = adapter_classes[key]
+        items_list = data.get(key, [])
+        items = tuple(
+            _adapter_item_from_dict(item_data, cls)
+            for item_data in items_list
+        )
+        result[key] = items
+        result[f"{key}_unknown_attrs"] = tuple(
+            (str(k), str(v))
+            for k, v in data.get(f"{key}_unknown_attrs", [])
+        )
+        result[f"{key}_unknown_children"] = tuple(
+            data.get(f"{key}_unknown_children", [])
+        )
+    return result
 
 
 def contains_cpassword(xml: bytes) -> bool:
@@ -1111,3 +1586,48 @@ def contains_cpassword(xml: bytes) -> bool:
             if _local_name(attr_name).casefold() == "cpassword":
                 return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Low-artifact adapter re-exports (Plan 024 WP-2)
+# ---------------------------------------------------------------------------
+# Use __getattr__ for lazy re-exports to avoid a circular import:
+# gpp_adapters.py imports helpers from gpp.py at module load time, so we
+# cannot also import from gpp_adapters.py at gpp.py module load time.
+
+_GPP_ADAPTER_EXPORTS: frozenset[str] = frozenset({
+    "ADAPTER_FILE_PATHS", "ADAPTER_KEYS", "ADAPTER_SERIALIZE_FUNCTIONS",
+    "ROOT_PARSE_FUNCTIONS",
+    "GppApplication", "GppDataSource", "GppDevice", "GppDrive", "GppEnvironment",
+    "GppFile", "GppFolder", "GppFolderOptions", "GppImmediateTask", "GppIniFile",
+    "GppLocalGroup", "GppLocalGroupMember", "GppLocalUser", "GppNetworkShare",
+    "GppPowerOptions", "GppPrinter", "GppRegionalOptions", "GppScheduledTask",
+    "GppService", "GppShortcut",
+    "parse_gpp_applications", "parse_gpp_data_sources", "parse_gpp_devices",
+    "parse_gpp_drives", "parse_gpp_environment", "parse_gpp_files",
+    "parse_gpp_folder_options", "parse_gpp_folders",
+    "parse_gpp_immediate_tasks", "parse_gpp_ini_files", "parse_gpp_local_groups",
+    "parse_gpp_local_users", "parse_gpp_network_shares", "parse_gpp_power_options",
+    "parse_gpp_printers", "parse_gpp_regional_options", "parse_gpp_scheduled_tasks",
+    "parse_gpp_services", "parse_gpp_shortcuts",
+    "serialize_gpp_applications", "serialize_gpp_data_sources", "serialize_gpp_devices",
+    "serialize_gpp_drives", "serialize_gpp_environment", "serialize_gpp_files",
+    "serialize_gpp_folder_options", "serialize_gpp_folders",
+    "serialize_gpp_immediate_tasks", "serialize_gpp_ini_files",
+    "serialize_gpp_local_groups", "serialize_gpp_local_users",
+    "serialize_gpp_network_shares", "serialize_gpp_power_options",
+    "serialize_gpp_printers", "serialize_gpp_regional_options",
+    "serialize_gpp_scheduled_tasks", "serialize_gpp_services",
+    "serialize_gpp_shortcuts",
+})
+
+
+def __getattr__(name: str) -> Any:
+    if name in _GPP_ADAPTER_EXPORTS:
+        from . import gpp_adapters
+        return getattr(gpp_adapters, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return list(globals().keys()) + sorted(_GPP_ADAPTER_EXPORTS)

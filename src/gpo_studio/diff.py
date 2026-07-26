@@ -601,6 +601,63 @@ def _gpp_collection_equal(a: GppCollection, b: GppCollection) -> bool:
         and a.groups_unknown_children == b.groups_unknown_children
         and a.registry_unknown_attrs == b.registry_unknown_attrs
         and a.registry_unknown_children == b.registry_unknown_children
+        and a.environment == b.environment
+        and a.environment_unknown_attrs == b.environment_unknown_attrs
+        and a.environment_unknown_children == b.environment_unknown_children
+        and a.ini_files == b.ini_files
+        and a.ini_files_unknown_attrs == b.ini_files_unknown_attrs
+        and a.ini_files_unknown_children == b.ini_files_unknown_children
+        and a.regional_options == b.regional_options
+        and a.regional_options_unknown_attrs == b.regional_options_unknown_attrs
+        and a.regional_options_unknown_children == b.regional_options_unknown_children
+        and a.power_options == b.power_options
+        and a.power_options_unknown_attrs == b.power_options_unknown_attrs
+        and a.power_options_unknown_children == b.power_options_unknown_children
+        and a.devices == b.devices
+        and a.devices_unknown_attrs == b.devices_unknown_attrs
+        and a.devices_unknown_children == b.devices_unknown_children
+        and a.folder_options == b.folder_options
+        and a.folder_options_unknown_attrs == b.folder_options_unknown_attrs
+        and a.folder_options_unknown_children == b.folder_options_unknown_children
+        and a.data_sources == b.data_sources
+        and a.data_sources_unknown_attrs == b.data_sources_unknown_attrs
+        and a.data_sources_unknown_children == b.data_sources_unknown_children
+        and a.drives == b.drives
+        and a.drives_unknown_attrs == b.drives_unknown_attrs
+        and a.drives_unknown_children == b.drives_unknown_children
+        and a.files == b.files
+        and a.files_unknown_attrs == b.files_unknown_attrs
+        and a.files_unknown_children == b.files_unknown_children
+        and a.folders == b.folders
+        and a.folders_unknown_attrs == b.folders_unknown_attrs
+        and a.folders_unknown_children == b.folders_unknown_children
+        and a.network_shares == b.network_shares
+        and a.network_shares_unknown_attrs == b.network_shares_unknown_attrs
+        and a.network_shares_unknown_children == b.network_shares_unknown_children
+        and a.printers == b.printers
+        and a.printers_unknown_attrs == b.printers_unknown_attrs
+        and a.printers_unknown_children == b.printers_unknown_children
+        and a.shortcuts == b.shortcuts
+        and a.shortcuts_unknown_attrs == b.shortcuts_unknown_attrs
+        and a.shortcuts_unknown_children == b.shortcuts_unknown_children
+        and a.applications == b.applications
+        and a.applications_unknown_attrs == b.applications_unknown_attrs
+        and a.applications_unknown_children == b.applications_unknown_children
+        and a.services == b.services
+        and a.services_unknown_attrs == b.services_unknown_attrs
+        and a.services_unknown_children == b.services_unknown_children
+        and a.local_users == b.local_users
+        and a.local_users_unknown_attrs == b.local_users_unknown_attrs
+        and a.local_users_unknown_children == b.local_users_unknown_children
+        and a.local_groups == b.local_groups
+        and a.local_groups_unknown_attrs == b.local_groups_unknown_attrs
+        and a.local_groups_unknown_children == b.local_groups_unknown_children
+        and a.scheduled_tasks == b.scheduled_tasks
+        and a.scheduled_tasks_unknown_attrs == b.scheduled_tasks_unknown_attrs
+        and a.scheduled_tasks_unknown_children == b.scheduled_tasks_unknown_children
+        and a.immediate_tasks == b.immediate_tasks
+        and a.immediate_tasks_unknown_attrs == b.immediate_tasks_unknown_attrs
+        and a.immediate_tasks_unknown_children == b.immediate_tasks_unknown_children
     )
 
 

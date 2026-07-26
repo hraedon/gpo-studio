@@ -11,6 +11,7 @@ from gpo_studio.backup import read_backup
 from gpo_studio.export import export_bundle, gpmc_backup_bundle
 from gpo_studio.gpp import (
     GppCollection,
+    GppCommonOptions,
     GppError,
     GppGroup,
     GppGroupMember,
@@ -1136,3 +1137,126 @@ def test_parse_registry_rejects_oversized_tail_text(monkeypatch) -> None:
     )
     with pytest.raises(GppError, match="text length"):
         parse_gpp_registry(xml)
+
+
+# --- GPP common options ---
+
+
+def _all_true_common() -> GppCommonOptions:
+    return GppCommonOptions(
+        apply_once=True,
+        remove_when_unapplied=True,
+        user_security_context=True,
+        disabled=True,
+        stop_on_error=True,
+    )
+
+
+def test_group_common_options_roundtrip() -> None:
+    group = GppGroup(name="Test", sid="S-1-5-32-544", common=_all_true_common())
+    data = serialize_gpp_groups(GppCollection(scope="computer", groups=(group,)))
+    assert b"<FilterRunOnce " in data
+    assert b"applyOnce=" not in data
+    assert b'removePolicy="1"' in data
+    assert b'userContext="1"' in data
+    assert b'disabled="1"' in data
+    assert b'bypassErrors="0"' in data
+    parsed = parse_gpp_groups(data)
+    assert len(parsed) == 1
+    c = parsed[0].common
+    assert c.apply_once is True
+    assert c.remove_when_unapplied is True
+    assert c.user_security_context is True
+    assert c.disabled is True
+    assert c.stop_on_error is True
+
+
+def test_registry_common_options_roundtrip() -> None:
+    reg = GppRegistry(
+        key=r"Software\Policies\Test",
+        value=GppRegistryValue(name="Enabled", value=1, registry_type="REG_DWORD"),
+        common=_all_true_common(),
+    )
+    data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
+    assert b"<FilterRunOnce " in data
+    assert b"applyOnce=" not in data
+    assert b'removePolicy="1"' in data
+    assert b'userContext="1"' in data
+    assert b'disabled="1"' in data
+    assert b'bypassErrors="0"' in data
+    parsed = parse_gpp_registry(data)
+    assert len(parsed) == 1
+    c = parsed[0].common
+    assert c.apply_once is True
+    assert c.remove_when_unapplied is True
+    assert c.user_security_context is True
+    assert c.disabled is True
+    assert c.stop_on_error is True
+
+
+def test_common_options_default_false() -> None:
+    group = GppGroup(name="Test")
+    assert group.common == GppCommonOptions()
+    assert group.common.apply_once is False
+    assert group.common.remove_when_unapplied is False
+    assert group.common.user_security_context is False
+    assert group.common.disabled is False
+    assert group.common.stop_on_error is False
+
+    reg = GppRegistry(key="K", value=GppRegistryValue(name="V", value="x"))
+    assert reg.common == GppCommonOptions()
+
+
+def test_common_options_dict_roundtrip() -> None:
+    group = GppGroup(name="Test", common=_all_true_common())
+    reg = GppRegistry(
+        key="K",
+        value=GppRegistryValue(name="V", value="x"),
+        common=_all_true_common(),
+    )
+    collection = GppCollection(scope="computer", groups=(group,), registry=(reg,))
+    d = gpp_collection_to_dict(collection)
+    assert d["groups"][0]["common"]["apply_once"] is True
+    assert d["groups"][0]["common"]["stop_on_error"] is True
+    assert d["registry"][0]["common"]["disabled"] is True
+    restored = gpp_collection_from_dict(d)
+    assert restored.groups[0].common == _all_true_common()
+    assert restored.registry[0].common == _all_true_common()
+
+
+def test_common_options_unknown_attrs_not_captured() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Test">'
+        b'<Properties action="U" groupName="Test"'
+        b' deleteAllUsers="0" deleteAllGroups="0"'
+        b' applyOnce="1" removePolicy="0" userContext="1" disabled="0" bypassErrors="0"/>'
+        b'</Group></Groups>'
+    )
+    parsed = parse_gpp_groups(xml)
+    assert len(parsed) == 1
+    g = parsed[0]
+    assert g.unknown_props_attrs == ()
+    assert g.common.apply_once is True
+    assert g.common.user_security_context is True
+    assert g.common.stop_on_error is True
+    assert g.common.remove_when_unapplied is False
+    assert g.common.disabled is False
+
+    reg_xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>'
+        b'<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+        b'<Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="K">'
+        b'<Properties action="C" hive="HKEY_LOCAL_MACHINE" key="K"'
+        b' name="V" type="REG_SZ" value="x"'
+        b' applyOnce="1" removePolicy="1" userContext="0" disabled="1" bypassErrors="1"/>'
+        b'</Registry></RegistrySettings>'
+    )
+    parsed_reg = parse_gpp_registry(reg_xml)
+    assert len(parsed_reg) == 1
+    r = parsed_reg[0]
+    assert r.value.unknown_attrs == ()
+    assert r.common.apply_once is True
+    assert r.common.remove_when_unapplied is True
+    assert r.common.disabled is True

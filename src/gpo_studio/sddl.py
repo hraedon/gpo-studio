@@ -4,21 +4,39 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal, assert_never
+from typing import Literal, assert_never, cast
 
 
 class SddlError(ValueError):
     """Malformed or unsupported SDDL content."""
 
 
+AceType = Literal[
+    "ALLOWED",
+    "DENIED",
+    "OBJECT_ALLOWED",
+    "OBJECT_DENIED",
+    "AUDIT_SUCCESS",
+    "AUDIT_FAILURE",
+]
+
+
 @dataclass(frozen=True, slots=True)
 class Ace:
-    type: Literal["ALLOWED", "DENIED"]
+    type: AceType
     flags: tuple[str, ...]
     rights: tuple[str, ...]
     object_guid: str
     inherit_object_guid: str
     trustee_sid: str
+
+    @property
+    def is_inherited(self) -> bool:
+        return "ID" in self.flags
+
+    @property
+    def is_object_ace(self) -> bool:
+        return self.type in ("OBJECT_ALLOWED", "OBJECT_DENIED")
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,11 +65,17 @@ def _split_codes(s: str) -> tuple[str, ...]:
     return tuple(s[i : i + 2] for i in range(0, len(s), 2))
 
 
-def _ace_type(type_str: str) -> Literal["ALLOWED", "DENIED"]:
-    if type_str == "A":
-        return "ALLOWED"
-    if type_str == "D":
-        return "DENIED"
+def _ace_type(type_str: str) -> AceType:
+    mapping = {
+        "A": "ALLOWED",
+        "D": "DENIED",
+        "OA": "OBJECT_ALLOWED",
+        "OD": "OBJECT_DENIED",
+        "AU": "AUDIT_SUCCESS",
+        "AL": "AUDIT_FAILURE",
+    }
+    if type_str in mapping:
+        return cast(AceType, mapping[type_str])
     raise SddlError(f"unknown ACE type: {type_str!r}")
 
 
@@ -73,12 +97,21 @@ def parse_ace(ace_str: str) -> Ace:
 
 def format_ace(ace: Ace) -> str:
     """Format an Ace as a string without outer parentheses."""
-    if ace.type == "ALLOWED":
-        type_char = "A"
-    elif ace.type == "DENIED":
-        type_char = "D"
-    else:
-        assert_never(ace.type)
+    match ace.type:
+        case "ALLOWED":
+            type_char = "A"
+        case "DENIED":
+            type_char = "D"
+        case "OBJECT_ALLOWED":
+            type_char = "OA"
+        case "OBJECT_DENIED":
+            type_char = "OD"
+        case "AUDIT_SUCCESS":
+            type_char = "AU"
+        case "AUDIT_FAILURE":
+            type_char = "AL"
+        case _:
+            assert_never(ace.type)
     return ";".join(
         [
             type_char,

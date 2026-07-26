@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import fields
 from typing import Any
 
 from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
@@ -213,7 +214,7 @@ def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
     # GPP group/registry order is semantically significant: gpp.py serializes
     # groups and registry in tuple order. Preserve insertion order so a reorder
     # changes the hash (matching how it changes exported XML bytes).
-    return {
+    result: dict[str, Any] = {
         "scope": collection.scope,
         "groups": [semantic_dict_gpp_group(g) for g in collection.groups],
         "registry": [semantic_dict_gpp_registry(r) for r in collection.registry],
@@ -222,6 +223,40 @@ def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
         "registry_unknown_attrs": list(collection.registry_unknown_attrs),
         "registry_unknown_children": list(collection.registry_unknown_children),
     }
+    # Low-artifact adapter batches (Plan 024 WP-2).
+    from .gpp_adapters import ADAPTER_KEYS
+    for key in ADAPTER_KEYS:
+        items = getattr(collection, key)
+        result[key] = [
+            _semantic_adapter_item(item) for item in items
+        ]
+        result[f"{key}_unknown_attrs"] = list(
+            getattr(collection, f"{key}_unknown_attrs")
+        )
+        result[f"{key}_unknown_children"] = list(
+            getattr(collection, f"{key}_unknown_children")
+        )
+    return result
+
+
+def _semantic_adapter_item(item: Any) -> dict[str, Any]:
+    """Build a canonical dict for a low-artifact adapter item.
+
+    Excludes ``id`` (editor-internal) and ``common`` (processing directive)
+    to match the existing group/registry semantic dict convention.
+    """
+    d: dict[str, Any] = {}
+    for f in fields(type(item)):
+        if f.name in ("id", "common"):
+            continue
+        value = getattr(item, f.name)
+        if f.name == "ilt_filter":
+            d[f.name] = semantic_dict_ilt(value)
+        elif isinstance(value, tuple):
+            d[f.name] = list(value)
+        else:
+            d[f.name] = value
+    return d
 
 
 def policy_semantic_dict(gpo: GPO) -> dict[str, Any]:
