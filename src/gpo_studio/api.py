@@ -47,6 +47,14 @@ from .admx import (
 )
 from .backup import BackupError, read_backup
 from .canonical import policy_semantic_sha256, review_model_sha256
+from .delegation import (
+    EffectiveRights,
+    LockoutRisk,
+    PrincipalReconciliation,
+    check_lockout_risk,
+    compute_effective_rights,
+    reconcile_principal,
+)
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
 from .export import export_bundle, gpmc_backup_bundle, powershell_plan
@@ -81,7 +89,9 @@ from .model import (
     GPO,
     ConflictError,
     NotFoundError,
+    PrincipalInfo,
     RegistrySetting,
+    ResolutionState,
     StudioError,
     ValidationError,
     ValidationIssue,
@@ -96,14 +106,31 @@ from .policy_config import (
 )
 from .registry_pol import RegistryPolError
 from .report import policy_report
+from .sddl import SddlError, parse_sddl
 from .settings_browser import (
     build_category_tree,
     build_settings_browser,
     search_configured_settings,
 )
+from .som import (
+    SomLink,
+    SomNode,
+    compute_precedence,
+    plan_link_order,
+    set_block_inheritance,
+)
 from .store import WorkspaceStore, _now, gpo_from_dict
 from .validation import validate_gpo, validate_setting
 from .wmi_catalogue import WmiCatalogue, WmiCatalogueError, load_wmi_catalogue
+from .wmi_filter import (
+    WmiFilterDetail,
+    WqlIssue,
+    check_filter_deletion_safe,
+    describe_loopback,
+    lint_wql,
+    parse_multi_query,
+    validate_loopback_config,
+)
 
 STATIC = Path(__file__).with_name("static")
 
@@ -218,6 +245,48 @@ class WmiFilterData(BaseModel):
 
 class WmiFilterMutation(Audit):
     wmi_filter: WmiFilterData
+
+
+class WqlLintRequest(BaseModel):
+    query: str = Field(default="", max_length=5000)
+
+
+class WqlLintResponse(BaseModel):
+    issues: list[WqlIssue]
+
+
+class MultiQueryRequest(BaseModel):
+    raw: str = Field(default="", max_length=20000)
+
+
+class MultiQueryResponse(BaseModel):
+    query_groups: list[tuple[str, ...]]
+
+
+class LoopbackRequest(BaseModel):
+    mode: str = Field(min_length=1, max_length=50)
+
+
+class LoopbackResponse(BaseModel):
+    mode: Literal["disabled", "merge", "replace"]
+
+
+class LoopbackDescribeResponse(BaseModel):
+    description: str
+
+
+class WmiFilterDetailRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    namespace: str = Field(default="root\\cimv2", max_length=255)
+    query_groups: list[tuple[str, ...]] = Field(default_factory=list)
+    description: str = Field(default="", max_length=2000)
+    owner_sid: str = Field(default="", max_length=255)
+    references: list[str] = Field(default_factory=list)
+
+
+class FilterDeletionResponse(BaseModel):
+    warnings: list[str]
 
 
 class DeleteMutation(Audit):
@@ -927,6 +996,95 @@ class ThreeWayDiffRequest(BaseModel):
     baseline: str | dict[str, Any]
     draft: str | dict[str, Any]
     observed: str | dict[str, Any]
+
+
+class SomLinkData(BaseModel):
+    gpo_guid: str = Field(min_length=1, max_length=255)
+    scope: Literal["site", "domain", "ou"]
+    scope_dn: str = Field(min_length=1, max_length=1000)
+    enabled: bool = True
+    enforced: bool = False
+    order: int = Field(default=1, ge=1, le=999)
+
+
+class SomNodeData(BaseModel):
+    dn: str = Field(min_length=1, max_length=1000)
+    name: str = Field(min_length=1, max_length=255)
+    scope: Literal["site", "domain", "ou"]
+    parent_dn: str = Field(default="", max_length=1000)
+    block_inheritance: bool = False
+    links: list[SomLinkData] = Field(default_factory=list)
+
+
+class SomPrecedenceRequest(BaseModel):
+    target_dn: str = Field(min_length=1, max_length=1000)
+    nodes: list[SomNodeData] = Field(default_factory=list, max_length=500)
+
+
+class SomPlanLinkOrderRequest(BaseModel):
+    scope_dn: str = Field(min_length=1, max_length=1000)
+    gpo_guid: str = Field(min_length=1, max_length=255)
+    new_order: int = Field(ge=1)
+    nodes: list[SomNodeData] = Field(default_factory=list, max_length=500)
+
+
+class SomSetBlockInheritanceRequest(BaseModel):
+    dn: str = Field(min_length=1, max_length=1000)
+    block: bool
+    nodes: list[SomNodeData] = Field(default_factory=list, max_length=500)
+
+
+class SomLinkResponse(BaseModel):
+    gpo_guid: str
+    scope: str
+    scope_dn: str
+    enabled: bool
+    enforced: bool
+    order: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SomNodeResponse(BaseModel):
+    dn: str
+    name: str
+    scope: str
+    parent_dn: str
+    block_inheritance: bool
+    links: list[SomLinkResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PrecedenceEntryResponse(BaseModel):
+    gpo_guid: str
+    scope: str
+    scope_dn: str
+    order: int
+    enforced: bool
+    blocked: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SomPrecedenceResponse(BaseModel):
+    target_dn: str
+    entries: list[PrecedenceEntryResponse]
+    warnings: list[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SomPlanLinkOrderResponse(BaseModel):
+    scope_dn: str
+    gpo_guid: str
+    new_order: int
+    before: list[SomLinkResponse]
+    after: list[SomLinkResponse]
+
+
+class SomSetBlockInheritanceResponse(BaseModel):
+    nodes: list[SomNodeResponse]
 
 
 class BackupImportRequest(BaseModel):
@@ -2680,6 +2838,45 @@ def get_wmi_filter(request: Request, filter_id: str) -> dict[str, Any]:
     raise NotFoundError(f"WMI filter '{filter_id}' not found")
 
 
+@app.post("/api/wmi-filters/lint")
+def wmi_filter_lint(body: WqlLintRequest) -> WqlLintResponse:
+    issues = lint_wql(body.query)
+    return WqlLintResponse(issues=list(issues))
+
+
+@app.post("/api/wmi-filters/parse-multi-query")
+def wmi_filter_parse_multi_query(body: MultiQueryRequest) -> MultiQueryResponse:
+    groups = parse_multi_query(body.raw)
+    return MultiQueryResponse(query_groups=list(groups))
+
+
+@app.post("/api/loopback/validate")
+def loopback_validate(body: LoopbackRequest) -> LoopbackResponse:
+    config = validate_loopback_config(body.mode)
+    return LoopbackResponse(mode=config.mode)
+
+
+@app.get("/api/loopback/describe/{mode}")
+def loopback_describe(mode: str) -> LoopbackDescribeResponse:
+    config = validate_loopback_config(mode)
+    return LoopbackDescribeResponse(description=describe_loopback(config))
+
+
+@app.post("/api/wmi-filters/check-deletion")
+def wmi_filter_check_deletion(body: WmiFilterDetailRequest) -> FilterDeletionResponse:
+    detail = WmiFilterDetail(
+        id=body.id,
+        name=body.name,
+        namespace=body.namespace,
+        query_groups=tuple(tuple(g) for g in body.query_groups),
+        description=body.description,
+        owner_sid=body.owner_sid,
+        references=tuple(body.references),
+    )
+    warnings = check_filter_deletion_safe(detail)
+    return FilterDeletionResponse(warnings=list(warnings))
+
+
 @app.get("/api/gpos/{guid}/revisions")
 def revisions(request: Request, guid: str) -> dict[str, Any]:
     items = _store(request).revisions(guid)
@@ -3116,3 +3313,168 @@ def search_principals(
 def discovery_summary(request: Request) -> dict[str, Any]:
     """Return counts of cached discovery entries by kind."""
     return _store(request).discovery_summary()
+
+
+def _som_link_data_to_model(data: SomLinkData) -> SomLink:
+    return SomLink(
+        gpo_guid=data.gpo_guid,
+        scope=data.scope,
+        scope_dn=data.scope_dn,
+        enabled=data.enabled,
+        enforced=data.enforced,
+        order=data.order,
+    )
+
+
+def _som_node_data_to_model(data: SomNodeData) -> SomNode:
+    return SomNode(
+        dn=data.dn,
+        name=data.name,
+        scope=data.scope,
+        parent_dn=data.parent_dn,
+        block_inheritance=data.block_inheritance,
+        links=tuple(_som_link_data_to_model(link) for link in data.links),
+    )
+
+
+@app.post(
+    "/api/som/precedence",
+    response_model=SomPrecedenceResponse,
+)
+def som_precedence(body: SomPrecedenceRequest) -> dict[str, Any]:
+    """Compute the GPO precedence list for a target DN."""
+    nodes = tuple(_som_node_data_to_model(n) for n in body.nodes)
+    result = compute_precedence(nodes, body.target_dn)
+    return asdict(result)
+
+
+@app.post(
+    "/api/som/plan-link-order",
+    response_model=SomPlanLinkOrderResponse,
+)
+def som_plan_link_order(body: SomPlanLinkOrderRequest) -> dict[str, Any]:
+    """Plan a link reorder on a scope, returning before/after orderings."""
+    nodes = tuple(_som_node_data_to_model(n) for n in body.nodes)
+    before, after = plan_link_order(
+        nodes, body.scope_dn, body.gpo_guid, body.new_order
+    )
+    return {
+        "scope_dn": body.scope_dn,
+        "gpo_guid": body.gpo_guid,
+        "new_order": body.new_order,
+        "before": [asdict(link) for link in before],
+        "after": [asdict(link) for link in after],
+    }
+
+
+@app.post(
+    "/api/som/set-block-inheritance",
+    response_model=SomSetBlockInheritanceResponse,
+)
+def som_set_block_inheritance(body: SomSetBlockInheritanceRequest) -> dict[str, Any]:
+    """Toggle block_inheritance on a SOM node, returning the updated nodes."""
+    nodes = tuple(_som_node_data_to_model(n) for n in body.nodes)
+    updated = set_block_inheritance(nodes, body.dn, body.block)
+    return {"nodes": [asdict(node) for node in updated]}
+
+
+class EffectiveRightsRequest(BaseModel):
+    sddl: str = Field(min_length=1, max_length=20000)
+    principal_sid: str = Field(min_length=1, max_length=255)
+    group_sids: list[str] = Field(default_factory=list)
+
+
+class PrincipalCandidateData(BaseModel):
+    object_guid: str = ""
+    object_sid: str = ""
+    object_class: str = ""
+    sid_history: list[str] = Field(default_factory=list)
+    sam_account_name: str = ""
+    display_name: str = ""
+    canonical_name: str = ""
+    distinguished_name: str = ""
+    domain: str = ""
+    source_dc: str = ""
+    collected_at: str = ""
+    resolution_state: ResolutionState = "resolved"
+
+
+class ReconcilePrincipalRequest(BaseModel):
+    reference_sid: str = Field(min_length=1, max_length=255)
+    reference_name: str = Field(default="", max_length=1000)
+    candidate: PrincipalCandidateData | None = None
+    affected_adapters: list[str] = Field(default_factory=list)
+
+
+class CheckLockoutRequest(BaseModel):
+    current_sddl: str = Field(min_length=1, max_length=20000)
+    proposed_sddl: str = Field(min_length=1, max_length=20000)
+    admin_sids: list[str] = Field(default_factory=list)
+
+
+def _sddl_validation_issue(message: str, path: str) -> ValidationError:
+    return ValidationError([
+        ValidationIssue(
+            severity="error",
+            code="invalid_sddl",
+            message=message,
+            path=path,
+        )
+    ])
+
+
+@app.post("/api/delegation/effective-rights")
+def delegation_effective_rights(body: EffectiveRightsRequest) -> EffectiveRights:
+    """Compute effective rights for a principal against an SDDL descriptor."""
+    try:
+        sd = parse_sddl(body.sddl)
+    except SddlError as exc:
+        raise _sddl_validation_issue(str(exc), "sddl") from exc
+    return compute_effective_rights(
+        sd, body.principal_sid, frozenset(body.group_sids)
+    )
+
+
+@app.post("/api/delegation/reconcile-principal")
+def delegation_reconcile_principal(
+    body: ReconcilePrincipalRequest,
+) -> PrincipalReconciliation:
+    """Reconcile a stored principal reference against an observed AD object."""
+    candidate: PrincipalInfo | None = None
+    if body.candidate is not None:
+        candidate = PrincipalInfo(
+            object_guid=body.candidate.object_guid,
+            object_sid=body.candidate.object_sid,
+            object_class=body.candidate.object_class,
+            sid_history=tuple(body.candidate.sid_history),
+            sam_account_name=body.candidate.sam_account_name,
+            display_name=body.candidate.display_name,
+            canonical_name=body.candidate.canonical_name,
+            distinguished_name=body.candidate.distinguished_name,
+            domain=body.candidate.domain,
+            source_dc=body.candidate.source_dc,
+            collected_at=body.candidate.collected_at,
+            resolution_state=body.candidate.resolution_state,
+        )
+    return reconcile_principal(
+        reference_sid=body.reference_sid,
+        reference_name=body.reference_name,
+        candidate=candidate,
+        affected_adapters=tuple(body.affected_adapters),
+    )
+
+
+@app.post("/api/delegation/check-lockout")
+def delegation_check_lockout(body: CheckLockoutRequest) -> LockoutRisk:
+    """Check whether a proposed SDDL change could lock out administrators."""
+    try:
+        current_sd = parse_sddl(body.current_sddl)
+    except SddlError as exc:
+        raise _sddl_validation_issue(str(exc), "current_sddl") from exc
+    try:
+        proposed_sd = parse_sddl(body.proposed_sddl)
+    except SddlError as exc:
+        raise _sddl_validation_issue(str(exc), "proposed_sddl") from exc
+    return check_lockout_risk(
+        current_sd, proposed_sd, frozenset(body.admin_sids)
+    )

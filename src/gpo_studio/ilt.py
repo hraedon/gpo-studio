@@ -50,7 +50,9 @@ def _local_name(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
 IltPredicateType = Literal[
-    "ou", "group", "registry", "ip_range", "environment", "wmi_query"
+    "ou", "group", "registry", "ip_range", "environment", "wmi_query",
+    "computer_name", "domain", "user", "date", "disk_space",
+    "os", "language", "service", "file", "folder",
 ]
 
 
@@ -83,6 +85,16 @@ _PREDICATE_KNOWN_ATTRS: dict[IltPredicateType, frozenset[str]] = {
     "ip_range": frozenset({"min", "max", "not", "bool"}),
     "environment": frozenset({"variableName", "name", "value", "not", "bool"}),
     "wmi_query": frozenset({"query", "not", "bool"}),
+    "computer_name": frozenset({"name", "not", "bool"}),
+    "domain": frozenset({"name", "not", "bool"}),
+    "user": frozenset({"name", "not", "bool"}),
+    "date": frozenset({"startDate", "endDate", "not", "bool"}),
+    "disk_space": frozenset({"min", "not", "bool"}),
+    "os": frozenset({"osType", "not", "bool"}),
+    "language": frozenset({"language", "not", "bool"}),
+    "service": frozenset({"name", "not", "bool"}),
+    "file": frozenset({"path", "not", "bool"}),
+    "folder": frozenset({"path", "not", "bool"}),
 }
 
 
@@ -154,6 +166,42 @@ def _serialize_predicate(pred: IltPredicate) -> ET.Element:
         case "wmi_query":
             elem = ET.Element(_ns("FilterWmi"))
             elem.set("query", pred.value)
+        case "computer_name":
+            elem = ET.Element(_ns("FilterComputerName"))
+            elem.set("name", pred.value)
+        case "domain":
+            elem = ET.Element(_ns("FilterDomain"))
+            elem.set("name", pred.value)
+        case "user":
+            elem = ET.Element(_ns("FilterUser"))
+            elem.set("name", pred.value)
+        case "date":
+            elem = ET.Element(_ns("FilterDate"))
+            parts = pred.value.split("|", 1)
+            if len(parts) == 2:
+                elem.set("startDate", parts[0])
+                elem.set("endDate", parts[1])
+            else:
+                elem.set("startDate", pred.value)
+                elem.set("endDate", "")
+        case "disk_space":
+            elem = ET.Element(_ns("FilterDiskSpace"))
+            elem.set("min", pred.value)
+        case "os":
+            elem = ET.Element(_ns("FilterOS"))
+            elem.set("osType", pred.value)
+        case "language":
+            elem = ET.Element(_ns("FilterLanguage"))
+            elem.set("language", pred.value)
+        case "service":
+            elem = ET.Element(_ns("FilterService"))
+            elem.set("name", pred.value)
+        case "file":
+            elem = ET.Element(_ns("FilterFile"))
+            elem.set("path", pred.value)
+        case "folder":
+            elem = ET.Element(_ns("FilterFolder"))
+            elem.set("path", pred.value)
         case _:
             assert_never(pred.type)
     elem.set("not", _not_attr(pred.negate))
@@ -182,6 +230,16 @@ _TAG_TO_TYPE: dict[str, IltPredicateType] = {
     "FilterIpRange": "ip_range",
     "FilterVariable": "environment",
     "FilterWmi": "wmi_query",
+    "FilterComputerName": "computer_name",
+    "FilterDomain": "domain",
+    "FilterUser": "user",
+    "FilterDate": "date",
+    "FilterDiskSpace": "disk_space",
+    "FilterOS": "os",
+    "FilterLanguage": "language",
+    "FilterService": "service",
+    "FilterFile": "file",
+    "FilterFolder": "folder",
 }
 
 # Legacy element names used by earlier Studio versions.  Accepted on parse
@@ -227,6 +285,28 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
             value = f"{name}={val}" if val else name
         case "wmi_query":
             value = elem.get("query", "")
+        case "computer_name":
+            value = elem.get("name", "")
+        case "domain":
+            value = elem.get("name", "")
+        case "user":
+            value = elem.get("name", "")
+        case "date":
+            start = elem.get("startDate", "")
+            end = elem.get("endDate", "")
+            value = f"{start}|{end}" if end else start
+        case "disk_space":
+            value = elem.get("min", "")
+        case "os":
+            value = elem.get("osType", "")
+        case "language":
+            value = elem.get("language", "")
+        case "service":
+            value = elem.get("name", "")
+        case "file":
+            value = elem.get("path", "")
+        case "folder":
+            value = elem.get("path", "")
         case _:
             assert_never(pred_type)
     known = _PREDICATE_KNOWN_ATTRS[pred_type]

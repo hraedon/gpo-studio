@@ -5,6 +5,8 @@ import json
 import zipfile
 from dataclasses import replace
 
+import pytest
+
 from gpo_studio.canonical import (
     CANONICAL_SCHEMA_VERSION,
     canonical_json,
@@ -24,6 +26,7 @@ from gpo_studio.gpp import (
     GppRegistry,
     GppRegistryValue,
 )
+from gpo_studio.gpp_adapters import GppEnvironment
 from gpo_studio.ilt import IltFilter, IltPredicate
 from gpo_studio.model import (
     GPO,
@@ -80,6 +83,52 @@ def test_canonical_json_numbers() -> None:
     assert canonical_json(0) == "0"
     assert canonical_json(-5) == "-5"
     assert canonical_json(3.14) == "3.14"
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_canonical_json_rejects_non_finite_numbers(value: float) -> None:
+    with pytest.raises(ValueError, match="NaN|Infinity"):
+        canonical_json(value)
+
+
+def test_canonical_json_rejects_unsupported_type() -> None:
+    with pytest.raises(TypeError, match="Cannot serialize set"):
+        canonical_json({"not", "json"})
+
+
+def test_canonical_json_rejects_excessive_nesting() -> None:
+    value: object = None
+    for _ in range(202):
+        value = [value]
+    with pytest.raises(ValueError, match="nesting depth"):
+        canonical_json(value)
+
+
+def test_adapter_semantics_include_typed_tuple_and_ilt_fields() -> None:
+    collection = GppCollection(
+        scope="computer",
+        environment=(
+            GppEnvironment(
+                name="SYNTHETIC_VALUE",
+                value="configured",
+                id="editor-only",
+                ilt_filter=IltFilter(
+                    items=(IltPredicate(type="environment", value="LAB=1"),)
+                ),
+                unknown_attrs=(("vendor", "preserved"),),
+                unknown_children=("<VendorExtension />",),
+            ),
+        ),
+    )
+    semantic = policy_semantic_dict(
+        GPO(guid="synthetic-guid", name="Adapter semantics", gpp_collections=(collection,))
+    )
+    item = semantic["gpp_collections"][0]["environment"][0]
+    assert "id" not in item
+    assert "common" not in item
+    assert item["ilt_filter"][0]["type"] == "environment"
+    assert item["unknown_attrs"] == [("vendor", "preserved")]
+    assert item["unknown_children"] == ["<VendorExtension />"]
 
 
 def test_semantic_hash_stable_across_ordering() -> None:
@@ -751,9 +800,9 @@ def _golden_gpo() -> GPO:
         updated_at="2026-01-02T00:00:00Z",
     )
 
-GOLDEN_POLICY_SEMANTIC_SHA256 = "46fd6cc66df59bdd79ca3fed53dc49f9234b4553f27dfd8500b52eded057bfde"
+GOLDEN_POLICY_SEMANTIC_SHA256 = "6713127f0c6ebd211252dc12a1fbea13831ff70d182f24f2e46b3641fabe365e"
 
-GOLDEN_REVIEW_MODEL_SHA256 = "6f08732a3c2e9d27f974f19817f6a93db427718ca3bd70780bf0e5f5db93b560"
+GOLDEN_REVIEW_MODEL_SHA256 = "6b3754a95dc680c634395047566d841aecd43f84923aadcbac5670ebcde1c3b9"
 
 
 def test_golden_policy_semantic_sha256() -> None:

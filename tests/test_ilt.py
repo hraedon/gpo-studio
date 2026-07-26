@@ -619,3 +619,117 @@ def test_parse_ilt_rejects_oversized_tail_text(monkeypatch) -> None:
     raw = '<FilterCustom><Sub/>' + "x" * 20 + '</FilterCustom>'
     with pytest.raises(IltError, match="text length"):
         _bounded_parse_ilt(raw)
+
+
+# --- New predicate type round-trips ---
+
+
+def test_round_trip_computer_name() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="computer_name", value="WS001"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_domain() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="domain", value="example.com"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_user() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="user", value="Administrator"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_date() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="date", value="2024-01-01|2024-12-31"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_disk_space() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="disk_space", value="5120"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_os() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="os", value="WORKSTATION"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_language() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="language", value="en-US"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_service() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="service", value="Spooler"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_file() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="file", value=r"C:\Windows\System32\test.dll"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_round_trip_folder() -> None:
+    original = IltFilter(
+        items=(IltPredicate(type="folder", value=r"C:\Temp"),)
+    )
+    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    assert parsed == original
+
+
+def test_date_predicate_pipe_format() -> None:
+    pred = IltPredicate(type="date", value="2024-01-01|2024-12-31")
+    data = _serialize_to_bytes(IltFilter(items=(pred,)))
+    assert b"<FilterDate" in data
+    assert b'startDate="2024-01-01"' in data
+    assert b'endDate="2024-12-31"' in data
+    assert b'bool="AND"' in data
+
+
+def test_new_predicates_in_filter() -> None:
+    original = IltFilter(
+        items=(
+            IltPredicate(type="computer_name", value="WS001", bool_op="AND"),
+            IltPredicate(type="domain", value="example.com", bool_op="OR"),
+            IltPredicate(type="os", value="SERVER", negate=True, bool_op="AND"),
+            IltPredicate(type="disk_space", value="10240", bool_op="AND"),
+            IltPredicate(type="service", value="Spooler", bool_op="OR"),
+        )
+    )
+    data = _serialize_to_bytes(original)
+    assert data.count(b"FilterComputerName") == 1
+    assert data.count(b"FilterDomain") == 1
+    assert data.count(b"FilterOS") == 1
+    assert data.count(b"FilterDiskSpace") == 1
+    assert data.count(b"FilterService") == 1
+    assert b'bool="OR"' in data
+    assert b'bool="AND"' in data
+    parsed = _parse_from_bytes(data)
+    assert parsed == original

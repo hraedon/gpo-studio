@@ -492,6 +492,50 @@ def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssu
                         f"{path}/value",
                     )
                 )
+        case "computer_name" | "domain" | "user" | "service":
+            if not pred.value.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_ilt_value",
+                        f"ILT {pred.type} value is required.",
+                        f"{path}/value",
+                    )
+                )
+        case "date":
+            start = pred.value.split("|", 1)[0].strip()
+            if not start:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_ilt_date_value",
+                        "ILT date start value is required.",
+                        f"{path}/value",
+                    )
+                )
+        case "disk_space":
+            try:
+                if int(pred.value) < 0:
+                    raise ValueError
+            except ValueError:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "invalid_ilt_disk_space",
+                        "ILT disk space must be a non-negative integer (MB).",
+                        f"{path}/value",
+                    )
+                )
+        case "os" | "language" | "file" | "folder":
+            if not pred.value.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_ilt_value",
+                        f"ILT {pred.type} value is required.",
+                        f"{path}/value",
+                    )
+                )
         case _:
             assert_never(pred.type)
     return issues

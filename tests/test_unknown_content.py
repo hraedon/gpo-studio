@@ -99,9 +99,10 @@ def test_unknown_group_attrs_preserved_in_round_trip() -> None:
     assert len(uid_attrs) == 1
     assert uid_attrs[0][1] == "{abc-123}"
 
-    user_ctx_attrs = [a for a in group.unknown_attrs if a[0] == "userContext"]
-    assert len(user_ctx_attrs) == 1
-    assert user_ctx_attrs[0][1] == "0"
+    assert group.common.user_security_context is False
+    assert group.common.disabled is False
+    assert group.common.stop_on_error is False
+    assert all(name != "userContext" for name, _value in group.unknown_attrs)
 
     serialized = serialize_gpp_groups(GppCollection(scope="computer", groups=(group,)))
     assert b'uid="{abc-123}"' in serialized
@@ -139,9 +140,8 @@ def test_unknown_registry_attrs_preserved_in_round_trip() -> None:
     reg = parsed[0]
     assert reg.uid == "{def-456}"
 
-    disabled_attrs = [a for a in reg.unknown_attrs if a[0] == "disabled"]
-    assert len(disabled_attrs) == 1
-    assert disabled_attrs[0][1] == "0"
+    assert reg.common.disabled is False
+    assert all(name != "disabled" for name, _value in reg.unknown_attrs)
 
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed))
     assert b'uid="{def-456}"' in serialized
@@ -465,26 +465,29 @@ def test_root_attrs_preserved_in_round_trip() -> None:
 
 
 def test_root_unknown_children_preserved() -> None:
+    # <CustomSetting> is not a known MS-GPPREF child of <Groups> — it should
+    # be captured as an unknown child and round-tripped verbatim.  (User and
+    # Group are now both known children of <Groups>.)
     xml = (
         b'<?xml version="1.0" encoding="utf-8"?>'
         b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
         b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="G1">'
         b'<Properties action="U" groupName="G1"/>'
         b'</Group>'
-        b'<User clsid="{DF5F1855-FDA4-4B49-A6AE-5D2A3F4D7B5B}" name="AdminUser">'
-        b'<Properties action="U" userName="AdminUser"/>'
-        b'</User>'
+        b'<CustomSetting clsid="{00000000-0000-0000-0000-000000000000}" name="X">'
+        b'<Properties action="U" customField="value"/>'
+        b'</CustomSetting>'
         b'</Groups>'
     )
     files = {"Groups/Groups.xml": xml}
     parsed = parse_gpp_collection("computer", files)
     assert len(parsed.groups) == 1
     assert len(parsed.groups_unknown_children) == 1
-    assert "User" in parsed.groups_unknown_children[0]
+    assert "CustomSetting" in parsed.groups_unknown_children[0]
 
     serialized = serialize_gpp_groups(parsed)
-    assert b"<User" in serialized
-    assert b'userName="AdminUser"' in serialized
+    assert b"<CustomSetting" in serialized
+    assert b'customField="value"' in serialized
 
 
 def test_group_properties_unknown_attrs_preserved() -> None:
@@ -519,25 +522,28 @@ def test_group_properties_unknown_attrs_preserved() -> None:
 
 
 def test_unsupported_only_groups_file_preserved() -> None:
+    # <CustomSetting> is not a known MS-GPPREF child of <Groups> — a file
+    # containing only unsupported elements should preserve them as unknown
+    # children and round-trip them verbatim.
     xml = (
         b'<?xml version="1.0" encoding="utf-8"?>'
         b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}" disabled="1">'
-        b'<User clsid="{DF5F1855-FDA4-4B49-A6AE-5D2A3F4D7B5B}" name="AdminUser">'
-        b'<Properties action="U" userName="AdminUser"/>'
-        b'</User>'
+        b'<CustomSetting clsid="{00000000-0000-0000-0000-000000000000}" name="X">'
+        b'<Properties action="U" customField="value"/>'
+        b'</CustomSetting>'
         b'</Groups>'
     )
     files = {"Groups/Groups.xml": xml}
     parsed = parse_gpp_collection("computer", files)
     assert len(parsed.groups) == 0
     assert len(parsed.groups_unknown_children) == 1
-    assert "User" in parsed.groups_unknown_children[0]
+    assert "CustomSetting" in parsed.groups_unknown_children[0]
     assert parsed.groups_unknown_attrs == (("disabled", "1"),)
 
     from gpo_studio.gpp import serialize_gpp
     output = serialize_gpp(parsed)
     assert "Groups/Groups.xml" in output
-    assert b"<User" in output["Groups/Groups.xml"]
+    assert b"<CustomSetting" in output["Groups/Groups.xml"]
     assert b'disabled="1"' in output["Groups/Groups.xml"]
 
 
