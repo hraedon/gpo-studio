@@ -180,8 +180,9 @@ Useful as parser behavior probes and WP-2 container specimens.
 - `tests/fixtures/native-gpp-gpmc/` — genuine sanitized backups with
   semantic manifests and sanitization-record.json
 - `tests/fixtures/sysvol-injection-diagnostics/` — synthetic diagnostics
-- `tests/test_wp1a_genuine_fixtures.py` — 2691 passed, 10 skipped, 0 xfailed
-- `tests/test_wp1a_native_fixtures.py` — 7 passed, 7 xfailed
+- `tests/test_wp1a_genuine_fixtures.py` — 57 passed
+- `tests/test_wp1a_native_fixtures.py` — 18 passed, 0 xfailed (the strict
+  xfails that encoded gaps 1–3 and 5 now pass and were removed)
 - `docs/plan-033/semantic-manifest-v1.schema.json` — manifest schema
 - `scripts/plan-033/sanitize-gpp-fixtures.py` — recorded sanitizer
 - `docs/plan-033/wp1a-gpmc-authoring-guide.md` — GPMC Editor guide
@@ -205,7 +206,8 @@ Useful as parser behavior probes and WP-2 container specimens.
 - Public backup-import path integration tests
 - Unknown-content import/export/preservation proof (blocked on WP-2)
 
-**Critical gaps found (all resolved):**
+**Critical gaps found (1–3 and 5 resolved; 4 mitigated, not modelled; 6 by
+design):**
 
 1. **Layout mismatch**: Native GPMC uses `{BACKUP_ID}/DomainSysvol/GPO/
    {Side}/Preferences/...`; Studio's `read_backup` + `collect_gpp_collections`
@@ -222,6 +224,13 @@ Useful as parser behavior probes and WP-2 container specimens.
 4. **Task model flattening**: `GppScheduledTask` uses scalar fields that
    cannot represent the Task Scheduler 2.0 XML (multiple triggers, actions,
    principals, settings, registration info).
+   **MITIGATED, NOT RESOLVED**: a `task_xml` field preserves the native XML
+   verbatim, which is sufficient for the WP-1A *reader* lane. It is not
+   sufficient for the WP-1B *writer* lane: a task with multiple triggers or
+   actions cannot be authored through the scalar fields. Decide before
+   generating writer fixtures whether the contract is preserve-only (author
+   simple tasks, round-trip complex ones opaquely) or whether Task Scheduler
+   2.0 gets a real model.
 5. **GppGroup vs GppLocalGroup**: `parse_gpp_collection` routes `<Group>`
    elements to `parse_gpp_groups` (producing `GppGroup`), not to the
    `local_groups` adapter. `collection.local_groups` is always empty via

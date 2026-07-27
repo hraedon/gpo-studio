@@ -137,7 +137,7 @@ Operator references:
 | `src/gpo_studio/store.py` | SQLite snapshots, revisions, concurrency |
 | `src/gpo_studio/validation.py` | Deterministic preflight checks |
 | `src/gpo_studio/registry_pol.py` | Native PReg parser/serializer |
-| `src/gpo_studio/export.py` | Publication bundle, GPMC backup, and PowerShell plan |
+| `src/gpo_studio/export.py` | Publication bundle, native GPMC backup emission (`Backup.xml` v2.0), and PowerShell plan |
 | `src/gpo_studio/api.py` | FastAPI delivery layer |
 | `src/gpo_studio/admx.py` | ADMX/ADML catalogue ingestion |
 | `src/gpo_studio/policy_config.py` | ADMX policy-to-registry resolution |
@@ -153,7 +153,6 @@ Operator references:
 | `src/gpo_studio/payload.py` | Publisher payload canonicalization |
 | `src/gpo_studio/wmi_catalogue.py` | WMI filter catalogue |
 | `src/gpo_studio/import_export.py` | Backup import/export domain logic |
-| `src/gpo_studio/native_backup.py` | Native GPMC backup emission (`Backup.xml` v2.0) |
 | `src/gpo_studio/gpp_adapters.py` | Per-family GPP adapters |
 | `src/gpo_studio/som.py` | Scope of management, links, inheritance, loopback |
 | `src/gpo_studio/delegation.py` | Delegation and effective rights |
