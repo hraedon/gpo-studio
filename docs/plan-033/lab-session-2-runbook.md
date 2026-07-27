@@ -3,9 +3,12 @@
 One operator session on the Windows lab. Two independent parts:
 
 - **Part A** completes the WP-1A native-origin reader corpus (8 new GPOs +
-  1 supplement to an existing GPO).
-- **Part B** settles three ADMX write-path questions (WI-008, WI-011, WI-012)
-  that have been answered by inference rather than evidence.
+  1 supplement to an existing GPO). **Executed 2026-07-27** — captures ingested
+  under `tests/fixtures/native-gpp-gpmc/`; prediction P3 falsified (WI-019).
+- ~~**Part B** settles three ADMX write-path questions (WI-008, WI-011,
+  WI-012).~~ **SUPERSEDED — do not run.** All three were closed before this
+  runbook was written. See the Part B section for the supersede note and for
+  the three results the 2026-07-27 run produced regardless.
 
 They share a host and are batched only for that reason. Either can be dropped
 without invalidating the other.
@@ -30,7 +33,7 @@ survives is evidence; one that fails is a bug found cheaply.
 |---|-----------|-------|----------|
 | P1 | The Power Options fixture will **not** parse as typed power settings. It will land as preserved unknown content. | GPMC's "Power Plan (At least Windows 7)" emits `<GlobalPowerOptionsV2>`; `_ADAPTER_META["power_options"]` expects item tag `<PowerScheme>`, and `GlobalPowerOptionsV2` appears nowhere in `gpp_adapters.py`. | The parser handles more than expected — record which element GPMC actually emitted. |
 | P2 | `FilterCollection` (nested ILT) will round-trip as an **opaque raw-XML item**, not as modelled predicates. | `parse_ilt` maps known tags via `_TAG_TO_TYPE`; unknown tags are preserved via `ET.tostring` into `IltFilter.items`. `FilterCollection` is in no tag map. | Nested ILT is modelled — verify the predicate tree matches GPMC's nesting. |
-| P3 | Every other adapter in Part A (Printers, Services, Files, Folders, Shortcuts, Environment, INI) will parse as typed items. | Each has a `_ADAPTER_META` entry with matching root/item tags. | Note the divergent tag; it is the same class of defect as the `TaskV2` finding. |
+| P3 | **FALSIFIED 2026-07-27 → WI-019.** Printers, Services and Shortcuts do *not* parse: Studio raises `GppError` on genuine GPMC output (printer action `R` absent from the model; service `startupType` mapping expects numeric codes while GPMC writes names; empty `window` rejected rather than defaulted). Files, Folders, Environment and INI were captured but are not yet cross-validated. Original prediction: every other adapter in Part A (Printers, Services, Files, Folders, Shortcuts, Environment, INI) will parse as typed items. | Each has a `_ADAPTER_META` entry with matching root/item tags. | Note the divergent tag; it is the same class of defect as the `TaskV2` finding. |
 | P4 | Studio can **read** all of these but can natively **emit** only Drives, Groups, and ScheduledTasks. | `_GPP_EXTENSION_PROFILES` in `export.py` is a three-family allowlist; everything else raises `unsupported_native_gpp_extension`. | — (this one is near-certain; it is stated so the writer-lane gap is explicit) |
 
 P1 and P2 are not blockers. A fixture that proves content is *preserved* is a
@@ -192,6 +195,77 @@ recorded sanitizer, not by hand.
 
 ## Part B — ADMX empirical questions
 
+> **SUPERSEDED (2026-07-27) — do not run this part.** All three work items were
+> already closed before this runbook was written; Part B was drafted asking for
+> evidence that already existed.
+>
+> | WI | Closed | How |
+> |---|---|---|
+> | WI-008 | 2026-07-21 | lab-verified on mvmcitest01 via LGPO 3.0 |
+> | WI-011 | 2026-07-21 | lab-verified on mvmcitest01 via LGPO 3.0 |
+> | WI-012 | 2026-07-25 | closed as a **design decision**, not a lab result — `explicitValue="true"` is deliberately refused with `unsupported_list_variant` because the `list[str]` element input cannot express name/data pairs. No lab evidence would change that; it needs an input-shape change (WP-3 typed controls). There was never a lab question here. |
+>
+> A Part B run was nonetheless performed on 2026-07-27 before this was noticed.
+> It was not wasted — it produced three results the closed items did not cover,
+> recorded below. Part A remains live.
+
+### What the 2026-07-27 Part B run actually produced
+
+**1. WI-008 independently re-confirmed, with a control.** Artifacts preserved at
+`~/gpo-studio-captures/part-b`.
+
+| Scenario | ADMX shape | Enabled | Disabled |
+|---|---|---|---|
+| `UserProfiles.admx` / `LimitSize` | implicit (no `<enabledValue>`/`<disabledValue>`) | `REG_DWORD 1` | **delete** (`**del.` / `REG_SZ ' '`) |
+| `WindowsDefender.admx` / `RandomizeScheduleTaskTimes` | explicit (`1` / `0`) | `REG_DWORD 1` | `REG_DWORD 0` |
+
+The implicit case matches `effective_disabled_value`; the explicit case is the
+control that isolates it. Note the capture folder `WI-008/2` is annotated
+`SchedulerRandomizationTime`, but its `Registry.pol` shows
+`RandomizeScheduleTaskTimes` — a different, adjacent policy. The artifact is the
+more useful one; only the note is wrong.
+
+**2. A new defect: WI-020.** On Disable, gpedit wrote **six** deletion records
+for `LimitSize` — the policy `valueName` *and* all five `<elements>` value
+names. Studio's `resolve_policy` emits **one** (verified by running the real
+ADMX/ADML through `build_catalogue` + `resolve_policy`). `_state_settings`
+emits only the policy-level value plus `<disabledList>`, and `LimitSize` has no
+`<disabledList>`. WI-008 verified the policy-*value* behaviour and was correct
+on that point; element values were simply an unexamined dimension.
+
+**3. WI-011 corpus facts** (223 shipped ADMX, WS2025 build 26100; 124 `<list>`
+elements). WI-011 is closed and its record cannot be amended (terminal state),
+so they are recorded here:
+
+- **The named-prefix variant has zero instances in shipped Microsoft ADMX** —
+  `valuePrefix` ABSENT 94, EMPTY 30, **NAMED 0**. Variant (2) of the WI-011
+  resolution (`valuePrefix="Item"` → `Item1`, `Item2`) had to be synthesised for
+  the lab test because Microsoft ships no example. Keep supporting it for
+  third-party ADMX, but do not hunt for a real-world instance.
+  Also: `explicitValue` 47 true / 77 absent / 0 false; `additive` 89 true / 35
+  absent / 0 false.
+- **`explicitValue="true"` and `valuePrefix` never co-occur** (0 of 124). The
+  two rules disagree about where the value *name* comes from, and
+  `_resolve_list_writes` takes the `explicitValue` branch first without
+  consulting the prefix. That precedence is an untested assumption rather than
+  verified behaviour — third-party ADMX is not bound by Microsoft's habits.
+
+Neither fact changes the WI-011 resolution; `_resolve_list_writes` remains
+correct.
+
+**Method note.** Surveying these attributes with PowerShell property access
+(`$_.Node.valuePrefix`) *cannot* answer the WI-011 question: it returns `$null`
+for absent and `''` for present-empty, and `Format-Table` renders both as blank
+— collapsing the exact distinction that carries opposite semantics. Use
+`$el.HasAttribute('valuePrefix')` and report `ABSENT` / `EMPTY` / `NAMED`
+explicitly. Working script:
+[`scripts/plan-033/survey-admx-list-elements.ps1`](../../scripts/plan-033/survey-admx-list-elements.ps1).
+
+---
+
+<details>
+<summary>Original Part B instructions (retained for provenance — superseded)</summary>
+
 Three questions the ADMX write path currently answers by inference. All three
 are the same shape: *what registry bytes does Windows actually write?*
 
@@ -301,6 +375,8 @@ Reset every policy touched to **Not Configured**, save, and confirm the local
 local-GPO edits on a lab host, but leaving policy behind makes the next
 session's readings ambiguous.
 
+</details>
+
 ---
 
 ## Post-session checklist
@@ -310,10 +386,10 @@ session's readings ambiguous.
 - [ ] P1 recorded: which element did GPMC emit for the power plan?
 - [ ] P2 recorded: how did the nested ILT appear in the XML?
 - [ ] P3 recorded: any adapter whose emitted tag differs from `_ADAPTER_META`.
-- [ ] WI-008: `Registry.pol` for Enabled / Disabled / Not Configured, two candidates.
-- [ ] WI-011: `Registry.pol` for each list variant, three entries each.
-- [ ] WI-012: either name/data evidence, or a recorded finding that no in-box
-      policy offers `explicitValue`.
+- [x] ~~WI-008 / WI-011 / WI-012~~ — **superseded**, all three closed before this
+      runbook was written. See the Part B supersede note above for what the
+      2026-07-27 run produced anyway (WI-008 re-confirmed with a control, the
+      new WI-020 defect, and the WI-011 corpus facts).
 - [ ] Local GPO policies reset to Not Configured.
 - [ ] No work-domain identifier typed into any GPO, path, or value.
 
