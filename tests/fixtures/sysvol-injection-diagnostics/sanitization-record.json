@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-07-26T15:42:50+00:00",
+  "source": "tests/fixtures/sysvol-injection-diagnostics",
+  "files": [
+    {
+      "relative_path": "diag-drives/{F97F9753-E646-4377-B7BA-65036339554E}/gpreport.xml",
+      "raw_sha256": "d0189704e703c7a616c0918d29b268bc4fead531b0999757e01c0a3c571952b3",
+      "sanitized_sha256": "cc995f3f108a16fcb2b3b5edf3fe7838ae0a008ca026f5a306595597a212cf97",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "diag-groups/{D727B795-CBCA-4C41-A7A7-A39B13095E98}/gpreport.xml",
+      "raw_sha256": "c0e6fd948ea95bea5a151719d4e484cadbe5570a65a41ea97db36211a76f60fe",
+      "sanitized_sha256": "0b62c3ea8589055b9e93b5fd87cbae19e6a5b3b0d1ade7c3ffefcea65477223a",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "diag-scheduledtasks/{6496409E-0D1D-4F9B-9793-30FCBDCFC75D}/gpreport.xml",
+      "raw_sha256": "f4bb2c9af2357d686c9295d451f32ca102221105a04f09b5327eb5324dc0f5a5",
+      "sanitized_sha256": "28ec1093f75338a984656e7095df5f2dd36917611d453da10a372408d646e071",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    }
+  ]
+}

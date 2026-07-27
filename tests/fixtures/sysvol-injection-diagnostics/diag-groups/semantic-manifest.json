@@ -1,0 +1,110 @@
+{
+  "schema_version": "1",
+  "fixture_id": "diag-groups",
+  "description": "SYSVOL-injection diagnostic: Local Groups backup \u2014 computer scope, two items covering update/replace actions, member add semantics, and delete-all flags",
+  "origin": {
+    "method": "Backup-GPO on Windows Server 2025 build 26100, PowerShell 5.1.26100.32860",
+    "domain": "ad.hraedon.com",
+    "captured_at": "2026-07-26T07:54:47Z",
+    "backup_id": "{D727B795-CBCA-4C41-A7A7-A39B13095E98}",
+    "gpo_guid": "{91075DEA-73E2-4331-A599-E6E08E4B7D0D}",
+    "gpo_display_name": "WI01A-LocalGroups"
+  },
+  "native_layout": {
+    "format": "gpmc-backup-v2",
+    "root": "{BACKUP_ID}/DomainSysvol/GPO",
+    "gpp_file": "Machine/Preferences/Groups/Groups.xml",
+    "cse_guid": "{3125E937-EB16-4b4c-9934-544FC6D24D26}",
+    "item_clsid": "{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}"
+  },
+  "items": [
+    {
+      "uid": "{B1B2C3D4-0001-4000-8000-000000000001}",
+      "windows_meaning": "Update the built-in Administrators group: add HRAENET\\svc-gpolens and HRAENET\\lab-admins as members. Existing members not listed are preserved. Description set to 'Managed by GPO Studio'. Action is Update: modify group membership without removing unlisted members.",
+      "element": "Group",
+      "scope": "computer",
+      "action": "U",
+      "group_name": "Administrators (built-in)",
+      "description": "Managed by GPO Studio",
+      "delete_all_users": false,
+      "delete_all_groups": false,
+      "members": [
+        {
+          "name": "HRAENET\\svc-gpolens",
+          "sid": "S-1-5-21-0000000000-0000000000-0000000000-1101",
+          "action": "ADD",
+          "windows_meaning": "Add this principal to the group if not already a member"
+        },
+        {
+          "name": "HRAENET\\lab-admins",
+          "sid": "S-1-5-21-0000000000-0000000000-0000000000-1102",
+          "action": "ADD",
+          "windows_meaning": "Add this principal to the group if not already a member"
+        }
+      ],
+      "common_options": {
+        "apply_once_and_do_not_reapply": false,
+        "remove_this_item_when_it_is_no_longer_applied": false,
+        "run_in_logged_on_user_security_context": false,
+        "disabled": false,
+        "stop_processing_items_on_error": false
+      },
+      "item_level_targeting": []
+    },
+    {
+      "uid": "{B1B2C3D4-0002-4000-8000-000000000002}",
+      "windows_meaning": "Replace the built-in Power Users group membership: first remove ALL existing users and groups, then add HRAENET\\dev-team. Action is Replace: the group's membership is completely replaced with only the listed members.",
+      "element": "Group",
+      "scope": "computer",
+      "action": "R",
+      "group_name": "Power Users (built-in)",
+      "description": "",
+      "delete_all_users": true,
+      "delete_all_groups": true,
+      "members": [
+        {
+          "name": "HRAENET\\dev-team",
+          "sid": "S-1-5-21-0000000000-0000000000-0000000000-1103",
+          "action": "ADD",
+          "windows_meaning": "Add this principal to the group after clearing all existing members"
+        }
+      ],
+      "common_options": {
+        "apply_once_and_do_not_reapply": false,
+        "remove_this_item_when_it_is_no_longer_applied": true,
+        "run_in_logged_on_user_security_context": false,
+        "disabled": false,
+        "stop_processing_items_on_error": true
+      },
+      "item_level_targeting": []
+    }
+  ],
+  "unknown_content": {
+    "root_unknown_attrs": [],
+    "root_unknown_children": [],
+    "item_unknown_attrs": [
+      "status",
+      "image",
+      "changed"
+    ],
+    "item_unknown_children": [],
+    "props_unknown_attrs": [
+      "removeAccounts"
+    ],
+    "note": "removeAccounts is a legacy attribute from Windows 2000-era group policy. It controls whether accounts not listed are removed; superseded by deleteAllUsers/deleteAllGroups. GPMC still emits it as '0'."
+  },
+  "parser_gaps": [
+    {
+      "gap": "parse_gpp_collection routes <Group> elements to parse_gpp_groups (producing GppGroup in collection.groups), NOT to the local_groups adapter. The local_groups adapter in ROOT_PARSE_FUNCTIONS only extracts <User> elements from Groups/Groups.xml. So collection.local_groups is always empty when going through parse_gpp_collection \u2014 the GppLocalGroup dataclass is unreachable via the normal parse path.",
+      "impact": "Two competing representations exist for the same <Group> XML: GppGroup (high-level, used by parse_gpp_collection) and GppLocalGroup (low-artifact, only reachable via direct parse_gpp_local_groups call). The import path produces GppGroup items.",
+      "severity": "needs-review"
+    },
+    {
+      "gap": "The removeAccounts attribute on Properties is not captured by either parser",
+      "impact": "Unknown attribute preserved as opaque content but not surfaced",
+      "severity": "low"
+    }
+  ],
+  "classification": "synthetic-sysvol-injection",
+  "classification_note": "GPP XML was hand-written and injected directly into SYSVOL; extension GUIDs set via ADSI. Backup-GPO collected the injected files but GPMC did not author them. Backup.xml classifies them as Unknown Extension. gpreport.xml contains no GPP ExtensionData. These fixtures diagnose Studio parser behavior against plausible GPP shapes but do NOT prove GPMC emits those shapes. Genuine GPMC-authored fixtures have landed in tests/fixtures/native-gpp-gpmc/."
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -19,6 +20,7 @@ from .gpp import (
     ensure_editor_ids,
     parse_gpp_collection,
 )
+from .gpp_adapters import ADAPTER_FILE_PATHS
 from .model import (
     GPO,
     CseFileEntry,
@@ -33,6 +35,7 @@ from .model import (
     WmiFilter,
 )
 from .registry_pol import parse as parse_pol
+from .safe_io import is_link_or_junction
 from .store import WorkspaceStore, gpo_from_dict
 
 _VALID_REGISTRY_TYPES = {
@@ -52,12 +55,27 @@ def extract_settings(pol_path: Path, side: Side) -> list[RegistrySetting]:
     settings: list[RegistrySetting] = []
     for i, record in enumerate(records):
         key = record.key
-        for prefix in (
-            "HKLM\\", "HKCU\\", "HKLM/", "HKCU/",
-            "HKEY_LOCAL_MACHINE\\", "HKEY_CURRENT_USER\\",
-            "HKEY_LOCAL_MACHINE/", "HKEY_CURRENT_USER/",
+        for prefix, prefix_hive in (
+            ("HKLM\\", "HKLM"), ("HKCU\\", "HKCU"),
+            ("HKLM/", "HKLM"), ("HKCU/", "HKCU"),
+            ("HKEY_LOCAL_MACHINE\\", "HKLM"),
+            ("HKEY_CURRENT_USER\\", "HKCU"),
+            ("HKEY_LOCAL_MACHINE/", "HKLM"),
+            ("HKEY_CURRENT_USER/", "HKCU"),
         ):
             if key.casefold().startswith(prefix.casefold()):
+                if prefix_hive != hive:
+                    raise ValidationError([
+                        ValidationIssue(
+                            severity="error",
+                            code="registry_hive_side_mismatch",
+                            message=(
+                                f"Registry key hive {prefix_hive} conflicts with "
+                                f"the {side} policy side."
+                            ),
+                            path=f"imported/{side}/{i}/key",
+                        )
+                    ])
                 key = key[len(prefix):]
                 break
         if record.registry_type not in _VALID_REGISTRY_TYPES:
@@ -93,10 +111,11 @@ def extract_settings(pol_path: Path, side: Side) -> list[RegistrySetting]:
     return settings
 
 
-_HANDLED_GPP_FILES = frozenset({
-    "Preferences/Groups/Groups.xml",
-    "Preferences/Registry/Registry.xml",
-})
+_GPP_DISCOVERY_PATHS: frozenset[str] = frozenset(
+    f"Preferences/{path}" for path in set(ADAPTER_FILE_PATHS.values())
+) | frozenset({"Preferences/Registry/Registry.xml"})
+
+_HANDLED_GPP_FILES = _GPP_DISCOVERY_PATHS
 
 
 def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
@@ -105,12 +124,13 @@ def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
         if ext.guid == _REGISTRY_CSE_GUID:
             continue
         if ext.guid == "unknown" and all(
-            f.relative_path == "Registry.pol" for f in ext.files
+            f.relative_path.casefold() == "registry.pol" for f in ext.files
         ):
             continue
         non_gpp_files = [
             f for f in ext.files
             if f.relative_path.replace("\\", "/") not in _HANDLED_GPP_FILES
+            and f.relative_path.casefold() != "registry.pol"
         ]
         if not non_gpp_files:
             continue
@@ -168,30 +188,86 @@ def backup_wmi_filter_to_model(wmi: BackupWmiFilter | None) -> WmiFilter | None:
     )
 
 
-def collect_gpp_collections(backup_dir: Path, gpo_guid: str) -> tuple[GppCollection, ...]:
-    """Parse GPP XML files from a backup directory."""
+def _resolve_case_insensitive(base: Path, relative: str) -> Path | None:
+    """Resolve *relative* under *base* case-insensitively.
+
+    Returns the resolved path, or ``None`` if no match exists.  Raises
+    :class:`BackupError` when multiple case variants collide (ambiguous),
+    when path components contain traversal or NUL bytes, or when any
+    component of the resolved path is a symlink.
+    """
+    parts = Path(relative).parts
+    if any(p in ("", ".", "..") or "\x00" in p for p in parts):
+        raise BackupError(f"Unsafe path component in {relative!r}")
+    current = base
+    for part in parts:
+        if not current.is_dir():
+            return None
+        try:
+            entries = os.listdir(current)
+        except OSError:
+            return None
+        exact = [e for e in entries if e == part]
+        if exact:
+            current = current / exact[0]
+        else:
+            ci_matches = [e for e in entries if e.casefold() == part.casefold()]
+            if len(ci_matches) > 1:
+                raise BackupError(
+                    f"Ambiguous case-insensitive match for {part!r} in {current}: "
+                    f"{sorted(ci_matches)}"
+                )
+            if not ci_matches:
+                return None
+            current = current / ci_matches[0]
+        if is_link_or_junction(current):
+            raise BackupError(f"Symlink detected at intermediate path: {current}")
+    if current.exists():
+        return current
+    return None
+
+
+def _check_containment(base: Path, target: Path, relative: str) -> None:
+    resolved = target.resolve()
+    base_resolved = base.resolve()
+    try:
+        resolved.relative_to(base_resolved)
+    except ValueError:
+        raise BackupError(f"Path escapes content root: {relative}") from None
+
+
+def extract_side_settings(content_root: Path, side: Side) -> list[RegistrySetting]:
+    """Read a side's Registry.pol using Windows case-insensitive path rules."""
+    side_name = "Machine" if side == "computer" else "User"
+    resolved = _resolve_case_insensitive(content_root, f"{side_name}/Registry.pol")
+    if resolved is None:
+        return []
+    _check_containment(content_root, resolved, f"{side_name}/Registry.pol")
+    return extract_settings(resolved, side)
+
+
+def collect_gpp_collections(content_root: Path) -> tuple[GppCollection, ...]:
+    """Parse GPP XML files from a resolved backup content root."""
     collections: list[GppCollection] = []
     sides: list[tuple[str, GppScope]] = [("Machine", "computer"), ("User", "user")]
     for side_name, scope in sides:
-        side_dir = backup_dir / gpo_guid / side_name / "Preferences"
-        if not side_dir.exists():
+        pref_dir = content_root / side_name / "Preferences"
+        if not pref_dir.exists():
             continue
-        groups_path = side_dir / "Groups" / "Groups.xml"
-        registry_path = side_dir / "Registry" / "Registry.xml"
-        if groups_path.exists() or registry_path.exists():
-            files: dict[str, bytes] = {}
-            if groups_path.exists():
-                groups_data = read_file_bytes(groups_path)
-                if contains_cpassword(groups_data):
-                    raise BackupError("cpassword detected in Groups.xml")
-                files["Groups/Groups.xml"] = groups_data
-            if registry_path.exists():
-                registry_data = read_file_bytes(registry_path)
-                if contains_cpassword(registry_data):
-                    raise BackupError("cpassword detected in Registry.xml")
-                files["Registry/Registry.xml"] = registry_data
+        files: dict[str, bytes] = {}
+        for rel_path in sorted(_GPP_DISCOVERY_PATHS):
+            sub_path = rel_path.removeprefix("Preferences/")
+            resolved = _resolve_case_insensitive(pref_dir, sub_path)
+            if resolved is None:
+                continue
+            if is_link_or_junction(resolved):
+                raise BackupError(f"Symlink not allowed: {sub_path}")
+            _check_containment(pref_dir, resolved, sub_path)
+            data = read_file_bytes(resolved)
+            if contains_cpassword(data):
+                raise BackupError(f"cpassword detected in {sub_path}")
+            files[sub_path] = data
+        if files:
             parsed_collection = parse_gpp_collection(scope, files)
-            collections.append(
-                ensure_editor_ids(parsed_collection)
-            )
+            collections.append(ensure_editor_ids(parsed_collection))
     return tuple(collections)

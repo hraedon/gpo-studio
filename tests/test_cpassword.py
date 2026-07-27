@@ -129,8 +129,8 @@ def test_collect_gpp_collections_rejects_cpassword_in_groups(tmp_path: Path) -> 
     groups_dir.mkdir(parents=True)
     (groups_dir / "Groups.xml").write_bytes(_GROUPS_XML_CPASSWORD)
 
-    with pytest.raises(BackupError, match="cpassword detected in Groups.xml"):
-        collect_gpp_collections(backup_dir, _GPO_GUID)
+    with pytest.raises(BackupError, match="cpassword detected in Groups/Groups.xml"):
+        collect_gpp_collections(gpo_dir)
 
 
 def test_collect_gpp_collections_rejects_cpassword_in_registry(tmp_path: Path) -> None:
@@ -140,8 +140,8 @@ def test_collect_gpp_collections_rejects_cpassword_in_registry(tmp_path: Path) -
     registry_dir.mkdir(parents=True)
     (registry_dir / "Registry.xml").write_bytes(_REGISTRY_XML_CPASSWORD)
 
-    with pytest.raises(BackupError, match="cpassword detected in Registry.xml"):
-        collect_gpp_collections(backup_dir, _GPO_GUID)
+    with pytest.raises(BackupError, match="cpassword detected in Registry/Registry.xml"):
+        collect_gpp_collections(gpo_dir)
 
 
 def test_collect_gpp_collections_without_cpassword_passes(tmp_path: Path) -> None:
@@ -154,7 +154,7 @@ def test_collect_gpp_collections_without_cpassword_passes(tmp_path: Path) -> Non
     (groups_dir / "Groups.xml").write_bytes(_GROUPS_XML_CLEAN)
     (registry_dir / "Registry.xml").write_bytes(_REGISTRY_XML_CLEAN)
 
-    collections = collect_gpp_collections(backup_dir, _GPO_GUID)
+    collections = collect_gpp_collections(gpo_dir)
     assert len(collections) == 1
     assert collections[0].scope == "computer"
     assert len(collections[0].groups) == 1

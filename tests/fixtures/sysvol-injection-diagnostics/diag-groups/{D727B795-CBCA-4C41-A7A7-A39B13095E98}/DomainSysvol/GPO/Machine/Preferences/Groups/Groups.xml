@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
+  <Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Administrators (built-in)" image="2" changed="2026-07-26 12:00:00" uid="{B1B2C3D4-0001-4000-8000-000000000001}" userContext="0" removePolicy="0" disabled="0" bypassErrors="1">
+    <Properties action="U" newName="" description="Managed by GPO Studio" deleteAllUsers="0" deleteAllGroups="0" removeAccounts="0">
+      <Members>
+        <Member name="HRAENET\svc-gpolens" action="ADD" sid="S-1-5-21-0000000000-0000000000-0000000000-1101"/>
+        <Member name="HRAENET\lab-admins" action="ADD" sid="S-1-5-21-0000000000-0000000000-0000000000-1102"/>
+      </Members>
+    </Properties>
+  </Group>
+  <Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Power Users (built-in)" image="2" changed="2026-07-26 12:00:00" uid="{B1B2C3D4-0002-4000-8000-000000000002}" userContext="0" removePolicy="1" disabled="0" bypassErrors="0">
+    <Properties action="R" newName="" description="" deleteAllUsers="1" deleteAllGroups="1" removeAccounts="0">
+      <Members>
+        <Member name="HRAENET\dev-team" action="ADD" sid="S-1-5-21-0000000000-0000000000-0000000000-1103"/>
+      </Members>
+    </Properties>
+  </Group>
+</Groups>

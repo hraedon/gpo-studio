@@ -1,0 +1,176 @@
+{
+  "schema_version": "1",
+  "fixture_id": "diag-scheduledtasks",
+  "description": "SYSVOL-injection diagnostic: Scheduled Tasks backup \u2014 computer scope, one TaskV2 (scheduled) and one ImmediateTaskV2 (one-shot), covering variant-heavy XML with Task Scheduler 2.0 schema",
+  "origin": {
+    "method": "Backup-GPO on Windows Server 2025 build 26100, PowerShell 5.1.26100.32860",
+    "domain": "ad.hraedon.com",
+    "captured_at": "2026-07-26T07:54:50Z",
+    "backup_id": "{6496409E-0D1D-4F9B-9793-30FCBDCFC75D}",
+    "gpo_guid": "{EE26B293-30E7-4605-9431-4C36EC82C3CB}",
+    "gpo_display_name": "WI01A-SchedTasks"
+  },
+  "native_layout": {
+    "format": "gpmc-backup-v2",
+    "root": "{BACKUP_ID}/DomainSysvol/GPO",
+    "gpp_file": "Machine/Preferences/ScheduledTasks/ScheduledTasks.xml",
+    "cse_guid": "{CC63F200-7309-4ba0-B154-A71CD118DBCC}",
+    "scheduled_task_clsid": "{D8896631-B747-47a7-84A6-C155337F3BC8}",
+    "immediate_task_clsid": "{9756B581-76EC-4169-9AFC-0CA8D43ADB5F}"
+  },
+  "items": [
+    {
+      "uid": "{C1B2C3D4-0001-4000-8000-000000000001}",
+      "windows_meaning": "Create/update a Task Scheduler 2.0 scheduled task named 'GpoStudio-Cleanup' that runs daily at 02:00 as NT AUTHORITY\\SYSTEM (S4U logon, least privilege). Executes cleanmgr.exe /sagerun:1 from C:\\Windows. Enabled, not hidden, 1-hour execution time limit. Action is Update.",
+      "element": "TaskV2",
+      "scope": "computer",
+      "action": "U",
+      "task_name": "GpoStudio-Cleanup",
+      "run_as": "NT AUTHORITY\\SYSTEM",
+      "logon_type": "S4U",
+      "task_schema_version": "1.3",
+      "registration": {
+        "author": "HRAENET\\svc-gpolens",
+        "description": "Nightly cleanup task for Plan 033 validation"
+      },
+      "triggers": [
+        {
+          "type": "CalendarTrigger",
+          "start_boundary": "2026-07-26T02:00:00",
+          "enabled": true,
+          "schedule": "daily",
+          "days_interval": 1,
+          "windows_meaning": "Runs every day starting at 02:00 on 2026-07-26"
+        }
+      ],
+      "settings": {
+        "allow_start_on_demand": true,
+        "enabled": true,
+        "hidden": false,
+        "execution_time_limit": "PT1H"
+      },
+      "principal": {
+        "user_id": "NT AUTHORITY\\SYSTEM",
+        "logon_type": "S4U",
+        "run_level": "LeastPrivilege"
+      },
+      "actions": [
+        {
+          "type": "Exec",
+          "command": "C:\\Windows\\System32\\cleanmgr.exe",
+          "arguments": "/sagerun:1",
+          "working_directory": "C:\\Windows"
+        }
+      ],
+      "common_options": {
+        "apply_once_and_do_not_reapply": false,
+        "remove_this_item_when_it_is_no_longer_applied": true,
+        "run_in_logged_on_user_security_context": false,
+        "disabled": false,
+        "stop_processing_items_on_error": false
+      },
+      "item_level_targeting": []
+    },
+    {
+      "uid": "{C1B2C3D4-0003-4000-8000-000000000001}",
+      "windows_meaning": "Create/update an immediate (one-shot) task named 'GpoStudio-Init' that runs once as NT AUTHORITY\\SYSTEM (S4U logon). Executes cmd.exe /c echo init. No triggers (runs immediately when policy is applied). Action is Update.",
+      "element": "ImmediateTaskV2",
+      "scope": "computer",
+      "action": "U",
+      "task_name": "GpoStudio-Init",
+      "run_as": "NT AUTHORITY\\SYSTEM",
+      "logon_type": "S4U",
+      "task_schema_version": "1.3",
+      "registration": {
+        "author": "HRAENET\\svc-gpolens",
+        "description": "One-shot initialization"
+      },
+      "triggers": [],
+      "settings": {
+        "allow_start_on_demand": true,
+        "enabled": true
+      },
+      "principal": {
+        "user_id": "NT AUTHORITY\\SYSTEM",
+        "logon_type": "S4U"
+      },
+      "actions": [
+        {
+          "type": "Exec",
+          "command": "C:\\Windows\\System32\\cmd.exe",
+          "arguments": "/c echo init"
+        }
+      ],
+      "common_options": {
+        "apply_once_and_do_not_reapply": false,
+        "remove_this_item_when_it_is_no_longer_applied": false,
+        "run_in_logged_on_user_security_context": false,
+        "disabled": false,
+        "stop_processing_items_on_error": false
+      },
+      "item_level_targeting": []
+    }
+  ],
+  "unknown_content": {
+    "root_unknown_attrs": [],
+    "root_unknown_children": [],
+    "item_unknown_attrs": [
+      "status",
+      "image",
+      "changed"
+    ],
+    "item_unknown_children": [],
+    "props_unknown_attrs": [
+      "logonType"
+    ],
+    "task_unknown_elements": [
+      "RegistrationInfo",
+      "Triggers",
+      "Settings",
+      "Principals",
+      "Actions",
+      "CalendarTrigger",
+      "ScheduleByDay",
+      "DaysInterval",
+      "StartBoundary",
+      "AllowStartOnDemand",
+      "Hidden",
+      "ExecutionTimeLimit",
+      "Principal",
+      "UserId",
+      "LogonType",
+      "RunLevel",
+      "Exec",
+      "Command",
+      "Arguments",
+      "WorkingDirectory"
+    ],
+    "note": "The entire <Task version='1.3'> subtree is the Task Scheduler 2.0 XML schema. Studio's GppScheduledTask model flattens this into scalar fields (program, arguments, start_in, trigger_type, trigger_time, trigger_days). The native XML is far richer: it supports multiple triggers, multiple actions, complex scheduling, principal configuration, and settings. Any fields not mapped to Studio's scalar model are unknown content that must be preserved."
+  },
+  "parser_gaps": [
+    {
+      "gap": "CRITICAL: Studio's parse_gpp_scheduled_tasks searches for <Task> elements (gpp_adapters.py:2368), but native GPMC emits <TaskV2> elements. The parser will find ZERO items in this native fixture.",
+      "impact": "All native scheduled task items are invisible to Studio's parser",
+      "severity": "resolved",
+      "note": "Fixed: parser now searches for both <TaskV2> and <Task> elements"
+    },
+    {
+      "gap": "Studio's GppScheduledTask model uses scalar fields (program, arguments, start_in, trigger_type, trigger_time, trigger_days) that cannot represent the full Task Scheduler 2.0 XML: multiple triggers, multiple actions, CalendarTrigger vs TimeTrigger, Principal/LogonType/RunLevel, Settings/ExecutionTimeLimit, RegistrationInfo/Author/Description",
+      "impact": "Even if the element name is fixed, the model loses most of the task definition",
+      "severity": "critical"
+    },
+    {
+      "gap": "Studio's parse_gpp_immediate_tasks searches for <ImmediateTaskV2> elements, which matches native GPMC. However, the same model flattening issue applies.",
+      "impact": "ImmediateTaskV2 items are found but lose most of their definition",
+      "severity": "high"
+    },
+    {
+      "gap": "collect_gpp_collections does not discover ScheduledTasks/ScheduledTasks.xml from backup directories",
+      "impact": "Import through the public path will not parse any scheduled task items",
+      "severity": "resolved",
+      "note": "Fixed: collect_gpp_collections now discovers all GPP adapter files"
+    }
+  ],
+  "classification": "synthetic-sysvol-injection",
+  "classification_note": "GPP XML was hand-written and injected directly into SYSVOL; extension GUIDs set via ADSI. Backup-GPO collected the injected files but GPMC did not author them. Backup.xml classifies them as Unknown Extension. gpreport.xml contains no GPP ExtensionData. These fixtures diagnose Studio parser behavior against plausible GPP shapes but do NOT prove GPMC emits those shapes. Genuine GPMC-authored fixtures have landed in tests/fixtures/native-gpp-gpmc/."
+}

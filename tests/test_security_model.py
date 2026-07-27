@@ -7,7 +7,7 @@ from gpo_studio.export import gpmc_backup_bundle
 from gpo_studio.model import GPO, SecurityFilter, WmiFilter
 from gpo_studio.store import WorkspaceStore, gpo_from_dict
 
-_GPMC_NS = "http://www.microsoft.com/GroupPolicy/Types"
+_GPMC_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
 
 
 def _sf(principal: str, **kw: object) -> SecurityFilter:
@@ -254,7 +254,7 @@ def test_gpmc_manifest_xml_uses_gpo_domain() -> None:
     )
     xml_bytes = _build_manifest_xml(gpo)
     root = ET.fromstring(xml_bytes)
-    domains = [el.text for el in root.iter(f"{{{_GPMC_NS}}}Domain")]
+    domains = [el.text for el in root.iter(f"{{{_GPMC_NS}}}GPODomain")]
     assert "corp.example.test" in domains
 
 
@@ -268,7 +268,7 @@ def test_gpmc_bkup_info_xml_uses_gpo_domain() -> None:
     )
     xml_bytes = _build_bkup_info_xml(gpo)
     root = ET.fromstring(xml_bytes)
-    domains = [el.text for el in root.iter(f"{{{_GPMC_NS}}}Domain")]
+    domains = [el.text for el in root.iter(f"{{{_GPMC_NS}}}GPODomain")]
     assert "corp.example.test" in domains
 
 

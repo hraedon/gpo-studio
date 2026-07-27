@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from gpo_studio.gpp import (
     GppCollection,
     GppCommonOptions,
@@ -1396,6 +1398,75 @@ def test_scheduled_task_password_denied() -> None:
     raise AssertionError("expected GppError for non-empty run_as_password")
 
 
+def test_scheduled_task_variant_taskv2_parsed() -> None:
+    xml = (
+        b'<ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">'
+        b'<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="V2Task">'
+        b'<Properties action="C" name="V2Task" runAs="SYSTEM" />'
+        b"</TaskV2></ScheduledTasks>"
+    )
+    parsed = parse_gpp_scheduled_tasks(xml)
+    assert len(parsed) == 1
+    assert parsed[0].element_variant == "TaskV2"
+    assert parsed[0].name == "V2Task"
+
+
+def test_scheduled_task_variant_legacy_task_parsed() -> None:
+    xml = (
+        b'<ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">'
+        b'<Task clsid="{2DEECB1C-261F-4e13-9B21-16FB83BC03BD}" name="LegacyTask">'
+        b'<Properties action="U" name="LegacyTask" runAs="SYSTEM" />'
+        b"</Task></ScheduledTasks>"
+    )
+    parsed = parse_gpp_scheduled_tasks(xml)
+    assert len(parsed) == 1
+    assert parsed[0].element_variant == "Task"
+    assert parsed[0].name == "LegacyTask"
+
+
+def test_scheduled_task_variant_both_parsed() -> None:
+    xml = (
+        b'<ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">'
+        b'<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="V2">'
+        b'<Properties action="C" name="V2" />'
+        b"</TaskV2>"
+        b'<Task clsid="{2DEECB1C-261F-4e13-9B21-16FB83BC03BD}" name="Legacy">'
+        b'<Properties action="U" name="Legacy" />'
+        b"</Task></ScheduledTasks>"
+    )
+    parsed = parse_gpp_scheduled_tasks(xml)
+    assert len(parsed) == 2
+    assert parsed[0].element_variant == "TaskV2"
+    assert parsed[1].element_variant == "Task"
+
+
+def test_scheduled_task_roundtrip_taskv2() -> None:
+    task = GppScheduledTask(name="Cleanup", element_variant="TaskV2")
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<TaskV2 " in data
+    assert b"<Task " not in data
+    parsed = parse_gpp_scheduled_tasks(data)
+    assert parsed[0].element_variant == "TaskV2"
+    assert parsed[0] == task
+
+
+def test_scheduled_task_roundtrip_legacy_task() -> None:
+    task = GppScheduledTask(name="Old", element_variant="Task")
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<Task " in data
+    assert b"<TaskV2 " not in data
+    parsed = parse_gpp_scheduled_tasks(data)
+    assert parsed[0].element_variant == "Task"
+    assert parsed[0] == task
+
+
+def test_scheduled_task_default_variant_is_taskv2() -> None:
+    task = GppScheduledTask(name="Default")
+    assert task.element_variant == "TaskV2"
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<TaskV2 " in data
+
+
 # ---------------------------------------------------------------------------
 # Immediate Tasks (Plan 024 WP-4)
 # ---------------------------------------------------------------------------
@@ -1452,6 +1523,135 @@ def test_immediate_task_password_denied() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Task XML opaque subtree preservation (D2 hybrid model)
+# ---------------------------------------------------------------------------
+
+_TASK_XML_FIXTURE = (
+    b'<ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">'
+    b'<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="Cleanup">'
+    b'<Properties action="U" name="Cleanup" runAs="NT AUTHORITY\\SYSTEM">'
+    b"<Task version=\"1.3\">"
+    b"<RegistrationInfo><Author>LAB\\admin</Author></RegistrationInfo>"
+    b"<Triggers><CalendarTrigger>"
+    b"<StartBoundary>2026-01-01T02:00:00</StartBoundary>"
+    b"<Enabled>true</Enabled>"
+    b"<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>"
+    b"</CalendarTrigger></Triggers>"
+    b"<Settings><Enabled>true</Enabled></Settings>"
+    b"<Principals><Principal id=\"Author\">"
+    b"<UserId>NT AUTHORITY\\SYSTEM</UserId>"
+    b"<LogonType>S4U</LogonType>"
+    b"</Principal></Principals>"
+    b"<Actions><Exec>"
+    b"<Command>C:\\Windows\\System32\\cleanmgr.exe</Command>"
+    b"<Arguments>/sagerun:1</Arguments>"
+    b"<WorkingDirectory>C:\\Windows</WorkingDirectory>"
+    b"</Exec></Actions>"
+    b"</Task>"
+    b"</Properties></TaskV2></ScheduledTasks>"
+)
+
+_IMMEDIATE_TASK_XML_FIXTURE = (
+    b'<ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">'
+    b'<ImmediateTaskV2 clsid="{9756B581-76EC-4169-9AFC-0CA8D43ADB5F}" name="Init">'
+    b'<Properties action="C" name="Init" runAs="NT AUTHORITY\\SYSTEM">'
+    b"<Task version=\"1.2\">"
+    b"<Triggers />"
+    b"<Principals><Principal id=\"Author\">"
+    b"<UserId>NT AUTHORITY\\SYSTEM</UserId>"
+    b"</Principal></Principals>"
+    b"<Actions><Exec>"
+    b"<Command>C:\\Windows\\System32\\cmd.exe</Command>"
+    b"<Arguments>/c echo init</Arguments>"
+    b"</Exec></Actions>"
+    b"</Task>"
+    b"</Properties></ImmediateTaskV2></ScheduledTasks>"
+)
+
+
+def test_scheduled_task_xml_captured() -> None:
+    parsed = parse_gpp_scheduled_tasks(_TASK_XML_FIXTURE)
+    assert len(parsed) == 1
+    assert parsed[0].task_xml != ""
+    assert "<Task version=" in parsed[0].task_xml
+
+
+def test_scheduled_task_xml_contains_expected_elements() -> None:
+    parsed = parse_gpp_scheduled_tasks(_TASK_XML_FIXTURE)
+    task_xml = parsed[0].task_xml
+    assert "<Triggers>" in task_xml
+    assert "<Actions>" in task_xml
+    assert "<Principals>" in task_xml
+    assert "<Exec>" in task_xml
+
+
+def test_scheduled_task_projections_from_task_xml() -> None:
+    parsed = parse_gpp_scheduled_tasks(_TASK_XML_FIXTURE)
+    task = parsed[0]
+    assert task.program == "C:\\Windows\\System32\\cleanmgr.exe"
+    assert task.arguments == "/sagerun:1"
+    assert task.start_in == "C:\\Windows"
+
+
+def test_scheduled_task_xml_roundtrip() -> None:
+    parsed = parse_gpp_scheduled_tasks(_TASK_XML_FIXTURE)
+    data = serialize_gpp_scheduled_tasks(parsed, "computer")
+    reparsed = parse_gpp_scheduled_tasks(data)
+    assert len(reparsed) == 1
+    assert reparsed[0].task_xml == parsed[0].task_xml
+    assert reparsed[0] == parsed[0]
+
+
+def test_immediate_task_xml_captured() -> None:
+    parsed = parse_gpp_immediate_tasks(_IMMEDIATE_TASK_XML_FIXTURE)
+    assert len(parsed) == 1
+    assert parsed[0].task_xml != ""
+    assert "<Task version=" in parsed[0].task_xml
+
+
+def test_immediate_task_projections_from_task_xml() -> None:
+    parsed = parse_gpp_immediate_tasks(_IMMEDIATE_TASK_XML_FIXTURE)
+    task = parsed[0]
+    assert task.program == "C:\\Windows\\System32\\cmd.exe"
+    assert task.arguments == "/c echo init"
+    assert task.start_in == ""
+
+
+def test_immediate_task_xml_roundtrip() -> None:
+    parsed = parse_gpp_immediate_tasks(_IMMEDIATE_TASK_XML_FIXTURE)
+    data = serialize_gpp_immediate_tasks(parsed, "computer")
+    reparsed = parse_gpp_immediate_tasks(data)
+    assert len(reparsed) == 1
+    assert reparsed[0].task_xml == parsed[0].task_xml
+    assert reparsed[0] == parsed[0]
+
+
+def test_scheduled_task_no_task_xml_still_works() -> None:
+    task = GppScheduledTask(
+        name="Legacy",
+        program=r"c:\tool.exe",
+        arguments="--flag",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    parsed = parse_gpp_scheduled_tasks(data)
+    assert parsed[0].task_xml == ""
+    assert parsed[0].program == "c:\\tool.exe"
+    assert parsed[0] == task
+
+
+def test_scheduled_task_variants_preserve_document_order() -> None:
+    xml = b"""<?xml version="1.0" encoding="utf-8"?>
+<ScheduledTasks>
+  <Task name="legacy"><Properties name="legacy"/></Task>
+  <TaskV2 name="modern"><Properties name="modern"/></TaskV2>
+  <Task name="legacy-2"><Properties name="legacy-2"/></Task>
+</ScheduledTasks>"""
+    parsed = parse_gpp_scheduled_tasks(xml)
+    assert [item.name for item in parsed] == ["legacy", "modern", "legacy-2"]
+    assert [item.element_variant for item in parsed] == ["Task", "TaskV2", "Task"]
+
+
+# ---------------------------------------------------------------------------
 # Collection integration for privileged execution adapters
 # ---------------------------------------------------------------------------
 
@@ -1462,12 +1662,6 @@ def test_gpp_collection_with_privileged_adapters() -> None:
         scope="computer",
         services=(GppService(service_name="Spooler", startup_type="disabled"),),
         local_users=(GppLocalUser(user_name="DbAdmin", account_disabled=True),),
-        local_groups=(
-            GppLocalGroup(
-                group_name="Admins",
-                members=(GppLocalGroupMember(name=r"domain\user"),),
-            ),
-        ),
         scheduled_tasks=(
             GppScheduledTask(name="Cleanup", program=r"\\server\cleanup.exe"),
         ),
@@ -1480,14 +1674,12 @@ def test_gpp_collection_with_privileged_adapters() -> None:
     assert "Groups/Groups.xml" in files
     assert "ScheduledTasks/ScheduledTasks.xml" in files
 
-    # Verify that <User> and <Group> inner elements are in the merged
+    # Verify that <User> inner elements are in the merged
     # Groups\Groups.xml file with the correct MS-GPPREF CLSIDs.
     groups_xml = files["Groups/Groups.xml"]
     assert b'clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}"' in groups_xml
     assert b'clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}"' in groups_xml
-    assert b'clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}"' in groups_xml
     assert b"<User " in groups_xml
-    assert b"<Group " in groups_xml
 
     parsed = parse_gpp_collection("computer", files)
     assert parsed.scope == "computer"
@@ -1495,17 +1687,49 @@ def test_gpp_collection_with_privileged_adapters() -> None:
     assert parsed.services[0] == col.services[0]
     assert len(parsed.local_users) == 1
     assert parsed.local_users[0] == col.local_users[0]
-    # GppLocalGroup items are serialized as <Group> elements in
-    # Groups\Groups.xml; on import, <Group> elements are parsed as GppGroup
-    # (via parse_gpp_groups), so local_groups does not round-trip — the
-    # data is preserved in parsed.groups instead.
     assert len(parsed.local_groups) == 0
-    assert len(parsed.groups) == 1
-    assert parsed.groups[0].name == "Admins"
     assert len(parsed.scheduled_tasks) == 1
     assert parsed.scheduled_tasks[0] == col.scheduled_tasks[0]
     assert len(parsed.immediate_tasks) == 1
     assert parsed.immediate_tasks[0] == col.immediate_tasks[0]
+
+
+def test_deprecated_local_groups_cannot_be_silently_dropped() -> None:
+    col = GppCollection(
+        scope="computer",
+        local_groups=(GppLocalGroup(group_name="Administrators"),),
+    )
+    with pytest.raises(GppError, match="canonical groups field"):
+        serialize_gpp(col)
+
+
+def test_legacy_local_groups_dict_migrates_to_canonical_groups() -> None:
+    restored = gpp_collection_from_dict({
+        "scope": "computer",
+        "local_groups": [
+            {
+                "group_name": "Administrators",
+                "description": "Migrated",
+                "delete_all_users": True,
+                "members": [
+                    {"name": r"SYNTHETIC\User", "sid": "S-1-5-32-545", "action": "add"}
+                ],
+            }
+        ],
+    })
+    assert restored.local_groups == ()
+    assert len(restored.groups) == 1
+    assert restored.groups[0].name == "Administrators"
+    assert restored.groups[0].remove_all_users is True
+    assert restored.groups[0].members[0].name == r"SYNTHETIC\User"
+
+
+def test_legacy_scheduled_task_dict_defaults_to_task_variant() -> None:
+    restored = gpp_collection_from_dict({
+        "scope": "computer",
+        "scheduled_tasks": [{"name": "Legacy"}],
+    })
+    assert restored.scheduled_tasks[0].element_variant == "Task"
 
 
 def test_gpp_collection_dict_roundtrip_privileged_adapters() -> None:
@@ -1514,12 +1738,6 @@ def test_gpp_collection_dict_roundtrip_privileged_adapters() -> None:
         scope="user",
         services=(GppService(service_name="Spooler", timeout_seconds=45),),
         local_users=(GppLocalUser(user_name="DbAdmin", password_never_expires=True),),
-        local_groups=(
-            GppLocalGroup(
-                group_name="Admins",
-                members=(GppLocalGroupMember(name="x", sid="S-1-5-32-544"),),
-            ),
-        ),
         scheduled_tasks=(GppScheduledTask(name="Cleanup", trigger_type="weekly"),),
         immediate_tasks=(GppImmediateTask(name="Ping", program="c:\\ping.exe"),),
     )
@@ -1530,8 +1748,6 @@ def test_gpp_collection_dict_roundtrip_privileged_adapters() -> None:
     assert restored.services[0] == col.services[0]
     assert len(restored.local_users) == 1
     assert restored.local_users[0] == col.local_users[0]
-    assert len(restored.local_groups) == 1
-    assert restored.local_groups[0] == col.local_groups[0]
     assert len(restored.scheduled_tasks) == 1
     assert restored.scheduled_tasks[0] == col.scheduled_tasks[0]
     assert len(restored.immediate_tasks) == 1
@@ -1568,14 +1784,12 @@ def test_ensure_editor_ids_assigns_ids_to_privileged_adapters() -> None:
         scope="computer",
         services=(GppService(service_name="S"),),
         local_users=(GppLocalUser(user_name="U"),),
-        local_groups=(GppLocalGroup(group_name="G"),),
         scheduled_tasks=(GppScheduledTask(name="T"),),
         immediate_tasks=(GppImmediateTask(name="I"),),
     )
     result = ensure_editor_ids(col)
     assert result.services[0].id != ""
     assert result.local_users[0].id != ""
-    assert result.local_groups[0].id != ""
     assert result.scheduled_tasks[0].id != ""
     assert result.immediate_tasks[0].id != ""
 
@@ -1742,3 +1956,137 @@ def test_clsids_match_ms_gppref_spec() -> None:
             f"_ADAPTER_META[{key!r}] mismatch: "
             f"expected {expected}, got {_ADAPTER_META[key]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Unknown Properties children round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_environment_unknown_props_children_roundtrip() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>\n'
+        b'<EnvironmentVariables clsid="{BF141A63-327B-438a-B9BF-2C188F13B7AD}">'
+        b'<EnvironmentVariable clsid="{78570023-8373-4a19-BA80-2F150738EA19}"'
+        b' name="VAR">'
+        b'<Properties action="U" name="VAR" value="1" user="0">'
+        b"<VendorExt>data</VendorExt>"
+        b"</Properties>"
+        b"</EnvironmentVariable>"
+        b"</EnvironmentVariables>"
+    )
+    parsed = parse_gpp_environment(xml)
+    assert len(parsed) == 1
+    assert len(parsed[0].unknown_props_children) == 1
+    assert "VendorExt" in parsed[0].unknown_props_children[0]
+    data = serialize_gpp_environment(parsed, "computer")
+    assert b"VendorExt" in data
+    reparsed = parse_gpp_environment(data)
+    assert reparsed[0].unknown_props_children == parsed[0].unknown_props_children
+
+
+def test_scheduled_task_unknown_props_children_roundtrip() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>\n'
+        b'<ScheduledTasks clsid="{CC63F200-7309-4ba0-B154-A71CD118DBCC}">'
+        b'<TaskV2 clsid="{D8896631-B747-47a7-84A6-C155337F3BC8}" name="T">'
+        b'<Properties action="U" name="T" runAs="" program="cmd.exe"'
+        b' arguments="" startIn="" enabled="1" triggerType="ONCE"'
+        b' triggerTime="" triggerDays="">'
+        b"<VendorExt>ext</VendorExt>"
+        b"</Properties>"
+        b"</TaskV2>"
+        b"</ScheduledTasks>"
+    )
+    parsed = parse_gpp_scheduled_tasks(xml)
+    assert len(parsed) == 1
+    assert len(parsed[0].unknown_props_children) == 1
+    assert "VendorExt" in parsed[0].unknown_props_children[0]
+    data = serialize_gpp_scheduled_tasks(parsed, "computer")
+    assert b"VendorExt" in data
+
+
+def test_local_group_unknown_props_children_roundtrip() -> None:
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>\n'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="G">'
+        b'<Properties action="U" groupName="G" description=""'
+        b' deleteAllUsers="0" deleteAllGroups="0">'
+        b"<VendorExt>ext</VendorExt>"
+        b"</Properties>"
+        b"</Group>"
+        b"</Groups>"
+    )
+    parsed = parse_gpp_local_groups(xml)
+    assert len(parsed) == 1
+    assert len(parsed[0].unknown_props_children) == 1
+    assert "VendorExt" in parsed[0].unknown_props_children[0]
+    data = serialize_gpp_local_groups(parsed, "computer")
+    assert b"VendorExt" in data
+
+
+def test_gpp_group_unknown_props_children_roundtrip() -> None:
+    from gpo_studio.gpp import parse_gpp_groups, serialize_gpp_groups
+
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>\n'
+        b'<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">'
+        b'<Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="Admins">'
+        b'<Properties action="U" groupName="Admins" description=""'
+        b' deleteAllUsers="0" deleteAllGroups="0">'
+        b"<VendorExt>ext</VendorExt>"
+        b"</Properties>"
+        b"</Group>"
+        b"</Groups>"
+    )
+    parsed = parse_gpp_groups(xml)
+    assert len(parsed) == 1
+    assert len(parsed[0].unknown_props_children) == 1
+    assert "VendorExt" in parsed[0].unknown_props_children[0]
+    collection = GppCollection(scope="computer", groups=parsed)
+    data = serialize_gpp_groups(collection)
+    assert b"VendorExt" in data
+    reparsed = parse_gpp_groups(data)
+    assert reparsed[0].unknown_props_children == parsed[0].unknown_props_children
+
+
+def test_gpp_registry_unknown_props_children_roundtrip() -> None:
+    from gpo_studio.gpp import (
+        GppCollection,
+        parse_gpp_registry,
+        serialize_gpp_registry,
+    )
+
+    xml = (
+        b'<?xml version="1.0" encoding="utf-8"?>\n'
+        b'<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+        b'<Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"'
+        b' name="HKLM\\Software\\Test">'
+        b'<Properties action="C" hive="HKEY_LOCAL_MACHINE"'
+        b' key="Software\\Test" name="Val" type="REG_SZ" value="1">'
+        b"<VendorExt>ext</VendorExt>"
+        b"</Properties>"
+        b"</Registry>"
+        b"</RegistrySettings>"
+    )
+    parsed = parse_gpp_registry(xml)
+    assert len(parsed) == 1
+    assert len(parsed[0].unknown_props_children) == 1
+    assert "VendorExt" in parsed[0].unknown_props_children[0]
+    collection = GppCollection(scope="computer", registry=parsed)
+    data = serialize_gpp_registry(collection)
+    assert b"VendorExt" in data
+    reparsed = parse_gpp_registry(data)
+    assert reparsed[0].unknown_props_children == parsed[0].unknown_props_children
+
+
+def test_unknown_props_children_dict_roundtrip() -> None:
+    env = GppEnvironment(
+        name="VAR",
+        unknown_props_children=("<VendorExt>data</VendorExt>",),
+    )
+    collection = GppCollection(scope="computer", environment=(env,))
+    d = gpp_collection_to_dict(collection)
+    restored = gpp_collection_from_dict(d)
+    assert restored.environment[0].unknown_props_children == env.unknown_props_children

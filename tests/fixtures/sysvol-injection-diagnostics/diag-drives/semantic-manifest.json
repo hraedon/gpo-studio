@@ -1,0 +1,110 @@
+{
+  "schema_version": "1",
+  "fixture_id": "diag-drives",
+  "description": "SYSVOL-injection diagnostic: Drive Maps backup \u2014 user scope, three items covering update/replace/delete actions, common options, and apply-once ILT",
+  "origin": {
+    "method": "Backup-GPO on Windows Server 2025 build 26100, PowerShell 5.1.26100.32860",
+    "domain": "ad.hraedon.com",
+    "captured_at": "2026-07-26T07:54:44Z",
+    "backup_id": "{F97F9753-E646-4377-B7BA-65036339554E}",
+    "gpo_guid": "{B915DA8A-C28C-4654-9CFE-0B7098AADB25}",
+    "gpo_display_name": "WI01A-DriveMaps"
+  },
+  "native_layout": {
+    "format": "gpmc-backup-v2",
+    "root": "{BACKUP_ID}/DomainSysvol/GPO",
+    "gpp_file": "User/Preferences/Drives/Drives.xml",
+    "cse_guid": "{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}",
+    "item_clsid": "{935D1B74-9CB8-4e3c-9914-7DD559B7A417}"
+  },
+  "items": [
+    {
+      "uid": "{A1B2C3D4-0001-4000-8000-000000000001}",
+      "windows_meaning": "Map \\\\filesrv\\home to drive M: with label 'Home Drive'. Persistent across logons. Uses the specified letter (not first available). Action is Update: create if absent, modify settings if present.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "U",
+      "drive_letter": "M",
+      "unc_path": "\\\\filesrv\\home",
+      "label": "Home Drive",
+      "persistent": true,
+      "use_specific_letter": true,
+      "common_options": {
+        "apply_once_and_do_not_reapply": true,
+        "remove_this_item_when_it_is_no_longer_applied": true,
+        "run_in_logged_on_user_security_context": true,
+        "disabled": false,
+        "stop_processing_items_on_error": true
+      },
+      "item_level_targeting": [
+        {
+          "type": "FilterRunOnce",
+          "meaning": "Apply this item only once per user/computer; do not reapply on subsequent policy refreshes. NOTE: Studio promotes FilterRunOnce to common.apply_once and removes it from the ILT filter, so ilt_filter is None and common.apply_once is True.",
+          "negate": false,
+          "bool_operator": "AND"
+        }
+      ]
+    },
+    {
+      "uid": "{A1B2C3D4-0002-4000-8000-000000000002}",
+      "windows_meaning": "Map \\\\filesrv\\projects to drive P: with label 'Projects'. Not persistent (disconnected at logoff). Uses the specified letter. Action is Replace: delete and recreate the mapping unconditionally.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "R",
+      "drive_letter": "P",
+      "unc_path": "\\\\filesrv\\projects",
+      "label": "Projects",
+      "persistent": false,
+      "use_specific_letter": true,
+      "common_options": {
+        "apply_once_and_do_not_reapply": false,
+        "remove_this_item_when_it_is_no_longer_applied": false,
+        "run_in_logged_on_user_security_context": false,
+        "disabled": false,
+        "stop_processing_items_on_error": false
+      },
+      "item_level_targeting": []
+    },
+    {
+      "uid": "{A1B2C3D4-0003-4000-8000-000000000003}",
+      "windows_meaning": "Delete the drive X: mapping. No UNC path or label needed for delete. Action is Delete: remove the mapping if it exists.",
+      "element": "Drive",
+      "scope": "user",
+      "action": "D",
+      "drive_letter": "X",
+      "unc_path": "",
+      "label": "",
+      "persistent": false,
+      "use_specific_letter": false,
+      "common_options": {
+        "apply_once_and_do_not_reapply": false,
+        "remove_this_item_when_it_is_no_longer_applied": false,
+        "run_in_logged_on_user_security_context": false,
+        "disabled": false,
+        "stop_processing_items_on_error": false
+      },
+      "item_level_targeting": []
+    }
+  ],
+  "unknown_content": {
+    "root_unknown_attrs": [],
+    "root_unknown_children": [],
+    "item_unknown_attrs": [
+      "status",
+      "image",
+      "changed"
+    ],
+    "item_unknown_children": [],
+    "note": "status, image, and changed are GPMC display metadata attributes present on every item element. They carry no CSE processing semantics."
+  },
+  "parser_gaps": [
+    {
+      "gap": "Studio's collect_gpp_collections (import_export.py) does not discover Drives/Drives.xml from backup directories; only Groups.xml and Registry.xml are read",
+      "impact": "Import through the public backup-import path will not parse drive map items",
+      "severity": "resolved",
+      "note": "Fixed: collect_gpp_collections now discovers all GPP adapter files"
+    }
+  ],
+  "classification": "synthetic-sysvol-injection",
+  "classification_note": "GPP XML was hand-written and injected directly into SYSVOL; extension GUIDs set via ADSI. Backup-GPO collected the injected files but GPMC did not author them. Backup.xml classifies them as Unknown Extension. gpreport.xml contains no GPP ExtensionData. These fixtures diagnose Studio parser behavior against plausible GPP shapes but do NOT prove GPMC emits those shapes. Genuine GPMC-authored fixtures have landed in tests/fixtures/native-gpp-gpmc/."
+}

@@ -174,7 +174,7 @@ async function submitGppGroup(event){
   if(partialMember){showFormErrors(f,{issues:[{message:"Each member with a name must also have a SID."}]});return}
   const group={name:f.name.value.trim(),sid:f.sid.value.trim(),action:f.action.value,description:f.description.value.trim(),remove_all_users:f.remove_all_users.checked,remove_all_groups:f.remove_all_groups.checked,members:collectMembers(),ilt_filter:collectIlt("gpp-ilt-list")};
   const source=state.gppGroupSource;
-  if(source){group.unknown_attrs=source.unknown_attrs||[];group.unknown_props_attrs=source.unknown_props_attrs||[];group.unknown_children=source.unknown_children||[]}
+  if(source){group.unknown_attrs=source.unknown_attrs||[];group.unknown_props_attrs=source.unknown_props_attrs||[];group.unknown_props_children=source.unknown_props_children||[];group.unknown_children=source.unknown_children||[]}
   if(state.editingGppGroup)group.id=state.editingGppGroup.id;
   const broadMembershipChange=group.action==="replace"||group.action==="remove"||group.remove_all_users||group.remove_all_groups||group.members.some(member=>member.action==="replace"||member.action==="remove");
   if(broadMembershipChange&&!confirm(`Save broad membership change for group "${group.name}"?\n\nAction: ${group.action}. Remove all users: ${group.remove_all_users?'yes':'no'}. Remove all groups: ${group.remove_all_groups?'yes':'no'}. Review the required change reason before continuing.`))return;
@@ -303,7 +303,7 @@ async function submitGppRegistry(event){
   if(badDword){showFormErrors(f,{issues:[{message:`${value.registry_type} value for "${value.name||"(default)"}" must be a non-negative decimal integer.`}]});return}
   const registry={key:f.key.value.trim(),hive:f.hive.value,action:f.action.value,value,ilt_filter:commonIlt};
   const source=state.gppRegistrySource;
-  if(source){if(source.uid)registry.uid=source.uid;if(source.unknown_attrs)registry.unknown_attrs=source.unknown_attrs;if(source.unknown_children)registry.unknown_children=source.unknown_children}
+  if(source){if(source.uid)registry.uid=source.uid;if(source.unknown_attrs)registry.unknown_attrs=source.unknown_attrs;if(source.unknown_props_children)registry.unknown_props_children=source.unknown_props_children;if(source.unknown_children)registry.unknown_children=source.unknown_children}
   if(state.editingGppRegistry)registry.id=state.editingGppRegistry.id;
   const path=state.editingGppRegistry?`/api/gpos/${state.current.guid}/preferences/registry/${state.editingGppRegistry.id}`:`/api/gpos/${state.current.guid}/preferences/registry`;
   try{const data=await api(path,{method:state.editingGppRegistry?"PUT":"POST",body:JSON.stringify({scope,...audit(f.reason.value),registry})});$("#gpp-registry-dialog").close();applyCurrent(data);toast("GPP registry saved")}catch(error){await handleFormFailure(f,error,{onCurrent:applyCurrent})}

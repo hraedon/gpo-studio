@@ -6,8 +6,9 @@ import io
 import json
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import assert_never
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from .canonical import (
     CANONICAL_SCHEMA_VERSION,
@@ -20,10 +21,41 @@ from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
 from .validation import validate_gpo
 
-_GPMC_NS = "http://www.microsoft.com/GroupPolicy/Types"
+_GPMC_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
+_GPMC_BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
 _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
-_GPP_GROUPS_CSE_GUID = "{3125E937-EB16-4b4c-9934-544FC6D24D26}"
-_GPP_REGISTRY_CSE_GUID = "{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}"
+_REGISTRY_MACHINE_TOOL_GUID = "{D02B1F72-3407-48AE-BA88-E8213C6761F1}"
+_REGISTRY_USER_TOOL_GUID = "{D02B1F73-3407-48AE-BA88-E8213C6761F1}"
+_GPP_FILE_COPY_EXTENSION_GUID = "{F15C46CD-82A0-4C2D-A210-5D0D3182A418}"
+_ZERO_GUID = "{00000000-0000-0000-0000-000000000000}"
+_BACKUP_TIME = "1980-01-01T00:00:00"
+_NATIVE_BACKUP_NAMESPACE = UUID("9f2492d8-f0d4-45f8-91db-7fc0c86ceae8")
+
+# Pinned to genuine GPMC-authored WS2025 fixtures. Other GPP families remain
+# blocked until their extension metadata is captured.
+_GPP_EXTENSION_PROFILES: dict[str, tuple[str, str]] = {
+    "Drives": (
+        "{5794DAFD-BE60-433F-88A2-1A31939AC01F}",
+        "{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}",
+    ),
+    "Groups": (
+        "{17D89FEC-5C44-4972-B12D-241CAEF74509}",
+        "{79F92669-4224-476C-9C5C-6EFB4D87DF4A}",
+    ),
+    "ScheduledTasks": (
+        "{AADCED64-746C-4633-A97C-D61349046527}",
+        "{CAB54552-DEEA-4691-817E-ED4A4D1AFC72}",
+    ),
+}
+
+_DOMAIN_NEUTRAL_SECURITY_DESCRIPTOR = (
+    "01 00 04 80 14 00 00 00 24 00 00 00 00 00 00 00 34 00 00 00 "
+    "01 02 00 00 00 00 00 05 20 00 00 00 20 02 00 00 01 02 00 00 "
+    "00 00 00 05 20 00 00 00 20 02 00 00 02 00 34 00 02 00 00 00 "
+    "00 00 14 00 00 00 00 10 01 01 00 00 00 00 00 05 12 00 00 00 "
+    "00 00 18 00 00 00 00 10 01 02 00 00 00 00 00 05 20 00 00 00 "
+    "20 02 00 00"
+)
 
 
 def _ps_quote(value: str) -> str:
@@ -262,141 +294,261 @@ def _gpmc_preg_bytes(settings: list[RegistrySetting]) -> bytes:
     return serialize(records)
 
 
-def _xml_to_bytes(root: ET.Element) -> bytes:
-    ET.register_namespace("", _GPMC_NS)
-    xml_str = ET.tostring(root, encoding="unicode")
-    return b'<?xml version="1.0" encoding="utf-8"?>\n' + xml_str.encode("utf-8")
+def _xml_to_bytes(root: ET.Element, namespace: str) -> bytes:
+    ET.register_namespace("", namespace)
+    result = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    assert isinstance(result, bytes)
+    return result
 
 
-def _build_manifest_xml(gpo: GPO) -> bytes:
-    root = ET.Element(f"{{{_GPMC_NS}}}BackupInstances")
-    inst = ET.SubElement(root, f"{{{_GPMC_NS}}}BackupInstance")
-    ET.SubElement(inst, f"{{{_GPMC_NS}}}BackupTime").text = "1980-01-01T00:00:00"
-    ET.SubElement(inst, f"{{{_GPMC_NS}}}ID").text = f"{{{gpo.guid}}}"
-    gpo_elem = ET.SubElement(inst, f"{{{_GPMC_NS}}}GPO")
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Domain").text = gpo.domain
-    has_computer = any(s.side == "computer" for s in gpo.settings)
-    has_user = any(s.side == "user" for s in gpo.settings)
-    machine_gpp_guids: set[str] = set()
-    user_gpp_guids: set[str] = set()
+def _braced_guid(value: str, *, field: str) -> str:
+    try:
+        parsed = UUID(value.strip("{}"))
+    except ValueError:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="invalid_native_backup_guid",
+                message=f"{field} must be a valid GUID for native backup export.",
+                path="guid",
+            )
+        ]) from None
+    return "{" + str(parsed).upper() + "}"
+
+
+def native_backup_id(gpo: GPO) -> str:
+    """Return the deterministic backup-instance ID for a native export."""
+    gpo_id = _braced_guid(gpo.guid, field="GPO ID")
+    backup_content = replace(gpo, links=(), security_filters=(), wmi_filter=None)
+    identity = gpo.name + "\n" + policy_semantic_sha256(backup_content)
+    candidate = uuid5(_NATIVE_BACKUP_NAMESPACE, identity)
+    if candidate == UUID(gpo_id.strip("{}")):
+        candidate = uuid5(_NATIVE_BACKUP_NAMESPACE, "backup:" + identity)
+    return "{" + str(candidate).upper() + "}"
+
+
+def _backup_inst(gpo: GPO, backup_id: str) -> ET.Element:
+    inst = ET.Element(f"{{{_GPMC_NS}}}BackupInst")
+    values = (
+        ("GPOGuid", _braced_guid(gpo.guid, field="GPO ID")),
+        ("GPODomain", gpo.domain),
+        ("GPODomainGuid", "{" + str(uuid5(NAMESPACE_DNS, gpo.domain.casefold())) + "}"),
+        ("GPODomainController", "UNKNOWN"),
+        ("BackupTime", _BACKUP_TIME),
+        ("ID", backup_id),
+        ("Comment", ""),
+        ("GPODisplayName", gpo.name),
+    )
+    for name, text in values:
+        ET.SubElement(inst, f"{{{_GPMC_NS}}}{name}").text = text
+    return inst
+
+
+def _build_manifest_xml(gpo: GPO, backup_id: str | None = None) -> bytes:
+    resolved_id = backup_id or native_backup_id(gpo)
+    root = ET.Element(
+        f"{{{_GPMC_NS}}}Backups",
+        {"xmlns:mfst": _GPMC_NS, "mfst:version": "1.0"},
+    )
+    root.append(_backup_inst(gpo, resolved_id))
+    return _xml_to_bytes(root, _GPMC_NS)
+
+
+def _build_bkup_info_xml(gpo: GPO, backup_id: str | None = None) -> bytes:
+    return _xml_to_bytes(_backup_inst(gpo, backup_id or native_backup_id(gpo)), _GPMC_NS)
+
+
+def _native_export_files(
+    gpo: GPO,
+) -> tuple[dict[str, bytes], dict[str, set[str]]]:
+    computer = [item for item in gpo.settings if item.side == "computer"]
+    user = [item for item in gpo.settings if item.side == "user"]
+    files: dict[str, bytes] = {}
+    profiles: dict[str, set[str]] = {"Machine": set(), "User": set()}
+    if computer:
+        files["Machine/registry.pol"] = _gpmc_preg_bytes(computer)
+    if user:
+        files["User/registry.pol"] = _gpmc_preg_bytes(user)
+
+    unsupported: set[str] = set()
     for col in gpo.gpp_collections:
-        if col.scope == "computer":
-            if col.groups:
-                machine_gpp_guids.add(_GPP_GROUPS_CSE_GUID)
-            if col.registry:
-                machine_gpp_guids.add(_GPP_REGISTRY_CSE_GUID)
-        else:
-            if col.groups:
-                user_gpp_guids.add(_GPP_GROUPS_CSE_GUID)
-            if col.registry:
-                user_gpp_guids.add(_GPP_REGISTRY_CSE_GUID)
-    has_computer_gpp = bool(machine_gpp_guids)
-    has_user_gpp = bool(user_gpp_guids)
-    if has_computer or has_computer_gpp:
-        guids = ([_REGISTRY_CSE_GUID] if has_computer else []) + sorted(machine_gpp_guids)
-        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}MachineExtensionGuids").text = (
-            "\n".join(guids)
+        side_dir = "Machine" if col.scope == "computer" else "User"
+        for filename, content in serialize_gpp(col).items():
+            if contains_cpassword(content):
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="cpassword_detected",
+                        message=f"GPP file {filename} contains a cpassword attribute.",
+                        path=f"gpp_collections/{filename}",
+                    )
+                ])
+            family = filename.replace("\\", "/").split("/", 1)[0]
+            if family not in _GPP_EXTENSION_PROFILES:
+                unsupported.add(family)
+                continue
+            profiles[side_dir].add(family)
+            files[f"{side_dir}/Preferences/{filename.replace('\\', '/')}"] = content
+
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="unsupported_native_gpp_extension",
+                message=(
+                    "Native backup extension metadata has not been verified for: "
+                    f"{names}. Use the Studio publication bundle instead."
+                ),
+                path="gpp_collections",
+            )
+        ])
+    return files, profiles
+
+
+def _extension_guids(
+    *, side: str, has_registry: bool, gpp_profiles: set[str]
+) -> str:
+    groups: list[str] = []
+    if has_registry:
+        tool = (
+            _REGISTRY_MACHINE_TOOL_GUID if side == "Machine" else _REGISTRY_USER_TOOL_GUID
         )
-    if has_user or has_user_gpp:
-        guids = ([_REGISTRY_CSE_GUID] if has_user else []) + sorted(user_gpp_guids)
-        ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}UserExtensionGuids").text = (
-            "\n".join(guids)
+        groups.append(f"[{_REGISTRY_CSE_GUID}{tool}]")
+    if gpp_profiles:
+        pairs = [_GPP_EXTENSION_PROFILES[name] for name in sorted(gpp_profiles)]
+        groups.append("[" + _ZERO_GUID + "".join(tool for _, tool in pairs) + "]")
+        groups.extend(f"[{client}{tool}]" for client, tool in pairs)
+    return "".join(groups)
+
+
+def _backup_attr(name: str) -> str:
+    return f"bkp:{name}"
+
+
+def _source_path(gpo: GPO, relative: str) -> str:
+    gpo_id = _braced_guid(gpo.guid, field="GPO ID")
+    return rf"\\UNKNOWN\SYSVOL\{gpo.domain}\Policies\{gpo_id}\{relative}"
+
+
+def _append_file_reference(
+    parent: ET.Element, gpo: GPO, relative: str, *, is_dir: bool = False
+) -> None:
+    normalized = relative.replace("/", "\\")
+    side, _, side_relative = normalized.partition("\\")
+    variable = "%GPO_MACH_FSPATH%" if side == "Machine" else "%GPO_USER_FSPATH%"
+    tag = "FSObjectDir" if is_dir else "FSObjectFile"
+    ET.SubElement(
+        parent,
+        f"{{{_GPMC_BACKUP_NS}}}{tag}",
+        {
+            _backup_attr("Path"): f"{variable}\\{side_relative}",
+            _backup_attr("SourceExpandedPath"): _source_path(gpo, normalized),
+            _backup_attr("Location"): f"DomainSysvol\\GPO\\{normalized}",
+        },
+    )
+
+
+def _build_backup_xml(
+    gpo: GPO, files: dict[str, bytes], profiles: dict[str, set[str]]
+) -> bytes:
+    root = ET.Element(
+        f"{{{_GPMC_BACKUP_NS}}}GroupPolicyBackupScheme",
+        {
+            "xmlns:bkp": _GPMC_BACKUP_NS,
+            "bkp:version": "2.0",
+            "bkp:type": "GroupPolicyBackupTemplate",
+        },
+    )
+    obj = ET.SubElement(root, f"{{{_GPMC_BACKUP_NS}}}GroupPolicyObject")
+    ET.SubElement(obj, f"{{{_GPMC_BACKUP_NS}}}SecurityGroups")
+    ET.SubElement(obj, f"{{{_GPMC_BACKUP_NS}}}FilePaths")
+    core = ET.SubElement(obj, f"{{{_GPMC_BACKUP_NS}}}GroupPolicyCoreSettings")
+    options = (0 if gpo.user_enabled else 1) | (0 if gpo.computer_enabled else 2)
+    machine_files = any(path.startswith("Machine/") for path in files)
+    user_files = any(path.startswith("User/") for path in files)
+    core_values = (
+        ("ID", _braced_guid(gpo.guid, field="GPO ID")),
+        ("Domain", gpo.domain),
+        ("SecurityDescriptor", _DOMAIN_NEUTRAL_SECURITY_DESCRIPTOR),
+        ("DisplayName", gpo.name),
+        ("Options", str(options)),
+        ("UserVersionNumber", "65537" if user_files else "0"),
+        ("MachineVersionNumber", "65537" if machine_files else "0"),
+        (
+            "MachineExtensionGuids",
+            _extension_guids(
+                side="Machine",
+                has_registry="Machine/registry.pol" in files,
+                gpp_profiles=profiles["Machine"],
+            ),
+        ),
+        (
+            "UserExtensionGuids",
+            _extension_guids(
+                side="User",
+                has_registry="User/registry.pol" in files,
+                gpp_profiles=profiles["User"],
+            ),
+        ),
+        ("WMIFilter", ""),
+    )
+    for name, text in core_values:
+        ET.SubElement(core, f"{{{_GPMC_BACKUP_NS}}}{name}").text = text
+
+    registry_ext = ET.SubElement(
+        obj,
+        f"{{{_GPMC_BACKUP_NS}}}GroupPolicyExtension",
+        {
+            _backup_attr("ID"): _REGISTRY_CSE_GUID,
+            _backup_attr("DescName"): "Registry",
+        },
+    )
+    for path in sorted(path for path in files if path.endswith("/registry.pol")):
+        _append_file_reference(registry_ext, gpo, path)
+    ET.SubElement(
+        registry_ext,
+        f"{{{_GPMC_BACKUP_NS}}}FSObjectFile",
+        {
+            _backup_attr("Path"): r"%GPO_FSPATH%\Adm\*.*",
+            _backup_attr("SourceExpandedPath"): _source_path(gpo, r"Adm\*.*"),
+        },
+    )
+
+    gpp_paths = sorted(path for path in files if "/Preferences/" in path)
+    if gpp_paths:
+        gpp_ext = ET.SubElement(
+            obj,
+            f"{{{_GPMC_BACKUP_NS}}}GroupPolicyExtension",
+            {
+                _backup_attr("ID"): _GPP_FILE_COPY_EXTENSION_GUID,
+                _backup_attr("DescName"): "Unknown Extension",
+            },
         )
-    _append_security_filters(gpo_elem, gpo)
-    if gpo.wmi_filter is not None:
-        wmi_elem = ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}WmiFilter")
-        wmi_elem.set("name", gpo.wmi_filter.name)
-        wmi_elem.set("query", gpo.wmi_filter.query)
-        wmi_elem.set("language", gpo.wmi_filter.language)
-        wmi_elem.set("description", gpo.wmi_filter.description)
-    return _xml_to_bytes(root)
-
-
-def _append_security_filters(parent: ET.Element, gpo: GPO) -> None:
-    if not gpo.security_filters:
-        return
-    sf_elem = ET.SubElement(parent, f"{{{_GPMC_NS}}}SecurityFilters")
-    for sf in sorted(gpo.security_filters, key=lambda s: s.principal.casefold()):
-        child = ET.SubElement(sf_elem, f"{{{_GPMC_NS}}}SecurityFilter")
-        trustee = ET.SubElement(child, f"{{{_GPMC_NS}}}Trustee")
-        ET.SubElement(trustee, f"{{{_GPMC_NS}}}Sid").text = sf.sid
-        ET.SubElement(trustee, f"{{{_GPMC_NS}}}Name").text = sf.principal
-        ET.SubElement(trustee, f"{{{_GPMC_NS}}}Type").text = sf.target_type.title()
-        match sf.permission:
-            case "apply":
-                perm_text = "GpoApply"
-            case "read":
-                perm_text = "GpoRead"
-            case _:
-                assert_never(sf.permission)
-        ET.SubElement(child, f"{{{_GPMC_NS}}}Permission").text = perm_text
-        ET.SubElement(child, f"{{{_GPMC_NS}}}Inheritable").text = (
-            "true" if sf.inheritable else "false"
-        )
-
-
-def _build_bkup_info_xml(gpo: GPO) -> bytes:
-    root = ET.Element(f"{{{_GPMC_NS}}}BackupInfo")
-    ET.SubElement(root, f"{{{_GPMC_NS}}}BackupTime").text = "1980-01-01T00:00:00"
-    ET.SubElement(root, f"{{{_GPMC_NS}}}ID").text = f"{{{gpo.guid}}}"
-    ET.SubElement(root, f"{{{_GPMC_NS}}}BackupType").text = "GPO"
-    gpo_elem = ET.SubElement(root, f"{{{_GPMC_NS}}}GPO")
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Domain").text = gpo.domain
-    return _xml_to_bytes(root)
-
-
-def _build_gpreport_xml(gpo: GPO) -> bytes:
-    root = ET.Element(f"{{{_GPMC_NS}}}GroupPolicyReport")
-    gpo_elem = ET.SubElement(root, f"{{{_GPMC_NS}}}GPO")
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}Identifier").text = gpo.guid
-    ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}DisplayName").text = gpo.name
-    _append_security_filters(gpo_elem, gpo)
-    if gpo.wmi_filter is not None:
-        wmi_elem = ET.SubElement(gpo_elem, f"{{{_GPMC_NS}}}WmiFilter")
-        wmi_elem.set("name", gpo.wmi_filter.name)
-        wmi_elem.set("query", gpo.wmi_filter.query)
-        wmi_elem.set("language", gpo.wmi_filter.language)
-        wmi_elem.set("description", gpo.wmi_filter.description)
-    return _xml_to_bytes(root)
-
-
-def _build_dc_xml() -> bytes:
-    root = ET.Element(f"{{{_GPMC_NS}}}DomainController")
-    ET.SubElement(root, f"{{{_GPMC_NS}}}Name").text = "UNKNOWN"
-    return _xml_to_bytes(root)
+        directories: set[str] = set()
+        for path in gpp_paths:
+            parts = path.split("/")[:-1]
+            directories.update("/".join(parts[:i]) for i in range(2, len(parts) + 1))
+        for path in sorted(directories):
+            _append_file_reference(gpp_ext, gpo, path, is_dir=True)
+        for path in gpp_paths:
+            _append_file_reference(gpp_ext, gpo, path)
+    return _xml_to_bytes(root, _GPMC_BACKUP_NS)
 
 
 def gpmc_backup_bundle(gpo: GPO) -> bytes:
-    """Return a deterministic GPMC backup ZIP for a registry-only GPO."""
-    computer = [item for item in gpo.settings if item.side == "computer"]
-    user = [item for item in gpo.settings if item.side == "user"]
+    """Return a deterministic native Backup-GPO-compatible ZIP."""
+    backup_id = native_backup_id(gpo)
+    files, profiles = _native_export_files(gpo)
+    prefix = f"{backup_id}/DomainSysvol/GPO"
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         entries: dict[str, bytes] = {
-            "manifest.xml": _build_manifest_xml(gpo),
-            "bkupInfo.xml": _build_bkup_info_xml(gpo),
-            f"{gpo.guid}/Machine/Registry.pol": _gpmc_preg_bytes(computer),
-            f"{gpo.guid}/User/Registry.pol": _gpmc_preg_bytes(user),
-            f"{gpo.guid}/gpreport.xml": _build_gpreport_xml(gpo),
-            f"{gpo.guid}/DomainController.xml": _build_dc_xml(),
+            "manifest.xml": _build_manifest_xml(gpo, backup_id),
+            f"{backup_id}/Backup.xml": _build_backup_xml(gpo, files, profiles),
+            f"{backup_id}/bkupInfo.xml": _build_bkup_info_xml(gpo, backup_id),
         }
-        for col in gpo.gpp_collections:
-            side_dir = "Machine" if col.scope == "computer" else "User"
-            for filename, content in serialize_gpp(col).items():
-                if contains_cpassword(content):
-                    raise ValidationError([
-                        ValidationIssue(
-                            severity="error",
-                            code="cpassword_detected",
-                            message=f"GPP file {filename} contains a cpassword attribute.",
-                            path=f"gpp_collections/{filename}",
-                        )
-                    ])
-                entries[f"{gpo.guid}/{side_dir}/Preferences/{filename}"] = content
+        entries.update({f"{prefix}/{path}": content for path, content in files.items()})
         for name in sorted(entries):
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED

@@ -80,6 +80,9 @@ class BackupGpo:
     user_extensions: tuple[CseExtension, ...] = field(default_factory=tuple)
     security_filters: tuple[BackupSecurityFilter, ...] = field(default_factory=tuple)
     wmi_filter: BackupWmiFilter | None = None
+    content_root: Path | None = None
+    computer_enabled: bool = True
+    user_enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +227,15 @@ def parse_bkup_info(data: bytes) -> GpmcBackup:
     """Parse bkupInfo.xml from a GPMC backup directory."""
     root = _safe_parse(data)
 
+    if _local_name(root.tag) == "BackupInst":
+        native = _parse_native_manifest(root)
+        return GpmcBackup(
+            backup_time=native.backup_time,
+            backup_id=native.backup_id,
+            backup_type="GPO",
+            gpos=native.gpos,
+        )
+
     backup_time = ""
     backup_id = ""
     backup_type = ""
@@ -257,8 +269,54 @@ def parse_bkup_info(data: bytes) -> GpmcBackup:
 
 
 def parse_manifest(data: bytes) -> GpmcBackup:
-    """Parse manifest.xml from a GPMC backup directory."""
+    """Parse manifest.xml from a GPMC backup directory.
+
+    Supports both the native GPMC manifest format (Backups/BackupInst) and the
+    Studio export format (BackupInstances/BackupInstance/GPO).
+    """
     root = _safe_parse(data)
+    root_local = _local_name(root.tag)
+
+    if root_local == "Backups":
+        return _parse_native_manifest(root)
+    return _parse_studio_manifest(root)
+
+
+def _parse_native_manifest(root: ET.Element) -> GpmcBackup:
+    backup_time = ""
+    backup_id = ""
+    gpos: list[BackupGpo] = []
+
+    for inst in root.iter():
+        if _local_name(inst.tag) != "BackupInst":
+            continue
+        guid = ""
+        display_name = ""
+        domain = ""
+        for child in inst:
+            local = _local_name(child.tag)
+            if local == "GPOGuid":
+                guid = _text_or_empty(child).strip("{}").lower()
+            elif local == "GPODisplayName":
+                display_name = _text_or_empty(child)
+            elif local == "GPODomain":
+                domain = _text_or_empty(child)
+            elif local == "BackupTime":
+                backup_time = _text_or_empty(child)
+            elif local == "ID":
+                backup_id = _text_or_empty(child)
+        if guid:
+            gpos.append(BackupGpo(guid=guid, display_name=display_name, domain=domain))
+
+    if not gpos:
+        raise BackupError("No GPO entries found in manifest")
+
+    return GpmcBackup(
+        backup_time=backup_time, backup_id=backup_id, backup_type="", gpos=tuple(gpos)
+    )
+
+
+def _parse_studio_manifest(root: ET.Element) -> GpmcBackup:
 
     backup_time = ""
     backup_id = ""
@@ -395,6 +453,66 @@ def _text_or_empty(elem: ET.Element | None) -> str:
     return (elem.text or "").strip()
 
 
+def _parse_native_backup_options(data: bytes, expected_guid: str) -> tuple[bool, bool]:
+    root = _safe_parse(data)
+    core: ET.Element | None = None
+    for elem in root.iter():
+        if _local_name(elem.tag) == "GroupPolicyCoreSettings":
+            core = elem
+            break
+    if core is None:
+        raise BackupError("Backup.xml has no GroupPolicyCoreSettings")
+
+    core_guid = ""
+    options = 0
+    for child in core:
+        local = _local_name(child.tag)
+        if local == "ID":
+            core_guid = _text_or_empty(child).strip("{}").casefold()
+        elif local == "Options":
+            raw_options = _text_or_empty(child)
+            try:
+                options = int(raw_options or "0")
+            except ValueError:
+                raise BackupError(f"Invalid Backup.xml Options value: {raw_options!r}") from None
+    if core_guid != expected_guid.casefold():
+        raise BackupError(
+            f"Backup.xml GPO ID {core_guid!r} does not match manifest {expected_guid!r}"
+        )
+    if options & ~3:
+        raise BackupError(f"Unsupported Backup.xml Options flags: {options}")
+    return not bool(options & 2), not bool(options & 1)
+
+
+def _resolve_content_root(backup_dir: Path, backup_id: str, gpo_guid: str) -> Path | None:
+    """Detect native GPMC or legacy Studio layout and return the content root.
+
+    Native GPMC layout: {backup_dir}/{BACKUP_ID}/DomainSysvol/GPO
+    Legacy Studio layout: {backup_dir}/{GPO_GUID}
+    """
+    native_path = backup_dir / backup_id / "DomainSysvol" / "GPO" if backup_id else None
+    legacy_path = backup_dir / gpo_guid
+
+    native_exists = native_path is not None and native_path.is_dir()
+    legacy_exists = legacy_path.is_dir()
+
+    if native_exists and legacy_exists:
+        raise BackupError(
+            f"Ambiguous backup layout: both native ({native_path}) and "
+            f"legacy ({legacy_path}) content roots exist"
+        )
+    if native_exists:
+        assert native_path is not None
+        if is_link_or_junction(native_path):
+            raise BackupError(f"Symlinks are not allowed in backup content: {native_path}")
+        return native_path
+    if legacy_exists:
+        if is_link_or_junction(legacy_path):
+            raise BackupError(f"Symlinks are not allowed in backup content: {legacy_path}")
+        return legacy_path
+    return None
+
+
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
     if is_link_or_junction(backup_dir):
@@ -436,9 +554,6 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
     for gpo in backup.gpos:
         if not _GUID_RE.match(gpo.guid):
             raise BackupError(f"Invalid GPO GUID in manifest: {gpo.guid!r}")
-        gpo_dir = backup_dir / gpo.guid
-        if is_link_or_junction(gpo_dir):
-            raise BackupError(f"Symlinks are not allowed in backup content: {gpo_dir}")
 
         display_name = gpo.display_name
         domain = gpo.domain
@@ -446,7 +561,9 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
             display_name = bkup_gpo.display_name or display_name
             domain = bkup_gpo.domain or domain
 
-        if not gpo_dir.exists():
+        content_root = _resolve_content_root(backup_dir, backup_id, gpo.guid)
+
+        if content_root is None:
             enriched_gpos.append(
                 BackupGpo(
                     guid=gpo.guid,
@@ -460,8 +577,27 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
             )
             continue
 
-        machine_exts = _scan_side(gpo_dir / "Machine", gpo.machine_extensions, budget)
-        user_exts = _scan_side(gpo_dir / "User", gpo.user_extensions, budget)
+        machine_exts = _scan_side(content_root / "Machine", gpo.machine_extensions, budget)
+        user_exts = _scan_side(content_root / "User", gpo.user_extensions, budget)
+        is_native_layout = (
+            content_root.name.casefold() == "gpo"
+            and content_root.parent.name.casefold() == "domainsysvol"
+        )
+        backup_xml_path = (
+            content_root.parent.parent / "Backup.xml"
+            if is_native_layout
+            else content_root / "Backup.xml"
+        )
+        computer_enabled = True
+        user_enabled = True
+        if backup_xml_path.exists():
+            if is_link_or_junction(backup_xml_path):
+                raise BackupError(f"Symlinks are not allowed: {backup_xml_path}")
+            backup_xml = read_file_bytes(backup_xml_path)
+            budget.add_file(len(backup_xml))
+            computer_enabled, user_enabled = _parse_native_backup_options(
+                backup_xml, gpo.guid
+            )
 
         enriched_gpos.append(
             BackupGpo(
@@ -472,6 +608,9 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                 user_extensions=user_exts,
                 security_filters=gpo.security_filters,
                 wmi_filter=gpo.wmi_filter,
+                content_root=content_root,
+                computer_enabled=computer_enabled,
+                user_enabled=user_enabled,
             )
         )
 
@@ -569,7 +708,7 @@ def _scan_side(
         return extensions
 
     side_lit: Literal["machine", "user"] = (
-        "machine" if side_dir.name == "Machine" else "user"
+        "machine" if side_dir.name.casefold() == "machine" else "user"
     )
 
     if not extensions:
@@ -585,7 +724,7 @@ def _scan_side(
 
     for rel, cse_file in all_files.items():
         rel_path = Path(rel)
-        if rel_path.name == "Registry.pol" and _REGISTRY_CSE_GUID in ext_map:
+        if rel_path.name.casefold() == "registry.pol" and _REGISTRY_CSE_GUID in ext_map:
             files_by_ext[_REGISTRY_CSE_GUID].append(cse_file)
             continue
         first_part = rel_path.parts[0] if rel_path.parts else ""
@@ -594,16 +733,16 @@ def _scan_side(
             continue
         unknown_files.append(cse_file)
 
-    if unknown_files:
-        first_guid = extensions[0].guid
-        files_by_ext[first_guid].extend(unknown_files)
-
     result: list[CseExtension] = []
     for ext in extensions:
         result.append(
             CseExtension(
                 guid=ext.guid, side=side_lit, files=tuple(files_by_ext[ext.guid])
             )
+        )
+    if unknown_files:
+        result.append(
+            CseExtension(guid="unknown", side=side_lit, files=tuple(unknown_files))
         )
     return tuple(result)
 
@@ -618,8 +757,12 @@ def read_cse_content(
     """Read the raw bytes of a specific CSE file."""
     if not _GUID_RE.match(gpo_guid):
         raise BackupError(f"Invalid GPO GUID: {gpo_guid!r}")
+    backup = read_backup(backup_dir)
+    matching = [gpo for gpo in backup.gpos if gpo.guid == gpo_guid.casefold()]
+    if not matching or matching[0].content_root is None:
+        raise BackupError(f"GPO content not found in backup: {gpo_guid}")
     side_dir_name = "Machine" if side == "machine" else "User"
-    file_path = _safe_path(backup_dir / gpo_guid / side_dir_name, relative_path)
+    file_path = _safe_path(matching[0].content_root / side_dir_name, relative_path)
     if not file_path.exists():
         raise BackupError(f"File not found: {file_path}")
     return read_file_bytes(file_path)
