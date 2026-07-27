@@ -1,0 +1,208 @@
+{
+  "timestamp": "2026-07-26T17:57:35+00:00",
+  "source": "/tmp/gpp-gpmc-native-2",
+  "files": [
+    {
+      "relative_path": "WI01A-DriveMaps-GPMC/gpreport-verify.xml",
+      "raw_sha256": "0191d03310df219eded8cc5ad0f704e0d8646da14abf448d97e38de76b4f38bf",
+      "sanitized_sha256": "45ac1e001b6de4fe734f170d370f2e33c8a180caa34f6edc40082bca86855cda",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-DriveMaps-GPMC/manifest.xml",
+      "raw_sha256": "2d889679af64128bfc7ef0310a1595957e7a260f98a23e7c11400f8007e02ec5",
+      "sanitized_sha256": "2d889679af64128bfc7ef0310a1595957e7a260f98a23e7c11400f8007e02ec5",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-DriveMaps-GPMC/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/Backup.xml",
+      "raw_sha256": "7d35f0fc565b1db48d26ebf5bcf0c9ca67b2f56a7f6f0fb0b83583d7e06fb29e",
+      "sanitized_sha256": "2261e20a44b7fe2e76ea3f7f1f9308fc8e39ca5ca2f4c7dcad8ff38a2e333e40",
+      "transformations_applied": [
+        "replace-domain-sid",
+        "replace-sd-hex"
+      ]
+    },
+    {
+      "relative_path": "WI01A-DriveMaps-GPMC/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml",
+      "raw_sha256": "592f2564dbd9fb7e03a16322017897ec96c2f1433b5a08dd3ec4eba4564d7449",
+      "sanitized_sha256": "592f2564dbd9fb7e03a16322017897ec96c2f1433b5a08dd3ec4eba4564d7449",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-DriveMaps-GPMC/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/bkupInfo.xml",
+      "raw_sha256": "0f9820742f2a040fa81d25e2b1effc9f228b2113b3d76b144353a7ecd2c8ddf6",
+      "sanitized_sha256": "0f9820742f2a040fa81d25e2b1effc9f228b2113b3d76b144353a7ecd2c8ddf6",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-DriveMaps-GPMC/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/gpreport.xml",
+      "raw_sha256": "930080d366ce1e6bb5b100f9334122bc8d44338d27b31f85ad4eb7f8122f0fd3",
+      "sanitized_sha256": "c80d7d4644b27127c595ed8d5c35e28934b3cd3455911a3372fe14609f69155d",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-LocalGroups-GPMC/gpreport-verify.xml",
+      "raw_sha256": "511eb2d4898ef40d13c73b0845329763232ad8bf09b094a22000718abf2633d3",
+      "sanitized_sha256": "e7fbea9794c01f8831cca135369415b369e13f87f9353b9b93db47023773fa7a",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-LocalGroups-GPMC/manifest.xml",
+      "raw_sha256": "1789a3f6acca5d7a0c6dec6c5f74b7b2cf7aa5a54b24358bb4eb7bba2e07499d",
+      "sanitized_sha256": "1789a3f6acca5d7a0c6dec6c5f74b7b2cf7aa5a54b24358bb4eb7bba2e07499d",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-LocalGroups-GPMC/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/Backup.xml",
+      "raw_sha256": "ca7201dc16b231e027463da4afc9e10666a0a675321ca9307b00fe289a31e8b7",
+      "sanitized_sha256": "4feb29798df44fb6c8f36f46aa03d1ac5f553547f93088303bfef805a47afba1",
+      "transformations_applied": [
+        "replace-domain-sid",
+        "replace-sd-hex"
+      ]
+    },
+    {
+      "relative_path": "WI01A-LocalGroups-GPMC/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml",
+      "raw_sha256": "c26a24032dfd2af632485372efac37ec23408bf78b82528904e0ef3556a8d09e",
+      "sanitized_sha256": "4a37a9a331f3c19cb861c1d86e48b46c5ea1b241979ea09ba502111816e47372",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-LocalGroups-GPMC/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/DomainSysvol/GPO/User/Preferences/Groups/Groups.xml",
+      "raw_sha256": "6e66ac4481db6551eb921d83b1675e6a6e0ce84005216a0c425e2762a08aad8f",
+      "sanitized_sha256": "e93a41079221616a950e8bc1f3f9704a60aef480138a3393916da8500b4365ca",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-LocalGroups-GPMC/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/bkupInfo.xml",
+      "raw_sha256": "e3d3a342ebf8a89b17717ad390d5590ab4c599eabd49e62375b33a5189dd1d9a",
+      "sanitized_sha256": "e3d3a342ebf8a89b17717ad390d5590ab4c599eabd49e62375b33a5189dd1d9a",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-LocalGroups-GPMC/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/gpreport.xml",
+      "raw_sha256": "a88aab4e4c95b72f8aefcbf4e6a5e01a59a2b66d4a4d7d77b4d928d3a4ea7be5",
+      "sanitized_sha256": "30e0f251bc2e655987541c9353edbf2d294f971be2f1e78b073f716b3e182eb2",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/gpreport-verify.xml",
+      "raw_sha256": "d95b527802d91ae8b2f1e0e2f697999b7b1e5a15c5ba6512c5e3802a24ea36ea",
+      "sanitized_sha256": "54442df094d8f4176d50d5c9e55778d750b3d1e50d8fcb3d56ed26f8709596d8",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/manifest.xml",
+      "raw_sha256": "c9e0e3f4b1bf0c9570b4dc831d2dd4db6d9828423111313fd93b98a80569fb20",
+      "sanitized_sha256": "c9e0e3f4b1bf0c9570b4dc831d2dd4db6d9828423111313fd93b98a80569fb20",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/Backup.xml",
+      "raw_sha256": "85f6ae83aba384970a566168f3a444325a22298ef90550315cecf4f935f76b97",
+      "sanitized_sha256": "61cfe69e829e1df0adb0d1d835dd9f72c18eab57081b14681430b1f6e5b2b454",
+      "transformations_applied": [
+        "replace-domain-sid",
+        "replace-sd-hex"
+      ]
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml",
+      "raw_sha256": "be5df06fbd92cfbdc8ef372e8fced0652838b41fe4b2481f407b3d6b44f767ab",
+      "sanitized_sha256": "07a11c72a914ca889fc3dfe32d818f793b959e0c488667356aaf0d31def2bbe6",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml",
+      "raw_sha256": "e0e97ef40cfdfe808e8e701f6a9e0e3a3b6ae0871e58dc9ad876b6c60417c624",
+      "sanitized_sha256": "e0e97ef40cfdfe808e8e701f6a9e0e3a3b6ae0871e58dc9ad876b6c60417c624",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml",
+      "raw_sha256": "0a7bc1190311b35c5d5063d379339ab4f66fade72d258baf59daa63ed6e6b825",
+      "sanitized_sha256": "0a7bc1190311b35c5d5063d379339ab4f66fade72d258baf59daa63ed6e6b825",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/bkupInfo.xml",
+      "raw_sha256": "4c69b7af0c6db9f5007f8caedeac328c8657e9eaa511988136ec1e5aa000debb",
+      "sanitized_sha256": "4c69b7af0c6db9f5007f8caedeac328c8657e9eaa511988136ec1e5aa000debb",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-MixedCSE-GPMC/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/gpreport.xml",
+      "raw_sha256": "bf402a165b0bc8b0e2679a9d847dcd74d367bfeedd28f217f16896ccfd460352",
+      "sanitized_sha256": "5e0334ef6d9df32a9b956b999e6f8820eb275f261c9c1ef9dbf710e8ab1c661c",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-SchedTasks-GPMC/gpreport-verify.xml",
+      "raw_sha256": "9897182a31b448f8f65c25672089176bf958e5b442d65531eadfd57dc0594ed2",
+      "sanitized_sha256": "e590e2f198ba161554a6e9ea10e7bc3d223022dce610ea4ac350b9d1d9556b4b",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-SchedTasks-GPMC/manifest.xml",
+      "raw_sha256": "e1180fe436a77c494b1772c9f387408d75e208ceb5a49ff747eef745e6900d8d",
+      "sanitized_sha256": "e1180fe436a77c494b1772c9f387408d75e208ceb5a49ff747eef745e6900d8d",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-SchedTasks-GPMC/{6C864157-BBBD-401A-8959-2D697AD3A52A}/Backup.xml",
+      "raw_sha256": "6399f749b66568d24c61b1db2ac18e52cdfcfa4a1ab5fa77169cd47ee59a6ef7",
+      "sanitized_sha256": "da2355db4db6105836685ba492e19dab04cfd0fdecb48aa3ec164b27ee51c996",
+      "transformations_applied": [
+        "replace-domain-sid",
+        "replace-sd-hex"
+      ]
+    },
+    {
+      "relative_path": "WI01A-SchedTasks-GPMC/{6C864157-BBBD-401A-8959-2D697AD3A52A}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml",
+      "raw_sha256": "852ee955f570a17352fb382e18a75bc8d2e9cd0ff83840c021441829e180e693",
+      "sanitized_sha256": "852ee955f570a17352fb382e18a75bc8d2e9cd0ff83840c021441829e180e693",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-SchedTasks-GPMC/{6C864157-BBBD-401A-8959-2D697AD3A52A}/DomainSysvol/GPO/User/Preferences/ScheduledTasks/ScheduledTasks.xml",
+      "raw_sha256": "4555cac4c5c915b66610877896bab17084569a8ee95bce807744fed532e3c175",
+      "sanitized_sha256": "4555cac4c5c915b66610877896bab17084569a8ee95bce807744fed532e3c175",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-SchedTasks-GPMC/{6C864157-BBBD-401A-8959-2D697AD3A52A}/bkupInfo.xml",
+      "raw_sha256": "d13149433d94190a6a478853c6b06eb1fc443d03992a11b751c42ddc3830399d",
+      "sanitized_sha256": "d13149433d94190a6a478853c6b06eb1fc443d03992a11b751c42ddc3830399d",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-SchedTasks-GPMC/{6C864157-BBBD-401A-8959-2D697AD3A52A}/gpreport.xml",
+      "raw_sha256": "1631d508c4066a71c2f17a6c91e1526f38aba8ada9897d7aa6cfd0d045f7b0d4",
+      "sanitized_sha256": "76604c4139a76852a3b99f0c44266e86aac1db13a92a4532894beb1262dc6014",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    }
+  ]
+}

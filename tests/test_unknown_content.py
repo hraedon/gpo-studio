@@ -354,7 +354,7 @@ def test_unknown_content_survives_gpmc_backup_round_trip(tmp_path: Path) -> None
 
     backup = read_backup(backup_dir)
     backup_gpo = backup.gpos[0]
-    gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
+    gpp_collections = collect_gpp_collections(backup_gpo.content_root)
     assert len(gpp_collections) == 1
     collection = gpp_collections[0]
     assert len(collection.groups) == 1

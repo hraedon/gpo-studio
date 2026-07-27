@@ -64,3 +64,8 @@ exclude = [
 python_version = "3.13"
 strict = true
 files = ["src"]
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.26.0",
+]

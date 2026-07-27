@@ -72,8 +72,8 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 | Domain configuration | supported | &#10003; | &#10003; | &#10003; | &#9680; | &#10003; | &#10003; | not_validated |
 | Revision history and restore | supported | &#10003; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Estate import (gpo-lens) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; |
-| GPMC backup import (single-GPO) | preview | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | failed |
-| GPMC backup export | preview | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | failed |
+| GPMC backup import (single-GPO) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | native-origin-read |
+| GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry only) |
 | Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | verified |
 | cpassword | blocked | &#10007; | &#10007; | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Unknown CSE content | preserved | &#10007; | &#9680; | &#10007; | &mdash; | &#10003; | &#10003; | &mdash; |
@@ -85,8 +85,11 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 > Studio-origin artifact accepted by supported Windows tooling." The
 > following capabilities are **supported** for authoring, import, and export
 > but do **not** meet this gate because no native Windows tooling path
-> validated them: WMI filters, GPP Groups, GPP Registry, ILT predicates, and
-> GPMC backup import/export. These capabilities remain in the 1.0 scope for
+> validated them: WMI filters, GPP Registry, and ILT predicates beyond the
+> verified GPP backup families. Plan 033 WP-2 has since validated native GPMC
+> backup import/export for raw registry policy on Windows Server 2025; GPP
+> Drives, Groups, and Scheduled Tasks have native extension metadata but still
+> require WP-1B writer conformance. The remaining capabilities stay in scope for
 > authoring and artifact generation; their Windows-lab validation is
 > explicitly deferred to a post-1.0 lab cycle or a future PowerShell plan
 > enhancement that applies them natively.
@@ -155,8 +158,11 @@ Security filters carry `principal`, `permission` (apply/read), `inheritable`,
 `target_type` (user/group/computer), and `sid`.
 
 - **Authoring:** Full CRUD via `/api/gpos/{guid}/security-filters`.
-- **Import:** From GPMC backups and gpo-lens estate snapshots (including SIDs).
-- **Export:** Studio bundle manifest, GPMC backup manifest.xml and gpreport.xml.
+- **Import:** From Studio legacy manifests and gpo-lens estate snapshots
+  (including SIDs). Native GPMC policy-content backups do not own GPO DACLs;
+  live security import belongs to the AD object-security adapter.
+- **Export:** Studio bundle manifest and PowerShell plan. Native GPMC backup
+  export intentionally excludes this external AD state.
 - **PowerShell plan:** `Set-GPPermission` with `-Replace`. Existing permissions
   are enumerated via `Get-GPPermission -All`. Only `GpoApply` permissions are
   reconciled; `GpoEdit`, `GpoRead`, and other management permissions are
@@ -174,8 +180,11 @@ WQL). A reusable filter catalogue can be loaded at startup
 - **Authoring:** Set or clear per GPO via
   `PUT/DELETE /api/gpos/{guid}/wmi-filter`. Catalogue browsing via
   `/api/wmi-filters`.
-- **Import:** From GPMC backups and gpo-lens estate snapshots.
-- **Export:** Studio bundle manifest, GPMC backup manifest.xml and gpreport.xml.
+- **Import:** From Studio legacy manifests and gpo-lens estate snapshots.
+  Native GPMC policy-content backups do not own the WMI filter object or its
+  GPO association.
+- **Export:** Studio bundle manifest only. Native GPMC backup export
+  intentionally excludes this external AD state.
 - **PowerShell plan &#10007;:** The WMI filter is documented as a comment but is
   **not assigned** by the plan. Assign it manually via GPMC or the GPMC COM API.
 - **Diff:** Two-way and three-way.

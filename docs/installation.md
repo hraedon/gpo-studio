@@ -211,9 +211,16 @@ written to disk by the server:
 | `GET /api/gpos/{guid}/export.zip` | ZIP | Studio publication bundle: `manifest.json`, `apply.ps1`, `Machine/Registry.pol`, `User/Registry.pol`, and GPP XML. |
 | `GET /api/gpos/{guid}/plan.ps1` | text | PowerShell publication plan (`apply.ps1` standalone). |
 | `GET /api/gpos/{guid}/report.txt` | text | Human-readable policy report. |
-| `GET /api/gpos/{guid}/gpmc-backup` | ZIP | GPMC backup: `manifest.xml`, `bkupInfo.xml`, `gpreport.xml`, `DomainController.xml`, `Registry.pol`, GPP XML. |
+| `GET /api/gpos/{guid}/gpmc-backup` | ZIP | Native GPMC backup: `manifest.xml`, `{BACKUP_ID}/Backup.xml`, nested `bkupInfo.xml`, lowercase `registry.pol`, and verified GPP XML under `DomainSysvol/GPO`. |
 
 The browser saves these to its default download directory.
+
+Native backup export currently has verified extension profiles for raw
+Registry.pol, GPP Drive Maps, Local Users and Groups, and Scheduled Tasks.
+Export rejects other GPP families rather than emitting guessed extension
+metadata. Security filtering, WMI association, and links are not part of the
+GPMC policy-content backup and remain in the Studio bundle/PowerShell adapter
+lanes.
 
 ### Backup files
 

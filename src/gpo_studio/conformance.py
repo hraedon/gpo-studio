@@ -90,10 +90,9 @@ def normalize_gpo_for_backup_roundtrip(gpo: GPO) -> dict[str, Any]:
     """Return a normalized dict containing only fields that survive a
     GPMC backup export/import round-trip.
 
-    The GPMC backup format does not carry: side status (computer_enabled,
-    user_enabled), links, revision, status, description, source_guid,
-    created_at, updated_at. It does carry: guid, settings, security_filters,
-    wmi_filter, gpp_collections, domain.
+    The native GPMC backup content boundary does not carry links, security
+    filtering, WMI object association, revision, status, description,
+    source_guid, created_at, or updated_at.
 
     PReg delete operations lose their original type and value (the PReg
     format uses ``**del.<value>`` and REG_SZ/empty). Empty MULTI_SZ items
@@ -103,9 +102,11 @@ def normalize_gpo_for_backup_roundtrip(gpo: GPO) -> dict[str, Any]:
     base = normalize_gpo_for_comparison(gpo)
     return {
         "guid": base["guid"],
+        "computer_enabled": gpo.computer_enabled,
+        "user_enabled": gpo.user_enabled,
         "settings": _normalize_settings_for_preg_roundtrip(base["settings"]),
-        "security_filters": base["security_filters"],
-        "wmi_filter": base["wmi_filter"],
+        "security_filters": [],
+        "wmi_filter": None,
         "gpp_collections": _normalize_gpp_for_xml_roundtrip(base["gpp_collections"]),
         "domain": base["domain"],
     }

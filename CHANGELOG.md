@@ -11,6 +11,13 @@ Current version: `1.0.0`.
 
 ### Added
 
+- Plan 033 WP-2: deterministic native GPMC backup emission with distinct
+  backup/GPO identities, v2 `Backup.xml`, native `DomainSysvol/GPO` paths,
+  verified Registry and GPP extension profiles, and a Windows Server 2025
+  `Import-GPO`/re-backup/cleanup oracle lane. Native GPP output is now a strict
+  allowlist: Drive Maps, Local Users and Groups, and Scheduled Tasks are
+  emitted; GPP Registry and uncaptured families must use the Studio bundle
+  until their native extension metadata is independently verified.
 - Plan 021 WP-1: authoritative GPMC capability inventory
   (`docs/plan-021/capability-inventory.md`) — a versioned, pre-gate matrix of
   GPMC lifecycle/scope/report surfaces, principal-bearing fields, every in-box

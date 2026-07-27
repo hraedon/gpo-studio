@@ -1,4 +1,4 @@
-# Plan 033 WP-0 - run the evidence harness as a privileged domain identity.
+# Plan 033 WP-0/WP-2 - run an evidence harness as a privileged domain identity.
 #
 # GroupPolicy cmdlets need a full logon token; an SSH non-interactive session
 # cannot delegate credentials to AD (the double-hop problem).  This script
@@ -12,13 +12,18 @@
 param(
     [Parameter(Mandatory = $true)][string]$Upn,
     [Parameter(Mandatory = $true)][string]$Pw,
-    [Parameter(Mandatory = $false)][string]$FailFlag = ""
+    [Parameter(Mandatory = $false)][string]$FailFlag = "",
+    [Parameter(Mandatory = $false)][ValidateSet('wp0', 'wp2')][string]$Harness = 'wp0'
 )
 
-$taskName = "GPOStudioOracle-Run"
+$taskName = "GPOStudioOracle-$Harness"
 schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
 
-$tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-evidence.ps1 -RecipePath C:\gpo-studio\scripts\recipe.json -OutputDir C:\gpo-studio\out $FailFlag"
+if ($Harness -eq 'wp2') {
+    $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp2-import.ps1 -CandidateZip C:\gpo-studio\scripts\candidate.zip -ExpectedPath C:\gpo-studio\scripts\expected.json -OutputDir C:\gpo-studio\out"
+} else {
+    $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-evidence.ps1 -RecipePath C:\gpo-studio\scripts\recipe.json -OutputDir C:\gpo-studio\out $FailFlag"
+}
 schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 23:59 /RU $Upn /RP $Pw /RL HIGHEST /F | Out-Null
 schtasks.exe /Run /TN $taskName | Out-Null
 

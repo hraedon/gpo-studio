@@ -126,6 +126,14 @@ do not affect the semantic correctness of the applied policy.
 
 ### Import-GPO incompatibility (established diagnosis)
 
+> Historical 1.0 result, superseded for the raw-registry subset by Plan 033
+> WP-2 on 2026-07-27. Studio now emits the native v2 container and a fully
+> generated candidate passed `Import-GPO -WhatIf`, actual import, semantic
+> readback, native re-backup, version reconciliation, and cleanup on Windows
+> Server 2025 build 26100. See
+> `plans/033-windows-external-oracle-validation.md` under WP-2. The diagnosis
+> below remains the record of why the legacy format failed.
+
 A native `Backup-GPO` tree comparison was performed on Windows Server 2025
 (build 26100). The results establish the root cause:
 

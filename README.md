@@ -7,8 +7,9 @@ browser a privileged connection to Active Directory.
 
 The 1.0 product edits raw and ADMX-backed registry policy, GPO links, security
 filters, WMI filters, and the GPP Groups and Registry subsets with six ILT
-predicates. It creates deterministic native `Registry.pol` files, GPMC backup
-and Studio bundle exports, and a reviewable PowerShell publication plan. The
+predicates. It creates deterministic native `Registry.pol` files, native GPMC
+backups for verified extension families, Studio bundle exports, and a
+reviewable PowerShell publication plan. The
 full capability contract — including per-action fidelity, states, and
 limitations — is in [`docs/capability-matrix.md`](docs/capability-matrix.md).
 The optional live-write architecture is deliberately separate and documented

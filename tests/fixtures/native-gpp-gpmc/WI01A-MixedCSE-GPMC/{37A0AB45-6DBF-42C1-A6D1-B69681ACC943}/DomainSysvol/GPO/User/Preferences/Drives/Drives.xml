@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Drives clsid="{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}"><Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="X:" status="X:" image="1" changed="2026-07-26 17:53:23" uid="{6594460C-136A-4AA4-964A-0596C220DF63}"><Properties action="R" thisDrive="NOCHANGE" allDrives="NOCHANGE" userName="" path="\\filesrv\replace-mixed" label="Ünïcödé &lt;&quot;&amp;&gt; label" persistent="1" useLetter="1" letter="X"/></Drive>
+</Drives>
