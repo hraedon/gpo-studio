@@ -247,8 +247,8 @@ The candidate set is one Studio-authored native backup per isolated family
 (`registry-both` as the WP-2 control, `drives-user`, `groups-machine`,
 `localusers-machine`, `scheduledtasks-machine`) plus `mixed-all`. Each is
 imported into its own disposable GPO, so no adapter's result can be hidden by
-another's. The certified run is `wp1b-writer-20260727142649-4290`, source
-commit `c348f3f`, clean tree, against Windows Server 2025 build 26100 /
+another's. The certified run is `wp1b-writer-20260727143434-7491`, source
+commit `83fe9b8`, clean tree, against Windows Server 2025 build 26100 /
 GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
 `docs/plan-033/wp1b-evidence/verification.json`.
 
