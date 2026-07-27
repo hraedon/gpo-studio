@@ -10,9 +10,18 @@ from pathlib import Path
 import pytest
 
 from gpo_studio.export import gpmc_backup_bundle
-from gpo_studio.gpp import GppCollection, GppError, GppGroup, GppGroupMember
+from gpo_studio.gpp import (
+    GppCollection,
+    GppError,
+    GppGroup,
+    GppGroupMember,
+    mark_edited,
+    parse_gpp_collection,
+    serialize_gpp,
+)
 from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask
 from gpo_studio.ilt import IltFilter, IltPredicate
+from gpo_studio.import_export import collect_gpp_collections
 from gpo_studio.model import GPO, RegistrySetting
 from gpo_studio.writer_conformance import (
     NATIVE_GPP_FAMILIES,
@@ -384,3 +393,75 @@ def test_task_scheduler_1_variant_is_not_flagged() -> None:
 
 def test_native_shape_findings_ignore_other_families() -> None:
     assert native_shape_findings(_gpo(drives=(DRIVE,), groups=(GROUP,))) == ()
+
+
+NESTED_ILT_CAPTURE = NATIVE_CORPUS / "WI01A-NestedILT-GPMC"
+
+
+def _nested_ilt_drive() -> object:
+    content_root = next(iter(NESTED_ILT_CAPTURE.glob("*/DomainSysvol/GPO")))
+    collections = [c for c in collect_gpp_collections(content_root) if c.drives]
+    assert len(collections) == 1
+    return collections[0].drives[0]
+
+
+def test_nested_ilt_collection_is_preserved_whole_and_in_order() -> None:
+    """Plan 033 prediction P2, settled against a genuine GPMC capture.
+
+    ``FilterCollection`` is in no tag map, so it must survive as one opaque
+    item carrying its whole subtree. The fixture deliberately places a typed
+    predicate on *either side* of the collection: that is the only arrangement
+    that can catch a reordering, and nesting *mapped* predicate types inside
+    the collection is the only way to distinguish "preserved as a group" from
+    "silently flattened to top level".
+    """
+    ilt = _nested_ilt_drive().ilt_filter  # type: ignore[attr-defined]
+    assert [type(item).__name__ for item in ilt.items] == [
+        "IltPredicate",
+        "str",
+        "IltPredicate",
+    ]
+    assert [predicate.type for predicate in ilt.predicates] == ["group", "domain"]
+
+    collection = ilt.unknown_predicates[0]
+    assert collection.startswith("<FilterCollection")
+    # Grouping changes meaning: A AND (B OR C) is not A AND B OR C.
+    assert collection.count("FilterOrgUnit") == 2
+    assert 'bool="OR"' in collection
+
+
+def test_nested_ilt_survives_reserialization_from_the_typed_model() -> None:
+    """Preservation is only real if it survives a rebuild, not just byte passthrough.
+
+    ``mark_edited`` drops the verbatim source bytes, forcing serialization to
+    reconstruct the XML from the typed model — the path an edited GPO takes.
+    """
+    content_root = next(iter(NESTED_ILT_CAPTURE.glob("*/DomainSysvol/GPO")))
+    collection = [c for c in collect_gpp_collections(content_root) if c.drives][0]
+    rebuilt = serialize_gpp(mark_edited(collection))["Drives/Drives.xml"]
+    reparsed = parse_gpp_collection("user", {"Drives/Drives.xml": rebuilt})
+    ilt = reparsed.drives[0].ilt_filter
+    assert ilt is not None
+    assert [predicate.type for predicate in ilt.predicates] == ["group", "domain"]
+    assert len(ilt.unknown_predicates) == 1
+    assert ilt.unknown_predicates[0].count("FilterOrgUnit") == 2
+    assert 'bool="OR"' in ilt.unknown_predicates[0]
+
+
+def test_genuine_gpmc_os_filter_is_not_typed() -> None:
+    """Pins WI-021: the tag map says 'FilterOS', GPMC writes 'FilterOs'.
+
+    XML names are case-sensitive, so every genuine OS predicate falls into the
+    opaque branch. Content is preserved, which is why no round-trip test caught
+    it — but it is never modelled. When WI-021 is fixed this test fails and must
+    be inverted.
+    """
+    content_root = next(iter((NATIVE_CORPUS / "WI01A-DriveMaps-GPMC").glob("*/DomainSysvol/GPO")))
+    raw_predicates = [
+        raw
+        for collection in collect_gpp_collections(content_root)
+        for drive in collection.drives
+        if drive.ilt_filter is not None
+        for raw in drive.ilt_filter.unknown_predicates
+    ]
+    assert any(raw.startswith("<FilterOs ") for raw in raw_predicates)

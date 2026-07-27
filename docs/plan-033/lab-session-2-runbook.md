@@ -3,8 +3,11 @@
 One operator session on the Windows lab. Two independent parts:
 
 - **Part A** completes the WP-1A native-origin reader corpus (8 new GPOs +
-  1 supplement to an existing GPO). **Executed 2026-07-27** — captures ingested
-  under `tests/fixtures/native-gpp-gpmc/`; prediction P3 falsified (WI-019).
+  1 supplement to an existing GPO). **COMPLETE 2026-07-27** — all nine captured
+  and ingested under `tests/fixtures/native-gpp-gpmc/`, plus a tenth
+  (`WI01A-NestedILT-GPMC`) authored afterwards to settle P2. All four
+  predictions resolved: P1 and P2 confirmed, P4 confirmed, **P3 falsified**
+  (→ WI-019). Corpus also surfaced WI-021.
 - ~~**Part B** settles three ADMX write-path questions (WI-008, WI-011,
   WI-012).~~ **SUPERSEDED — do not run.** All three were closed before this
   runbook was written. See the Part B section for the supersede note and for
@@ -31,8 +34,8 @@ survives is evidence; one that fails is a bug found cheaply.
 
 | # | Prediction | Basis | If wrong |
 |---|-----------|-------|----------|
-| P1 | The Power Options fixture will **not** parse as typed power settings. It will land as preserved unknown content. | GPMC's "Power Plan (At least Windows 7)" emits `<GlobalPowerOptionsV2>`; `_ADAPTER_META["power_options"]` expects item tag `<PowerScheme>`, and `GlobalPowerOptionsV2` appears nowhere in `gpp_adapters.py`. | The parser handles more than expected — record which element GPMC actually emitted. |
-| P2 | `FilterCollection` (nested ILT) will round-trip as an **opaque raw-XML item**, not as modelled predicates. | `parse_ilt` maps known tags via `_TAG_TO_TYPE`; unknown tags are preserved via `ET.tostring` into `IltFilter.items`. `FilterCollection` is in no tag map. | Nested ILT is modelled — verify the predicate tree matches GPMC's nesting. |
+| P1 | **CONFIRMED 2026-07-27.** GPMC emitted `<GlobalPowerOptionsV2>` (clsid `{2B130A62-…}`); `_ADAPTER_META["power_options"]` expects `<PowerScheme>`. Studio parses 0 typed items and preserves the whole element in `power_options_unknown_children` — preserve-only working as the contract allows, not a silent drop. Original: the Power Options fixture will **not** parse as typed power settings. It will land as preserved unknown content. | GPMC's "Power Plan (At least Windows 7)" emits `<GlobalPowerOptionsV2>`; `_ADAPTER_META["power_options"]` expects item tag `<PowerScheme>`, and `GlobalPowerOptionsV2` appears nowhere in `gpp_adapters.py`. | The parser handles more than expected — record which element GPMC actually emitted. |
+| P2 | **CONFIRMED 2026-07-27** via `WI01A-NestedILT-GPMC`, authored specifically to test it. Original: `FilterCollection` (nested ILT) will round-trip as an **opaque raw-XML item**, not as modelled predicates. | `parse_ilt` maps known tags via `_TAG_TO_TYPE`; unknown tags are preserved via `ET.tostring` into `IltFilter.items`. `FilterCollection` is in no tag map. | Nested ILT is modelled — verify the predicate tree matches GPMC's nesting. |
 | P3 | **FALSIFIED 2026-07-27 → WI-019.** Printers, Services and Shortcuts do *not* parse: Studio raises `GppError` on genuine GPMC output (printer action `R` absent from the model; service `startupType` mapping expects numeric codes while GPMC writes names; empty `window` rejected rather than defaulted). Files, Folders, Environment and INI were captured but are not yet cross-validated. Original prediction: every other adapter in Part A (Printers, Services, Files, Folders, Shortcuts, Environment, INI) will parse as typed items. | Each has a `_ADAPTER_META` entry with matching root/item tags. | Note the divergent tag; it is the same class of defect as the `TaskV2` finding. |
 | P4 | Studio can **read** all of these but can natively **emit** only Drives, Groups, and ScheduledTasks. | `_GPP_EXTENSION_PROFILES` in `export.py` is a three-family allowlist; everything else raises `unsupported_native_gpp_extension`. | — (this one is near-certain; it is stated so the writer-lane gap is explicit) |
 
@@ -381,17 +384,17 @@ session's readings ambiguous.
 
 ## Post-session checklist
 
-- [ ] Nine backup trees transferred, each with `gpreport-verify.xml`.
-- [ ] Each GPO showed ExtensionData and a non-zero side version **before** capture.
-- [ ] P1 recorded: which element did GPMC emit for the power plan?
-- [ ] P2 recorded: how did the nested ILT appear in the XML?
-- [ ] P3 recorded: any adapter whose emitted tag differs from `_ADAPTER_META`.
+- [x] Nine backup trees transferred, each with `gpreport-verify.xml` — plus a tenth (`WI01A-NestedILT-GPMC`) authored afterwards to settle P2.
+- [x] Each GPO showed ExtensionData and a non-zero side version **before** capture — verified for all ten.
+- [x] P1 recorded — confirmed: `<GlobalPowerOptionsV2>`, preserved as unknown content.
+- [x] P2 recorded — confirmed via `WI01A-NestedILT-GPMC` (see below).
+- [x] P3 recorded — **falsified** → WI-019.
 - [x] ~~WI-008 / WI-011 / WI-012~~ — **superseded**, all three closed before this
       runbook was written. See the Part B supersede note above for what the
       2026-07-27 run produced anyway (WI-008 re-confirmed with a control, the
       new WI-020 defect, and the WI-011 corpus facts).
 - [ ] Local GPO policies reset to Not Configured.
-- [ ] No work-domain identifier typed into any GPO, path, or value.
+- [x] No work-domain identifier typed into any GPO, path, or value — CI identifier gate green.
 
 ## What happens next with the output
 
