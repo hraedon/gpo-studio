@@ -240,6 +240,82 @@ design):**
 
 ### WP-1B — Studio-origin writer conformance
 
+Implementation status (2026-07-27): **automated lane implemented and run
+live; four of six candidates certified, scheduled tasks failed.**
+
+The candidate set is one Studio-authored native backup per isolated family
+(`registry-both` as the WP-2 control, `drives-user`, `groups-machine`,
+`localusers-machine`, `scheduledtasks-machine`) plus `mixed-all`. Each is
+imported into its own disposable GPO, so no adapter's result can be hidden by
+another's. The certified run is `wp1b-writer-20260727142649-4290`, source
+commit `c348f3f`, clean tree, against Windows Server 2025 build 26100 /
+GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
+`docs/plan-033/wp1b-evidence/verification.json`.
+
+Results:
+
+- **pass** — `registry-both`, `drives-user`, `groups-machine`,
+  `localusers-machine`. Each cleared `Import-GPO -WhatIf` without creating the
+  target, real `Import-GPO`, GPMC report semantic equality, `Backup-GPO`
+  re-export semantic equality, and strict cleanup re-query.
+- **fail** — `scheduledtasks-machine` and `mixed-all`, on
+  `native_shape_matches_corpus` (see the finding below). Every other check on
+  both candidates passed.
+
+Two methodological points came out of building this lane and both are load
+bearing for how the remaining work packages should be read:
+
+1. **`Import-GPO` copies GPP files to SYSVOL byte-for-byte.** A
+   Studio → import → `Backup-GPO` → Studio round trip therefore proves only
+   that the payload survived, not that GPMC or the CSE understood it. The
+   decisive check is `summary_from_gpmc_report`, which parses GPMC's *own*
+   report through Studio's GPP parser so that agreement is between two
+   independent readers of one policy. Registry stays covered separately by the
+   harness's `Get-GPRegistryValue` readback, since GPMC renders registry policy
+   in Administrative Templates form.
+2. **A round trip cannot detect a synthetic shape at all.** GPMC echoes back
+   attributes it does not act on. Shape conformance is therefore checked
+   against the captured native corpus directly
+   (`writer_conformance.native_shape_findings`), not inferred from a round
+   trip.
+
+#### Finding WP-1B-1 — Studio emits a non-native Task Scheduler 2.0 shape
+
+Studio's scheduled-task serializer writes the Task Scheduler **1.0** scalar
+attribute set (`program`, `arguments`, `startIn`, `triggerType`, `triggerTime`,
+`triggerDays`) onto a **`TaskV2`** element, and embeds a `<Task>` payload only
+when `task_xml` is populated — which the authoring path never sets. Genuine
+GPMC `TaskV2` items captured in `tests/fixtures/native-gpp-gpmc` are the exact
+inverse: `Properties` carries only `action`/`name`/`runAs`/`logonType`, and the
+actions and triggers live in an embedded `<Task version="1.2">` payload.
+
+GPMC's report echoes Studio's scalar attributes back unchanged, so the item
+survives import, report, and re-export intact. That is precisely the
+"synthetic format that Windows silently ignores" case step 6 forbids, and it is
+invisible to every round-trip check.
+
+Whether the Scheduled Tasks CSE honours the scalar form is **unproven in either
+direction** and cannot be settled by any backup-level evidence; it needs the
+step 5 endpoint lane. Until then scheduled tasks must not be promoted beyond
+`unit-verified`. This also settles the open decision recorded in WP-1A finding
+4: the scalar-only model is not merely incomplete for multi-action tasks, it is
+not the shape GPMC writes for the element variant Studio claims to emit.
+
+#### Remaining WP-1B work
+
+- Step 4's "open and edit the item in GPMC, save" leg is **not** covered. The
+  automated lane captures GPMC's report of the imported GPO, which proves GPMC
+  parses the payload, but a GUI edit-and-save is what would rewrite the GPP XML
+  through GPMC's own writer. That remains a manual gate.
+- Step 5 endpoint evidence is not started and is now the blocker for
+  scheduled tasks specifically.
+- Step 6 negative cases are covered for blocked-at-export families
+  (`unsupported_native_gpp_extension`, `cpassword_detected` in
+  `tests/test_conformance.py`) and now for synthetic shape, but not for
+  intentionally divergent authored values.
+
+#### Original work items
+
 1. First implement and pass WP-2's native backup-format gate.
 2. Generate one Studio item per isolated fixture and a mixed fixture per CSE.
 3. Import each generated native backup with `Import-GPO -BackupId ...` into a
