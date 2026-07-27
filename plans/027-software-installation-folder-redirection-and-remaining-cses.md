@@ -1,6 +1,9 @@
 # Plan 027 — Software Installation, Folder Redirection, and remaining CSEs
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**. `software_install.py`
+and `folder_redirection.py` are landed and unit-tested but are reachable from
+no API endpoint, UI module, or export path. Platform wiring and Plan 033
+Windows evidence both remain open.
 Scope: complete supported artifact/deployment-oriented in-box editor extensions
 Depends on: Plans 021, 023, 025, and the Plan 026 review gate
 Review gate: **REVIEW AND REFINE — REQUIRED after each adapter family**

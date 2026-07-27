@@ -1,6 +1,11 @@
 # Plan 030 — Controlled GPMC publication parity
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**. `publication.py` and
+`publisher.py` model publication plans and the capability/approval gating that
+guards them. Both are pure and side-effect-free, are reachable from no API
+endpoint or UI module, and emit no writes: the charter invariant that the web
+process never writes to AD or SYSVOL is unchanged by this plan's landing.
+Surfacing any of it is gated on Plan 033 WP-7.
 Scope: safely orchestrate every verified GPMC lifecycle/scope/adapter operation
 through the isolated Windows publisher
 Depends on: Plans 023–029, Plan 032, and all associated review gates

@@ -9,7 +9,50 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+> Post-1.0 development has added considerably more to `src/` than it has added
+> to the operator-facing product. Entries below distinguish **surfaced**
+> capabilities (reachable from the API or browser application) from **domain
+> layers** (implemented and unit-tested, reachable from neither). No post-1.0
+> capability is Windows-verified except where an explicit Plan 033 workpackage
+> is cited.
+
 ### Added
+
+- Plan 023: scope-of-management, delegation, WMI-filter, and loopback support
+  — **surfaced**. `som.py`, `delegation.py`, `wmi_filter.py`, and
+  `ad_discovery.py` back new API endpoints for GPO links, loopback validation
+  and description, AD discovery script generation/ingest
+  (`/api/discovery/*`), and effective-rights evaluation. Discovery generates
+  PowerShell and parses its JSON output; it performs no network I/O of its
+  own, preserving the offline-first charter.
+- Plan 024: full GPP adapter coverage — **surfaced**. `gpp_adapters.py`
+  extends the 1.0 Groups/Registry slice across the in-box preference families
+  through `gpp.py`, `canonical.py`, and `import_export.py`.
+- Plans 025–032: domain layers — **not surfaced**. Security settings
+  (`security_template.py`, `object_security.py`, `network_security.py`,
+  `policy_families.py`), script and managed-artifact policy
+  (`script_policy.py`, `artifact_store.py`), software installation and folder
+  redirection (`software_install.py`, `folder_redirection.py`), GPMC lifecycle
+  and interop (`lifecycle.py`, `gpmc_interop.py`), RSOP prediction
+  (`rsop.py`), controlled publication (`publication.py`, `publisher.py`),
+  certification (`certification.py`), and hosted control plane
+  (`hosting.py`) are implemented and unit-tested, but are reachable from no
+  API endpoint, UI module, or export path. They are not operator capabilities
+  and are excluded from the 1.0 contract; see
+  `docs/capability-matrix.md`. The publication modules are pure and emit no
+  writes — the web process still never writes to AD or SYSVOL — and
+  `hosting.py` does not make a hosted mode available.
+- Plan 033 WP-0: Windows external-oracle evidence contract, owning-boundary
+  matrix, frozen environment spec, conservative XML normalizer v1, fixture
+  recipe schema, and the two-phase harness — `run-evidence.ps1` captures
+  genuine raw evidence on the domain-joined host and
+  `finalize_oracle_run.py` is the single authority for source provenance,
+  normalization, and comparison binding. Certified pass on a clean tree with a
+  full integrity pack: harness scripts, recipe, and orchestrator are hashed
+  input artifacts bound to the recorded commit, every artifact rehashes
+  intact, and cleanup is confirmed by an independent LDAPS re-query.
+- Plan 033 WP-1A: native-origin GPMC corpus, authoring guide, and genuine
+  GPMC-authored canary fixtures.
 
 - Plan 033 WP-2: deterministic native GPMC backup emission with distinct
   backup/GPO identities, v2 `Backup.xml`, native `DomainSysvol/GPO` paths,
@@ -41,6 +84,16 @@ Current version: `1.0.0`.
 
 ### Changed
 
+- Plan 022 closed — REVIEW AND REFINE gate passed 2026-07-25
+  (`docs/plan-022/gate-decision-2026-07-25.md`), with ADMX parser fixes and
+  code hardening.
+- Adopted `ruff` 0.16 and its expanded default rule set.
+- Documentation: corrected the recorded status of Plans 021 and 023–032, which
+  claimed `proposed (post-1.0)` while their implementations were already
+  committed. Each now records whether its domain layer is surfaced and whether
+  it carries Windows evidence. The capability matrix and README gained an
+  explicit inventory of landed-but-unreachable modules, so the matrix again
+  matches what `src/` contains.
 - Documentation: closed out pre-release status language in `SECURITY.md` and
   Plans 017/019/020, wrote the 1.0.x support/compatibility/deprecation
   policy, and refined Plan 021 with a provisional target matrix, corpus

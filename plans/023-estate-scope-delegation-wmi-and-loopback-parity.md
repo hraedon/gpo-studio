@@ -1,6 +1,10 @@
 # Plan 023 — Estate, scope, delegation, WMI, and loopback parity
 
-Status: proposed (post-1.0)
+Status: implemented — domain layer landed and **surfaced**. `som.py`,
+`delegation.py`, `wmi_filter.py`, and `ad_discovery.py` are reachable from the
+API (`/api/gpos/{guid}/links`, `/api/loopback/*`, `/api/discovery/*`,
+`/api/delegation/effective-rights`). Not yet Windows-verified: no capability
+may be promoted to Windows-verified or live-RW ahead of the Plan 033 oracle.
 Scope: match GPMC's live navigation, search, SOM/link/inheritance management,
 security/delegation surfaces, WMI filters, and loopback semantics
 Depends on: Plans 021 and 022

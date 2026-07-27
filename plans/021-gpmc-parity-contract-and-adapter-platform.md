@@ -1,6 +1,10 @@
 # Plan 021 — GPMC parity contract and adapter platform
 
-Status: proposed (post-1.0)
+Status: implemented in part — REVIEW AND REFINE gate ratified 2026-07-19 (see
+[`docs/plan-021/gate-decision-2026-07-19.md`](../docs/plan-021/gate-decision-2026-07-19.md)).
+WP-1 (capability inventory) and WP-4 (evidence schema, redaction contract, and
+public-matrix generator) have landed; the remaining adapter-lifecycle
+workstreams are open.
 Scope: define a falsifiable meaning of GPMC parity and establish the lossless
 model, extension inventory, and adapter lifecycle required by every later plan
 Depends on: Plan 020

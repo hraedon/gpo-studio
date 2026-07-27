@@ -1,6 +1,10 @@
 # Plan 031 — GPMC parity closure and certification
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**, and its premise is not
+yet met. `certification.py` models the certification process, but a
+certification model is not a certification: the evidence it would attest to is
+produced by Plan 033, where only WP-0, WP-1A, and WP-2 have certified. This
+plan cannot close before the remaining Plan 033 workpackages do.
 Scope: close matrix gaps, independently validate claims, and release the first
 version carrying a qualified full-GPMC-parity claim
 Depends on: Plans 021–030 and Plan 032
