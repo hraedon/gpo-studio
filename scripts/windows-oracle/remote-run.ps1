@@ -13,13 +13,15 @@ param(
     [Parameter(Mandatory = $true)][string]$Upn,
     [Parameter(Mandatory = $true)][string]$Pw,
     [Parameter(Mandatory = $false)][string]$FailFlag = "",
-    [Parameter(Mandatory = $false)][ValidateSet('wp0', 'wp2')][string]$Harness = 'wp0'
+    [Parameter(Mandatory = $false)][ValidateSet('wp0', 'wp2', 'wp1b')][string]$Harness = 'wp0'
 )
 
 $taskName = "GPOStudioOracle-$Harness"
 schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
 
-if ($Harness -eq 'wp2') {
+if ($Harness -eq 'wp1b') {
+    $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp1b-writer.ps1 -CandidateRoot C:\gpo-studio\scripts\wp1b -OutputDir C:\gpo-studio\out"
+} elseif ($Harness -eq 'wp2') {
     $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp2-import.ps1 -CandidateZip C:\gpo-studio\scripts\candidate.zip -ExpectedPath C:\gpo-studio\scripts\expected.json -OutputDir C:\gpo-studio\out"
 } else {
     $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-evidence.ps1 -RecipePath C:\gpo-studio\scripts\recipe.json -OutputDir C:\gpo-studio\out $FailFlag"
@@ -28,7 +30,10 @@ schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 23:59 /RU $Upn /RP $Pw /
 schtasks.exe /Run /TN $taskName | Out-Null
 
 Start-Sleep -Seconds 2
-$deadline = (Get-Date).AddMinutes(6)
+# WP-1B imports, reports, re-backs-up and removes one GPO per candidate, so it
+# needs materially longer than the single-GPO WP-0/WP-2 harnesses.
+$timeoutMinutes = if ($Harness -eq 'wp1b') { 25 } else { 6 }
+$deadline = (Get-Date).AddMinutes($timeoutMinutes)
 $state = "Running"
 while ((Get-Date) -lt $deadline) {
     $state = (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue).State
