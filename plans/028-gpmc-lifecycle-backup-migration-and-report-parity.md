@@ -3,7 +3,7 @@
 Status: implemented (domain layer) — **not surfaced**. `lifecycle.py` and
 `gpmc_interop.py` are landed and unit-tested but are reachable from no API
 endpoint or UI module. Note that native GPMC backup emission itself
-(`native_backup.py`) *is* surfaced and carries Plan 033 WP-2 Windows evidence;
+(in `export.py`) *is* surfaced and carries Plan 033 WP-2 Windows evidence;
 this plan's lifecycle/migration/report layer does not.
 Scope: complete the core GPMC operations around the now-supported setting and
 scope adapters
