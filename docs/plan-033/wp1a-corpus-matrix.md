@@ -66,3 +66,40 @@ Status per adapter. ✓ = genuine GPMC capture exists, — = not applicable,
 | Deliberate unknown attrs/children | Partial (native unknowns captured; no artificial injection) |
 | Unknown-content preservation (import→export) | Partial (no-edit verbatim; edited preserves unknown_attrs/children/task_xml/unknown_props_children) |
 | Public backup-import path integration | ✓ (read_backup + collect_gpp_collections; full API endpoint test pending WP-1B) |
+
+## Capture batch 2 (2026-07-27) — eight additional GPP families
+
+Genuine GPMC captures for `EnvVars`, `Files`, `Folders`, `IniFiles`, `Power`,
+`Printers`, `Services`, and `Shortcuts`, plus a richer Scheduled Tasks capture
+(`WI01A-SchedTasksFull-GPMC`: six items across both sides, all four action
+codes, both `TaskV2` and `ImmediateTaskV2`). Ingested under
+`tests/fixtures/native-gpp-gpmc/`; sanitization rows appended to
+`sanitization-record.json`.
+
+The new Scheduled Tasks capture is a superset of `WI01A-SchedTasks-GPMC` and is
+committed under a distinct name rather than replacing it. Consolidating the two
+is an open cleanup.
+
+### Extension metadata recovered
+
+Every capture's `Backup.xml` yields the CSE/tool GUID pair for its family —
+the metadata `export._GPP_EXTENSION_PROFILES` needs to emit that family into a
+native backup. The Scheduled Tasks pair in this batch matches Studio's existing
+pinned value exactly, independently confirming that pin.
+
+### Validation status of this batch
+
+| Capture | Status |
+|---|---|
+| `SchedTasksFull` | cross-validated (report vs backup agree through Studio) |
+| `EnvVars`, `Files`, `Folders`, `IniFiles`, `Power` | **corpus only — not validated.** Their families are outside `writer_conformance.NATIVE_GPP_FAMILIES`, so a comparison summarizes to empty on both sides and would pass vacuously. Deliberately excluded from the cross-validation test. |
+| `Printers`, `Services`, `Shortcuts` | **blocked by parser defects (WI-019).** Studio raises `GppError` and cannot import these genuine backups at all. Pinned by `test_known_parser_defects_still_block_native_captures`. |
+
+### Authoring constraint observed
+
+GPMC **rejects `"` in the name field** for Shortcuts and Files, so those two
+captures carry no double-quote adversarial case; the character appears only in
+Scheduled Tasks arguments, where GPMC permits it. This is a Windows-side
+authoring constraint, not a gap in the capture. It raises an open
+validation-parity question: Studio does not currently reject `"` in shortcut or
+file names, so it accepts input GPMC would refuse.

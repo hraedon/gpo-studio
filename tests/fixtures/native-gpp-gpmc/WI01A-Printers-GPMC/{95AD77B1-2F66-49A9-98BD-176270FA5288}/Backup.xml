@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?><!-- Copyright (c) Microsoft Corporation.  All rights reserved. --><GroupPolicyBackupScheme bkp:version="2.0" bkp:type="GroupPolicyBackupTemplate" xmlns:bkp="http://www.microsoft.com/GroupPolicy/GPOOperations" xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations">
+    <GroupPolicyObject><SecurityGroups><Group bkp:Source="FromDACL"><Sid><![CDATA[S-1-5-21-0000000000-0000000000-0000000000-519]]></Sid><SamAccountName><![CDATA[Enterprise Admins]]></SamAccountName><Type><![CDATA[UniversalGroup]]></Type><NetBIOSDomainName><![CDATA[HRAENET]]></NetBIOSDomainName><DnsDomainName><![CDATA[ad.hraedon.com]]></DnsDomainName><UPN><![CDATA[Enterprise Admins@ad.hraedon.com]]></UPN></Group><Group bkp:Source="FromDACL"><Sid><![CDATA[S-1-5-21-0000000000-0000000000-0000000000-512]]></Sid><SamAccountName><![CDATA[Domain Admins]]></SamAccountName><Type><![CDATA[GlobalGroup]]></Type><NetBIOSDomainName><![CDATA[HRAENET]]></NetBIOSDomainName><DnsDomainName><![CDATA[ad.hraedon.com]]></DnsDomainName><UPN><![CDATA[Domain Admins@ad.hraedon.com]]></UPN></Group></SecurityGroups><FilePaths/><GroupPolicyCoreSettings><ID><![CDATA[{1203D024-D433-4077-824B-D1DEC45CAB87}]]></ID><Domain><![CDATA[ad.hraedon.com]]></Domain><SecurityDescriptor>01 00 04 80 00 00 00 00</SecurityDescriptor><DisplayName><![CDATA[WI01A-Printers-GPMC]]></DisplayName><Options><![CDATA[0]]></Options><UserVersionNumber><![CDATA[786444]]></UserVersionNumber><MachineVersionNumber><![CDATA[0]]></MachineVersionNumber><MachineExtensionGuids/><UserExtensionGuids><![CDATA[[{00000000-0000-0000-0000-000000000000}{A8C42CEA-CDB8-4388-97F4-5831F933DA84}][{BC75B1ED-5833-4858-9BB8-CBF0B166DF9D}{A8C42CEA-CDB8-4388-97F4-5831F933DA84}]]]></UserExtensionGuids><WMIFilter/></GroupPolicyCoreSettings> 
+        <GroupPolicyExtension bkp:ID="{35378EAC-683F-11D2-A89A-00C04FBBCFA2}" bkp:DescName="Registry">
+            
+            
+            <FSObjectFile bkp:Path="%GPO_FSPATH%\Adm\*.*" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{1203D024-D433-4077-824B-D1DEC45CAB87}\Adm\*.*"/>
+        </GroupPolicyExtension>
+        
+        
+        
+        
+        
+        
+        
+        
+        
+    <GroupPolicyExtension bkp:ID="{F15C46CD-82A0-4C2D-A210-5D0D3182A418}" bkp:DescName="Unknown Extension"><FSObjectDir bkp:Path="%GPO_USER_FSPATH%\Preferences" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{1203D024-D433-4077-824B-D1DEC45CAB87}\User\Preferences" bkp:Location="DomainSysvol\GPO\User\Preferences"/><FSObjectDir bkp:Path="%GPO_USER_FSPATH%\Preferences\Printers" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{1203D024-D433-4077-824B-D1DEC45CAB87}\User\Preferences\Printers" bkp:Location="DomainSysvol\GPO\User\Preferences\Printers"/><FSObjectFile bkp:Path="%GPO_USER_FSPATH%\Preferences\Printers\Printers.xml" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{1203D024-D433-4077-824B-D1DEC45CAB87}\User\Preferences\Printers\Printers.xml" bkp:Location="DomainSysvol\GPO\User\Preferences\Printers\Printers.xml"/></GroupPolicyExtension></GroupPolicyObject>
+</GroupPolicyBackupScheme>

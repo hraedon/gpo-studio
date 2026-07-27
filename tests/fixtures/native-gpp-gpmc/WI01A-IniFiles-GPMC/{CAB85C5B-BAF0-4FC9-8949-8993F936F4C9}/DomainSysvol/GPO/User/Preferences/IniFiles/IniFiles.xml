@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<IniFiles clsid="{694C651A-08F2-47fa-A427-34C4F62BA207}"><Ini clsid="{EEFACE84-D3D8-4680-8D4B-BF103E759448}" name="%" status="%" image="0" changed="2026-07-27 21:38:31" uid="{8C40AF03-3402-42A3-9F4E-9119B9DF2C79}"><Properties path="C:\Windows\Ünïcödé &lt;&quot;&amp;&gt;.xml" section="Ünïcödé " value="%" property="%" action="C"/></Ini>
+	<Ini clsid="{EEFACE84-D3D8-4680-8D4B-BF103E759448}" name="&lt;&gt;&quot;&amp;" status="&lt;&gt;&quot;&amp;" image="2" changed="2026-07-27 21:39:02" uid="{2170D5F5-8997-4896-9F5B-EC2857E916BC}"><Properties path="C:\Windows\%.ini" section="Ünïcödé " value="*" property="&lt;&gt;&quot;&amp;" action="U"/></Ini>
+	<Ini clsid="{EEFACE84-D3D8-4680-8D4B-BF103E759448}" name="DemoName" status="DemoName" image="3" changed="2026-07-27 21:39:37" uid="{3B033AEE-2E82-4A05-937D-8459083C4852}"><Properties path="C:\Windows\demo.ini" section="Demo" value="" property="DemoName" action="D"/></Ini>
+	<Ini clsid="{EEFACE84-D3D8-4680-8D4B-BF103E759448}" name="With" status="With" image="1" changed="2026-07-27 21:40:05" uid="{246A3730-3860-4A35-AEA1-46A1A29906B2}"><Properties path="C:\Windows\replace .ini" section="ReplaceMe" value="This" property="With" action="R"/></Ini>
+</IniFiles>

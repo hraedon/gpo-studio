@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from gpo_studio.export import gpmc_backup_bundle
-from gpo_studio.gpp import GppCollection, GppGroup, GppGroupMember
+from gpo_studio.gpp import GppCollection, GppError, GppGroup, GppGroupMember
 from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask
 from gpo_studio.ilt import IltFilter, IltPredicate
 from gpo_studio.model import GPO, RegistrySetting
@@ -264,12 +264,56 @@ def test_registry_type_change_is_reported() -> None:
 NATIVE_CORPUS = Path(__file__).parent / "fixtures" / "native-gpp-gpmc"
 
 
+#: Captures whose families Studio's GPP parsers cannot yet read. These are
+#: genuine Windows Server 2025 GPMC output, so the failure is Studio's; see
+#: work item WI-019. Listed explicitly rather than skipped by exception type so
+#: that fixing a parser turns the corresponding entry into a hard failure here
+#: and forces it back into the validated set.
+CAPTURES_BLOCKED_BY_PARSER_DEFECTS: dict[str, str] = {
+    "WI01A-Printers-GPMC": "printer action code 'R' (Replace) missing from the model",
+    "WI01A-Services-GPMC": "service startupType mapping expects numeric codes, GPMC writes names",
+    "WI01A-Shortcuts-GPMC": "empty window attribute rejected instead of defaulting",
+}
+
+
 def _native_captures() -> list[Path]:
-    return sorted(
-        capture
-        for capture in NATIVE_CORPUS.glob("WI01A-*")
-        if (capture / "gpreport-verify.xml").is_file() and list(capture.glob("*/DomainSysvol/GPO"))
-    )
+    """Captures that exercise at least one family the writer summary covers.
+
+    Families outside :data:`NATIVE_GPP_FAMILIES` summarize to empty on both
+    sides, so including them would produce vacuous passes that look like
+    validation.
+    """
+    captures: list[Path] = []
+    for capture in sorted(NATIVE_CORPUS.glob("WI01A-*")):
+        if not (capture / "gpreport-verify.xml").is_file():
+            continue
+        roots = list(capture.glob("*/DomainSysvol/GPO"))
+        if not roots:
+            continue
+        if capture.name in CAPTURES_BLOCKED_BY_PARSER_DEFECTS:
+            continue
+        summary = summary_from_backup(roots[0])
+        preferences = summary["preferences"]
+        assert isinstance(preferences, dict)
+        if any(items for families in preferences.values() for items in families.values()):
+            captures.append(capture)
+    return captures
+
+
+@pytest.mark.parametrize(
+    "capture",
+    [pytest.param(NATIVE_CORPUS / name, id=name) for name in CAPTURES_BLOCKED_BY_PARSER_DEFECTS],
+)
+def test_known_parser_defects_still_block_native_captures(capture: Path) -> None:
+    """Pin the WI-019 parser defects to the genuine captures that expose them.
+
+    Studio cannot currently import these native GPMC backups at all. When a
+    parser is fixed, this test fails and the capture must move into the
+    cross-validation set above.
+    """
+    content_root = next(iter(capture.glob("*/DomainSysvol/GPO")))
+    with pytest.raises(GppError):
+        summary_from_backup(content_root)
 
 
 @pytest.mark.parametrize("capture", _native_captures(), ids=lambda path: path.name)
