@@ -23,6 +23,12 @@ must never write directly to Active Directory or SYSVOL.
   closed set (enums, states, kinds), so adding a variant fails the type check
   at every unhandled site.
 - Avoid secrets in the workspace, logs, fixtures, and generated plans.
+- The static safety gate (`scripts/check_safety.py`) constrains the **web
+  process**: the modules transitively reachable from `api.py`. Lab and release
+  tooling that lives in `src/` but never runs in a request path may be exempted
+  from a forbidden-import category via `CATEGORY_EXEMPTIONS`, with a comment
+  saying why. The gate fails if an exempt module becomes reachable from
+  `api.py`, so never satisfy it by widening a ban.
 - Keep the core (`model`, `store`, `registry_pol`) independent from FastAPI.
 - **A landed domain layer is not a capability.** Plans are routinely executed
   as typed, unit-tested modules before any delivery surface exists. A module

@@ -99,6 +99,26 @@ Current version: `1.0.0`.
   policy, and refined Plan 021 with a provisional target matrix, corpus
   licensing/redaction rules, and a pre-review spike boundary.
 - Risk-based coverage floors now include `src/gpo_studio/evidence.py` (90%).
+- The static safety gate now scopes forbidden-import categories to the **web
+  process** — the modules transitively reachable from `api.py` — which is what
+  the charter actually constrains, rather than to the `src/` directory. A
+  category exemption may be granted to lab or release tooling that never runs
+  in a request path, and `scripts/check_safety.py` fails if an exempt module
+  ever becomes reachable from `api.py`, so an exemption cannot silently widen
+  into a charter breach.
+
+### Fixed
+
+- `jsonschema` was declared only as a uv dependency group, so `uv sync`
+  installed it locally while CI's `pip install -e '.[dev]'` did not, and the
+  Plan 033 WP-1A fixture tests failed on CI with `ModuleNotFoundError`. It is
+  now declared in the `dev` extra and the duplicate group was removed, leaving
+  one source of truth for development dependencies.
+- `oracle_evidence.py` imports `subprocess` to shell out to `git` for evidence
+  provenance, which violated the static safety gate's blanket ban and broke
+  the `static-safety` CI job. The module is lab tooling and is unreachable
+  from the web process; it is now covered by a reachability-enforced exemption
+  rather than by weakening the ban.
 
 ## [1.0.0] - 2026-07-18
 

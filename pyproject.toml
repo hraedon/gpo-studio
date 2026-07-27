@@ -23,6 +23,7 @@ dev = [
   "pytest>=8.3,<10",
   "pytest-cov>=6.1,<8",
   "ruff>=0.16,<1",
+  "jsonschema>=4.26.0",
 ]
 
 [project.scripts]
@@ -64,8 +65,3 @@ exclude = [
 python_version = "3.13"
 strict = true
 files = ["src"]
-
-[dependency-groups]
-dev = [
-    "jsonschema>=4.26.0",
-]
