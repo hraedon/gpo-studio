@@ -26,7 +26,7 @@ from gpo_studio.export import gpmc_backup_bundle, native_backup_id
 from gpo_studio.gpp import GppCollection, GppGroup, GppGroupMember
 from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask
 from gpo_studio.model import GPO, RegistrySetting
-from gpo_studio.writer_conformance import summary_from_gpo
+from gpo_studio.writer_conformance import native_shape_findings, summary_from_gpo
 
 # Fixed GUIDs keep candidates byte-reproducible so a rerun is comparable to the
 # recorded evidence.  The namespace is synthetic and never resolves in AD.
@@ -192,6 +192,7 @@ def _expected(gpo: GPO) -> dict[str, object]:
             for setting in gpo.settings
         ],
         "summary": summary_from_gpo(gpo),
+        "native_shape_findings": list(native_shape_findings(gpo)),
     }
 
 

@@ -34,7 +34,12 @@ from typing import Any
 from gpo_studio.backup import BackupError, read_backup
 from gpo_studio.model import ValidationError
 from gpo_studio.registry_pol import RegistryPolError
-from gpo_studio.writer_conformance import compare_summaries, summary_from_backup
+from gpo_studio.writer_conformance import (
+    compare_preferences,
+    compare_summaries,
+    summary_from_backup,
+    summary_from_gpmc_report,
+)
 
 _SETTINGS_NS = "http://www.microsoft.com/GroupPolicy/Settings"
 _XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
@@ -109,6 +114,12 @@ def _finalize_candidate(
         "backup_id_distinct": result["backup_id"] != result["source_gpo_id"],
     }
 
+    # Shape conformance against the captured native corpus.  Deliberately not
+    # inferred from the round trip: GPMC echoes back attributes the CSE ignores,
+    # so a synthetic shape can survive import, report, and re-export intact.
+    shape_findings = expected.get("native_shape_findings", [])
+    checks["native_shape_matches_corpus"] = not shape_findings
+
     expected_settings = sorted(_setting_projection(item) for item in expected["settings"])
     readback_settings = sorted(_setting_projection(item) for item in result["registry_readback"])
     checks["registry_readback_matches"] = readback_settings == expected_settings
@@ -130,6 +141,22 @@ def _finalize_candidate(
         missing = [marker for marker in markers if marker not in observed_extensions]
         checks["gpmc_report_declares_family"] = not missing
         marker_state = "mapped"
+
+    # GPMC's own parse of the imported policy, compared against the authoring
+    # model.  Import-GPO copies GPP files to SYSVOL byte-for-byte, so the backup
+    # round trip below proves survival only; this is the independent oracle that
+    # proves GPMC assigns the same meaning.
+    report_differences: list[dict[str, object]] = []
+    checks["gpmc_report_semantics_match"] = False
+    if report_path.is_file() and report_error is None:
+        try:
+            found_in_report = compare_preferences(
+                expected["summary"], summary_from_gpmc_report(report_path)
+            )
+            report_differences = [difference.to_dict() for difference in found_in_report]
+            checks["gpmc_report_semantics_match"] = not found_in_report
+        except (ET.ParseError, OSError, ValidationError, ValueError) as error:
+            report_error = str(error)
 
     differences: list[dict[str, object]] = []
     rebackup_error: str | None = None
@@ -172,6 +199,8 @@ def _finalize_candidate(
         "observed_report_extensions": observed_extensions,
         "expected_report_extensions": list(markers) if markers else [],
         "differences": differences,
+        "report_differences": report_differences,
+        "native_shape_findings": shape_findings,
         "harness_error": result["error"],
         "report_error": report_error,
         "rebackup_error": rebackup_error,
@@ -261,7 +290,11 @@ def main() -> int:
             if not value:
                 print(f"             failed check: {name}")
         for difference in candidate["differences"]:
-            print(f"             {difference['message']}")
+            print(f"             backup: {difference['message']}")
+        for difference in candidate["report_differences"]:
+            print(f"             gpmc-report: {difference['message']}")
+        for finding in candidate["native_shape_findings"]:
+            print(f"             native-shape: {finding}")
         for key in ("harness_error", "report_error", "rebackup_error"):
             if candidate[key]:
                 print(f"             {key}: {candidate[key]}")

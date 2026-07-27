@@ -27,11 +27,12 @@ semantics, filters, and common options — remains in the comparison.
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .gpp import GppCollection
+from .gpp import GppCollection, parse_gpp_collection
 from .import_export import collect_gpp_collections, extract_side_settings
 from .model import GPO
 
@@ -265,6 +266,146 @@ def summary_from_backup(content_root: Path) -> dict[str, object]:
         },
         "preferences": preferences,
     }
+
+
+_SETTINGS_NS = "http://www.microsoft.com/GroupPolicy/Settings"
+_XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
+
+#: GPMC renders each preference container under a report-specific root name.
+#: Mapping it back to the MS-GPPREF on-disk root lets Studio's own parser read
+#: GPMC's rendering, which is the point: agreement is then between two
+#: independent readers of the same policy, not between Studio and itself.
+_REPORT_ROOT_TO_GPP_FILE: dict[str, tuple[str, str]] = {
+    "DriveMapSettings": ("Drives", "Drives/Drives.xml"),
+    "LocalUsersAndGroups": ("Groups", "Groups/Groups.xml"),
+    "ScheduledTasks": ("ScheduledTasks", "ScheduledTasks/ScheduledTasks.xml"),
+}
+
+#: Report-only bookkeeping GPMC adds that has no on-disk counterpart.
+_REPORT_ONLY_ELEMENTS: frozenset[str] = frozenset({"GPOSettingOrder"})
+
+
+def _strip_report_namespace(element: ET.Element, root_name: str) -> ET.Element:
+    """Rebuild a GPMC report subtree as its namespace-free on-disk equivalent."""
+    local_name = element.tag.split("}", 1)[-1]
+    rebuilt = ET.Element(root_name if root_name else local_name)
+    for key, value in element.attrib.items():
+        if key == _XSI_TYPE:
+            continue
+        rebuilt.set(key.split("}", 1)[-1], value)
+    # Text content is load-bearing: a genuine Task Scheduler 2.0 item carries its
+    # command in <Task>/<Actions>/<Exec>/<Command> element text, not attributes.
+    # Whitespace-only text and all tails are GPMC's pretty-printing, not policy,
+    # and are dropped so they cannot show up as spurious differences.
+    text = element.text
+    rebuilt.text = text if text is not None and text.strip() else None
+    for child in element:
+        child_local = child.tag.split("}", 1)[-1]
+        if child_local in _REPORT_ONLY_ELEMENTS:
+            continue
+        rebuilt.append(_strip_report_namespace(child, ""))
+    return rebuilt
+
+
+def _report_side_collection(side_element: ET.Element, scope: str) -> GppCollection | None:
+    files: dict[str, bytes] = {}
+    for extension_data in side_element.iter(f"{{{_SETTINGS_NS}}}ExtensionData"):
+        for container in extension_data:
+            if container.get(_XSI_TYPE) is None:
+                continue
+            for settings_root in container:
+                local_name = settings_root.tag.split("}", 1)[-1]
+                mapped = _REPORT_ROOT_TO_GPP_FILE.get(local_name)
+                if mapped is None:
+                    continue
+                disk_root, file_path = mapped
+                rebuilt = _strip_report_namespace(settings_root, disk_root)
+                files[file_path] = ET.tostring(rebuilt, encoding="utf-8")
+    if not files:
+        return None
+    return parse_gpp_collection(scope, files)  # type: ignore[arg-type]
+
+
+def summary_from_gpmc_report(report_path: Path) -> dict[str, object]:
+    """Summarize the preferences GPMC itself reported for an imported GPO.
+
+    This is the writer lane's independent oracle.  ``Import-GPO`` copies GPP
+    files through to SYSVOL byte-for-byte, so a backup round trip proves only
+    that the payload survived.  The GPMC report proves GPMC *parsed* it: an item
+    it could not type would not appear here as a typed element at all.
+
+    Only preference families are summarized.  GPMC renders registry policy in
+    Administrative Templates form, which has no faithful mapping back to
+    ``registry.pol``; the registry side is covered independently by the
+    harness's ``Get-GPRegistryValue`` readback.
+    """
+    root = ET.fromstring(report_path.read_bytes())
+    preferences: dict[str, object] = {}
+    for scope, side in (("computer", "Computer"), ("user", "User")):
+        side_element = root.find(f"{{{_SETTINGS_NS}}}{side}")
+        collection = (
+            _report_side_collection(side_element, scope) if side_element is not None else None
+        )
+        preferences[scope] = (
+            _collection_summary(collection) if collection else _empty_collection_summary()
+        )
+    return {"version": WRITER_SUMMARY_VERSION, "preferences": preferences}
+
+
+#: Attributes genuine GPMC never writes on a ``TaskV2`` item's ``Properties``.
+#: They belong to the Task Scheduler 1.0 (``Task``) schema; a v2 item carries its
+#: actions and triggers inside an embedded ``<Task version="...">`` payload.
+_TASK_V1_ONLY_PROPERTIES: tuple[str, ...] = (
+    "program",
+    "arguments",
+    "start_in",
+    "trigger_type",
+    "trigger_time",
+    "trigger_days",
+)
+
+
+def native_shape_findings(gpo: GPO) -> tuple[str, ...]:
+    """Report authored items whose emitted shape has no genuine GPMC precedent.
+
+    A GPMC report round trip cannot detect this class of defect: GPMC echoes
+    back attributes it does not act on, so an item can survive import, report,
+    and re-export intact while the client-side extension ignores it entirely.
+    Plan 033 forbids emitting a feature "under a synthetic format that Windows
+    silently ignores", so shape is checked against the captured native corpus
+    directly rather than inferred from a round trip.
+    """
+    findings: list[str] = []
+    for collection in gpo.gpp_collections:
+        for task in collection.scheduled_tasks:
+            # The v1 ``Task`` element is the schema these scalar properties
+            # belong to, so it is not flagged.
+            if task.element_variant != "TaskV2":
+                continue
+            if not task.task_xml:
+                findings.append(
+                    f"scheduled task {task.name!r} ({collection.scope}) is emitted as TaskV2 "
+                    "with no embedded <Task> payload; genuine GPMC TaskV2 items always carry "
+                    "one, so the Scheduled Tasks CSE has nothing to act on"
+                )
+            # The serializer writes the whole v1 scalar attribute set on every
+            # TaskV2 element unconditionally, defaults included, so this holds
+            # for any TaskV2 Studio authors.
+            findings.append(
+                f"scheduled task {task.name!r} ({collection.scope}) is emitted with Task "
+                f"Scheduler 1.0 scalar properties ({', '.join(_TASK_V1_ONLY_PROPERTIES)}) on a "
+                "TaskV2 element; genuine GPMC TaskV2 items never carry them"
+            )
+    return tuple(findings)
+
+
+def compare_preferences(
+    expected: dict[str, object], actual: dict[str, object]
+) -> tuple[Difference, ...]:
+    """Compare only the preference subtree of two summaries."""
+    differences: list[Difference] = []
+    _compare_values("preferences", expected["preferences"], actual["preferences"], differences)
+    return tuple(differences)
 
 
 def _compare_lists(
