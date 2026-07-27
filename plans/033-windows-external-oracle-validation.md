@@ -301,6 +301,55 @@ step 5 endpoint lane. Until then scheduled tasks must not be promoted beyond
 4: the scalar-only model is not merely incomplete for multi-action tasks, it is
 not the shape GPMC writes for the element variant Studio claims to emit.
 
+#### Step 5 endpoint evidence — EXECUTED 2026-07-27
+
+Run `endpoint-20260727163558` on mvmcitest01 (WS2025 build 26100). A disposable
+child OU containing only the target machine, a disposable GPO linked to it, a
+verified policy refresh, then direct observation of created scheduled tasks.
+Lab confirmed clean afterwards on all three DCs. Verdict at
+`docs/plan-033/wp1b-evidence/endpoint-result.json`.
+
+Six items, each varying one thing against a control:
+
+| | task shape | ILT filter | result | |
+|---|---|---|---|---|
+| A | Studio scalar | none | **absent** | WI-018 |
+| B | genuine GPMC | none | present | control |
+| C | genuine GPMC | Studio `FilterOS`, excluding | absent | WI-021 |
+| D | genuine GPMC | genuine `FilterOs`, excluding | absent | control |
+| E | genuine GPMC | Studio `FilterOS`, matching | **absent** | WI-021 discriminator |
+| F | genuine GPMC | genuine `FilterOs`, matching | present | control |
+
+**WI-018 confirmed.** A Studio-authored scheduled task is *inert*. B proves GPP
+tasks work on this host in the same CSE pass, so A's absence is attributable to
+the emitted shape.
+
+**WI-021 confirmed, with the impact direction inverted.** The plan's own
+prediction was over-application — an unrecognised filter being ignored so the
+item applies everywhere. E vs F disproves it: F shows a correctly-shaped
+*matching* filter does apply, while E, the same logical predicate in Studio's
+shape, does not. Studio's OS filter fails closed in both polarities, so the item
+applies **nowhere**.
+
+Two methodological points worth carrying forward:
+
+1. **Controls are not optional here.** The first attempt at this experiment
+   returned all six tasks absent *including the control*, and was discarded as
+   inconclusive rather than reported as confirming WI-018. Root cause was
+   replication — the GPO and link were written to the PDC while the client read
+   policy from a third DC. The harness now forces replication and polls
+   `gpresult` until the client itself reports the GPO applied, refusing to
+   sample otherwise. Without B, that run would have produced a false positive.
+2. **An excluding filter alone is not discriminating.** "Task absent" is equally
+   consistent with "the filter was honoured" and "the CSE could not parse it and
+   failed closed". Only the negated pair (E/F) separates them.
+
+Both defects share a failure signature: **silent no-op with success reported at
+every layer.** The item imports cleanly, GPMC renders it as a typed item, it
+survives `Backup-GPO` round trips, and the CSE logs event 5016 "Completed"
+without error — while doing nothing. No layer surfaces anything an operator
+could notice.
+
 #### Remaining WP-1B work
 
 - Step 4's "open and edit the item in GPMC, save" leg is **not** covered. The
