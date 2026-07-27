@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpo-studio.invalid/schemas/semantic-manifest-v1.schema.json",
+  "title": "GPO Studio semantic manifest v1",
+  "description": "Describes expected Windows semantics for a GPP fixture in Plan 033 WP-1A",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "fixture_id", "description", "classification", "origin", "items"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "fixture_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "classification": {
+      "type": "string",
+      "enum": ["native-gpmc-authored", "synthetic-sysvol-injection"]
+    },
+    "classification_note": {
+      "type": "string"
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["method", "domain", "captured_at", "backup_id", "gpo_guid"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "captured_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "backup_id": {
+          "type": "string",
+          "pattern": "^\\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\}$"
+        },
+        "gpo_guid": {
+          "type": "string",
+          "pattern": "^\\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\}$"
+        },
+        "gpo_display_name": {
+          "type": "string"
+        }
+      }
+    },
+    "native_layout": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "gpp_file": {
+          "type": "string"
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["uid", "windows_meaning", "element", "scope", "action"],
+        "properties": {
+          "uid": {
+            "type": "string",
+            "pattern": "^\\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\}$"
+          },
+          "windows_meaning": {
+            "type": "string",
+            "minLength": 1
+          },
+          "element": {
+            "type": "string",
+            "enum": ["Drive", "Group", "User", "TaskV2", "ImmediateTaskV2", "ScheduledTask", "ImmediateTask", "File", "Folder", "Shortcut", "Registry", "EnvironmentVariable", "IniFile", "DataSources", "Device", "Printer", "Service", "FolderOptions", "PowerOptions", "NetworkOptions", "RegionalOptions", "IpAddress", "Dns"]
+          },
+          "scope": {
+            "enum": ["computer", "user"]
+          },
+          "action": {
+            "type": "string",
+            "enum": ["U", "R", "D", "C"]
+          }
+        }
+      }
+    },
+    "unknown_content": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "parser_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap", "impact", "severity"],
+        "properties": {
+          "gap": {
+            "type": "string",
+            "minLength": 1
+          },
+          "impact": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "blocking", "high", "needs-review", "medium", "low", "resolved"]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

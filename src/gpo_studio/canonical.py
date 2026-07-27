@@ -182,6 +182,7 @@ def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
         "ilt_filter": semantic_dict_ilt(group.ilt_filter),
         "unknown_attrs": list(group.unknown_attrs),
         "unknown_props_attrs": list(group.unknown_props_attrs),
+        "unknown_props_children": list(group.unknown_props_children),
         "unknown_children": list(group.unknown_children),
     }
 
@@ -206,6 +207,7 @@ def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
         "value": semantic_dict_gpp_registry_value(reg.value),
         "ilt_filter": semantic_dict_ilt(reg.ilt_filter),
         "unknown_attrs": list(reg.unknown_attrs),
+        "unknown_props_children": list(reg.unknown_props_children),
         "unknown_children": list(reg.unknown_children),
     }
 

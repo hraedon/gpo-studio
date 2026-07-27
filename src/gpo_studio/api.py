@@ -57,13 +57,15 @@ from .delegation import (
 )
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
-from .export import export_bundle, gpmc_backup_bundle, powershell_plan
+from .export import export_bundle, gpmc_backup_bundle, native_backup_id, powershell_plan
 from .gpp import (
     _GROUP_KNOWN_CHILDREN,
     _GROUP_PROPS_KNOWN_ATTRS,
+    _GROUP_PROPS_KNOWN_CHILDREN,
     _GROUP_RESERVED_ATTRS,
     _MEMBER_RESERVED_ATTRS,
     _REGISTRY_KNOWN_CHILDREN,
+    _REGISTRY_PROPS_KNOWN_CHILDREN,
     _REGISTRY_RESERVED_ATTRS,
     _REGISTRY_VALUE_RESERVED_ATTRS,
     GppError,
@@ -82,7 +84,7 @@ from .import_export import (
     backup_wmi_filter_to_model,
     collect_cse_metadata,
     collect_gpp_collections,
-    extract_settings,
+    extract_side_settings,
     resolve_gpo,
 )
 from .model import (
@@ -337,6 +339,7 @@ class GppGroupData(BaseModel):
     ilt_filter: IltFilterData | None = None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
 
@@ -401,6 +404,7 @@ class GppRegistryData(BaseModel):
     uid: str = ""
     ilt_filter: IltFilterData | None = None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
 
@@ -1293,6 +1297,7 @@ def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
         unknown_props_attrs=tuple(
             (pair[0], pair[1]) for pair in data.unknown_props_attrs
         ),
+        unknown_props_children=tuple(data.unknown_props_children),
         unknown_children=tuple(data.unknown_children),
     )
     _validate_gpp_unknown_attrs(
@@ -1305,6 +1310,11 @@ def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
     )
     _validate_gpp_unknown_children(
         group.unknown_children, _GROUP_KNOWN_CHILDREN, f"group {group.name!r}"
+    )
+    _validate_gpp_unknown_children(
+        group.unknown_props_children,
+        _GROUP_PROPS_KNOWN_CHILDREN,
+        f"group {group.name!r} properties",
     )
     return group
 
@@ -1350,6 +1360,7 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
         id=data.id,
         ilt_filter=reg_ilt,
         unknown_attrs=tuple((pair[0], pair[1]) for pair in data.unknown_attrs),
+        unknown_props_children=tuple(data.unknown_props_children),
         unknown_children=tuple(data.unknown_children),
     )
     _validate_gpp_unknown_attrs(
@@ -1361,6 +1372,11 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
         registry.unknown_children,
         _REGISTRY_KNOWN_CHILDREN,
         f"registry {registry.key!r}",
+    )
+    _validate_gpp_unknown_children(
+        registry.unknown_props_children,
+        _REGISTRY_PROPS_KNOWN_CHILDREN,
+        f"registry {registry.key!r} properties",
     )
     return registry
 
@@ -3025,13 +3041,18 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
                 f"Multi-GPO backups are not supported (found {len(backup.gpos)} GPOs)"
             )
         backup_gpo = backup.gpos[0]
-        gpo_dir = backup_dir / backup_gpo.guid
+        content_root = backup_gpo.content_root
 
-        machine_settings = extract_settings(gpo_dir / "Machine" / "Registry.pol", "computer")
-        user_settings = extract_settings(gpo_dir / "User" / "Registry.pol", "user")
+        if content_root is not None:
+            machine_settings = extract_side_settings(content_root, "computer")
+            user_settings = extract_side_settings(content_root, "user")
+            gpp_collections = collect_gpp_collections(content_root)
+        else:
+            machine_settings = []
+            user_settings = []
+            gpp_collections = ()
         all_settings = tuple(machine_settings + user_settings)
         cse_metadata = collect_cse_metadata(backup_gpo)
-        gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
 
         security_filters = backup_security_filters_to_model(backup_gpo.security_filters)
         wmi_filter = backup_wmi_filter_to_model(backup_gpo.wmi_filter)
@@ -3074,6 +3095,8 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         wmi_filter=wmi_filter,
         domain=backup_gpo.domain or "studio.local",
         gpp_collections=gpp_collections,
+        computer_enabled=backup_gpo.computer_enabled,
+        user_enabled=backup_gpo.user_enabled,
         status="archived",
     )
     gpo_issues = [i for i in validate_gpo(temp_gpo) if i.severity == "error"]
@@ -3092,6 +3115,8 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         security_filters=security_filters,
         wmi_filter=wmi_filter,
         gpp_collections=gpp_collections,
+        computer_enabled=backup_gpo.computer_enabled,
+        user_enabled=backup_gpo.user_enabled,
         # Imports are immutable evidence by default. Editing requires the
         # explicit fork endpoint so the source snapshot remains reviewable.
         status="archived",
@@ -3114,8 +3139,12 @@ def gpmc_backup(request: Request, guid: str) -> Response:
                 path="cse_metadata",
             )
         ])
-    fname = f"{_safe_filename(gpo.guid)}-gpmc-backup.zip"
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+    backup_id = native_backup_id(gpo)
+    fname = f"{_safe_filename(backup_id.strip('{}'))}-gpmc-backup.zip"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "X-GPO-Backup-Id": backup_id,
+    }
     return Response(gpmc_backup_bundle(gpo), media_type="application/zip", headers=headers)
 
 

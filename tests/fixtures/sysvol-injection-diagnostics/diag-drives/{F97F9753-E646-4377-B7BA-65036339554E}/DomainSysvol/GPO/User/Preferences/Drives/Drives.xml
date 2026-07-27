@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Drives clsid="{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}">
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="M:" status="M:" image="2" changed="2026-07-26 12:00:00" uid="{A1B2C3D4-0001-4000-8000-000000000001}" userContext="1" removePolicy="1" disabled="0" bypassErrors="0">
+    <Properties action="U" thisDrive="USE" allDrives="0" userName="" path="\\filesrv\home" label="Home Drive" persistent="1" useLetter="1" letter="M"/>
+    <Filters>
+      <FilterRunOnce id="{A1B2C3D4-0004-4000-8000-000000000004}" name="Run once" bool="AND" not="0"/>
+    </Filters>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="P:" status="P:" image="2" changed="2026-07-26 12:00:00" uid="{A1B2C3D4-0002-4000-8000-000000000002}" userContext="0" removePolicy="0" disabled="0" bypassErrors="1">
+    <Properties action="R" thisDrive="USE" allDrives="0" userName="" path="\\filesrv\projects" label="Projects" persistent="0" useLetter="1" letter="P"/>
+  </Drive>
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="X:" status="X:" image="2" changed="2026-07-26 12:00:00" uid="{A1B2C3D4-0003-4000-8000-000000000003}" userContext="0" removePolicy="0" disabled="0" bypassErrors="1">
+    <Properties action="D" thisDrive="USE" allDrives="0" userName="" path="" label="" persistent="0" useLetter="0" letter="X"/>
+  </Drive>
+</Drives>

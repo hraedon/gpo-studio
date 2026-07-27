@@ -30,6 +30,7 @@ from .gpp import (
     _code_to_action,
     _find_local,
     _findall_local,
+    _local_name,
     _ns,
     _parse_common_options,
     _parse_item_filters,
@@ -79,6 +80,7 @@ _USER_CLSID = "{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}"
 _GROUP_CLSID = "{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}"
 _SCHEDULED_TASKS_CLSID = "{CC63F200-7309-4ba0-B154-A71CD118DBCC}"
 _TASK_CLSID = "{2DEECB1C-261F-4e13-9B21-16FB83BC03BD}"
+_TASK_V2_CLSID = "{D8896631-B747-47a7-84A6-C155337F3BC8}"
 _IMMEDIATE_TASK_V2_CLSID = "{9756B581-76EC-4169-9AFC-0CA8D43ADB5F}"
 
 # Legacy Studio placed common options on <Properties>. Keep these names in the
@@ -122,8 +124,8 @@ _ROOT_KNOWN_CHILDREN: dict[str, frozenset[str]] = {
     # containing both <User> and <Group> inner elements.
     "Groups": frozenset({"User", "Group"}),
     # MS-GPPREF folds immediate tasks into the <ScheduledTasks> root alongside
-    # scheduled <Task> elements.
-    "ScheduledTasks": frozenset({"Task", "ImmediateTaskV2"}),
+    # scheduled <Task> and <TaskV2> elements.
+    "ScheduledTasks": frozenset({"Task", "TaskV2", "ImmediateTaskV2"}),
 }
 
 # Properties known attrs per adapter type.
@@ -203,6 +205,13 @@ _PROPS_KNOWN_ATTRS: dict[str, frozenset[str]] = {
             "name", "runAs", "program", "arguments", "startIn", "action",
         })
     ),
+}
+
+
+_PROPS_KNOWN_CHILDREN: dict[str, frozenset[str]] = {
+    "scheduled_tasks": frozenset({"Task"}),
+    "immediate_tasks": frozenset({"Task"}),
+    "local_groups": frozenset({"Members"}),
 }
 
 
@@ -443,6 +452,7 @@ class GppEnvironment:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -459,6 +469,7 @@ class GppIniFile:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -478,6 +489,7 @@ class GppRegionalOptions:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -494,6 +506,7 @@ class GppPowerOptions:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -509,6 +522,7 @@ class GppDevice:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,6 +540,7 @@ class GppFolderOptions:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,6 +558,7 @@ class GppDataSource:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -560,6 +576,7 @@ class GppDrive:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -578,6 +595,7 @@ class GppFile:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -595,6 +613,7 @@ class GppFolder:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -611,6 +630,7 @@ class GppNetworkShare:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,6 +648,7 @@ class GppPrinter:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,6 +669,7 @@ class GppShortcut:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -664,6 +686,7 @@ class GppApplication:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +721,7 @@ class GppService:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -723,6 +747,7 @@ class GppLocalUser:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -750,6 +775,7 @@ class GppLocalGroup:
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -773,12 +799,15 @@ class GppScheduledTask:
     ] = "once"
     trigger_time: str = ""
     trigger_days: str = ""
+    task_xml: str = ""
     action: GppAction = "update"
     id: str = ""
     common: GppCommonOptions = field(default_factory=GppCommonOptions)
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
+    element_variant: Literal["Task", "TaskV2"] = "TaskV2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -796,12 +825,14 @@ class GppImmediateTask:
     program: str = ""
     arguments: str = ""
     start_in: str = ""
+    task_xml: str = ""
     action: GppAction = "update"
     id: str = ""
     common: GppCommonOptions = field(default_factory=GppCommonOptions)
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -831,7 +862,6 @@ _ADAPTER_KEYS: tuple[str, ...] = (
     # Privileged execution adapters (Plan 024 WP-4).
     "services",
     "local_users",
-    "local_groups",
     "scheduled_tasks",
     "immediate_tasks",
 )
@@ -893,7 +923,6 @@ _ADAPTER_FILE_PATHS: dict[str, str] = {
     # Privileged execution adapters (Plan 024 WP-4).
     "services": "Services/Services.xml",
     "local_users": "Groups/Groups.xml",
-    "local_groups": "Groups/Groups.xml",
     "scheduled_tasks": "ScheduledTasks/ScheduledTasks.xml",
     "immediate_tasks": "ScheduledTasks/ScheduledTasks.xml",
 }
@@ -910,9 +939,16 @@ def _build_item_element(
     props_attrs: dict[str, str],
     action_code: str | None = None,
     identity_seed: str = "",
+    item_tag_override: str | None = None,
+    item_clsid_override: str | None = None,
+    unknown_props_children: tuple[str, ...] = (),
 ) -> ET.Element:
     """Build a single GPP item element with <Properties> following MS-GPPREF."""
     _, _, item_tag, item_clsid = _ADAPTER_META[adapter_key]
+    if item_tag_override is not None:
+        item_tag = item_tag_override
+    if item_clsid_override is not None:
+        item_clsid = item_clsid_override
     elem = ET.Element(_ns(item_tag))
     elem.set("clsid", item_clsid)
     if item_name:
@@ -923,6 +959,9 @@ def _build_item_element(
     props.set("action", action_code if action_code is not None else _action_to_code(action))
     for key, value in props_attrs.items():
         props.set(key, value)
+    _append_unknown_children(
+        props, unknown_props_children, f"{adapter_key} item {item_name!r} properties"
+    )
     _append_item_filters(
         elem,
         ilt_filter,
@@ -949,6 +988,7 @@ def _extract_common(
     tuple[tuple[str, str], ...],
     tuple[str, ...],
     ET.Element | None,
+    tuple[str, ...],
 ]:
     """Extract action, common options, ILT, unknowns, and the Properties element."""
     props = _find_local(elem, "Properties")
@@ -962,10 +1002,16 @@ def _extract_common(
             props,
             apply_once=apply_once,
         )
+        props_known = _PROPS_KNOWN_CHILDREN.get(adapter_key, frozenset())
+        unknown_props_children = _capture_unknown_children(props, props_known)
     else:
         action = "update"
         common = _parse_common_options(elem, apply_once=apply_once)
-    return action, common, ilt_filter, unknown_attrs, unknown_children, props
+        unknown_props_children = ()
+    return (
+        action, common, ilt_filter, unknown_attrs, unknown_children,
+        props, unknown_props_children,
+    )
 
 
 def _capture_root_unknowns(root: ET.Element, adapter_key: str) -> tuple[
@@ -993,6 +1039,7 @@ def _serialize_environment(env: GppEnvironment) -> ET.Element:
         ilt_filter=env.ilt_filter,
         unknown_attrs=env.unknown_attrs,
         unknown_children=env.unknown_children,
+        unknown_props_children=env.unknown_props_children,
         props_attrs={
             "name": env.name,
             "value": env.value,
@@ -1013,7 +1060,7 @@ def serialize_gpp_environment(
 
 
 def _parse_environment_item(elem: ET.Element) -> GppEnvironment:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "environment")
     )
     name = elem.get("name", "")
@@ -1033,6 +1080,7 @@ def _parse_environment_item(elem: ET.Element) -> GppEnvironment:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1059,6 +1107,7 @@ def _serialize_ini(ini: GppIniFile) -> ET.Element:
         ilt_filter=ini.ilt_filter,
         unknown_attrs=ini.unknown_attrs,
         unknown_children=ini.unknown_children,
+        unknown_props_children=ini.unknown_props_children,
         props_attrs={
             "path": ini.path,
             "section": ini.section,
@@ -1080,7 +1129,7 @@ def serialize_gpp_ini_files(
 
 
 def _parse_ini_item(elem: ET.Element) -> GppIniFile:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "ini_files")
     )
     if props is not None:
@@ -1103,6 +1152,7 @@ def _parse_ini_item(elem: ET.Element) -> GppIniFile:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1129,6 +1179,7 @@ def _serialize_regional_options(reg: GppRegionalOptions) -> ET.Element:
         ilt_filter=reg.ilt_filter,
         unknown_attrs=reg.unknown_attrs,
         unknown_children=reg.unknown_children,
+        unknown_props_children=reg.unknown_props_children,
         props_attrs={
             "userLocale": reg.user_locale,
             "userIME": reg.user_ime,
@@ -1153,7 +1204,7 @@ def serialize_gpp_regional_options(
 
 
 def _parse_regional_options_item(elem: ET.Element) -> GppRegionalOptions:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "regional_options")
     )
     if props is not None:
@@ -1170,6 +1221,7 @@ def _parse_regional_options_item(elem: ET.Element) -> GppRegionalOptions:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppRegionalOptions(
         action=action,
@@ -1177,6 +1229,7 @@ def _parse_regional_options_item(elem: ET.Element) -> GppRegionalOptions:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1203,6 +1256,7 @@ def _serialize_power_options(pwr: GppPowerOptions) -> ET.Element:
         ilt_filter=pwr.ilt_filter,
         unknown_attrs=pwr.unknown_attrs,
         unknown_children=pwr.unknown_children,
+        unknown_props_children=pwr.unknown_props_children,
         props_attrs={
             "schemeName": pwr.scheme_name,
             "schemeGuid": pwr.scheme_guid,
@@ -1224,7 +1278,7 @@ def serialize_gpp_power_options(
 
 
 def _parse_power_options_item(elem: ET.Element) -> GppPowerOptions:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "power_options")
     )
     if props is not None:
@@ -1238,6 +1292,7 @@ def _parse_power_options_item(elem: ET.Element) -> GppPowerOptions:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppPowerOptions(
         action=action,
@@ -1245,6 +1300,7 @@ def _parse_power_options_item(elem: ET.Element) -> GppPowerOptions:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1271,6 +1327,7 @@ def _serialize_device(dev: GppDevice) -> ET.Element:
         ilt_filter=dev.ilt_filter,
         unknown_attrs=dev.unknown_attrs,
         unknown_children=dev.unknown_children,
+        unknown_props_children=dev.unknown_props_children,
         props_attrs={
             "deviceClass": dev.device_class,
             "deviceName": dev.device_name,
@@ -1291,7 +1348,7 @@ def serialize_gpp_devices(
 
 
 def _parse_device_item(elem: ET.Element) -> GppDevice:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "devices")
     )
     if props is not None:
@@ -1305,6 +1362,7 @@ def _parse_device_item(elem: ET.Element) -> GppDevice:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppDevice(
         action=action,
@@ -1312,6 +1370,7 @@ def _parse_device_item(elem: ET.Element) -> GppDevice:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1338,6 +1397,7 @@ def _serialize_folder_options(fo: GppFolderOptions) -> ET.Element:
         ilt_filter=fo.ilt_filter,
         unknown_attrs=fo.unknown_attrs,
         unknown_children=fo.unknown_children,
+        unknown_props_children=fo.unknown_props_children,
         props_attrs={
             "showHidden": _bool_str(fo.show_hidden),
             "showExtensions": _bool_str(fo.show_extensions),
@@ -1360,7 +1420,7 @@ def serialize_gpp_folder_options(
 
 
 def _parse_folder_options_item(elem: ET.Element) -> GppFolderOptions:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "folder_options")
     )
     if props is not None:
@@ -1375,6 +1435,7 @@ def _parse_folder_options_item(elem: ET.Element) -> GppFolderOptions:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppFolderOptions(
         action=action,
@@ -1382,6 +1443,7 @@ def _parse_folder_options_item(elem: ET.Element) -> GppFolderOptions:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1408,6 +1470,7 @@ def _serialize_data_source(ds: GppDataSource) -> ET.Element:
         ilt_filter=ds.ilt_filter,
         unknown_attrs=ds.unknown_attrs,
         unknown_children=ds.unknown_children,
+        unknown_props_children=ds.unknown_props_children,
         props_attrs={
             "dsn": ds.dsn,
             "driver": ds.driver,
@@ -1430,7 +1493,7 @@ def serialize_gpp_data_sources(
 
 
 def _parse_data_source_item(elem: ET.Element) -> GppDataSource:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "data_sources")
     )
     dsn = elem.get("name", "")
@@ -1447,6 +1510,7 @@ def _parse_data_source_item(elem: ET.Element) -> GppDataSource:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppDataSource(
         dsn=dsn,
@@ -1455,6 +1519,7 @@ def _parse_data_source_item(elem: ET.Element) -> GppDataSource:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1481,6 +1546,7 @@ def _serialize_drive(drive: GppDrive) -> ET.Element:
         ilt_filter=drive.ilt_filter,
         unknown_attrs=drive.unknown_attrs,
         unknown_children=drive.unknown_children,
+        unknown_props_children=drive.unknown_props_children,
         props_attrs={
             "letter": drive.letter,
             "path": drive.path,
@@ -1503,7 +1569,7 @@ def serialize_gpp_drives(
 
 
 def _parse_drive_item(elem: ET.Element) -> GppDrive:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "drives")
     )
     if props is not None:
@@ -1518,6 +1584,7 @@ def _parse_drive_item(elem: ET.Element) -> GppDrive:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppDrive(
         action=action,
@@ -1525,6 +1592,7 @@ def _parse_drive_item(elem: ET.Element) -> GppDrive:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1551,6 +1619,7 @@ def _serialize_file(fi: GppFile) -> ET.Element:
         ilt_filter=fi.ilt_filter,
         unknown_attrs=fi.unknown_attrs,
         unknown_children=fi.unknown_children,
+        unknown_props_children=fi.unknown_props_children,
         props_attrs={
             "fromPath": fi.source,
             "targetPath": fi.target,
@@ -1574,7 +1643,7 @@ def serialize_gpp_files(
 
 
 def _parse_file_item(elem: ET.Element) -> GppFile:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "files")
     )
     if props is not None:
@@ -1590,6 +1659,7 @@ def _parse_file_item(elem: ET.Element) -> GppFile:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppFile(
         action=action,
@@ -1597,6 +1667,7 @@ def _parse_file_item(elem: ET.Element) -> GppFile:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1623,6 +1694,7 @@ def _serialize_folder(folder: GppFolder) -> ET.Element:
         ilt_filter=folder.ilt_filter,
         unknown_attrs=folder.unknown_attrs,
         unknown_children=folder.unknown_children,
+        unknown_props_children=folder.unknown_props_children,
         props_attrs={
             "path": folder.path,
             "readOnly": _bool_str(folder.read_only),
@@ -1645,7 +1717,7 @@ def serialize_gpp_folders(
 
 
 def _parse_folder_item(elem: ET.Element) -> GppFolder:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "folders")
     )
     if props is not None:
@@ -1660,6 +1732,7 @@ def _parse_folder_item(elem: ET.Element) -> GppFolder:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppFolder(
         action=action,
@@ -1667,6 +1740,7 @@ def _parse_folder_item(elem: ET.Element) -> GppFolder:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1693,6 +1767,7 @@ def _serialize_network_share(share: GppNetworkShare) -> ET.Element:
         ilt_filter=share.ilt_filter,
         unknown_attrs=share.unknown_attrs,
         unknown_children=share.unknown_children,
+        unknown_props_children=share.unknown_props_children,
         props_attrs={
             "name": share.name,
             "path": share.path,
@@ -1714,7 +1789,7 @@ def serialize_gpp_network_shares(
 
 
 def _parse_network_share_item(elem: ET.Element) -> GppNetworkShare:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "network_shares")
     )
     name = elem.get("name", "")
@@ -1736,6 +1811,7 @@ def _parse_network_share_item(elem: ET.Element) -> GppNetworkShare:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppNetworkShare(
         name=name,
@@ -1744,6 +1820,7 @@ def _parse_network_share_item(elem: ET.Element) -> GppNetworkShare:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1772,6 +1849,7 @@ def _serialize_printer(printer: GppPrinter) -> ET.Element:
         ilt_filter=printer.ilt_filter,
         unknown_attrs=printer.unknown_attrs,
         unknown_children=printer.unknown_children,
+        unknown_props_children=printer.unknown_props_children,
         props_attrs={
             "path": printer.path,
             "setDefault": _bool_str(printer.set_default),
@@ -1794,7 +1872,7 @@ def serialize_gpp_printers(
 
 
 def _parse_printer_item(elem: ET.Element) -> GppPrinter:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "printers")
     )
     # Printers use <Properties action="..."> for the printer-specific
@@ -1815,6 +1893,7 @@ def _parse_printer_item(elem: ET.Element) -> GppPrinter:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppPrinter(
         action=action,
@@ -1822,6 +1901,7 @@ def _parse_printer_item(elem: ET.Element) -> GppPrinter:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1848,6 +1928,7 @@ def _serialize_shortcut(sc: GppShortcut) -> ET.Element:
         ilt_filter=sc.ilt_filter,
         unknown_attrs=sc.unknown_attrs,
         unknown_children=sc.unknown_children,
+        unknown_props_children=sc.unknown_props_children,
         props_attrs={
             "name": sc.name,
             "targetPath": sc.target_path,
@@ -1873,7 +1954,7 @@ def serialize_gpp_shortcuts(
 
 
 def _parse_shortcut_item(elem: ET.Element) -> GppShortcut:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "shortcuts")
     )
     if props is not None:
@@ -1897,6 +1978,7 @@ def _parse_shortcut_item(elem: ET.Element) -> GppShortcut:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppShortcut(
         action=action,
@@ -1904,6 +1986,7 @@ def _parse_shortcut_item(elem: ET.Element) -> GppShortcut:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -1930,6 +2013,7 @@ def _serialize_application(app: GppApplication) -> ET.Element:
         ilt_filter=app.ilt_filter,
         unknown_attrs=app.unknown_attrs,
         unknown_children=app.unknown_children,
+        unknown_props_children=app.unknown_props_children,
         props_attrs={
             "name": app.name,
             "path": app.path,
@@ -1951,7 +2035,7 @@ def serialize_gpp_applications(
 
 
 def _parse_application_item(elem: ET.Element) -> GppApplication:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "applications")
     )
     if props is not None:
@@ -1965,6 +2049,7 @@ def _parse_application_item(elem: ET.Element) -> GppApplication:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppApplication(
         action=action,
@@ -1972,6 +2057,7 @@ def _parse_application_item(elem: ET.Element) -> GppApplication:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -2001,6 +2087,7 @@ def _serialize_service(svc: GppService) -> ET.Element:
         ilt_filter=svc.ilt_filter,
         unknown_attrs=svc.unknown_attrs,
         unknown_children=svc.unknown_children,
+        unknown_props_children=svc.unknown_props_children,
         props_attrs={
             "serviceName": svc.service_name,
             "displayName": svc.display_name,
@@ -2029,7 +2116,7 @@ def serialize_gpp_services(
 
 
 def _parse_service_item(elem: ET.Element) -> GppService:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "services")
     )
     service_name = elem.get("name", "")
@@ -2070,6 +2157,7 @@ def _parse_service_item(elem: ET.Element) -> GppService:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppService(
         service_name=service_name,
@@ -2078,6 +2166,7 @@ def _parse_service_item(elem: ET.Element) -> GppService:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -2107,6 +2196,7 @@ def _serialize_local_user(user: GppLocalUser) -> ET.Element:
         ilt_filter=user.ilt_filter,
         unknown_attrs=user.unknown_attrs,
         unknown_children=user.unknown_children,
+        unknown_props_children=user.unknown_props_children,
         props_attrs={
             "userName": user.user_name,
             "fullName": user.full_name,
@@ -2133,7 +2223,7 @@ def serialize_gpp_local_users(
 
 
 def _parse_local_user_item(elem: ET.Element) -> GppLocalUser:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "local_users")
     )
     user_name = elem.get("name", "")
@@ -2156,6 +2246,7 @@ def _parse_local_user_item(elem: ET.Element) -> GppLocalUser:
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppLocalUser(
         user_name=user_name,
@@ -2164,6 +2255,7 @@ def _parse_local_user_item(elem: ET.Element) -> GppLocalUser:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -2199,6 +2291,7 @@ def _serialize_local_group(group: GppLocalGroup) -> ET.Element:
         ilt_filter=group.ilt_filter,
         unknown_attrs=group.unknown_attrs,
         unknown_children=group.unknown_children,
+        unknown_props_children=group.unknown_props_children,
         props_attrs={
             "groupName": group.group_name,
             "description": group.description,
@@ -2238,7 +2331,7 @@ def _parse_local_group_member(elem: ET.Element) -> GppLocalGroupMember:
 
 
 def _parse_local_group_item(elem: ET.Element) -> GppLocalGroup:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "local_groups")
     )
     group_name = elem.get("name", "")
@@ -2269,6 +2362,7 @@ def _parse_local_group_item(elem: ET.Element) -> GppLocalGroup:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -2286,13 +2380,76 @@ def parse_gpp_local_groups(data: bytes) -> tuple[GppLocalGroup, ...]:
 # ---------------------------------------------------------------------------
 
 
+def _extract_task_xml(props: ET.Element) -> str:
+    """Serialize the <Task> child of Properties as an opaque XML string."""
+    task_elem = _find_local(props, "Task")
+    if task_elem is None:
+        return ""
+    return ET.tostring(task_elem, encoding="unicode")
+
+
+def _project_from_task_xml(
+    task_xml: str,
+) -> tuple[str, str, str]:
+    """Extract (program, arguments, start_in) projections from Task XML.
+
+    Returns empty strings for any field not present.
+    """
+    if not task_xml:
+        return ("", "", "")
+    try:
+        task_elem = _bounded_parse(task_xml.encode("utf-8"))
+    except GppError:
+        return ("", "", "")
+    actions = _find_local(task_elem, "Actions")
+    if actions is None:
+        return ("", "", "")
+    exec_elem = _find_local(actions, "Exec")
+    if exec_elem is None:
+        return ("", "", "")
+    command = _find_local(exec_elem, "Command")
+    arguments = _find_local(exec_elem, "Arguments")
+    working_dir = _find_local(exec_elem, "WorkingDirectory")
+    return (
+        command.text or "" if command is not None else "",
+        arguments.text or "" if arguments is not None else "",
+        working_dir.text or "" if working_dir is not None else "",
+    )
+
+
+def _append_task_xml_to_props(elem: ET.Element, task_xml: str) -> None:
+    """Parse task_xml and append it as a child of the Properties element."""
+    if not task_xml:
+        return
+    props = _find_local(elem, "Properties")
+    if props is None:
+        return
+    try:
+        task_elem = _bounded_parse(task_xml.encode("utf-8"))
+    except GppError as error:
+        raise GppError(
+            f"Corrupted task_xml during serialization: {error}"
+        ) from error
+    props.append(task_elem)
+
+
 def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
     _deny_password(
         task.run_as_password,
         "run_as_password",
         f"scheduled task {task.name!r}",
     )
-    return _build_item_element(
+    tag_override: str | None = None
+    clsid_override: str | None = None
+    if task.element_variant == "TaskV2":
+        tag_override = "TaskV2"
+        clsid_override = _TASK_V2_CLSID
+    elif task.element_variant == "Task":
+        tag_override = "Task"
+        clsid_override = _TASK_CLSID
+    else:
+        assert_never(task.element_variant)
+    elem = _build_item_element(
         "scheduled_tasks",
         item_name=task.name,
         action=task.action,
@@ -2300,6 +2457,7 @@ def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
         ilt_filter=task.ilt_filter,
         unknown_attrs=task.unknown_attrs,
         unknown_children=task.unknown_children,
+        unknown_props_children=task.unknown_props_children,
         props_attrs={
             "name": task.name,
             "runAs": task.run_as,
@@ -2311,7 +2469,11 @@ def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
             "triggerTime": task.trigger_time,
             "triggerDays": task.trigger_days,
         },
+        item_tag_override=tag_override,
+        item_clsid_override=clsid_override,
     )
+    _append_task_xml_to_props(elem, task.task_xml)
+    return elem
 
 
 def serialize_gpp_scheduled_tasks(
@@ -2326,29 +2488,41 @@ def serialize_gpp_scheduled_tasks(
 
 
 def _parse_scheduled_task_item(elem: ET.Element) -> GppScheduledTask:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "scheduled_tasks")
+    )
+    element_variant: Literal["Task", "TaskV2"] = (
+        "TaskV2" if _local_name(elem.tag) == "TaskV2" else "Task"
     )
     name = elem.get("name", "")
     if props is not None:
         name = props.get("name", name)
+        task_xml = _extract_task_xml(props)
+        program = props.get("program", "")
+        arguments = props.get("arguments", "")
+        start_in = props.get("startIn", "")
+        if not program and task_xml:
+            program, arguments, start_in = _project_from_task_xml(task_xml)
         return GppScheduledTask(
             name=name,
             run_as=props.get("runAs", ""),
-            program=props.get("program", ""),
-            arguments=props.get("arguments", ""),
-            start_in=props.get("startIn", ""),
+            program=program,
+            arguments=arguments,
+            start_in=start_in,
             enabled=props.get("enabled", "1") == "1",
             trigger_type=_code_to_trigger_type(
                 props.get("triggerType", "ONCE")
             ),
             trigger_time=props.get("triggerTime", ""),
             trigger_days=props.get("triggerDays", ""),
+            task_xml=task_xml,
             action=action,
             common=common,
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
+            element_variant=element_variant,
         )
     return GppScheduledTask(
         name=name,
@@ -2357,16 +2531,19 @@ def _parse_scheduled_task_item(elem: ET.Element) -> GppScheduledTask:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
+        element_variant=element_variant,
     )
 
 
 def parse_gpp_scheduled_tasks(data: bytes) -> tuple[GppScheduledTask, ...]:
     """Parse Scheduled Tasks GPP XML bytes."""
     root = _bounded_parse(data)
-    return tuple(
-        _parse_scheduled_task_item(elem)
-        for elem in _findall_local(root, "Task")
-    )
+    items: list[GppScheduledTask] = []
+    for elem in root:
+        if _local_name(elem.tag) in ("Task", "TaskV2"):
+            items.append(_parse_scheduled_task_item(elem))
+    return tuple(items)
 
 
 # ---------------------------------------------------------------------------
@@ -2380,7 +2557,7 @@ def _serialize_immediate_task(task: GppImmediateTask) -> ET.Element:
         "run_as_password",
         f"immediate task {task.name!r}",
     )
-    return _build_item_element(
+    elem = _build_item_element(
         "immediate_tasks",
         item_name=task.name,
         action=task.action,
@@ -2388,6 +2565,7 @@ def _serialize_immediate_task(task: GppImmediateTask) -> ET.Element:
         ilt_filter=task.ilt_filter,
         unknown_attrs=task.unknown_attrs,
         unknown_children=task.unknown_children,
+        unknown_props_children=task.unknown_props_children,
         props_attrs={
             "name": task.name,
             "runAs": task.run_as,
@@ -2396,6 +2574,8 @@ def _serialize_immediate_task(task: GppImmediateTask) -> ET.Element:
             "startIn": task.start_in,
         },
     )
+    _append_task_xml_to_props(elem, task.task_xml)
+    return elem
 
 
 def serialize_gpp_immediate_tasks(
@@ -2410,23 +2590,31 @@ def serialize_gpp_immediate_tasks(
 
 
 def _parse_immediate_task_item(elem: ET.Element) -> GppImmediateTask:
-    action, common, ilt_filter, unknown_attrs, unknown_children, props = (
+    action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "immediate_tasks")
     )
     name = elem.get("name", "")
     if props is not None:
         name = props.get("name", name)
+        task_xml = _extract_task_xml(props)
+        program = props.get("program", "")
+        arguments = props.get("arguments", "")
+        start_in = props.get("startIn", "")
+        if not program and task_xml:
+            program, arguments, start_in = _project_from_task_xml(task_xml)
         return GppImmediateTask(
             name=name,
             run_as=props.get("runAs", ""),
-            program=props.get("program", ""),
-            arguments=props.get("arguments", ""),
-            start_in=props.get("startIn", ""),
+            program=program,
+            arguments=arguments,
+            start_in=start_in,
+            task_xml=task_xml,
             action=action,
             common=common,
             ilt_filter=ilt_filter,
             unknown_attrs=unknown_attrs,
             unknown_children=unknown_children,
+            unknown_props_children=unknown_props_children,
         )
     return GppImmediateTask(
         name=name,
@@ -2435,6 +2623,7 @@ def _parse_immediate_task_item(elem: ET.Element) -> GppImmediateTask:
         ilt_filter=ilt_filter,
         unknown_attrs=unknown_attrs,
         unknown_children=unknown_children,
+        unknown_props_children=unknown_props_children,
     )
 
 
@@ -2633,11 +2822,11 @@ def _parse_local_groups_root(data: bytes) -> RootParseResult:
 def _parse_scheduled_tasks_root(data: bytes) -> RootParseResult:
     root = _bounded_parse(data)
     unknown_attrs, unknown_children = _capture_root_unknowns(root, "scheduled_tasks")
-    items: tuple[object, ...] = tuple(
-        _parse_scheduled_task_item(elem)
-        for elem in _findall_local(root, "Task")
-    )
-    return items, unknown_attrs, unknown_children
+    items: list[object] = []
+    for elem in root:
+        if _local_name(elem.tag) in ("Task", "TaskV2"):
+            items.append(_parse_scheduled_task_item(elem))
+    return tuple(items), unknown_attrs, unknown_children
 
 
 def _parse_immediate_tasks_root(data: bytes) -> RootParseResult:
@@ -2705,7 +2894,6 @@ _ITEM_SERIALIZE_FUNCTIONS: dict[str, Callable[..., ET.Element]] = {
     "applications": _serialize_application,
     "services": _serialize_service,
     "local_users": _serialize_local_user,
-    "local_groups": _serialize_local_group,
     "scheduled_tasks": _serialize_scheduled_task,
     "immediate_tasks": _serialize_immediate_task,
 }
@@ -2752,7 +2940,6 @@ ADAPTER_SERIALIZE_FUNCTIONS: dict[str, Callable[..., bytes]] = {
     # Privileged execution adapters (Plan 024 WP-4).
     "services": serialize_gpp_services,
     "local_users": serialize_gpp_local_users,
-    "local_groups": serialize_gpp_local_groups,
     "scheduled_tasks": serialize_gpp_scheduled_tasks,
     "immediate_tasks": serialize_gpp_immediate_tasks,
 }

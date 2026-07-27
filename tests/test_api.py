@@ -244,7 +244,7 @@ def test_two_way_diff(tmp_path) -> None:
     app.state.owns_store = False
     with TestClient(app) as client:
         gpo = client.post("/api/gpos", json={"name": "Diff test"}).json()["gpo"]
-        client.post(
+        setting_resp = client.post(
             f"/api/gpos/{gpo['guid']}/settings",
             json={
                 "expected_revision": 1,
@@ -259,6 +259,7 @@ def test_two_way_diff(tmp_path) -> None:
                 },
             },
         )
+        assert setting_resp.status_code == 201
         diff = client.get(f"/api/gpos/{gpo['guid']}/diff?against_revision=1")
         assert diff.status_code == 200
         result = diff.json()
@@ -367,7 +368,7 @@ def test_gpmc_backup_export(tmp_path) -> None:
     app.state.owns_store = False
     with TestClient(app) as client:
         gpo = client.post("/api/gpos", json={"name": "Export test"}).json()["gpo"]
-        client.post(
+        setting_resp = client.post(
             f"/api/gpos/{gpo['guid']}/settings",
             json={
                 "expected_revision": 1,
@@ -378,23 +379,27 @@ def test_gpmc_backup_export(tmp_path) -> None:
                     "key": r"Software\Policies\Test",
                     "value_name": "Enabled",
                     "registry_type": "REG_DWORD",
-                    "value": 1,
+                    "value": "1",
                 },
             },
         )
+        assert setting_resp.status_code == 201
         resp = client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup")
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "application/zip"
         with zipfile.ZipFile(io.BytesIO(resp.content)) as archive:
             names = archive.namelist()
             assert "manifest.xml" in names
-            assert "bkupInfo.xml" in names
-            assert f"{gpo['guid']}/Machine/Registry.pol" in names
-            assert f"{gpo['guid']}/User/Registry.pol" in names
-            assert f"{gpo['guid']}/gpreport.xml" in names
-            assert f"{gpo['guid']}/DomainController.xml" in names
             from gpo_studio.backup import parse_manifest
             backup = parse_manifest(archive.read("manifest.xml"))
+            backup_id = backup.backup_id
+            assert f"{backup_id}/Backup.xml" in names
+            assert f"{backup_id}/bkupInfo.xml" in names
+            assert (
+                f"{backup_id}/DomainSysvol/GPO/Machine/registry.pol" in names
+            )
+            assert not any(name.endswith("/gpreport.xml") for name in names)
+            assert not any(name.endswith("/DomainController.xml") for name in names)
             assert backup.gpos[0].display_name == "Export test"
 
 
@@ -1260,7 +1265,7 @@ def test_domain_update_via_api(tmp_path) -> None:
         assert updated["domain"] == "corp.example.test"
 
 
-def test_gpmc_backup_roundtrip_with_filters(tmp_path, monkeypatch) -> None:
+def test_gpmc_backup_excludes_external_filter_state(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
@@ -1310,13 +1315,8 @@ def test_gpmc_backup_roundtrip_with_filters(tmp_path, monkeypatch) -> None:
         })
         assert resp.status_code == 201
         imported = resp.json()["gpo"]
-        assert len(imported["security_filters"]) == 1
-        assert imported["security_filters"][0]["principal"] == "DOMAIN\\Admins"
-        assert imported["security_filters"][0]["permission"] == "apply"
-        assert imported["security_filters"][0]["target_type"] == "group"
-        assert imported["wmi_filter"] is not None
-        assert imported["wmi_filter"]["name"] == "WorkstationFilter"
-        assert imported["wmi_filter"]["query"] == "select * from Win32_OperatingSystem"
+        assert imported["security_filters"] == []
+        assert imported["wmi_filter"] is None
 
 
 def test_gpp_group_crud_via_api(tmp_path) -> None:

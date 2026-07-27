@@ -6,7 +6,12 @@ import zipfile
 from dataclasses import replace
 
 from gpo_studio.backup import parse_manifest
-from gpo_studio.export import export_bundle, gpmc_backup_bundle, powershell_plan
+from gpo_studio.export import (
+    export_bundle,
+    gpmc_backup_bundle,
+    native_backup_id,
+    powershell_plan,
+)
 from gpo_studio.import_export import (
     backup_security_filters_to_model,
     backup_wmi_filter_to_model,
@@ -131,7 +136,7 @@ def test_powershell_plan_omits_wmi_filter_when_none() -> None:
     assert "Set-GPInheritance" not in plan
 
 
-def test_gpmc_backup_includes_security_filters() -> None:
+def test_gpmc_backup_excludes_external_security_filters() -> None:
     gpo = replace(
         sample_gpo(),
         security_filters=(
@@ -147,13 +152,8 @@ def test_gpmc_backup_includes_security_filters() -> None:
     bundle = gpmc_backup_bundle(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         manifest = archive.read("manifest.xml").decode()
-    assert "SecurityFilters" in manifest
-    assert "SecurityFilter" in manifest
-    assert "<Trustee>" in manifest
-    assert "<Sid>S-1-5-32-544</Sid>" in manifest
-    assert "<Name>DOMAIN\\Admins</Name>" in manifest
-    assert "<Permission>GpoApply</Permission>" in manifest
-    assert "<Inheritable>true</Inheritable>" in manifest
+    assert "SecurityFilters" not in manifest
+    assert "DOMAIN\\Admins" not in manifest
 
 
 def test_gpmc_backup_omits_security_filters_when_empty() -> None:
@@ -163,7 +163,7 @@ def test_gpmc_backup_omits_security_filters_when_empty() -> None:
     assert "SecurityFilters" not in manifest
 
 
-def test_gpmc_backup_gpreport_contains_security_filter_children() -> None:
+def test_gpmc_backup_does_not_emit_synthetic_gpreport() -> None:
     gpo = replace(
         sample_gpo(),
         security_filters=(
@@ -179,15 +179,7 @@ def test_gpmc_backup_gpreport_contains_security_filter_children() -> None:
     )
     bundle = gpmc_backup_bundle(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-        gpreport = archive.read(f"{gpo.guid}/gpreport.xml").decode()
-    assert "<SecurityFilters>" in gpreport
-    assert "<SecurityFilter>" in gpreport
-    assert "<Trustee>" in gpreport
-    assert "<Sid>S-1-5-32-544</Sid>" in gpreport
-    assert "<Name>DOMAIN\\Admins</Name>" in gpreport
-    assert "<Type>User</Type>" in gpreport
-    assert "<Permission>GpoApply</Permission>" in gpreport
-    assert "<Inheritable>true</Inheritable>" in gpreport
+        assert not any(name.endswith("/gpreport.xml") for name in archive.namelist())
 
 
 def test_export_bundle_deterministic_with_security_filters() -> None:
@@ -205,7 +197,7 @@ def test_export_bundle_deterministic_with_security_filters() -> None:
     assert export_bundle(gpo) == export_bundle(gpo)
 
 
-def test_gpmc_backup_includes_wmi_filter() -> None:
+def test_gpmc_backup_excludes_external_wmi_filter() -> None:
     gpo = replace(
         sample_gpo(),
         wmi_filter=WmiFilter(
@@ -218,10 +210,8 @@ def test_gpmc_backup_includes_wmi_filter() -> None:
     bundle = gpmc_backup_bundle(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         manifest = archive.read("manifest.xml").decode()
-    assert "WmiFilter" in manifest
-    assert 'name="WorkstationFilter"' in manifest
-    assert 'query="select * from Win32_OperatingSystem"' in manifest
-    assert 'language="WQL"' in manifest
+    assert "WmiFilter" not in manifest
+    assert "WorkstationFilter" not in manifest
 
 
 def test_gpmc_backup_includes_security_filter_target_type() -> None:
@@ -247,8 +237,8 @@ def test_gpmc_backup_includes_security_filter_target_type() -> None:
     bundle = gpmc_backup_bundle(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         manifest = archive.read("manifest.xml").decode()
-    assert "<Type>User</Type>" in manifest
-    assert "<Type>Computer</Type>" in manifest
+    assert "<Type>User</Type>" not in manifest
+    assert "<Type>Computer</Type>" not in manifest
 
 
 def test_gpmc_backup_round_trip_security_filters_and_wmi() -> None:
@@ -288,23 +278,10 @@ def test_gpmc_backup_round_trip_security_filters_and_wmi() -> None:
     parsed_gpo = backup.gpos[0]
 
     parsed_sfs = backup_security_filters_to_model(parsed_gpo.security_filters)
-    assert len(parsed_sfs) == 2
-    assert parsed_sfs[0].principal == "DOMAIN\\Admins"
-    assert parsed_sfs[0].permission == "apply"
-    assert parsed_sfs[0].inheritable is True
-    assert parsed_sfs[0].target_type == "user"
-    assert parsed_sfs[0].sid == "S-1-5-32-544"
-    assert parsed_sfs[1].principal == "DOMAIN\\Users"
-    assert parsed_sfs[1].permission == "read"
-    assert parsed_sfs[1].inheritable is False
-    assert parsed_sfs[1].target_type == "group"
-    assert parsed_sfs[1].sid == "S-1-5-32-545"
+    assert parsed_sfs == ()
 
     parsed_wmi = backup_wmi_filter_to_model(parsed_gpo.wmi_filter)
-    assert parsed_wmi is not None
-    assert parsed_wmi.name == "WorkstationFilter"
-    assert parsed_wmi.query == "select * from Win32_OperatingSystem"
-    assert parsed_wmi.language == "WQL"
+    assert parsed_wmi is None
 
 
 def test_gpmc_backup_round_trip_wmi_description() -> None:
@@ -324,8 +301,7 @@ def test_gpmc_backup_round_trip_wmi_description() -> None:
 
     backup = parse_manifest(manifest_bytes)
     parsed_wmi = backup_wmi_filter_to_model(backup.gpos[0].wmi_filter)
-    assert parsed_wmi is not None
-    assert parsed_wmi.description == "Important filter for workstations"
+    assert parsed_wmi is None
 
 
 def test_powershell_plan_sanitizes_wmi_newlines() -> None:
@@ -512,9 +488,12 @@ def test_gpmc_backup_omits_hive_prefix_in_preg() -> None:
         ),
     )
     bundle = gpmc_backup_bundle(gpo)
+    backup_id = native_backup_id(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-        machine_pol = archive.read(f"{gpo.guid}/Machine/Registry.pol")
-        user_pol = archive.read(f"{gpo.guid}/User/Registry.pol")
+        machine_pol = archive.read(
+            f"{backup_id}/DomainSysvol/GPO/Machine/registry.pol"
+        )
+        user_pol = archive.read(f"{backup_id}/DomainSysvol/GPO/User/registry.pol")
 
     machine_records = parse(machine_pol)
     assert len(machine_records) == 1

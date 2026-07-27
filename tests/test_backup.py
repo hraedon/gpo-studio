@@ -156,10 +156,11 @@ def test_read_backup_unknown_cse_preserved(tmp_path: Path) -> None:
 
     backup = read_backup(backup_dir)
     machine_exts = backup.gpos[0].machine_extensions
-    assert len(machine_exts) == 1
-    file_names = {f.relative_path for f in machine_exts[0].files}
-    assert "Registry.pol" in file_names
-    assert "UnknownCSE.xml" in file_names
+    assert len(machine_exts) == 2
+    ext_map = {ext.guid: ext for ext in machine_exts}
+    assert {f.relative_path for f in ext_map["unknown"].files} == {
+        "UnknownCSE.xml"
+    }
 
 
 def test_missing_manifest_raises(tmp_path: Path) -> None:
@@ -278,12 +279,15 @@ def test_read_backup_registry_attributed_to_registry_cse(tmp_path: Path) -> None
 
     backup = read_backup(backup_dir)
     machine_exts = backup.gpos[0].machine_extensions
-    assert len(machine_exts) == 2
+    assert len(machine_exts) == 3
     ext_map = {ext.guid: ext for ext in machine_exts}
     registry_files = {f.relative_path for f in ext_map[registry_guid].files}
     other_files = {f.relative_path for f in ext_map[other_guid].files}
     assert "Registry.pol" in registry_files
     assert "Registry.pol" not in other_files
+    assert {f.relative_path for f in ext_map["unknown"].files} == {
+        "UnknownCSE.xml"
+    }
 
 
 def test_read_backup_rejects_symlinked_manifest(tmp_path: Path) -> None:
@@ -722,8 +726,11 @@ def test_preferences_cpassword_scan_does_not_recount_entries(
     # Manifest, Preferences, Groups, and Groups.xml exactly consume the
     # budget. A second Preferences enumeration would exceed it.
     backup = read_backup(backup_dir)
-    assert backup.gpos[0].machine_extensions[0].files[0].relative_path == (
-        str(Path("Preferences") / "Groups" / "Groups.xml")
+    unknown = next(
+        ext for ext in backup.gpos[0].machine_extensions if ext.guid == "unknown"
+    )
+    assert unknown.files[0].relative_path == str(
+        Path("Preferences") / "Groups" / "Groups.xml"
     )
 
 
@@ -805,3 +812,72 @@ def test_scan_hashes_pinned_file_after_parent_swap(
 
     assert swapped is True
     assert result[0].files[0].size == len(b"inside")
+
+
+_MANIFEST_NATIVE = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types">
+  <BackupInstance>
+    <BackupTime>2026-01-01T00:00:00</BackupTime>
+    <ID>{AABBCCDD-1122-3344-5566-778899AABBCC}</ID>
+    <GPO>
+      <Identifier>11111111-2222-3333-4444-555555555555</Identifier>
+      <DisplayName>Native Layout Policy</DisplayName>
+      <Domain>example.test</Domain>
+      <MachineExtensionGuids>{35378EAC-683F-11D2-A89A-00C04FBBCFA2}</MachineExtensionGuids>
+    </GPO>
+  </BackupInstance>
+</BackupInstances>"""
+
+
+def test_read_backup_native_layout(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_NATIVE)
+    content = backup_dir / "{AABBCCDD-1122-3344-5566-778899AABBCC}" / "DomainSysvol" / "GPO"
+    machine_dir = content / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"\x50\x52\x65\x67\x01\x00\x00\x00")
+
+    result = read_backup(backup_dir)
+    assert len(result.gpos) == 1
+    gpo = result.gpos[0]
+    assert gpo.content_root == content
+    assert gpo.content_root.is_dir()
+
+
+def test_read_backup_legacy_layout(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+    gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
+    machine_dir = gpo_dir / "Machine"
+    machine_dir.mkdir(parents=True)
+    (machine_dir / "Registry.pol").write_bytes(b"\x50\x52\x65\x67\x01\x00\x00\x00")
+
+    result = read_backup(backup_dir)
+    assert len(result.gpos) == 1
+    gpo = result.gpos[0]
+    assert gpo.content_root == gpo_dir
+
+
+def test_read_backup_ambiguous_layout_raises(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_NATIVE)
+    native = backup_dir / "{AABBCCDD-1122-3344-5566-778899AABBCC}" / "DomainSysvol" / "GPO"
+    native.mkdir(parents=True)
+    legacy = backup_dir / "11111111-2222-3333-4444-555555555555"
+    legacy.mkdir()
+
+    with pytest.raises(BackupError, match="Ambiguous backup layout"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_no_content_root_when_missing(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_XML)
+
+    result = read_backup(backup_dir)
+    assert len(result.gpos) == 1
+    assert result.gpos[0].content_root is None

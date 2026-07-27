@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from gpo_studio.backup import read_backup
-from gpo_studio.export import export_bundle, gpmc_backup_bundle
+from gpo_studio.export import export_bundle, gpmc_backup_bundle, native_backup_id
 from gpo_studio.gpp import (
     GppCollection,
     GppCommonOptions,
@@ -480,6 +480,12 @@ def _sample_gpo_with_gpp() -> GPO:
     )
 
 
+def _sample_gpo_with_native_gpp() -> GPO:
+    gpo = _sample_gpo_with_gpp()
+    collection = replace(gpo.gpp_collections[0], registry=())
+    return replace(gpo, gpp_collections=(collection,))
+
+
 def test_export_bundle_includes_gpp_files() -> None:
     gpo = _sample_gpo_with_gpp()
     bundle = export_bundle(gpo)
@@ -520,14 +526,17 @@ def test_export_bundle_is_deterministic_with_gpp() -> None:
 
 
 def test_gpmc_backup_includes_gpp_files() -> None:
-    gpo = _sample_gpo_with_gpp()
+    gpo = _sample_gpo_with_native_gpp()
     bundle = gpmc_backup_bundle(gpo)
+    backup_id = native_backup_id(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         names = archive.namelist()
-        guid = gpo.guid
-        assert f"{guid}/Machine/Preferences/Groups/Groups.xml" in names
-        assert f"{guid}/Machine/Preferences/Registry/Registry.xml" in names
-        groups_xml = archive.read(f"{guid}/Machine/Preferences/Groups/Groups.xml")
+        groups_path = (
+            f"{backup_id}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml"
+        )
+        assert groups_path in names
+        assert not any("Preferences/Registry" in name for name in names)
+        groups_xml = archive.read(groups_path)
         assert b"<Groups" in groups_xml
 
 
@@ -540,7 +549,7 @@ def test_gpmc_backup_without_gpp_has_no_preferences() -> None:
 
 
 def test_gpmc_backup_is_deterministic_with_gpp() -> None:
-    gpo = _sample_gpo_with_gpp()
+    gpo = _sample_gpo_with_native_gpp()
     assert gpmc_backup_bundle(gpo) == gpmc_backup_bundle(gpo)
 
 
@@ -560,7 +569,7 @@ def test_gpo_to_dict_default_empty_gpp() -> None:
 
 
 def test_gpmc_backup_round_trip_with_gpp(tmp_path: Path) -> None:
-    gpo = _sample_gpo_with_gpp()
+    gpo = _sample_gpo_with_native_gpp()
     bundle = gpmc_backup_bundle(gpo)
     backup_dir = tmp_path / "gpmc_backup"
     backup_dir.mkdir()
@@ -574,24 +583,22 @@ def test_gpmc_backup_round_trip_with_gpp(tmp_path: Path) -> None:
     cse_metadata = collect_cse_metadata(backup_gpo)
     assert cse_metadata == ()
 
-    gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
+    gpp_collections = collect_gpp_collections(backup_gpo.content_root)
     assert len(gpp_collections) == 1
     assert gpp_collections[0].scope == "computer"
     assert len(gpp_collections[0].groups) == 1
     assert gpp_collections[0].groups[0].name == "Administrators"
-    assert len(gpp_collections[0].registry) == 3
-    assert gpp_collections[0].registry[0].key == r"Software\Policies\Test"
+    assert gpp_collections[0].registry == ()
 
 
 def test_gpmc_backup_manifest_includes_gpp_guids() -> None:
-    from gpo_studio.export import _GPP_GROUPS_CSE_GUID, _GPP_REGISTRY_CSE_GUID
-
-    gpo = _sample_gpo_with_gpp()
+    gpo = _sample_gpo_with_native_gpp()
     bundle = gpmc_backup_bundle(gpo)
+    backup_id = native_backup_id(gpo)
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-        manifest = archive.read("manifest.xml").decode()
-    assert _GPP_GROUPS_CSE_GUID in manifest
-    assert _GPP_REGISTRY_CSE_GUID in manifest
+        backup_xml = archive.read(f"{backup_id}/Backup.xml").decode()
+    assert "{17D89FEC-5C44-4972-B12D-241CAEF74509}" in backup_xml
+    assert "{79F92669-4224-476C-9C5C-6EFB4D87DF4A}" in backup_xml
 
 
 def test_gpp_collections_survive_store_round_trip(tmp_path: Path) -> None:
@@ -906,7 +913,7 @@ def test_ensure_editor_ids_preserves_existing_ids() -> None:
 
 
 def test_collect_gpp_collections_assigns_editor_ids(tmp_path: Path) -> None:
-    gpo = _sample_gpo_with_gpp()
+    gpo = _sample_gpo_with_native_gpp()
     bundle = gpmc_backup_bundle(gpo)
     backup_dir = tmp_path / "gpmc_backup"
     backup_dir.mkdir()
@@ -914,13 +921,12 @@ def test_collect_gpp_collections_assigns_editor_ids(tmp_path: Path) -> None:
         archive.extractall(backup_dir)
     backup = read_backup(backup_dir)
     backup_gpo = backup.gpos[0]
-    gpp_collections = collect_gpp_collections(backup_dir, backup_gpo.guid)
+    gpp_collections = collect_gpp_collections(backup_gpo.content_root)
     assert len(gpp_collections) == 1
     collection = gpp_collections[0]
     assert collection.groups[0].id != ""
     assert collection.groups[0].members[0].id != ""
-    assert collection.registry[0].id != ""
-    assert collection.registry[0].value.id != ""
+    assert collection.registry == ()
 
 
 def test_registry_no_coalescing_each_element_is_separate() -> None:

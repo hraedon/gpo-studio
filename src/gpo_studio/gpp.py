@@ -139,6 +139,8 @@ _GROUP_PROPS_KNOWN_ATTRS = frozenset({
     "deleteAllUsers", "deleteAllGroups",
     "applyOnce", "removePolicy", "userContext", "disabled", "bypassErrors",
 })
+_GROUP_PROPS_KNOWN_CHILDREN = frozenset({"Members"})
+_REGISTRY_PROPS_KNOWN_CHILDREN: frozenset[str] = frozenset()
 _GROUPS_ROOT_KNOWN_ATTRS = frozenset({"clsid"})
 # MS-GPPREF <Groups> root holds both <Group> and <User> inner elements.
 _GROUPS_ROOT_KNOWN_CHILDREN = frozenset({"Group", "User"})
@@ -368,6 +370,7 @@ class GppGroup:
     id: str = ""
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_props_attrs: tuple[tuple[str, str], ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
     unknown_children: tuple[str, ...] = ()
 
 
@@ -395,11 +398,29 @@ class GppRegistry:
     common: GppCommonOptions = field(default_factory=GppCommonOptions)
     ilt_filter: IltFilter | None = None
     unknown_attrs: tuple[tuple[str, str], ...] = ()
+    unknown_props_children: tuple[str, ...] = ()
     unknown_children: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class GppCollection:
+    """Typed GPP preference items with optional ephemeral source bytes.
+
+    ``source_files`` holds the original XML bytes from
+    :func:`parse_gpp_collection` so that :func:`serialize_gpp` can return
+    them verbatim when no edits have been made (the D8 no-edit round-trip
+    preservation contract).  This field is **ephemeral**: it is excluded
+    from :func:`gpp_collection_to_dict` and therefore never persisted to
+    the workspace.  After a persist/reload cycle (via
+    :func:`gpp_collection_from_dict`), ``source_files`` is always empty
+    and serialization reconstructs XML from the typed model.
+
+    Any code path that mutates items on a collection that still carries
+    ``source_files`` must call :func:`mark_edited` first; otherwise
+    :func:`serialize_gpp` would return stale bytes that do not reflect
+    the mutation.
+    """
+
     scope: GppScope
     groups: tuple[GppGroup, ...] = field(default_factory=tuple)
     registry: tuple[GppRegistry, ...] = field(default_factory=tuple)
@@ -467,6 +488,7 @@ class GppCollection:
     immediate_tasks: tuple[GppImmediateTask, ...] = field(default_factory=tuple)
     immediate_tasks_unknown_attrs: tuple[tuple[str, str], ...] = ()
     immediate_tasks_unknown_children: tuple[str, ...] = ()
+    source_files: tuple[tuple[str, bytes], ...] = ()
 
 
 def _xml_declaration(data: bytes) -> bytes:
@@ -600,6 +622,9 @@ def _serialize_group(group: GppGroup) -> ET.Element:
         members_elem = ET.SubElement(props, _ns("Members"))
         for member in group.members:
             members_elem.append(_serialize_member(member))
+    _append_unknown_children(
+        props, group.unknown_props_children, f"group {group.name!r} properties"
+    )
     _append_item_filters(
         elem,
         group.ilt_filter,
@@ -653,6 +678,9 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
     if value.default:
         props.set("default", "1")
     _apply_unknown_attrs(props, value.unknown_attrs)
+    _append_unknown_children(
+        props, reg.unknown_props_children, f"registry {reg.key!r} properties"
+    )
     _append_item_filters(
         elem,
         reg.ilt_filter,
@@ -676,6 +704,16 @@ def serialize_gpp_registry(collection: GppCollection) -> bytes:
 
 def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
     """Return a dict mapping filename to XML bytes for all non-empty sections."""
+    if collection.source_files:
+        return dict(collection.source_files)
+    if (
+        collection.local_groups
+        or collection.local_groups_unknown_attrs
+        or collection.local_groups_unknown_children
+    ):
+        raise GppError(
+            "GppCollection.local_groups is deprecated; use the canonical groups field"
+        )
     files: dict[str, bytes] = {}
     has_groups = (
         collection.groups
@@ -825,6 +863,10 @@ def _parse_group(elem: ET.Element) -> GppGroup:
             _capture_unknown_attrs(props, _GROUP_PROPS_KNOWN_ATTRS)
             if props is not None else ()
         ),
+        unknown_props_children=(
+            _capture_unknown_children(props, _GROUP_PROPS_KNOWN_CHILDREN)
+            if props is not None else ()
+        ),
         unknown_children=_capture_unknown_children(elem, _GROUP_KNOWN_CHILDREN),
     )
 
@@ -906,17 +948,22 @@ def _parse_registry(elem: ET.Element) -> list[GppRegistry]:
                 props,
                 apply_once=apply_once,
             )
+            unknown_props_children = _capture_unknown_children(
+                props, _REGISTRY_PROPS_KNOWN_CHILDREN
+            )
             if idx == 0:
                 results.append(GppRegistry(
                     key=key, hive=hive, value=value, uid=uid,
                     common=common,
                     ilt_filter=ilt_filter,
                     unknown_attrs=unknown_attrs,
+                    unknown_props_children=unknown_props_children,
                     unknown_children=unknown_children,
                 ))
             else:
                 results.append(GppRegistry(
                     key=key, hive=hive, value=value, common=common,
+                    unknown_props_children=unknown_props_children,
                 ))
 
     return results
@@ -980,6 +1027,7 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
         groups_unknown_children=groups_unknown_children,
         registry_unknown_attrs=registry_unknown_attrs,
         registry_unknown_children=registry_unknown_children,
+        source_files=tuple(sorted(files.items())),
         **adapter_data,
     )
 
@@ -1045,7 +1093,11 @@ def _ensure_simple_editor_id(item: Any) -> Any:
 
 
 def ensure_editor_ids(collection: GppCollection) -> GppCollection:
-    """Return a copy with a uuid assigned to every empty-id item."""
+    """Return a copy with a uuid assigned to every empty-id item.
+
+    Assigning editor IDs is a mutation, so ``source_files`` is cleared to
+    prevent :func:`serialize_gpp` from returning stale verbatim bytes.
+    """
     new_groups = tuple(_ensure_group_editor_ids(g) for g in collection.groups)
     new_registry = tuple(
         _ensure_registry_editor_ids(r) for r in collection.registry
@@ -1056,8 +1108,17 @@ def ensure_editor_ids(collection: GppCollection) -> GppCollection:
         items = getattr(collection, key)
         extra[key] = tuple(_ensure_simple_editor_id(i) for i in items)
     return replace(
-        collection, groups=new_groups, registry=new_registry, **extra
+        collection,
+        groups=new_groups,
+        registry=new_registry,
+        source_files=(),
+        **extra,
     )
+
+
+def mark_edited(collection: GppCollection) -> GppCollection:
+    """Return a copy with source_files cleared, forcing model-based serialization."""
+    return replace(collection, source_files=())
 
 
 # ---------------------------------------------------------------------------
@@ -1156,6 +1217,14 @@ def _common_options_from_dict(data: Any) -> GppCommonOptions:
 
 def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
     """Serialize a GppCollection to a plain dict for JSON storage."""
+    if (
+        collection.local_groups
+        or collection.local_groups_unknown_attrs
+        or collection.local_groups_unknown_children
+    ):
+        raise GppError(
+            "GppCollection.local_groups is deprecated; use the canonical groups field"
+        )
     return {
         "scope": collection.scope,
         "groups": [
@@ -1181,6 +1250,9 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "id": g.id,
                 "unknown_attrs": list(g.unknown_attrs) if g.unknown_attrs else [],
                 "unknown_props_attrs": list(g.unknown_props_attrs) if g.unknown_props_attrs else [],
+                "unknown_props_children": (
+                    list(g.unknown_props_children) if g.unknown_props_children else []
+                ),
                 "unknown_children": list(g.unknown_children) if g.unknown_children else [],
             }
             for g in collection.groups
@@ -1203,6 +1275,9 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 },
                 "ilt_filter": _ilt_filter_to_dict(r.ilt_filter),
                 "unknown_attrs": list(r.unknown_attrs) if r.unknown_attrs else [],
+                "unknown_props_children": (
+                    list(r.unknown_props_children) if r.unknown_props_children else []
+                ),
                 "unknown_children": list(r.unknown_children) if r.unknown_children else [],
                 "id": r.id,
             }
@@ -1294,6 +1369,23 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     if scope_raw not in ("computer", "user"):
         raise GppError(f"Invalid GPP scope: {scope_raw!r}")
     scope: GppScope = scope_raw  # type: ignore[assignment]
+    raw_groups = list(data.get("groups", []))
+    for legacy in data.get("local_groups", []):
+        raw_groups.append({
+            "name": legacy.get("group_name", ""),
+            "sid": "",
+            "action": legacy.get("action", "update"),
+            "members": legacy.get("members", []),
+            "description": legacy.get("description", ""),
+            "remove_all_users": legacy.get("delete_all_users", False),
+            "remove_all_groups": legacy.get("delete_all_groups", False),
+            "common": legacy.get("common"),
+            "ilt_filter": legacy.get("ilt_filter"),
+            "id": legacy.get("id", ""),
+            "unknown_attrs": legacy.get("unknown_attrs", []),
+            "unknown_props_children": legacy.get("unknown_props_children", []),
+            "unknown_children": legacy.get("unknown_children", []),
+        })
     groups = tuple(
         GppGroup(
             name=str(g.get("name", "")),
@@ -1326,9 +1418,10 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 (str(k), str(v))
                 for k, v in g.get("unknown_props_attrs", [])
             ),
+            unknown_props_children=tuple(g.get("unknown_props_children", [])),
             unknown_children=tuple(g.get("unknown_children", [])),
         )
-        for g in data.get("groups", [])
+        for g in raw_groups
     )
     # Validate group unknown attrs/children before constructing
     for g in groups:
@@ -1343,6 +1436,11 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         _validate_unknown_children(
             g.unknown_children, _GROUP_KNOWN_CHILDREN, f"group {g.name!r}"
         )
+        _validate_unknown_children(
+            g.unknown_props_children,
+            _GROUP_PROPS_KNOWN_CHILDREN,
+            f"group {g.name!r} properties",
+        )
         for m in g.members:
             _validate_unknown_attrs(
                 m.unknown_attrs, _MEMBER_RESERVED_ATTRS, f"member {m.name!r}"
@@ -1356,6 +1454,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             for k, v2 in r.get("unknown_attrs", [])
         )
         elem_unknown_children = tuple(r.get("unknown_children", []))
+        elem_unknown_props_children = tuple(r.get("unknown_props_children", []))
         if "value" in r and isinstance(r["value"], dict):
             new_uid = str(r.get("uid", ""))
             new_elem_attrs = elem_unknown_attrs
@@ -1389,6 +1488,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 common=_common_options_from_dict(r.get("common")),
                 ilt_filter=ilt_filter,
                 unknown_attrs=new_elem_attrs,
+                unknown_props_children=elem_unknown_props_children,
                 unknown_children=elem_unknown_children,
             ))
         else:
@@ -1408,6 +1508,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 v_elem_children = tuple(v.get("unknown_children", []))
                 if not v_elem_children and idx == 0:
                     v_elem_children = elem_unknown_children
+                v_props_children = tuple(v.get("unknown_props_children", []))
+                if not v_props_children and idx == 0:
+                    v_props_children = elem_unknown_props_children
                 v_uid = str(r.get("uid", "")) if idx == 0 else ""
                 promoted_uid = _promote_from_unknown_attrs(
                     v_elem_attrs, "uid"
@@ -1441,6 +1544,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     common=_common_options_from_dict(r.get("common")),
                     ilt_filter=v_ilt,
                     unknown_attrs=v_elem_attrs,
+                    unknown_props_children=v_props_children,
                     unknown_children=v_elem_children,
                 ))
     registry_tuple = tuple(registry)
@@ -1454,6 +1558,11 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             r.unknown_children,
             _REGISTRY_KNOWN_CHILDREN,
             f"registry {r.key!r}",
+        )
+        _validate_unknown_children(
+            r.unknown_props_children,
+            _REGISTRY_PROPS_KNOWN_CHILDREN,
+            f"registry {r.key!r} properties",
         )
         _validate_unknown_attrs(
             r.value.unknown_attrs,
@@ -1496,6 +1605,9 @@ def _adapter_item_from_dict(
         elif f.name == "unknown_children":
             kwargs[f.name] = tuple(item_data.get("unknown_children", []))
         else:
+            if adapter_cls.__name__ == "GppScheduledTask" and f.name == "element_variant":
+                kwargs[f.name] = item_data.get(f.name, "Task")
+                continue
             if f.default is not MISSING:
                 raw = item_data.get(f.name, f.default)
             elif f.default_factory is not MISSING:
