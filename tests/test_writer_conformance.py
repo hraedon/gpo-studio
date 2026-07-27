@@ -16,8 +16,11 @@ from gpo_studio.ilt import IltFilter, IltPredicate
 from gpo_studio.model import GPO, RegistrySetting
 from gpo_studio.writer_conformance import (
     NATIVE_GPP_FAMILIES,
+    compare_preferences,
     compare_summaries,
+    native_shape_findings,
     summary_from_backup,
+    summary_from_gpmc_report,
     summary_from_gpo,
 )
 
@@ -256,3 +259,84 @@ def test_registry_type_change_is_reported() -> None:
         summary_from_gpo(_gpo(settings=(mutated,))),
     )
     assert [difference.path.rsplit(".", 1)[-1] for difference in differences] == ["registry_type"]
+
+
+NATIVE_CORPUS = Path(__file__).parent / "fixtures" / "native-gpp-gpmc"
+
+
+def _native_captures() -> list[Path]:
+    return sorted(
+        capture
+        for capture in NATIVE_CORPUS.glob("WI01A-*")
+        if (capture / "gpreport-verify.xml").is_file() and list(capture.glob("*/DomainSysvol/GPO"))
+    )
+
+
+@pytest.mark.parametrize("capture", _native_captures(), ids=lambda path: path.name)
+def test_gpmc_report_agrees_with_gpmc_backup(capture: Path) -> None:
+    """Two independent GPMC outputs must agree when read through Studio.
+
+    The report and the backup are produced by different GPMC code paths from the
+    same policy.  Comparing them validates the report reader against genuine
+    Windows output rather than against Studio's own writer -- which is what
+    caught the report reader dropping element text, invisible to any
+    Studio-authored fixture because Studio writes scalar attributes.
+    """
+    content_root = next(iter(capture.glob("*/DomainSysvol/GPO")))
+    differences = compare_preferences(
+        summary_from_backup(content_root), summary_from_gpmc_report(capture / "gpreport-verify.xml")
+    )
+    assert differences == (), [difference.describe() for difference in differences]
+
+
+def test_report_reader_preserves_task_scheduler_2_command() -> None:
+    """A TaskV2 command lives in element text, not an attribute."""
+    capture = NATIVE_CORPUS / "WI01A-SchedTasks-GPMC"
+    summary = summary_from_gpmc_report(capture / "gpreport-verify.xml")
+    preferences = summary["preferences"]
+    assert isinstance(preferences, dict)
+    tasks = preferences["computer"]["scheduled_tasks"]  # type: ignore[index]
+    assert [task["program"] for task in tasks if task["program"]]
+
+
+def test_native_shape_findings_flag_taskv2_without_embedded_payload() -> None:
+    """Studio's scalar TaskV2 authoring has no genuine GPMC precedent.
+
+    GPMC echoes the scalar attributes back in its report, so a round trip cannot
+    detect this; the shape is therefore checked against the native corpus.
+    """
+    findings = native_shape_findings(_gpo(scheduled_tasks=(TASK,)))
+    assert len(findings) == 2
+    assert any("no embedded <Task> payload" in finding for finding in findings)
+    assert any("Task Scheduler 1.0 scalar properties" in finding for finding in findings)
+
+
+def test_embedded_task_payload_clears_only_the_missing_payload_finding() -> None:
+    """The scalar-attribute finding is unconditional for TaskV2.
+
+    Studio's serializer writes the whole v1 attribute set on every TaskV2
+    element, defaults included, so supplying an embedded payload does not make
+    the emitted shape native.
+    """
+    embedded = replace(
+        TASK,
+        task_xml=(
+            '<Task version="1.2"><Actions Context="Author"><Exec>'
+            "<Command>C:\\Windows\\System32\\cmd.exe</Command>"
+            "</Exec></Actions></Task>"
+        ),
+    )
+    findings = native_shape_findings(_gpo(scheduled_tasks=(embedded,)))
+    assert len(findings) == 1
+    assert "Task Scheduler 1.0 scalar properties" in findings[0]
+
+
+def test_task_scheduler_1_variant_is_not_flagged() -> None:
+    """The v1 element is the schema those scalar properties belong to."""
+    assert (
+        native_shape_findings(_gpo(scheduled_tasks=(replace(TASK, element_variant="Task"),))) == ()
+    )
+
+
+def test_native_shape_findings_ignore_other_families() -> None:
+    assert native_shape_findings(_gpo(drives=(DRIVE,), groups=(GROUP,))) == ()
