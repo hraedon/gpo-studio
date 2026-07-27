@@ -1,6 +1,6 @@
 # Plan 033 — Windows external-oracle validation and parity evidence
 
-Status: active — WP-0 implementation in progress
+Status: active — WP-0 and WP-2 certified; WP-1A genuine GPMC canaries landed
 Scope: prove Studio import, authoring, prediction, and export claims against
 supported Microsoft tooling without allowing internally consistent round trips
 to substitute for interoperability evidence
@@ -162,6 +162,73 @@ XML into an ad hoc directory and call it a GPMC backup.
 6. Export without editing and prove opaque/unknown content is preserved
    according to the capability contract.
 
+Implementation status (2026-07-26, genuine canaries landed):
+
+**Genuine GPMC-authored canaries** (4 fixtures) captured on mvmcitest01
+(WS2025 build 26100) via the Group Policy Management Editor GUI, then
+`Backup-GPO`. GPMC recognition verified: gpreport.xml contains
+ExtensionData, side versions non-zero (917518 / 524296 / 262148).
+Note: Backup.xml "Unknown Extension" is Backup-GPO's generic label for
+the GPP CSE — it appears for genuine captures too and does NOT indicate
+non-recognition.
+
+**Synthetic SYSVOL-injection diagnostics** (3 fixtures, retained):
+hand-injected XML collected by Backup-GPO. GPMC did not author them.
+Useful as parser behavior probes and WP-2 container specimens.
+
+**Deliverables:**
+- `tests/fixtures/native-gpp-gpmc/` — genuine sanitized backups with
+  semantic manifests and sanitization-record.json
+- `tests/fixtures/sysvol-injection-diagnostics/` — synthetic diagnostics
+- `tests/test_wp1a_genuine_fixtures.py` — 2691 passed, 10 skipped, 0 xfailed
+- `tests/test_wp1a_native_fixtures.py` — 7 passed, 7 xfailed
+- `docs/plan-033/semantic-manifest-v1.schema.json` — manifest schema
+- `scripts/plan-033/sanitize-gpp-fixtures.py` — recorded sanitizer
+- `docs/plan-033/wp1a-gpmc-authoring-guide.md` — GPMC Editor guide
+
+**Confirmed genuine-vs-synthetic divergences:**
+- GPMC emits `<TaskV2>` (confirmed), Task schema version 1.2 (not 1.3)
+- ImmediateTaskV2 action is Create only (GPMC constraint)
+- Drive thisDrive/allDrives = "NOCHANGE" (not "USE"/"0")
+- GPMC omits false common-option attributes (not always emitted)
+- FilterRunOnce has hidden="1"; FilterOs coexists after promotion
+- Group Properties emits groupSid + groupName + newName=""
+- Principal uses %LogonDomain%\%LogonUser% variables, InteractiveToken
+
+**Remaining for full WP-1A corpus:**
+- 3-adapter canary (Drives, Groups, ScheduledTasks) is approved
+- Full 19-adapter corpus pending additional GPMC sessions
+- Every action/scope/common-option combination per plan step 2
+- Unicode and XML-sensitive values
+- Deliberate unknown attributes/children for preservation tests
+- Mixed-CSE fixtures
+- Public backup-import path integration tests
+- Unknown-content import/export/preservation proof (blocked on WP-2)
+
+**Critical gaps found (all resolved):**
+
+1. **Layout mismatch**: Native GPMC uses `{BACKUP_ID}/DomainSysvol/GPO/
+   {Side}/Preferences/...`; Studio's `read_backup` + `collect_gpp_collections`
+   expect `{GPO_GUID}/{Side}/Preferences/...`. This is the WP-2 gate.
+   **RESOLVED**: collect_gpp_collections now discovers all GPP adapter files.
+2. **File discovery**: `collect_gpp_collections` (import_export.py:96) only
+   reads `Groups/Groups.xml` and `Registry/Registry.xml`. Drives, Services,
+   ScheduledTasks, and all other adapter files are not discovered.
+   **RESOLVED**: collect_gpp_collections now discovers all GPP adapter files.
+3. **TaskV2 vs Task**: `parse_gpp_scheduled_tasks` searches for `<Task>`
+   elements (gpp_adapters.py:2368) but native GPMC emits `<TaskV2>`.
+   Zero scheduled task items are found in native fixtures.
+   **RESOLVED**: parser now searches for both `<TaskV2>` and `<Task>` elements.
+4. **Task model flattening**: `GppScheduledTask` uses scalar fields that
+   cannot represent the Task Scheduler 2.0 XML (multiple triggers, actions,
+   principals, settings, registration info).
+5. **GppGroup vs GppLocalGroup**: `parse_gpp_collection` routes `<Group>`
+   elements to `parse_gpp_groups` (producing `GppGroup`), not to the
+   `local_groups` adapter. `collection.local_groups` is always empty via
+   the normal parse path.
+6. **FilterRunOnce promotion**: `FilterRunOnce` ILT predicates are promoted
+   to `common.apply_once` and removed from the ILT filter (by design).
+
 ### WP-1B — Studio-origin writer conformance
 
 1. First implement and pass WP-2's native backup-format gate.
@@ -190,10 +257,27 @@ XML into an ad hoc directory and call it a GPMC backup.
 
 ## WP-2 — Native GPMC backup-format gate
 
-The current `gpmc_backup_bundle()` output is a deterministic Studio archive,
-not a native Windows Server 2025 `Import-GPO` backup. The existing evidence
-records that it lacks `Backup.xml`, uses the GPO GUID where native backups use
-a distinct backup ID, and uses a non-native directory layout.
+Implementation status (2026-07-27): **certified for Windows Server 2025
+build 26100**. Studio now emits a distinct deterministic backup ID, native v2
+`Backup.xml`, nested `bkupInfo.xml`, and the
+`{BACKUP_ID}/DomainSysvol/GPO/...` layout. A fully Studio-generated,
+registry-both-sides candidate passed `Import-GPO -WhatIf`, actual
+`Import-GPO -CreateIfNeeded`, GroupPolicy registry readback, native
+`Backup-GPO`, side-version reconciliation, and strict cleanup. The certified
+clean-tree run was `wp2-native-import-20260726235913-9111`; every check in
+the local finalizer passed, with source commit `c8b4fa8` and `dirty: false`.
+
+Native GPP emission is deliberately limited to the extension profiles backed
+by genuine GPMC captures: Drive Maps, Local Users and Groups, and Scheduled
+Tasks. Other GPP families fail export with
+`unsupported_native_gpp_extension` rather than guessing Windows metadata.
+Security filtering, WMI association, and SOM links remain separate adapter
+boundaries and are not encoded into the native backup manifest.
+
+Before WP-2, `gpmc_backup_bundle()` emitted a deterministic Studio archive,
+not a native Windows Server 2025 `Import-GPO` backup. The historical evidence
+records that it lacked `Backup.xml`, used the GPO GUID where native backups use
+a distinct backup ID, and used a non-native directory layout.
 
 ### Work
 
@@ -219,6 +303,57 @@ a distinct backup ID, and uses a non-native directory layout.
 - Backup ID, GPO ID, side versions, extension metadata, and content paths are
   correct.
 - Otherwise the capability remains explicitly non-native/preview.
+
+### Evidence and implementation
+
+- Writer: `src/gpo_studio/export.py`
+- Structural/native-fixture contract: `tests/test_native_backup.py`
+- Candidate builder: `scripts/plan-033/build-wp2-candidate.py`
+- Windows import/re-backup harness:
+  `scripts/windows-oracle/run-wp2-import.ps1`
+- Credential-bound orchestrator: `scripts/windows-oracle/run-wp2-oracle.sh`
+- Hashing and semantic/version finalizer:
+  `scripts/windows-oracle/finalize_wp2_import_run.py`
+
+The 2026-07-27 clean-tree pass established:
+
+1. The exact generated backup ID was enumerated without transplanted native
+   metadata.
+2. `-WhatIf` succeeded and an independent query proved that it created no GPO.
+3. Actual import succeeded, and machine/user values matched through
+   `Get-GPRegistryValue`.
+4. Windows `Backup-GPO` reproduced both Registry.pol files byte-for-byte.
+5. Machine and user AD/SYSVOL versions were non-zero and synchronized; packed
+   re-backup versions matched the independent `Get-GPO` state.
+6. Removal and strict GUID re-query confirmed restored state.
+
+Evidence bindings for the certified clean-tree run:
+
+- Studio candidate ZIP:
+  `9af16e44aab4babbcf253419febf51756eeca9d2d9b5b5b11829916f4ef581ea`
+- Windows result JSON:
+  `899337bce139634ac9e35017c0a36ca51bfdfac6d6010f90bb5aeced2a9707a5`
+- Executed Windows harness:
+  `24f3a7174c0276a7c65f16f294667c6ccfb427bd18c3c25eba67a6982bf7505e`
+- Final verification JSON:
+  `51f9bf99709d4929e627af8d4abc66a1183e511498b54e321ecd94b8c634b330`
+
+The run records source commit `c8b4fa8ed37a86eefc1c6886ed54e09619c55cb2`
+with `dirty: false` and independently proves that every deployed harness
+file retrieved from the Windows host matched the committed source-tree
+bytes. The `harness_matches_source` check compares the remotely deployed
+scripts (retrieved post-run via scp) — not source-tree copies — against the
+committed tree. This is the release-certification pass.
+
+The prior dirty-tree run (`wp2-native-import-20260726212733-5804`, source
+commit `5e0a6df`, `dirty: true`) is superseded. Its evidence hashes
+(`6436304a…` result JSON, `b16f4c27…` verification JSON) were sufficient for
+implementation closure but not for release certification. An intermediate
+clean-tree run (`wp2-native-import-20260726224125-1346`, source commit
+`90c1ef6`) is also superseded: its `harness_matches_source` check compared
+source-tree copies rather than remotely deployed files, so it could not
+detect deployment drift. That provenance defect was corrected before the
+certified run above.
 
 ## WP-3 — Security-template conformance
 
