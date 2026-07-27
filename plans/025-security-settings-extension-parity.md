@@ -1,6 +1,11 @@
 # Plan 025 — Security Settings extension parity
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**. `security_template.py`,
+`object_security.py`, `network_security.py`, and `policy_families.py` are
+landed and unit-tested but are reachable from no API endpoint, UI module, or
+export path; their only consumers are their own test modules. Platform wiring
+and Plan 033 Windows evidence both remain open. The `Windows-verified` claim
+in this plan's scope is **not** met.
 Scope: typed, lossless, Windows-verified support for supported in-box Security
 Settings families
 Depends on: Plans 021 and 023 ACL/principal foundations

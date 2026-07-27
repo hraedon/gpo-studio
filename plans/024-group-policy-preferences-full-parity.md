@@ -1,6 +1,10 @@
 # Plan 024 — Group Policy Preferences full parity
 
-Status: proposed (post-1.0)
+Status: implemented — domain layer landed and **surfaced**. `gpp_adapters.py`
+is reachable from the API through `gpp.py`, `canonical.py`, and
+`import_export.py`. Native GPP backup emission is a strict allowlist (Drive
+Maps, Local Users and Groups, Scheduled Tasks); the remaining families require
+Plan 033 WP-1B writer conformance before native emission.
 Scope: extend the 1.0 Groups/Registry slice to every supported in-box preference
 extension, common option, action, collection, and targeting expression
 Depends on: Plans 021, 016, and 023 shared scope/identity types

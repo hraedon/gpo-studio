@@ -417,6 +417,58 @@ dry-run report.
 
 ---
 
+## Post-1.0 domain layers — landed but not surfaced
+
+> **This section is not part of the 1.0 capability contract.** Nothing listed
+> here is reachable by an operator. It is documented because the matrix is the
+> source of truth for what the code contains, and `src/` now contains
+> substantially more than the 1.0 contract describes.
+
+Plans 023–032 were executed as **domain layers first**: typed, unit-tested
+modules that model a capability without wiring it to a delivery surface. The
+platform (API, browser application, export paths) is being caught up to them
+separately. Until that wiring lands, these modules have exactly one consumer
+each — their own test module.
+
+A landed domain layer is **not** a capability. It carries no operator surface
+and, with the exception noted below, no Windows evidence. None of these may be
+promoted into the matrix above without both platform wiring and Plan 033
+oracle evidence.
+
+| Plan | Module(s) | Surfaced | Windows-verified |
+|---|---|---|---|
+| 025 | `security_template.py`, `object_security.py`, `network_security.py`, `policy_families.py` | no | no |
+| 026 | `script_policy.py`, `artifact_store.py` | no | no |
+| 027 | `software_install.py`, `folder_redirection.py` | no | no |
+| 028 | `lifecycle.py`, `gpmc_interop.py` | no | no |
+| 029 | `rsop.py` | no | no |
+| 030 | `publication.py`, `publisher.py` | no | no |
+| 031 | `certification.py` | no | no |
+| 032 | `hosting.py` | no | no |
+
+Landed **and** surfaced, but still not Windows-verified: `som.py`,
+`delegation.py`, `ad_discovery.py`, `wmi_filter.py` (Plan 023) and
+`gpp_adapters.py` (Plan 024). These are reachable from the API and are
+therefore live authoring surfaces whose output no independent Windows oracle
+has yet checked.
+
+Three consequences worth stating plainly:
+
+- **`rsop.py` predicts Windows behavior.** A prediction that has never been
+  compared against `gpresult` is a hypothesis. It must not reach operators
+  before the Plan 033 WP-6 oracle validates it.
+- **`publication.py` / `publisher.py` do not weaken the charter.** Both are
+  pure and side-effect-free; they emit no writes. The web process still never
+  writes to AD or SYSVOL.
+- **`hosting.py` does not make a hosted mode available.** The shipped
+  application remains single-operator and offline-first.
+
+Modules that are correctly unreachable from the API because they are release
+or lab tooling, driven by `scripts/`: `conformance.py`, `oracle_evidence.py`,
+`oracle_harness.py`, `payload.py`, `provenance.py`, `ps_plan_validator.py`.
+
+---
+
 ## PowerShell plan accuracy
 
 The generated `apply.ps1` is a human-reviewable publication plan, not a

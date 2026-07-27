@@ -1,6 +1,10 @@
 # Plan 028 — GPMC lifecycle, backup, migration, and report parity
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**. `lifecycle.py` and
+`gpmc_interop.py` are landed and unit-tested but are reachable from no API
+endpoint or UI module. Note that native GPMC backup emission itself
+(`native_backup.py`) *is* surfaced and carries Plan 033 WP-2 Windows evidence;
+this plan's lifecycle/migration/report layer does not.
 Scope: complete the core GPMC operations around the now-supported setting and
 scope adapters
 Depends on: Plans 021–027 adapter evidence

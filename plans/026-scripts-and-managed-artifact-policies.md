@@ -1,6 +1,9 @@
 # Plan 026 — Scripts and managed-artifact policies
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**. `script_policy.py` and
+`artifact_store.py` are landed and unit-tested but are reachable from no API
+endpoint, UI module, or export path. Platform wiring and Plan 033 Windows
+evidence both remain open.
 Scope: startup/shutdown/logon/logoff and PowerShell script policy with a secure,
 content-addressed artifact lifecycle
 Depends on: Plans 021 and 025 security classification

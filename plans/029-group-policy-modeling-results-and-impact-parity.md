@@ -1,6 +1,10 @@
 # Plan 029 — Group Policy Modeling, Results, and impact parity
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**. `rsop.py` is landed and
+unit-tested but is reachable from no API endpoint or UI module. RSOP
+prediction is inherently a claim about Windows behavior: it must not be
+surfaced to operators before the Plan 033 WP-6 RSOP oracle validates it
+against `gpresult`.
 Scope: match GPMC Modeling/Results workflows and add evidence-bounded impact
 analysis without overstating offline simulation
 Depends on: Plans 023, 025, and 028 reporting

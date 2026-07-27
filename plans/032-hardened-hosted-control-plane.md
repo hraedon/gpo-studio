@@ -1,6 +1,9 @@
 # Plan 032 — Hardened hosted control plane
 
-Status: proposed (post-1.0)
+Status: implemented (domain layer) — **not surfaced**. `hosting.py` models the
+multi-user/authenticated deployment shape but is reachable from no API
+endpoint, and the shipped application remains single-operator and
+offline-first. No hosted mode is available or supported.
 Scope: add a supported, unattended, authenticated, multi-user deployment
 profile without weakening the local workbench or giving the web service
 AD/SYSVOL credentials

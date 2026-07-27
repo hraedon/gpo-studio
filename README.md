@@ -63,6 +63,18 @@ passed for 1.0. The exact environments, artifact identities, limitations, and
 accepted minor accessibility observation are recorded in
 [`docs/release-evidence.md`](docs/release-evidence.md).
 
+### Post-1.0 work in progress
+
+The list above is the 1.0 contract and it is unchanged. Development since 1.0
+has added scope of management, delegation, AD discovery, and full GPP adapter
+coverage as live surfaces, plus a set of Plans 025–032 domain layers that are
+implemented but not yet reachable from the API or browser application. None of
+the post-1.0 work is Windows-verified yet; that evidence is produced by
+[Plan 033](plans/033-windows-external-oracle-validation.md), where WP-0,
+WP-1A, and WP-2 have certified so far. See
+[the capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced)
+for exactly what is and is not reachable.
+
 ## Run it
 
 Installing a release on Windows? Use the
@@ -141,7 +153,25 @@ Operator references:
 | `src/gpo_studio/payload.py` | Publisher payload canonicalization |
 | `src/gpo_studio/wmi_catalogue.py` | WMI filter catalogue |
 | `src/gpo_studio/import_export.py` | Backup import/export domain logic |
+| `src/gpo_studio/native_backup.py` | Native GPMC backup emission (`Backup.xml` v2.0) |
+| `src/gpo_studio/gpp_adapters.py` | Per-family GPP adapters |
+| `src/gpo_studio/som.py` | Scope of management, links, inheritance, loopback |
+| `src/gpo_studio/delegation.py` | Delegation and effective rights |
+| `src/gpo_studio/wmi_filter.py` | WMI filter objects and associations |
+| `src/gpo_studio/ad_discovery.py` | Discovery script generation and JSON parsing |
 | `src/gpo_studio/static/` | Dependency-free browser application |
+
+Release and lab tooling, driven by `scripts/`: `conformance.py`,
+`oracle_evidence.py`, `oracle_harness.py`, `payload.py`, `provenance.py`,
+`ps_plan_validator.py`.
+
+`src/` also contains the Plans 025–032 domain layers
+(`security_template`, `object_security`, `network_security`,
+`policy_families`, `script_policy`, `artifact_store`, `software_install`,
+`folder_redirection`, `lifecycle`, `gpmc_interop`, `rsop`, `publication`,
+`publisher`, `certification`, `hosting`). These are landed and unit-tested but
+are **not reachable from any operator surface** — see
+[the capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced).
 
 ## License
 

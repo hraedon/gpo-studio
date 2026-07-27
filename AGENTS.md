@@ -24,6 +24,18 @@ must never write directly to Active Directory or SYSVOL.
   at every unhandled site.
 - Avoid secrets in the workspace, logs, fixtures, and generated plans.
 - Keep the core (`model`, `store`, `registry_pol`) independent from FastAPI.
+- **A landed domain layer is not a capability.** Plans are routinely executed
+  as typed, unit-tested modules before any delivery surface exists. A module
+  becomes a capability only when it is reachable by an operator *and* has
+  Windows evidence. Until then it does not belong in the 1.0 capability matrix
+  — record it in the post-1.0 section instead.
+- **Keep plan status lines true.** When a plan's implementation lands, update
+  its `Status:` line in the same change. Say whether the work is surfaced and
+  whether it is Windows-verified. Stale `proposed` headers on implemented
+  plans have been a repeat defect in this project; a plan header that lies is
+  a bug in the same sense the capability matrix is.
+- Self-consistency is not evidence. Round-trip tests prove Studio can read its
+  own output; only the Plan 033 oracle proves Windows agrees.
 
 ## Build and verify
 
