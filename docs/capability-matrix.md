@@ -73,7 +73,7 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 | Revision history and restore | supported | &#10003; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Estate import (gpo-lens) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; |
 | GPMC backup import (single-GPO) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | native-origin-read |
-| GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry only) |
+| GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry, Drives, Local Users and Groups) |
 | Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | verified |
 | cpassword | blocked | &#10007; | &#10007; | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Unknown CSE content | preserved | &#10007; | &#9680; | &#10007; | &mdash; | &#10003; | &#10003; | &mdash; |
@@ -87,9 +87,20 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 > but do **not** meet this gate because no native Windows tooling path
 > validated them: WMI filters, GPP Registry, and ILT predicates beyond the
 > verified GPP backup families. Plan 033 WP-2 has since validated native GPMC
-> backup import/export for raw registry policy on Windows Server 2025; GPP
-> Drives, Groups, and Scheduled Tasks have native extension metadata but still
-> require WP-1B writer conformance. The remaining capabilities stay in scope for
+> backup import/export for raw registry policy on Windows Server 2025. Plan 033
+> WP-1B has since certified Studio-origin writer conformance on Windows Server
+> 2025 for GPP **Drives** and **Local Users and Groups** (both the Groups and
+> the Users item kinds): each was imported with `Import-GPO`, rendered by GPMC
+> as the correct typed item, and re-exported by `Backup-GPO` with no semantic
+> difference from the authoring model.
+>
+> **GPP Scheduled Tasks is explicitly NOT promoted.** It fails WP-1B on shape:
+> Studio emits `TaskV2` elements carrying the Task Scheduler 1.0 scalar
+> attributes with no embedded `<Task>` payload, which is the inverse of every
+> genuine GPMC capture. GPMC's report echoes the scalars back, so no round trip
+> detects it, and whether the client-side extension honours the form is unproven
+> in either direction. It stays `unit-verified` pending endpoint evidence. See
+> Plan 033 finding WP-1B-1. The remaining capabilities stay in scope for
 > authoring and artifact generation; their Windows-lab validation is
 > explicitly deferred to a post-1.0 lab cycle or a future PowerShell plan
 > enhancement that applies them natively.
