@@ -103,3 +103,45 @@ Scheduled Tasks arguments, where GPMC permits it. This is a Windows-side
 authoring constraint, not a gap in the capture. It raises an open
 validation-parity question: Studio does not currently reject `"` in shortcut or
 file names, so it accepts input GPMC would refuse.
+
+## `WI01A-NestedILT-GPMC` (2026-07-27) — the P2 fixture
+
+Authored specifically to settle prediction P2, which the batch-2 captures could
+not test. `FilterCollection` appears in exactly one other capture
+(`WI01A-Power-GPMC`), but P1 came true there — the whole `GlobalPowerOptionsV2`
+item is preserved as unknown content, so its nested ILT never reaches
+`parse_ilt`. P1 being correct made P2 unobservable in the same fixture.
+
+One Drive Maps item (`N:`), chosen because Drive Maps is already cross-validated,
+natively emittable, and parses typed — so the collection actually reaches the ILT
+parser. Its targeting is:
+
+```
+FilterGroup    GPOSTUDIO\p2-outer     AND      <- typed, before
+FilterCollection                      AND
+    FilterOrgUnit  OU=Lab-WS2,…       AND
+    FilterOrgUnit  OU=Lab-WS1,…       OR
+FilterDomain   ad.hraedon.com         AND      <- typed, after
+```
+
+Four properties make it discriminating:
+
+1. the collection's children are *mapped* predicate types, so a flattening bug
+   would surface them as top-level typed predicates — the only way to tell
+   "preserved as a group" from "silently flattened";
+2. typed predicates sit on **both sides**, the only arrangement that can catch
+   a reordering;
+3. `AND` outside with `OR` inside, because grouping is the point —
+   `A AND (B OR C)` is not `A AND B OR C`;
+4. no OS filter, deliberately, so a P2 failure cannot be confused with WI-021.
+
+**Result: P2 confirmed.** `ilt_filter.items` is three entries in document order —
+typed `group`, one opaque string holding the entire `FilterCollection` subtree
+with both `FilterOrgUnit` children and their `bool` operators, typed `domain`.
+It survives re-serialization from the typed model (via `mark_edited`, so the
+verbatim source bytes are dropped and the XML is rebuilt), and the GPMC report
+agrees with the backup. Pinned by `test_nested_ilt_collection_is_preserved_whole_and_in_order`
+and `test_nested_ilt_survives_reserialization_from_the_typed_model`.
+
+Nested ILT is therefore **preserve-only**: correct and lossless, but not
+modelled. Studio cannot display, edit, or reason about a targeting collection.

@@ -598,6 +598,49 @@
       "transformations_applied": [
         "replace-domain-sid"
       ]
+    },
+    {
+      "relative_path": "WI01A-NestedILT-GPMC/gpreport-verify.xml",
+      "raw_sha256": "f0d4f40a5df38b0cc60b01cebeb18a012b3121d2a36d06be66ae7ff76406a589",
+      "sanitized_sha256": "d8e2b489bc202d91b8a04a960edc5373447d4c9a303b1f9683ee3f5e61161112",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-NestedILT-GPMC/manifest.xml",
+      "raw_sha256": "0ac46d0eb3696e79629daa6b188726e4fb8452bb114aa6bbb599abeb45e3fd96",
+      "sanitized_sha256": "0ac46d0eb3696e79629daa6b188726e4fb8452bb114aa6bbb599abeb45e3fd96",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-NestedILT-GPMC/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/Backup.xml",
+      "raw_sha256": "0fa95fe0acb99027eb64179e395667583bbf50ddf1315f90e0fa8c86ae146e77",
+      "sanitized_sha256": "42038ff8f8d77226cc9c93a4bef6eddd620e310f495e8458a433b3e025910801",
+      "transformations_applied": [
+        "replace-domain-sid",
+        "replace-sd-hex"
+      ]
+    },
+    {
+      "relative_path": "WI01A-NestedILT-GPMC/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml",
+      "raw_sha256": "cfa6f0cdceb3d9c080e1eb93972c7c9ac61fb0c9327ec7e293fdff5f948d5e14",
+      "sanitized_sha256": "cfa6f0cdceb3d9c080e1eb93972c7c9ac61fb0c9327ec7e293fdff5f948d5e14",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-NestedILT-GPMC/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/bkupInfo.xml",
+      "raw_sha256": "a7365131171a8fa6ea74c3bc1dfcf8142b419bb55083eb78367bce8dc8dc550e",
+      "sanitized_sha256": "a7365131171a8fa6ea74c3bc1dfcf8142b419bb55083eb78367bce8dc8dc550e",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-NestedILT-GPMC/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/gpreport.xml",
+      "raw_sha256": "4393294971b976f14c9b720c1267388f5fe97164757ed1863990451d472f7964",
+      "sanitized_sha256": "6fe55eff7bdff7caad4a0e1d6dced8d1c36dba9ef34be3a52815d15a9784f799",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
     }
   ],
   "batches": [
@@ -608,6 +651,10 @@
     {
       "source": "/tmp/gpp-gpmc-native-3",
       "timestamp": "2026-07-27T21:50:55+00:00"
+    },
+    {
+      "source": "/tmp/claude-1000/-projects/6d9f207e-6091-464b-ad6d-ce5e808929d7/scratchpad/rawnested",
+      "timestamp": "2026-07-27T23:15:18+00:00"
     }
   ]
 }
