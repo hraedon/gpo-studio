@@ -35,8 +35,17 @@ from typing import Any, Literal
 from .gpp import GppCollection, parse_gpp_collection
 from .import_export import collect_gpp_collections, extract_side_settings
 from .model import GPO
+from .xml_safety import parse_xml_bounded
 
 WRITER_SUMMARY_VERSION = "gpo-studio.writer-conformance.v1"
+
+#: A GPMC XML report is lab-supplied input, not trusted content, so it is parsed
+#: under the same structural bounds as the rest of the oracle evidence path.
+MAX_REPORT_XML_BYTES = 32 * 1024 * 1024
+
+
+class WriterConformanceError(ValueError):
+    """A writer-conformance input could not be read safely."""
 
 #: GPP families Studio can emit into a native backup container.  Kept in sync
 #: with ``_GPP_EXTENSION_PROFILES`` in :mod:`gpo_studio.export`; a family absent
@@ -339,7 +348,11 @@ def summary_from_gpmc_report(report_path: Path) -> dict[str, object]:
     ``registry.pol``; the registry side is covered independently by the
     harness's ``Get-GPRegistryValue`` readback.
     """
-    root = ET.fromstring(report_path.read_bytes())
+    root = parse_xml_bounded(
+        report_path.read_bytes(),
+        max_size=MAX_REPORT_XML_BYTES,
+        error_class=WriterConformanceError,
+    )
     preferences: dict[str, object] = {}
     for scope, side in (("computer", "Computer"), ("user", "User")):
         side_element = root.find(f"{{{_SETTINGS_NS}}}{side}")
