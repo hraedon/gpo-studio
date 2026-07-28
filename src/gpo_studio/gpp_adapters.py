@@ -2417,6 +2417,57 @@ def _extract_task_xml(props: ET.Element) -> str:
     return ET.tostring(task_elem, encoding="unicode")
 
 
+def _project_triggers_from_task_xml(
+    task_xml: str,
+) -> tuple[_ScheduledTaskTriggerType, str, str] | None:
+    """Recover (trigger_type, trigger_time, trigger_days) from a Task payload.
+
+    A TaskV2 keeps its schedule inside the embedded <Task>, so without this the
+    scalar trigger fields would be lost the moment Studio stopped emitting the
+    (ignored) v1 attributes. The embedded payload is the authority and the
+    scalars are a projection of it -- in both directions.
+
+    Returns ``None`` when the payload carries no trigger this scalar model can
+    represent (multiple triggers, SessionStateChangeTrigger, and similar). The
+    caller then leaves the scalars at their defaults rather than inventing a
+    schedule; ``task_xml`` still round-trips the real thing verbatim.
+    """
+    if not task_xml:
+        return None
+    try:
+        task_elem = _bounded_parse(task_xml.encode("utf-8"))
+    except GppError:
+        return None
+    triggers = _find_local(task_elem, "Triggers")
+    if triggers is None or len(triggers) != 1:
+        return None
+    trigger = triggers[0]
+    kind = _local_name(trigger.tag)
+    start = _find_local(trigger, "StartBoundary")
+    when = (start.text or "") if start is not None else ""
+    if when == _UNSPECIFIED_START_BOUNDARY:
+        when = ""
+    if kind == "TimeTrigger":
+        return ("once", when, "")
+    if kind != "CalendarTrigger":
+        return None
+    if _find_local(trigger, "ScheduleByDay") is not None:
+        return ("daily", when, "")
+    by_week = _find_local(trigger, "ScheduleByWeek")
+    if by_week is not None:
+        days = _find_local(by_week, "DaysOfWeek")
+        first = _local_name(days[0].tag) if days is not None and len(days) else ""
+        return ("weekly", when, first)
+    by_month = _find_local(trigger, "ScheduleByMonth")
+    if by_month is not None:
+        days = _find_local(by_month, "DaysOfMonth")
+        day = ""
+        if days is not None and len(days):
+            day = (days[0].text or "").strip()
+        return ("monthly", when, day)
+    return None
+
+
 def _project_from_task_xml(
     task_xml: str,
 ) -> tuple[str, str, str]:
@@ -2462,6 +2513,116 @@ def _append_task_xml_to_props(elem: ET.Element, task_xml: str) -> None:
     props.append(task_elem)
 
 
+# Structural template taken verbatim from genuine GPMC TaskV2 captures in
+# tests/fixtures/native-gpp-gpmc. Every element and default below appears in
+# real Windows Server 2025 output; nothing here is invented.
+_TASK_V2_SETTINGS = (
+    "<Settings>"
+    "<IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout>"
+    "<StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>"
+    "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>"
+    "<DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>"
+    "<StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>"
+    "<AllowHardTerminate>false</AllowHardTerminate>"
+    "<RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>"
+    "<AllowStartOnDemand>true</AllowStartOnDemand>"
+    "<Enabled>{enabled}</Enabled>"
+    "<Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun>"
+    "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority>"
+    "</Settings>"
+)
+
+_ALL_MONTHS = (
+    "<Months><January></January><February></February><March></March><April></April>"
+    "<May></May><June></June><July></July><August></August><September></September>"
+    "<October></October><November></November><December></December></Months>"
+)
+
+#: Trigger forms with a genuine capture behind them. "at_logon" and "at_startup"
+#: are deliberately absent: Studio's model offers them but no capture shows what
+#: GPMC emits, and inventing a LogonTrigger/BootTrigger shape is precisely how
+#: WI-018 and WI-021 happened.
+_SYNTHESIZABLE_TRIGGERS: frozenset[str] = frozenset({"once", "daily", "weekly", "monthly"})
+
+#: The Task Scheduler schema requires a StartBoundary, but Studio's scalar model
+#: allows an unspecified trigger_time. This stands in for "unspecified" and is
+#: mapped back to the empty string on parse, so the round trip stays lossless
+#: rather than the model silently acquiring a 1970 timestamp it never authored.
+#: A boundary in the past simply means the schedule is already active.
+_UNSPECIFIED_START_BOUNDARY = "1970-01-01T00:00:00"
+
+
+def _xml_text(value: str) -> str:
+    """Escape text for embedding in the hand-built Task payload."""
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _task_v2_trigger_xml(task: GppScheduledTask) -> str:
+    """Build the <Triggers> payload for a TaskV2 from the scalar model."""
+    boundary = task.trigger_time or _UNSPECIFIED_START_BOUNDARY
+    enabled = "true" if task.enabled else "false"
+    if task.trigger_type == "once":
+        return (
+            f"<Triggers><TimeTrigger><StartBoundary>{_xml_text(boundary)}</StartBoundary>"
+            f"<Enabled>{enabled}</Enabled></TimeTrigger></Triggers>"
+        )
+    if task.trigger_type == "daily":
+        schedule = "<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>"
+    elif task.trigger_type == "weekly":
+        days = task.trigger_days or "Sunday"
+        schedule = (
+            "<ScheduleByWeek><WeeksInterval>1</WeeksInterval>"
+            f"<DaysOfWeek><{_xml_text(days)}/></DaysOfWeek></ScheduleByWeek>"
+        )
+    else:
+        day = task.trigger_days or "1"
+        schedule = (
+            f"<ScheduleByMonth><DaysOfMonth><Day>{_xml_text(day)}</Day></DaysOfMonth>"
+            f"{_ALL_MONTHS}</ScheduleByMonth>"
+        )
+    return (
+        f"<Triggers><CalendarTrigger><StartBoundary>{_xml_text(boundary)}</StartBoundary>"
+        f"<Enabled>{enabled}</Enabled>{schedule}</CalendarTrigger></Triggers>"
+    )
+
+
+def _synthesize_task_v2_xml(task: GppScheduledTask) -> str:
+    """Build an embedded <Task> payload for a TaskV2 authored through scalars.
+
+    Genuine GPMC TaskV2 items carry their actions and triggers HERE, never in
+    scalar Properties attributes. Studio previously emitted the Task Scheduler
+    1.0 scalar set on a TaskV2 element with no payload at all, which the
+    Scheduled Tasks CSE silently ignored -- the task was never created
+    (WI-018, endpoint-confirmed 2026-07-27).
+    """
+    if task.trigger_type not in _SYNTHESIZABLE_TRIGGERS:
+        raise GppError(
+            f"Scheduled task {task.name!r} uses trigger type "
+            f"{task.trigger_type!r}, which has no captured GPMC form. Supply "
+            f"task_xml explicitly, or use one of: "
+            f"{', '.join(sorted(_SYNTHESIZABLE_TRIGGERS))}."
+        )
+    run_as = task.run_as or "%LogonDomain%\\%LogonUser%"
+    enabled = "true" if task.enabled else "false"
+    return (
+        '<Task version="1.2">'
+        "<RegistrationInfo><Author>GPO Studio</Author><Description></Description>"
+        "</RegistrationInfo>"
+        '<Principals><Principal id="Author">'
+        f"<UserId>{_xml_text(run_as)}</UserId>"
+        "<LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel>"
+        "</Principal></Principals>"
+        + _TASK_V2_SETTINGS.format(enabled=enabled)
+        + _task_v2_trigger_xml(task)
+        + '<Actions Context="Author"><Exec>'
+        + f"<Command>{_xml_text(task.program)}</Command>"
+        + f"<Arguments>{_xml_text(task.arguments)}</Arguments>"
+        + f"<WorkingDirectory>{_xml_text(task.start_in)}</WorkingDirectory>"
+        + "</Exec></Actions>"
+        + "</Task>"
+    )
+
+
 def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
     _deny_password(
         task.run_as_password,
@@ -2478,16 +2639,15 @@ def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
         clsid_override = _TASK_CLSID
     else:
         assert_never(task.element_variant)
-    elem = _build_item_element(
-        "scheduled_tasks",
-        item_name=task.name,
-        action=task.action,
-        common=task.common,
-        ilt_filter=task.ilt_filter,
-        unknown_attrs=task.unknown_attrs,
-        unknown_children=task.unknown_children,
-        unknown_props_children=task.unknown_props_children,
-        props_attrs={
+    # A TaskV2 carries its actions and triggers in an embedded <Task> payload;
+    # the Task Scheduler 1.0 scalar attributes belong to the v1 <Task> element
+    # and are silently ignored on a v2 item (WI-018). The two shapes are
+    # therefore mutually exclusive, not additive.
+    if task.element_variant == "TaskV2":
+        props_attrs = {"name": task.name, "runAs": task.run_as}
+        task_xml = task.task_xml or _synthesize_task_v2_xml(task)
+    else:
+        props_attrs = {
             "name": task.name,
             "runAs": task.run_as,
             "program": task.program,
@@ -2497,11 +2657,22 @@ def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
             "triggerType": _trigger_type_to_code(task.trigger_type),
             "triggerTime": task.trigger_time,
             "triggerDays": task.trigger_days,
-        },
+        }
+        task_xml = task.task_xml
+    elem = _build_item_element(
+        "scheduled_tasks",
+        item_name=task.name,
+        action=task.action,
+        common=task.common,
+        ilt_filter=task.ilt_filter,
+        unknown_attrs=task.unknown_attrs,
+        unknown_children=task.unknown_children,
+        unknown_props_children=task.unknown_props_children,
+        props_attrs=props_attrs,
         item_tag_override=tag_override,
         item_clsid_override=clsid_override,
     )
-    _append_task_xml_to_props(elem, task.task_xml)
+    _append_task_xml_to_props(elem, task_xml)
     return elem
 
 
@@ -2532,6 +2703,13 @@ def _parse_scheduled_task_item(elem: ET.Element) -> GppScheduledTask:
         start_in = props.get("startIn", "")
         if not program and task_xml:
             program, arguments, start_in = _project_from_task_xml(task_xml)
+        trigger_type = _code_to_trigger_type(props.get("triggerType", "ONCE"))
+        trigger_time = props.get("triggerTime", "")
+        trigger_days = props.get("triggerDays", "")
+        if "triggerType" not in props.attrib:
+            projected = _project_triggers_from_task_xml(task_xml)
+            if projected is not None:
+                trigger_type, trigger_time, trigger_days = projected
         return GppScheduledTask(
             name=name,
             run_as=props.get("runAs", ""),
@@ -2539,11 +2717,9 @@ def _parse_scheduled_task_item(elem: ET.Element) -> GppScheduledTask:
             arguments=arguments,
             start_in=start_in,
             enabled=props.get("enabled", "1") == "1",
-            trigger_type=_code_to_trigger_type(
-                props.get("triggerType", "ONCE")
-            ),
-            trigger_time=props.get("triggerTime", ""),
-            trigger_days=props.get("triggerDays", ""),
+            trigger_type=trigger_type,
+            trigger_time=trigger_time,
+            trigger_days=trigger_days,
             task_xml=task_xml,
             action=action,
             common=common,

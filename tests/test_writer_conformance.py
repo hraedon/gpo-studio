@@ -374,36 +374,34 @@ def test_report_reader_preserves_task_scheduler_2_command() -> None:
     assert [task["program"] for task in tasks if task["program"]]
 
 
-def test_native_shape_findings_flag_taskv2_without_embedded_payload() -> None:
-    """Studio's scalar TaskV2 authoring has no genuine GPMC precedent.
+def test_taskv2_authoring_now_emits_the_native_shape() -> None:
+    """WI-018 inverted: a scalar-authored TaskV2 emits a genuine payload.
 
-    GPMC echoes the scalar attributes back in its report, so a round trip cannot
-    detect this; the shape is therefore checked against the native corpus.
+    Studio used to emit the Task Scheduler 1.0 attributes on a TaskV2 element
+    with no <Task> payload, which the CSE silently ignored -- the task was never
+    created (endpoint-confirmed 2026-07-27). The writer now synthesizes the
+    payload, and this gate checks the SERIALIZED output rather than the model,
+    because those legitimately differ now.
     """
-    findings = native_shape_findings(_gpo(scheduled_tasks=(TASK,)))
-    assert len(findings) == 2
-    assert any("no embedded <Task> payload" in finding for finding in findings)
-    assert any("Task Scheduler 1.0 scalar properties" in finding for finding in findings)
+    assert native_shape_findings(_gpo(scheduled_tasks=(TASK,))) == ()
 
 
-def test_embedded_task_payload_clears_only_the_missing_payload_finding() -> None:
-    """The scalar-attribute finding is unconditional for TaskV2.
-
-    Studio's serializer writes the whole v1 attribute set on every TaskV2
-    element, defaults included, so supplying an embedded payload does not make
-    the emitted shape native.
-    """
+def test_explicit_task_payload_is_preserved_over_synthesis() -> None:
+    """An operator-supplied payload wins; synthesis only fills a gap."""
     embedded = replace(
         TASK,
         task_xml=(
             '<Task version="1.2"><Actions Context="Author"><Exec>'
-            "<Command>C:\\Windows\\System32\\cmd.exe</Command>"
+            "<Command>C:\\Windows\\System32\\notepad.exe</Command>"
             "</Exec></Actions></Task>"
         ),
     )
-    findings = native_shape_findings(_gpo(scheduled_tasks=(embedded,)))
-    assert len(findings) == 1
-    assert "Task Scheduler 1.0 scalar properties" in findings[0]
+    assert native_shape_findings(_gpo(scheduled_tasks=(embedded,))) == ()
+    emitted = serialize_gpp(
+        GppCollection(scope="computer", scheduled_tasks=(embedded,))
+    )["ScheduledTasks/ScheduledTasks.xml"]
+    assert b"notepad.exe" in emitted
+    assert b"cmd.exe" not in emitted
 
 
 def test_task_scheduler_1_variant_is_not_flagged() -> None:

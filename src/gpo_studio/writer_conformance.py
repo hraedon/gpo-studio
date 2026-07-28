@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .gpp import GppCollection, parse_gpp_collection
+from .gpp import GppCollection, GppError, parse_gpp_collection, serialize_gpp
 from .import_export import collect_gpp_collections, extract_side_settings
 from .model import GPO
 from .xml_safety import parse_xml_bounded
@@ -365,21 +365,29 @@ def summary_from_gpmc_report(report_path: Path) -> dict[str, object]:
     return {"version": WRITER_SUMMARY_VERSION, "preferences": preferences}
 
 
-#: Attributes genuine GPMC never writes on a ``TaskV2`` item's ``Properties``.
-#: They belong to the Task Scheduler 1.0 (``Task``) schema; a v2 item carries its
-#: actions and triggers inside an embedded ``<Task version="...">`` payload.
-_TASK_V1_ONLY_PROPERTIES: tuple[str, ...] = (
+#: XML attributes genuine GPMC never writes on a ``TaskV2`` item's
+#: ``Properties``. They belong to the Task Scheduler 1.0 (``Task``) schema; a v2
+#: item carries its actions and triggers inside an embedded ``<Task>`` payload.
+_TASK_V1_ONLY_ATTRIBUTES: frozenset[str] = frozenset({
     "program",
     "arguments",
-    "start_in",
-    "trigger_type",
-    "trigger_time",
-    "trigger_days",
-)
+    "startIn",
+    "enabled",
+    "triggerType",
+    "triggerTime",
+    "triggerDays",
+})
 
 
 def native_shape_findings(gpo: GPO) -> tuple[str, ...]:
-    """Report authored items whose emitted shape has no genuine GPMC precedent.
+    """Report emitted items whose shape has no genuine GPMC precedent.
+
+    Checks the SERIALIZED output, not the model. That distinction matters: the
+    scheduled-task writer synthesizes an embedded ``<Task>`` payload at
+    serialization time, so a model with an empty ``task_xml`` and populated
+    scalar fields still emits a correct element. An earlier version of this
+    function inspected the model as a proxy for the output and became wrong the
+    moment the two legitimately diverged.
 
     A GPMC report round trip cannot detect this class of defect: GPMC echoes
     back attributes it does not act on, so an item can survive import, report,
@@ -390,25 +398,57 @@ def native_shape_findings(gpo: GPO) -> tuple[str, ...]:
     """
     findings: list[str] = []
     for collection in gpo.gpp_collections:
-        for task in collection.scheduled_tasks:
-            # The v1 ``Task`` element is the schema these scalar properties
-            # belong to, so it is not flagged.
-            if task.element_variant != "TaskV2":
-                continue
-            if not task.task_xml:
-                findings.append(
-                    f"scheduled task {task.name!r} ({collection.scope}) is emitted as TaskV2 "
-                    "with no embedded <Task> payload; genuine GPMC TaskV2 items always carry "
-                    "one, so the Scheduled Tasks CSE has nothing to act on"
-                )
-            # The serializer writes the whole v1 scalar attribute set on every
-            # TaskV2 element unconditionally, defaults included, so this holds
-            # for any TaskV2 Studio authors.
-            findings.append(
-                f"scheduled task {task.name!r} ({collection.scope}) is emitted with Task "
-                f"Scheduler 1.0 scalar properties ({', '.join(_TASK_V1_ONLY_PROPERTIES)}) on a "
-                "TaskV2 element; genuine GPMC TaskV2 items never carry them"
+        if not collection.scheduled_tasks and not collection.immediate_tasks:
+            continue
+        try:
+            emitted = serialize_gpp(collection).get("ScheduledTasks/ScheduledTasks.xml")
+        except GppError as error:
+            findings.append(f"scheduled tasks ({collection.scope}) do not serialize: {error}")
+            continue
+        if emitted is None:
+            continue
+        try:
+            root = parse_xml_bounded(
+                emitted,
+                max_size=MAX_REPORT_XML_BYTES,
+                error_class=WriterConformanceError,
             )
+        except WriterConformanceError as error:  # pragma: no cover - we produced this XML
+            findings.append(f"scheduled tasks ({collection.scope}) emit invalid XML: {error}")
+            continue
+        for item in root:
+            if item.tag.split("}", 1)[-1] != "TaskV2":
+                continue
+            name = item.get("name", "")
+            properties = next(
+                (child for child in item if child.tag.split("}", 1)[-1] == "Properties"), None
+            )
+            if properties is None:
+                findings.append(
+                    f"scheduled task {name!r} ({collection.scope}) emits a TaskV2 with no "
+                    "Properties element"
+                )
+                continue
+            has_payload = any(
+                child.tag.split("}", 1)[-1] == "Task" for child in properties
+            )
+            if not has_payload:
+                findings.append(
+                    f"scheduled task {name!r} ({collection.scope}) is emitted as TaskV2 "
+                    "with no embedded <Task> payload; genuine GPMC TaskV2 items always "
+                    "carry one, so the Scheduled Tasks CSE has nothing to act on"
+                )
+            scalars = sorted(
+                attribute
+                for attribute in _TASK_V1_ONLY_ATTRIBUTES
+                if attribute in properties.attrib
+            )
+            if scalars:
+                findings.append(
+                    f"scheduled task {name!r} ({collection.scope}) is emitted with Task "
+                    f"Scheduler 1.0 scalar properties ({', '.join(scalars)}) on a TaskV2 "
+                    "element; genuine GPMC TaskV2 items never carry them"
+                )
     return tuple(findings)
 
 
