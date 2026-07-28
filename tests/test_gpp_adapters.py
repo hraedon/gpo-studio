@@ -1768,7 +1768,11 @@ def test_gpp_collection_with_privileged_adapters() -> None:
     # still round-trip unchanged.
     round_tripped = parsed.scheduled_tasks[0]
     assert round_tripped.task_xml
-    assert replace(round_tripped, task_xml="") == col.scheduled_tasks[0]
+    # A TaskV2 authored with no run_as gains GPMC's scope default, because an
+    # empty identity makes Windows create nothing at all (WI-018 bisect).
+    assert round_tripped.run_as == "NT AUTHORITY\\System"
+    normalized = replace(round_tripped, task_xml="", run_as="")
+    assert normalized == col.scheduled_tasks[0]
     assert len(parsed.immediate_tasks) == 1
     assert parsed.immediate_tasks[0] == col.immediate_tasks[0]
 
@@ -2203,3 +2207,30 @@ def test_taskv2_preserves_an_explicit_iso_start_boundary() -> None:
     data = serialize_gpp_scheduled_tasks((task,), "computer")
     assert b"<StartBoundary>2026-01-01T03:00:00</StartBoundary>" in data
     assert parse_gpp_scheduled_tasks(data)[0].trigger_time == "2026-01-01T03:00:00"
+
+
+def test_taskv2_run_as_defaults_to_gpmc_scope_default() -> None:
+    """An empty runAs makes Windows create no task at all.
+
+    Bisected at the endpoint on 2026-07-28: with every other field identical,
+    the only variant that produced a task was the one carrying an identity. The
+    CSE logs nothing either way, so this is invisible short of measuring it.
+    The defaults below are GPMC's own, read from the native corpus.
+    """
+    task = GppScheduledTask(name="T", program=r"c:\tool.exe", trigger_type="daily")
+    for scope, expected in (
+        ("computer", b"NT AUTHORITY\\System"),
+        ("user", b"%LogonDomain%\\%LogonUser%"),
+    ):
+        data = serialize_gpp_scheduled_tasks((task,), scope)  # type: ignore[arg-type]
+        assert b'runAs="' + expected + b'"' in data
+        assert b"<UserId>" + expected + b"</UserId>" in data
+
+
+def test_taskv2_explicit_run_as_is_never_overridden() -> None:
+    task = GppScheduledTask(
+        name="T", run_as=r"DOMAIN\svc-task", program=r"c:\tool.exe", trigger_type="daily"
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b'runAs="DOMAIN\\svc-task"' in data
+    assert b"NT AUTHORITY" not in data
