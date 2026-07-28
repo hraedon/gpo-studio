@@ -602,10 +602,10 @@ Cleanup verified that neither the `.sdb` nor its ESENT `.jfm` companion
 remained.
 
 The clean-tree certified run is
-`wp3-security-template-20260727212137-3600`, bound to source commit
-`f2a912df6b1e2ae698284897bff2993ffe5699f9`. Evidence is recorded in
+`wp3-security-template-20260727220623-7682`, bound to source commit
+`fdb46004c2f838f5b5eb6a693ebdf7f99d4ee71a`. Evidence is recorded in
 `docs/plan-033/wp3-evidence/verification.json`; its SHA-256 is
-`d57fcabe14eb6659ae9d528d7edc17e384709f3dab0419b7eace1beabc661ec0`.
+`7400d1679fc665ca9f405ed3af7b55967b6cbdf47b0ce57a9c8960ac1ea46339`.
 Candidate and Windows-export hashes are respectively
 `27bea20d6141bf063918bfe939291b602d5b3a01916f732057d81acc9699ac83`
 and
