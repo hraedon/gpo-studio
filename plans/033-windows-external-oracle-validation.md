@@ -616,6 +616,23 @@ native GPMC/secedit corpus and the `group_mgmt`, `regkeys`, `filestore`, and
 `services` areas remain open, so WP-3 as a whole is not complete and Plan 025
 is not promoted to surfaced or live-RW.
 
+The comparison is intentionally asymmetric. Studio's candidate must contain
+the exact authored section/key set in its semantic manifest, so an unexpected
+privilege or policy fails certification. The Windows export comparison is a
+subset check because `secedit` can add defaults; every authored value must
+survive, while additional Windows-owned defaults are retained as evidence
+rather than attributed to Studio.
+
+Open evidence-policy follow-ups from the PR 19 review:
+
+- define a WP-3 environment qualification profile that matches the OS and
+  PowerShell build family without failing on every servicing revision, records
+  the exact revision, and does not gate on tools such as LGPO that this harness
+  never invokes; document the explicit re-freeze step for a new build;
+- replace the hard-coded shared-host target and scheduled-task password
+  transport with a dedicated disposable-host requirement before expanding
+  this lane.
+
 ### Corpus
 
 Use both:

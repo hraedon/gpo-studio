@@ -146,6 +146,12 @@ def test_decode_security_template_rejects_invalid_utf16le() -> None:
         decode_security_template(b"\xff\xfe\x00")
 
 
+def test_decode_security_template_rejects_utf32le_bom() -> None:
+    data = "[Unicode]\r\nUnicode=yes\r\n".encode("utf-32")
+    with pytest.raises(SecurityTemplateError, match="must not use UTF-32LE"):
+        decode_security_template(data)
+
+
 def test_unicode_preamble_is_a_known_section() -> None:
     template = parse_security_template("[Unicode]\nUnicode=yes\n")
     assert template.parse_warnings == ()
