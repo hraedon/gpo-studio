@@ -269,6 +269,18 @@ def test_parse_legacy_filter_names() -> None:
     assert result.predicates[2].type == "wmi_query"
 
 
+def test_parse_legacy_os_filter_preserves_unknown_version() -> None:
+    result = parse_ilt(
+        ET.fromstring(
+            b"<Filters><FilterOS osType=\"FUTURE_VERSION\" not=\"0\"/></Filters>"
+        )
+    )
+    criteria = result.predicates[0].os_criteria
+    assert criteria is not None
+    assert criteria.version == "FUTURE_VERSION"
+    assert criteria.unrecognized() == ("version='FUTURE_VERSION'",)
+
+
 def test_serialize_invalid_ip_range_raises() -> None:
     pred = IltPredicate(type="ip_range", value="not-an-ip-range")
     with pytest.raises(IltError, match="Invalid IP range format"):
@@ -465,6 +477,49 @@ def test_dict_conversion_preserves_ilt() -> None:
         r.ilt_filter.predicates[0].value
         == "SELECT * FROM Win32_OperatingSystem WHERE ProductType=1"
     )
+
+
+@pytest.mark.parametrize(
+    "legacy_filter",
+    [
+        {
+            "items": [
+                {
+                    "type": "os",
+                    "negate": False,
+                    "value": "WIN7",
+                    "bool_op": "AND",
+                }
+            ]
+        },
+        {
+            "predicates": [
+                {
+                    "type": "os",
+                    "negate": False,
+                    "value": "WIN7",
+                    "bool_op": "AND",
+                }
+            ]
+        },
+    ],
+    ids=["ordered-items", "legacy-predicates"],
+)
+def test_legacy_os_filter_dict_migrates_without_broadening(
+    legacy_filter: dict[str, object],
+) -> None:
+    restored = gpp_collection_from_dict(
+        {
+            "scope": "computer",
+            "groups": [{"name": "Targeted", "ilt_filter": legacy_filter}],
+        }
+    )
+    predicate = restored.groups[0].ilt_filter.predicates[0]  # type: ignore[union-attr]
+    assert predicate.os_criteria == IltOsCriteria(version="WIN7")
+
+    emitted = serialize_gpp_groups(restored)
+    assert b'<FilterOs class="NE" version="WIN7"' in emitted
+    assert b'version="NE"' not in emitted
 
 
 def test_dict_conversion_none_ilt_filter() -> None:

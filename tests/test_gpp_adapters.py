@@ -1403,6 +1403,42 @@ def test_scheduled_task_v2_roundtrips_through_an_embedded_payload() -> None:
     assert parsed.arguments == task.arguments
 
 
+def test_scheduled_task_v2_disabled_state_roundtrips_from_payload() -> None:
+    task = GppScheduledTask(
+        name="Disabled",
+        enabled=False,
+        program=r"c:\tool.exe",
+        trigger_type="daily",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<Settings>" in data
+    assert b"<Enabled>false</Enabled>" in data
+    assert b" enabled=" not in data
+    assert parse_gpp_scheduled_tasks(data)[0].enabled is False
+
+
+def test_scheduled_task_v2_weekly_multiple_days_roundtrip() -> None:
+    task = GppScheduledTask(
+        name="Multi-day",
+        program=r"c:\tool.exe",
+        trigger_type="weekly",
+        trigger_days="Monday,Wednesday",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<DaysOfWeek><Monday /><Wednesday /></DaysOfWeek>" in data
+    assert parse_gpp_scheduled_tasks(data)[0].trigger_days == "Monday,Wednesday"
+
+
+def test_scheduled_task_v2_rejects_invalid_weekly_day() -> None:
+    task = GppScheduledTask(
+        name="Invalid day",
+        trigger_type="weekly",
+        trigger_days="Monday,Funday",
+    )
+    with pytest.raises(GppError, match="invalid weekly trigger day"):
+        serialize_gpp_scheduled_tasks((task,), "computer")
+
+
 def test_scheduled_task_common_options() -> None:
     task = GppScheduledTask(name="Cleanup", common=_all_true_common())
     data = serialize_gpp_scheduled_tasks((task,), "user")

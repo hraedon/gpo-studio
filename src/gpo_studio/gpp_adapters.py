@@ -2460,8 +2460,12 @@ def _project_triggers_from_task_xml(
     by_week = _find_local(trigger, "ScheduleByWeek")
     if by_week is not None:
         days = _find_local(by_week, "DaysOfWeek")
-        first = _local_name(days[0].tag) if days is not None and len(days) else ""
-        return ("weekly", when, first)
+        projected_days = (
+            ",".join(_local_name(day.tag) for day in days)
+            if days is not None
+            else ""
+        )
+        return ("weekly", when, projected_days)
     by_month = _find_local(trigger, "ScheduleByMonth")
     if by_month is not None:
         days = _find_local(by_month, "DaysOfMonth")
@@ -2499,6 +2503,28 @@ def _project_from_task_xml(
         arguments.text or "" if arguments is not None else "",
         working_dir.text or "" if working_dir is not None else "",
     )
+
+
+def _project_enabled_from_task_xml(task_xml: str) -> bool | None:
+    """Recover the task-level enabled state from a TaskV2 payload."""
+    if not task_xml:
+        return None
+    try:
+        task_elem = _bounded_parse(task_xml.encode("utf-8"))
+    except GppError:
+        return None
+    settings = _find_local(task_elem, "Settings")
+    if settings is None:
+        return None
+    enabled = _find_local(settings, "Enabled")
+    if enabled is None or enabled.text is None:
+        return None
+    normalized = enabled.text.strip().lower()
+    if normalized in {"true", "1"}:
+        return True
+    if normalized in {"false", "0"}:
+        return False
+    return None
 
 
 def _append_task_xml_to_props(elem: ET.Element, task_xml: str) -> None:
@@ -2563,6 +2589,17 @@ _UNSPECIFIED_START_BOUNDARY = f"{_PLACEHOLDER_START_DATE}T00:00:00"
 #: passed, because a Studio-to-Studio round trip cannot tell the two apart.
 _BARE_TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
+#: Element names accepted by the Task Scheduler ``DaysOfWeek`` schema.
+_WEEKDAYS: frozenset[str] = frozenset({
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+})
+
 #: GPMC always populates runAs, and its default differs by scope. Emitting an
 #: empty runAs leaves the Scheduled Tasks CSE with no identity to register the
 #: task under, so it creates nothing and logs nothing -- bisected at the
@@ -2602,10 +2639,22 @@ def _task_v2_trigger_xml(task: GppScheduledTask) -> str:
     if task.trigger_type == "daily":
         schedule = "<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>"
     elif task.trigger_type == "weekly":
-        days = task.trigger_days or "Sunday"
+        days = [
+            day.strip()
+            for day in (task.trigger_days or "Sunday").split(",")
+            if day.strip()
+        ]
+        invalid = [day for day in days if day not in _WEEKDAYS]
+        if not days or invalid:
+            rendered = ", ".join(invalid) if invalid else task.trigger_days
+            raise GppError(
+                f"Scheduled task {task.name!r} has invalid weekly trigger day(s): "
+                f"{rendered!r}"
+            )
+        day_elements = "".join(f"<{day}/>" for day in days)
         schedule = (
             "<ScheduleByWeek><WeeksInterval>1</WeeksInterval>"
-            f"<DaysOfWeek><{_xml_text(days)}/></DaysOfWeek></ScheduleByWeek>"
+            f"<DaysOfWeek>{day_elements}</DaysOfWeek></ScheduleByWeek>"
         )
     else:
         day = task.trigger_days or "1"
@@ -2743,13 +2792,18 @@ def _parse_scheduled_task_item(elem: ET.Element) -> GppScheduledTask:
             projected = _project_triggers_from_task_xml(task_xml)
             if projected is not None:
                 trigger_type, trigger_time, trigger_days = projected
+        enabled = props.get("enabled", "1") == "1"
+        if "enabled" not in props.attrib:
+            projected_enabled = _project_enabled_from_task_xml(task_xml)
+            if projected_enabled is not None:
+                enabled = projected_enabled
         return GppScheduledTask(
             name=name,
             run_as=props.get("runAs", ""),
             program=program,
             arguments=arguments,
             start_in=start_in,
-            enabled=props.get("enabled", "1") == "1",
+            enabled=enabled,
             trigger_type=trigger_type,
             trigger_time=trigger_time,
             trigger_days=trigger_days,

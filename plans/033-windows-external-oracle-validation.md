@@ -1,6 +1,8 @@
 # Plan 033 — Windows external-oracle validation and parity evidence
 
-Status: active — WP-0 and WP-2 certified; WP-1A genuine GPMC canaries landed
+Status: active — WP-0/WP-2 certified; WP-1A genuine GPMC canaries landed;
+WP-1B daily Exec TaskV2 and OS-filter paths endpoint-verified, with writer-lane
+recertification and the manual GPMC edit/save leg remaining
 Scope: prove Studio import, authoring, prediction, and export claims against
 supported Microsoft tooling without allowing internally consistent round trips
 to substitute for interoperability evidence
@@ -240,15 +242,18 @@ design):**
 
 ### WP-1B — Studio-origin writer conformance
 
-Implementation status (2026-07-27): **automated lane implemented and run
-live; four of six candidates certified, scheduled tasks failed.**
+Implementation status (2026-07-28): **automated lane implemented; its initial
+live run certified four of six candidates and exposed the scheduled-task
+writer defect. WI-018 and WI-021 are now fixed and endpoint-verified. A fresh
+full writer-lane run at the corrected branch tip is required before the
+automated lane is recertified.**
 
 The candidate set is one Studio-authored native backup per isolated family
 (`registry-both` as the WP-2 control, `drives-user`, `groups-machine`,
 `localusers-machine`, `scheduledtasks-machine`) plus `mixed-all`. Each is
 imported into its own disposable GPO, so no adapter's result can be hidden by
-another's. The certified run is `wp1b-writer-20260727143434-7491`, source
-commit `83fe9b8`, clean tree, against Windows Server 2025 build 26100 /
+another's. The initial recorded run is `wp1b-writer-20260727143434-7491`,
+source commit `83fe9b8`, clean tree, against Windows Server 2025 build 26100 /
 GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
 `docs/plan-033/wp1b-evidence/verification.json`.
 
@@ -258,9 +263,11 @@ Results:
   `localusers-machine`. Each cleared `Import-GPO -WhatIf` without creating the
   target, real `Import-GPO`, GPMC report semantic equality, `Backup-GPO`
   re-export semantic equality, and strict cleanup re-query.
-- **fail** — `scheduledtasks-machine` and `mixed-all`, on
+- **fail in the initial run** — `scheduledtasks-machine` and `mixed-all`, on
   `native_shape_matches_corpus` (see the finding below). Every other check on
-  both candidates passed.
+  both candidates passed. The implementation responsible for this result has
+  since been replaced and endpoint-verified, but that does not rewrite the
+  historical verdict or substitute for rerunning the complete writer lane.
 
 Two methodological points came out of building this lane and both are load
 bearing for how the remaining work packages should be read:
@@ -279,12 +286,12 @@ bearing for how the remaining work packages should be read:
    (`writer_conformance.native_shape_findings`), not inferred from a round
    trip.
 
-#### Finding WP-1B-1 — Studio emits a non-native Task Scheduler 2.0 shape
+#### Finding WP-1B-1 — RESOLVED: non-native Task Scheduler 2.0 shape
 
-Studio's scheduled-task serializer writes the Task Scheduler **1.0** scalar
+The initial scheduled-task serializer wrote the Task Scheduler **1.0** scalar
 attribute set (`program`, `arguments`, `startIn`, `triggerType`, `triggerTime`,
 `triggerDays`) onto a **`TaskV2`** element, and embeds a `<Task>` payload only
-when `task_xml` is populated — which the authoring path never sets. Genuine
+when `task_xml` is populated — which the authoring path never set. Genuine
 GPMC `TaskV2` items captured in `tests/fixtures/native-gpp-gpmc` are the exact
 inverse: `Properties` carries only `action`/`name`/`runAs`/`logonType`, and the
 actions and triggers live in an embedded `<Task version="1.2">` payload.
@@ -294,12 +301,15 @@ survives import, report, and re-export intact. That is precisely the
 "synthetic format that Windows silently ignores" case step 6 forbids, and it is
 invisible to every round-trip check.
 
-Whether the Scheduled Tasks CSE honours the scalar form is **unproven in either
-direction** and cannot be settled by any backup-level evidence; it needs the
-step 5 endpoint lane. Until then scheduled tasks must not be promoted beyond
-`unit-verified`. This also settles the open decision recorded in WP-1A finding
-4: the scalar-only model is not merely incomplete for multi-action tasks, it is
-not the shape GPMC writes for the element variant Studio claims to emit.
+Phase 1 proved the Scheduled Tasks CSE does **not** honour that scalar form.
+Phase 3 then proved the corrected writer creates a task with the expected
+action. The writer now synthesizes an embedded payload, supplies GPMC's
+scope-specific identity default, and emits an ISO 8601 `StartBoundary`.
+
+This resolves the defect for the measured daily Exec path; it does not promote
+the whole Scheduled Tasks family. Multiple triggers, `ImmediateTaskV2`,
+non-Exec actions, and the `at_logon`/`at_startup` scalar forms remain outside
+the measured authoring surface.
 
 #### Step 5 endpoint evidence — EXECUTED 2026-07-27
 
@@ -445,8 +455,13 @@ a bare time because Studio's writer produced it. Only Windows disagreed.
   automated lane captures GPMC's report of the imported GPO, which proves GPMC
   parses the payload, but a GUI edit-and-save is what would rewrite the GPP XML
   through GPMC's own writer. That remains a manual gate.
-- Step 5 endpoint evidence is not started and is now the blocker for
-  scheduled tasks specifically.
+- Rerun the complete writer-conformance candidate set at the corrected clean
+  commit. The committed writer verdict predates the WI-018 fix; endpoint
+  evidence proves application but does not replace GPMC report and
+  `Backup-GPO` semantic comparison.
+- The daily Exec TaskV2 path has endpoint evidence. The broader Scheduled Tasks
+  surface remains unpromoted until its additional variants have isolated
+  writer and endpoint cases.
 - Step 6 negative cases are covered for blocked-at-export families
   (`unsupported_native_gpp_extension`, `cpassword_detected` in
   `tests/test_conformance.py`) and now for synthetic shape, but not for

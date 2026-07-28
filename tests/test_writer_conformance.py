@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import runpy
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -175,6 +176,28 @@ def test_isolated_family_round_trips(tmp_path: Path, isolated: dict[str, object]
     content_root = _extract(gpo, tmp_path)
     differences = compare_summaries(summary_from_gpo(gpo), summary_from_backup(content_root))
     assert differences == (), [difference.describe() for difference in differences]
+
+
+def test_wp1b_candidate_builder_self_conforms_at_branch_tip(tmp_path: Path) -> None:
+    """The live candidate set must pass Studio's pre-Windows control.
+
+    The TaskV2 writer applies a scope-specific runAs default. The candidate
+    builder once captured expected semantics before that default was reflected,
+    making both scheduled-task cases fail locally before Windows participated.
+    """
+    script = Path(__file__).parents[1] / "scripts" / "plan-033" / "build-wp1b-candidates.py"
+    namespace = runpy.run_path(str(script))
+    candidates = namespace["CANDIDATES"]
+    for candidate_id, _, factory in candidates:
+        gpo = factory()
+        content_root = _extract(gpo, tmp_path / candidate_id)
+        differences = compare_summaries(
+            summary_from_gpo(gpo),
+            summary_from_backup(content_root),
+        )
+        assert differences == (), [
+            f"{candidate_id}: {difference.describe()}" for difference in differences
+        ]
 
 
 def test_comparison_is_order_insensitive_within_a_family() -> None:
