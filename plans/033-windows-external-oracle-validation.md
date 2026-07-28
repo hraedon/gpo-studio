@@ -350,6 +350,49 @@ survives `Backup-GPO` round trips, and the CSE logs event 5016 "Completed"
 without error — while doing nothing. No layer surfaces anything an operator
 could notice.
 
+#### Step 5 phase 2 — the corrected OS filter, measured (2026-07-28)
+
+Run `endpoint-20260728020216`, same harness, same disposable-OU scoping, lab
+confirmed clean afterwards on all three DCs. Verdict at
+`docs/plan-033/wp1b-evidence/endpoint-result-phase2.json`.
+
+Phase 1's design could not test the WI-021 fix: once Studio emits a genuine
+`<FilterOs>`, the "Studio vs native" pairs that made phase 1 discriminating
+collapse into the same bytes. The question changed from *is the shape wrong?*
+to *does the corrected filter get evaluated?* — and an always-present result
+would be as damning as always-absent, since it would mean the filter is
+ignored. Only a split result demonstrates evaluation.
+
+| | filter | result | expected |
+|---|---|---|---|
+| A | none | present | present |
+| B | Studio `FilterOs`, **matches** (`WINTHRESHOLDSRV`) | **present** | present |
+| C | Studio `FilterOs`, **excludes** (`XP`) | **absent** | absent |
+| D | Studio `FilterOs`, negated (`NOT XP`) | **present** | present |
+| E | hand-written native `FilterOs`, excludes | absent | absent |
+| F | Studio scalar `TaskV2`, no filter | absent | absent |
+
+**Six for six.** B/C/D split on polarity against an otherwise identical item,
+which is what shows the CSE genuinely evaluates the filter rather than ignoring
+it or failing closed. Compare phase 1, where the Studio filter produced an
+absent task in *both* polarities.
+
+**WI-021 is therefore closed on measurement, not inference.** The earlier note
+that "the new shape applies correctly is inferred from byte-equivalence, not
+measured" no longer holds.
+
+> Record-keeping note: WI-021's work-item body still carries that superseded
+> caveat. `agent-notes` refuses to amend an item in a terminal state
+> (`cannot amend terminal state 'done'`), and reopening a closed item to edit a
+> note is worse hygiene than leaving the authoritative record here. **This
+> section and `endpoint-result-phase2.json` supersede the work item's closing
+> paragraph.** The same constraint applies to the WI-011 corpus facts recorded
+> in `lab-session-2-runbook.md`.
+
+Row F is a deliberate regression pin: WI-018 is still open, and Studio's scalar
+`TaskV2` remains inert in the same run that proves the OS filter works — so the
+two defects are confirmed independent rather than one masking the other.
+
 #### Remaining WP-1B work
 
 - Step 4's "open and edit the item in GPMC, save" leg is **not** covered. The

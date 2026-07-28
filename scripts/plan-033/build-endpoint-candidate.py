@@ -1,5 +1,28 @@
 #!/usr/bin/env python3
-"""Build the Plan 033 WP-1B step-5 endpoint candidate (WI-018 + WI-021).
+"""Build the Plan 033 WP-1B step-5 endpoint candidate.
+
+PHASE 2 (2026-07-28) — does the CORRECTED FilterOs emitter actually apply?
+
+Phase 1 proved the two defects were real: Studio's scalar TaskV2 created no
+task (WI-018), and Studio's synthetic <FilterOS osType="..."> made an item
+apply nowhere in either polarity (WI-021). Its task set is preserved in git
+history; the certified verdict is at
+docs/plan-033/wp1b-evidence/endpoint-result.json.
+
+WI-021 is now fixed, and phase 1's design cannot test the fix: Studio and GPMC
+now emit byte-equivalent <FilterOs> elements, so the "Studio vs native" pairs
+that made phase 1 discriminating have collapsed into the same thing. The
+question has changed from "is Studio's filter shape wrong?" to "does Studio's
+corrected filter get EVALUATED?", which needs a different contrast.
+
+An always-present result would be as damning as always-absent: it would mean
+the filter is ignored rather than honoured. So the set below pairs a matching
+filter against an excluding one on an otherwise identical item. Only a
+split result — matching applies, excluding does not — shows genuine
+evaluation.
+
+Target is mvmcitest01, Windows Server 2025 Standard, so version
+WINTHRESHOLDSRV matches and XP does not.
 
 Every row varies exactly one thing against a control, because an absent
 scheduled task is otherwise ambiguous between "the shape was ignored" and
@@ -35,7 +58,7 @@ from pathlib import Path
 from gpo_studio.export import gpmc_backup_bundle, native_backup_id
 from gpo_studio.gpp import GppCollection
 from gpo_studio.gpp_adapters import GppScheduledTask
-from gpo_studio.ilt import IltFilter, IltPredicate
+from gpo_studio.ilt import IltFilter, IltOsCriteria, IltPredicate
 from gpo_studio.model import GPO
 
 # Harmless, fast, leaves nothing behind.
@@ -68,19 +91,37 @@ NATIVE_EXCLUDING_FILTER = (
     '<FilterOs bool="AND" not="0" class="NT" version="XP" type="NE" edition="NE" sp="NE"/>'
 )
 
-# Studio's own OS predicate. Serializes to <FilterOS osType="XP" .../> -- an
-# element name and attribute set with zero precedent in genuine GPMC output.
-STUDIO_EXCLUDING_FILTER = IltFilter(items=(IltPredicate(type="os", value="XP"),))
+# Studio's OS predicate, post-WI-021. Serializes to a genuine
+# <FilterOs class= version= type= edition= sp=> element.
+STUDIO_EXCLUDING_FILTER = IltFilter(
+    items=(
+        IltPredicate(
+            type="os", os_criteria=IltOsCriteria(os_class="NT", version="XP")
+        ),
+    )
+)
+# Matches the target: Windows Server 2025 reports WINTHRESHOLDSRV. Edition,
+# type and sp are left at NE ("Any") so the match turns only on the product.
+STUDIO_MATCHING_VERSION_FILTER = IltFilter(
+    items=(
+        IltPredicate(
+            type="os",
+            os_criteria=IltOsCriteria(os_class="NT", version="WINTHRESHOLDSRV"),
+        ),
+    )
+)
 
-# Same predicate, negated: "the OS is NOT Windows XP" -> TRUE on the target.
-# This is the discriminator. An excluding filter alone cannot distinguish "the
-# CSE honoured it" from "the CSE could not parse it and failed closed", because
-# both produce an absent task. If the negated form is ALSO absent, the filter
-# fails closed regardless of polarity -- meaning a Studio-authored OS filter
-# makes the item apply nowhere.
-STUDIO_MATCHING_FILTER = IltFilter(items=(IltPredicate(type="os", value="XP", negate=True),))
-NATIVE_MATCHING_FILTER = (
-    '<FilterOs bool="AND" not="1" class="NT" version="XP" type="NE" edition="NE" sp="NE"/>'
+# Same predicate negated: "the OS is NOT Windows XP" -> TRUE on the target.
+# Kept from phase 1 because it exercises the negation path independently of the
+# version-match path.
+STUDIO_NEGATED_FILTER = IltFilter(
+    items=(
+        IltPredicate(
+            type="os",
+            negate=True,
+            os_criteria=IltOsCriteria(os_class="NT", version="XP"),
+        ),
+    )
 )
 
 
@@ -117,35 +158,41 @@ def _task(name: str, *, native_shape: bool, ilt: IltFilter | None) -> GppSchedul
 
 
 TASKS = (
-    ("GPOStudio-EP-A-studio-shape", False, None, "WI-018", "absent"),
-    ("GPOStudio-EP-B-native-shape", True, None, "WI-018 control", "present"),
+    ("GPOStudio-EP2-A-nofilter", True, None, "control: task applies at all", "present"),
     (
-        "GPOStudio-EP-C-studio-filter",
+        "GPOStudio-EP2-B-os-match",
         True,
-        STUDIO_EXCLUDING_FILTER,
-        "WI-021",
-        "present (means filter ignored)",
+        STUDIO_MATCHING_VERSION_FILTER,
+        "WI-021 fix: matching filter must APPLY",
+        "present",
     ),
     (
-        "GPOStudio-EP-D-native-filter",
+        "GPOStudio-EP2-C-os-exclude",
         True,
-        IltFilter(items=(NATIVE_EXCLUDING_FILTER,)),
-        "WI-021 control",
+        STUDIO_EXCLUDING_FILTER,
+        "WI-021 fix: excluding filter must NOT apply",
         "absent",
     ),
     (
-        "GPOStudio-EP-E-studio-match",
+        "GPOStudio-EP2-D-os-negated",
         True,
-        STUDIO_MATCHING_FILTER,
-        "WI-021 discriminator",
-        "absent (means filter fails closed, so OS targeting never applies)",
+        STUDIO_NEGATED_FILTER,
+        "WI-021 fix: negation path",
+        "present",
     ),
     (
-        "GPOStudio-EP-F-native-match",
+        "GPOStudio-EP2-E-native-control",
         True,
-        IltFilter(items=(NATIVE_MATCHING_FILTER,)),
-        "WI-021 discriminator control",
-        "present",
+        IltFilter(items=(NATIVE_EXCLUDING_FILTER,)),
+        "control: hand-written native excluding filter",
+        "absent",
+    ),
+    (
+        "GPOStudio-EP2-F-scalar-shape",
+        False,
+        None,
+        "WI-018 still open: scalar TaskV2 must remain inert",
+        "absent",
     ),
 )
 
