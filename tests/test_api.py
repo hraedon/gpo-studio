@@ -620,9 +620,13 @@ def test_configure_policy_disabled_writes_the_disabled_value(
     with TestClient(app) as client:
         gpo = client.post("/api/gpos", json={"name": "States"}).json()["gpo"]
         settings = _configure(client, gpo, state="disabled").json()["gpo"]["settings"]
-        assert len(settings) == 1
-        assert settings[0]["value_name"] == "FeatureState"
-        assert settings[0]["value"] == "0"
+        # Disabling also deletes every element value name, matching gpedit
+        # (WI-020, lab-verified 2026-07-27): Windows writes one **del. record
+        # per <elements> child alongside the policy's own disabled value.
+        by_name = {item["value_name"]: item for item in settings}
+        assert by_name["FeatureState"]["value"] == "0"
+        assert by_name["FeatureState"]["action"] == "set"
+        assert by_name["SubOption"]["action"] == "delete"
 
 
 def test_enabled_to_disabled_drops_the_element_settings(tmp_path, monkeypatch) -> None:
@@ -635,8 +639,13 @@ def test_enabled_to_disabled_drops_the_element_settings(tmp_path, monkeypatch) -
         gpo = _configure(client, gpo, state="enabled", values={"SubOption": True}).json()["gpo"]
         assert len(gpo["settings"]) == 2
         settings = _configure(client, gpo, state="disabled").json()["gpo"]["settings"]
-        assert [s["value_name"] for s in settings] == ["FeatureState"]
-        assert settings[0]["value"] == "0"
+        # The Enabled element value must not survive as a stale SET. Since
+        # WI-020 it is replaced by an explicit DELETE rather than vanishing,
+        # which is what gpedit writes; the regression this guards is a
+        # surviving "set", so assert the action, not mere absence.
+        by_name = {item["value_name"]: item for item in settings}
+        assert by_name["FeatureState"]["value"] == "0"
+        assert by_name["SubOption"]["action"] == "delete"
 
 
 def test_not_configured_removes_the_settings_rather_than_no_op(
@@ -2727,8 +2736,11 @@ def test_bulk_policy_state(tmp_path, monkeypatch) -> None:
         assert resp.status_code == 200
         disabled = resp.json()["gpo"]
         assert disabled["revision"] == 3
-        assert [s["value_name"] for s in disabled["settings"]] == ["FeatureState"]
-        assert disabled["settings"][0]["value"] == "0"
+        # Since WI-020, Disabled also emits a delete per element value name
+        # (gpedit parity), so assert by name rather than by exact list.
+        by_name = {item["value_name"]: item for item in disabled["settings"]}
+        assert by_name["FeatureState"]["value"] == "0"
+        assert by_name["SubOption"]["action"] == "delete"
         resp = client.post(
             f"/api/gpos/{gpo['guid']}/bulk-policy-state",
             json={
@@ -2889,8 +2901,11 @@ def test_bulk_policy_state_legacy_side_only_client(tmp_path, monkeypatch) -> Non
         )
         assert resp.status_code == 200
         disabled = resp.json()["gpo"]
-        assert [s["value_name"] for s in disabled["settings"]] == ["FeatureState"]
-        assert disabled["settings"][0]["value"] == "0"
+        # Since WI-020, Disabled also emits a delete per element value name
+        # (gpedit parity), so assert by name rather than by exact list.
+        by_name = {item["value_name"]: item for item in disabled["settings"]}
+        assert by_name["FeatureState"]["value"] == "0"
+        assert by_name["SubOption"]["action"] == "delete"
 
 
 def test_bulk_policy_state_rejects_unknown_policy_sides_key(

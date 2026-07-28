@@ -413,6 +413,7 @@ def test_native_shape_findings_ignore_other_families() -> None:
 
 
 NESTED_ILT_CAPTURE = NATIVE_CORPUS / "WI01A-NestedILT-GPMC"
+ADMX_CORPUS = Path(__file__).parent / "fixtures" / "admx-real"
 
 
 def _nested_ilt_drive() -> object:
@@ -482,3 +483,34 @@ def test_genuine_gpmc_os_filter_is_not_typed() -> None:
         for raw in drive.ilt_filter.unknown_predicates
     ]
     assert any(raw.startswith("<FilterOs ") for raw in raw_predicates)
+
+
+def test_disabled_policy_deletes_every_element_value_name() -> None:
+    """Pins WI-020 to the gpedit evidence that produced it.
+
+    Disabling ``UserProfiles.admx``/``LimitSize`` through ``gpedit.msc`` wrote
+    six deletion records: the policy's own ``valueName`` and all five
+    ``<elements>`` value names. Studio emitted one. The counts and names below
+    are transcribed from that capture
+    (``~/gpo-studio-captures/part-b/WI-008/1/disabled``).
+    """
+    from gpo_studio.admx import build_catalogue
+    from gpo_studio.policy_config import PolicyConfiguration, resolve_policy
+
+    admx = ADMX_CORPUS / "UserProfiles.admx"
+    adml = ADMX_CORPUS / "UserProfiles.adml"
+    if not admx.is_file():
+        pytest.skip("real UserProfiles ADMX/ADML not vendored")
+    catalogue = build_catalogue(admx.read_bytes(), adml.read_bytes())
+    policy = next(item for item in catalogue.policies if item.id == "LimitSize")
+
+    settings = resolve_policy(policy, PolicyConfiguration(side="user", values={}, state="disabled"))
+    assert {item.value_name for item in settings} == {
+        "EnableProfileQuota",
+        "ProfileQuotaMessage",
+        "MaxProfileSize",
+        "IncludeRegInProQuota",
+        "WarnUser",
+        "WarnUserTimeout",
+    }
+    assert all(item.action == "delete" for item in settings)
