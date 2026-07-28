@@ -172,3 +172,69 @@ One existing unit test asserted the numeric `startupType` codes and had to be
 corrected. It was self-consistent — Studio round-tripping its own output — but
 wrong against Windows. That is the same trap this plan exists to catch, and it
 survived inside the test suite until a native capture contradicted it.
+
+
+## `WI01A-OS-ILT` (2026-07-28) — the OS-filter vocabulary capture
+
+One Drive Maps item carrying one `FilterOs` predicate per entry the Windows
+Server 2025 Targeting Editor offers: every Server 2025 entry and every
+Windows 10 entry. Captured to close the open question in WI-021, since
+MS-GPPREF's `version` enumeration stops at `WINTHRESHOLDSRV` and the spec
+explicitly permits implementations to add values.
+
+### Three findings
+
+**1. The spec's `version` enumeration is complete in practice.** Nothing in the
+capture exceeds `WINTHRESHOLDSRV`. Server 2025 reports `WINTHRESHOLDSRV`;
+Windows 10 reports `WINTHRESHOLD`. GPMC's OS-filter vocabulary was never
+extended past the Threshold generation.
+
+**The dropdown offers only Windows Server 2025 and Windows 10 entries.** There
+is no Windows 11 entry, and no Server 2016 / 2019 / 2022 entries either
+(operator observation during capture, 2026-07-28).
+
+That is consistent with finding 1 rather than an omission, and it carries a
+real consequence worth stating plainly:
+
+> **An ILT OS filter cannot distinguish Windows Server 2016 from Server 2025.**
+> Every server from the Threshold generation onward reports the same
+> `version="WINTHRESHOLDSRV"`. GPMC surfaces only the newest label because the
+> older ones would emit an identical filter. An operator who wants "Server 2022
+> only" has no OS-filter expression that achieves it, and one who selects
+> "Windows Server 2025" is in fact matching every server 2016 and later.
+
+Targeting a specific modern server build needs a different predicate —
+`FilterRegistry` against the build number, or `FilterWmi` — not `FilterOs`.
+
+**2. Four editions exist only in the spec's prose**, confirmed real by this
+capture: `64STGSTD`, `64STGWKGRP`, `64MPPREM`, `64ESSSOL`. The published XSD
+omits them. Accepting only the XSD would reject genuine GPMC output.
+
+**3. `64PRO` appears in neither the XSD nor the prose.** It is known solely
+because GPMC emitted it. This is the case the preserve-don't-reject design in
+`IltOsCriteria` was built for: `unrecognized()` surfaced it on first contact
+instead of the parse failing or the value silently degrading.
+
+### Attribute decode, from the operator's view of the dialog
+
+| dialog control | attribute | observed |
+|---|---|---|
+| Product | `version` | `WINTHRESHOLDSRV` (Server 2025), `WINTHRESHOLD` (Windows 10) |
+| Edition | `edition` | 11 distinct values; see below |
+| Server role | `type` | `SV` when set; **client entries offer no role** and emit `NE` |
+| Release | `sp` | `Gold` = "No service packs installed"; `NE` = Any |
+
+The capture covers every entry the dialog offers for those two products. The
+XSD edition values absent from it (`AS`, `HM`, `MC`, `TPC`, `TSE`, `SBS`, `WEB`,
+`64`, `64DC`, `SRV`, and the prose-only `64MPSTD`) belong to older operating
+systems the dialog does not list for Server 2025 or Windows 10, so their
+absence is expected rather than a coverage gap.
+
+Each accepted edition value therefore carries visible provenance —
+`OS_EDITION_XSD_VALUES`, `OS_EDITION_PROSE_ONLY_VALUES`, or
+`OS_EDITION_CORPUS_OBSERVED_VALUES` — so nobody later has to guess whether a
+value came from the specification or from observation.
+
+Pinned by `test_every_gpmc_os_entry_parses_with_recognized_values`,
+`test_gpmc_os_vocabulary_stops_at_the_threshold_generation`, and
+`test_capture_exercises_undocumented_and_prose_only_editions`.

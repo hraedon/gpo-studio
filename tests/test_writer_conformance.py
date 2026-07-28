@@ -20,7 +20,12 @@ from gpo_studio.gpp import (
     serialize_gpp,
 )
 from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask
-from gpo_studio.ilt import IltFilter, IltPredicate
+from gpo_studio.ilt import (
+    OS_EDITION_PROSE_ONLY_VALUES,
+    OS_EDITION_XSD_VALUES,
+    IltFilter,
+    IltPredicate,
+)
 from gpo_studio.import_export import collect_gpp_collections
 from gpo_studio.model import GPO, RegistrySetting
 from gpo_studio.writer_conformance import (
@@ -550,3 +555,62 @@ def test_disabled_policy_deletes_every_element_value_name() -> None:
         "WarnUserTimeout",
     }
     assert all(item.action == "delete" for item in settings)
+
+
+OS_ILT_CAPTURE = NATIVE_CORPUS / "WI01A-OS-ILT"
+
+
+def _os_criteria_from_capture() -> list[object]:
+    content_root = next(iter(OS_ILT_CAPTURE.glob("*/DomainSysvol/GPO")))
+    return [
+        predicate.os_criteria
+        for collection in collect_gpp_collections(content_root)
+        for drive in collection.drives
+        if drive.ilt_filter is not None
+        for predicate in drive.ilt_filter.predicates
+        if predicate.type == "os"
+    ]
+
+
+def test_every_gpmc_os_entry_parses_with_recognized_values() -> None:
+    """Every OS entry GPMC offers on Windows Server 2025 must model cleanly.
+
+    The capture is one filter per Server 2025 entry and one per Windows 10
+    entry, taken from the Targeting Editor dropdown. If any value is
+    unrecognized the model is behind the platform.
+    """
+    criteria = _os_criteria_from_capture()
+    assert len(criteria) >= 11
+    unrecognized = {
+        finding
+        for item in criteria
+        for finding in item.unrecognized()  # type: ignore[union-attr]
+    }
+    assert unrecognized == set()
+
+
+def test_gpmc_os_vocabulary_stops_at_the_threshold_generation() -> None:
+    """No version value exceeds WINTHRESHOLDSRV, which is why there is no Win11.
+
+    GPMC's OS-filter vocabulary was never extended past the Threshold
+    generation: Server 2025 reports WINTHRESHOLDSRV and Windows 10 reports
+    WINTHRESHOLD, and newer products are distinguished by *edition* instead.
+    The spec's version enumeration is therefore complete in practice.
+    """
+    versions = {item.version for item in _os_criteria_from_capture()}  # type: ignore[union-attr]
+    assert versions == {"WINTHRESHOLD", "WINTHRESHOLDSRV"}
+
+
+def test_capture_exercises_undocumented_and_prose_only_editions() -> None:
+    """Guards the two ways the published XSD is incomplete.
+
+    Four editions appear only in the spec's prose, and ``64PRO`` appears in
+    neither prose nor XSD -- it is known solely because GPMC emitted it. If a
+    future change narrowed the accepted set to the XSD, real captures would
+    stop parsing; this pins that they must not.
+    """
+    editions = {item.edition for item in _os_criteria_from_capture()}  # type: ignore[union-attr]
+    assert {"64STGSTD", "64STGWKGRP", "64MPPREM", "64ESSSOL"} <= editions
+    assert "64PRO" in editions
+    assert "64PRO" not in OS_EDITION_XSD_VALUES
+    assert "64PRO" not in OS_EDITION_PROSE_ONLY_VALUES
