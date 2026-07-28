@@ -1,6 +1,8 @@
 # Plan 033 — Windows external-oracle validation and parity evidence
 
-Status: active — WP-0 and WP-2 certified; WP-1A genuine GPMC canaries landed
+Status: active — WP-0/WP-2 certified; WP-1A genuine GPMC canaries landed;
+WP-1B automated writer lane plus daily Exec TaskV2 and OS-filter endpoint paths
+certified, with the manual GPMC edit/save leg remaining
 Scope: prove Studio import, authoring, prediction, and export claims against
 supported Microsoft tooling without allowing internally consistent round trips
 to substitute for interoperability evidence
@@ -239,6 +241,227 @@ design):**
    to `common.apply_once` and removed from the ILT filter (by design).
 
 ### WP-1B — Studio-origin writer conformance
+
+Implementation status (2026-07-28): **automated writer lane certified; all six
+candidates pass. WI-018 and WI-021 are fixed and endpoint-verified.**
+
+The candidate set is one Studio-authored native backup per isolated family
+(`registry-both` as the WP-2 control, `drives-user`, `groups-machine`,
+`localusers-machine`, `scheduledtasks-machine`) plus `mixed-all`. Each is
+imported into its own disposable GPO, so no adapter's result can be hidden by
+another's. The certified run is `wp1b-writer-20260727200636-4528`, source
+commit `8d9872e`, clean tree, against Windows Server 2025 build 26100 /
+GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
+`docs/plan-033/wp1b-evidence/verification.json`.
+
+Results:
+
+- **pass** — `registry-both`, `drives-user`, `groups-machine`,
+  `localusers-machine`, `scheduledtasks-machine`, and `mixed-all`. Each cleared
+  `Import-GPO -WhatIf` without creating the target, real `Import-GPO`, GPMC
+  report semantic equality, `Backup-GPO` re-export semantic equality, native
+  shape comparison, and strict cleanup re-query.
+
+The initial run (`wp1b-writer-20260727143434-7491`, source `83fe9b8`) remains in
+git history as the evidence that exposed WP-1B-1: its two scheduled-task
+candidates failed only the native-shape gate. The current verdict supersedes it
+for branch-tip certification rather than rewriting that historical result.
+
+Two methodological points came out of building this lane and both are load
+bearing for how the remaining work packages should be read:
+
+1. **`Import-GPO` copies GPP files to SYSVOL byte-for-byte.** A
+   Studio → import → `Backup-GPO` → Studio round trip therefore proves only
+   that the payload survived, not that GPMC or the CSE understood it. The
+   decisive check is `summary_from_gpmc_report`, which parses GPMC's *own*
+   report through Studio's GPP parser so that agreement is between two
+   independent readers of one policy. Registry stays covered separately by the
+   harness's `Get-GPRegistryValue` readback, since GPMC renders registry policy
+   in Administrative Templates form.
+2. **A round trip cannot detect a synthetic shape at all.** GPMC echoes back
+   attributes it does not act on. Shape conformance is therefore checked
+   against the captured native corpus directly
+   (`writer_conformance.native_shape_findings`), not inferred from a round
+   trip.
+
+#### Finding WP-1B-1 — RESOLVED: non-native Task Scheduler 2.0 shape
+
+The initial scheduled-task serializer wrote the Task Scheduler **1.0** scalar
+attribute set (`program`, `arguments`, `startIn`, `triggerType`, `triggerTime`,
+`triggerDays`) onto a **`TaskV2`** element, and embeds a `<Task>` payload only
+when `task_xml` is populated — which the authoring path never set. Genuine
+GPMC `TaskV2` items captured in `tests/fixtures/native-gpp-gpmc` are the exact
+inverse: `Properties` carries only `action`/`name`/`runAs`/`logonType`, and the
+actions and triggers live in an embedded `<Task version="1.2">` payload.
+
+GPMC's report echoes Studio's scalar attributes back unchanged, so the item
+survives import, report, and re-export intact. That is precisely the
+"synthetic format that Windows silently ignores" case step 6 forbids, and it is
+invisible to every round-trip check.
+
+Phase 1 proved the Scheduled Tasks CSE does **not** honour that scalar form.
+Phase 3 then proved the corrected writer creates a task with the expected
+action. The writer now synthesizes an embedded payload, supplies GPMC's
+scope-specific identity default, and emits an ISO 8601 `StartBoundary`.
+
+This resolves the defect for the measured daily Exec path; it does not promote
+the whole Scheduled Tasks family. Multiple triggers, `ImmediateTaskV2`,
+non-Exec actions, and the `at_logon`/`at_startup` scalar forms remain outside
+the measured authoring surface.
+
+#### Step 5 endpoint evidence — EXECUTED 2026-07-27
+
+Run `endpoint-20260727163558` on mvmcitest01 (WS2025 build 26100). A disposable
+child OU containing only the target machine, a disposable GPO linked to it, a
+verified policy refresh, then direct observation of created scheduled tasks.
+Lab confirmed clean afterwards on all three DCs. Verdict at
+`docs/plan-033/wp1b-evidence/endpoint-result.json`.
+
+Six items, each varying one thing against a control:
+
+| | task shape | ILT filter | result | |
+|---|---|---|---|---|
+| A | Studio scalar | none | **absent** | WI-018 |
+| B | genuine GPMC | none | present | control |
+| C | genuine GPMC | Studio `FilterOS`, excluding | absent | WI-021 |
+| D | genuine GPMC | genuine `FilterOs`, excluding | absent | control |
+| E | genuine GPMC | Studio `FilterOS`, matching | **absent** | WI-021 discriminator |
+| F | genuine GPMC | genuine `FilterOs`, matching | present | control |
+
+**WI-018 confirmed.** A Studio-authored scheduled task is *inert*. B proves GPP
+tasks work on this host in the same CSE pass, so A's absence is attributable to
+the emitted shape.
+
+**WI-021 confirmed, with the impact direction inverted.** The plan's own
+prediction was over-application — an unrecognised filter being ignored so the
+item applies everywhere. E vs F disproves it: F shows a correctly-shaped
+*matching* filter does apply, while E, the same logical predicate in Studio's
+shape, does not. Studio's OS filter fails closed in both polarities, so the item
+applies **nowhere**.
+
+Two methodological points worth carrying forward:
+
+1. **Controls are not optional here.** The first attempt at this experiment
+   returned all six tasks absent *including the control*, and was discarded as
+   inconclusive rather than reported as confirming WI-018. Root cause was
+   replication — the GPO and link were written to the PDC while the client read
+   policy from a third DC. The harness now forces replication and polls
+   `gpresult` until the client itself reports the GPO applied, refusing to
+   sample otherwise. Without B, that run would have produced a false positive.
+2. **An excluding filter alone is not discriminating.** "Task absent" is equally
+   consistent with "the filter was honoured" and "the CSE could not parse it and
+   failed closed". Only the negated pair (E/F) separates them.
+
+Both defects share a failure signature: **silent no-op with success reported at
+every layer.** The item imports cleanly, GPMC renders it as a typed item, it
+survives `Backup-GPO` round trips, and the CSE logs event 5016 "Completed"
+without error — while doing nothing. No layer surfaces anything an operator
+could notice.
+
+#### Step 5 phase 2 — the corrected OS filter, measured (2026-07-28)
+
+Run `endpoint-20260728020216`, same harness, same disposable-OU scoping, lab
+confirmed clean afterwards on all three DCs. Verdict at
+`docs/plan-033/wp1b-evidence/endpoint-result-phase2.json`.
+
+Phase 1's design could not test the WI-021 fix: once Studio emits a genuine
+`<FilterOs>`, the "Studio vs native" pairs that made phase 1 discriminating
+collapse into the same bytes. The question changed from *is the shape wrong?*
+to *does the corrected filter get evaluated?* — and an always-present result
+would be as damning as always-absent, since it would mean the filter is
+ignored. Only a split result demonstrates evaluation.
+
+| | filter | result | expected |
+|---|---|---|---|
+| A | none | present | present |
+| B | Studio `FilterOs`, **matches** (`WINTHRESHOLDSRV`) | **present** | present |
+| C | Studio `FilterOs`, **excludes** (`XP`) | **absent** | absent |
+| D | Studio `FilterOs`, negated (`NOT XP`) | **present** | present |
+| E | hand-written native `FilterOs`, excludes | absent | absent |
+| F | Studio scalar `TaskV2`, no filter | absent | absent |
+
+**Six for six.** B/C/D split on polarity against an otherwise identical item,
+which is what shows the CSE genuinely evaluates the filter rather than ignoring
+it or failing closed. Compare phase 1, where the Studio filter produced an
+absent task in *both* polarities.
+
+**WI-021 is therefore closed on measurement, not inference.** The earlier note
+that "the new shape applies correctly is inferred from byte-equivalence, not
+measured" no longer holds.
+
+> Record-keeping note: WI-021's work-item body still carries that superseded
+> caveat. `agent-notes` refuses to amend an item in a terminal state
+> (`cannot amend terminal state 'done'`), and reopening a closed item to edit a
+> note is worse hygiene than leaving the authoritative record here. **This
+> section and `endpoint-result-phase2.json` supersede the work item's closing
+> paragraph.** The same constraint applies to the WI-011 corpus facts recorded
+> in `lab-session-2-runbook.md`.
+
+Row F is a deliberate regression pin: WI-018 is still open, and Studio's scalar
+`TaskV2` remains inert in the same run that proves the OS filter works — so the
+two defects are confirmed independent rather than one masking the other.
+
+#### Step 5 phase 3 — WI-018 fixed and verified (2026-07-28)
+
+Run `endpoint-20260728024058`, verdict at
+`docs/plan-033/wp1b-evidence/endpoint-result-phase3.json`. Lab clean on all
+three DCs afterwards.
+
+| | varies | result |
+|---|---|---|
+| A | no filter (control) | present |
+| B | Studio `FilterOs`, matches | present |
+| C | Studio `FilterOs`, excludes | absent |
+| D | Studio `FilterOs`, negated | present |
+| E | native `FilterOs`, excludes (control) | absent |
+| **F** | **scalar-authored `TaskV2`** | **present** |
+| G | F + explicit `runAs` | present |
+| H | F + explicit ISO boundary | present |
+| I | valid `runAs` + **bare-time** boundary | **absent** |
+
+**WI-018 is fixed.** Row F — the row that has been absent since phase 1 — now
+creates a task with the correct action.
+
+Getting there took two rounds of bisection, because the CSE reports success and
+logs nothing in every failing case. The first fix (synthesize an embedded
+`<Task>` payload) was necessary but not sufficient, and there was no signal
+saying so beyond the task's absence.
+
+**Two independent causes, each isolated by varying one field:**
+
+1. **Empty `runAs`.** Row G differed from F only in carrying an identity, and
+   only G appeared. The writer now substitutes GPMC's scope defaults —
+   `NT AUTHORITY\System` for computer, `%LogonDomain%\%LogonUser%` for user —
+   both read from the native corpus rather than chosen by Studio.
+2. **A bare-time `StartBoundary`.** Task Scheduler 1.0 stores a time of day;
+   2.0 requires ISO 8601. Row I carries the pre-fix bare time *with* a valid
+   identity and is still absent, so this was independently fatal.
+
+Row I exists because the `runAs` bisect made the boundary fix look incidental —
+H showed the 1970 date was fine, so the normalization had not been shown to
+matter. Claiming it as a fix without measuring would have been asserting
+something unmeasured. It turned out to be load-bearing.
+
+**The StartBoundary defect is the sharpest illustration of why this lane
+exists: it was introduced by *my own fix for WI-018*, passed all 2742 unit
+tests, and was invisible to every round trip** — Studio's parser happily accepts
+a bare time because Studio's writer produced it. Only Windows disagreed.
+
+#### Remaining WP-1B work
+
+- Step 4's "open and edit the item in GPMC, save" leg is **not** covered. The
+  automated lane captures GPMC's report of the imported GPO, which proves GPMC
+  parses the payload, but a GUI edit-and-save is what would rewrite the GPP XML
+  through GPMC's own writer. That remains a manual gate.
+- The daily Exec TaskV2 path has endpoint evidence. The broader Scheduled Tasks
+  surface remains unpromoted until its additional variants have isolated
+  writer and endpoint cases.
+- Step 6 negative cases are covered for blocked-at-export families
+  (`unsupported_native_gpp_extension`, `cpassword_detected` in
+  `tests/test_conformance.py`) and now for synthetic shape, but not for
+  intentionally divergent authored values.
+
+#### Original work items
 
 1. First implement and pass WP-2's native backup-format gate.
 2. Generate one Studio item per isolated fixture and a mixed fixture per CSE.

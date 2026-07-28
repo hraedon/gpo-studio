@@ -21,6 +21,7 @@ from gpo_studio.gpp import (
 from gpo_studio.ilt import (
     IltError,
     IltFilter,
+    IltOsCriteria,
     IltPredicate,
     parse_ilt,
     serialize_ilt,
@@ -268,6 +269,18 @@ def test_parse_legacy_filter_names() -> None:
     assert result.predicates[2].type == "wmi_query"
 
 
+def test_parse_legacy_os_filter_preserves_unknown_version() -> None:
+    result = parse_ilt(
+        ET.fromstring(
+            b"<Filters><FilterOS osType=\"FUTURE_VERSION\" not=\"0\"/></Filters>"
+        )
+    )
+    criteria = result.predicates[0].os_criteria
+    assert criteria is not None
+    assert criteria.version == "FUTURE_VERSION"
+    assert criteria.unrecognized() == ("version='FUTURE_VERSION'",)
+
+
 def test_serialize_invalid_ip_range_raises() -> None:
     pred = IltPredicate(type="ip_range", value="not-an-ip-range")
     with pytest.raises(IltError, match="Invalid IP range format"):
@@ -464,6 +477,49 @@ def test_dict_conversion_preserves_ilt() -> None:
         r.ilt_filter.predicates[0].value
         == "SELECT * FROM Win32_OperatingSystem WHERE ProductType=1"
     )
+
+
+@pytest.mark.parametrize(
+    "legacy_filter",
+    [
+        {
+            "items": [
+                {
+                    "type": "os",
+                    "negate": False,
+                    "value": "WIN7",
+                    "bool_op": "AND",
+                }
+            ]
+        },
+        {
+            "predicates": [
+                {
+                    "type": "os",
+                    "negate": False,
+                    "value": "WIN7",
+                    "bool_op": "AND",
+                }
+            ]
+        },
+    ],
+    ids=["ordered-items", "legacy-predicates"],
+)
+def test_legacy_os_filter_dict_migrates_without_broadening(
+    legacy_filter: dict[str, object],
+) -> None:
+    restored = gpp_collection_from_dict(
+        {
+            "scope": "computer",
+            "groups": [{"name": "Targeted", "ilt_filter": legacy_filter}],
+        }
+    )
+    predicate = restored.groups[0].ilt_filter.predicates[0]  # type: ignore[union-attr]
+    assert predicate.os_criteria == IltOsCriteria(version="WIN7")
+
+    emitted = serialize_gpp_groups(restored)
+    assert b'<FilterOs class="NE" version="WIN7"' in emitted
+    assert b'version="NE"' not in emitted
 
 
 def test_dict_conversion_none_ilt_filter() -> None:
@@ -665,10 +721,25 @@ def test_round_trip_disk_space() -> None:
 
 
 def test_round_trip_os() -> None:
+    """An OS filter is five independent attributes, not a single string.
+
+    This previously round-tripped an arbitrary value ("WORKSTATION") through a
+    synthetic <FilterOS osType="..."> element. That element name and attribute
+    appear in no genuine GPMC output, and the CSE could not parse it, so the
+    item applied nowhere (WI-021).
+    """
     original = IltFilter(
-        items=(IltPredicate(type="os", value="WORKSTATION"),)
+        items=(
+            IltPredicate(
+                type="os",
+                os_criteria=IltOsCriteria(os_class="NT", version="WINTHRESHOLD"),
+            ),
+        )
     )
-    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    data = _serialize_to_bytes(original)
+    assert b"<FilterOs " in data
+    assert b"FilterOS" not in data
+    parsed = _parse_from_bytes(data)
     assert parsed == original
 
 
@@ -718,7 +789,12 @@ def test_new_predicates_in_filter() -> None:
         items=(
             IltPredicate(type="computer_name", value="WS001", bool_op="AND"),
             IltPredicate(type="domain", value="example.com", bool_op="OR"),
-            IltPredicate(type="os", value="SERVER", negate=True, bool_op="AND"),
+            IltPredicate(
+                type="os",
+                negate=True,
+                bool_op="AND",
+                os_criteria=IltOsCriteria(os_class="NT", version="WIN7"),
+            ),
             IltPredicate(type="disk_space", value="10240", bool_op="AND"),
             IltPredicate(type="service", value="Spooler", bool_op="OR"),
         )
@@ -726,7 +802,7 @@ def test_new_predicates_in_filter() -> None:
     data = _serialize_to_bytes(original)
     assert data.count(b"FilterComputerName") == 1
     assert data.count(b"FilterDomain") == 1
-    assert data.count(b"FilterOS") == 1
+    assert data.count(b"FilterOs") == 1
     assert data.count(b"FilterDiskSpace") == 1
     assert data.count(b"FilterService") == 1
     assert b'bool="OR"' in data
