@@ -1,0 +1,711 @@
+﻿{
+    "run_id":  "endpoint-20260727194101-6000",
+    "domain_controller":  "mvmdc03.ad.hraedon.com",
+    "computer":  "MVMCITEST01",
+    "original_dn":  "CN=mvmcitest01,OU=Servers,DC=ad,DC=hraedon,DC=com",
+    "original_parent":  "OU=Servers,DC=ad,DC=hraedon,DC=com",
+    "lab_ou_dn":  "OU=GPOStudioLab-20260727194101,OU=Servers,DC=ad,DC=hraedon,DC=com",
+    "target_gpo":  "WP1B-Endpoint-20260727-194101-8342",
+    "ou_created":  true,
+    "computer_moved":  true,
+    "import_succeeded":  true,
+    "link_created":  true,
+    "gpupdate_exit_code":  0,
+    "gpo_applied_to_client":  true,
+    "apply_attempts":  2,
+    "observed_tasks":  [
+                           {
+                               "name":  "GPOStudio-EP2-A-nofilter",
+                               "isolates":  "control: task applies at all",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-B-os-match",
+                               "isolates":  "WI-021 fix: matching filter must APPLY",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-C-os-exclude",
+                               "isolates":  "WI-021 fix: excluding filter must NOT apply",
+                               "expected_if_defects_real":  "absent",
+                               "present":  false,
+                               "state":  null,
+                               "actions":  [
+
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-D-os-negated",
+                               "isolates":  "WI-021 fix: negation path",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-E-native-control",
+                               "isolates":  "control: hand-written native excluding filter",
+                               "expected_if_defects_real":  "absent",
+                               "present":  false,
+                               "state":  null,
+                               "actions":  [
+
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-F-scalar-shape",
+                               "isolates":  "WI-018 fix: scalar-authored TaskV2 must now CREATE a task",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-G-runas-system",
+                               "isolates":  "hypothesis: empty runAs leaves the CSE no identity to register under",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-H-future-boundary",
+                               "isolates":  "hypothesis: a 1970 StartBoundary is rejected as too old (DISPROVED: absent)",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-I-bare-time",
+                               "isolates":  "was the StartBoundary fix load-bearing, or only schema hygiene?",
+                               "expected_if_defects_real":  "present",
+                               "present":  false,
+                               "state":  null,
+                               "actions":  [
+
+                                           ]
+                           }
+                       ],
+    "cse_events":  [
+                       {
+                           "id":  5315,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:56.9268316-07:00",
+                           "message":  "Next policy processing for HRAENET\\MVMCITEST01$ will be attempted in 104 minutes."
+                       },
+                       {
+                           "id":  8004,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:56.9201617-07:00",
+                           "message":  "Completed manual processing of policy for computer HRAENET\\MVMCITEST01$ in 1 seconds."
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:56.9007412-07:00",
+                           "message":  "Completed Group Policy Registry Extension Processing in 359 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:56.5438458-07:00",
+                           "message":  "Starting Group Policy Registry Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Remote Settings "
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:56.5424850-07:00",
+                           "message":  "Completed Group Policy Scheduled Tasks Extension Processing in 406 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:56.1343882-07:00",
+                           "message":  "Starting Group Policy Scheduled Tasks Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Default Domain Policy WP1B-Endpoint-20260727-194101-8342 "
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:56.1278004-07:00",
+                           "message":  "Completed Security Extension Processing in 406 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.7224474-07:00",
+                           "message":  "Starting Security Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Security Baseline Common Settings Default Domain Policy "
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.7084792-07:00",
+                           "message":  "Completed Registry Extension Processing in 219 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4998018-07:00",
+                           "message":  "Starting Registry Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Local Group Policy Security Baseline Common Settings Remote Settings Merritt Certificates Default Domain Policy "
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4993588-07:00",
+                           "message":  "Finished checking for non-system extensions."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4993583-07:00",
+                           "message":  "Service configuration update to standalone is not required and will be skipped."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4993573-07:00",
+                           "message":  "Checking for Group Policy client extensions that are not part of the system."
+                       },
+                       {
+                           "id":  5313,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4688835-07:00",
+                           "message":  "The following Group Policy objects were not applicable because they were filtered out : None"
+                       },
+                       {
+                           "id":  5312,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4688660-07:00",
+                           "message":  "List of applicable Group Policy objects: Local Group Policy Security Baseline Common Settings Remote Settings Merritt Certificates Default Domain Policy WP1B-Endpoint-20260727-194101-8342 "
+                       },
+                       {
+                           "id":  5126,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4682197-07:00",
+                           "message":  "Group Policy successfully got applicable GPOs from the domain controller."
+                       },
+                       {
+                           "id":  5257,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4658839-07:00",
+                           "message":  "Successfully completed downloading policies."
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4658274-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\AD.HRAEDON.COM\\sysvol\\AD.HRAEDON.COM\\Policies\\{BBFC6EE9-22FF-4810-94B3-868544DE9A5D}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4636418-07:00",
+                           "message":  "Making system calls to access specified file. \\\\AD.HRAEDON.COM\\sysvol\\AD.HRAEDON.COM\\Policies\\{BBFC6EE9-22FF-4810-94B3-868544DE9A5D}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4635752-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\sysvol\\ad.hraedon.com\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4609758-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\sysvol\\ad.hraedon.com\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4608981-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{BFF37BF6-B0A7-412F-9C22-1676A5D7045E}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4587668-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{BFF37BF6-B0A7-412F-9C22-1676A5D7045E}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4586971-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{9676A78E-C7F8-477E-8424-81B4CA220C54}\\gpt.ini The call completed in 16 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4558840-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{9676A78E-C7F8-477E-8424-81B4CA220C54}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4558089-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{207A90C7-3024-4EEF-AD05-B1020EA9EEC0}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4514738-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{207A90C7-3024-4EEF-AD05-B1020EA9EEC0}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4513676-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{FBB41762-E411-41C0-AC0F-1C3FF1D8C5C3}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4444794-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{FBB41762-E411-41C0-AC0F-1C3FF1D8C5C3}\\gpt.ini"
+                       },
+                       {
+                           "id":  5314,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4444042-07:00",
+                           "message":  "A fast link was detected. The Estimated bandwidth is 1410065 kbps. The slow link threshold is 500 kbps."
+                       },
+                       {
+                           "id":  5327,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4430892-07:00",
+                           "message":  "Estimated network bandwidth on one of the connections: 1250000000 kbps."
+                       },
+                       {
+                           "id":  4257,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4211117-07:00",
+                           "message":  "Starting to download policies."
+                       },
+                       {
+                           "id":  4126,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4161967-07:00",
+                           "message":  "Group Policy receiving applicable GPOs from the domain controller."
+                       },
+                       {
+                           "id":  5311,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4161941-07:00",
+                           "message":  "The loopback policy processing mode is \"No loopback mode\"."
+                       },
+                       {
+                           "id":  5310,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4055983-07:00",
+                           "message":  "Account details: Account Name : CN=mvmcitest01,OU=GPOStudioLab-20260727194101,OU=Servers,DC=ad,DC=hraedon,DC=com Account Domain Name : ad.hraedon.com DC Name : \\\\mvmdc01.ad.hraedon.com DC Domain Name : ad.hraedon.com"
+                       },
+                       {
+                           "id":  5309,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4055948-07:00",
+                           "message":  "Computer details: Computer role : 2 Network name : \u003cnone\u003e"
+                       },
+                       {
+                           "id":  5326,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4048844-07:00",
+                           "message":  "Group Policy successfully discovered the Domain Controller in 0 milliseconds."
+                       },
+                       {
+                           "id":  5308,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4048810-07:00",
+                           "message":  "Domain Controller details: Domain Controller Name : mvmdc01.ad.hraedon.com Domain Controller IP Address : 192.168.1.29"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.4048724-07:00",
+                           "message":  "The LDAP call to connect and bind to Active Directory completed. mvmdc01.ad.hraedon.com The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3975376-07:00",
+                           "message":  "Making LDAP calls to connect and bind to Active Directory. mvmdc01.ad.hraedon.com"
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3966517-07:00",
+                           "message":  "Retrieving Domain Controller details."
+                       },
+                       {
+                           "id":  4326,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3966508-07:00",
+                           "message":  "Group Policy is trying to discover the Domain Controller information."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3965537-07:00",
+                           "message":  "Retrieved account information."
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3965520-07:00",
+                           "message":  "The system call to get account information completed. CN=mvmcitest01,OU=GPOStudioLab-20260727194101,OU=Servers,DC=ad,DC=hraedon,DC=com The call completed in 15 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3937533-07:00",
+                           "message":  "Making system call to get account information. "
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3937516-07:00",
+                           "message":  "Attempting to retrieve the account information."
+                       },
+                       {
+                           "id":  5340,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3935356-07:00",
+                           "message":  "The Group Policy processing mode is Background."
+                       },
+                       {
+                           "id":  4004,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:55.3931830-07:00",
+                           "message":  "Starting manual processing of policy for computer HRAENET\\MVMCITEST01$. Activity id: {af7ce406-c068-4a4e-b93b-485e90a84155}"
+                       },
+                       {
+                           "id":  5315,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:19.2769366-07:00",
+                           "message":  "Next policy processing for HRAENET\\MVMCITEST01$ will be attempted in 113 minutes."
+                       },
+                       {
+                           "id":  8004,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:19.2723124-07:00",
+                           "message":  "Completed manual processing of policy for computer HRAENET\\MVMCITEST01$ in 1 seconds."
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:19.2595103-07:00",
+                           "message":  "Completed Group Policy Registry Extension Processing in 344 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:18.9177606-07:00",
+                           "message":  "Starting Group Policy Registry Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Remote Settings "
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:18.9166310-07:00",
+                           "message":  "Completed Group Policy Scheduled Tasks Extension Processing in 188 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:18.7392402-07:00",
+                           "message":  "Starting Group Policy Scheduled Tasks Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Default Domain Policy "
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:18.7312492-07:00",
+                           "message":  "Completed Security Extension Processing in 546 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:18.1873430-07:00",
+                           "message":  "Starting Security Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Security Baseline Common Settings Default Domain Policy "
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:18.1729848-07:00",
+                           "message":  "Completed Registry Extension Processing in 188 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9825518-07:00",
+                           "message":  "Starting Registry Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Local Group Policy Security Baseline Common Settings Remote Settings Merritt Certificates Default Domain Policy "
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9820317-07:00",
+                           "message":  "Finished checking for non-system extensions."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9820312-07:00",
+                           "message":  "Service configuration update to standalone is not required and will be skipped."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9820296-07:00",
+                           "message":  "Checking for Group Policy client extensions that are not part of the system."
+                       },
+                       {
+                           "id":  5313,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9508333-07:00",
+                           "message":  "The following Group Policy objects were not applicable because they were filtered out : None"
+                       },
+                       {
+                           "id":  5312,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9508124-07:00",
+                           "message":  "List of applicable Group Policy objects: Local Group Policy Security Baseline Common Settings Remote Settings Merritt Certificates Default Domain Policy "
+                       },
+                       {
+                           "id":  5126,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9501852-07:00",
+                           "message":  "Group Policy successfully got applicable GPOs from the domain controller."
+                       },
+                       {
+                           "id":  5257,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9484660-07:00",
+                           "message":  "Successfully completed downloading policies."
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9484181-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\sysvol\\ad.hraedon.com\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9463379-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\sysvol\\ad.hraedon.com\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9462584-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{BFF37BF6-B0A7-412F-9C22-1676A5D7045E}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9441986-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{BFF37BF6-B0A7-412F-9C22-1676A5D7045E}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9441138-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{9676A78E-C7F8-477E-8424-81B4CA220C54}\\gpt.ini The call completed in 15 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9416589-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{9676A78E-C7F8-477E-8424-81B4CA220C54}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9415787-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{207A90C7-3024-4EEF-AD05-B1020EA9EEC0}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9382919-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{207A90C7-3024-4EEF-AD05-B1020EA9EEC0}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9382190-07:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{FBB41762-E411-41C0-AC0F-1C3FF1D8C5C3}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9313541-07:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.hraedon.com\\SysVol\\ad.hraedon.com\\Policies\\{FBB41762-E411-41C0-AC0F-1C3FF1D8C5C3}\\gpt.ini"
+                       },
+                       {
+                           "id":  5314,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9312839-07:00",
+                           "message":  "A fast link was detected. The Estimated bandwidth is 1410065 kbps. The slow link threshold is 500 kbps."
+                       },
+                       {
+                           "id":  5327,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9300379-07:00",
+                           "message":  "Estimated network bandwidth on one of the connections: 1250000000 kbps."
+                       },
+                       {
+                           "id":  4257,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9070023-07:00",
+                           "message":  "Starting to download policies."
+                       },
+                       {
+                           "id":  4126,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9030834-07:00",
+                           "message":  "Group Policy receiving applicable GPOs from the domain controller."
+                       },
+                       {
+                           "id":  5311,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.9030812-07:00",
+                           "message":  "The loopback policy processing mode is \"No loopback mode\"."
+                       },
+                       {
+                           "id":  5310,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8980931-07:00",
+                           "message":  "Account details: Account Name : CN=mvmcitest01,OU=Servers,DC=ad,DC=hraedon,DC=com Account Domain Name : ad.hraedon.com DC Name : \\\\mvmdc01.ad.hraedon.com DC Domain Name : ad.hraedon.com"
+                       },
+                       {
+                           "id":  5309,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8980912-07:00",
+                           "message":  "Computer details: Computer role : 2 Network name : \u003cnone\u003e"
+                       },
+                       {
+                           "id":  5326,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8977232-07:00",
+                           "message":  "Group Policy successfully discovered the Domain Controller in 15 milliseconds."
+                       },
+                       {
+                           "id":  5308,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8977218-07:00",
+                           "message":  "Domain Controller details: Domain Controller Name : mvmdc01.ad.hraedon.com Domain Controller IP Address : 192.168.1.29"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8977175-07:00",
+                           "message":  "The LDAP call to connect and bind to Active Directory completed. mvmdc01.ad.hraedon.com The call completed in 15 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8932238-07:00",
+                           "message":  "Making LDAP calls to connect and bind to Active Directory. mvmdc01.ad.hraedon.com"
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8918969-07:00",
+                           "message":  "Retrieving Domain Controller details."
+                       },
+                       {
+                           "id":  4326,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8918960-07:00",
+                           "message":  "Group Policy is trying to discover the Domain Controller information."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8917836-07:00",
+                           "message":  "Retrieved account information."
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8917819-07:00",
+                           "message":  "The system call to get account information completed. CN=mvmcitest01,OU=Servers,DC=ad,DC=hraedon,DC=com The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8873408-07:00",
+                           "message":  "Making system call to get account information. "
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8873390-07:00",
+                           "message":  "Attempting to retrieve the account information."
+                       },
+                       {
+                           "id":  5340,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8870953-07:00",
+                           "message":  "The Group Policy processing mode is Background."
+                       },
+                       {
+                           "id":  4004,
+                           "level":  "Information",
+                           "time":  "2026-07-27T19:41:17.8867088-07:00",
+                           "message":  "Starting manual processing of policy for computer HRAENET\\MVMCITEST01$. Activity id: {f31caa0b-1002-4f7e-8ffa-31e4245a2f37}"
+                       }
+                   ],
+    "cleanup":  {
+                    "computer_restored":  true,
+                    "link_removed":  true,
+                    "gpo_removed":  true,
+                    "ou_removed":  true,
+                    "tasks_removed":  true,
+                    "residual_tasks":  [
+
+                                       ],
+                    "errors":  [
+
+                               ]
+                },
+    "environment":  {
+                        "caption":  "Microsoft Windows Server 2025 Standard",
+                        "build":  "26100",
+                        "domain":  "AD.HRAEDON.COM"
+                    },
+    "error":  null
+}

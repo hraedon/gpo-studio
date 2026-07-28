@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?><!-- Copyright (c) Microsoft Corporation.  All rights reserved. --><GroupPolicyBackupScheme bkp:version="2.0" bkp:type="GroupPolicyBackupTemplate" xmlns:bkp="http://www.microsoft.com/GroupPolicy/GPOOperations" xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations">
+    <GroupPolicyObject><SecurityGroups><Group bkp:Source="FromDACL"><Sid><![CDATA[S-1-5-21-0000000000-0000000000-0000000000-519]]></Sid><SamAccountName><![CDATA[Enterprise Admins]]></SamAccountName><Type><![CDATA[UniversalGroup]]></Type><NetBIOSDomainName><![CDATA[HRAENET]]></NetBIOSDomainName><DnsDomainName><![CDATA[ad.hraedon.com]]></DnsDomainName><UPN><![CDATA[Enterprise Admins@ad.hraedon.com]]></UPN></Group><Group bkp:Source="FromDACL"><Sid><![CDATA[S-1-5-21-0000000000-0000000000-0000000000-512]]></Sid><SamAccountName><![CDATA[Domain Admins]]></SamAccountName><Type><![CDATA[GlobalGroup]]></Type><NetBIOSDomainName><![CDATA[HRAENET]]></NetBIOSDomainName><DnsDomainName><![CDATA[ad.hraedon.com]]></DnsDomainName><UPN><![CDATA[Domain Admins@ad.hraedon.com]]></UPN></Group></SecurityGroups><FilePaths/><GroupPolicyCoreSettings><ID><![CDATA[{F2C3EF18-EC03-494D-84F0-0E3AF0F635CD}]]></ID><Domain><![CDATA[ad.hraedon.com]]></Domain><SecurityDescriptor>01 00 04 80 00 00 00 00</SecurityDescriptor><DisplayName><![CDATA[WI01A-Folders-GPMC]]></DisplayName><Options><![CDATA[0]]></Options><UserVersionNumber><![CDATA[393222]]></UserVersionNumber><MachineVersionNumber><![CDATA[0]]></MachineVersionNumber><MachineExtensionGuids/><UserExtensionGuids><![CDATA[[{00000000-0000-0000-0000-000000000000}{3EC4E9D3-714D-471F-88DC-4DD4471AAB47}][{6232C319-91AC-4931-9385-E70C2B099F0E}{3EC4E9D3-714D-471F-88DC-4DD4471AAB47}]]]></UserExtensionGuids><WMIFilter/></GroupPolicyCoreSettings> 
+        <GroupPolicyExtension bkp:ID="{35378EAC-683F-11D2-A89A-00C04FBBCFA2}" bkp:DescName="Registry">
+            
+            
+            <FSObjectFile bkp:Path="%GPO_FSPATH%\Adm\*.*" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{F2C3EF18-EC03-494D-84F0-0E3AF0F635CD}\Adm\*.*"/>
+        </GroupPolicyExtension>
+        
+        
+        
+        
+        
+        
+        
+        
+        
+    <GroupPolicyExtension bkp:ID="{F15C46CD-82A0-4C2D-A210-5D0D3182A418}" bkp:DescName="Unknown Extension"><FSObjectDir bkp:Path="%GPO_USER_FSPATH%\Preferences" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{F2C3EF18-EC03-494D-84F0-0E3AF0F635CD}\User\Preferences" bkp:Location="DomainSysvol\GPO\User\Preferences"/><FSObjectDir bkp:Path="%GPO_USER_FSPATH%\Preferences\Folders" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{F2C3EF18-EC03-494D-84F0-0E3AF0F635CD}\User\Preferences\Folders" bkp:Location="DomainSysvol\GPO\User\Preferences\Folders"/><FSObjectFile bkp:Path="%GPO_USER_FSPATH%\Preferences\Folders\Folders.xml" bkp:SourceExpandedPath="\\mvmdc03.ad.hraedon.com\sysvol\ad.hraedon.com\Policies\{F2C3EF18-EC03-494D-84F0-0E3AF0F635CD}\User\Preferences\Folders\Folders.xml" bkp:Location="DomainSysvol\GPO\User\Preferences\Folders\Folders.xml"/></GroupPolicyExtension></GroupPolicyObject>
+</GroupPolicyBackupScheme>

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 
 import pytest
 
@@ -1167,16 +1169,32 @@ def test_service_unknown_attrs_preserved() -> None:
 
 
 def test_service_startup_type_codes() -> None:
+    """Startup types serialize as the symbolic names GPMC writes.
+
+    This previously asserted the numeric codes 2/3/4. That was self-consistent
+    -- Studio round-tripping its own output -- but wrong against Windows: no
+    genuine GPMC capture contains a numeric startupType, and every real value
+    was rejected on parse (WI-019). Corrected against the native corpus.
+    """
     for startup, code in [
-        ("automatic", "2"),
-        ("manual", "3"),
-        ("disabled", "4"),
+        ("automatic", "AUTOMATIC"),
+        ("manual", "MANUAL"),
+        ("disabled", "DISABLED"),
+        ("no_change", "NOCHANGE"),
     ]:
         svc = GppService(service_name="S", startup_type=startup)  # type: ignore[arg-type]
         data = serialize_gpp_services((svc,), "computer")
         assert f'startupType="{code}"'.encode() in data
         parsed = parse_gpp_services(data)
         assert parsed[0].startup_type == startup
+
+
+def test_service_startup_numeric_codes_still_parse() -> None:
+    """Numeric codes are accepted on parse only, for older persisted data."""
+    svc = GppService(service_name="S", startup_type="automatic")
+    data = serialize_gpp_services((svc,), "computer")
+    legacy = data.replace(b'startupType="AUTOMATIC"', b'startupType="2"')
+    assert parse_gpp_services(legacy)[0].startup_type == "automatic"
 
 
 def test_service_password_denied() -> None:
@@ -1329,8 +1347,17 @@ def test_local_group_member_action_codes() -> None:
 
 
 def test_scheduled_task_roundtrip() -> None:
+    """The Task Scheduler 1.0 element, where the scalar attributes belong.
+
+    This previously used the default element_variant (TaskV2) and asserted the
+    scalar attributes round-tripped on it. They did -- through Studio's own
+    parser -- but a v2 item ignores them entirely on Windows (WI-018), so the
+    scalar path is now exercised against the v1 element that actually defines
+    those attributes.
+    """
     task = GppScheduledTask(
         name="Cleanup",
+        element_variant="Task",
         run_as=r"DOMAIN\Admin",
         program=r"\\scratch\filecleanup.exe",
         arguments="-all",
@@ -1342,9 +1369,74 @@ def test_scheduled_task_roundtrip() -> None:
         action="replace",
     )
     data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b'triggerType="DAILY"' in data
     parsed = parse_gpp_scheduled_tasks(data)
     assert len(parsed) == 1
     assert parsed[0] == task
+
+
+def test_scheduled_task_v2_roundtrips_through_an_embedded_payload() -> None:
+    """A TaskV2 carries its schedule in <Task>, and the scalars project back."""
+    task = GppScheduledTask(
+        name="Cleanup",
+        element_variant="TaskV2",
+        run_as=r"DOMAIN\Admin",
+        program=r"\\scratch\filecleanup.exe",
+        arguments="-all",
+        start_in="c:\\",
+        trigger_type="weekly",
+        trigger_time="2026-01-01T10:00:00",
+        trigger_days="Monday",
+        action="replace",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    # The shape genuine GPMC writes: payload present, v1 scalars absent.
+    assert b"<Task version=" in data
+    assert b"ScheduleByWeek" in data
+    for scalar in (b"program=", b"arguments=", b"startIn=", b"triggerType="):
+        assert scalar not in data
+    parsed = parse_gpp_scheduled_tasks(data)[0]
+    assert parsed.trigger_type == "weekly"
+    assert parsed.trigger_days == "Monday"
+    assert parsed.trigger_time == "2026-01-01T10:00:00"
+    assert parsed.program == task.program
+    assert parsed.arguments == task.arguments
+
+
+def test_scheduled_task_v2_disabled_state_roundtrips_from_payload() -> None:
+    task = GppScheduledTask(
+        name="Disabled",
+        enabled=False,
+        program=r"c:\tool.exe",
+        trigger_type="daily",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<Settings>" in data
+    assert b"<Enabled>false</Enabled>" in data
+    assert b" enabled=" not in data
+    assert parse_gpp_scheduled_tasks(data)[0].enabled is False
+
+
+def test_scheduled_task_v2_weekly_multiple_days_roundtrip() -> None:
+    task = GppScheduledTask(
+        name="Multi-day",
+        program=r"c:\tool.exe",
+        trigger_type="weekly",
+        trigger_days="Monday,Wednesday",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<DaysOfWeek><Monday /><Wednesday /></DaysOfWeek>" in data
+    assert parse_gpp_scheduled_tasks(data)[0].trigger_days == "Monday,Wednesday"
+
+
+def test_scheduled_task_v2_rejects_invalid_weekly_day() -> None:
+    task = GppScheduledTask(
+        name="Invalid day",
+        trigger_type="weekly",
+        trigger_days="Monday,Funday",
+    )
+    with pytest.raises(GppError, match="invalid weekly trigger day"):
+        serialize_gpp_scheduled_tasks((task,), "computer")
 
 
 def test_scheduled_task_common_options() -> None:
@@ -1374,6 +1466,7 @@ def test_scheduled_task_unknown_attrs_preserved() -> None:
 
 
 def test_scheduled_task_trigger_type_codes() -> None:
+    """Scalar trigger codes, on the v1 element that defines them."""
     for trigger, code in [
         ("once", "ONCE"),
         ("daily", "DAILY"),
@@ -1382,7 +1475,11 @@ def test_scheduled_task_trigger_type_codes() -> None:
         ("at_logon", "ATLOGON"),
         ("at_startup", "ATSTARTUP"),
     ]:
-        task = GppScheduledTask(name="X", trigger_type=trigger)  # type: ignore[arg-type]
+        task = GppScheduledTask(
+            name="X",
+            element_variant="Task",
+            trigger_type=trigger,  # type: ignore[arg-type]
+        )
         data = serialize_gpp_scheduled_tasks((task,), "computer")
         assert f'triggerType="{code}"'.encode() in data
         parsed = parse_gpp_scheduled_tasks(data)
@@ -1444,10 +1541,13 @@ def test_scheduled_task_roundtrip_taskv2() -> None:
     task = GppScheduledTask(name="Cleanup", element_variant="TaskV2")
     data = serialize_gpp_scheduled_tasks((task,), "computer")
     assert b"<TaskV2 " in data
-    assert b"<Task " not in data
+    # A TaskV2 now carries an embedded <Task version="1.2"> payload, which is
+    # what genuine GPMC writes; this previously asserted its absence.
+    assert b"<Task version=" in data
     parsed = parse_gpp_scheduled_tasks(data)
     assert parsed[0].element_variant == "TaskV2"
-    assert parsed[0] == task
+    assert parsed[0].task_xml
+    assert parsed[0].name == task.name
 
 
 def test_scheduled_task_roundtrip_legacy_task() -> None:
@@ -1627,16 +1727,26 @@ def test_immediate_task_xml_roundtrip() -> None:
 
 
 def test_scheduled_task_no_task_xml_still_works() -> None:
-    task = GppScheduledTask(
+    """Authoring without an explicit payload works -- one is synthesized.
+
+    The v1 element keeps no payload; the v2 element gains a synthesized one,
+    because a v2 item with no <Task> is inert on Windows (WI-018).
+    """
+    v1 = GppScheduledTask(
         name="Legacy",
+        element_variant="Task",
         program=r"c:\tool.exe",
         arguments="--flag",
     )
-    data = serialize_gpp_scheduled_tasks((task,), "computer")
-    parsed = parse_gpp_scheduled_tasks(data)
-    assert parsed[0].task_xml == ""
-    assert parsed[0].program == "c:\\tool.exe"
-    assert parsed[0] == task
+    parsed_v1 = parse_gpp_scheduled_tasks(serialize_gpp_scheduled_tasks((v1,), "computer"))[0]
+    assert parsed_v1.task_xml == ""
+    assert parsed_v1 == v1
+
+    v2 = GppScheduledTask(name="Modern", program=r"c:\tool.exe", arguments="--flag")
+    parsed_v2 = parse_gpp_scheduled_tasks(serialize_gpp_scheduled_tasks((v2,), "computer"))[0]
+    assert parsed_v2.task_xml
+    assert parsed_v2.program == "c:\\tool.exe"
+    assert parsed_v2.arguments == "--flag"
 
 
 def test_scheduled_task_variants_preserve_document_order() -> None:
@@ -1689,7 +1799,16 @@ def test_gpp_collection_with_privileged_adapters() -> None:
     assert parsed.local_users[0] == col.local_users[0]
     assert len(parsed.local_groups) == 0
     assert len(parsed.scheduled_tasks) == 1
-    assert parsed.scheduled_tasks[0] == col.scheduled_tasks[0]
+    # A TaskV2 authored without an explicit payload gains a synthesized one
+    # (WI-018), so exact model equality no longer holds -- everything else must
+    # still round-trip unchanged.
+    round_tripped = parsed.scheduled_tasks[0]
+    assert round_tripped.task_xml
+    # A TaskV2 authored with no run_as gains GPMC's scope default, because an
+    # empty identity makes Windows create nothing at all (WI-018 bisect).
+    assert round_tripped.run_as == "NT AUTHORITY\\System"
+    normalized = replace(round_tripped, task_xml="", run_as="")
+    assert normalized == col.scheduled_tasks[0]
     assert len(parsed.immediate_tasks) == 1
     assert parsed.immediate_tasks[0] == col.immediate_tasks[0]
 
@@ -2090,3 +2209,64 @@ def test_unknown_props_children_dict_roundtrip() -> None:
     d = gpp_collection_to_dict(collection)
     restored = gpp_collection_from_dict(d)
     assert restored.environment[0].unknown_props_children == env.unknown_props_children
+
+
+def test_taskv2_start_boundary_is_iso8601_not_a_bare_time() -> None:
+    """A bare time of day produces a payload Windows rejects outright.
+
+    Task Scheduler 1.0 stores a time ("03:00:00"); 2.0 needs a full ISO 8601
+    StartBoundary. Emitting the bare time yields a task that is simply never
+    created, with no error surfaced. Every unit test passed while this was
+    broken, because a Studio-to-Studio round trip cannot tell the two apart --
+    it took the endpoint lane to find it.
+    """
+    for authored in ("03:00:00", "3:00"):
+        task = GppScheduledTask(
+            name="T",
+            program=r"c:\tool.exe",
+            trigger_type="daily",
+            trigger_time=authored,
+        )
+        data = serialize_gpp_scheduled_tasks((task,), "computer")
+        boundary = re.search(rb"<StartBoundary>([^<]*)</StartBoundary>", data)
+        assert boundary is not None
+        assert boundary.group(1) == b"1970-01-01T03:00:00"
+        # The scalar form the operator authored is what comes back.
+        assert parse_gpp_scheduled_tasks(data)[0].trigger_time == "03:00:00"
+
+
+def test_taskv2_preserves_an_explicit_iso_start_boundary() -> None:
+    task = GppScheduledTask(
+        name="T", program=r"c:\tool.exe", trigger_type="daily",
+        trigger_time="2026-01-01T03:00:00",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<StartBoundary>2026-01-01T03:00:00</StartBoundary>" in data
+    assert parse_gpp_scheduled_tasks(data)[0].trigger_time == "2026-01-01T03:00:00"
+
+
+def test_taskv2_run_as_defaults_to_gpmc_scope_default() -> None:
+    """An empty runAs makes Windows create no task at all.
+
+    Bisected at the endpoint on 2026-07-28: with every other field identical,
+    the only variant that produced a task was the one carrying an identity. The
+    CSE logs nothing either way, so this is invisible short of measuring it.
+    The defaults below are GPMC's own, read from the native corpus.
+    """
+    task = GppScheduledTask(name="T", program=r"c:\tool.exe", trigger_type="daily")
+    for scope, expected in (
+        ("computer", b"NT AUTHORITY\\System"),
+        ("user", b"%LogonDomain%\\%LogonUser%"),
+    ):
+        data = serialize_gpp_scheduled_tasks((task,), scope)  # type: ignore[arg-type]
+        assert b'runAs="' + expected + b'"' in data
+        assert b"<UserId>" + expected + b"</UserId>" in data
+
+
+def test_taskv2_explicit_run_as_is_never_overridden() -> None:
+    task = GppScheduledTask(
+        name="T", run_as=r"DOMAIN\svc-task", program=r"c:\tool.exe", trigger_type="daily"
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b'runAs="DOMAIN\\svc-task"' in data
+    assert b"NT AUTHORITY" not in data
