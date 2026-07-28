@@ -2,7 +2,8 @@
 
 Status: active — WP-0/WP-2 certified; WP-1A genuine GPMC canaries landed;
 WP-1B automated writer lane plus daily Exec TaskV2 and OS-filter endpoint paths
-certified, with the manual GPMC edit/save leg remaining
+certified; WP-3 account/audit/user-rights writer tranche certified, with its
+broader corpus and areas plus the WP-1B manual GPMC edit/save leg remaining
 Scope: prove Studio import, authoring, prediction, and export claims against
 supported Microsoft tooling without allowing internally consistent round trips
 to substitute for interoperability evidence
@@ -588,6 +589,32 @@ detect deployment drift. That provenance defect was corrected before the
 certified run above.
 
 ## WP-3 — Security-template conformance
+
+Implementation status (2026-07-28): the byte codec and first Studio-origin
+writer tranche are certified against the frozen Windows Server 2025 oracle.
+`security_template.py` now emits and strictly decodes the MS-GPSB UTF-16LE/BOM
+wire format, recognizes the required `[Unicode]` preamble, and normalizes line
+endings to CRLF. The synthetic account-policy, event-audit, and user-rights
+candidate passed `secedit /validate`, import with `/overwrite` into a fresh
+temporary database, and export with no semantic differences. The harness
+invoked only `validate`, `import`, and `export`; it never invoked `configure`.
+Cleanup verified that neither the `.sdb` nor its ESENT `.jfm` companion
+remained.
+
+The clean-tree certified run is
+`wp3-security-template-20260727212137-3600`, bound to source commit
+`f2a912df6b1e2ae698284897bff2993ffe5699f9`. Evidence is recorded in
+`docs/plan-033/wp3-evidence/verification.json`; its SHA-256 is
+`d57fcabe14eb6659ae9d528d7edc17e384709f3dab0419b7eace1beabc661ec0`.
+Candidate and Windows-export hashes are respectively
+`27bea20d6141bf063918bfe939291b602d5b3a01916f732057d81acc9699ac83`
+and
+`bef55726c9af7b41807ccfe6ed27792d90b256a11553b9a4d4adc4e008fa564a`.
+
+This certifies only the bounded account/audit/user-rights writer tranche. The
+native GPMC/secedit corpus and the `group_mgmt`, `regkeys`, `filestore`, and
+`services` areas remain open, so WP-3 as a whole is not complete and Plan 025
+is not promoted to surfaced or live-RW.
 
 ### Corpus
 

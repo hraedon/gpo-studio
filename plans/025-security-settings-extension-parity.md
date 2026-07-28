@@ -3,9 +3,11 @@
 Status: implemented (domain layer) — **not surfaced**. `security_template.py`,
 `object_security.py`, `network_security.py`, and `policy_families.py` are
 landed and unit-tested but are reachable from no API endpoint, UI module, or
-export path; their only consumers are their own test modules. Platform wiring
-and Plan 033 Windows evidence both remain open. The `Windows-verified` claim
-in this plan's scope is **not** met.
+export path; their only consumers are their own test modules. Plan 033 now has
+a certified Studio-origin `secedit` writer tranche for account policy, event
+audit, and user rights, but platform wiring and the broader native corpus and
+security areas remain open. The `Windows-verified` claim in this plan's scope
+is **not** met.
 Scope: typed, lossless, Windows-verified support for supported in-box Security
 Settings families
 Depends on: Plans 021 and 023 ACL/principal foundations
@@ -64,4 +66,3 @@ Each WP-2/3/4 family is a separate stop/go tranche. Review Windows normalization
 blast radius, client behavior, compensation, and privilege requirements before
 starting the next family or enabling publication. An external Windows security
 review is required before any Security Settings adapter reaches live RW status.
-
