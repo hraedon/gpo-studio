@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import runpy
+import sys
+from pathlib import Path
+
 import pytest
 
 from gpo_studio.model import ValidationIssue
@@ -13,7 +18,9 @@ from gpo_studio.security_template import (
     SecurityTemplate,
     SecurityTemplateError,
     TemplateDiff,
+    decode_security_template,
     diff_templates,
+    encode_security_template,
     extract_account_policy,
     extract_audit_policy,
     extract_privilege_rights,
@@ -96,8 +103,86 @@ _SID_BACKUP_OPS = "*S-1-5-32-551"
 
 
 # ---------------------------------------------------------------------------
-# Parsing
+# Byte codec and parsing
 # ---------------------------------------------------------------------------
+
+
+def test_security_template_byte_codec_uses_windows_wire_format() -> None:
+    text = "[Unicode]\nUnicode=yes\n\n[Version]\nsignature=\"$CHICAGO$\"\n"
+    encoded = encode_security_template(text)
+    assert encoded.startswith(b"\xff\xfe")
+    assert b"\r\x00\n\x00" in encoded
+    assert b"\n\x00" not in encoded.replace(b"\r\x00\n\x00", b"")
+    assert decode_security_template(encoded) == text.replace("\n", "\r\n")
+
+
+def test_security_template_byte_codec_preserves_unicode() -> None:
+    text = (
+        "[Unicode]\r\nUnicode=yes\r\n\r\n"
+        "[Version]\r\nsignature=\"$CHICAGO$\"\r\n"
+        "; synthetic café 東京\r\n"
+    )
+    assert decode_security_template(encode_security_template(text)) == text
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"[Version]\nsignature=\"$CHICAGO$\"\n",
+        b"\xef\xbb\xbf[Version]\nsignature=\"$CHICAGO$\"\n",
+        b"\xfe\xff\x00[\x00V",
+    ],
+)
+def test_decode_security_template_rejects_non_windows_encoding(data: bytes) -> None:
+    with pytest.raises(
+        SecurityTemplateError,
+        match="UTF-16LE with a byte-order mark",
+    ):
+        decode_security_template(data)
+
+
+def test_decode_security_template_rejects_invalid_utf16le() -> None:
+    with pytest.raises(SecurityTemplateError, match="invalid UTF-16LE"):
+        decode_security_template(b"\xff\xfe\x00")
+
+
+def test_decode_security_template_rejects_utf32le_bom() -> None:
+    data = "[Unicode]\r\nUnicode=yes\r\n".encode("utf-32")
+    with pytest.raises(SecurityTemplateError, match="must not use UTF-32LE"):
+        decode_security_template(data)
+
+
+def test_unicode_preamble_is_a_known_section() -> None:
+    template = parse_security_template("[Unicode]\nUnicode=yes\n")
+    assert template.parse_warnings == ()
+    assert template.get_value("Unicode", "Unicode") == "yes"
+
+
+def test_wp3_candidate_builder_emits_parseable_windows_template(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = (
+        Path(__file__).parents[1]
+        / "scripts"
+        / "plan-033"
+        / "build-wp3-candidate.py"
+    )
+    output_dir = tmp_path / "candidate"
+    namespace = runpy.run_path(str(script))
+    monkeypatch.setattr(sys, "argv", [str(script), str(output_dir)])
+    assert namespace["main"]() == 0
+
+    template = parse_security_template(
+        decode_security_template((output_dir / "candidate.inf").read_bytes())
+    )
+    expected = json.loads(
+        (output_dir / "expected.json").read_text(encoding="utf-8")
+    )
+    assert template.get_value("Unicode", "Unicode") == "yes"
+    assert template.get_value("Version", "signature") == '"$CHICAGO$"'
+    for setting in expected["settings"]:
+        assert template.get_value(setting["section"], setting["key"]) == setting["value"]
 
 
 def test_parse_simple_template() -> None:

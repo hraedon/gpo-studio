@@ -1,0 +1,72 @@
+{
+  "artifacts": {
+    "build-wp3-candidate.py": "5c6b74dba56f5dd9d600ffb285ba1b92433dedba29a59ecd28a5ea1206ced4d0",
+    "candidate.inf": "27bea20d6141bf063918bfe939291b602d5b3a01916f732057d81acc9699ac83",
+    "commands/export.log": "2a22c82ba1d21634aa4a1e6504a32fa40ce5ae4a41fd74ac0c67fdfc937c459f",
+    "commands/export.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/export.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.log": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/validate.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/validate.stdout.txt": "2ef57ba82b659ab0084e89e54db8f06cbcd00d93bdc23a896ada1014872c0856",
+    "deployed/remote-run-launcher.ps1": "ca8d95e318ef53e79277ca5d82a8dea0956ad8c2be2e98d7c0d14beef05689ad",
+    "deployed/remote-run.ps1": "ca8d95e318ef53e79277ca5d82a8dea0956ad8c2be2e98d7c0d14beef05689ad",
+    "deployed/run-wp3-security-template.ps1": "cc5367fc27f7feb717c654a2dba93ecfdde4cc51852b7687f615f3d2fc1a3be4",
+    "expected.json": "1ed808cb0a74a3290a5afe0b819c91d0f95a3974f7b573ce6241527d69b37748",
+    "exported.inf": "bef55726c9af7b41807ccfe6ed27792d90b256a11553b9a4d4adc4e008fa564a",
+    "finalize_wp3_run.py": "92f302d601c5756f0ec32578303bf382468061f7cd3faf24410e2a14c97486bb",
+    "result.json": "c3f5b9a576b16112ca638c15a286e947a3feb6d076e631e7866201e159d67478",
+    "run-wp3-oracle.sh": "5cecb840a0f58f15d26773784dd0aa9431361b8363b0a0c4944b97bf35adbb94"
+  },
+  "candidate_differences": [],
+  "checks": {
+    "candidate_authored_key_set_exact": true,
+    "candidate_decodes": true,
+    "candidate_has_required_preamble": true,
+    "candidate_semantics_match": true,
+    "cleanup_succeeded": true,
+    "database_absent_after_cleanup": true,
+    "database_residual_files_empty": true,
+    "deployed_harness_matches_source": true,
+    "environment_matches_frozen_spec": true,
+    "expected_schema_supported": true,
+    "export_created": true,
+    "export_succeeded": true,
+    "import_succeeded": true,
+    "local_evidence_copies_match_source": true,
+    "observed_secedit_operations_match": true,
+    "source_tree_clean": true,
+    "validate_succeeded": true,
+    "windows_export_decodes": true,
+    "windows_export_semantics_match": true
+  },
+  "decode_error": null,
+  "environment": {
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "lgpo_sha256": "0c97f29543418b30340c4ff5d930d31e6196dd59c2cc74b6b890fa7b90c910c7",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.32860",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "export_differences": [],
+  "harness_error": null,
+  "passed": true,
+  "run_id": "wp3-security-template-20260727220623-7682",
+  "schema_version": 1,
+  "source": {
+    "commit": "fdb46004c2f838f5b5eb6a693ebdf7f99d4ee71a",
+    "dirty": false,
+    "files": {
+      "build-wp3-candidate.py": "5c6b74dba56f5dd9d600ffb285ba1b92433dedba29a59ecd28a5ea1206ced4d0",
+      "finalize_wp3_run.py": "92f302d601c5756f0ec32578303bf382468061f7cd3faf24410e2a14c97486bb",
+      "remote-run-launcher.ps1": "ca8d95e318ef53e79277ca5d82a8dea0956ad8c2be2e98d7c0d14beef05689ad",
+      "remote-run.ps1": "ca8d95e318ef53e79277ca5d82a8dea0956ad8c2be2e98d7c0d14beef05689ad",
+      "run-wp3-oracle.sh": "5cecb840a0f58f15d26773784dd0aa9431361b8363b0a0c4944b97bf35adbb94",
+      "run-wp3-security-template.ps1": "cc5367fc27f7feb717c654a2dba93ecfdde4cc51852b7687f615f3d2fc1a3be4"
+    }
+  }
+}

@@ -16,8 +16,12 @@ from typing import Literal
 
 from .model import ValidationIssue
 
+_UTF16LE_BOM = b"\xff\xfe"
+_UTF32LE_BOM = b"\xff\xfe\x00\x00"
+
 KNOWN_SECTIONS: frozenset[str] = frozenset(
     {
+        "unicode",
         "version",
         "system access",
         "event audit",
@@ -75,8 +79,37 @@ class SecurityTemplate:
 
 
 # ---------------------------------------------------------------------------
-# Parser
+# Byte codec and parser
 # ---------------------------------------------------------------------------
+
+
+def decode_security_template(data: bytes) -> str:
+    """Decode a Windows security-policy INF file.
+
+    ``GptTmpl.inf`` is an MS-GPSB security policy file, whose wire encoding is
+    UTF-16LE with a byte-order mark.  Decode that contract strictly instead of
+    relying on a process locale or allowing an internally consistent
+    parse/format round trip to hide an invalid artifact.
+    """
+    if len(data) > _MAX_TEMPLATE_SIZE:
+        raise SecurityTemplateError(f"template exceeds {_MAX_TEMPLATE_SIZE} bytes")
+    if data.startswith(_UTF32LE_BOM):
+        raise SecurityTemplateError("template must not use UTF-32LE encoding")
+    if not data.startswith(_UTF16LE_BOM):
+        raise SecurityTemplateError("template must be UTF-16LE with a byte-order mark")
+    try:
+        return data[len(_UTF16LE_BOM) :].decode("utf-16-le")
+    except UnicodeDecodeError as error:
+        raise SecurityTemplateError("template contains invalid UTF-16LE text") from error
+
+
+def encode_security_template(text: str) -> bytes:
+    """Encode security-policy INF text as UTF-16LE/BOM with CRLF endings."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    encoded = _UTF16LE_BOM + normalized.replace("\n", "\r\n").encode("utf-16-le")
+    if len(encoded) > _MAX_TEMPLATE_SIZE:
+        raise SecurityTemplateError(f"template exceeds {_MAX_TEMPLATE_SIZE} bytes")
+    return encoded
 
 
 def _join_continuation_lines(lines: list[str]) -> list[str]:
@@ -507,7 +540,9 @@ __all__ = [
     "SecurityTemplate",
     "SecurityTemplateError",
     "TemplateDiff",
+    "decode_security_template",
     "diff_templates",
+    "encode_security_template",
     "extract_account_policy",
     "extract_audit_policy",
     "extract_privilege_rights",
