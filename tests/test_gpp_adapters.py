@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 
 import pytest
 
@@ -1345,8 +1346,17 @@ def test_local_group_member_action_codes() -> None:
 
 
 def test_scheduled_task_roundtrip() -> None:
+    """The Task Scheduler 1.0 element, where the scalar attributes belong.
+
+    This previously used the default element_variant (TaskV2) and asserted the
+    scalar attributes round-tripped on it. They did -- through Studio's own
+    parser -- but a v2 item ignores them entirely on Windows (WI-018), so the
+    scalar path is now exercised against the v1 element that actually defines
+    those attributes.
+    """
     task = GppScheduledTask(
         name="Cleanup",
+        element_variant="Task",
         run_as=r"DOMAIN\Admin",
         program=r"\\scratch\filecleanup.exe",
         arguments="-all",
@@ -1358,9 +1368,38 @@ def test_scheduled_task_roundtrip() -> None:
         action="replace",
     )
     data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b'triggerType="DAILY"' in data
     parsed = parse_gpp_scheduled_tasks(data)
     assert len(parsed) == 1
     assert parsed[0] == task
+
+
+def test_scheduled_task_v2_roundtrips_through_an_embedded_payload() -> None:
+    """A TaskV2 carries its schedule in <Task>, and the scalars project back."""
+    task = GppScheduledTask(
+        name="Cleanup",
+        element_variant="TaskV2",
+        run_as=r"DOMAIN\Admin",
+        program=r"\\scratch\filecleanup.exe",
+        arguments="-all",
+        start_in="c:\\",
+        trigger_type="weekly",
+        trigger_time="2026-01-01T10:00:00",
+        trigger_days="Monday",
+        action="replace",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    # The shape genuine GPMC writes: payload present, v1 scalars absent.
+    assert b"<Task version=" in data
+    assert b"ScheduleByWeek" in data
+    for scalar in (b"program=", b"arguments=", b"startIn=", b"triggerType="):
+        assert scalar not in data
+    parsed = parse_gpp_scheduled_tasks(data)[0]
+    assert parsed.trigger_type == "weekly"
+    assert parsed.trigger_days == "Monday"
+    assert parsed.trigger_time == "2026-01-01T10:00:00"
+    assert parsed.program == task.program
+    assert parsed.arguments == task.arguments
 
 
 def test_scheduled_task_common_options() -> None:
@@ -1390,6 +1429,7 @@ def test_scheduled_task_unknown_attrs_preserved() -> None:
 
 
 def test_scheduled_task_trigger_type_codes() -> None:
+    """Scalar trigger codes, on the v1 element that defines them."""
     for trigger, code in [
         ("once", "ONCE"),
         ("daily", "DAILY"),
@@ -1398,7 +1438,11 @@ def test_scheduled_task_trigger_type_codes() -> None:
         ("at_logon", "ATLOGON"),
         ("at_startup", "ATSTARTUP"),
     ]:
-        task = GppScheduledTask(name="X", trigger_type=trigger)  # type: ignore[arg-type]
+        task = GppScheduledTask(
+            name="X",
+            element_variant="Task",
+            trigger_type=trigger,  # type: ignore[arg-type]
+        )
         data = serialize_gpp_scheduled_tasks((task,), "computer")
         assert f'triggerType="{code}"'.encode() in data
         parsed = parse_gpp_scheduled_tasks(data)
@@ -1460,10 +1504,13 @@ def test_scheduled_task_roundtrip_taskv2() -> None:
     task = GppScheduledTask(name="Cleanup", element_variant="TaskV2")
     data = serialize_gpp_scheduled_tasks((task,), "computer")
     assert b"<TaskV2 " in data
-    assert b"<Task " not in data
+    # A TaskV2 now carries an embedded <Task version="1.2"> payload, which is
+    # what genuine GPMC writes; this previously asserted its absence.
+    assert b"<Task version=" in data
     parsed = parse_gpp_scheduled_tasks(data)
     assert parsed[0].element_variant == "TaskV2"
-    assert parsed[0] == task
+    assert parsed[0].task_xml
+    assert parsed[0].name == task.name
 
 
 def test_scheduled_task_roundtrip_legacy_task() -> None:
@@ -1643,16 +1690,26 @@ def test_immediate_task_xml_roundtrip() -> None:
 
 
 def test_scheduled_task_no_task_xml_still_works() -> None:
-    task = GppScheduledTask(
+    """Authoring without an explicit payload works -- one is synthesized.
+
+    The v1 element keeps no payload; the v2 element gains a synthesized one,
+    because a v2 item with no <Task> is inert on Windows (WI-018).
+    """
+    v1 = GppScheduledTask(
         name="Legacy",
+        element_variant="Task",
         program=r"c:\tool.exe",
         arguments="--flag",
     )
-    data = serialize_gpp_scheduled_tasks((task,), "computer")
-    parsed = parse_gpp_scheduled_tasks(data)
-    assert parsed[0].task_xml == ""
-    assert parsed[0].program == "c:\\tool.exe"
-    assert parsed[0] == task
+    parsed_v1 = parse_gpp_scheduled_tasks(serialize_gpp_scheduled_tasks((v1,), "computer"))[0]
+    assert parsed_v1.task_xml == ""
+    assert parsed_v1 == v1
+
+    v2 = GppScheduledTask(name="Modern", program=r"c:\tool.exe", arguments="--flag")
+    parsed_v2 = parse_gpp_scheduled_tasks(serialize_gpp_scheduled_tasks((v2,), "computer"))[0]
+    assert parsed_v2.task_xml
+    assert parsed_v2.program == "c:\\tool.exe"
+    assert parsed_v2.arguments == "--flag"
 
 
 def test_scheduled_task_variants_preserve_document_order() -> None:
@@ -1705,7 +1762,12 @@ def test_gpp_collection_with_privileged_adapters() -> None:
     assert parsed.local_users[0] == col.local_users[0]
     assert len(parsed.local_groups) == 0
     assert len(parsed.scheduled_tasks) == 1
-    assert parsed.scheduled_tasks[0] == col.scheduled_tasks[0]
+    # A TaskV2 authored without an explicit payload gains a synthesized one
+    # (WI-018), so exact model equality no longer holds -- everything else must
+    # still round-trip unchanged.
+    round_tripped = parsed.scheduled_tasks[0]
+    assert round_tripped.task_xml
+    assert replace(round_tripped, task_xml="") == col.scheduled_tasks[0]
     assert len(parsed.immediate_tasks) == 1
     assert parsed.immediate_tasks[0] == col.immediate_tasks[0]
 
