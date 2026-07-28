@@ -68,6 +68,10 @@ LOCAL_USER = GppLocalUser(
 )
 SCHEDULED_TASK = GppScheduledTask(
     name="GPOStudio WP1B Conformance Task",
+    # The writer applies this GPMC default when the authoring model leaves
+    # run_as blank. Keep the candidate explicit so its expected summary already
+    # describes the identity Windows will receive.
+    run_as="NT AUTHORITY\\System",
     program="C:\\Windows\\System32\\cmd.exe",
     arguments="/c exit 0",
     start_in="C:\\Windows\\System32",

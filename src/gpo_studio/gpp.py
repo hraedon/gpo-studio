@@ -1125,9 +1125,17 @@ def mark_edited(collection: GppCollection) -> GppCollection:
 # Dict (JSON) serialization for store / API
 # ---------------------------------------------------------------------------
 
-def _os_criteria_from_dict(data: Any) -> IltOsCriteria | None:
+def _os_criteria_from_dict(data: Any, *, legacy_value: str = "") -> IltOsCriteria | None:
+    """Load OS criteria, migrating the pre-WI-021 single-value shape.
+
+    Existing workspaces stored an OS predicate as ``value="WIN7"``. Returning
+    ``None`` for that shape makes the new serializer substitute five ``NE``
+    ("Any") fields, silently broadening the filter. Treat the legacy value as
+    the version criterion instead. Unknown values are preserved too: the ILT
+    model deliberately carries platform vocabulary newer than Studio.
+    """
     if not isinstance(data, dict):
-        return None
+        return IltOsCriteria(version=legacy_value) if legacy_value else None
     return IltOsCriteria(
         os_class=str(data.get("os_class", "NE")),
         version=str(data.get("version", "NE")),
@@ -1177,36 +1185,54 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
             items: list[IltPredicate | str] = []
             for item in items_data:
                 if isinstance(item, dict):
+                    value = str(item["value"])
                     items.append(IltPredicate(
                         type=item["type"],
                         negate=bool(item["negate"]),
-                        value=str(item["value"]),
+                        value=value,
                         bool_op=str(item.get("bool_op", "AND")),
                         unknown_attrs=tuple(
                             (str(k), str(v))
                             for k, v in item.get("unknown_attrs", [])
                         ),
-                        os_criteria=_os_criteria_from_dict(item.get("os_criteria")),
+                        os_criteria=(
+                            _os_criteria_from_dict(
+                                item.get("os_criteria"),
+                                legacy_value=value,
+                            )
+                            if item["type"] == "os"
+                            else None
+                        ),
                     ))
                 else:
                     items.append(str(item))
             return IltFilter(items=tuple(items))
         predicates_data = data.get("predicates", [])
         unknown = tuple(data.get("unknown_predicates", []))
-        preds = tuple(
-            IltPredicate(
-                type=p["type"],
-                negate=bool(p["negate"]),
-                value=str(p["value"]),
-                bool_op=str(p.get("bool_op", "AND")),
-                unknown_attrs=tuple(
-                    (str(k), str(v))
-                    for k, v in p.get("unknown_attrs", [])
-                ),
+        predicates: list[IltPredicate] = []
+        for predicate in predicates_data:
+            value = str(predicate["value"])
+            predicates.append(
+                IltPredicate(
+                    type=predicate["type"],
+                    negate=bool(predicate["negate"]),
+                    value=value,
+                    bool_op=str(predicate.get("bool_op", "AND")),
+                    unknown_attrs=tuple(
+                        (str(k), str(v))
+                        for k, v in predicate.get("unknown_attrs", [])
+                    ),
+                    os_criteria=(
+                        _os_criteria_from_dict(
+                            predicate.get("os_criteria"),
+                            legacy_value=value,
+                        )
+                        if predicate["type"] == "os"
+                        else None
+                    ),
+                )
             )
-            for p in predicates_data
-        )
-        return IltFilter(items=preds + unknown)
+        return IltFilter(items=tuple(predicates) + unknown)
     else:
         preds = tuple(
             IltPredicate(

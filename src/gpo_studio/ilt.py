@@ -392,14 +392,15 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
         case "disk_space":
             value = elem.get("min", "")
         case "os":
-            # Legacy Studio output used <FilterOS osType="...">; a value that
-            # names a known version is carried across, anything else is left in
-            # unknown_attrs rather than guessed at.
+            # Legacy Studio output used <FilterOS osType="...">. Preserve its
+            # single value as the version criterion, including vocabulary newer
+            # than Studio; replacing an unknown value with NE would silently
+            # broaden the filter to "Any OS".
             legacy = elem.get("osType", "")
             value = ""
             os_criteria = IltOsCriteria(
                 os_class=elem.get("class", "NE"),
-                version=elem.get("version", legacy if legacy in OS_VERSION_VALUES else "NE"),
+                version=elem.get("version", legacy or "NE"),
                 product_type=elem.get("type", "NE"),
                 edition=elem.get("edition", "NE"),
                 service_pack=elem.get("sp", "NE"),

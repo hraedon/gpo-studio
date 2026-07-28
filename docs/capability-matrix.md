@@ -94,13 +94,16 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 > as the correct typed item, and re-exported by `Backup-GPO` with no semantic
 > difference from the authoring model.
 >
-> **GPP Scheduled Tasks is explicitly NOT promoted.** It fails WP-1B on shape:
-> Studio emits `TaskV2` elements carrying the Task Scheduler 1.0 scalar
-> attributes with no embedded `<Task>` payload, which is the inverse of every
-> genuine GPMC capture. GPMC's report echoes the scalars back, so no round trip
-> detects it, and whether the client-side extension honours the form is unproven
-> in either direction. It stays `unit-verified` pending endpoint evidence. See
-> Plan 033 finding WP-1B-1. The remaining capabilities stay in scope for
+> **GPP Scheduled Tasks is explicitly NOT promoted as a family.** Plan 033
+> endpoint phase 3 proves the corrected scalar-authored daily Exec `TaskV2`
+> path creates a task with the expected action. The writer now emits the
+> genuine embedded `<Task>` shape, a non-empty GPMC identity default, and an
+> ISO 8601 boundary. The initial full writer-lane verdict predates that fix and
+> must be rerun, while multiple triggers, `ImmediateTaskV2`, non-Exec actions,
+> and `at_logon`/`at_startup` remain outside the measured authoring surface.
+> The family therefore stays `unit-verified`; the isolated daily Exec path is
+> endpoint-applied evidence, not a family-wide promotion. The remaining
+> capabilities stay in scope for
 > authoring and artifact generation; their Windows-lab validation is
 > explicitly deferred to a post-1.0 lab cycle or a future PowerShell plan
 > enhancement that applies them natively.
