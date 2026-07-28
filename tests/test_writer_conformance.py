@@ -100,6 +100,11 @@ LOCAL_USER = GppLocalUser(
 )
 TASK = GppScheduledTask(
     name="WP1B Probe Task",
+    # Explicit: an empty run_as is not a valid authoring state for a TaskV2 --
+    # Windows creates nothing without an identity (WI-018 bisect) -- so the
+    # writer substitutes GPMC's scope default. Setting it here keeps this
+    # fixture's comparison about the fields under test.
+    run_as="NT AUTHORITY\\System",
     program="C:\\Windows\\System32\\cmd.exe",
     arguments="/c exit 0",
     trigger_type="daily",

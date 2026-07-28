@@ -2563,6 +2563,16 @@ _UNSPECIFIED_START_BOUNDARY = f"{_PLACEHOLDER_START_DATE}T00:00:00"
 #: passed, because a Studio-to-Studio round trip cannot tell the two apart.
 _BARE_TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
+#: GPMC always populates runAs, and its default differs by scope. Emitting an
+#: empty runAs leaves the Scheduled Tasks CSE with no identity to register the
+#: task under, so it creates nothing and logs nothing -- bisected at the
+#: endpoint on 2026-07-28, where the only varied field was this one. These are
+#: GPMC's own defaults, read from the native corpus, not chosen by Studio.
+_DEFAULT_RUN_AS: dict[str, str] = {
+    "computer": "NT AUTHORITY\\System",
+    "user": "%LogonDomain%\\%LogonUser%",
+}
+
 
 def _xml_text(value: str) -> str:
     """Escape text for embedding in the hand-built Task payload."""
@@ -2609,7 +2619,7 @@ def _task_v2_trigger_xml(task: GppScheduledTask) -> str:
     )
 
 
-def _synthesize_task_v2_xml(task: GppScheduledTask) -> str:
+def _synthesize_task_v2_xml(task: GppScheduledTask, run_as: str) -> str:
     """Build an embedded <Task> payload for a TaskV2 authored through scalars.
 
     Genuine GPMC TaskV2 items carry their actions and triggers HERE, never in
@@ -2625,7 +2635,6 @@ def _synthesize_task_v2_xml(task: GppScheduledTask) -> str:
             f"task_xml explicitly, or use one of: "
             f"{', '.join(sorted(_SYNTHESIZABLE_TRIGGERS))}."
         )
-    run_as = task.run_as or "%LogonDomain%\\%LogonUser%"
     enabled = "true" if task.enabled else "false"
     return (
         '<Task version="1.2">'
@@ -2646,7 +2655,7 @@ def _synthesize_task_v2_xml(task: GppScheduledTask) -> str:
     )
 
 
-def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
+def _serialize_scheduled_task(task: GppScheduledTask, scope: GppScope = "computer") -> ET.Element:
     _deny_password(
         task.run_as_password,
         "run_as_password",
@@ -2667,8 +2676,9 @@ def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
     # and are silently ignored on a v2 item (WI-018). The two shapes are
     # therefore mutually exclusive, not additive.
     if task.element_variant == "TaskV2":
-        props_attrs = {"name": task.name, "runAs": task.run_as}
-        task_xml = task.task_xml or _synthesize_task_v2_xml(task)
+        run_as = task.run_as or _DEFAULT_RUN_AS[scope]
+        props_attrs = {"name": task.name, "runAs": run_as}
+        task_xml = task.task_xml or _synthesize_task_v2_xml(task, run_as)
     else:
         props_attrs = {
             "name": task.name,
@@ -2701,12 +2711,12 @@ def _serialize_scheduled_task(task: GppScheduledTask) -> ET.Element:
 
 def serialize_gpp_scheduled_tasks(
     items: tuple[GppScheduledTask, ...],
-    scope: GppScope,  # noqa: ARG001
+    scope: GppScope,
 ) -> bytes:
     """Serialize Scheduled Tasks items to GPP XML bytes."""
     root = _build_root_element("scheduled_tasks")
     for task in items:
-        root.append(_serialize_scheduled_task(task))
+        root.append(_serialize_scheduled_task(task, scope))
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 

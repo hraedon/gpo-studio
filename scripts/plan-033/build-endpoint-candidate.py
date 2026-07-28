@@ -156,6 +156,39 @@ def _scalar_task(name: str, **overrides: object) -> GppScheduledTask:
     return GppScheduledTask(**base)  # type: ignore[arg-type]
 
 
+def _bare_time_task(name: str) -> GppScheduledTask:
+    """Row I: the pre-fix boundary form, with a valid identity.
+
+    The runAs bisect showed row F failed on identity, not on the boundary, so
+    the StartBoundary normalization has not actually been shown to matter. This
+    supplies an explicit task_xml carrying the bare time the writer used to
+    emit, with runAs correct, to find out whether that alone is fatal. Claiming
+    a fix without this would be claiming something unmeasured.
+    """
+    payload = (
+        '<Task version="1.2">'
+        "<RegistrationInfo><Author>GPO Studio</Author></RegistrationInfo>"
+        '<Principals><Principal id="Author">'
+        "<UserId>NT AUTHORITY\\System</UserId><RunLevel>LeastPrivilege</RunLevel>"
+        "</Principal></Principals>"
+        "<Settings><Enabled>true</Enabled><AllowStartOnDemand>true</AllowStartOnDemand>"
+        "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy></Settings>"
+        "<Triggers><CalendarTrigger><StartBoundary>03:00:00</StartBoundary>"
+        "<Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval>"
+        "</ScheduleByDay></CalendarTrigger></Triggers>"
+        f'<Actions Context="Author"><Exec><Command>{PROGRAM}</Command>'
+        f"<Arguments>{ARGUMENTS}</Arguments></Exec></Actions>"
+        "</Task>"
+    )
+    return GppScheduledTask(
+        name=name,
+        action="replace",
+        element_variant="TaskV2",
+        run_as="NT AUTHORITY\\System",
+        task_xml=payload,
+    )
+
+
 def _task(name: str, *, native_shape: bool, ilt: IltFilter | None) -> GppScheduledTask:
     """One scheduled task.
 
@@ -239,7 +272,12 @@ BISECT: tuple[tuple[str, dict[str, object], str], ...] = (
     (
         "GPOStudio-EP2-H-future-boundary",
         {"trigger_time": "2026-01-01T03:00:00"},
-        "hypothesis: a 1970 StartBoundary is rejected as too old",
+        "hypothesis: a 1970 StartBoundary is rejected as too old (DISPROVED: absent)",
+    ),
+    (
+        "GPOStudio-EP2-I-bare-time",
+        {"run_as": "NT AUTHORITY\\System", "trigger_time": "RAW-BARE-TIME"},
+        "was the StartBoundary fix load-bearing, or only schema hygiene?",
     ),
 )
 
@@ -262,7 +300,12 @@ def main() -> int:
                         _task(name, native_shape=native, ilt=ilt)
                         for name, native, ilt, _, _ in TASKS
                     )
-                    + tuple(_scalar_task(name, **fields) for name, fields, _ in BISECT)
+                    + tuple(
+                        _bare_time_task(name)
+                        if fields.get("trigger_time") == "RAW-BARE-TIME"
+                        else _scalar_task(name, **fields)
+                        for name, fields, _ in BISECT
+                    )
                 ),
             ),
         ),
