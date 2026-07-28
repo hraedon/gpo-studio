@@ -134,6 +134,28 @@ STUDIO_NEGATED_FILTER = IltFilter(
 )
 
 
+def _scalar_task(name: str, **overrides: object) -> GppScheduledTask:
+    """A scalar-authored TaskV2 with one field varied, for bisecting row F.
+
+    Row F (scalar authoring, defaults) produced no task even after the payload
+    and StartBoundary fixes, and the CSE logs nothing. These vary exactly one
+    field each so the cause is attributable rather than guessed.
+    """
+    base: dict[str, object] = dict(
+        name=name,
+        action="replace",
+        element_variant="TaskV2",
+        program=PROGRAM,
+        arguments=ARGUMENTS,
+        start_in="C:\\Windows\\System32",
+        enabled=True,
+        trigger_type="daily",
+        trigger_time="03:00:00",
+    )
+    base.update(overrides)
+    return GppScheduledTask(**base)  # type: ignore[arg-type]
+
+
 def _task(name: str, *, native_shape: bool, ilt: IltFilter | None) -> GppScheduledTask:
     """One scheduled task.
 
@@ -205,6 +227,22 @@ TASKS = (
     ),
 )
 
+#: Bisect rows for row F. Each varies ONE field from F so that whichever
+#: appears identifies the cause; the CSE logs nothing, so this is the only way
+#: to attribute it.
+BISECT: tuple[tuple[str, dict[str, object], str], ...] = (
+    (
+        "GPOStudio-EP2-G-runas-system",
+        {"run_as": "NT AUTHORITY\\System"},
+        "hypothesis: empty runAs leaves the CSE no identity to register under",
+    ),
+    (
+        "GPOStudio-EP2-H-future-boundary",
+        {"trigger_time": "2026-01-01T03:00:00"},
+        "hypothesis: a 1970 StartBoundary is rejected as too old",
+    ),
+)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -219,8 +257,12 @@ def main() -> int:
         gpp_collections=(
             GppCollection(
                 scope="computer",
-                scheduled_tasks=tuple(
-                    _task(name, native_shape=native, ilt=ilt) for name, native, ilt, _, _ in TASKS
+                scheduled_tasks=(
+                    tuple(
+                        _task(name, native_shape=native, ilt=ilt)
+                        for name, native, ilt, _, _ in TASKS
+                    )
+                    + tuple(_scalar_task(name, **fields) for name, fields, _ in BISECT)
                 ),
             ),
         ),
@@ -232,6 +274,10 @@ def main() -> int:
         "tasks": [
             {"name": name, "isolates": isolates, "expected_if_defects_real": expectation}
             for name, _, _, isolates, expectation in TASKS
+        ]
+        + [
+            {"name": name, "isolates": hypothesis, "expected_if_defects_real": "present"}
+            for name, _, hypothesis in BISECT
         ],
     }
     (args.output_dir / "candidate.zip").write_bytes(gpmc_backup_bundle(gpo))
