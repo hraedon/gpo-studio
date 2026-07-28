@@ -466,23 +466,59 @@ def test_nested_ilt_survives_reserialization_from_the_typed_model() -> None:
     assert 'bool="OR"' in ilt.unknown_predicates[0]
 
 
-def test_genuine_gpmc_os_filter_is_not_typed() -> None:
-    """Pins WI-021: the tag map says 'FilterOS', GPMC writes 'FilterOs'.
+def test_genuine_gpmc_os_filter_is_typed() -> None:
+    """WI-021 inverted: genuine FilterOs predicates are modelled, not opaque.
 
-    XML names are case-sensitive, so every genuine OS predicate falls into the
-    opaque branch. Content is preserved, which is why no round-trip test caught
-    it — but it is never modelled. When WI-021 is fixed this test fails and must
-    be inverted.
+    Before the fix the tag map said "FilterOS" while GPMC writes "FilterOs", so
+    every genuine OS predicate fell into the opaque branch. It was preserved --
+    which is why no round-trip test caught it -- but never modelled, and the
+    element Studio emitted was one the CSE could not parse at all.
     """
     content_root = next(iter((NATIVE_CORPUS / "WI01A-DriveMaps-GPMC").glob("*/DomainSysvol/GPO")))
-    raw_predicates = [
-        raw
+    predicates = [
+        predicate
         for collection in collect_gpp_collections(content_root)
         for drive in collection.drives
         if drive.ilt_filter is not None
-        for raw in drive.ilt_filter.unknown_predicates
+        for predicate in drive.ilt_filter.predicates
+        if predicate.type == "os"
     ]
-    assert any(raw.startswith("<FilterOs ") for raw in raw_predicates)
+    assert predicates, "no typed OS predicate found in the genuine capture"
+    criteria = predicates[0].os_criteria
+    assert criteria is not None
+    assert (criteria.os_class, criteria.version) == ("NT", "WINTHRESHOLD")
+    # No genuine OS predicate should carry a value outside the documented
+    # enumerations; if one does, the model is behind the platform.
+    assert all(
+        predicate.os_criteria is not None and predicate.os_criteria.unrecognized() == ()
+        for predicate in predicates
+    )
+
+
+def test_studio_emits_the_native_os_filter_element() -> None:
+    """The emitted element must be one GPMC and the CSE actually recognize."""
+    import xml.etree.ElementTree as ElementTree
+
+    from gpo_studio.ilt import IltFilter, IltOsCriteria, IltPredicate, serialize_ilt
+
+    emitted = ElementTree.tostring(
+        serialize_ilt(
+            IltFilter(
+                items=(
+                    IltPredicate(
+                        type="os",
+                        os_criteria=IltOsCriteria(os_class="NT", version="WINTHRESHOLD"),
+                    ),
+                )
+            )
+        ),
+        encoding="unicode",
+    )
+    assert "<FilterOs " in emitted
+    assert "FilterOS" not in emitted
+    assert "osType" not in emitted
+    for attribute in ("class=", "version=", "type=", "edition=", "sp="):
+        assert attribute in emitted
 
 
 def test_disabled_policy_deletes_every_element_value_name() -> None:

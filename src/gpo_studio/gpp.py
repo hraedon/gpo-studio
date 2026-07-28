@@ -13,7 +13,7 @@ from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
 
-from .ilt import IltFilter, IltPredicate, parse_ilt, serialize_ilt
+from .ilt import IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
 from .xml_safety import parse_xml_bounded
 
@@ -1125,6 +1125,18 @@ def mark_edited(collection: GppCollection) -> GppCollection:
 # Dict (JSON) serialization for store / API
 # ---------------------------------------------------------------------------
 
+def _os_criteria_from_dict(data: Any) -> IltOsCriteria | None:
+    if not isinstance(data, dict):
+        return None
+    return IltOsCriteria(
+        os_class=str(data.get("os_class", "NE")),
+        version=str(data.get("version", "NE")),
+        product_type=str(data.get("product_type", "NE")),
+        edition=str(data.get("edition", "NE")),
+        service_pack=str(data.get("service_pack", "NE")),
+    )
+
+
 def _ilt_filter_to_dict(ilt: IltFilter | None) -> dict[str, Any] | None:
     if ilt is None:
         return None
@@ -1136,6 +1148,19 @@ def _ilt_filter_to_dict(ilt: IltFilter | None) -> dict[str, Any] | None:
                 "value": p.value,
                 "bool_op": p.bool_op,
                 "unknown_attrs": list(p.unknown_attrs) if p.unknown_attrs else [],
+                **(
+                    {
+                        "os_criteria": {
+                            "os_class": p.os_criteria.os_class,
+                            "version": p.os_criteria.version,
+                            "product_type": p.os_criteria.product_type,
+                            "edition": p.os_criteria.edition,
+                            "service_pack": p.os_criteria.service_pack,
+                        }
+                    }
+                    if p.os_criteria is not None
+                    else {}
+                ),
             }
             if isinstance(p, IltPredicate) else p
             for p in ilt.items
@@ -1161,6 +1186,7 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
                             (str(k), str(v))
                             for k, v in item.get("unknown_attrs", [])
                         ),
+                        os_criteria=_os_criteria_from_dict(item.get("os_criteria")),
                     ))
                 else:
                     items.append(str(item))

@@ -10,6 +10,7 @@ from manifest_comparator import compare_fixture
 
 from gpo_studio.gpp import parse_gpp_collection, parse_gpp_groups
 from gpo_studio.gpp_adapters import parse_gpp_drives, parse_gpp_local_groups
+from gpo_studio.ilt import IltOsCriteria, IltPredicate
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "native-gpp-gpmc"
 SCHEMA_PATH = (
@@ -58,7 +59,15 @@ class TestGenuineDriveMaps:
         assert m_drive.common.stop_on_error is True
         assert m_drive.ilt_filter is not None
         assert len(m_drive.ilt_filter.items) == 1
-        assert "FilterOs" in m_drive.ilt_filter.items[0]
+        # Genuine FilterOs now parses as a TYPED predicate. This previously
+        # asserted a raw XML substring, which only held because the element was
+        # unrecognized and preserved opaquely (WI-021).
+        os_predicate = m_drive.ilt_filter.items[0]
+        assert isinstance(os_predicate, IltPredicate)
+        assert os_predicate.type == "os"
+        assert os_predicate.os_criteria == IltOsCriteria(
+            os_class="NT", version="WINTHRESHOLD"
+        )
 
         p_drive = drives[1]
         assert p_drive.letter == "P"
@@ -124,9 +133,17 @@ class TestGenuineDriveMaps:
         assert m_drive.common.apply_once is True
         assert m_drive.ilt_filter is not None
         assert len(m_drive.ilt_filter.items) == 1
-        assert "FilterOs" in m_drive.ilt_filter.items[0]
-        assert 'version="WINTHRESHOLD"' in m_drive.ilt_filter.items[0]
-        assert 'class="NT"' in m_drive.ilt_filter.items[0]
+        os_predicate = m_drive.ilt_filter.items[0]
+        assert isinstance(os_predicate, IltPredicate)
+        assert os_predicate.os_criteria is not None
+        assert os_predicate.os_criteria.version == "WINTHRESHOLD"
+        assert os_predicate.os_criteria.os_class == "NT"
+        # Everything the operator left as "Any" must survive as NE, not be
+        # dropped: NE is a real value in the schema, not an absence.
+        assert os_predicate.os_criteria.product_type == "NE"
+        assert os_predicate.os_criteria.edition == "NE"
+        assert os_predicate.os_criteria.service_pack == "NE"
+        assert os_predicate.os_criteria.unrecognized() == ()
 
     def test_parse_via_collection(self) -> None:
         data = _read_fixture_gpp(
