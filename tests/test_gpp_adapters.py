@@ -1167,16 +1167,32 @@ def test_service_unknown_attrs_preserved() -> None:
 
 
 def test_service_startup_type_codes() -> None:
+    """Startup types serialize as the symbolic names GPMC writes.
+
+    This previously asserted the numeric codes 2/3/4. That was self-consistent
+    -- Studio round-tripping its own output -- but wrong against Windows: no
+    genuine GPMC capture contains a numeric startupType, and every real value
+    was rejected on parse (WI-019). Corrected against the native corpus.
+    """
     for startup, code in [
-        ("automatic", "2"),
-        ("manual", "3"),
-        ("disabled", "4"),
+        ("automatic", "AUTOMATIC"),
+        ("manual", "MANUAL"),
+        ("disabled", "DISABLED"),
+        ("no_change", "NOCHANGE"),
     ]:
         svc = GppService(service_name="S", startup_type=startup)  # type: ignore[arg-type]
         data = serialize_gpp_services((svc,), "computer")
         assert f'startupType="{code}"'.encode() in data
         parsed = parse_gpp_services(data)
         assert parsed[0].startup_type == startup
+
+
+def test_service_startup_numeric_codes_still_parse() -> None:
+    """Numeric codes are accepted on parse only, for older persisted data."""
+    svc = GppService(service_name="S", startup_type="automatic")
+    data = serialize_gpp_services((svc,), "computer")
+    legacy = data.replace(b'startupType="AUTOMATIC"', b'startupType="2"')
+    assert parse_gpp_services(legacy)[0].startup_type == "automatic"
 
 
 def test_service_password_denied() -> None:

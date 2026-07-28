@@ -273,16 +273,11 @@ def test_registry_type_change_is_reported() -> None:
 NATIVE_CORPUS = Path(__file__).parent / "fixtures" / "native-gpp-gpmc"
 
 
-#: Captures whose families Studio's GPP parsers cannot yet read. These are
-#: genuine Windows Server 2025 GPMC output, so the failure is Studio's; see
-#: work item WI-019. Listed explicitly rather than skipped by exception type so
-#: that fixing a parser turns the corresponding entry into a hard failure here
-#: and forces it back into the validated set.
-CAPTURES_BLOCKED_BY_PARSER_DEFECTS: dict[str, str] = {
-    "WI01A-Printers-GPMC": "printer action code 'R' (Replace) missing from the model",
-    "WI01A-Services-GPMC": "service startupType mapping expects numeric codes, GPMC writes names",
-    "WI01A-Shortcuts-GPMC": "empty window attribute rejected instead of defaulting",
-}
+#: Captures Studio's GPP parsers could not read. WI-019 is fixed, so this is
+#: empty and all three now flow through the cross-validation set below. Kept as
+#: the mechanism: a future capture that cannot be parsed is recorded here rather
+#: than quietly dropped from validation.
+CAPTURES_BLOCKED_BY_PARSER_DEFECTS: dict[str, str] = {}
 
 
 def _native_captures() -> list[Path]:
@@ -314,15 +309,37 @@ def _native_captures() -> list[Path]:
     [pytest.param(NATIVE_CORPUS / name, id=name) for name in CAPTURES_BLOCKED_BY_PARSER_DEFECTS],
 )
 def test_known_parser_defects_still_block_native_captures(capture: Path) -> None:
-    """Pin the WI-019 parser defects to the genuine captures that expose them.
+    """Pin any capture Studio still cannot parse.
 
-    Studio cannot currently import these native GPMC backups at all. When a
-    parser is fixed, this test fails and the capture must move into the
-    cross-validation set above.
+    Empty since WI-019 was fixed. The mechanism stays so that an unparseable
+    capture has to be recorded deliberately rather than silently excluded from
+    the cross-validation set.
     """
     content_root = next(iter(capture.glob("*/DomainSysvol/GPO")))
     with pytest.raises(GppError):
         summary_from_backup(content_root)
+
+
+@pytest.mark.parametrize(
+    "capture",
+    [
+        pytest.param(NATIVE_CORPUS / name, id=name)
+        for name in ("WI01A-Printers-GPMC", "WI01A-Services-GPMC", "WI01A-Shortcuts-GPMC")
+    ],
+)
+def test_wi019_captures_now_import(capture: Path) -> None:
+    """The three WI-019 captures parse, and are no longer merely 'not erroring'.
+
+    Each previously raised GppError, which rejected the WHOLE backup at the
+    supported import boundary -- not just the offending family.
+    """
+    content_root = next(iter(capture.glob("*/DomainSysvol/GPO")))
+    collections = collect_gpp_collections(content_root)
+    assert any(
+        items
+        for collection in collections
+        for items in (collection.printers, collection.services, collection.shortcuts)
+    )
 
 
 @pytest.mark.parametrize("capture", _native_captures(), ids=lambda path: path.name)
