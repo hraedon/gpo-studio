@@ -393,6 +393,52 @@ Row F is a deliberate regression pin: WI-018 is still open, and Studio's scalar
 `TaskV2` remains inert in the same run that proves the OS filter works — so the
 two defects are confirmed independent rather than one masking the other.
 
+#### Step 5 phase 3 — WI-018 fixed and verified (2026-07-28)
+
+Run `endpoint-20260728024058`, verdict at
+`docs/plan-033/wp1b-evidence/endpoint-result-phase3.json`. Lab clean on all
+three DCs afterwards.
+
+| | varies | result |
+|---|---|---|
+| A | no filter (control) | present |
+| B | Studio `FilterOs`, matches | present |
+| C | Studio `FilterOs`, excludes | absent |
+| D | Studio `FilterOs`, negated | present |
+| E | native `FilterOs`, excludes (control) | absent |
+| **F** | **scalar-authored `TaskV2`** | **present** |
+| G | F + explicit `runAs` | present |
+| H | F + explicit ISO boundary | present |
+| I | valid `runAs` + **bare-time** boundary | **absent** |
+
+**WI-018 is fixed.** Row F — the row that has been absent since phase 1 — now
+creates a task with the correct action.
+
+Getting there took two rounds of bisection, because the CSE reports success and
+logs nothing in every failing case. The first fix (synthesize an embedded
+`<Task>` payload) was necessary but not sufficient, and there was no signal
+saying so beyond the task's absence.
+
+**Two independent causes, each isolated by varying one field:**
+
+1. **Empty `runAs`.** Row G differed from F only in carrying an identity, and
+   only G appeared. The writer now substitutes GPMC's scope defaults —
+   `NT AUTHORITY\System` for computer, `%LogonDomain%\%LogonUser%` for user —
+   both read from the native corpus rather than chosen by Studio.
+2. **A bare-time `StartBoundary`.** Task Scheduler 1.0 stores a time of day;
+   2.0 requires ISO 8601. Row I carries the pre-fix bare time *with* a valid
+   identity and is still absent, so this was independently fatal.
+
+Row I exists because the `runAs` bisect made the boundary fix look incidental —
+H showed the 1970 date was fine, so the normalization had not been shown to
+matter. Claiming it as a fix without measuring would have been asserting
+something unmeasured. It turned out to be load-bearing.
+
+**The StartBoundary defect is the sharpest illustration of why this lane
+exists: it was introduced by *my own fix for WI-018*, passed all 2742 unit
+tests, and was invisible to every round trip** — Studio's parser happily accepts
+a bare time because Studio's writer produced it. Only Windows disagreed.
+
 #### Remaining WP-1B work
 
 - Step 4's "open and edit the item in GPMC, save" leg is **not** covered. The
