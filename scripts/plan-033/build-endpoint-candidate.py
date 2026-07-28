@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """Build the Plan 033 WP-1B step-5 endpoint candidate.
 
-PHASE 2 (2026-07-28) — does the CORRECTED FilterOs emitter actually apply?
+PHASE 3 (2026-07-28) — does the CORRECTED TaskV2 writer create a task?
+
+Row F is the WI-018 test and its expectation has FLIPPED. In phase 2 it was a
+regression pin: a scalar-authored TaskV2 had to stay absent, because the writer
+still emitted the inert shape. The writer now synthesizes an embedded <Task>
+payload, so the same row must now produce a task. Rows A-E are unchanged and
+act as controls -- if they still behave, a change in F is attributable to the
+writer fix and nothing else.
+
+PHASE 2 — does the CORRECTED FilterOs emitter actually apply?
 
 Phase 1 proved the two defects were real: Studio's scalar TaskV2 created no
 task (WI-018), and Studio's synthetic <FilterOS osType="..."> made an item
@@ -191,8 +200,8 @@ TASKS = (
         "GPOStudio-EP2-F-scalar-shape",
         False,
         None,
-        "WI-018 still open: scalar TaskV2 must remain inert",
-        "absent",
+        "WI-018 fix: scalar-authored TaskV2 must now CREATE a task",
+        "present",
     ),
 )
 
