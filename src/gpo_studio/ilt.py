@@ -81,7 +81,13 @@ OS_EDITION_XSD_VALUES: frozenset[str] = frozenset({
 OS_EDITION_PROSE_ONLY_VALUES: frozenset[str] = frozenset({
     "64STGSTD", "64STGWKGRP", "64MPSTD", "64MPPREM", "64ESSSOL",
 })
-OS_EDITION_VALUES: frozenset[str] = OS_EDITION_XSD_VALUES | OS_EDITION_PROSE_ONLY_VALUES
+# Emitted by genuine GPMC on Windows Server 2025 but documented in NEITHER the
+# XSD nor the prose (capture WI01A-OS-ILT, 2026-07-28). Recorded separately so
+# the provenance of each value stays visible: spec, spec-prose, or observation.
+OS_EDITION_CORPUS_OBSERVED_VALUES: frozenset[str] = frozenset({"64PRO"})
+OS_EDITION_VALUES: frozenset[str] = (
+    OS_EDITION_XSD_VALUES | OS_EDITION_PROSE_ONLY_VALUES | OS_EDITION_CORPUS_OBSERVED_VALUES
+)
 OS_SP_VALUES: frozenset[str] = frozenset({
     "NE", "Gold", "Service Pack 1", "Service Pack 2", "Service Pack 3",
     "Service Pack 4", "Service Pack 5", "Service Pack 6",
@@ -97,7 +103,15 @@ class IltOsCriteria:
 
     The spec permits implementations to add ``class``/``version`` values for
     newer platforms, so unrecognized values are PRESERVED rather than rejected:
-    refusing a value Windows itself wrote would be worse than carrying it.
+    refusing a value Windows itself wrote would be worse than carrying it. That
+    is not hypothetical -- a Windows Server 2025 capture emitted ``64PRO``,
+    which appears in neither the XSD nor the prose.
+
+    A capture of every OS entry GPMC offers on Windows Server 2025
+    (``WI01A-OS-ILT``) showed ``version`` never exceeding ``WINTHRESHOLDSRV``:
+    the vocabulary was not extended past the Threshold generation, and newer
+    products are distinguished by ``edition`` instead. There is no Windows 11
+    entry in the dropdown at all.
     """
 
     os_class: str = "NE"
