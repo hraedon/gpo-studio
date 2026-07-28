@@ -857,7 +857,14 @@ def test_api_bulk_policy_state_mixed_sides(tmp_path, monkeypatch) -> None:
         assert resp.status_code == 200
         disabled = resp.json()["gpo"]
         assert disabled["revision"] == gpo["revision"] + 1
-        assert all(s["value"] in ("0", 0) for s in disabled["settings"])
+        # Every policy-level write is the disabled value; element value names
+        # additionally get a delete record since WI-020 (gpedit parity), and
+        # those carry no data.
+        assert all(
+            item["value"] in ("0", 0) if item["action"] == "set" else item["value"] == ""
+            for item in disabled["settings"]
+        )
+        assert any(item["action"] == "set" for item in disabled["settings"])
 
 
 def test_api_category_tree(tmp_path, monkeypatch) -> None:

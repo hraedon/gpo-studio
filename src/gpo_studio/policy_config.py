@@ -219,9 +219,48 @@ def _resolve_disabled(
     policy: PolicyDefinition, config: PolicyConfiguration
 ) -> list[RegistrySetting]:
     _reject_element_values(policy, config, "disabled")
-    return _state_settings(
+    settings = _state_settings(
         policy, config, effective_disabled_value(policy), policy.disabled_list
     )
+    return settings + _disabled_element_deletes(policy, config)
+
+
+def _disabled_element_deletes(
+    policy: PolicyDefinition, config: PolicyConfiguration
+) -> list[RegistrySetting]:
+    """Deletes for each element value name when a policy is Disabled.
+
+    Lab-verified 2026-07-27 (WI-020). Disabling ``UserProfiles.admx``/
+    ``LimitSize`` through ``gpedit.msc`` wrote SIX deletion records: the policy's
+    own ``valueName`` and all five ``<elements>`` value names. Studio emitted
+    only the first, leaving stale element values that Windows removes.
+
+    ``list`` elements are deliberately excluded. A list writes one value per
+    item under its own key, so removing it needs a delete-all-values on that
+    key rather than a single named delete, and no capture yet shows what gpedit
+    emits for a disabled list. Guessing here would reintroduce exactly the kind
+    of unverified behaviour WI-020 was.
+    """
+    prefix = policy_setting_prefix(policy, config.side)
+    hive = _hive_for(config.side)
+    settings: list[RegistrySetting] = []
+    for element in policy.elements:
+        if element.kind == "list" or not element.registry_value_name:
+            continue
+        settings.append(
+            RegistrySetting(
+                id=f"{prefix}disabled-element-{element.id}",
+                side=config.side,
+                hive=hive,
+                key=element.registry_key if element.registry_key else policy.key,
+                value_name=element.registry_value_name,
+                registry_type="REG_SZ",
+                value="",
+                action="delete",
+                comment="",
+            )
+        )
+    return settings
 
 
 def _resolve_writes(
