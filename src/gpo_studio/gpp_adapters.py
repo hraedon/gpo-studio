@@ -238,9 +238,13 @@ def _code_to_device_action(code: str) -> Literal["enable", "disable"]:
     raise GppError(f"Unsupported device action code: {code!r}")
 
 
-def _printer_action_to_code(
-    action: Literal["create", "delete", "update"],
-) -> str:
+# Replace is one of the four standard GPP actions and GPMC writes action="R"
+# for printers; it was missing from the model entirely (WI-019), which made
+# Studio reject any genuine backup containing a Replace printer.
+_PrinterActionType = Literal["create", "delete", "update", "replace"]
+
+
+def _printer_action_to_code(action: _PrinterActionType) -> str:
     match action:
         case "create":
             return "C"
@@ -248,13 +252,15 @@ def _printer_action_to_code(
             return "D"
         case "update":
             return "U"
+        case "replace":
+            return "R"
         case _:
             assert_never(action)
 
 
-def _code_to_printer_action(code: str) -> Literal["create", "delete", "update"]:
-    mapping: dict[str, Literal["create", "delete", "update"]] = {
-        "C": "create", "D": "delete", "U": "update",
+def _code_to_printer_action(code: str) -> _PrinterActionType:
+    mapping: dict[str, _PrinterActionType] = {
+        "C": "create", "D": "delete", "U": "update", "R": "replace",
     }
     if code in mapping:
         return mapping[code]
@@ -276,6 +282,11 @@ def _shortcut_window_to_code(
 
 
 def _code_to_shortcut_window(code: str) -> Literal["normal", "minimized", "maximized"]:
+    # GPMC writes window="" when no window style was chosen. The attribute is
+    # present but empty, which is not the same as absent, and was previously
+    # rejected (WI-019). Both mean "default".
+    if not code:
+        return "normal"
     mapping: dict[str, Literal["normal", "minimized", "maximized"]] = {
         "Normal": "normal",
         "Minimized": "minimized",
@@ -288,29 +299,47 @@ def _code_to_shortcut_window(code: str) -> Literal["normal", "minimized", "maxim
 
 # Privileged execution adapter code conversions (Plan 024 WP-4).
 
-_ServiceStartupType = Literal["automatic", "manual", "disabled"]
+_ServiceStartupType = Literal["automatic", "manual", "disabled", "no_change"]
 _ServiceAction = Literal["start", "stop", "restart", "no_change"]
 _ServiceFailureAction = Literal["none", "restart", "reboot", "run_command"]
 
 
 def _service_startup_to_code(startup: _ServiceStartupType) -> str:
+    """Serialize a startup type the way GPMC writes it.
+
+    Genuine GPMC captures use symbolic names (``AUTOMATIC``, ``NOCHANGE``).
+    This previously emitted the numeric codes 2/3/4, which appear nowhere in
+    the native corpus, and correspondingly rejected every genuine value on
+    parse (WI-019).
+    """
     match startup:
         case "automatic":
-            return "2"
+            return "AUTOMATIC"
         case "manual":
-            return "3"
+            return "MANUAL"
         case "disabled":
-            return "4"
+            return "DISABLED"
+        case "no_change":
+            return "NOCHANGE"
         case _:
             assert_never(startup)
 
 
 def _code_to_service_startup(code: str) -> _ServiceStartupType:
     mapping: dict[str, _ServiceStartupType] = {
-        "2": "automatic", "3": "manual", "4": "disabled",
+        "AUTOMATIC": "automatic",
+        "MANUAL": "manual",
+        "DISABLED": "disabled",
+        "NOCHANGE": "no_change",
+        # Numeric forms are accepted on parse only, for workspaces persisted by
+        # earlier Studio versions that emitted them. They are never written.
+        "2": "automatic",
+        "3": "manual",
+        "4": "disabled",
     }
-    if code in mapping:
-        return mapping[code]
+    resolved = mapping.get(code.upper() if code.isalpha() else code)
+    if resolved is not None:
+        return resolved
     raise GppError(f"Unsupported service startup type code: {code!r}")
 
 
@@ -638,7 +667,7 @@ class GppPrinter:
     """A GPP Printers (shared printer) preference item."""
 
     path: str = ""
-    action_type: Literal["create", "delete", "update"] = "create"
+    action_type: _PrinterActionType = "create"
     set_default: bool = False
     use_local: bool = False
     comment: str = ""
@@ -705,7 +734,7 @@ class GppService:
 
     service_name: str = ""
     display_name: str = ""
-    startup_type: Literal["automatic", "manual", "disabled"] = "automatic"
+    startup_type: _ServiceStartupType = "automatic"
     service_action: Literal["start", "stop", "restart", "no_change"] = "no_change"
     first_failure: Literal["none", "restart", "reboot", "run_command"] = "none"
     second_failure: Literal["none", "restart", "reboot", "run_command"] = "none"

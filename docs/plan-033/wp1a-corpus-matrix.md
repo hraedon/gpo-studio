@@ -93,7 +93,7 @@ pinned value exactly, independently confirming that pin.
 |---|---|
 | `SchedTasksFull` | cross-validated (report vs backup agree through Studio) |
 | `EnvVars`, `Files`, `Folders`, `IniFiles`, `Power` | **corpus only — not validated.** Their families are outside `writer_conformance.NATIVE_GPP_FAMILIES`, so a comparison summarizes to empty on both sides and would pass vacuously. Deliberately excluded from the cross-validation test. |
-| `Printers`, `Services`, `Shortcuts` | **blocked by parser defects (WI-019).** Studio raises `GppError` and cannot import these genuine backups at all. Pinned by `test_known_parser_defects_still_block_native_captures`. |
+| `Printers`, `Services`, `Shortcuts` | ~~blocked by parser defects (WI-019)~~ — **fixed 2026-07-28.** All three now import (HTTP 201 through the real endpoint; previously 422). They parse into typed items but are **not** in the report-vs-backup cross-validation set, because their families are outside `NATIVE_GPP_FAMILIES` and would compare empty-to-empty. Covered by `test_wi019_captures_now_import`. |
 
 ### Authoring constraint observed
 
@@ -145,3 +145,30 @@ and `test_nested_ilt_survives_reserialization_from_the_typed_model`.
 
 Nested ILT is therefore **preserve-only**: correct and lossless, but not
 modelled. Studio cannot display, edit, or reason about a targeting collection.
+
+### WI-019 postscript — the blast radius was larger than first recorded
+
+The first note on these three captures said the families are listed out-of-scope
+in the capability matrix, so a parser defect was "not a false shipped claim".
+That understated it. `collect_gpp_collections` raises `GppError`, and
+`api.import_backup` maps that to `StudioError("Invalid or malformed policy data
+in backup")` — rejecting the **entire backup**, not the offending family.
+
+`GMPC backup import (single-GPO)` *is* a supported capability. So a genuine
+GPMC backup containing any Services item, a Replace printer, or a shortcut with
+an unset window style could not be imported at all, and the operator got a
+message naming neither the family nor the value.
+
+Measured end-to-end through the HTTP endpoint before and after the fix:
+
+| capture | before | after |
+|---|---|---|
+| `WI01A-Services-GPMC` | 422 | **201** |
+| `WI01A-Printers-GPMC` | 422 | **201** |
+| `WI01A-Shortcuts-GPMC` | 422 | **201** |
+| `WI01A-DriveMaps-GPMC` (control) | 201 | 201 |
+
+One existing unit test asserted the numeric `startupType` codes and had to be
+corrected. It was self-consistent — Studio round-tripping its own output — but
+wrong against Windows. That is the same trap this plan exists to catch, and it
+survived inside the test suite until a native capture contradicted it.
