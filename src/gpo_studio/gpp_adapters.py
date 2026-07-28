@@ -9,6 +9,7 @@ Microsoft's documented format so that output is interoperable with GPMC.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -2447,6 +2448,9 @@ def _project_triggers_from_task_xml(
     when = (start.text or "") if start is not None else ""
     if when == _UNSPECIFIED_START_BOUNDARY:
         when = ""
+    elif when.startswith(f"{_PLACEHOLDER_START_DATE}T"):
+        # Authored as a bare time of day; project it back in the same form.
+        when = when.split("T", 1)[1]
     if kind == "TimeTrigger":
         return ("once", when, "")
     if kind != "CalendarTrigger":
@@ -2549,7 +2553,15 @@ _SYNTHESIZABLE_TRIGGERS: frozenset[str] = frozenset({"once", "daily", "weekly", 
 #: mapped back to the empty string on parse, so the round trip stays lossless
 #: rather than the model silently acquiring a 1970 timestamp it never authored.
 #: A boundary in the past simply means the schedule is already active.
-_UNSPECIFIED_START_BOUNDARY = "1970-01-01T00:00:00"
+_PLACEHOLDER_START_DATE = "1970-01-01"
+_UNSPECIFIED_START_BOUNDARY = f"{_PLACEHOLDER_START_DATE}T00:00:00"
+
+#: Task Scheduler 1.0 stores a time of day ("03:00:00"); Task Scheduler 2.0
+#: needs a full ISO 8601 StartBoundary. Emitting the bare time produces a
+#: payload Windows rejects outright -- the task is simply never created, with no
+#: error surfaced anywhere. Found by the endpoint lane after every unit test
+#: passed, because a Studio-to-Studio round trip cannot tell the two apart.
+_BARE_TIME_RE = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
 
 
 def _xml_text(value: str) -> str:
@@ -2557,9 +2569,20 @@ def _xml_text(value: str) -> str:
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _start_boundary(trigger_time: str) -> str:
+    """Normalize a scalar trigger time into an ISO 8601 StartBoundary."""
+    if not trigger_time:
+        return _UNSPECIFIED_START_BOUNDARY
+    if _BARE_TIME_RE.match(trigger_time):
+        padded = trigger_time if trigger_time.count(":") == 2 else f"{trigger_time}:00"
+        hour, rest = padded.split(":", 1)
+        return f"{_PLACEHOLDER_START_DATE}T{int(hour):02d}:{rest}"
+    return trigger_time
+
+
 def _task_v2_trigger_xml(task: GppScheduledTask) -> str:
     """Build the <Triggers> payload for a TaskV2 from the scalar model."""
-    boundary = task.trigger_time or _UNSPECIFIED_START_BOUNDARY
+    boundary = _start_boundary(task.trigger_time)
     enabled = "true" if task.enabled else "false"
     if task.trigger_type == "once":
         return (

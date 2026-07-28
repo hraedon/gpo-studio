@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 
@@ -2168,3 +2169,37 @@ def test_unknown_props_children_dict_roundtrip() -> None:
     d = gpp_collection_to_dict(collection)
     restored = gpp_collection_from_dict(d)
     assert restored.environment[0].unknown_props_children == env.unknown_props_children
+
+
+def test_taskv2_start_boundary_is_iso8601_not_a_bare_time() -> None:
+    """A bare time of day produces a payload Windows rejects outright.
+
+    Task Scheduler 1.0 stores a time ("03:00:00"); 2.0 needs a full ISO 8601
+    StartBoundary. Emitting the bare time yields a task that is simply never
+    created, with no error surfaced. Every unit test passed while this was
+    broken, because a Studio-to-Studio round trip cannot tell the two apart --
+    it took the endpoint lane to find it.
+    """
+    for authored in ("03:00:00", "3:00"):
+        task = GppScheduledTask(
+            name="T",
+            program=r"c:\tool.exe",
+            trigger_type="daily",
+            trigger_time=authored,
+        )
+        data = serialize_gpp_scheduled_tasks((task,), "computer")
+        boundary = re.search(rb"<StartBoundary>([^<]*)</StartBoundary>", data)
+        assert boundary is not None
+        assert boundary.group(1) == b"1970-01-01T03:00:00"
+        # The scalar form the operator authored is what comes back.
+        assert parse_gpp_scheduled_tasks(data)[0].trigger_time == "03:00:00"
+
+
+def test_taskv2_preserves_an_explicit_iso_start_boundary() -> None:
+    task = GppScheduledTask(
+        name="T", program=r"c:\tool.exe", trigger_type="daily",
+        trigger_time="2026-01-01T03:00:00",
+    )
+    data = serialize_gpp_scheduled_tasks((task,), "computer")
+    assert b"<StartBoundary>2026-01-01T03:00:00</StartBoundary>" in data
+    assert parse_gpp_scheduled_tasks(data)[0].trigger_time == "2026-01-01T03:00:00"
