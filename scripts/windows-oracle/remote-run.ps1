@@ -13,7 +13,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Upn,
     [Parameter(Mandatory = $true)][string]$Pw,
     [Parameter(Mandatory = $false)][string]$FailFlag = "",
-    [Parameter(Mandatory = $false)][ValidateSet('wp0', 'wp2', 'wp1b', 'endpoint')][string]$Harness = 'wp0'
+    [Parameter(Mandatory = $false)][ValidateSet('wp0', 'wp2', 'wp1b', 'wp3', 'endpoint')][string]$Harness = 'wp0'
 )
 
 $taskName = "GPOStudioOracle-$Harness"
@@ -23,6 +23,8 @@ if ($Harness -eq 'endpoint') {
     $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-endpoint.ps1 -CandidateZip C:\gpo-studio\scripts\candidate.zip -ExpectedPath C:\gpo-studio\scripts\expected.json -OutputDir C:\gpo-studio\out"
 } elseif ($Harness -eq 'wp1b') {
     $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp1b-writer.ps1 -CandidateRoot C:\gpo-studio\scripts\wp1b -OutputDir C:\gpo-studio\out"
+} elseif ($Harness -eq 'wp3') {
+    $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp3-security-template.ps1 -CandidatePath C:\gpo-studio\scripts\candidate.inf -ExpectedPath C:\gpo-studio\scripts\expected.json -OutputDir C:\gpo-studio\out"
 } elseif ($Harness -eq 'wp2') {
     $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp2-import.ps1 -CandidateZip C:\gpo-studio\scripts\candidate.zip -ExpectedPath C:\gpo-studio\scripts\expected.json -OutputDir C:\gpo-studio\out"
 } else {
