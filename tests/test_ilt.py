@@ -21,6 +21,7 @@ from gpo_studio.gpp import (
 from gpo_studio.ilt import (
     IltError,
     IltFilter,
+    IltOsCriteria,
     IltPredicate,
     parse_ilt,
     serialize_ilt,
@@ -665,10 +666,25 @@ def test_round_trip_disk_space() -> None:
 
 
 def test_round_trip_os() -> None:
+    """An OS filter is five independent attributes, not a single string.
+
+    This previously round-tripped an arbitrary value ("WORKSTATION") through a
+    synthetic <FilterOS osType="..."> element. That element name and attribute
+    appear in no genuine GPMC output, and the CSE could not parse it, so the
+    item applied nowhere (WI-021).
+    """
     original = IltFilter(
-        items=(IltPredicate(type="os", value="WORKSTATION"),)
+        items=(
+            IltPredicate(
+                type="os",
+                os_criteria=IltOsCriteria(os_class="NT", version="WINTHRESHOLD"),
+            ),
+        )
     )
-    parsed = _parse_from_bytes(_serialize_to_bytes(original))
+    data = _serialize_to_bytes(original)
+    assert b"<FilterOs " in data
+    assert b"FilterOS" not in data
+    parsed = _parse_from_bytes(data)
     assert parsed == original
 
 
@@ -718,7 +734,12 @@ def test_new_predicates_in_filter() -> None:
         items=(
             IltPredicate(type="computer_name", value="WS001", bool_op="AND"),
             IltPredicate(type="domain", value="example.com", bool_op="OR"),
-            IltPredicate(type="os", value="SERVER", negate=True, bool_op="AND"),
+            IltPredicate(
+                type="os",
+                negate=True,
+                bool_op="AND",
+                os_criteria=IltOsCriteria(os_class="NT", version="WIN7"),
+            ),
             IltPredicate(type="disk_space", value="10240", bool_op="AND"),
             IltPredicate(type="service", value="Spooler", bool_op="OR"),
         )
@@ -726,7 +747,7 @@ def test_new_predicates_in_filter() -> None:
     data = _serialize_to_bytes(original)
     assert data.count(b"FilterComputerName") == 1
     assert data.count(b"FilterDomain") == 1
-    assert data.count(b"FilterOS") == 1
+    assert data.count(b"FilterOs") == 1
     assert data.count(b"FilterDiskSpace") == 1
     assert data.count(b"FilterService") == 1
     assert b'bool="OR"' in data

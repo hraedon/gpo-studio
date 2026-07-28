@@ -56,6 +56,71 @@ IltPredicateType = Literal[
 ]
 
 
+# MS-GPPREF section 2.2.2 "Targeting", Filters Schema. These are the complete
+# XSD enumerations, not a sample: an OS filter is five INDEPENDENT attributes,
+# each optional and each defaulting to "NE" ("Any"). Studio previously modelled
+# it as a single string in a synthetic <FilterOS osType="..."> element, which
+# the client-side extension could not parse -- so the item applied nowhere
+# (WI-021, endpoint-confirmed 2026-07-27).
+OS_CLASS_VALUES: frozenset[str] = frozenset({"NE", "9X", "NT"})
+OS_VERSION_VALUES: frozenset[str] = frozenset({
+    "NE", "95", "98", "ME", "NT", "2K", "XP", "2K3", "2K3R2", "VISTA", "2K8",
+    "WIN7", "2K8R2", "WIN8", "WIN8S", "WINBLUE", "WINBLUESRV", "WINTHRESHOLD",
+    "WINTHRESHOLDSRV",
+})
+OS_TYPE_VALUES: frozenset[str] = frozenset({
+    "NE", "R2", "SE", "WS", "SV", "DC", "PRO", "PR",
+})
+# The spec's prose lists five values its own XSD omits (64STGSTD, 64STGWKGRP,
+# 64MPSTD, 64MPPREM, 64ESSSOL). Accepted on parse so a genuine backup carrying
+# one is not rejected; only XSD values are emitted.
+OS_EDITION_XSD_VALUES: frozenset[str] = frozenset({
+    "NE", "64", "64EP", "64DC", "AS", "DTC", "EP", "HM", "MC", "SRV", "STD",
+    "TPC", "TSE", "WEB", "SBS", "PRO",
+})
+OS_EDITION_PROSE_ONLY_VALUES: frozenset[str] = frozenset({
+    "64STGSTD", "64STGWKGRP", "64MPSTD", "64MPPREM", "64ESSSOL",
+})
+OS_EDITION_VALUES: frozenset[str] = OS_EDITION_XSD_VALUES | OS_EDITION_PROSE_ONLY_VALUES
+OS_SP_VALUES: frozenset[str] = frozenset({
+    "NE", "Gold", "Service Pack 1", "Service Pack 2", "Service Pack 3",
+    "Service Pack 4", "Service Pack 5", "Service Pack 6",
+})
+
+
+@dataclass(frozen=True, slots=True)
+class IltOsCriteria:
+    """The five independent attributes of a ``FilterOs`` predicate.
+
+    ``NE`` means "Any" and is the schema default for every one of them, so an
+    all-default criteria object is a filter that matches any operating system.
+
+    The spec permits implementations to add ``class``/``version`` values for
+    newer platforms, so unrecognized values are PRESERVED rather than rejected:
+    refusing a value Windows itself wrote would be worse than carrying it.
+    """
+
+    os_class: str = "NE"
+    version: str = "NE"
+    product_type: str = "NE"
+    edition: str = "NE"
+    service_pack: str = "NE"
+
+    def unrecognized(self) -> tuple[str, ...]:
+        """Values outside the documented enumerations, for surfacing upward."""
+        found: list[str] = []
+        for value, allowed, label in (
+            (self.os_class, OS_CLASS_VALUES, "class"),
+            (self.version, OS_VERSION_VALUES, "version"),
+            (self.product_type, OS_TYPE_VALUES, "type"),
+            (self.edition, OS_EDITION_VALUES, "edition"),
+            (self.service_pack, OS_SP_VALUES, "sp"),
+        ):
+            if value not in allowed:
+                found.append(f"{label}={value!r}")
+        return tuple(found)
+
+
 @dataclass(frozen=True, slots=True)
 class IltPredicate:
     type: IltPredicateType
@@ -63,6 +128,9 @@ class IltPredicate:
     value: str = ""
     bool_op: str = "AND"
     unknown_attrs: tuple[tuple[str, str], ...] = ()
+    #: Populated only when ``type == "os"``. The OS filter cannot be expressed
+    #: as a single ``value`` string; see :class:`IltOsCriteria`.
+    os_criteria: IltOsCriteria | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +158,7 @@ _PREDICATE_KNOWN_ATTRS: dict[IltPredicateType, frozenset[str]] = {
     "user": frozenset({"name", "not", "bool"}),
     "date": frozenset({"startDate", "endDate", "not", "bool"}),
     "disk_space": frozenset({"min", "not", "bool"}),
-    "os": frozenset({"osType", "not", "bool"}),
+    "os": frozenset({"class", "version", "type", "edition", "sp", "osType", "not", "bool"}),
     "language": frozenset({"language", "not", "bool"}),
     "service": frozenset({"name", "not", "bool"}),
     "file": frozenset({"path", "not", "bool"}),
@@ -188,8 +256,16 @@ def _serialize_predicate(pred: IltPredicate) -> ET.Element:
             elem = ET.Element(_ns("FilterDiskSpace"))
             elem.set("min", pred.value)
         case "os":
-            elem = ET.Element(_ns("FilterOS"))
-            elem.set("osType", pred.value)
+            # Element name is FilterOs -- lowercase 's'. XML names are
+            # case-sensitive and the previous "FilterOS" matched nothing GPMC
+            # writes or reads (WI-021).
+            elem = ET.Element(_ns("FilterOs"))
+            criteria = pred.os_criteria or IltOsCriteria()
+            elem.set("class", criteria.os_class)
+            elem.set("version", criteria.version)
+            elem.set("type", criteria.product_type)
+            elem.set("edition", criteria.edition)
+            elem.set("sp", criteria.service_pack)
         case "language":
             elem = ET.Element(_ns("FilterLanguage"))
             elem.set("language", pred.value)
@@ -235,7 +311,7 @@ _TAG_TO_TYPE: dict[str, IltPredicateType] = {
     "FilterUser": "user",
     "FilterDate": "date",
     "FilterDiskSpace": "disk_space",
-    "FilterOS": "os",
+    "FilterOs": "os",
     "FilterLanguage": "language",
     "FilterService": "service",
     "FilterFile": "file",
@@ -245,6 +321,9 @@ _TAG_TO_TYPE: dict[str, IltPredicateType] = {
 # Legacy element names used by earlier Studio versions.  Accepted on parse
 # for backward compatibility with existing stored data, but never emitted.
 _LEGACY_TAG_TO_TYPE: dict[str, IltPredicateType] = {
+    # Studio used to emit "FilterOS"; GPMC writes "FilterOs". Accepted on parse
+    # so previously persisted workspaces still load.
+    "FilterOS": "os",
     "FilterOu": "ou",
     "FilterEnvironment": "environment",
     "FilterWmiQuery": "wmi_query",
@@ -264,6 +343,7 @@ def _reconstruct_ip_range(min_ip: str, max_ip: str) -> str:
 
 
 def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredicate:
+    os_criteria: IltOsCriteria | None = None
     negate = elem.get("not", "0") == "1"
     bool_op = elem.get("bool", "AND")
     match pred_type:
@@ -298,7 +378,18 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
         case "disk_space":
             value = elem.get("min", "")
         case "os":
-            value = elem.get("osType", "")
+            # Legacy Studio output used <FilterOS osType="...">; a value that
+            # names a known version is carried across, anything else is left in
+            # unknown_attrs rather than guessed at.
+            legacy = elem.get("osType", "")
+            value = ""
+            os_criteria = IltOsCriteria(
+                os_class=elem.get("class", "NE"),
+                version=elem.get("version", legacy if legacy in OS_VERSION_VALUES else "NE"),
+                product_type=elem.get("type", "NE"),
+                edition=elem.get("edition", "NE"),
+                service_pack=elem.get("sp", "NE"),
+            )
         case "language":
             value = elem.get("language", "")
         case "service":
@@ -317,7 +408,7 @@ def _parse_predicate(pred_type: IltPredicateType, elem: ET.Element) -> IltPredic
     )
     return IltPredicate(
         type=pred_type, negate=negate, value=value,
-        bool_op=bool_op, unknown_attrs=unknown_attrs,
+        bool_op=bool_op, unknown_attrs=unknown_attrs, os_criteria=os_criteria,
     )
 
 
