@@ -124,9 +124,13 @@ test("configures a policy as Disabled, writing the disabled value", async ({
 
   const response = await request.get(`/api/gpos/${seeded.payload.gpo.guid}`);
   const settings = (await response.json()).gpo.settings;
-  expect(settings).toHaveLength(1);
-  expect(settings[0].value_name).toBe("FeatureState");
-  expect(settings[0].value).toBe("0");
+  // Disabling also deletes every element value name, matching gpedit
+  // (WI-020, lab-verified 2026-07-27): Windows writes one **del. record per
+  // <elements> child alongside the policy's own disabled value.
+  const byName = Object.fromEntries(settings.map((s) => [s.value_name, s]));
+  expect(byName.FeatureState.value).toBe("0");
+  expect(byName.FeatureState.action).toBe("set");
+  expect(byName.SubOption.action).toBe("delete");
 });
 
 test("Not configured removes the settings the policy previously wrote", async ({
