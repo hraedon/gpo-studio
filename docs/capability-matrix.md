@@ -73,7 +73,7 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 | Revision history and restore | supported | &#10003; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Estate import (gpo-lens) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; |
 | GPMC backup import (single-GPO) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | native-origin-read |
-| GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry, Drives, Local Users and Groups) |
+| GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry, Drives, Local Users and Groups, Scheduled Tasks daily Exec) |
 | Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | verified |
 | cpassword | blocked | &#10007; | &#10007; | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Unknown CSE content | preserved | &#10007; | &#9680; | &#10007; | &mdash; | &#10003; | &#10003; | &mdash; |
@@ -98,9 +98,11 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 > endpoint phase 3 proves the corrected scalar-authored daily Exec `TaskV2`
 > path creates a task with the expected action. The writer now emits the
 > genuine embedded `<Task>` shape, a non-empty GPMC identity default, and an
-> ISO 8601 boundary. The initial full writer-lane verdict predates that fix and
-> must be rerun, while multiple triggers, `ImmediateTaskV2`, non-Exec actions,
-> and `at_logon`/`at_startup` remain outside the measured authoring surface.
+> ISO 8601 boundary. A fresh full writer-lane run also passes the isolated
+> scheduled-task and mixed candidates through `Import-GPO`, GPMC report
+> comparison, and `Backup-GPO` semantic comparison. Multiple triggers,
+> `ImmediateTaskV2`, non-Exec actions, and `at_logon`/`at_startup` remain
+> outside the measured authoring surface.
 > The family therefore stays `unit-verified`; the isolated daily Exec path is
 > endpoint-applied evidence, not a family-wide promotion. The remaining
 > capabilities stay in scope for

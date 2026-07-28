@@ -1,8 +1,8 @@
 # Plan 033 — Windows external-oracle validation and parity evidence
 
 Status: active — WP-0/WP-2 certified; WP-1A genuine GPMC canaries landed;
-WP-1B daily Exec TaskV2 and OS-filter paths endpoint-verified, with writer-lane
-recertification and the manual GPMC edit/save leg remaining
+WP-1B automated writer lane plus daily Exec TaskV2 and OS-filter endpoint paths
+certified, with the manual GPMC edit/save leg remaining
 Scope: prove Studio import, authoring, prediction, and export claims against
 supported Microsoft tooling without allowing internally consistent round trips
 to substitute for interoperability evidence
@@ -242,32 +242,30 @@ design):**
 
 ### WP-1B — Studio-origin writer conformance
 
-Implementation status (2026-07-28): **automated lane implemented; its initial
-live run certified four of six candidates and exposed the scheduled-task
-writer defect. WI-018 and WI-021 are now fixed and endpoint-verified. A fresh
-full writer-lane run at the corrected branch tip is required before the
-automated lane is recertified.**
+Implementation status (2026-07-28): **automated writer lane certified; all six
+candidates pass. WI-018 and WI-021 are fixed and endpoint-verified.**
 
 The candidate set is one Studio-authored native backup per isolated family
 (`registry-both` as the WP-2 control, `drives-user`, `groups-machine`,
 `localusers-machine`, `scheduledtasks-machine`) plus `mixed-all`. Each is
 imported into its own disposable GPO, so no adapter's result can be hidden by
-another's. The initial recorded run is `wp1b-writer-20260727143434-7491`,
-source commit `83fe9b8`, clean tree, against Windows Server 2025 build 26100 /
+another's. The certified run is `wp1b-writer-20260727200636-4528`, source
+commit `8d9872e`, clean tree, against Windows Server 2025 build 26100 /
 GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
 `docs/plan-033/wp1b-evidence/verification.json`.
 
 Results:
 
 - **pass** — `registry-both`, `drives-user`, `groups-machine`,
-  `localusers-machine`. Each cleared `Import-GPO -WhatIf` without creating the
-  target, real `Import-GPO`, GPMC report semantic equality, `Backup-GPO`
-  re-export semantic equality, and strict cleanup re-query.
-- **fail in the initial run** — `scheduledtasks-machine` and `mixed-all`, on
-  `native_shape_matches_corpus` (see the finding below). Every other check on
-  both candidates passed. The implementation responsible for this result has
-  since been replaced and endpoint-verified, but that does not rewrite the
-  historical verdict or substitute for rerunning the complete writer lane.
+  `localusers-machine`, `scheduledtasks-machine`, and `mixed-all`. Each cleared
+  `Import-GPO -WhatIf` without creating the target, real `Import-GPO`, GPMC
+  report semantic equality, `Backup-GPO` re-export semantic equality, native
+  shape comparison, and strict cleanup re-query.
+
+The initial run (`wp1b-writer-20260727143434-7491`, source `83fe9b8`) remains in
+git history as the evidence that exposed WP-1B-1: its two scheduled-task
+candidates failed only the native-shape gate. The current verdict supersedes it
+for branch-tip certification rather than rewriting that historical result.
 
 Two methodological points came out of building this lane and both are load
 bearing for how the remaining work packages should be read:
@@ -455,10 +453,6 @@ a bare time because Studio's writer produced it. Only Windows disagreed.
   automated lane captures GPMC's report of the imported GPO, which proves GPMC
   parses the payload, but a GUI edit-and-save is what would rewrite the GPP XML
   through GPMC's own writer. That remains a manual gate.
-- Rerun the complete writer-conformance candidate set at the corrected clean
-  commit. The committed writer verdict predates the WI-018 fix; endpoint
-  evidence proves application but does not replace GPMC report and
-  `Backup-GPO` semantic comparison.
 - The daily Exec TaskV2 path has endpoint evidence. The broader Scheduled Tasks
   surface remains unpromoted until its additional variants have isolated
   writer and endpoint cases.
