@@ -17,6 +17,7 @@ from typing import Literal
 from .model import ValidationIssue
 
 _UTF16LE_BOM = b"\xff\xfe"
+_UTF32LE_BOM = b"\xff\xfe\x00\x00"
 
 KNOWN_SECTIONS: frozenset[str] = frozenset(
     {
@@ -92,6 +93,8 @@ def decode_security_template(data: bytes) -> str:
     """
     if len(data) > _MAX_TEMPLATE_SIZE:
         raise SecurityTemplateError(f"template exceeds {_MAX_TEMPLATE_SIZE} bytes")
+    if data.startswith(_UTF32LE_BOM):
+        raise SecurityTemplateError("template must not use UTF-32LE encoding")
     if not data.startswith(_UTF16LE_BOM):
         raise SecurityTemplateError("template must be UTF-16LE with a byte-order mark")
     try:

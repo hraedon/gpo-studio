@@ -24,6 +24,8 @@ $exportPath = Join-Path $workDir 'exported.inf'
 Copy-Item -LiteralPath $CandidatePath -Destination $candidateCopy
 Copy-Item -LiteralPath $ExpectedPath -Destination $expectedCopy
 
+$invokedOperations = @()
+
 function Invoke-Secedit {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -31,6 +33,10 @@ function Invoke-Secedit {
     )
     $stdoutPath = Join-Path $commandDir "$Name.stdout.txt"
     $stderrPath = Join-Path $commandDir "$Name.stderr.txt"
+    $script:invokedOperations += [ordered]@{
+        name = $Name
+        arguments = @($Arguments)
+    }
     & secedit.exe @Arguments 1> $stdoutPath 2> $stderrPath
     return $LASTEXITCODE
 }
@@ -52,7 +58,7 @@ $result = [ordered]@{
     cleanup_succeeded = $false
     database_absent_after_cleanup = $false
     database_residual_files = @()
-    invoked_operations = @('validate', 'import', 'export')
+    invoked_operations = @()
     environment = [ordered]@{
         server_caption = "$($osInfo.Caption)"
         server_build = "$($osInfo.BuildNumber)"
@@ -102,21 +108,36 @@ try {
 } catch {
     $result.error = "$($_.Exception.Message)"
 } finally {
+    $cleanupError = $null
     try {
         Get-ChildItem -LiteralPath $workDir -Filter 'temporary-security-database.*' `
             -ErrorAction SilentlyContinue |
             Remove-Item -Force -ErrorAction Stop
+    } catch {
+        $cleanupError = "cleanup: $($_.Exception.Message)"
+    }
+
+    try {
         $residualFiles = @(
             Get-ChildItem -LiteralPath $workDir `
-                -Filter 'temporary-security-database.*' -ErrorAction SilentlyContinue |
+                -Filter 'temporary-security-database.*' -ErrorAction Stop |
                 ForEach-Object { $_.Name }
         )
         $result.database_residual_files = $residualFiles
         $result.database_absent_after_cleanup = $residualFiles.Count -eq 0
-        $result.cleanup_succeeded = $result.database_absent_after_cleanup
     } catch {
-        $result.error = (($result.error, "cleanup: $($_.Exception.Message)") -ne $null) -join '; '
+        $cleanupError = (($cleanupError, "cleanup enumeration: $($_.Exception.Message)") -ne $null) -join '; '
+        $result.database_residual_files = @('<enumeration-failed>')
+        $result.database_absent_after_cleanup = $false
     }
+
+    $result.cleanup_succeeded = (
+        $null -eq $cleanupError -and $result.database_absent_after_cleanup
+    )
+    if ($cleanupError) {
+        $result.error = (($result.error, $cleanupError) -ne $null) -join '; '
+    }
+    $result.invoked_operations = @($invokedOperations)
     $result | ConvertTo-Json -Depth 10 |
         Set-Content -Path (Join-Path $workDir 'result.json') -Encoding UTF8
 }
