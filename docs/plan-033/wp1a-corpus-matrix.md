@@ -189,21 +189,47 @@ capture exceeds `WINTHRESHOLDSRV`. Server 2025 reports `WINTHRESHOLDSRV`;
 Windows 10 reports `WINTHRESHOLD`. GPMC's OS-filter vocabulary was never
 extended past the Threshold generation.
 
-**The dropdown offers only Windows Server 2025 and Windows 10 entries.** There
-is no Windows 11 entry, and no Server 2016 / 2019 / 2022 entries either
-(operator observation during capture, 2026-07-28).
+**The complete Product dropdown** on Windows Server 2025 (operator
+transcription, 2026-07-28), thirteen entries:
 
-That is consistent with finding 1 rather than an omission, and it carries a
-real consequence worth stating plainly:
+| # | dialog label | `version` | source |
+|---|---|---|---|
+| 1 | Windows XP | `XP` | inferred |
+| 2 | Windows Server 2003 | `2K3` | inferred |
+| 3 | Windows Server 2003 R2 | `2K3R2` | inferred |
+| 4 | Windows Vista | `VISTA` | inferred |
+| 5 | Windows Server 2008 | `2K8` | inferred |
+| 6 | Windows 7 | `WIN7` | inferred |
+| 7 | Windows Server 2008 R2 | `2K8R2` | inferred |
+| 8 | Windows 8 | `WIN8` | inferred |
+| 9 | Windows Server 2012 **Family** | `WIN8S` | inferred |
+| 10 | Windows 8.1 | `WINBLUE` | inferred |
+| 11 | Windows Server 2012 R2 **Family** | `WINBLUESRV` | inferred |
+| 12 | Windows 10 | `WINTHRESHOLD` | **observed** |
+| 13 | Windows Server 2025 **Family** | `WINTHRESHOLDSRV` | **observed** |
 
-> **An ILT OS filter cannot distinguish Windows Server 2016 from Server 2025.**
-> Every server from the Threshold generation onward reports the same
-> `version="WINTHRESHOLDSRV"`. GPMC surfaces only the newest label because the
-> older ones would emit an identical filter. An operator who wants "Server 2022
-> only" has no OS-filter expression that achieves it, and one who selects
-> "Windows Server 2025" is in fact matching every server 2016 and later.
+Only rows 12 and 13 are observed — those are the entries the capture exercised.
+The rest are inferred from the one-to-one correspondence between the thirteen
+dialog entries and the thirteen post-2000 values in the spec enumeration, in
+order. The pre-XP values (`95`, `98`, `ME`, `NT`, `2K`) are not offered.
 
-Targeting a specific modern server build needs a different predicate —
+**No Server 2016 / 2019 / 2022 entries, and no Windows 11 entry.** The
+consequence is worth stating plainly:
+
+> **An ILT OS filter cannot distinguish Windows Server 2016 from Server 2025**,
+> nor Windows 10 from Windows 11. Every server from the Threshold generation
+> onward reports the same `version="WINTHRESHOLDSRV"`. An operator selecting
+> "Windows Server 2025 Family" is matching every server 2016 and later, and
+> there is no `FilterOs` expression for "Server 2022 only".
+
+To be fair to GPMC: three server entries are labelled **"Family"**, which is an
+honest signal that the value spans a range rather than naming one release. But
+"Windows Server 2025 Family" reads naturally as *the 2025 family* — variants of
+2025 — rather than *2016 and later*, so the label mitigates the trap without
+removing it. The client entries are labelled "Windows 10" with no "Family"
+qualifier at all, despite `WINTHRESHOLD` covering Windows 11 too.
+
+Targeting a specific modern build needs a different predicate —
 `FilterRegistry` against the build number, or `FilterWmi` — not `FilterOs`.
 
 **2. Four editions exist only in the spec's prose**, confirmed real by this
