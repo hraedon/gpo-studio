@@ -73,7 +73,13 @@ _BACKUP_ID_RE = re.compile(
 
 CLIENT_NOT_TESTED = "not-tested"
 
-_BUILD_FAMILY = re.compile(r"(\d{5,})\s*$")
+# Matches the trailing build number of an OS build string, tolerating a UBR
+# suffix. `run-evidence.ps1` currently composes this as "$Caption $BuildNumber",
+# which never carries a UBR, but that is a property of one capture site far from
+# here: a lane that switched to a UBR-bearing source (CurrentBuildNumber +
+# UBR, or `[Environment]::OSVersion`) would otherwise silently yield no family
+# and downgrade every run to inconclusive.
+_BUILD_FAMILY = re.compile(r"(\d{5,})(?:\.\d+)?\s*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -545,7 +551,11 @@ def _capability(raw: object) -> CapabilityResult:
 def _build_family(value: str) -> str | None:
     """Return the trailing build number of an OS build string, if it has one.
 
-    ``"Microsoft Windows Server 2025 Standard 26100"`` -> ``"26100"``.
+    ``"Microsoft Windows Server 2025 Standard 26100"`` -> ``"26100"``
+    ``"Microsoft Windows Server 2025 Standard 26100.4652"`` -> ``"26100"``
+
+    Returns ``None`` when no build number is readable, which callers report as a
+    violation: unreadable fails closed rather than passing unqualified.
     """
     match = _BUILD_FAMILY.search(value.strip())
     return match.group(1) if match else None

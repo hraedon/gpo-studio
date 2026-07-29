@@ -4,7 +4,8 @@ Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). A WP-0
 success-path run has been certified `pass` against a clean, committed source
 tree (commit `000f1b5`). The harness also produces parser-valid `fail`
 manifests for deliberate failure paths.
-Last updated: 2026-07-26
+Last updated: 2026-07-29 (build-family qualification, LGPO de-gated, client
+re-frozen to 25H2/26200, disposable-estate supersession note)
 Validation host: mvmcitest01
 Certified passing manifest hash (success-path run
 `live-synthetic-registry-basic-20260726070916`, source commit `000f1b5`):

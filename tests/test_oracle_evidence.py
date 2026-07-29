@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import pathlib
 
 import pytest
 
@@ -442,6 +443,29 @@ def test_pass_rejected_when_powershell_family_differs() -> None:
         parse_oracle_manifest(raw)
 
 
+def test_build_family_tolerates_a_ubr_suffix() -> None:
+    """A UBR-bearing build string must still yield its family, not 'unreadable'.
+
+    The current capture never emits a UBR, so this pins the tolerance rather
+    than a live behavior: a lane that changed its capture source would
+    otherwise silently downgrade every run to inconclusive.
+    """
+    from gpo_studio.oracle_evidence import _build_family
+
+    assert _build_family("Microsoft Windows Server 2025 Standard 26100") == "26100"
+    assert _build_family("Microsoft Windows Server 2025 Standard 26100.4652") == "26100"
+    assert _build_family("no build number here") is None
+
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["server_build"] = (
+        f"Microsoft Windows Server 2025 Standard "
+        f"{FROZEN_ENVIRONMENT.server_build_family}.4652"
+    )
+    assert parse_oracle_manifest(raw).capability.evidence_state == "pass"
+
+
 def test_pass_rejected_when_server_build_family_differs() -> None:
     raw = _manifest()
     environment = raw["environment"]
@@ -476,9 +500,13 @@ def test_environment_spec_doc_matches_the_frozen_profile() -> None:
     Both the doc and the ``FrozenEnvironment`` docstring instruct the reader to
     keep the two in sync. This project has a documented history of exactly that
     instruction being followed by drift, so pin it.
-    """
-    import pathlib
 
+    This is a **one-directional smoke check**: it proves every frozen value
+    appears somewhere in the spec, not that the spec describes only frozen
+    values. A stale row left behind after a re-freeze would not fail here.
+    Catching that needs the doc to carry machine-readable rows, which is not
+    worth the churn while the profile is this small.
+    """
     spec = (
         pathlib.Path(__file__).resolve().parent.parent
         / "docs"

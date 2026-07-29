@@ -60,7 +60,7 @@
         "properties": {
           "tool_id": {
             "type": "string",
-            "pattern": "^[a-z0-9-]+$"
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
           },
           "kind": {
             "type": "string",
@@ -131,7 +131,7 @@
             "minItems": 1,
             "items": {
               "type": "string",
-              "pattern": "^[a-z0-9-]+$"
+              "pattern": "^[a-z0-9][a-z0-9.-]*$"
             }
           },
           "oracle": {

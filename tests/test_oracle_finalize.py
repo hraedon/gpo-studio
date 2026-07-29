@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 from gpo_studio.oracle_evidence import (
+    CLIENT_NOT_TESTED,
     FROZEN_ENVIRONMENT,
     NORMALIZER_VERSION,
     IntegrityViolation,
@@ -148,7 +149,7 @@ def _raw_manifest(*, commands: list[dict], cleanup_succeeded: bool = True) -> di
                 f"Microsoft Windows Server 2025 Standard "
                 f"{FROZEN_ENVIRONMENT.server_build_family}"
             ),
-            "client_build": "not-tested",
+            "client_build": CLIENT_NOT_TESTED,
             "powershell_edition": FROZEN_ENVIRONMENT.powershell_edition,
             "powershell_version": f"{FROZEN_ENVIRONMENT.powershell_version_family}.32860",
             "group_policy_module_version": (
