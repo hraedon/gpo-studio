@@ -1,0 +1,91 @@
+{
+  "schema_version": "1",
+  "scenario_id": "writer-parity-target",
+  "family": "gpp-services",
+  "title": "WI-022 remediation target: the exact wire shape Studio's services writer must emit",
+  "readiness": "blocked",
+  "blocked_reason": "services is outside writer_conformance.NATIVE_GPP_FAMILIES, so the WP-1B lane cannot carry a services candidate yet; extending the lane is part of WI-022. The scenario is executable the moment the lane carries the family.",
+  "work_items": ["WI-022"],
+  "provenance": {
+    "tier": "native-observation",
+    "note": "Every expected attribute name, omission rule, and unit below is derived from the anchored native capture (see native-recovery-units for the full derivation). Anything not proven by that capture is listed under open_questions rather than asserted here.",
+    "anchors": [
+      {
+        "kind": "native-capture",
+        "path": "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml",
+        "sha256": "28b30cbb78565db4f837564c5c9d3e5f4517b0f1c53aeedea44ab84106461221"
+      }
+    ]
+  },
+  "platform": {
+    "lane": "gpp-writer-conformance",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "items": [
+      {
+        "service_name": "StudioSvcA",
+        "startup_type": "automatic",
+        "service_action": "start",
+        "timeout_seconds": 45,
+        "recovery": {
+          "first_failure": "restart",
+          "second_failure": "restart",
+          "third_failure": "none",
+          "reset_fail_count_after_seconds": 172800,
+          "restart_service_after_milliseconds": 120000
+        }
+      },
+      {
+        "service_name": "StudioSvcB",
+        "startup_type": "disabled",
+        "service_action": "no_change",
+        "timeout_seconds": 30,
+        "recovery": null
+      }
+    ]
+  },
+  "expected_native": {
+    "root_element": "NTServices",
+    "root_clsid": "{2CFB484A-4E96-4b5d-A0B6-093D2F91E6AE}",
+    "item_element": "NTService",
+    "item_clsid": "{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}",
+    "items": [
+      {
+        "service_name": "StudioSvcA",
+        "properties_attrs": {
+          "serviceName": "StudioSvcA",
+          "startupType": "AUTOMATIC",
+          "serviceAction": "START",
+          "timeout": "45",
+          "firstFailure": "RESTART",
+          "secondFailure": "RESTART",
+          "resetFailCountDelay": "172800",
+          "restartServiceDelay": "120000000"
+        },
+        "omitted_attrs": ["thirdFailure", "displayName", "accountName", "recoveryCommand"],
+        "must_not_contain_attrs": ["resetPeriod", "restartDelay"]
+      },
+      {
+        "service_name": "StudioSvcB",
+        "properties_attrs": {
+          "serviceName": "StudioSvcB",
+          "startupType": "DISABLED",
+          "serviceAction": "NOCHANGE",
+          "timeout": "30"
+        },
+        "omitted_attrs": ["firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay", "displayName", "accountName", "recoveryCommand"],
+        "must_not_contain_attrs": ["resetPeriod", "restartDelay"]
+      }
+    ],
+    "derivations": [
+      "Attribute names are resetFailCountDelay (seconds) and restartServiceDelay (observed at 1000x authored milliseconds); the pre-remediation Studio names resetPeriod and restartDelay appear nowhere in the native corpus and must never be emitted.",
+      "A third_failure of 'none' follows the capture's Spooler precedent: thirdFailure is omitted, not emitted as a default.",
+      "A null recovery follows the capture's W32Time precedent: the entire recovery attribute set is omitted.",
+      "restartServiceDelay for StudioSvcA is 120000 x 1000 = 120000000 per the observed multiplier; the dedicated-capture confirmation (open question in native-recovery-units) must land before this value is cited in certified evidence."
+    ]
+  },
+  "open_questions": [
+    "Does the WI-022 fix keep Studio's day/minute operator model and convert at the serialization boundary, or re-model to native seconds/microseconds? The corpus is agnostic; the wire expectations above are not."
+  ]
+}
