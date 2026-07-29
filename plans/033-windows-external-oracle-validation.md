@@ -3,7 +3,12 @@
 Status: active — WP-0/WP-2 certified; WP-1A genuine GPMC canaries landed;
 WP-1B automated writer lane plus daily Exec TaskV2 and OS-filter endpoint paths
 certified; WP-3 account/audit/user-rights writer tranche certified, with its
-broader corpus and areas plus the WP-1B manual GPMC edit/save leg remaining
+broader corpus and areas plus the WP-1B manual GPMC edit/save leg remaining.
+The remediation scenario corpus for the Plans 025–032 divergence landed
+2026-07-29 (13 scenarios across gpp-services, security-template,
+rsop-topology, and ilt-os, plus the machine-readable test-platform registry —
+data and validator only, nothing oracle-executed; see
+`docs/plan-033/remediation-corpus.md`)
 Scope: prove Studio import, authoring, prediction, and export claims against
 supported Microsoft tooling without allowing internally consistent round trips
 to substitute for interoperability evidence
@@ -623,15 +628,21 @@ subset check because `secedit` can add defaults; every authored value must
 survive, while additional Windows-owned defaults are retained as evidence
 rather than attributed to Studio.
 
-Open evidence-policy follow-ups from the PR 19 review:
+Evidence-policy follow-ups from the PR 19 review:
 
-- define a WP-3 environment qualification profile that matches the OS and
+- ~~define a WP-3 environment qualification profile that matches the OS and
   PowerShell build family without failing on every servicing revision, records
   the exact revision, and does not gate on tools such as LGPO that this harness
-  never invokes; document the explicit re-freeze step for a new build;
+  never invokes; document the explicit re-freeze step for a new build~~ —
+  **done 2026-07-29** (PR #20, `f2a2f69`): builds qualify on OS/PowerShell family with
+  the exact revision recorded per manifest, LGPO is recorded provenance rather
+  than a gate, and the re-freeze rule for new families is documented in
+  `environment-spec.md`;
 - replace the hard-coded shared-host target and scheduled-task password
   transport with a dedicated disposable-host requirement before expanding
-  this lane.
+  this lane — **still open**, now scoped to the planned disposable
+  `ad.labdomain.dev` three-VM estate named in `environment-spec.md`; the
+  remediation corpus's security-template scenarios stay `blocked` on it.
 
 ### Corpus
 

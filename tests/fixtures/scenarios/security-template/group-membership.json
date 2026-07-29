@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "scenario_id": "group-membership",
+  "family": "security-template",
+  "title": "Group Membership area: restricted groups with members and memberof directions",
+  "readiness": "blocked",
+  "blocked_reason": "The security-template-secedit lane requires member-ws2025-disposable (pending-qualification): the open WP-3 PR-19 follow-up forbids expanding the lane beyond the certified account/audit/user-rights tranche on the shared host.",
+  "provenance": {
+    "tier": "spec-informed",
+    "note": "Shape derived from Microsoft security-template documentation for restricted groups. SID-star syntax follows the certified Privilege Rights precedent in the WP-3 tranche (principals as *S-1-5-...), which is native-observed; the __Members/__Memberof key suffixes are spec-informed until captured.",
+    "anchors": [
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp3-evidence/verification.json",
+        "sha256": "7400d1679fc665ca9f405ed3af7b55967b6cbdf47b0ce57a9c8960ac1ea46339",
+        "note": "Certified WP-3 tranche evidence; natively proves the *SID principal syntax this area shares with Privilege Rights."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "security-template-secedit",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "sections": [
+      {
+        "name": "Group Membership",
+        "entries": [
+          ["*S-1-5-32-544__Members", "*S-1-5-32-551,*S-1-5-18"],
+          ["*S-1-5-32-551__Memberof", "*S-1-5-32-544"]
+        ]
+      }
+    ],
+    "operator_meaning": [
+      "Administrators (S-1-5-32-544) has exactly Backup Operators (S-1-5-32-551) and Local System (S-1-5-18) as members",
+      "Backup Operators is a member of Administrators"
+    ]
+  },
+  "expected_native": {
+    "round_trip": "secedit-validate-import-export",
+    "inf_excerpt": "[Group Membership]\n\"*S-1-5-32-544__Members\" = \"*S-1-5-32-551,*S-1-5-18\"\n\"*S-1-5-32-551__Memberof\" = \"*S-1-5-32-544\"",
+    "entries": [
+      {"section": "Group Membership", "key": "*S-1-5-32-544__Members", "value": "*S-1-5-32-551,*S-1-5-18"},
+      {"section": "Group Membership", "key": "*S-1-5-32-551__Memberof", "value": "*S-1-5-32-544"}
+    ],
+    "derivations": [
+      "The restricted-group key is the group SID in star form with a __Members or __Memberof suffix; the value is a comma-separated star-SID list. The star-SID syntax itself is native-observed via the certified Privilege Rights tranche.",
+      "__Members and __Memberof are independent directions with different semantics (replace membership vs. add this group to another); a typed Studio model must keep them distinct.",
+      "Well-known SID strings are used so the template is lab-portable without a migration table; a domain-principal variant is a follow-up scenario once this one passes."
+    ]
+  },
+  "open_questions": [
+    "Does secedit /export return group SIDs, group names, or a mixture, and does the answer differ for well-known versus domain SIDs?",
+    "Is an empty __Members value the documented way to strip all members, and does /export render it as an empty assignment?",
+    "Does /validate reject a __Memberof cycle (A memberof B, B memberof A) or is the cycle only an endpoint-processing concern?"
+  ]
+}

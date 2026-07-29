@@ -1,0 +1,72 @@
+{
+  "schema_version": "1",
+  "scenario_id": "security-filtering",
+  "family": "rsop-topology",
+  "title": "Security filtering: allow, read-without-apply, explicit deny, and group nesting, with independent token collection",
+  "readiness": "blocked",
+  "blocked_reason": "The rsop-endpoint lane requires client-win11 (pending-qualification in environment-spec.md, listed as not yet tested).",
+  "provenance": {
+    "tier": "spec-informed",
+    "note": "Apply Group Policy gating (Read + Apply required, deny dominates, nesting expands through the token) is documented Windows behavior; the Plan 033 preconditions separately require evaluating Apply as a control-access right (CR) with real AD access masks, which Studio's delegation model historically got wrong.",
+    "anchors": []
+  },
+  "platform": {
+    "lane": "rsop-endpoint",
+    "boundaries": ["endpoint-resultant-state", "gpo-ad-object-security"]
+  },
+  "authored_intent": {
+    "topology": {
+      "som": [
+        {"id": "domain", "kind": "domain"},
+        {"id": "ou-studio-filter", "kind": "ou", "parent": "domain"}
+      ],
+      "principals": [
+        {"name": "LabUser1", "kind": "user"},
+        {"name": "LabComp1$", "kind": "computer"},
+        {"name": "LabGroup", "kind": "group", "members": ["LabUser1"]}
+      ],
+      "gpos": [
+        {"name": "Studio-RSOP-Allow", "filter": [{"principal": "LabUser1", "read": "allow", "apply": "allow"}], "sets": {"Filter": "allow"}},
+        {"name": "Studio-RSOP-ReadOnly", "filter": [{"principal": "LabUser1", "read": "allow", "apply": "absent"}], "sets": {"Filter": "readOnly"}},
+        {"name": "Studio-RSOP-Deny", "filter": [{"principal": "LabComp1$", "read": "allow", "apply": "allow"}, {"principal": "LabComp1$", "apply": "deny"}], "sets": {"Filter": "deny"}},
+        {"name": "Studio-RSOP-Nested", "filter": [{"principal": "LabGroup", "read": "allow", "apply": "allow"}], "sets": {"Filter": "nested"}}
+      ],
+      "links": [
+        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-Allow", "order": 1, "enabled": true, "enforced": false},
+        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-ReadOnly", "order": 2, "enabled": true, "enforced": false},
+        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-Deny", "order": 3, "enabled": true, "enforced": false},
+        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-Nested", "order": 4, "enabled": true, "enforced": false}
+      ],
+      "target": {"computer": "LabComp1$ in ou-studio-filter", "user": "LabUser1 in ou-studio-filter"}
+    },
+    "operator_meaning": [
+      "Read + Apply allow: applies",
+      "Read without Apply: denied by filtering even though the principal can see the GPO",
+      "Explicit deny on Apply: dominates the allow for the same principal",
+      "Apply granted to a group: applies for a member through nesting"
+    ]
+  },
+  "expected_native": {
+    "applied": ["Studio-RSOP-Allow", "Studio-RSOP-Nested"],
+    "denied": [
+      {"gpo": "Studio-RSOP-ReadOnly", "reason": "filtering: principal lacks Apply Group Policy"},
+      {"gpo": "Studio-RSOP-Deny", "reason": "filtering: explicit deny on Apply Group Policy dominates allow"}
+    ],
+    "winners": [
+      {"key": "HKCU\\Software\\Policies\\StudioLab\\Filter", "value": "allow", "source_gpo": "Studio-RSOP-Allow", "reason": "highest-precedence applied GPO for the user scope"},
+      {"key": "HKCU\\Software\\Policies\\StudioLab\\Filter", "value_absent_for": "computer scope", "reason": "user-scope value evaluated against the user token; the deny case is exercised on the computer scope for LabComp1$"}
+    ],
+    "token_collection": {
+      "computer": "LDAP tokenGroups on the computer object, collected by the harness; an interactive whoami /groups is the user context and is never the computer token (WP-6 rule)",
+      "user": "whoami /groups in the target session, plus LDAP group expansion cross-check for the nesting case"
+    },
+    "delegation_readback": "The harness also records the raw DACL via Get-Acl and Get-GPPermission -All so Studio's effective-rights model is checked against real CR/RP/WP ACEs, not its own mapping (Plan 033 precondition).",
+    "derivations": [
+      "Apply Group Policy is a control-access right (CR, GUID 0e20... resolved at execution) on the groupPolicyContainer; Read is RP. Assertions name the real access masks.",
+      "Deny ACEs dominate allows for the same right in token evaluation."
+    ]
+  },
+  "open_questions": [
+    "What reason category does gpresult report for a GPO denied solely by a missing Apply right versus an explicit deny, and does Get-GPResultantSetOfPolicy expose the same distinction?"
+  ]
+}
