@@ -4,6 +4,12 @@ Status: implemented (domain layer) — **not surfaced**. `script_policy.py` and
 `artifact_store.py` are landed and unit-tested but are reachable from no API
 endpoint, UI module, or export path. Platform wiring and Plan 033 Windows
 evidence both remain open.
+
+**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
+behaviour of this layer is a hypothesis about Windows until an evidence lane
+certifies it, and every layer examined so far has needed correction. See
+[`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
+
 Scope: startup/shutdown/logon/logoff and PowerShell script policy with a secure,
 content-addressed artifact lifecycle
 Depends on: Plans 021 and 025 security classification

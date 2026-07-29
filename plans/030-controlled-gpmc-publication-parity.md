@@ -6,6 +6,12 @@ guards them. Both are pure and side-effect-free, are reachable from no API
 endpoint or UI module, and emit no writes: the charter invariant that the web
 process never writes to AD or SYSVOL is unchanged by this plan's landing.
 Surfacing any of it is gated on Plan 033 WP-7.
+
+**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
+behaviour of this layer is a hypothesis about Windows until an evidence lane
+certifies it, and every layer examined so far has needed correction. See
+[`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
+
 Scope: safely orchestrate every verified GPMC lifecycle/scope/adapter operation
 through the isolated Windows publisher
 Depends on: Plans 023–029, Plan 032, and all associated review gates

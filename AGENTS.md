@@ -39,6 +39,14 @@ must never write directly to Active Directory or SYSVOL.
   becomes a capability only when it is reachable by an operator *and* has
   Windows evidence. Until then it does not belong in the 1.0 capability matrix
   — record it in the post-1.0 section instead.
+- **A landed domain layer is also not proven.** Its wire behaviour is a
+  hypothesis about Windows, and every layer an oracle has examined so far has
+  needed correction — WP-3 found `security_template.py` emitting output that
+  was not valid MS-GPSB at all, and WP-1B rewrote +547 lines across four
+  *shipped* modules. Do not count a landed layer as progress toward the
+  product, do not audit one cold and pronounce it correct, and budget evidence
+  lanes expecting to rewrite what they touch. See
+  [`docs/domain-layer-status.md`](docs/domain-layer-status.md).
 - **Keep plan status lines true.** When a plan's implementation lands, update
   its `Status:` line in the same change. Say whether the work is surfaced and
   whether it is Windows-verified. Stale `proposed` headers on implemented

@@ -4,6 +4,12 @@ Status: implemented (domain layer) — **not surfaced**. `hosting.py` models the
 multi-user/authenticated deployment shape but is reachable from no API
 endpoint, and the shipped application remains single-operator and
 offline-first. No hosted mode is available or supported.
+
+**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
+behaviour of this layer is a hypothesis about Windows until an evidence lane
+certifies it, and every layer examined so far has needed correction. See
+[`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
+
 Scope: add a supported, unattended, authenticated, multi-user deployment
 profile without weakening the local workbench or giving the web service
 AD/SYSVOL credentials

@@ -451,6 +451,14 @@ and, with the exception noted below, no Windows evidence. None of these may be
 promoted into the matrix above without both platform wiring and Plan 033
 oracle evidence.
 
+They are also **unproven drafts, not assets awaiting wiring** (operator ruling
+2026-07-29). That is a claim about correctness, not just reach: every layer an
+external oracle has examined so far has needed correction, including
+`security_template.py`, whose output was not valid MS-GPSB on the wire at all
+until WP-3 read it with `secedit`. Treat the serialization in this table as a
+hypothesis about Windows. The full ruling and its evidence are in
+[`domain-layer-status.md`](domain-layer-status.md).
+
 | Plan | Module(s) | Surfaced | Windows-verified |
 |---|---|---|---|
 | 025 | `security_template.py`, `object_security.py`, `network_security.py`, `policy_families.py` | no | no |

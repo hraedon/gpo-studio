@@ -71,9 +71,14 @@ coverage as live surfaces, plus a set of Plans 025–032 domain layers that are
 implemented but not yet reachable from the API or browser application. None of
 the post-1.0 work is Windows-verified yet; that evidence is produced by
 [Plan 033](plans/033-windows-external-oracle-validation.md), where WP-0,
-WP-1A, and WP-2 have certified so far. See
+WP-1A, WP-2, and parts of WP-1B and WP-3 have certified so far. See
 [the capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced)
 for exactly what is and is not reachable.
+
+Those domain layers are **unproven drafts, not finished work awaiting wiring**:
+their wire behaviour is a hypothesis about Windows, and every layer an external
+oracle has examined has needed correction. See
+[`docs/domain-layer-status.md`](docs/domain-layer-status.md).
 
 ## Run it
 
