@@ -28,7 +28,11 @@ must never write directly to Active Directory or SYSVOL.
   tooling that lives in `src/` but never runs in a request path may be exempted
   from a forbidden-import category via `CATEGORY_EXEMPTIONS`, with a comment
   saying why. The gate fails if an exempt module becomes reachable from
-  `api.py`, so never satisfy it by widening a ban.
+  `api.py`, so never satisfy it by widening a ban. This scope was ratified on
+  2026-07-29; the reasoning, the standing conditions on new exemptions, and the
+  known dynamic-import limit are in
+  [`docs/gate-decision-2026-07-29-static-safety.md`](docs/gate-decision-2026-07-29-static-safety.md),
+  and `tests/test_safety_gate.py` pins the fail-closed behaviour.
 - Keep the core (`model`, `store`, `registry_pol`) independent from FastAPI.
 - **A landed domain layer is not a capability.** Plans are routinely executed
   as typed, unit-tested modules before any delivery surface exists. A module

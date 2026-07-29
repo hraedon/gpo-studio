@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import copy
 import json
+import pathlib
 
 import pytest
 
 from gpo_studio.oracle_evidence import (
+    CLIENT_NOT_TESTED,
     FROZEN_ENVIRONMENT,
     NORMALIZER_VERSION,
     OracleEvidenceError,
@@ -35,16 +37,21 @@ def _manifest() -> dict[str, object]:
             "generation_recipe": "fixtures/recipes/gpp-drive.json",
         },
         "environment": {
-            "server_build": FROZEN_ENVIRONMENT.server_build,
-            "client_build": "synthetic-client-build",
+            # Real-shaped values, not derived from the frozen profile, so these
+            # tests exercise build-family matching against what a host reports.
+            "server_build": (
+                f"Microsoft Windows Server 2025 Standard "
+                f"{FROZEN_ENVIRONMENT.server_build_family}"
+            ),
+            "client_build": CLIENT_NOT_TESTED,
             "powershell_edition": FROZEN_ENVIRONMENT.powershell_edition,
-            "powershell_version": FROZEN_ENVIRONMENT.powershell_version,
+            "powershell_version": f"{FROZEN_ENVIRONMENT.powershell_version_family}.32860",
             "group_policy_module_version": (
                 FROZEN_ENVIRONMENT.group_policy_module_version
             ),
             "gpmc_version": FROZEN_ENVIRONMENT.gpmc_version,
             "locale": FROZEN_ENVIRONMENT.locale,
-            "lgpo_sha256": FROZEN_ENVIRONMENT.lgpo_sha256,
+            "lgpo_sha256": HASH_A,
         },
         "tools": [
             {"name": "GPMC", "version": "synthetic-gpmc-version", "sha256": None},
@@ -395,13 +402,129 @@ def test_pass_rejected_when_environment_unfrozen() -> None:
         parse_oracle_manifest(raw)
 
 
-def test_pass_rejected_when_lgpo_hash_unfrozen() -> None:
+def test_lgpo_hash_is_recorded_but_not_qualified() -> None:
+    """No lane executes LGPO.exe; it is only hashed, so it must not gate a pass.
+
+    The hash stays in the manifest as recorded provenance. Gating on it made
+    runs fail over a binary that never influenced a byte of evidence.
+    """
     raw = _manifest()
     environment = raw["environment"]
     assert isinstance(environment, dict)
     environment["lgpo_sha256"] = HASH_B
+
+    manifest = parse_oracle_manifest(raw)
+
+    assert manifest.capability.evidence_state == "pass"
+    assert manifest.environment.lgpo_sha256 == HASH_B
+
+
+def test_servicing_revision_within_the_frozen_family_is_on_target() -> None:
+    """A Patch Tuesday revision must not downgrade an otherwise-valid run."""
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["powershell_version"] = (
+        f"{FROZEN_ENVIRONMENT.powershell_version_family}.99999"
+    )
+
+    manifest = parse_oracle_manifest(raw)
+
+    assert manifest.capability.evidence_state == "pass"
+
+
+def test_pass_rejected_when_powershell_family_differs() -> None:
+    """Family matching is not a licence to run on any build."""
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["powershell_version"] = "7.4.1"
     with pytest.raises(OracleEvidenceError, match="frozen qualification"):
         parse_oracle_manifest(raw)
+
+
+def test_build_family_tolerates_a_ubr_suffix() -> None:
+    """A UBR-bearing build string must still yield its family, not 'unreadable'.
+
+    The current capture never emits a UBR, so this pins the tolerance rather
+    than a live behavior: a lane that changed its capture source would
+    otherwise silently downgrade every run to inconclusive.
+    """
+    from gpo_studio.oracle_evidence import _build_family
+
+    assert _build_family("Microsoft Windows Server 2025 Standard 26100") == "26100"
+    assert _build_family("Microsoft Windows Server 2025 Standard 26100.4652") == "26100"
+    assert _build_family("no build number here") is None
+
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["server_build"] = (
+        f"Microsoft Windows Server 2025 Standard "
+        f"{FROZEN_ENVIRONMENT.server_build_family}.4652"
+    )
+    assert parse_oracle_manifest(raw).capability.evidence_state == "pass"
+
+
+def test_pass_rejected_when_server_build_family_differs() -> None:
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+    environment["server_build"] = "Microsoft Windows Server 2022 Standard 20348"
+    with pytest.raises(OracleEvidenceError, match="frozen qualification"):
+        parse_oracle_manifest(raw)
+
+
+def test_client_build_sentinel_is_on_target_but_a_wrong_family_is_not() -> None:
+    """A lane that never touches a client is on target without endpoint evidence."""
+    raw = _manifest()
+    environment = raw["environment"]
+    assert isinstance(environment, dict)
+
+    environment["client_build"] = CLIENT_NOT_TESTED
+    assert parse_oracle_manifest(raw).capability.evidence_state == "pass"
+
+    environment["client_build"] = (
+        f"Microsoft Windows 11 Enterprise {FROZEN_ENVIRONMENT.client_build_family}"
+    )
+    assert parse_oracle_manifest(raw).capability.evidence_state == "pass"
+
+    environment["client_build"] = "Microsoft Windows 11 Enterprise 26100"
+    with pytest.raises(OracleEvidenceError, match="frozen qualification"):
+        parse_oracle_manifest(raw)
+
+
+def test_environment_spec_doc_matches_the_frozen_profile() -> None:
+    """The spec doc and FROZEN_ENVIRONMENT must not drift apart.
+
+    Both the doc and the ``FrozenEnvironment`` docstring instruct the reader to
+    keep the two in sync. This project has a documented history of exactly that
+    instruction being followed by drift, so pin it.
+
+    This is a **one-directional smoke check**: it proves every frozen value
+    appears somewhere in the spec, not that the spec describes only frozen
+    values. A stale row left behind after a re-freeze would not fail here.
+    Catching that needs the doc to carry machine-readable rows, which is not
+    worth the churn while the profile is this small.
+    """
+    spec = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "docs"
+        / "plan-033"
+        / "environment-spec.md"
+    ).read_text()
+
+    for label, value in (
+        ("server build family", FROZEN_ENVIRONMENT.server_build_family),
+        ("client build family", FROZEN_ENVIRONMENT.client_build_family),
+        ("powershell version family", FROZEN_ENVIRONMENT.powershell_version_family),
+        ("group policy module version", FROZEN_ENVIRONMENT.group_policy_module_version),
+        ("locale", FROZEN_ENVIRONMENT.locale),
+    ):
+        assert value in spec, (
+            f"environment-spec.md does not mention the frozen {label} {value!r}; "
+            f"the profile changed without the doc"
+        )
 
 
 def test_frozen_environment_violations_reports_each_deviation() -> None:
@@ -412,27 +535,27 @@ def test_frozen_environment_violations_reports_each_deviation() -> None:
     )
 
     env = WindowsEnvironment(
-        server_build=FROZEN_ENVIRONMENT.server_build,
-        client_build="anything",
+        server_build=f"Windows Server 2025 {FROZEN_ENVIRONMENT.server_build_family}",
+        client_build=CLIENT_NOT_TESTED,
         powershell_edition=FROZEN_ENVIRONMENT.powershell_edition,
         powershell_version="different",
         group_policy_module_version=FROZEN_ENVIRONMENT.group_policy_module_version,
         gpmc_version=FROZEN_ENVIRONMENT.gpmc_version,
         locale=FROZEN_ENVIRONMENT.locale,
-        lgpo_sha256=FROZEN_ENVIRONMENT.lgpo_sha256,
+        lgpo_sha256=HASH_A,
     )
     violations = frozen_environment_violations(env)
     assert len(violations) == 1
     assert "powershell_version" in violations[0]
 
     frozen = FrozenEnvironment(
-        server_build=FROZEN_ENVIRONMENT.server_build,
+        server_build_family=FROZEN_ENVIRONMENT.server_build_family,
+        client_build_family=FROZEN_ENVIRONMENT.client_build_family,
         powershell_edition=FROZEN_ENVIRONMENT.powershell_edition,
-        powershell_version="different",
+        powershell_version_family="different",
         group_policy_module_version=FROZEN_ENVIRONMENT.group_policy_module_version,
         gpmc_version=FROZEN_ENVIRONMENT.gpmc_version,
         locale=FROZEN_ENVIRONMENT.locale,
-        lgpo_sha256=FROZEN_ENVIRONMENT.lgpo_sha256,
     )
     assert frozen_environment_violations(env, frozen) == ()
 
