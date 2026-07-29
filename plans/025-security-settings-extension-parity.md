@@ -8,6 +8,12 @@ a certified Studio-origin `secedit` writer tranche for account policy, event
 audit, and user rights, but platform wiring and the broader native corpus and
 security areas remain open. The `Windows-verified` claim in this plan's scope
 is **not** met.
+
+**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
+behaviour of this layer is a hypothesis about Windows until an evidence lane
+certifies it, and every layer examined so far has needed correction. See
+[`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
+
 Scope: typed, lossless, Windows-verified support for supported in-box Security
 Settings families
 Depends on: Plans 021 and 023 ACL/principal foundations

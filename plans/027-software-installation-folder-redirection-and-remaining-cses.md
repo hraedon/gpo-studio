@@ -4,6 +4,12 @@ Status: implemented (domain layer) — **not surfaced**. `software_install.py`
 and `folder_redirection.py` are landed and unit-tested but are reachable from
 no API endpoint, UI module, or export path. Platform wiring and Plan 033
 Windows evidence both remain open.
+
+**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
+behaviour of this layer is a hypothesis about Windows until an evidence lane
+certifies it, and every layer examined so far has needed correction. See
+[`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
+
 Scope: complete supported artifact/deployment-oriented in-box editor extensions
 Depends on: Plans 021, 023, 025, and the Plan 026 review gate
 Review gate: **REVIEW AND REFINE — REQUIRED after each adapter family**

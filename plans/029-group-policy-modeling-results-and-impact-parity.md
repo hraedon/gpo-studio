@@ -5,6 +5,12 @@ unit-tested but is reachable from no API endpoint or UI module. RSOP
 prediction is inherently a claim about Windows behavior: it must not be
 surfaced to operators before the Plan 033 WP-6 RSOP oracle validates it
 against `gpresult`.
+
+**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
+behaviour of this layer is a hypothesis about Windows until an evidence lane
+certifies it, and every layer examined so far has needed correction. See
+[`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
+
 Scope: match GPMC Modeling/Results workflows and add evidence-bounded impact
 analysis without overstating offline simulation
 Depends on: Plans 023, 025, and 028 reporting
