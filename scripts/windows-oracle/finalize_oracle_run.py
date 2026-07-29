@@ -47,8 +47,15 @@ def _tag_evidence_commit(repo_root: Path, run_id: str, commit: str) -> str:
     """
     tag = evidence_tag_name(run_id)
 
+    # `rev-parse --verify refs/tags/<tag>` rather than resolving the bare name:
+    # a bare name would also match a branch called evidence/<run-id>, and the
+    # answer to "does this evidence tag exist" must not depend on some other
+    # ref happening to share its name.
     existing = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-list", "-n", "1", tag],
+        [
+            "git", "-C", str(repo_root), "rev-parse",
+            "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}",
+        ],
         capture_output=True,
         text=True,
         check=False,
