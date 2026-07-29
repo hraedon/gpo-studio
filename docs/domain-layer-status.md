@@ -43,6 +43,26 @@ on platform qualification, and the corpus already contradicts two committed
 documents on day one. The gap between what is written down and what Windows does
 is measured, not speculative.
 
+### How strong this evidence actually is
+
+Stated precisely, because a ruling *about* unproven claims should not overstate
+its own. **The direct evidence for the unsurfaced set is a single case.**
+`security_template.py` is the only unsurfaced domain layer an external oracle
+has ever read, and it was wrong. Everything beyond that is inference.
+
+The WP-1B result is inference by analogy, and the analogy runs in the
+favourable direction: those four modules had a delivery surface, real
+operators, a 1.0 release behind them, and far more scrutiny than any unsurfaced
+layer has received — and evidence still rewrote +547 lines of them. Code that
+has had *less* attention is not the code more likely to be correct.
+
+So the honest form of the ruling is not "these layers have been proven wrong."
+It is: **nothing here has been shown right; one has been shown wrong; and the
+one comparable body of code that did get examined needed substantial
+correction.** That is more than enough to stop counting them as progress. It is
+not enough to say what specifically is broken in any layer no oracle has read —
+which is precisely why each needs its own evidence lane rather than an audit.
+
 ## What this means operationally
 
 1. **A landed domain layer is not progress toward the product.** Do not count

@@ -24,6 +24,14 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 
 #: Plans executed as domain layers that no delivery surface reaches.
 #: Plans 023 and 024 are deliberately absent — they ARE surfaced.
+#:
+#: **Adding a domain-layer plan means adding it here.** This list is hand-
+#: maintained and nothing detects its incompleteness: a new Plan 033+ layer
+#: that skips the classification simply is not checked. Deriving the list
+#: automatically was considered and rejected — every available signal (a
+#: status substring, import reachability) would itself need maintaining, and a
+#: wrong automatic answer is worse than an obviously manual one. Treat this
+#: tuple as part of the ruling, not as test scaffolding.
 DOMAIN_LAYER_PLANS: tuple[str, ...] = (
     "025",
     "026",
@@ -67,6 +75,12 @@ def test_domain_layer_plan_still_declares_itself_unsurfaced(number: str) -> None
     If a layer genuinely gets surfaced, this test should fail — and the fix is
     to move it out of DOMAIN_LAYER_PLANS *and* into the capability matrix
     proper, not to soften the wording here.
+
+    The substring match on "not surfaced" is deliberately brittle: rewording
+    the status line to something equivalent ("no delivery surface") breaks the
+    test. That is the intent. A status line describing whether operators can
+    reach a module should not be rephrased casually, and a failure here is a
+    prompt to check whether the *meaning* changed, not to relax the assertion.
     """
     text = _plan_path(number).read_text(encoding="utf-8")
     status = text.split("Scope:")[0]
