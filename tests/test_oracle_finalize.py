@@ -144,20 +144,23 @@ def _raw_manifest(*, commands: list[dict], cleanup_succeeded: bool = True) -> di
             "generation_recipe": "fixtures/recipes/synthetic-registry-basic.json",
         },
         "environment": {
-            "server_build": FROZEN_ENVIRONMENT.server_build,
+            "server_build": (
+                f"Microsoft Windows Server 2025 Standard "
+                f"{FROZEN_ENVIRONMENT.server_build_family}"
+            ),
             "client_build": "not-tested",
             "powershell_edition": FROZEN_ENVIRONMENT.powershell_edition,
-            "powershell_version": FROZEN_ENVIRONMENT.powershell_version,
+            "powershell_version": f"{FROZEN_ENVIRONMENT.powershell_version_family}.32860",
             "group_policy_module_version": (
                 FROZEN_ENVIRONMENT.group_policy_module_version
             ),
             "gpmc_version": FROZEN_ENVIRONMENT.gpmc_version,
             "locale": FROZEN_ENVIRONMENT.locale,
-            "lgpo_sha256": FROZEN_ENVIRONMENT.lgpo_sha256,
+            "lgpo_sha256": "0" * 64,
         },
         "tools": [
             {"name": "GroupPolicy", "version": "1.0.0.0", "sha256": None},
-            {"name": "LGPO.exe", "version": "3.0", "sha256": FROZEN_ENVIRONMENT.lgpo_sha256},
+            {"name": "LGPO.exe", "version": "3.0", "sha256": "0" * 64},
         ],
         "artifacts": [],
         "commands": commands,

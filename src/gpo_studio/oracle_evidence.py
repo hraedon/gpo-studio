@@ -71,32 +71,48 @@ _BACKUP_ID_RE = re.compile(
 )
 
 
+CLIENT_NOT_TESTED = "not-tested"
+
+_BUILD_FAMILY = re.compile(r"(\d{5,})\s*$")
+
+
 @dataclass(frozen=True, slots=True)
 class FrozenEnvironment:
-    """The single frozen qualification environment for Plan 033.
+    """The frozen qualification profile for Plan 033.
 
-    A passing manifest must have been produced on exactly this environment.
-    Any deviation makes the run ``inconclusive`` at best, never ``pass``.
+    Qualification matches the OS and PowerShell **build family**, not an exact
+    servicing revision. Pinning the revision meant every Patch Tuesday silently
+    downgraded otherwise-valid runs to ``inconclusive``, which trains reviewers
+    to ignore the signal; the family is what actually determines Group Policy
+    behavior. The exact revision is still recorded in every manifest, so a run
+    remains reproducible and a suspected servicing regression is still
+    diagnosable after the fact.
+
+    The profile deliberately does **not** gate on tools the harness never
+    invokes. ``lgpo_sha256`` is recorded but not qualified: no lane executes
+    ``LGPO.exe``: it is only hashed. Gating on it made runs fail for a binary
+    that never influenced a single byte of evidence.
+
     Mirrors ``docs/plan-033/environment-spec.md``; keep the two in sync.
     """
 
-    server_build: str
+    server_build_family: str
+    client_build_family: str
     powershell_edition: str
-    powershell_version: str
+    powershell_version_family: str
     group_policy_module_version: str
     gpmc_version: str
     locale: str
-    lgpo_sha256: str
 
 
 FROZEN_ENVIRONMENT = FrozenEnvironment(
-    server_build="Microsoft Windows Server 2025 Standard 26100",
+    server_build_family="26100",
+    client_build_family="26200",
     powershell_edition="Desktop",
-    powershell_version="5.1.26100.32860",
+    powershell_version_family="5.1.26100",
     group_policy_module_version="1.0.0.0",
     gpmc_version="built-in",
     locale="en-US",
-    lgpo_sha256="0c97f29543418b30340c4ff5d930d31e6196dd59c2cc74b6b890fa7b90c910c7",
 )
 
 
@@ -526,21 +542,59 @@ def _capability(raw: object) -> CapabilityResult:
     )
 
 
+def _build_family(value: str) -> str | None:
+    """Return the trailing build number of an OS build string, if it has one.
+
+    ``"Microsoft Windows Server 2025 Standard 26100"`` -> ``"26100"``.
+    """
+    match = _BUILD_FAMILY.search(value.strip())
+    return match.group(1) if match else None
+
+
 def frozen_environment_violations(
     environment: WindowsEnvironment,
     frozen: FrozenEnvironment = FROZEN_ENVIRONMENT,
 ) -> tuple[str, ...]:
-    """Return human-readable deviations from the frozen qualification environment.
+    """Return human-readable deviations from the frozen qualification profile.
 
-    An empty tuple means the environment matches the frozen spec exactly.
-    A ``lgpo_sha256`` placeholder (not yet captured from a qualification run)
-    is reported as a violation so a passing manifest cannot rely on it.
+    An empty tuple means the environment is on-target. Build numbers are
+    qualified by family, so a servicing revision within the frozen family is on
+    target and its exact value is still recorded in the manifest.
+
+    ``client_build`` may be the ``CLIENT_NOT_TESTED`` sentinel: a lane that
+    never touches a client is on-target without endpoint evidence. A lane that
+    does touch one is responsible for asserting a real client build in its own
+    finalizer; this parser cannot tell the two apart.
     """
     violations: list[str] = []
+
+    server_family = _build_family(environment.server_build)
+    if server_family != frozen.server_build_family:
+        violations.append(
+            f"environment.server_build is {environment.server_build!r} "
+            f"(build family {server_family or 'unreadable'}), expected family "
+            f"{frozen.server_build_family!r}"
+        )
+
+    if environment.client_build != CLIENT_NOT_TESTED:
+        client_family = _build_family(environment.client_build)
+        if client_family != frozen.client_build_family:
+            violations.append(
+                f"environment.client_build is {environment.client_build!r} "
+                f"(build family {client_family or 'unreadable'}), expected family "
+                f"{frozen.client_build_family!r} or {CLIENT_NOT_TESTED!r}"
+            )
+
+    ps_version = environment.powershell_version
+    ps_family = frozen.powershell_version_family
+    if ps_version != ps_family and not ps_version.startswith(f"{ps_family}."):
+        violations.append(
+            f"environment.powershell_version is {ps_version!r}, expected "
+            f"version family {ps_family!r}"
+        )
+
     checks: tuple[tuple[str, str, str], ...] = (
-        ("server_build", environment.server_build, frozen.server_build),
         ("powershell_edition", environment.powershell_edition, frozen.powershell_edition),
-        ("powershell_version", environment.powershell_version, frozen.powershell_version),
         (
             "group_policy_module_version",
             environment.group_policy_module_version,
@@ -554,11 +608,6 @@ def frozen_environment_violations(
             violations.append(
                 f"environment.{field_name} is {observed!r}, expected {expected!r}"
             )
-    if environment.lgpo_sha256 != frozen.lgpo_sha256:
-        violations.append(
-            "environment.lgpo_sha256 is "
-            f"{environment.lgpo_sha256!r}, expected {frozen.lgpo_sha256!r}"
-        )
     return tuple(violations)
 
 
