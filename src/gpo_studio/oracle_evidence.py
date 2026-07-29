@@ -548,6 +548,34 @@ def _capability(raw: object) -> CapabilityResult:
     )
 
 
+EVIDENCE_TAG_PREFIX = "evidence/"
+
+_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def evidence_tag_name(run_id: str) -> str:
+    """Return the git tag that preserves the source commit for ``run_id``.
+
+    A certified manifest binds itself to the commit it was produced from, but
+    squash-merging a PR orphans that commit: it becomes unreachable from
+    ``main`` and vanishes at the next ``gc``, so the binding cannot be verified
+    from a fresh clone. Tagging keeps the commit alive without changing the
+    merge policy. See issue #22.
+
+    Rejects a run id that would produce a malformed or ambiguous ref, so a
+    corrupt manifest cannot create a tag that shadows something else.
+    """
+    if not _RUN_ID.match(run_id):
+        raise OracleEvidenceError(
+            f"run_id {run_id!r} is not safe to use as a git ref; expected "
+            f"alphanumerics, dot, dash, or underscore"
+        )
+    # git-check-ref-format rejects these independently of the character set.
+    if ".." in run_id or run_id.endswith((".lock", ".")):
+        raise OracleEvidenceError(f"run_id {run_id!r} would create an invalid git ref")
+    return f"{EVIDENCE_TAG_PREFIX}{run_id}"
+
+
 def _build_family(value: str) -> str | None:
     """Return the trailing build number of an OS build string, if it has one.
 

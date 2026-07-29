@@ -570,3 +570,36 @@ def test_inconclusive_manifest_tolerates_unfrozen_environment() -> None:
     capability["evidence_state"] = "inconclusive"
     manifest = parse_oracle_manifest(raw)
     assert manifest.capability.evidence_state == "inconclusive"
+
+
+def test_evidence_tag_name_is_derived_from_the_run_id() -> None:
+    from gpo_studio.oracle_evidence import EVIDENCE_TAG_PREFIX, evidence_tag_name
+
+    assert (
+        evidence_tag_name("wp3-security-template-20260727220623-7682")
+        == f"{EVIDENCE_TAG_PREFIX}wp3-security-template-20260727220623-7682"
+    )
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    [
+        "",  # empty
+        "-leading-dash",  # not a valid ref start for our scheme
+        "has space",
+        "has/slash",  # would nest the ref
+        "has..dots",  # git rejects
+        "trailing.lock",  # git reserves .lock
+        "back\\slash",
+    ],
+)
+def test_evidence_tag_name_refuses_unsafe_run_ids(run_id: str) -> None:
+    """A corrupt manifest must not be able to create a ref that shadows something.
+
+    The tag is created from manifest data, so the naming rule is the only thing
+    between a malformed run_id and an arbitrary ref.
+    """
+    from gpo_studio.oracle_evidence import evidence_tag_name
+
+    with pytest.raises(OracleEvidenceError):
+        evidence_tag_name(run_id)
