@@ -3,7 +3,12 @@
 
 set -euo pipefail
 
-HOST="cw-admin@mvmcitest01"
+# Oracle target. Defaults to the historical shared host so no certified lane
+# changes behaviour. Override to run against the disposable lab estate --
+# but re-pointing a lane requires a fresh qualification run and a re-freeze
+# of docs/plan-033/environment-spec.md, not just this variable: every
+# certification is bound to the environment recorded in its own manifest.
+HOST="${GPO_STUDIO_ORACLE_HOST:-cw-admin@mvmcitest01}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 : "${UPN:?UPN not injected}" "${PASSWORD:?PASSWORD not injected}"

@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpo-studio.invalid/schemas/test-platform-registry-v1.schema.json",
+  "title": "GPO Studio test platform registry v1",
+  "description": "The machine-readable registry of test platforms (hosts, tools, lanes) that remediation scenarios execute against. Host and tool rows extend docs/plan-033/environment-spec.md; a platform is claimable for certification evidence only when its status is frozen. Lane rows bind a Plan 033 work package to the hosts, tools, oracle, and boundary set its evidence requires.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "hosts", "tools", "lanes"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "hosts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host_id", "role", "os", "build", "status"],
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["domain-controller", "member-server", "client"]
+          },
+          "os": {
+            "type": "string",
+            "minLength": 1
+          },
+          "build": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["frozen", "pending-qualification"],
+            "description": "frozen = appears in environment-spec.md supported builds; pending-qualification = needed by scenarios but not yet qualified"
+          },
+          "snapshot_required": {
+            "type": "boolean",
+            "description": "True when scenarios on this host mutate endpoint state and must run on a restorable snapshot"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool_id", "kind", "status"],
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["microsoft-inbox", "microsoft-download", "studio-harness"]
+          },
+          "frozen_version": {
+            "type": "string",
+            "description": "Version string frozen in environment-spec.md; absent for studio-harness rows, which are commit-bound instead"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["frozen", "pending-qualification"]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "lanes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lane_id",
+          "plan_wp",
+          "boundaries",
+          "required_hosts",
+          "required_tools",
+          "oracle",
+          "status"
+        ],
+        "properties": {
+          "lane_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "plan_wp": {
+            "type": "string",
+            "pattern": "^WP-[0-9]+[A-Z]?$"
+          },
+          "boundaries": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "gpo-backup-content",
+                "gpo-ad-object-security",
+                "wmi-filter-object-association",
+                "som-link-block-inheritance",
+                "endpoint-resultant-state"
+              ]
+            }
+          },
+          "required_hosts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+$"
+            }
+          },
+          "required_tools": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.-]*$"
+            }
+          },
+          "oracle": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The independent Windows observation that decides the lane, per boundary-matrix.md assertion rule 1"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["certified", "partial", "defined"],
+            "description": "certified = clean-tree pass recorded; partial = some tranches certified; defined = corpus/platform exist, no oracle pass yet"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
