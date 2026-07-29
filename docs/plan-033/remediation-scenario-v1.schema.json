@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gpo-studio.invalid/schemas/remediation-scenario-v1.schema.json",
+  "title": "GPO Studio remediation scenario v1",
+  "description": "A durable, provenance-annotated scenario describing expected Windows behavior for a capability that diverged (or may diverge) from Windows reality. Scenarios are data: they name what an operator means, what native Windows tooling does with it, and which test platform proves the two agree. The JSON schema is the cheap structural gate; gpo_studio.remediation_corpus performs the real validation (referential integrity, per-family payload shape, anchor hashes).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "family",
+    "title",
+    "readiness",
+    "provenance",
+    "platform",
+    "authored_intent",
+    "expected_native"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Unique identifier; stable forever once oracle evidence cites it"
+    },
+    "family": {
+      "type": "string",
+      "enum": ["gpp-services", "security-template", "rsop-topology", "ilt-os"],
+      "description": "Remediation family. Adding a family requires a schema enum entry, a loader validator branch, and a remediation-corpus.md section."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "readiness": {
+      "type": "string",
+      "enum": ["ready", "blocked"],
+      "description": "ready = executable against a qualified platform today; blocked = a platform or evidence gap is recorded in blocked_reason"
+    },
+    "blocked_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when readiness is blocked; must name the gap, not the hope"
+    },
+    "work_items": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^WI-[0-9]+$"
+      },
+      "description": "Tracked work items this scenario supplies evidence for"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "note"],
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": ["native-observation", "spec-informed", "hypothesis"],
+          "description": "native-observation = anchored to captured native tooling output; spec-informed = derived from MS-* documentation, not yet captured; hypothesis = believed, must be proven before any claim"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How this knowledge was obtained and why the tier is honest"
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "path"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["native-capture", "spec-doc", "lab-runbook"]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Repository-relative path to the anchor artifact"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "Required for native-capture anchors; verified by the loader so a changed capture breaks the corpus loudly"
+              },
+              "note": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lane", "boundaries"],
+      "properties": {
+        "lane": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Lane id from platforms.json; binds hosts, tools, and oracle"
+        },
+        "boundaries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "gpo-backup-content",
+              "gpo-ad-object-security",
+              "wmi-filter-object-association",
+              "som-link-block-inheritance",
+              "endpoint-resultant-state"
+            ]
+          },
+          "description": "Subset of the lane's boundaries from boundary-matrix.md; one scenario may assert several boundaries but each is reported separately"
+        }
+      }
+    },
+    "authored_intent": {
+      "type": "object",
+      "description": "Family-shaped: what an operator means. Per-family required keys are enforced by gpo_studio.remediation_corpus."
+    },
+    "expected_native": {
+      "type": "object",
+      "description": "Family-shaped: the machine-checkable native Windows behavior the oracle must observe. Per-family required keys are enforced by gpo_studio.remediation_corpus."
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Explicit unknowns. An open question is a healthy corpus state; an unrecorded wrong assumption is not."
+    }
+  }
+}
