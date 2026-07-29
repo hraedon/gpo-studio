@@ -15,6 +15,11 @@ Current version: `1.0.0`.
 > layers** (implemented and unit-tested, reachable from neither). No post-1.0
 > capability is Windows-verified except where an explicit Plan 033 workpackage
 > is cited.
+>
+> As of 2026-07-29 the unsurfaced domain layers are further classified as
+> **unproven drafts, not assets awaiting wiring** — a claim about correctness,
+> not only reach. Every layer an external oracle has examined has needed
+> correction. See [`docs/domain-layer-status.md`](docs/domain-layer-status.md).
 
 ### Added
 
