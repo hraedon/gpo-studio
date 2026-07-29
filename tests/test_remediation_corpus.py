@@ -156,6 +156,55 @@ class TestLoaderNegatives:
             "expected_native": {"match_semantics": {"distinguishable": True}},
         }
 
+    def _base_rsop_scenario(self) -> dict:
+        """An rsop-topology scenario, which is blocked because its lane is."""
+        return {
+            "schema_version": "1",
+            "scenario_id": "neg-case",
+            "family": "rsop-topology",
+            "title": "negative case",
+            "readiness": "blocked",
+            "blocked_reason": "client-win11 qualification",
+            "provenance": {"tier": "hypothesis", "note": "negative case"},
+            "platform": {
+                "lane": "rsop-endpoint",
+                "boundaries": ["endpoint-resultant-state"],
+            },
+            "authored_intent": {"topology": {"som": "ou"}},
+            "expected_native": {"winners": [{"key": "a", "winner": "GPO-1"}]},
+        }
+
+    def test_rsop_empty_winners_rejected(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
+        """A conflict-resolution scenario that names no winner asserts nothing.
+
+        The other three families reject empty payload collections via
+        _require_key; rsop-topology must not be laxer just because it accepts
+        either of two shapes.
+        """
+        data = self._base_rsop_scenario()
+        data["expected_native"] = {"winners": []}
+        path = self._write_scenario(tmp_path, "rsop-topology", "neg-case", data)
+        with pytest.raises(RemediationCorpusError, match="non-empty 'winners' or 'per_mode'"):
+            load_scenario(path, registry)
+
+    def test_rsop_empty_per_mode_rejected(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
+        data = self._base_rsop_scenario()
+        data["expected_native"] = {"per_mode": []}
+        path = self._write_scenario(tmp_path, "rsop-topology", "neg-case", data)
+        with pytest.raises(RemediationCorpusError, match="non-empty 'winners' or 'per_mode'"):
+            load_scenario(path, registry)
+
+    def test_rsop_accepts_either_populated_shape(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
+        """The tightening must not reject the two shapes the corpus uses."""
+        for payload in (
+            {"winners": [{"key": "a", "winner": "GPO-1"}]},
+            {"per_mode": [{"mode": "merge", "winners": []}]},
+        ):
+            data = self._base_rsop_scenario()
+            data["expected_native"] = payload
+            path = self._write_scenario(tmp_path, "rsop-topology", "neg-case", data)
+            assert load_scenario(path, registry).family == "rsop-topology"
+
     def test_unknown_family_rejected(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
         data = self._base_scenario()
         data["family"] = "gpp-printers"

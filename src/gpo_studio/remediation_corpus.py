@@ -10,10 +10,17 @@ that proves it, and the boundary each assertion belongs to.
 This module is the executable contract for that data. The JSON schemas
 (``docs/plan-033/remediation-scenario-v1.schema.json`` and
 ``test-platform-registry-v1.schema.json``) are the cheap structural gate;
-validation here is the real one — referential integrity between scenarios
-and the platform registry, readiness honesty (a scenario may not claim
-``ready`` when its lane needs an unqualified platform), anchor integrity,
-and per-family payload shape.
+validation here is the real one. ``load_scenario`` and ``load_corpus``
+enforce referential integrity between scenarios and the platform registry,
+readiness honesty (a scenario may not claim ``ready`` when its lane needs an
+unqualified platform), and per-family payload shape.
+
+Anchor integrity is deliberately **not** part of loading. It lives in
+``anchor_violations()``, which needs a repo root and reads the working tree;
+keeping it separate leaves loading cheap and IO-free so a caller can validate
+the corpus without touching the filesystem beyond the scenario files. A
+caller that wants the guarantee must run that pass — the test suite does, in
+``test_every_anchor_hash_verifies``.
 
 The module is stdlib-only, matching the project convention that corpus and
 conformance code (``conformance.py``, ``oracle_evidence.py``) stays
@@ -24,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, assert_never, cast
@@ -277,7 +285,7 @@ def load_platform_registry(path: Path) -> PlatformRegistry:
         ("tool_id", [tool.tool_id for tool in tools]),
         ("lane_id", [lane.lane_id for lane in lanes]),
     ):
-        duplicates = sorted({item for item in ids if ids.count(item) > 1})
+        duplicates = sorted(item for item, n in Counter(ids).items() if n > 1)
         if duplicates:
             raise _err(context, f"duplicate {label} values: {duplicates}")
 
@@ -327,12 +335,18 @@ def _validate_family_payload(
             _require_key(expected_native, "round_trip", str, context)
         case "rsop-topology":
             _require_key(authored_intent, "topology", dict, context)
-            has_winners = isinstance(expected_native.get("winners"), list)
-            has_per_mode = isinstance(expected_native.get("per_mode"), list)
+            # Either shape is valid, but whichever is present must be
+            # non-empty, matching the other families. A conflict-resolution
+            # scenario that names no winner asserts nothing.
+            winners = expected_native.get("winners")
+            per_mode = expected_native.get("per_mode")
+            has_winners = isinstance(winners, list) and bool(winners)
+            has_per_mode = isinstance(per_mode, list) and bool(per_mode)
             if not (has_winners or has_per_mode):
                 raise _err(
                     context,
-                    "expected_native must carry 'winners' or 'per_mode' for rsop-topology",
+                    "expected_native must carry a non-empty 'winners' or 'per_mode' "
+                    "for rsop-topology",
                 )
         case "ilt-os":
             _require_key(authored_intent, "predicate", dict, context)
@@ -490,7 +504,7 @@ def load_corpus(
     if not scenarios:
         raise _err(str(directory), "no scenario files found")
     ids = [scenario.scenario_id for scenario in scenarios]
-    duplicates = sorted({item for item in ids if ids.count(item) > 1})
+    duplicates = sorted(item for item, n in Counter(ids).items() if n > 1)
     if duplicates:
         raise _err(str(directory), f"duplicate scenario_id values: {duplicates}")
     return tuple(scenarios)
