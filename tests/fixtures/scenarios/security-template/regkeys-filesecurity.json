@@ -1,0 +1,68 @@
+{
+  "schema_version": "1",
+  "scenario_id": "regkeys-filesecurity",
+  "family": "security-template",
+  "title": "Registry Keys and File Security areas: ACL propagation codes and SDDL payloads",
+  "readiness": "blocked",
+  "blocked_reason": "The security-template-secedit lane requires member-ws2025-disposable (pending-qualification): the open WP-3 PR-19 follow-up forbids expanding the lane beyond the certified account/audit/user-rights tranche on the shared host.",
+  "provenance": {
+    "tier": "spec-informed",
+    "note": "Shape derived from Microsoft security-template documentation. Propagation code meanings in particular are asserted from documentation, not captured behavior, and the first secedit /export capture must confirm them before any claim.",
+    "anchors": [
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp3-evidence/verification.json",
+        "sha256": "7400d1679fc665ca9f405ed3af7b55967b6cbdf47b0ce57a9c8960ac1ea46339",
+        "note": "Certified WP-3 tranche evidence; proves the harness mechanics this scenario reuses, not these areas."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "security-template-secedit",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "sections": [
+      {
+        "name": "Registry Keys",
+        "entries": [
+          ["MACHINE\\SOFTWARE\\StudioLab\\Audit", "0", "D:PAR(A;OICI;FA;;;BA)"],
+          ["MACHINE\\SOFTWARE\\StudioLab\\Locked", "2", "D:PAR(A;OICI;FA;;;BA)(A;OICI;FR;;;AU)"]
+        ]
+      },
+      {
+        "name": "File Security",
+        "entries": [
+          ["C:\\StudioLab\\Data", "1", "D:PAR(A;OICI;FA;;;BA)"],
+          ["C:\\StudioLab\\ReadOnly", "2", "D:PAR(A;OICI;FR;;;AU)"]
+        ]
+      }
+    ],
+    "operator_meaning": [
+      "Audit key: propagate inheritable permissions, full control to administrators",
+      "Locked key: protect against replacement, administrators full, authenticated users read",
+      "Data directory: replace existing permissions with the authored set",
+      "ReadOnly directory: protect against replacement, read for authenticated users"
+    ]
+  },
+  "expected_native": {
+    "round_trip": "secedit-validate-import-export",
+    "inf_excerpt": "[Registry Keys]\n\"MACHINE\\SOFTWARE\\StudioLab\\Audit\",0,\"D:PAR(A;OICI;FA;;;BA)\"\n\"MACHINE\\SOFTWARE\\StudioLab\\Locked\",2,\"D:PAR(A;OICI;FA;;;BA)(A;OICI;FR;;;AU)\"\n[File Security]\n\"C:\\StudioLab\\Data\",1,\"D:PAR(A;OICI;FA;;;BA)\"\n\"C:\\StudioLab\\ReadOnly\",2,\"D:PAR(A;OICI;FR;;;AU)\"",
+    "entries": [
+      {"section": "Registry Keys", "key": "MACHINE\\SOFTWARE\\StudioLab\\Audit", "value": "0,D:PAR(A;OICI;FA;;;BA)"},
+      {"section": "Registry Keys", "key": "MACHINE\\SOFTWARE\\StudioLab\\Locked", "value": "2,D:PAR(A;OICI;FA;;;BA)(A;OICI;FR;;;AU)"},
+      {"section": "File Security", "key": "C:\\StudioLab\\Data", "value": "1,D:PAR(A;OICI;FA;;;BA)"},
+      {"section": "File Security", "key": "C:\\StudioLab\\ReadOnly", "value": "2,D:PAR(A;OICI;FR;;;AU)"}
+    ],
+    "derivations": [
+      "Each entry is quoted-path, numeric propagation code, quoted SDDL. Documented code meanings: 0 = propagate inheritable permissions to subkeys/subfolders, 1 = replace existing permissions, 2 = do not allow permissions to be replaced. These meanings are spec-informed until the first capture.",
+      "Registry paths use the MACHINE\\ hive prefix form in security templates, not HKLM; file paths are absolute local paths. Both are quoted CSV fields.",
+      "Studio's security_template.py has no typed accessor for either area; entries parse as opaque lines under known section names. The wire truth fixed here is what a typed model must honor."
+    ]
+  },
+  "open_questions": [
+    "Does secedit /export emit the same propagation codes it accepted, or normalize (for example, an authored 0 returning as a different code with inherited flags folded into the SDDL)?",
+    "Are environment-variable paths (%SystemRoot%) accepted in File Security entries, and how are they returned on export?",
+    "What does secedit do with a Registry Keys entry for a key that does not exist at /import time: accept silently, warn, or fail?"
+  ]
+}

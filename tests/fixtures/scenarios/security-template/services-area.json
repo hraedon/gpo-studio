@@ -1,0 +1,60 @@
+{
+  "schema_version": "1",
+  "scenario_id": "services-area",
+  "family": "security-template",
+  "title": "Service General Setting area: startup modes and service security descriptors",
+  "readiness": "blocked",
+  "blocked_reason": "The security-template-secedit lane requires member-ws2025-disposable (pending-qualification): the open WP-3 PR-19 follow-up forbids expanding the lane beyond the certified account/audit/user-rights tranche on the shared host.",
+  "provenance": {
+    "tier": "spec-informed",
+    "note": "Shape derived from Microsoft secedit/security-template documentation and well-known GptTmpl.inf layout. No native capture of this area exists in the repo yet; the first secedit /export capture on the disposable host must confirm or correct every entry here before any claim.",
+    "anchors": [
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp3-evidence/verification.json",
+        "sha256": "7400d1679fc665ca9f405ed3af7b55967b6cbdf47b0ce57a9c8960ac1ea46339",
+        "note": "Certified WP-3 tranche evidence; proves the harness mechanics this scenario reuses, not this area."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "security-template-secedit",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "sections": [
+      {
+        "name": "Service General Setting",
+        "entries": [
+          ["WinRM", "2", "D:AR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)"],
+          ["Spooler", "4", ""],
+          ["W32Time", "3"]
+        ]
+      }
+    ],
+    "operator_meaning": [
+      "WinRM: automatic startup with an explicit DACL granting administrators full control",
+      "Spooler: disabled with an explicitly empty security descriptor field",
+      "W32Time: manual startup with no security descriptor field at all"
+    ]
+  },
+  "expected_native": {
+    "round_trip": "secedit-validate-import-export",
+    "inf_excerpt": "[Service General Setting]\n\"WinRM\",2,\"D:AR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\"\n\"Spooler\",4,\"\"\n\"W32Time\",3",
+    "entries": [
+      {"section": "Service General Setting", "key": "WinRM", "value": "2,D:AR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)"},
+      {"section": "Service General Setting", "key": "Spooler", "value": "4,"},
+      {"section": "Service General Setting", "key": "W32Time", "value": "3"}
+    ],
+    "derivations": [
+      "Startup mode codes follow the secedit convention 2=automatic, 3=manual, 4=disabled; the certified tranche proves only that secedit accepts and round-trips authored sections, not these codes.",
+      "The service name is a quoted CSV field; the optional third field carries the service DACL as an SDDL string. The empty-string form (Spooler) and the absent-field form (W32Time) are distinct authored states and must not be conflated by the parser.",
+      "Studio's security_template.py currently has no typed accessor for this area: entries parse as opaque key/value lines under a known section name. Remediation must decide the typed model; this scenario fixes the wire truth it must honor."
+    ]
+  },
+  "open_questions": [
+    "Does secedit /export normalize the SDDL (ordering, shorthand) or return it byte-identical? The comparison rule must be fixed from the first capture.",
+    "Does secedit /validate accept an entry whose startup code is present but the SDDL field is omitted entirely (W32Time row), or does it require the empty string form?",
+    "Which startup codes, if any, does secedit reject (0, 1, 5+)? Negative cases belong in the WP-8 failure-injection set."
+  ]
+}

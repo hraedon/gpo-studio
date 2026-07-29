@@ -53,6 +53,19 @@ Current version: `1.0.0`.
   intact, and cleanup is confirmed by an independent LDAPS re-query.
 - Plan 033 WP-1A: native-origin GPMC corpus, authoring guide, and genuine
   GPMC-authored canary fixtures.
+- Plan 033 remediation scenario corpus — **validation infrastructure, not a
+  capability**. Thirteen provenance-graded scenarios across four families
+  (gpp-services for WI-022, security-template areas for Plan 025/WP-3,
+  rsop-topology for Plan 029/WP-6, ilt-os for WI-023) under
+  `tests/fixtures/scenarios/`, a machine-readable test-platform registry
+  (`platforms.json`) extending `docs/plan-033/environment-spec.md`, and the
+  `remediation_corpus.py` loader that enforces referential integrity,
+  readiness honesty (no `ready` claim on an unqualified platform), and
+  sha256-pinned native-capture anchors. Executable WI-022 characterization
+  probes pin today's parse/writer divergence and flip when the fix lands.
+  The corpus records expected Windows behavior for the Plans 025–032
+  remediation program; nothing in it is oracle-executed yet and no
+  capability claim changes.
 
 - Plan 033 WP-2: deterministic native GPMC backup emission with distinct
   backup/GPO identities, v2 `Backup.xml`, native `DomainSysvol/GPO` paths,

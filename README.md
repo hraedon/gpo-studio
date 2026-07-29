@@ -162,7 +162,7 @@ Operator references:
 
 Release and lab tooling, driven by `scripts/`: `conformance.py`,
 `oracle_evidence.py`, `oracle_harness.py`, `payload.py`, `provenance.py`,
-`ps_plan_validator.py`.
+`ps_plan_validator.py`, `remediation_corpus.py`.
 
 `src/` also contains the Plans 025–032 domain layers
 (`security_template`, `object_security`, `network_security`,

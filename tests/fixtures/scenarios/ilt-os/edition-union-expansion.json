@@ -1,0 +1,61 @@
+{
+  "schema_version": "1",
+  "scenario_id": "edition-union-expansion",
+  "family": "ilt-os",
+  "title": "GPMC's OS picker expands one family choice into an eleven-predicate edition union",
+  "readiness": "ready",
+  "work_items": ["WI-023"],
+  "provenance": {
+    "tier": "native-observation",
+    "note": "Anchored to the same genuine WS2025 GPMC capture as server-10x-collision; the eleven predicates below are transcribed verbatim from the capture, which mixes server-family (WINTHRESHOLDSRV) and client-family (WINTHRESHOLD) tokens.",
+    "anchors": [
+      {
+        "kind": "native-capture",
+        "path": "tests/fixtures/native-gpp-gpmc/WI01A-OS-ILT/{B88DAB7B-4B81-4FE3-AA70-3A859853C1E9}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml",
+        "sha256": "f52cbeefc246f250ab625f8bf4666d5c230c52932583981e349c3a785f0ee70d"
+      }
+    ]
+  },
+  "platform": {
+    "lane": "gpp-reader-native",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "predicate": {
+      "type": "os",
+      "operator_goal": "One OS-family choice in the GPMC picker (recent Windows family)",
+      "filter_fields": {
+        "class": "NT",
+        "version": "WINTHRESHOLDSRV"
+      }
+    }
+  },
+  "expected_native": {
+    "match_semantics": {
+      "expansion": "or-union",
+      "predicate_count": 11,
+      "predicates": [
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLDSRV", "type": "SV", "edition": "DTC", "sp": "Gold"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLDSRV", "type": "SV", "edition": "STD", "sp": "NE"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLDSRV", "type": "NE", "edition": "64STGSTD", "sp": "NE"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLDSRV", "type": "NE", "edition": "64STGWKGRP", "sp": "NE"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLDSRV", "type": "NE", "edition": "64MPPREM", "sp": "NE"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLDSRV", "type": "NE", "edition": "64ESSSOL", "sp": "Gold"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLD", "type": "NE", "edition": "EP", "sp": "NE"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLD", "type": "NE", "edition": "PRO", "sp": "NE"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLDSRV", "type": "NE", "edition": "NE", "sp": "NE"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLD", "type": "NE", "edition": "64EP", "sp": "Gold"},
+        {"bool": "AND", "not": "0", "class": "NT", "version": "WINTHRESHOLD", "type": "NE", "edition": "64PRO", "sp": "NE"}
+      ],
+      "derivations": [
+        "One picker choice becomes an OR over edition/service-pack tokens: GPMC enumerates the editions the family choice covers rather than emitting one wildcard predicate.",
+        "The union mixes WINTHRESHOLDSRV (server family) with WINTHRESHOLD (client family) entries and includes legacy edition codes (64STGSTD, 64MPPREM, 64ESSSOL) that no current OS reports; a reader must not 'clean up' predicates it considers dead.",
+        "Predicates carrying edition=NE or type=NE ('not evaluated') are part of the genuine emission and must round-trip verbatim.",
+        "Studio's ILT model must preserve this union exactly on import (no collapse, no deduplication, no reordering assumptions beyond XML order) and any future writer that offers a family picker must emit the same expansion to be GPMC-identical."
+      ]
+    }
+  },
+  "open_questions": [
+    "Is this exact union stable across GPMC versions, or does the WS2025 picker add/remove edition tokens relative to older captures? A comparison capture from an older GPMC would settle it; none exists in the corpus yet."
+  ]
+}

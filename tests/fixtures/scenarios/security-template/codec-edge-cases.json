@@ -1,0 +1,70 @@
+{
+  "schema_version": "1",
+  "scenario_id": "codec-edge-cases",
+  "family": "security-template",
+  "title": "INF codec edge cases: continuation lines, comments, empty assignments, unknown sections, Unicode",
+  "readiness": "blocked",
+  "blocked_reason": "The secedit half of this scenario requires the security-template-secedit lane on member-ws2025-disposable (pending-qualification) per the open WP-3 PR-19 follow-up. The Studio-side decode/parse/format half is exercisable offline today and is covered by unit tests.",
+  "provenance": {
+    "tier": "native-observation",
+    "note": "The wire-format entries (UTF-16LE/BOM, CRLF, [Unicode] preamble, *SID principals) were certified against secedit in the WP-3 tranche; the remaining edge cases extend the same harness mechanics to inputs the certified candidate did not exercise.",
+    "anchors": [
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp3-evidence/verification.json",
+        "sha256": "7400d1679fc665ca9f405ed3af7b55967b6cbdf47b0ce57a9c8960ac1ea46339",
+        "note": "Certified WP-3 run wp3-security-template-20260727220623-7682; source of the natively observed codec entries."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "security-template-secedit",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "sections": [
+      {
+        "name": "Unicode",
+        "entries": [["Unicode", "yes"]]
+      },
+      {
+        "name": "Privilege Rights",
+        "entries": [
+          ["SeTakeOwnershipPrivilege", "*S-1-5-32-544,\n *S-1-5-32-551"],
+          ["SeDebugPrivilege", ""]
+        ]
+      },
+      {
+        "name": "Studio Custom Section",
+        "entries": [
+          ["CustomKey", "CustomValue"]
+        ]
+      }
+    ],
+    "operator_meaning": [
+      "A privilege assignment whose principal list wraps onto a continuation line",
+      "A privilege explicitly emptied (clearing a right is policy, not absent data)",
+      "A section secedit does not know, which Studio must preserve without claiming to understand",
+      "Comment lines interleaved with entries (secedit treats lines starting with ';' as comments)"
+    ]
+  },
+  "expected_native": {
+    "round_trip": "secedit-validate-import-export",
+    "entries": [
+      {"section": "Privilege Rights", "key": "SeTakeOwnershipPrivilege", "value": "*S-1-5-32-544,*S-1-5-32-551", "note": "continuation line must join to the same semantic value"},
+      {"section": "Privilege Rights", "key": "SeDebugPrivilege", "value": "", "note": "empty assignment survives as an explicit clear, not a dropped key"},
+      {"section": "Studio Custom Section", "key": "CustomKey", "value": "CustomValue", "note": "unknown section preserved verbatim with a parser warning; never silently dropped"}
+    ],
+    "derivations": [
+      "UTF-16LE with BOM is the MS-GPSB wire format and CRLF is the emitted line ending; both are native-observed via the certified WP-3 tranche.",
+      "The [Unicode] preamble with Unicode=yes is required for secedit to accept the file; native-observed.",
+      "Comment and blank lines carry no policy meaning; the parser records them as position-preserving raw content so a format pass can reproduce the file.",
+      "An unknown section produces a warning, not a rejection: preservation is mandatory, comprehension is not claimed."
+    ]
+  },
+  "open_questions": [
+    "Does secedit /import preserve or strip an unknown section when the database is exported again? If it strips, the preservation claim belongs to Studio's store only, not the secedit round trip, and the expected entry must be downgraded.",
+    "Does secedit treat '#' as a comment marker or as data? Only ';' is documented as a comment.",
+    "Is a continuation line with leading whitespace before the wrapped value accepted, and is the joined value's internal whitespace normalized on export?"
+  ]
+}

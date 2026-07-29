@@ -1,0 +1,61 @@
+{
+  "schema_version": "1",
+  "scenario_id": "lsdou-precedence",
+  "family": "rsop-topology",
+  "title": "LSDOU application order and same-container link order with observable winners",
+  "readiness": "blocked",
+  "blocked_reason": "The rsop-endpoint lane requires client-win11 (pending-qualification in environment-spec.md, listed as not yet tested).",
+  "provenance": {
+    "tier": "spec-informed",
+    "note": "Windows precedence behavior (site, domain, OU; later application wins conflicts; lower link order applies last and wins) is long-established documented behavior, but this lab has no captured gpresult evidence yet; first execution must confirm or correct every expected winner.",
+    "anchors": []
+  },
+  "platform": {
+    "lane": "rsop-endpoint",
+    "boundaries": ["endpoint-resultant-state", "som-link-block-inheritance"]
+  },
+  "authored_intent": {
+    "topology": {
+      "som": [
+        {"id": "site-studiorsop", "kind": "site"},
+        {"id": "domain", "kind": "domain"},
+        {"id": "ou-studio-parent", "kind": "ou", "parent": "domain"},
+        {"id": "ou-studio-child", "kind": "ou", "parent": "ou-studio-parent"}
+      ],
+      "gpos": [
+        {"name": "Studio-RSOP-Site", "sets": {"Precedence": "site", "SiteOnly": "1"}},
+        {"name": "Studio-RSOP-Domain", "sets": {"Precedence": "domain"}},
+        {"name": "Studio-RSOP-Parent", "sets": {"Precedence": "parent"}},
+        {"name": "Studio-RSOP-ChildA", "sets": {"Precedence": "childA"}},
+        {"name": "Studio-RSOP-ChildB", "sets": {"Precedence": "childB", "ChildBOnly": "1"}}
+      ],
+      "links": [
+        {"som": "site-studiorsop", "gpo": "Studio-RSOP-Site", "order": 1, "enabled": true, "enforced": false},
+        {"som": "domain", "gpo": "Studio-RSOP-Domain", "order": 1, "enabled": true, "enforced": false},
+        {"som": "ou-studio-parent", "gpo": "Studio-RSOP-Parent", "order": 1, "enabled": true, "enforced": false},
+        {"som": "ou-studio-child", "gpo": "Studio-RSOP-ChildA", "order": 1, "enabled": true, "enforced": false},
+        {"som": "ou-studio-child", "gpo": "Studio-RSOP-ChildB", "order": 2, "enabled": true, "enforced": false}
+      ],
+      "conflict_key": "HKLM\\Software\\Policies\\StudioLab\\Precedence",
+      "target": {"computer": "studio test computer in ou-studio-child", "user": "any lab user"}
+    },
+    "operator_meaning": [
+      "Five GPOs all write the same value so the winning GPO is observable from the endpoint, not merely the applied set",
+      "ChildB also writes a non-conflicting value so its participation is observable even though it loses the conflict"
+    ]
+  },
+  "expected_native": {
+    "applied": ["Studio-RSOP-Site", "Studio-RSOP-Domain", "Studio-RSOP-Parent", "Studio-RSOP-ChildA", "Studio-RSOP-ChildB"],
+    "denied": [],
+    "winners": [
+      {"key": "HKLM\\Software\\Policies\\StudioLab\\Precedence", "value": "childA", "source_gpo": "Studio-RSOP-ChildA", "reason": "LSDOU: child OU applies last; within the child, link order 1 applies after order 2 and wins"},
+      {"key": "HKLM\\Software\\Policies\\StudioLab\\SiteOnly", "value": "1", "source_gpo": "Studio-RSOP-Site", "reason": "non-conflicting values from losing GPOs still apply"},
+      {"key": "HKLM\\Software\\Policies\\StudioLab\\ChildBOnly", "value": "1", "source_gpo": "Studio-RSOP-ChildB", "reason": "the conflict loser still contributes its unique values"}
+    ],
+    "derivations": [
+      "Application order is site, domain, parent OU, child OU; within one container, higher link order applies first, so order 1 is the final writer and wins conflicts.",
+      "Studio's compute_rsop must agree with gpresult on both the applied set and every winning value; an applied-set match with a wrong winner is a fail, per WP-6."
+    ]
+  },
+  "open_questions": []
+}

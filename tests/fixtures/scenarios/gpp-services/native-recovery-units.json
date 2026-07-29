@@ -1,0 +1,127 @@
+{
+  "schema_version": "1",
+  "scenario_id": "native-recovery-units",
+  "family": "gpp-services",
+  "title": "Native GPMC services capture: failure-recovery attribute names and units",
+  "readiness": "ready",
+  "work_items": ["WI-022"],
+  "provenance": {
+    "tier": "native-observation",
+    "note": "Anchored to the genuine GPMC capture WI01A-Services-GPMC (Windows Server 2025 GPMC, committed and sanitized). Authored intent is reconstructed from docs/plan-033/wp1a-supplementary-matrix.md, which recorded the operator's UI settings; the observed XML is the authority wherever the two disagree.",
+    "anchors": [
+      {
+        "kind": "native-capture",
+        "path": "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml",
+        "sha256": "28b30cbb78565db4f837564c5c9d3e5f4517b0f1c53aeedea44ab84106461221",
+        "note": "Three NTService items authored in WS2025 GPMC and captured from SYSVOL."
+      },
+      {
+        "kind": "spec-doc",
+        "path": "docs/plan-033/wp1a-supplementary-matrix.md",
+        "note": "Records the operator's intended UI settings per item. Its claim that resetFailCountDelay and restartServiceDelay are 'in milliseconds' is contradicted by the observed bytes and corrected by this scenario."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "gpp-reader-native",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "items": [
+      {
+        "service_name": "WinRM",
+        "startup_type": "no_change",
+        "service_action": "start",
+        "timeout_seconds": 30,
+        "recovery": {
+          "first_failure": "restart",
+          "second_failure": "restart",
+          "third_failure": "restart",
+          "reset_fail_count_after_seconds": 0,
+          "restart_service_after_milliseconds": 60000
+        }
+      },
+      {
+        "service_name": "Spooler",
+        "startup_type": "automatic",
+        "service_action": "restart",
+        "timeout_seconds": 60,
+        "recovery": {
+          "first_failure": "restart",
+          "second_failure": "restart",
+          "third_failure": "none",
+          "reset_fail_count_after_seconds": 86400,
+          "restart_service_after_milliseconds": 30000
+        }
+      },
+      {
+        "service_name": "W32Time",
+        "startup_type": "no_change",
+        "service_action": "stop",
+        "timeout_seconds": 30,
+        "recovery": null
+      }
+    ]
+  },
+  "expected_native": {
+    "root_element": "NTServices",
+    "root_clsid": "{2CFB484A-4E96-4b5d-A0B6-093D2F91E6AE}",
+    "item_element": "NTService",
+    "item_clsid": "{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}",
+    "items": [
+      {
+        "service_name": "WinRM",
+        "item_attrs": {"image": "0", "userContext": "0", "removePolicy": "0"},
+        "properties_attrs": {
+          "serviceName": "WinRM",
+          "startupType": "NOCHANGE",
+          "serviceAction": "START",
+          "timeout": "30",
+          "firstFailure": "RESTART",
+          "secondFailure": "RESTART",
+          "thirdFailure": "RESTART",
+          "resetFailCountDelay": "0",
+          "restartServiceDelay": "60000000"
+        },
+        "omitted_attrs": []
+      },
+      {
+        "service_name": "Spooler",
+        "item_attrs": {"image": "2", "userContext": "0", "removePolicy": "0"},
+        "properties_attrs": {
+          "serviceName": "Spooler",
+          "startupType": "AUTOMATIC",
+          "serviceAction": "RESTART",
+          "timeout": "60",
+          "firstFailure": "RESTART",
+          "secondFailure": "RESTART",
+          "resetFailCountDelay": "86400",
+          "restartServiceDelay": "30000000"
+        },
+        "omitted_attrs": ["thirdFailure"]
+      },
+      {
+        "service_name": "W32Time",
+        "item_attrs": {"image": "0", "userContext": "0", "removePolicy": "0"},
+        "properties_attrs": {
+          "serviceName": "W32Time",
+          "startupType": "NOCHANGE",
+          "serviceAction": "STOP",
+          "timeout": "30"
+        },
+        "omitted_attrs": ["firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay"]
+      }
+    ],
+    "derivations": [
+      "resetFailCountDelay is stored in seconds with no multiplier: intent 86400 s (1 day) and 0 appear verbatim as 86400 and 0.",
+      "restartServiceDelay is stored at 1000x the authored millisecond value: intent 60000 ms appears as 60000000 and intent 30000 ms as 30000000. The working unit hypothesis is microseconds; neither 'milliseconds' (wp1a-supplementary-matrix) nor 'minutes' (Studio's restartDelay model) matches the observed bytes.",
+      "GPMC omits recovery attributes it never wrote: Spooler's thirdFailure (authored 'none') and W32Time's entire recovery set are absent from the XML, not emitted as defaults. Studio's serializer, which emits every attribute on every item, has no native precedent for doing so.",
+      "No capture item carries displayName, accountName, or recoveryCommand; whether GPMC ever emits those attribute names is unproven."
+    ]
+  },
+  "open_questions": [
+    "Confirm the restartServiceDelay unit with a dedicated capture: author a distinctive value (7 minutes) and predict 420000000 in the XML.",
+    "Author a run-command recovery in GPMC and capture how the program and arguments are encoded; Studio's recoveryCommand attribute name is a guess until then.",
+    "Author a log-on-as account change in GPMC and capture the real account attribute names; Studio's accountName is likewise unproven."
+  ]
+}

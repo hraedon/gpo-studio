@@ -1,0 +1,61 @@
+{
+  "schema_version": "1",
+  "scenario_id": "server-10x-collision",
+  "family": "ilt-os",
+  "title": "ILT OS filter cannot distinguish Server 2016 from Server 2025: the collision Studio must surface",
+  "readiness": "ready",
+  "work_items": ["WI-023"],
+  "provenance": {
+    "tier": "native-observation",
+    "note": "The emission side is native-observed: the anchored capture shows what WS2025 GPMC writes for a server OS filter (WINTHRESHOLDSRV). The CSE evaluation side (which builds the token matches) is spec-informed: all of Server 2016/2019/2022/2025 report major version 10.0, and FilterOs exposes no build-number field. Endpoint confirmation is recorded as an open question rather than silently assumed.",
+    "anchors": [
+      {
+        "kind": "native-capture",
+        "path": "tests/fixtures/native-gpp-gpmc/WI01A-OS-ILT/{B88DAB7B-4B81-4FE3-AA70-3A859853C1E9}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml",
+        "sha256": "f52cbeefc246f250ab625f8bf4666d5c230c52932583981e349c3a785f0ee70d",
+        "note": "Genuine WS2025 GPMC-authored drive item carrying twelve FilterOs predicates."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "gpp-reader-native",
+    "boundaries": ["gpo-backup-content"]
+  },
+  "authored_intent": {
+    "predicate": {
+      "type": "os",
+      "operator_goal": "Target only recent Windows Server builds (operator believes Server 2016 and Server 2025 can be told apart)",
+      "filter_fields": {
+        "class": "NT",
+        "version": "WINTHRESHOLDSRV",
+        "type": "SV",
+        "edition": "*",
+        "sp": "*"
+      }
+    }
+  },
+  "expected_native": {
+    "match_semantics": {
+      "version_token": "WINTHRESHOLDSRV",
+      "token_meaning": "Windows 10/Server Threshold server family: matches every server reporting major.minor 10.0, which is all of Server 2016, 2019, 2022, and 2025",
+      "matches_builds": ["10.0.14393", "10.0.17763", "10.0.20348", "10.0.26100"],
+      "distinguishable": false,
+      "build_filterable": false,
+      "filter_fields_available": ["class", "version", "type", "edition", "sp"],
+      "derivations": [
+        "FilterOs has no build-number attribute; class/version/type/edition/sp are the entire match surface (Studio's ilt.py models the same five).",
+        "Because the whole server family shares 10.0, no FilterOs predicate can separate Server 2016 from Server 2025; the only server tokens GPMC emits are the family tokens (WINTHRESHOLDSRV for the whole 10.0 family) plus type/edition refinements.",
+        "Emission is native-observed (anchor); CSE evaluation per build is spec-informed until an endpoint run confirms; the operator-surfacing requirement below holds under either outcome."
+      ]
+    },
+    "studio_must_surface": {
+      "trigger": "An operator authors or edits an ILT os predicate targeting the server 10.x family",
+      "message_substance": "This filter matches all of Windows Server 2016, 2019, 2022, and 2025 and cannot distinguish them; build-level targeting requires a different predicate class (for example a WMI query on Win32_OperatingSystem BuildNumber)",
+      "boundary": "The limitation is honest at authoring time, import time, and in any exported review artifact; it is not buried in documentation"
+    }
+  },
+  "open_questions": [
+    "Endpoint confirmation on the qualified client and a Server 2016/2025 pair: does a WINTHRESHOLDSRV filter match exactly the builds listed, with no surprise exclusions?",
+    "Does WS2025 GPMC's OS picker offer any token newer than WINTHRESHOLDSRV for servers? The capture (authored on WS2025 GPMC) contains none; a second capture pass should confirm the picker's full list."
+  ]
+}
