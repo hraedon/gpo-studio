@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NTServices clsid="{2CFB484A-4E96-4b5d-A0B6-093D2F91E6AE}"><NTService clsid="{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}" name="Spooler" image="0" changed="2026-07-30 22:31:22" uid="{3DA17861-8910-4232-9F50-7EE67ED8266D}"><Properties startupType="NOCHANGE" serviceName="Spooler" timeout="30" firstFailure="RUNCMD" secondFailure="RESTART" thirdFailure="REBOOT" resetFailCountDelay="172800" restartServiceDelay="420000" program="C:\Windows\System32\cmd.exe" args="/c exit 0" append="1" restartComputerDelay="180000" restartMessage="Synthetic GPO Studio recovery evidence"/></NTService>
+	<NTService clsid="{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}" name="W32Time" image="0" changed="2026-07-30 22:32:17" uid="{13FC0555-7E0B-496F-9D29-BBD4750665EA}" userContext="0" removePolicy="0"><Properties startupType="NOCHANGE" serviceName="W32Time" timeout="30" accountName="LocalSystem" interact="1"/></NTService>
+</NTServices>

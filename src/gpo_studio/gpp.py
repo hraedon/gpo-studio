@@ -1654,13 +1654,30 @@ def _adapter_item_from_dict(
             item_data["reset_fail_count_delay_seconds"] = (
                 int(item_data["reset_period_days"]) * 86400
             )
+        if "restart_service_delay_milliseconds" not in item_data:
+            if "restart_service_delay_raw" in item_data:
+                item_data["restart_service_delay_milliseconds"] = item_data[
+                    "restart_service_delay_raw"
+                ]
+            elif "restart_delay_minutes" in item_data:
+                item_data["restart_service_delay_milliseconds"] = (
+                    int(item_data["restart_delay_minutes"]) * 60_000
+                )
         if (
-            "restart_service_delay_raw" not in item_data
-            and "restart_delay_minutes" in item_data
+            "restart_computer_delay_milliseconds" not in item_data
+            and "restart_computer_delay_seconds" in item_data
         ):
-            item_data["restart_service_delay_raw"] = (
-                int(item_data["restart_delay_minutes"]) * 60_000_000
+            item_data["restart_computer_delay_milliseconds"] = (
+                int(item_data["restart_computer_delay_seconds"]) * 1000
             )
+        if "append_failure_count" not in item_data and "append_arguments" in item_data:
+            legacy_append = str(item_data["append_arguments"]).strip().lower()
+            item_data["append_failure_count"] = legacy_append not in {
+                "",
+                "0",
+                "false",
+                "no",
+            }
     kwargs: dict[str, Any] = {}
     for f in fields(adapter_cls):
         if f.name == "common":

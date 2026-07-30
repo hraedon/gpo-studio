@@ -4,21 +4,21 @@
   "family": "gpp-services",
   "title": "Native GPMC services capture: failure-recovery attribute names and units",
   "readiness": "ready",
-  "work_items": ["WI-022"],
+  "work_items": ["WI-022", "WI-024"],
   "provenance": {
     "tier": "native-observation",
-    "note": "Anchored to the genuine GPMC capture WI01A-Services-GPMC (Windows Server 2025 GPMC, committed and sanitized). Authored intent is reconstructed from docs/plan-033/wp1a-supplementary-matrix.md, which recorded the operator's UI settings; the observed XML is the authority wherever the two disagree.",
+    "note": "Anchored to the dedicated WI-022 Windows Server 2025 GPMC capture. The operator followed docs/plan-033/manual-gui-evidence-queue.md and supplied screenshots of the authored values; the observed XML and matching GPMC report are the wire authority.",
     "anchors": [
       {
         "kind": "native-capture",
-        "path": "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml",
-        "sha256": "28b30cbb78565db4f837564c5c9d3e5f4517b0f1c53aeedea44ab84106461221",
-        "note": "Three NTService items authored in WS2025 GPMC and captured from SYSVOL."
+        "path": "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml",
+        "sha256": "b7fba837f39c4be11e609a5ac5b95412dd539ea633c2f478f0f2bf67024edcac",
+        "note": "Two NTService items authored specifically to settle recovery actions, delay units, command fields, LocalSystem, and desktop interaction."
       },
       {
-        "kind": "spec-doc",
-        "path": "docs/plan-033/wp1a-supplementary-matrix.md",
-        "note": "Records the operator's intended UI settings per item. Its claim that resetFailCountDelay and restartServiceDelay are 'in milliseconds' is contradicted by the observed bytes and corrected by this scenario."
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/manual-gui-evidence-queue.md",
+        "note": "Records the exact values the operator authored and the safety boundary for the unlinked disposable GPO."
       }
     ]
   },
@@ -29,37 +29,31 @@
   "authored_intent": {
     "items": [
       {
-        "service_name": "WinRM",
+        "service_name": "Spooler",
         "startup_type": "no_change",
-        "service_action": "start",
+        "service_action": "no_change",
         "timeout_seconds": 30,
         "recovery": {
-          "first_failure": "restart",
+          "first_failure": "run_command",
           "second_failure": "restart",
-          "third_failure": "restart",
-          "reset_fail_count_after_seconds": 0,
-          "restart_service_after_milliseconds": 60000
-        }
-      },
-      {
-        "service_name": "Spooler",
-        "startup_type": "automatic",
-        "service_action": "restart",
-        "timeout_seconds": 60,
-        "recovery": {
-          "first_failure": "restart",
-          "second_failure": "restart",
-          "third_failure": "none",
-          "reset_fail_count_after_seconds": 86400,
-          "restart_service_after_milliseconds": 30000
+          "third_failure": "reboot",
+          "reset_fail_count_after_seconds": 172800,
+          "restart_service_after_milliseconds": 420000,
+          "restart_computer_after_milliseconds": 180000,
+          "program": "C:\\Windows\\System32\\cmd.exe",
+          "args": "/c exit 0",
+          "append_failure_count": true,
+          "restart_message": "Synthetic GPO Studio recovery evidence"
         }
       },
       {
         "service_name": "W32Time",
         "startup_type": "no_change",
-        "service_action": "stop",
+        "service_action": "no_change",
         "timeout_seconds": 30,
-        "recovery": null
+        "recovery": null,
+        "account_name": "LocalSystem",
+        "interact_with_desktop": true
       }
     ]
   },
@@ -70,35 +64,24 @@
     "item_clsid": "{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}",
     "items": [
       {
-        "service_name": "WinRM",
-        "item_attrs": {"image": "0", "userContext": "0", "removePolicy": "0"},
-        "properties_attrs": {
-          "serviceName": "WinRM",
-          "startupType": "NOCHANGE",
-          "serviceAction": "START",
-          "timeout": "30",
-          "firstFailure": "RESTART",
-          "secondFailure": "RESTART",
-          "thirdFailure": "RESTART",
-          "resetFailCountDelay": "0",
-          "restartServiceDelay": "60000000"
-        },
-        "omitted_attrs": []
-      },
-      {
         "service_name": "Spooler",
-        "item_attrs": {"image": "2", "userContext": "0", "removePolicy": "0"},
+        "item_attrs": {"image": "0"},
         "properties_attrs": {
           "serviceName": "Spooler",
-          "startupType": "AUTOMATIC",
-          "serviceAction": "RESTART",
-          "timeout": "60",
-          "firstFailure": "RESTART",
+          "startupType": "NOCHANGE",
+          "timeout": "30",
+          "firstFailure": "RUNCMD",
           "secondFailure": "RESTART",
-          "resetFailCountDelay": "86400",
-          "restartServiceDelay": "30000000"
+          "thirdFailure": "REBOOT",
+          "resetFailCountDelay": "172800",
+          "restartServiceDelay": "420000",
+          "program": "C:\\Windows\\System32\\cmd.exe",
+          "args": "/c exit 0",
+          "append": "1",
+          "restartComputerDelay": "180000",
+          "restartMessage": "Synthetic GPO Studio recovery evidence"
         },
-        "omitted_attrs": ["thirdFailure"]
+        "omitted_attrs": ["serviceAction", "accountName", "interact"]
       },
       {
         "service_name": "W32Time",
@@ -106,22 +89,21 @@
         "properties_attrs": {
           "serviceName": "W32Time",
           "startupType": "NOCHANGE",
-          "serviceAction": "STOP",
-          "timeout": "30"
+          "timeout": "30",
+          "accountName": "LocalSystem",
+          "interact": "1"
         },
-        "omitted_attrs": ["firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay"]
+        "omitted_attrs": ["serviceAction", "firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay", "restartComputerDelay", "restartMessage", "program", "args", "append"]
       }
     ],
     "derivations": [
-      "resetFailCountDelay is stored in seconds with no multiplier: intent 86400 s (1 day) and 0 appear verbatim as 86400 and 0.",
-      "restartServiceDelay is stored at 1000x the authored millisecond value: intent 60000 ms appears as 60000000 and intent 30000 ms as 30000000. The working unit hypothesis is microseconds; neither 'milliseconds' (wp1a-supplementary-matrix) nor 'minutes' (Studio's restartDelay model) matches the observed bytes.",
-      "GPMC omits recovery attributes it never wrote: Spooler's thirdFailure (authored 'none') and W32Time's entire recovery set are absent from the XML, not emitted as defaults. Studio's serializer, which emits every attribute on every item, has no native precedent for doing so.",
-      "No capture item carries accountName, restartComputerDelay, restartMessage, program, args, or append. MS-GPPREF defines those names, but GPMC emission remains unobserved. displayName and recoveryCommand are not defined Services attributes."
+      "resetFailCountDelay is seconds: 2 authored days become 172800.",
+      "restartServiceDelay is milliseconds: 7 authored minutes become 420000.",
+      "restartComputerDelay is milliseconds: 3 authored minutes become 180000, despite MS-GPPREF prose calling the unit seconds.",
+      "GPMC writes Run a Program as RUNCMD and Restart the Computer as REBOOT; the protocol prose's failure-action vocabulary is incomplete for current GPMC.",
+      "program and args carry the recovery command, while the checked append-failure-count option is append=1.",
+      "No change omits serviceAction rather than writing NOCHANGE. Local System and desktop interaction emit accountName=LocalSystem and interact=1."
     ]
   },
-  "open_questions": [
-    "Confirm the restartServiceDelay unit with a dedicated capture: author a distinctive value (7 minutes) and predict 420000000 in the XML.",
-    "Author a run-command recovery in GPMC and capture whether it emits the protocol-defined program, args, and append attributes.",
-    "Author a log-on-as account change in GPMC and capture the real account attribute names; Studio's accountName is likewise unproven."
-  ]
+  "open_questions": []
 }

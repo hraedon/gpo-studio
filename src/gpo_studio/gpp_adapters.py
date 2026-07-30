@@ -407,7 +407,7 @@ def _service_failure_to_code(action: _ServiceFailureAction) -> str:
         case "reboot":
             return "REBOOT"
         case "run_command":
-            return "RUNCOMMAND"
+            return "RUNCMD"
         case _:
             assert_never(action)
 
@@ -416,7 +416,10 @@ def _code_to_service_failure(code: str) -> _ServiceFailureAction:
     mapping: dict[str, _ServiceFailureAction] = {
         "START": "start", "STOP": "stop", "NOACTION": "none",
         "RESTART": "restart", "RESTART_IF_REQUIRED": "restart_if_required",
-        "REBOOT": "reboot", "RUNCOMMAND": "run_command",
+        "REBOOT": "reboot", "RUNCMD": "run_command",
+        # Accepted only for backups emitted by Studio before the native capture
+        # established GPMC's RUNCMD spelling.
+        "RUNCOMMAND": "run_command",
     }
     upper = code.upper()
     if upper in mapping:
@@ -763,9 +766,8 @@ class GppService:
     denial — GPO Studio never writes service passwords to GPP XML).
 
     Recovery fields are optional because GPMC omits settings the operator did
-    not configure. ``restart_service_delay_raw`` deliberately preserves the
-    wire value: the native corpus proves a 1000x relationship to the value
-    authored in GPMC, but its protocol unit still needs a dedicated capture.
+    not configure. Both restart delays use milliseconds on the wire, as proven
+    by the dedicated WI-022 GPMC capture.
     """
 
     service_name: str = ""
@@ -775,12 +777,12 @@ class GppService:
     second_failure: _ServiceFailureAction | None = None
     third_failure: _ServiceFailureAction | None = None
     reset_fail_count_delay_seconds: int | None = None
-    restart_service_delay_raw: int | None = None
-    restart_computer_delay_seconds: int | None = None
+    restart_service_delay_milliseconds: int | None = None
+    restart_computer_delay_milliseconds: int | None = None
     restart_message: str = ""
     program: str = ""
     arguments: str = ""
-    append_arguments: str = ""
+    append_failure_count: bool = False
     timeout_seconds: int = 30
     account_name: str = ""
     interact_with_desktop: bool = False
@@ -2159,17 +2161,19 @@ def _serialize_service(svc: GppService) -> ET.Element:
     props_attrs = {
         "startupType": _service_startup_to_code(svc.startup_type),
         "serviceName": svc.service_name,
-        "serviceAction": _service_action_to_code(svc.service_action),
         "timeout": str(svc.timeout_seconds),
     }
+    if svc.service_action != "no_change":
+        props_attrs["serviceAction"] = _service_action_to_code(svc.service_action)
     optional_attrs = {
         "accountName": svc.account_name,
         "restartMessage": svc.restart_message,
         "program": svc.program,
         "args": svc.arguments,
-        "append": svc.append_arguments,
     }
     props_attrs.update({key: value for key, value in optional_attrs.items() if value})
+    if svc.append_failure_count:
+        props_attrs["append"] = "1"
     if svc.interact_with_desktop:
         props_attrs["interact"] = "1"
     for key, value in (
@@ -2181,11 +2185,13 @@ def _serialize_service(svc: GppService) -> ET.Element:
             props_attrs[key] = _service_failure_to_code(value)
     if svc.reset_fail_count_delay_seconds is not None:
         props_attrs["resetFailCountDelay"] = str(svc.reset_fail_count_delay_seconds)
-    if svc.restart_service_delay_raw is not None:
-        props_attrs["restartServiceDelay"] = str(svc.restart_service_delay_raw)
-    if svc.restart_computer_delay_seconds is not None:
+    if svc.restart_service_delay_milliseconds is not None:
+        props_attrs["restartServiceDelay"] = str(
+            svc.restart_service_delay_milliseconds
+        )
+    if svc.restart_computer_delay_milliseconds is not None:
         props_attrs["restartComputerDelay"] = str(
-            svc.restart_computer_delay_seconds
+            svc.restart_computer_delay_milliseconds
         )
     return _build_item_element(
         "services",
@@ -2255,18 +2261,18 @@ def _parse_service_item(elem: ET.Element) -> GppService:
                 if "resetFailCountDelay" in props.attrib
                 else _legacy_scaled_int_attr("resetPeriod", 86400)
             ),
-            restart_service_delay_raw=(
+            restart_service_delay_milliseconds=(
                 _optional_int_attr("restartServiceDelay")
                 if "restartServiceDelay" in props.attrib
-                else _legacy_scaled_int_attr("restartDelay", 60_000_000)
+                else _legacy_scaled_int_attr("restartDelay", 60_000)
             ),
-            restart_computer_delay_seconds=_optional_int_attr(
+            restart_computer_delay_milliseconds=_optional_int_attr(
                 "restartComputerDelay"
             ),
             restart_message=props.get("restartMessage", ""),
             program=props.get("program", props.get("recoveryCommand", "")),
             arguments=props.get("args", ""),
-            append_arguments=props.get("append", ""),
+            append_failure_count=props.get("append", "0") == "1",
             timeout_seconds=_int_attr("timeout", 30),
             account_name=props.get("accountName", ""),
             interact_with_desktop=props.get("interact", "0") == "1",

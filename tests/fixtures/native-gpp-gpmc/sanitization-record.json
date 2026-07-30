@@ -684,6 +684,49 @@
       "transformations_applied": [
         "replace-domain-sid"
       ]
+    },
+    {
+      "relative_path": "WI01A-ServicesRecovery-GPMC/gpreport-verify.xml",
+      "raw_sha256": "4ae780cd6d0a9abcc23277914da01d82037e2194f1ce31aa6d2d52233178df90",
+      "sanitized_sha256": "74b661c7eaf88c98257de3135c68a733cb887d026732eba766ff8571487a9e22",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-ServicesRecovery-GPMC/manifest.xml",
+      "raw_sha256": "dd5fe46c4f1d4042a01704b9c38a86de8b6247b2162feeffadc3b527cafd0f4c",
+      "sanitized_sha256": "dd5fe46c4f1d4042a01704b9c38a86de8b6247b2162feeffadc3b527cafd0f4c",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-ServicesRecovery-GPMC/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/Backup.xml",
+      "raw_sha256": "f8ff0517d39411b5dd4e878ef108990633c119af1f33e6dccb6dd803bd30ebb5",
+      "sanitized_sha256": "9e605600ec9d555b06af2d3e27f1e89240e35e6235bfadebaa2540c9b90a2555",
+      "transformations_applied": [
+        "replace-domain-sid",
+        "replace-sd-hex"
+      ]
+    },
+    {
+      "relative_path": "WI01A-ServicesRecovery-GPMC/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml",
+      "raw_sha256": "b7fba837f39c4be11e609a5ac5b95412dd539ea633c2f478f0f2bf67024edcac",
+      "sanitized_sha256": "b7fba837f39c4be11e609a5ac5b95412dd539ea633c2f478f0f2bf67024edcac",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-ServicesRecovery-GPMC/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/bkupInfo.xml",
+      "raw_sha256": "e8811ba7712b5b72ef537762a19b87ca35b3e501f17f03c903163aa2e59d315c",
+      "sanitized_sha256": "e8811ba7712b5b72ef537762a19b87ca35b3e501f17f03c903163aa2e59d315c",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-ServicesRecovery-GPMC/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/gpreport.xml",
+      "raw_sha256": "3c9278e43b8c043c718be55d37a4e2ec278a5563e7878025af582d1d13371ca9",
+      "sanitized_sha256": "fcc5e90400e7595d75c2317848f91f34b4bd32426f2c9e837e0186d0ed9b6775",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
     }
   ],
   "batches": [
@@ -702,6 +745,10 @@
     {
       "source": "/tmp/claude-1000/-projects/6d9f207e-6091-464b-ad6d-ce5e808929d7/scratchpad/rawos",
       "timestamp": "2026-07-28T01:50:43+00:00"
+    },
+    {
+      "source": "/tmp/wi022-services",
+      "timestamp": "2026-07-30T22:39:43+00:00"
     }
   ]
 }

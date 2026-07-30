@@ -122,7 +122,7 @@ SERVICE = GppService(
     first_failure="restart",
     second_failure="restart",
     reset_fail_count_delay_seconds=172800,
-    restart_service_delay_raw=120000000,
+    restart_service_delay_milliseconds=120000,
     timeout_seconds=45,
     id="{AAAAAAAA-0000-0000-0000-00000000A005}",
 )

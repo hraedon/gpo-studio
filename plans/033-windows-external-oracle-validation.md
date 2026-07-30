@@ -1,12 +1,13 @@
 # Plan 033 — Windows external-oracle validation and parity evidence
 
 Status: active — WP-0/WP-2 certified; WP-1A genuine GPMC canaries landed;
-WP-1B automated writer lane (all seven candidates, including Services) plus
-daily Exec TaskV2 and OS-filter endpoint paths certified; WP-3
-account/audit/user-rights writer tranche certified, with its broader corpus and
-areas plus the WP-1B manual GPMC edit/save leg remaining. Services is certified
-for GPMC writer conformance, not endpoint application; its manual recovery-field
-capture remains queued.
+WP-1B automated writer lane previously passed all seven candidates, but the
+completed manual Services recovery capture invalidated its delay semantics and
+opened WI-024, so Services recertification is pending a corrected clean-source
+rerun. Daily Exec TaskV2 and OS-filter endpoint paths are certified; the WP-3
+account/audit/user-rights writer tranche is certified, with its broader corpus
+and areas plus the WP-1B manual GPMC edit/save leg remaining. Services is not
+endpoint-applied.
 The remediation scenario corpus for the Plans 025–032 divergence landed
 2026-07-29 (13 scenarios across gpp-services, security-template,
 rsop-topology, and ilt-os, plus the machine-readable test-platform registry —
@@ -251,21 +252,25 @@ design):**
 
 ### WP-1B — Studio-origin writer conformance
 
-Implementation status (2026-07-30): **automated writer lane certified; all
-seven candidates pass. WI-018 and WI-021 are fixed and endpoint-verified.
-WI-022 Services is GPMC writer-conformance certified, not endpoint-applied.**
+Implementation status (2026-07-30): **the automated writer lane previously
+passed all seven candidates. WI-018 and WI-021 are fixed and endpoint-verified.
+The later manual capture opened WI-024 by invalidating the Services delay
+semantics; the corrected Services candidate awaits a clean-source rerun and is
+not endpoint-applied.**
 
 The candidate set is one Studio-authored native backup per isolated family
 (`registry-both` as the WP-2 control, `drives-user`, `groups-machine`,
 `localusers-machine`, `scheduledtasks-machine`, `services-machine`) plus
 `mixed-all`. Each is
 imported into its own disposable GPO, so no adapter's result can be hidden by
-another's. The certified run is `wp1b-writer-20260730151953-6878`, source
-commit `b4b9049`, clean tree, against Windows Server 2025 build 26100 /
+another's. Historical run `wp1b-writer-20260730151953-6878`, source commit
+`b4b9049`, passed from a clean tree against Windows Server 2025 build 26100 /
 GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
-`docs/plan-033/wp1b-evidence/verification.json`.
+`docs/plan-033/wp1b-evidence/verification.json`. Its Services result is
+superseded by WI-024 for semantic certification; the other candidate results
+remain valid for that source commit.
 
-Results:
+Historical results for source commit `b4b9049`:
 
 - **pass** — `registry-both`, `drives-user`, `groups-machine`,
   `localusers-machine`, `scheduledtasks-machine`, `services-machine`, and

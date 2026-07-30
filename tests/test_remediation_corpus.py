@@ -40,6 +40,12 @@ NATIVE_SERVICES_XML = (
     / "{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}"
     / "DomainSysvol/GPO/Machine/Preferences/Services/Services.xml"
 )
+NATIVE_SERVICES_RECOVERY_XML = (
+    REPO_ROOT
+    / "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC"
+    / "{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}"
+    / "DomainSysvol/GPO/Machine/Preferences/Services/Services.xml"
+)
 
 SCENARIO_FILES = sorted(SCENARIO_DIR.glob("*/*.json"))
 
@@ -294,8 +300,8 @@ class TestLoaderNegatives:
             load_corpus(tmp_path, registry)
 
 
-class TestWi022ServicesConformance:
-    """Pin the WI-022 correction to the genuine GPMC Services capture."""
+class TestServicesConformance:
+    """Pin the WI-022/WI-024 corrections to genuine GPMC Services captures."""
 
     def test_recovery_semantics_are_preserved(self) -> None:
         items = {
@@ -313,12 +319,12 @@ class TestWi022ServicesConformance:
         assert winrm.second_failure == "restart"
         assert winrm.third_failure == "restart"
         assert winrm.reset_fail_count_delay_seconds == 0
-        assert winrm.restart_service_delay_raw == 60000000
+        assert winrm.restart_service_delay_milliseconds == 60000000
         assert winrm.timeout_seconds == 30
 
         assert spooler.third_failure is None
         assert spooler.reset_fail_count_delay_seconds == 86400
-        assert spooler.restart_service_delay_raw == 30000000
+        assert spooler.restart_service_delay_milliseconds == 30000000
         assert spooler.unknown_props_children == ()
         assert ("image", "2") in spooler.unknown_attrs
 
@@ -330,6 +336,37 @@ class TestWi022ServicesConformance:
         assert emitted.count('thirdFailure="RESTART"') == 1
         assert "resetPeriod" not in emitted
         assert "restartDelay" not in emitted
+
+    def test_manual_recovery_capture_settles_actions_units_and_fields(self) -> None:
+        items = {
+            item.service_name: item
+            for item in parse_gpp_services(NATIVE_SERVICES_RECOVERY_XML.read_bytes())
+        }
+        spooler = items["Spooler"]
+        assert spooler.service_action == "no_change"
+        assert spooler.first_failure == "run_command"
+        assert spooler.second_failure == "restart"
+        assert spooler.third_failure == "reboot"
+        assert spooler.reset_fail_count_delay_seconds == 172800
+        assert spooler.restart_service_delay_milliseconds == 420000
+        assert spooler.restart_computer_delay_milliseconds == 180000
+        assert spooler.restart_message == "Synthetic GPO Studio recovery evidence"
+        assert spooler.program == r"C:\Windows\System32\cmd.exe"
+        assert spooler.arguments == "/c exit 0"
+        assert spooler.append_failure_count is True
+
+        w32time = items["W32Time"]
+        assert w32time.service_action == "no_change"
+        assert w32time.account_name == "LocalSystem"
+        assert w32time.interact_with_desktop is True
+
+        emitted = serialize_gpp_services(tuple(items.values()), "computer")
+        assert b'firstFailure="RUNCMD"' in emitted
+        assert b'thirdFailure="REBOOT"' in emitted
+        assert b'restartServiceDelay="420000"' in emitted
+        assert b'restartComputerDelay="180000"' in emitted
+        assert b'append="1"' in emitted
+        assert b"serviceAction" not in emitted
 
     def test_writer_parity_target_is_executable(self) -> None:
         scenario_path = SCENARIO_DIR / "gpp-services" / "writer-parity-target.json"
@@ -359,8 +396,8 @@ class TestWi022ServicesConformance:
                         if recovery is not None
                         else None
                     ),
-                    restart_service_delay_raw=(
-                        recovery["restart_service_after_milliseconds"] * 1000
+                    restart_service_delay_milliseconds=(
+                        recovery["restart_service_after_milliseconds"]
                         if recovery is not None
                         else None
                     ),

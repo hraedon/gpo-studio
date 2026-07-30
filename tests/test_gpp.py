@@ -1251,7 +1251,38 @@ def test_legacy_service_dict_fields_migrate_to_protocol_model() -> None:
             service_name="LegacySvc",
             program=r"C:\legacy-recovery.exe",
             reset_fail_count_delay_seconds=172800,
-            restart_service_delay_raw=300000000,
+            restart_service_delay_milliseconds=300000,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("legacy_append", "expected"),
+    [("1", True), ("--legacy-value", True), ("0", False), ("", False)],
+)
+def test_wi024_service_dict_fields_migrate_after_capture_correction(
+    legacy_append: str,
+    expected: bool,
+) -> None:
+    collection = gpp_collection_from_dict(
+        {
+            "scope": "computer",
+            "services": [
+                {
+                    "service_name": "LegacySvc",
+                    "restart_service_delay_raw": 420000,
+                    "restart_computer_delay_seconds": 180,
+                    "append_arguments": legacy_append,
+                }
+            ],
+        }
+    )
+    assert collection.services == (
+        GppService(
+            service_name="LegacySvc",
+            restart_service_delay_milliseconds=420000,
+            restart_computer_delay_milliseconds=180000,
+            append_failure_count=expected,
         ),
     )
 

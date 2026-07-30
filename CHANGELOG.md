@@ -76,9 +76,15 @@ Current version: `1.0.0`.
   `thirdFailure`, exact delay preservation, and captured extension metadata.
   It also covers the complete MS-GPPREF startup, service-action, and failure-
   action vocabularies plus the protocol-defined restart/program fields, GPMC
-  report comparison, and a new WP-1B Services candidate. This is implemented
-  and certified for GPMC writer conformance on Windows Server 2025; it is not
-  endpoint-applied or authorable through the browser/API.
+  report comparison, and a new WP-1B Services candidate. Its first Windows
+  Server 2025 writer run passed, but the later manual capture invalidated the
+  delay semantics; WI-024 tracks the corrected clean-source rerun. Services is
+  not endpoint-applied or authorable through the browser/API.
+- WI-024 uses a dedicated GPMC Services recovery capture to correct the
+  remaining wire assumptions: GPMC emits `RUNCMD`/`REBOOT`, millisecond
+  restart-service and restart-computer delays, boolean `append=1`, and omits
+  `serviceAction` for No change. It also confirms `program`, `args`,
+  `restartMessage`, `accountName`, and `interact`.
 - WI-023 surfaces the modern `FilterOs` family-token limitation as a preflight
   warning and in Studio bundle manifests: `WINTHRESHOLDSRV` cannot distinguish
   Server 2016/2019/2022/2025, and `WINTHRESHOLD` cannot distinguish Windows 10

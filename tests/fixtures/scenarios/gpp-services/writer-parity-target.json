@@ -4,7 +4,7 @@
   "family": "gpp-services",
   "title": "WI-022 remediation target: the exact wire shape Studio's services writer must emit",
   "readiness": "ready",
-  "work_items": ["WI-022"],
+  "work_items": ["WI-022", "WI-024"],
   "provenance": {
     "tier": "native-observation",
     "note": "Every expected attribute name, omission rule, and unit below is derived from the anchored native capture (see native-recovery-units for the full derivation). Anything not proven by that capture is listed under open_questions rather than asserted here.",
@@ -12,7 +12,14 @@
       {
         "kind": "native-capture",
         "path": "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml",
-        "sha256": "28b30cbb78565db4f837564c5c9d3e5f4517b0f1c53aeedea44ab84106461221"
+        "sha256": "28b30cbb78565db4f837564c5c9d3e5f4517b0f1c53aeedea44ab84106461221",
+        "note": "Proves the base Services shape, restart action, recovery omission rules, and literal preservation; its reconstructed UI-intent note is not used to derive delay units."
+      },
+      {
+        "kind": "native-capture",
+        "path": "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml",
+        "sha256": "b7fba837f39c4be11e609a5ac5b95412dd539ea633c2f478f0f2bf67024edcac",
+        "note": "Provides screenshot-backed delay units, recovery literals, append behavior, and No change omission semantics."
       }
     ]
   },
@@ -60,7 +67,7 @@
           "firstFailure": "RESTART",
           "secondFailure": "RESTART",
           "resetFailCountDelay": "172800",
-          "restartServiceDelay": "120000000"
+          "restartServiceDelay": "120000"
         },
         "omitted_attrs": ["thirdFailure", "accountName", "restartComputerDelay", "restartMessage", "program", "args", "append"],
         "must_not_contain_attrs": ["resetPeriod", "restartDelay"]
@@ -70,21 +77,18 @@
         "properties_attrs": {
           "serviceName": "StudioSvcB",
           "startupType": "DISABLED",
-          "serviceAction": "NOCHANGE",
           "timeout": "30"
         },
-        "omitted_attrs": ["firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay", "accountName", "restartComputerDelay", "restartMessage", "program", "args", "append"],
+        "omitted_attrs": ["serviceAction", "firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay", "accountName", "restartComputerDelay", "restartMessage", "program", "args", "append"],
         "must_not_contain_attrs": ["resetPeriod", "restartDelay"]
       }
     ],
     "derivations": [
-      "Attribute names are resetFailCountDelay (seconds) and restartServiceDelay (observed at 1000x authored milliseconds); the pre-remediation Studio names resetPeriod and restartDelay appear nowhere in the native corpus and must never be emitted.",
+      "Attribute names are resetFailCountDelay (seconds) and restartServiceDelay (milliseconds); the pre-remediation Studio names resetPeriod and restartDelay appear nowhere in the native corpus and must never be emitted.",
       "A third_failure of 'none' follows the capture's Spooler precedent: thirdFailure is omitted, not emitted as a default.",
       "A null recovery follows the capture's W32Time precedent: the entire recovery attribute set is omitted.",
-      "restartServiceDelay for StudioSvcA is 120000 x 1000 = 120000000 per the observed multiplier; the dedicated-capture confirmation (open question in native-recovery-units) must land before this value is cited in certified evidence."
+      "restartServiceDelay is milliseconds: authored intent 120000 ms is emitted verbatim as 120000, consistent with the dedicated 7-minute GPMC capture (420000 ms)."
     ]
   },
-  "open_questions": [
-    "Does the WI-022 fix keep Studio's day/minute operator model and convert at the serialization boundary, or re-model to native seconds/microseconds? The corpus is agnostic; the wire expectations above are not."
-  ]
+  "open_questions": []
 }

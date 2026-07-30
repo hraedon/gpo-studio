@@ -187,12 +187,14 @@ def _service(item: Any) -> dict[str, object]:
         "second_failure": item.second_failure,
         "third_failure": item.third_failure,
         "reset_fail_count_delay_seconds": item.reset_fail_count_delay_seconds,
-        "restart_service_delay_raw": item.restart_service_delay_raw,
-        "restart_computer_delay_seconds": item.restart_computer_delay_seconds,
+        "restart_service_delay_milliseconds": item.restart_service_delay_milliseconds,
+        "restart_computer_delay_milliseconds": (
+            item.restart_computer_delay_milliseconds
+        ),
         "restart_message": item.restart_message,
         "program": item.program,
         "arguments": item.arguments,
-        "append_arguments": item.append_arguments,
+        "append_failure_count": item.append_failure_count,
         "timeout_seconds": item.timeout_seconds,
         "account_name": item.account_name,
         "interact_with_desktop": item.interact_with_desktop,

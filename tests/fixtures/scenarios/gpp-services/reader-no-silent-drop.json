@@ -4,10 +4,10 @@
   "family": "gpp-services",
   "title": "Importing the native services capture must not silently discard recovery semantics",
   "readiness": "ready",
-  "work_items": ["WI-022"],
+  "work_items": ["WI-022", "WI-024"],
   "provenance": {
     "tier": "native-observation",
-    "note": "Anchored to the same genuine GPMC capture as native-recovery-units. The expected behavior is stated against Studio's public parse path (parse_gpp_services via the backup importer), which an operator actually runs; TestWi022ServicesConformance now pins the corrected behavior locally.",
+    "note": "Anchored to the original genuine GPMC Services capture, whose literal wire values and omission behavior remain authoritative even though its reconstructed UI-intent note was not. The expected behavior is stated against Studio's public parse path (parse_gpp_services via the backup importer), which an operator actually runs; TestServicesConformance pins the corrected behavior locally.",
     "anchors": [
       {
         "kind": "native-capture",
@@ -42,7 +42,7 @@
           "second_failure": "restart",
           "third_failure": "restart",
           "reset_fail_count_delay_seconds": 0,
-          "restart_service_delay_raw": "60000000"
+          "restart_service_delay_milliseconds": "60000000"
         }
       },
       {
@@ -54,7 +54,7 @@
           "first_failure": "restart",
           "second_failure": "restart",
           "reset_fail_count_delay_seconds": 86400,
-          "restart_service_delay_raw": "30000000"
+          "restart_service_delay_milliseconds": "30000000"
         }
       },
       {
@@ -66,7 +66,7 @@
         }
       }
     ],
-    "loss_policy": "Every recovery attribute present in the capture must surface in the Studio model either as a typed field or as preserved unknown content that a later export re-emits. A value that vanishes at parse time and is absent from any re-export is a silent drop and fails this scenario; it is the reader-side half of WI-022. Attributes GPMC itself omitted (Spooler thirdFailure, W32Time recovery set) must remain absent, not materialize as defaults on re-export."
+    "loss_policy": "Every recovery attribute present in the capture must surface in the Studio model either as a typed field or as preserved unknown content that a later export re-emits. The observed 60000000 and 30000000 values are preserved as literal milliseconds; the original intent note, not these native bytes, was superseded by WI-024. A value that vanishes at parse time and is absent from any re-export is a silent drop and fails this scenario. Attributes GPMC itself omitted (Spooler thirdFailure, W32Time recovery set) must remain absent, not materialize as defaults on re-export."
   },
   "open_questions": []
 }

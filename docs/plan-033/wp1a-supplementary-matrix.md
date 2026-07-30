@@ -61,17 +61,15 @@ serviceAction="START", failure recovery settings.
 - `startupType="NOCHANGE"` vs explicit (AUTO_START, DEMAND_START, DISABLED)
 - `serviceAction="START"` / `"RESTART"` / `"STOP"`
 - Failure recovery: `firstFailure`, `secondFailure`, `thirdFailure` = RESTART/RECOVER/REBOOT/NONE
-- ~~`resetFailCountDelay` and `restartServiceDelay` in milliseconds~~ —
-  **corrected 2026-07-29 against the committed capture.** The table above
-  records authored intent; the observed bytes disagree with "milliseconds":
-  `resetFailCountDelay` appears verbatim in seconds (86400 for 1 day) while
-  `restartServiceDelay` appears at 1000x the authored millisecond value
-  (60000 ms → `60000000`, 30000 ms → `30000000`). GPMC also *omits*
-  recovery attributes it never wrote (Spooler has no `thirdFailure`;
-  W32Time has no recovery attributes at all). Full derivation and the
-  confirmation-capture open question:
+- `resetFailCountDelay` uses seconds; `restartServiceDelay` uses milliseconds.
+  **Settled 2026-07-30 by the WI-024 follow-up GPMC capture:** 2 days becomes
+  `172800`, while 7 minutes becomes `420000`. The earlier table's unlabeled
+  restart-delay values were not a reliable record of the GPMC UI units and led
+  to the incorrect 1000x hypothesis. GPMC also omits recovery attributes it
+  never wrote (the original Spooler has no `thirdFailure`; W32Time has no
+  recovery attributes at all). Full derivation:
   `tests/fixtures/scenarios/gpp-services/native-recovery-units.json`
-  (WI-022).
+  (WI-022 / WI-024).
 - Element is `<NTService>` inside `<NTServices>` root
 
 ---

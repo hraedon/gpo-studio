@@ -46,7 +46,7 @@ keeps the corpus green.
 |---|---|---|---|
 | gpp-services | native-recovery-units | ready | — |
 | gpp-services | reader-no-silent-drop | ready | — |
-| gpp-services | writer-parity-target | ready | certified by WP-1B run `wp1b-writer-20260730151953-6878` |
+| gpp-services | writer-parity-target | ready | corrected target awaiting a clean WP-1B rerun under WI-024 |
 | security-template | services-area, regkeys-filesecurity, group-membership, codec-edge-cases | blocked | member-ws2025-disposable qualification (open WP-3 PR-19 follow-up) |
 | rsop-topology | lsdou-precedence, disabled-block-enforced, security-filtering, wmi-loopback-slowlink | blocked | client-win11 qualification |
 | ilt-os | server-10x-collision, edition-union-expansion | ready | — |
@@ -79,8 +79,10 @@ The map is enforced by the loader and pinned by
 4. **services in the writer lane**: WI-022 added Services to
    `writer_conformance.NATIVE_GPP_FAMILIES` and the WP-1B candidate set. The
    isolated and mixed candidates passed the clean-source Windows run
-   `wp1b-writer-20260730151953-6878`; this is GPMC writer-conformance evidence,
-   not endpoint-application evidence.
+   `wp1b-writer-20260730151953-6878`, but the later manual capture invalidated
+   that run's delay semantics and opened WI-024. The corrected target requires
+   a new clean-source run before Services is recertified; this lane proves GPMC
+   writer conformance, not endpoint application.
 
 ## Per-family payload contract
 
@@ -90,7 +92,7 @@ and documented here. Adding a family means: schema enum entry, a branch in
 `_validate_family_payload` (the `assert_never` makes an unhandled family a
 type error), a directory, and a section in this file.
 
-### gpp-services (WI-022)
+### gpp-services (WI-022 / WI-024)
 
 - `authored_intent.items` (list, required): operator-meaning per item —
   service name, startup type, service action, timeout, recovery intent in
@@ -131,28 +133,26 @@ type error), a directory, and a section in this file.
 
 ## Divergences already recorded by this corpus
 
-1. **restartServiceDelay units (WI-022).** The genuine capture shows
-   1000x the authored millisecond value (60000 ms → 60000000); neither
-   "milliseconds" (wp1a-supplementary-matrix) nor "minutes" (Studio's
-   `restartDelay` model) matches the observed bytes. The supplementary
-   matrix row has been corrected; the dedicated confirmation capture is an
-   open question in `gpp-services/native-recovery-units`.
+1. **Services recovery units (WI-024, settled by dedicated capture).** GPMC
+   writes `resetFailCountDelay` in seconds (2 days → `172800`) and both
+   `restartServiceDelay` and `restartComputerDelay` in milliseconds (7 minutes
+   → `420000`; 3 minutes → `180000`). The earlier 1000x hypothesis came from an
+   unreliable intent note and is superseded by the screenshot-backed capture.
 2. **Silent reader drops (WI-022, corrected in code).** The parser now types
-   `thirdFailure` and `resetFailCountDelay`, preserves `restartServiceDelay`
-   as a raw wire value pending unit confirmation, and the writer emits the
-   native names. `TestWi022ServicesConformance` pins this against the genuine
-   capture; Windows writer execution is still pending.
-3. **Attribute omission rules (WI-022, corrected in code).** The service model
-   distinguishes absent recovery values and the serializer omits Spooler's
-   `thirdFailure` and W32Time's whole recovery set as GPMC does. The
-   writer-parity scenario is certified by the WP-1B Windows writer lane.
-4. **Protocol-only Services shape (WI-022, implemented but not Windows-
-   verified).** MS-GPPREF defines `BOOT`, `SYSTEM`, and
-   `RESTART_IF_REQUIRED` plus restart-computer, message, program, argument,
-   and append fields that the current native capture does not exercise. The
-   typed model and unit tests cover that complete schema while preserving
-   `REBOOT` and `RUNCOMMAND` as unverified GPMC extensions until a dedicated
-   capture settles them.
+   `thirdFailure`, `resetFailCountDelay`, and both typed millisecond delays, and
+   the writer emits the native names. `TestWi022ServicesConformance` pins this
+   against both genuine captures.
+3. **Attribute omission rules (WI-024, corrected in code).** The service model
+   distinguishes absent recovery values, omits `serviceAction` for No change,
+   and omits recovery attributes GPMC did not write. The corrected writer-parity
+   scenario awaits a clean WP-1B Windows rerun.
+4. **Services recovery vocabulary and fields (WI-024, capture-settled).** GPMC
+   writes Run a Program as `RUNCMD`, Restart the Computer as `REBOOT`, the
+   command as `program`/`args`, the append-failure-count checkbox as `append=1`,
+   and restart message/delay with `restartMessage`/`restartComputerDelay`.
+   Local System plus desktop interaction emits `accountName=LocalSystem` and
+   `interact=1`. `BOOT`, `SYSTEM`, and `RESTART_IF_REQUIRED` remain
+   protocol-defined but not exercised by this capture.
 5. **semantic-manifest-v1 element enum (WI-022, corrected).** The enum now
    names genuine `NTService` and `GlobalPowerOptionsV2` elements rather than
    the nonexistent `Service` entry. The supplementary captures still carry no
