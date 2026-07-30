@@ -1771,6 +1771,58 @@ def test_gpp_group_ilt_filter_items_round_trip(tmp_path) -> None:
         assert group["ilt_filter"]["items"][2]["bool_op"] == "OR"
 
 
+def test_gpp_os_ilt_criteria_round_trip_through_api(tmp_path) -> None:
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "OS ILT round-trip"}).json()["gpo"]
+        resp = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "preserve imported OS criteria",
+                "scope": "computer",
+                "group": {
+                    "name": "Administrators",
+                    "sid": "S-1-5-32-544",
+                    "ilt_filter": {
+                        "items": [
+                            {
+                                "type": "os",
+                                "os_criteria": {
+                                    "os_class": "NT",
+                                    "version": "WINTHRESHOLDSRV",
+                                    "product_type": "SV",
+                                    "edition": "NE",
+                                    "service_pack": "NE",
+                                },
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+        assert resp.status_code == 201
+        payload = resp.json()
+        predicate = payload["gpo"]["gpp_collections"][0]["groups"][0][
+            "ilt_filter"
+        ]["items"][0]
+        assert predicate["os_criteria"] == {
+            "os_class": "NT",
+            "version": "WINTHRESHOLDSRV",
+            "product_type": "SV",
+            "edition": "NE",
+            "service_pack": "NE",
+        }
+        assert any(
+            issue["code"] == "ilt_os_server_10_family"
+            for issue in payload["validation"]
+        )
+    store.close()
+
+
 def test_gpp_ilt_reserved_attr_returns_422_not_500(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store

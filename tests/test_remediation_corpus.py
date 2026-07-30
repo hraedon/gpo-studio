@@ -4,9 +4,8 @@ The corpus under tests/fixtures/scenarios/ is the durable record the
 Plans 025-032 remediation program proves repaired behavior against. These
 tests keep the corpus honest: schema validity, loader acceptance, anchor
 integrity (a changed native capture breaks the corpus loudly), readiness
-honesty (no scenario claims ready on an unqualified platform), and one
-characterization probe that pins today's known WI-022 parse-side divergence
-so the corpus flips loudly when the fix lands.
+honesty (no scenario claims ready on an unqualified platform), and executable
+WI-022 reader/writer checks pinned to the genuine Services capture.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from gpo_studio.gpp_adapters import parse_gpp_services
+from gpo_studio.gpp_adapters import GppService, parse_gpp_services, serialize_gpp_services
 from gpo_studio.remediation_corpus import (
     FAMILIES,
     RemediationCorpusError,
@@ -26,6 +25,7 @@ from gpo_studio.remediation_corpus import (
     load_platform_registry,
     load_scenario,
 )
+from gpo_studio.xml_safety import parse_xml_bounded
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIO_DIR = REPO_ROOT / "tests" / "fixtures" / "scenarios"
@@ -109,7 +109,7 @@ class TestCorpus:
         assert readiness == {
             "native-recovery-units": "ready",
             "reader-no-silent-drop": "ready",
-            "writer-parity-target": "blocked",
+            "writer-parity-target": "ready",
             "edition-union-expansion": "ready",
             "server-10x-collision": "ready",
             "disabled-block-enforced": "blocked",
@@ -294,16 +294,10 @@ class TestLoaderNegatives:
             load_corpus(tmp_path, registry)
 
 
-class TestWi022ParseCharacterization:
-    """Pin today's WI-022 parse-side divergence against the genuine capture.
+class TestWi022ServicesConformance:
+    """Pin the WI-022 correction to the genuine GPMC Services capture."""
 
-    These assertions describe CURRENT behavior and are expected to FAIL once
-    WI-022 is fixed; that failure is the signal to flip them and remove the
-    scenario's current_behavior block. Until then they are executable
-    documentation of exactly what the reader loses.
-    """
-
-    def test_recovery_semantics_currently_lost(self) -> None:
+    def test_recovery_semantics_are_preserved(self) -> None:
         items = {
             item.service_name: item
             for item in parse_gpp_services(NATIVE_SERVICES_XML.read_bytes())
@@ -313,37 +307,78 @@ class TestWi022ParseCharacterization:
         winrm = items["WinRM"]
         spooler = items["Spooler"]
 
-        # Parsed correctly today: startup, action, first/second failure, timeout.
         assert winrm.startup_type == "no_change"
         assert winrm.service_action == "start"
         assert winrm.first_failure == "restart"
+        assert winrm.second_failure == "restart"
+        assert winrm.third_failure == "restart"
+        assert winrm.reset_fail_count_delay_seconds == 0
+        assert winrm.restart_service_delay_raw == 60000000
         assert winrm.timeout_seconds == 30
 
-        # Lost today, part one: the model has no third-failure field at all,
-        # so the capture's thirdFailure="RESTART" vanishes.
-        assert not hasattr(winrm, "third_failure")
-
-        # Lost today, part two: resetFailCountDelay/restartServiceDelay are
-        # read from Studio's synthetic attribute names, which the capture
-        # does not contain, so both fall back to zero.
-        assert spooler.reset_period_days == 0  # capture carries resetFailCountDelay="86400"
-        assert spooler.restart_delay_minutes == 0  # capture carries restartServiceDelay="30000000"
-
-        # Lost today, part three: unknown Properties attributes have no
-        # preservation path; only item-level unknowns are captured.
+        assert spooler.third_failure is None
+        assert spooler.reset_fail_count_delay_seconds == 86400
+        assert spooler.restart_service_delay_raw == 30000000
         assert spooler.unknown_props_children == ()
-        assert ("image", "2") in spooler.unknown_attrs  # item-level unknowns DO survive
+        assert ("image", "2") in spooler.unknown_attrs
 
-    def test_emitted_attribute_names_are_synthetic(self) -> None:
-        """The writer half of the same divergence: serializing the parsed
-        capture emits Studio's synthetic attribute names, which appear
-        nowhere in the native corpus."""
-        from gpo_studio.gpp_adapters import serialize_gpp_services
-
+    def test_rebuilt_capture_uses_native_names_and_omission_rules(self) -> None:
         items = parse_gpp_services(NATIVE_SERVICES_XML.read_bytes())
         emitted = serialize_gpp_services(items, "computer").decode("utf-8")
-        assert 'resetPeriod="' in emitted  # synthetic name
-        assert 'restartDelay="' in emitted  # synthetic name
-        assert "resetFailCountDelay" not in emitted  # native name never emitted
-        assert "restartServiceDelay" not in emitted
-        assert "thirdFailure" not in emitted  # native attribute not even modeled
+        assert 'resetFailCountDelay="86400"' in emitted
+        assert 'restartServiceDelay="30000000"' in emitted
+        assert emitted.count('thirdFailure="RESTART"') == 1
+        assert "resetPeriod" not in emitted
+        assert "restartDelay" not in emitted
+
+    def test_writer_parity_target_is_executable(self) -> None:
+        scenario_path = SCENARIO_DIR / "gpp-services" / "writer-parity-target.json"
+        scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+        services: list[GppService] = []
+        for authored in scenario["authored_intent"]["items"]:
+            recovery = authored["recovery"]
+            services.append(
+                GppService(
+                    service_name=authored["service_name"],
+                    startup_type=authored["startup_type"],
+                    service_action=authored["service_action"],
+                    timeout_seconds=authored["timeout_seconds"],
+                    first_failure=(
+                        recovery["first_failure"] if recovery is not None else None
+                    ),
+                    second_failure=(
+                        recovery["second_failure"] if recovery is not None else None
+                    ),
+                    third_failure=(
+                        recovery["third_failure"]
+                        if recovery is not None and recovery["third_failure"] != "none"
+                        else None
+                    ),
+                    reset_fail_count_delay_seconds=(
+                        recovery["reset_fail_count_after_seconds"]
+                        if recovery is not None
+                        else None
+                    ),
+                    restart_service_delay_raw=(
+                        recovery["restart_service_after_milliseconds"] * 1000
+                        if recovery is not None
+                        else None
+                    ),
+                )
+            )
+
+        root = parse_xml_bounded(
+            serialize_gpp_services(tuple(services), "computer"),
+            max_size=1024 * 1024,
+        )
+        properties = {
+            props.get("serviceName", ""): dict(props.attrib)
+            for item in root
+            for props in item
+            if props.tag.split("}", 1)[-1] == "Properties"
+        }
+        for expected in scenario["expected_native"]["items"]:
+            attrs = properties[expected["service_name"]]
+            assert attrs == expected["properties_attrs"]
+            assert not set(expected["omitted_attrs"]) & attrs.keys()
+            assert not set(expected["must_not_contain_attrs"]) & attrs.keys()

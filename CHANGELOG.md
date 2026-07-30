@@ -71,14 +71,29 @@ Current version: `1.0.0`.
   The corpus records expected Windows behavior for the Plans 025–032
   remediation program; nothing in it is oracle-executed yet and no
   capability claim changes.
+- WI-022 corrects the GPP Services typed model and wire shape against the
+  genuine GPMC capture: native recovery names and omission semantics,
+  `thirdFailure`, exact delay preservation, and captured extension metadata.
+  It also covers the complete MS-GPPREF startup, service-action, and failure-
+  action vocabularies plus the protocol-defined restart/program fields, GPMC
+  report comparison, and a new WP-1B Services candidate. This is implemented
+  and unit-verified, not yet Windows-verified or operator-surfaced.
+- WI-023 surfaces the modern `FilterOs` family-token limitation as a preflight
+  warning and in Studio bundle manifests: `WINTHRESHOLDSRV` cannot distinguish
+  Server 2016/2019/2022/2025, and `WINTHRESHOLD` cannot distinguish Windows 10
+  from Windows 11. Imported OS criteria are shown read-only in the browser and
+  survive edits instead of being silently dropped; build-specific targeting
+  directs operators to WMI or registry predicates.
 
 - Plan 033 WP-2: deterministic native GPMC backup emission with distinct
   backup/GPO identities, v2 `Backup.xml`, native `DomainSysvol/GPO` paths,
   verified Registry and GPP extension profiles, and a Windows Server 2025
   `Import-GPO`/re-backup/cleanup oracle lane. Native GPP output is now a strict
-  allowlist: Drive Maps, Local Users and Groups, and Scheduled Tasks are
-  emitted; GPP Registry and uncaptured families must use the Studio bundle
-  until their native extension metadata is independently verified.
+  allowlist: Drive Maps, Local Users and Groups, Scheduled Tasks, and Services
+  are emitted; GPP Registry and uncaptured families must use the Studio bundle
+  until their native extension metadata is independently verified. Services
+  extension metadata is capture-backed, but its Studio-origin candidate still
+  awaits the WP-1B Windows rerun noted above.
 - Plan 021 WP-1: authoritative GPMC capability inventory
   (`docs/plan-021/capability-inventory.md`) — a versioned, pre-gate matrix of
   GPMC lifecycle/scope/report surfaces, principal-bearing fields, every in-box

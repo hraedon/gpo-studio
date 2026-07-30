@@ -116,12 +116,12 @@
       "resetFailCountDelay is stored in seconds with no multiplier: intent 86400 s (1 day) and 0 appear verbatim as 86400 and 0.",
       "restartServiceDelay is stored at 1000x the authored millisecond value: intent 60000 ms appears as 60000000 and intent 30000 ms as 30000000. The working unit hypothesis is microseconds; neither 'milliseconds' (wp1a-supplementary-matrix) nor 'minutes' (Studio's restartDelay model) matches the observed bytes.",
       "GPMC omits recovery attributes it never wrote: Spooler's thirdFailure (authored 'none') and W32Time's entire recovery set are absent from the XML, not emitted as defaults. Studio's serializer, which emits every attribute on every item, has no native precedent for doing so.",
-      "No capture item carries displayName, accountName, or recoveryCommand; whether GPMC ever emits those attribute names is unproven."
+      "No capture item carries accountName, restartComputerDelay, restartMessage, program, args, or append. MS-GPPREF defines those names, but GPMC emission remains unobserved. displayName and recoveryCommand are not defined Services attributes."
     ]
   },
   "open_questions": [
     "Confirm the restartServiceDelay unit with a dedicated capture: author a distinctive value (7 minutes) and predict 420000000 in the XML.",
-    "Author a run-command recovery in GPMC and capture how the program and arguments are encoded; Studio's recoveryCommand attribute name is a guess until then.",
+    "Author a run-command recovery in GPMC and capture whether it emits the protocol-defined program, args, and append attributes.",
     "Author a log-on-as account change in GPMC and capture the real account attribute names; Studio's accountName is likewise unproven."
   ]
 }

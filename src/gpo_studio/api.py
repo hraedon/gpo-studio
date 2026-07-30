@@ -78,7 +78,13 @@ from .gpp import (
     _validate_unknown_children,
 )
 from .identity import ClaimedIdentity, claimed_identity
-from .ilt import IltError, IltFilter, IltPredicate, validate_predicate_unknown_attrs
+from .ilt import (
+    IltError,
+    IltFilter,
+    IltOsCriteria,
+    IltPredicate,
+    validate_predicate_unknown_attrs,
+)
 from .import_export import (
     backup_security_filters_to_model,
     backup_wmi_filter_to_model,
@@ -305,12 +311,25 @@ class RestoreMutation(Audit):
     pass
 
 
+class IltOsCriteriaData(BaseModel):
+    os_class: str = "NE"
+    version: str = "NE"
+    product_type: str = "NE"
+    edition: str = "NE"
+    service_pack: str = "NE"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class IltPredicateData(BaseModel):
-    type: Literal["ou", "group", "registry", "ip_range", "environment", "wmi_query"]
+    type: Literal[
+        "ou", "group", "registry", "ip_range", "environment", "wmi_query", "os"
+    ]
     negate: bool = False
     value: str = ""
     bool_op: Literal["AND", "OR"] = "AND"
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    os_criteria: IltOsCriteriaData | None = None
 
 
 class IltFilterData(BaseModel):
@@ -846,6 +865,7 @@ class IltPredicateResponse(BaseModel):
     value: str
     bool_op: str = "AND"
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
+    os_criteria: IltOsCriteriaData | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1197,6 +1217,11 @@ def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
                     value=item.value,
                     bool_op=item.bool_op,
                     unknown_attrs=tuple((pair[0], pair[1]) for pair in item.unknown_attrs),
+                    os_criteria=(
+                        IltOsCriteria(**item.os_criteria.model_dump())
+                        if item.os_criteria is not None
+                        else None
+                    ),
                 )
                 _validate_ilt_predicate_attrs(pred)
                 items.append(pred)
@@ -1210,6 +1235,11 @@ def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
                 value=p.value,
                 bool_op=p.bool_op,
                 unknown_attrs=tuple((pair[0], pair[1]) for pair in p.unknown_attrs),
+                os_criteria=(
+                    IltOsCriteria(**p.os_criteria.model_dump())
+                    if p.os_criteria is not None
+                    else None
+                ),
             )
             _validate_ilt_predicate_attrs(pred)
             items.append(pred)

@@ -7,7 +7,7 @@
   "work_items": ["WI-022"],
   "provenance": {
     "tier": "native-observation",
-    "note": "Anchored to the same genuine GPMC capture as native-recovery-units. The expected behavior is stated against Studio's public parse path (parse_gpp_services via the backup importer), which an operator actually runs; current behavior is known to violate it and the violation is the WI-022 parse-side finding.",
+    "note": "Anchored to the same genuine GPMC capture as native-recovery-units. The expected behavior is stated against Studio's public parse path (parse_gpp_services via the backup importer), which an operator actually runs; TestWi022ServicesConformance now pins the corrected behavior locally.",
     "anchors": [
       {
         "kind": "native-capture",
@@ -66,11 +66,7 @@
         }
       }
     ],
-    "loss_policy": "Every recovery attribute present in the capture must surface in the Studio model either as a typed field or as preserved unknown content that a later export re-emits. A value that vanishes at parse time and is absent from any re-export is a silent drop and fails this scenario; it is the reader-side half of WI-022. Attributes GPMC itself omitted (Spooler thirdFailure, W32Time recovery set) must remain absent, not materialize as defaults on re-export.",
-    "current_behavior": {
-      "as_of": "2026-07-29",
-      "observed": "parse_gpp_services drops thirdFailure, resetFailCountDelay, and restartServiceDelay entirely: they are neither typed model fields nor preserved unknown content, and a re-export emits the synthetic resetPeriod/restartDelay names instead. Recorded here so the divergence is executable documentation; this block is removed when WI-022 lands and the scenario flips to passing."
-    }
+    "loss_policy": "Every recovery attribute present in the capture must surface in the Studio model either as a typed field or as preserved unknown content that a later export re-emits. A value that vanishes at parse time and is absent from any re-export is a silent drop and fails this scenario; it is the reader-side half of WI-022. Attributes GPMC itself omitted (Spooler thirdFailure, W32Time recovery set) must remain absent, not materialize as defaults on re-export."
   },
   "open_questions": []
 }

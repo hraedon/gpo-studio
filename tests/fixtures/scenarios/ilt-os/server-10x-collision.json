@@ -55,7 +55,6 @@
     }
   },
   "open_questions": [
-    "Endpoint confirmation on the qualified client and a Server 2016/2025 pair: does a WINTHRESHOLDSRV filter match exactly the builds listed, with no surprise exclusions?",
-    "Does WS2025 GPMC's OS picker offer any token newer than WINTHRESHOLDSRV for servers? The capture (authored on WS2025 GPMC) contains none; a second capture pass should confirm the picker's full list."
+    "Endpoint confirmation on the qualified client and a Server 2016/2025 pair: does a WINTHRESHOLDSRV filter match exactly the builds listed, with no surprise exclusions?"
   ]
 }

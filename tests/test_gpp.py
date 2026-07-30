@@ -17,6 +17,7 @@ from gpo_studio.gpp import (
     GppGroupMember,
     GppRegistry,
     GppRegistryValue,
+    GppService,
     contains_cpassword,
     ensure_editor_ids,
     gpp_collection_from_dict,
@@ -1228,6 +1229,31 @@ def test_common_options_dict_roundtrip() -> None:
     restored = gpp_collection_from_dict(d)
     assert restored.groups[0].common == _all_true_common()
     assert restored.registry[0].common == _all_true_common()
+
+
+def test_legacy_service_dict_fields_migrate_to_protocol_model() -> None:
+    collection = gpp_collection_from_dict(
+        {
+            "scope": "computer",
+            "services": [
+                {
+                    "service_name": "LegacySvc",
+                    "display_name": "Ignored display name",
+                    "recovery_command": r"C:\legacy-recovery.exe",
+                    "reset_period_days": 2,
+                    "restart_delay_minutes": 5,
+                }
+            ],
+        }
+    )
+    assert collection.services == (
+        GppService(
+            service_name="LegacySvc",
+            program=r"C:\legacy-recovery.exe",
+            reset_fail_count_delay_seconds=172800,
+            restart_service_delay_raw=300000000,
+        ),
+    )
 
 
 def test_common_options_unknown_attrs_not_captured() -> None:

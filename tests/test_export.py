@@ -12,6 +12,8 @@ from gpo_studio.export import (
     native_backup_id,
     powershell_plan,
 )
+from gpo_studio.gpp import GppCollection, GppGroup
+from gpo_studio.ilt import IltFilter, IltOsCriteria, IltPredicate
 from gpo_studio.import_export import (
     backup_security_filters_to_model,
     backup_wmi_filter_to_model,
@@ -57,6 +59,41 @@ def test_bundle_contains_manifest_plan_and_native_policy_files() -> None:
         records = parse(archive.read("Machine/Registry.pol"))
         assert records[0].value == 1
         assert parse(archive.read("User/Registry.pol")) == []
+
+
+def test_bundle_manifest_surfaces_modern_os_filter_limitation() -> None:
+    gpo = replace(
+        sample_gpo(),
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                groups=(
+                    GppGroup(
+                        name="Administrators",
+                        ilt_filter=IltFilter(
+                            items=(
+                                IltPredicate(
+                                    type="os",
+                                    os_criteria=IltOsCriteria(
+                                        os_class="NT", version="WINTHRESHOLDSRV"
+                                    ),
+                                ),
+                            )
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    with zipfile.ZipFile(io.BytesIO(export_bundle(gpo))) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    warning = next(
+        issue
+        for issue in manifest["validation"]
+        if issue["code"] == "ilt_os_server_10_family"
+    )
+    assert warning["severity"] == "warning"
+    assert "Windows Server 2016, 2019, 2022, or 2025" in warning["message"]
 
 
 def test_powershell_plan_escapes_names_and_maps_disabled_sides() -> None:

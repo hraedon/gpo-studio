@@ -102,7 +102,7 @@
       "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1", "studio-finalize"],
       "oracle": "Import-GPO of a Studio-authored native backup, then GPMC report parse plus Backup-GPO round trip; agreement is between two independent readers of the same policy.",
       "status": "partial",
-      "notes": "Certified for drives, local users and groups, and daily Exec TaskV2 scheduled tasks plus the registry-both control. services is outside writer_conformance.NATIVE_GPP_FAMILIES; carrying it is part of WI-022."
+      "notes": "Certified for drives, local users and groups, and daily Exec TaskV2 scheduled tasks plus the registry-both control. WI-022 added a Services candidate; that candidate still requires a fresh Windows run."
     },
     {
       "lane_id": "security-template-secedit",

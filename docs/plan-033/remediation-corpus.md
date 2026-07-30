@@ -40,13 +40,13 @@ keeps the corpus green.
    gap in `blocked_reason`. The readiness map is itself a deliverable: it
    records which lanes execute today and exactly what blocks the rest.
 
-## Current readiness map (2026-07-29)
+## Current readiness map (2026-07-30)
 
 | Family | Scenario | Readiness | Blocked on |
 |---|---|---|---|
 | gpp-services | native-recovery-units | ready | — |
 | gpp-services | reader-no-silent-drop | ready | — |
-| gpp-services | writer-parity-target | blocked | services outside `writer_conformance.NATIVE_GPP_FAMILIES` (WI-022) |
+| gpp-services | writer-parity-target | ready | writer lane is qualified and now carries a Services candidate; Windows rerun pending |
 | security-template | services-area, regkeys-filesecurity, group-membership, codec-edge-cases | blocked | member-ws2025-disposable qualification (open WP-3 PR-19 follow-up) |
 | rsop-topology | lsdou-precedence, disabled-block-enforced, security-filtering, wmi-loopback-slowlink | blocked | client-win11 qualification |
 | ilt-os | server-10x-collision, edition-union-expansion | ready | — |
@@ -76,9 +76,10 @@ The map is enforced by the loader and pinned by
    provenance), which is why `powershell-5.1` qualifies on the
    `5.1.26100 family` and `lgpo` is `pending-qualification` in the registry
    until a lane genuinely invokes it.
-4. **services in the writer lane**: `writer_conformance.NATIVE_GPP_FAMILIES`
-   does not include services, so the WP-1B harness cannot carry a services
-   candidate until WI-022 extends it.
+4. **services in the writer lane**: WI-022 added Services to
+   `writer_conformance.NATIVE_GPP_FAMILIES` and the WP-1B candidate set. The
+   scenario is executable, but its new candidate has not yet been run on
+   Windows and therefore carries no conformance verdict.
 
 ## Per-family payload contract
 
@@ -135,27 +136,34 @@ type error), a directory, and a section in this file.
    `restartDelay` model) matches the observed bytes. The supplementary
    matrix row has been corrected; the dedicated confirmation capture is an
    open question in `gpp-services/native-recovery-units`.
-2. **Silent reader drops (WI-022).** The current parser discards
-   `thirdFailure`, `resetFailCountDelay`, and `restartServiceDelay` with no
-   unknown-content preservation; the writer emits synthetic `resetPeriod` /
-   `restartDelay` names that appear nowhere in the native corpus. Pinned
-   executable documentation: `TestWi022ParseCharacterization`.
-3. **Attribute omission rules.** GPMC omits recovery attributes it never
-   wrote (Spooler's `thirdFailure`, W32Time's whole recovery set); Studio's
-   serializer emits every attribute always. The writer-parity scenario
-   encodes the omission rules Studio must adopt.
-4. **semantic-manifest-v1 element enum is stale.** The enum in
-   `semantic-manifest-v1.schema.json` predates the WP-1A supplementary
-   captures: it lists `Service` (no such element; genuine is `NTService`)
-   and lacks the V2 power/task elements the corpus now contains
-   (`GlobalPowerOptionsV2`). The supplementary captures carry no semantic
-   manifests at all. Recorded here; fixing the v1 enum is bundled with the
-   WI-022 remediation so the schema and the first services manifest change
-   together.
-5. **Server 2016/2025 collision (WI-023).** GPMC emits
+2. **Silent reader drops (WI-022, corrected in code).** The parser now types
+   `thirdFailure` and `resetFailCountDelay`, preserves `restartServiceDelay`
+   as a raw wire value pending unit confirmation, and the writer emits the
+   native names. `TestWi022ServicesConformance` pins this against the genuine
+   capture; Windows writer execution is still pending.
+3. **Attribute omission rules (WI-022, corrected in code).** The service model
+   distinguishes absent recovery values and the serializer omits Spooler's
+   `thirdFailure` and W32Time's whole recovery set as GPMC does. The
+   writer-parity scenario remains the Windows execution target.
+4. **Protocol-only Services shape (WI-022, implemented but not Windows-
+   verified).** MS-GPPREF defines `BOOT`, `SYSTEM`, and
+   `RESTART_IF_REQUIRED` plus restart-computer, message, program, argument,
+   and append fields that the current native capture does not exercise. The
+   typed model and unit tests cover that complete schema while preserving
+   `REBOOT` and `RUNCOMMAND` as unverified GPMC extensions until a dedicated
+   capture settles them.
+5. **semantic-manifest-v1 element enum (WI-022, corrected).** The enum now
+   names genuine `NTService` and `GlobalPowerOptionsV2` elements rather than
+   the nonexistent `Service` entry. The supplementary captures still carry no
+   semantic manifests.
+6. **Server 2016/2025 collision (WI-023, surfaced in code).** GPMC emits
    `version="WINTHRESHOLDSRV"` for the whole 10.0 server family and the
    FilterOs match surface has no build field; `ilt-os/server-10x-collision`
-   records the operator-surfacing behavior WI-023 requires, and
+   records the operator-surfacing behavior. Studio now preserves the structured
+   criteria through API/browser edits, shows the actual family scope beside an
+   imported read-only OS predicate, and carries the warning in preflight and
+   Studio bundle manifests. The remaining endpoint question still requires a
+   qualified Server 2016/2025 pair; the warning does not depend on that run.
    `edition-union-expansion` pins GPMC's eleven-predicate union verbatim
    from the genuine capture.
 

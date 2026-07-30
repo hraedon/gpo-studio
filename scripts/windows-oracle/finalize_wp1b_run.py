@@ -53,11 +53,13 @@ _FAMILY_REPORT_MARKERS: dict[str, tuple[str, ...]] = {
     "groups": ("LugsSettings",),
     "local_users": ("LugsSettings",),
     "scheduled_tasks": ("ScheduledTasksSettings",),
+    "services": ("ServiceSettings",),
     "mixed": (
         "RegistrySettings",
         "DriveMapSettings",
         "LugsSettings",
         "ScheduledTasksSettings",
+        "ServiceSettings",
     ),
 }
 

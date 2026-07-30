@@ -526,7 +526,52 @@ def validate_ilt_predicate(pred: IltPredicate, path: str) -> list[ValidationIssu
                         f"{path}/value",
                     )
                 )
-        case "os" | "language" | "file" | "folder":
+        case "os":
+            criteria = pred.os_criteria
+            if criteria is None:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "missing_ilt_os_criteria",
+                        "ILT OS criteria are required.",
+                        f"{path}/os_criteria",
+                    )
+                )
+            else:
+                if criteria.version == "WINTHRESHOLDSRV":
+                    issues.append(
+                        ValidationIssue(
+                            "warning",
+                            "ilt_os_server_10_family",
+                            "This OS filter does not distinguish Windows Server "
+                            "2016, 2019, 2022, or 2025. Use a WMI or registry "
+                            "predicate for build-level targeting.",
+                            f"{path}/os_criteria/version",
+                        )
+                    )
+                elif criteria.version == "WINTHRESHOLD":
+                    issues.append(
+                        ValidationIssue(
+                            "warning",
+                            "ilt_os_windows_10_family",
+                            "This OS filter does not distinguish Windows 10 "
+                            "from Windows 11. Use a WMI or registry predicate "
+                            "for build-level targeting.",
+                            f"{path}/os_criteria/version",
+                        )
+                    )
+                unrecognized = criteria.unrecognized()
+                if unrecognized:
+                    issues.append(
+                        ValidationIssue(
+                            "warning",
+                            "unrecognized_ilt_os_value",
+                            "ILT OS criteria contain values outside Studio's "
+                            f"documented vocabulary: {', '.join(unrecognized)}.",
+                            f"{path}/os_criteria",
+                        )
+                    )
+        case "language" | "file" | "folder":
             if not pred.value.strip():
                 issues.append(
                     ValidationIssue(

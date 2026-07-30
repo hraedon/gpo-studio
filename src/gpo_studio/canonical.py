@@ -136,13 +136,22 @@ def gpp_registry_identity(reg: GppRegistry) -> str:
 
 
 def semantic_dict_ilt_predicate(pred: IltPredicate) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "type": pred.type,
         "negate": pred.negate,
         "value": pred.value,
         "bool_op": pred.bool_op,
         "unknown_attrs": list(pred.unknown_attrs),
     }
+    if pred.os_criteria is not None:
+        result["os_criteria"] = {
+            "os_class": pred.os_criteria.os_class,
+            "version": pred.os_criteria.version,
+            "product_type": pred.os_criteria.product_type,
+            "edition": pred.os_criteria.edition,
+            "service_pack": pred.os_criteria.service_pack,
+        }
+    return result
 
 
 def semantic_dict_ilt(f: IltFilter | None) -> list[dict[str, Any]] | None:

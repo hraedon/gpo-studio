@@ -90,7 +90,7 @@
           },
           "element": {
             "type": "string",
-            "enum": ["Drive", "Group", "User", "TaskV2", "ImmediateTaskV2", "ScheduledTask", "ImmediateTask", "File", "Folder", "Shortcut", "Registry", "EnvironmentVariable", "IniFile", "DataSources", "Device", "Printer", "Service", "FolderOptions", "PowerOptions", "NetworkOptions", "RegionalOptions", "IpAddress", "Dns"]
+            "enum": ["Drive", "Group", "User", "TaskV2", "ImmediateTaskV2", "ScheduledTask", "ImmediateTask", "File", "Folder", "Shortcut", "Registry", "EnvironmentVariable", "IniFile", "DataSources", "Device", "Printer", "NTService", "FolderOptions", "PowerOptions", "GlobalPowerOptionsV2", "NetworkOptions", "RegionalOptions", "IpAddress", "Dns"]
           },
           "scope": {
             "enum": ["computer", "user"]

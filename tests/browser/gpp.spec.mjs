@@ -57,6 +57,69 @@ test("authors a GPP local group with a member through the browser", async ({
   await expect(page.getByText("Revision 2", { exact: true })).toBeVisible();
 });
 
+test("surfaces and preserves an imported modern OS predicate", async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await seedPolicy(request, testInfo);
+  const guid = seeded.payload.gpo.guid;
+  const response = await request.post(`/api/gpos/${guid}/preferences/groups`, {
+    data: {
+      expected_revision: seeded.payload.gpo.revision,
+      actor: "browser-test",
+      reason: "Seed imported OS targeting predicate",
+      scope: "computer",
+      group: {
+        name: "ModernServerFamily",
+        sid: "S-1-5-32-544",
+        ilt_filter: {
+          items: [
+            {
+              type: "os",
+              os_criteria: {
+                os_class: "NT",
+                version: "WINTHRESHOLDSRV",
+                product_type: "SV",
+                edition: "NE",
+                service_pack: "NE",
+              },
+            },
+          ],
+        },
+      },
+    },
+  });
+  expect(response.status()).toBe(201);
+
+  await openPreferences(page, seeded);
+  await expect(
+    page.getByText(
+      /Matches the Windows Server 2016, 2019, 2022, and 2025 family/,
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Edit group ModernServerFamily" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Edit group" });
+  const predicate = dialog.locator("#gpp-ilt-list .gpp-row");
+  await expect(predicate.locator('[data-field="type"]')).toHaveValue("os");
+  await expect(predicate.locator('[data-field="value"]')).toHaveValue(
+    "NT/WINTHRESHOLDSRV/SV/NE/NE",
+  );
+  await expect(predicate).toContainText(
+    "Windows Server 2016, 2019, 2022, and 2025 family",
+  );
+
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await dialog.getByRole("button", { name: "Save group" }).click();
+  await expect(dialog).toBeHidden();
+
+  const current = await request.get(`/api/gpos/${guid}`);
+  const payload = await current.json();
+  const saved = payload.gpo.gpp_collections[0].groups[0].ilt_filter.items[0];
+  expect(saved.os_criteria.version).toBe("WINTHRESHOLDSRV");
+});
+
 test("authors a GPP registry preference with item-level targeting", async ({
   page,
   request,

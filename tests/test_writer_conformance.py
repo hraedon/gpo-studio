@@ -20,7 +20,7 @@ from gpo_studio.gpp import (
     parse_gpp_collection,
     serialize_gpp,
 )
-from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask
+from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask, GppService
 from gpo_studio.ilt import (
     OS_EDITION_PROSE_ONLY_VALUES,
     OS_EDITION_XSD_VALUES,
@@ -46,6 +46,7 @@ def _gpo(
     groups: tuple[GppGroup, ...] = (),
     local_users: tuple[GppLocalUser, ...] = (),
     scheduled_tasks: tuple[GppScheduledTask, ...] = (),
+    services: tuple[GppService, ...] = (),
     settings: tuple[RegistrySetting, ...] = (),
 ) -> GPO:
     machine = GppCollection(
@@ -53,6 +54,7 @@ def _gpo(
         groups=groups,
         local_users=local_users,
         scheduled_tasks=scheduled_tasks,
+        services=services,
     )
     user = GppCollection(scope="user", drives=drives)
     return GPO(
@@ -113,6 +115,17 @@ TASK = GppScheduledTask(
     action="update",
     id="{AAAAAAAA-0000-0000-0000-00000000A003}",
 )
+SERVICE = GppService(
+    service_name="SyntheticSvc",
+    startup_type="automatic",
+    service_action="start",
+    first_failure="restart",
+    second_failure="restart",
+    reset_fail_count_delay_seconds=172800,
+    restart_service_delay_raw=120000000,
+    timeout_seconds=45,
+    id="{AAAAAAAA-0000-0000-0000-00000000A005}",
+)
 MACHINE_SETTING = RegistrySetting(
     id="machine",
     side="computer",
@@ -168,14 +181,23 @@ def test_native_round_trip_is_semantically_identical(tmp_path: Path) -> None:
         {"groups": (GROUP,)},
         {"local_users": (LOCAL_USER,)},
         {"scheduled_tasks": (TASK,)},
+        {"services": (SERVICE,)},
     ],
-    ids=["drives", "groups", "local_users", "scheduled_tasks"],
+    ids=["drives", "groups", "local_users", "scheduled_tasks", "services"],
 )
 def test_isolated_family_round_trips(tmp_path: Path, isolated: dict[str, object]) -> None:
     gpo = _gpo(**isolated)  # type: ignore[arg-type]
     content_root = _extract(gpo, tmp_path)
     differences = compare_summaries(summary_from_gpo(gpo), summary_from_backup(content_root))
     assert differences == (), [difference.describe() for difference in differences]
+
+
+def test_services_native_backup_uses_captured_extension_profile() -> None:
+    with zipfile.ZipFile(io.BytesIO(gpmc_backup_bundle(_gpo(services=(SERVICE,))))) as archive:
+        backup_name = next(name for name in archive.namelist() if name.endswith("/Backup.xml"))
+        backup_xml = archive.read(backup_name)
+    assert b"{91FBB303-0CD5-4055-BF42-E512A681B325}" in backup_xml
+    assert b"{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}" in backup_xml
 
 
 def test_wp1b_candidate_builder_self_conforms_at_branch_tip(tmp_path: Path) -> None:

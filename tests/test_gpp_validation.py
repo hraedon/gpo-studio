@@ -9,7 +9,7 @@ from gpo_studio.gpp import (
     GppRegistry,
     GppRegistryValue,
 )
-from gpo_studio.ilt import IltFilter, IltPredicate
+from gpo_studio.ilt import IltFilter, IltOsCriteria, IltPredicate
 from gpo_studio.model import GPO, CseMetadataEntry
 from gpo_studio.validation import (
     validate_gpo,
@@ -196,7 +196,6 @@ def test_ilt_invalid_wmi_query_error() -> None:
         ("user", "empty_ilt_value"),
         ("service", "empty_ilt_value"),
         ("date", "empty_ilt_date_value"),
-        ("os", "empty_ilt_value"),
         ("language", "empty_ilt_value"),
         ("file", "empty_ilt_value"),
         ("folder", "empty_ilt_value"),
@@ -217,6 +216,56 @@ def test_ilt_blank_typed_values_are_rejected(
     )
     issues = validate_gpp_collection(collection)
     assert any(issue.code == expected_code for issue in issues)
+
+
+def test_ilt_os_requires_structured_criteria() -> None:
+    issues = validate_gpp_collection(
+        GppCollection(
+            scope="computer",
+            groups=(
+                GppGroup(
+                    name="Test",
+                    ilt_filter=IltFilter(items=(IltPredicate(type="os"),)),
+                ),
+            ),
+        )
+    )
+    assert any(issue.code == "missing_ilt_os_criteria" for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("version", "code"),
+    [
+        ("WINTHRESHOLDSRV", "ilt_os_server_10_family"),
+        ("WINTHRESHOLD", "ilt_os_windows_10_family"),
+    ],
+)
+def test_modern_ilt_os_families_warn_about_release_collision(
+    version: str, code: str
+) -> None:
+    issues = validate_gpp_collection(
+        GppCollection(
+            scope="computer",
+            groups=(
+                GppGroup(
+                    name="Test",
+                    ilt_filter=IltFilter(
+                        items=(
+                            IltPredicate(
+                                type="os",
+                                os_criteria=IltOsCriteria(
+                                    os_class="NT", version=version
+                                ),
+                            ),
+                        )
+                    ),
+                ),
+            ),
+        )
+    )
+    warning = next(issue for issue in issues if issue.code == code)
+    assert warning.severity == "warning"
+    assert "WMI or registry" in warning.message
 
 
 @pytest.mark.parametrize("value", ["-1", "not-an-integer"])

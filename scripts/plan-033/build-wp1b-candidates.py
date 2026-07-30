@@ -24,7 +24,7 @@ from pathlib import Path
 
 from gpo_studio.export import gpmc_backup_bundle, native_backup_id
 from gpo_studio.gpp import GppCollection, GppGroup, GppGroupMember
-from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask
+from gpo_studio.gpp_adapters import GppDrive, GppLocalUser, GppScheduledTask, GppService
 from gpo_studio.model import GPO, RegistrySetting
 from gpo_studio.writer_conformance import native_shape_findings, summary_from_gpo
 
@@ -80,6 +80,17 @@ SCHEDULED_TASK = GppScheduledTask(
     trigger_time="03:15:00",
     action="update",
     id="{9B1DE5C0-0000-4000-8000-0000000000A3}",
+)
+SERVICE = GppService(
+    service_name="GPOStudio-WP1B-Service",
+    startup_type="automatic",
+    service_action="start",
+    first_failure="restart",
+    second_failure="restart",
+    reset_fail_count_delay_seconds=172800,
+    restart_service_delay_raw=120000000,
+    timeout_seconds=45,
+    id="{9B1DE5C0-0000-4000-8000-0000000000A4}",
 )
 MACHINE_SETTING = RegistrySetting(
     id="wp1b-machine",
@@ -153,6 +164,14 @@ def _scheduled_tasks_machine() -> GPO:
     )
 
 
+def _services_machine() -> GPO:
+    return _gpo(
+        "services-machine",
+        "07",
+        machine=GppCollection(scope="computer", services=(SERVICE,)),
+    )
+
+
 def _mixed_all() -> GPO:
     """Every natively supported family in one GPO, both sides populated."""
     return _gpo(
@@ -164,6 +183,7 @@ def _mixed_all() -> GPO:
             groups=(GROUP,),
             local_users=(LOCAL_USER,),
             scheduled_tasks=(SCHEDULED_TASK,),
+            services=(SERVICE,),
         ),
         user=GppCollection(scope="user", drives=(DRIVE,)),
     )
@@ -175,6 +195,7 @@ CANDIDATES: tuple[tuple[str, str, Callable[[], GPO]], ...] = (
     ("groups-machine", "groups", _groups_machine),
     ("localusers-machine", "local_users", _local_users_machine),
     ("scheduledtasks-machine", "scheduled_tasks", _scheduled_tasks_machine),
+    ("services-machine", "services", _services_machine),
     ("mixed-all", "mixed", _mixed_all),
 )
 

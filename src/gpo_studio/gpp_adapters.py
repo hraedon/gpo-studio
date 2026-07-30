@@ -178,9 +178,11 @@ _PROPS_KNOWN_ATTRS: dict[str, frozenset[str]] = {
     }),
     # Privileged execution adapters (Plan 024 WP-4).
     "NTServices": _COMMON_PROPS_ATTRS | frozenset({
-        "serviceName", "displayName", "startupType", "serviceAction",
-        "firstFailure", "secondFailure", "resetPeriod", "restartDelay",
-        "recoveryCommand", "timeout", "accountName", "action",
+        "serviceName", "startupType", "serviceAction", "timeout",
+        "accountName", "cpassword", "interact", "firstFailure",
+        "secondFailure", "thirdFailure", "resetFailCountDelay",
+        "restartServiceDelay", "restartComputerDelay", "restartMessage",
+        "program", "args", "append", "disabled",
     }),
     # <Groups> root holds both <User> and <Group> items with different
     # Properties attribute sets; the union covers both.
@@ -300,9 +302,21 @@ def _code_to_shortcut_window(code: str) -> Literal["normal", "minimized", "maxim
 
 # Privileged execution adapter code conversions (Plan 024 WP-4).
 
-_ServiceStartupType = Literal["automatic", "manual", "disabled", "no_change"]
-_ServiceAction = Literal["start", "stop", "restart", "no_change"]
-_ServiceFailureAction = Literal["none", "restart", "reboot", "run_command"]
+_ServiceStartupType = Literal[
+    "automatic", "boot", "disabled", "manual", "system", "no_change"
+]
+_ServiceAction = Literal[
+    "start", "stop", "restart", "restart_if_required", "no_change"
+]
+_ServiceFailureAction = Literal[
+    "start",
+    "stop",
+    "restart",
+    "none",
+    "restart_if_required",
+    "reboot",
+    "run_command",
+]
 
 
 def _service_startup_to_code(startup: _ServiceStartupType) -> str:
@@ -316,10 +330,14 @@ def _service_startup_to_code(startup: _ServiceStartupType) -> str:
     match startup:
         case "automatic":
             return "AUTOMATIC"
+        case "boot":
+            return "BOOT"
         case "manual":
             return "MANUAL"
         case "disabled":
             return "DISABLED"
+        case "system":
+            return "SYSTEM"
         case "no_change":
             return "NOCHANGE"
         case _:
@@ -329,8 +347,10 @@ def _service_startup_to_code(startup: _ServiceStartupType) -> str:
 def _code_to_service_startup(code: str) -> _ServiceStartupType:
     mapping: dict[str, _ServiceStartupType] = {
         "AUTOMATIC": "automatic",
+        "BOOT": "boot",
         "MANUAL": "manual",
         "DISABLED": "disabled",
+        "SYSTEM": "system",
         "NOCHANGE": "no_change",
         # Numeric forms are accepted on parse only, for workspaces persisted by
         # earlier Studio versions that emitted them. They are never written.
@@ -352,6 +372,8 @@ def _service_action_to_code(action: _ServiceAction) -> str:
             return "STOP"
         case "restart":
             return "RESTART"
+        case "restart_if_required":
+            return "RESTART_IF_REQUIRED"
         case "no_change":
             return "NOCHANGE"
         case _:
@@ -361,7 +383,8 @@ def _service_action_to_code(action: _ServiceAction) -> str:
 def _code_to_service_action(code: str) -> _ServiceAction:
     mapping: dict[str, _ServiceAction] = {
         "START": "start", "STOP": "stop",
-        "RESTART": "restart", "NOCHANGE": "no_change",
+        "RESTART": "restart", "RESTART_IF_REQUIRED": "restart_if_required",
+        "NOCHANGE": "no_change",
     }
     upper = code.upper()
     if upper in mapping:
@@ -371,10 +394,16 @@ def _code_to_service_action(code: str) -> _ServiceAction:
 
 def _service_failure_to_code(action: _ServiceFailureAction) -> str:
     match action:
+        case "start":
+            return "START"
+        case "stop":
+            return "STOP"
         case "none":
             return "NOACTION"
         case "restart":
             return "RESTART"
+        case "restart_if_required":
+            return "RESTART_IF_REQUIRED"
         case "reboot":
             return "REBOOT"
         case "run_command":
@@ -385,7 +414,8 @@ def _service_failure_to_code(action: _ServiceFailureAction) -> str:
 
 def _code_to_service_failure(code: str) -> _ServiceFailureAction:
     mapping: dict[str, _ServiceFailureAction] = {
-        "NOACTION": "none", "RESTART": "restart",
+        "START": "start", "STOP": "stop", "NOACTION": "none",
+        "RESTART": "restart", "RESTART_IF_REQUIRED": "restart_if_required",
         "REBOOT": "reboot", "RUNCOMMAND": "run_command",
     }
     upper = code.upper()
@@ -731,19 +761,29 @@ class GppService:
     ``account_password`` exists for API symmetry but MUST always be empty;
     serialization raises :class:`GppError` if it is non-empty (credential
     denial — GPO Studio never writes service passwords to GPP XML).
+
+    Recovery fields are optional because GPMC omits settings the operator did
+    not configure. ``restart_service_delay_raw`` deliberately preserves the
+    wire value: the native corpus proves a 1000x relationship to the value
+    authored in GPMC, but its protocol unit still needs a dedicated capture.
     """
 
     service_name: str = ""
-    display_name: str = ""
     startup_type: _ServiceStartupType = "automatic"
-    service_action: Literal["start", "stop", "restart", "no_change"] = "no_change"
-    first_failure: Literal["none", "restart", "reboot", "run_command"] = "none"
-    second_failure: Literal["none", "restart", "reboot", "run_command"] = "none"
-    reset_period_days: int = 0
-    restart_delay_minutes: int = 0
-    recovery_command: str = ""
+    service_action: _ServiceAction = "no_change"
+    first_failure: _ServiceFailureAction | None = None
+    second_failure: _ServiceFailureAction | None = None
+    third_failure: _ServiceFailureAction | None = None
+    reset_fail_count_delay_seconds: int | None = None
+    restart_service_delay_raw: int | None = None
+    restart_computer_delay_seconds: int | None = None
+    restart_message: str = ""
+    program: str = ""
+    arguments: str = ""
+    append_arguments: str = ""
     timeout_seconds: int = 30
     account_name: str = ""
+    interact_with_desktop: bool = False
     account_password: str = ""
     action: GppAction = "update"
     id: str = ""
@@ -972,6 +1012,7 @@ def _build_item_element(
     item_tag_override: str | None = None,
     item_clsid_override: str | None = None,
     unknown_props_children: tuple[str, ...] = (),
+    include_action: bool = True,
 ) -> ET.Element:
     """Build a single GPP item element with <Properties> following MS-GPPREF."""
     _, _, item_tag, item_clsid = _ADAPTER_META[adapter_key]
@@ -986,7 +1027,8 @@ def _build_item_element(
     _apply_common_options(elem, common)
     _apply_unknown_attrs(elem, unknown_attrs)
     props = ET.SubElement(elem, _ns("Properties"))
-    props.set("action", action_code if action_code is not None else _action_to_code(action))
+    if include_action:
+        props.set("action", action_code if action_code is not None else _action_to_code(action))
     for key, value in props_attrs.items():
         props.set(key, value)
     _append_unknown_children(
@@ -2109,6 +2151,42 @@ def _serialize_service(svc: GppService) -> ET.Element:
     _deny_password(
         svc.account_password, "account_password", f"service {svc.service_name!r}"
     )
+    if svc.action != "update":
+        raise GppError(
+            "NT Services has no native Create/Delete/Replace action attribute; "
+            f"service {svc.service_name!r} must use action='update'"
+        )
+    props_attrs = {
+        "startupType": _service_startup_to_code(svc.startup_type),
+        "serviceName": svc.service_name,
+        "serviceAction": _service_action_to_code(svc.service_action),
+        "timeout": str(svc.timeout_seconds),
+    }
+    optional_attrs = {
+        "accountName": svc.account_name,
+        "restartMessage": svc.restart_message,
+        "program": svc.program,
+        "args": svc.arguments,
+        "append": svc.append_arguments,
+    }
+    props_attrs.update({key: value for key, value in optional_attrs.items() if value})
+    if svc.interact_with_desktop:
+        props_attrs["interact"] = "1"
+    for key, value in (
+        ("firstFailure", svc.first_failure),
+        ("secondFailure", svc.second_failure),
+        ("thirdFailure", svc.third_failure),
+    ):
+        if value is not None:
+            props_attrs[key] = _service_failure_to_code(value)
+    if svc.reset_fail_count_delay_seconds is not None:
+        props_attrs["resetFailCountDelay"] = str(svc.reset_fail_count_delay_seconds)
+    if svc.restart_service_delay_raw is not None:
+        props_attrs["restartServiceDelay"] = str(svc.restart_service_delay_raw)
+    if svc.restart_computer_delay_seconds is not None:
+        props_attrs["restartComputerDelay"] = str(
+            svc.restart_computer_delay_seconds
+        )
     return _build_item_element(
         "services",
         item_name=svc.service_name,
@@ -2118,19 +2196,8 @@ def _serialize_service(svc: GppService) -> ET.Element:
         unknown_attrs=svc.unknown_attrs,
         unknown_children=svc.unknown_children,
         unknown_props_children=svc.unknown_props_children,
-        props_attrs={
-            "serviceName": svc.service_name,
-            "displayName": svc.display_name,
-            "startupType": _service_startup_to_code(svc.startup_type),
-            "serviceAction": _service_action_to_code(svc.service_action),
-            "firstFailure": _service_failure_to_code(svc.first_failure),
-            "secondFailure": _service_failure_to_code(svc.second_failure),
-            "resetPeriod": str(svc.reset_period_days),
-            "restartDelay": str(svc.restart_delay_minutes),
-            "recoveryCommand": svc.recovery_command,
-            "timeout": str(svc.timeout_seconds),
-            "accountName": svc.account_name,
-        },
+        props_attrs=props_attrs,
+        include_action=False,
     )
 
 
@@ -2162,26 +2229,47 @@ def _parse_service_item(elem: ET.Element) -> GppService:
                     f"Invalid NTService {key}: {raw!r}"
                 ) from error
 
+        def _optional_int_attr(key: str) -> int | None:
+            return _int_attr(key, 0) if key in props.attrib else None
+
+        def _legacy_scaled_int_attr(key: str, multiplier: int) -> int | None:
+            return _int_attr(key, 0) * multiplier if key in props.attrib else None
+
+        def _optional_failure_attr(key: str) -> _ServiceFailureAction | None:
+            raw = props.get(key)
+            return _code_to_service_failure(raw) if raw is not None else None
+
         return GppService(
             service_name=service_name,
-            display_name=props.get("displayName", ""),
             startup_type=_code_to_service_startup(
                 props.get("startupType", "0")
             ),
             service_action=_code_to_service_action(
                 props.get("serviceAction", "NOCHANGE")
             ),
-            first_failure=_code_to_service_failure(
-                props.get("firstFailure", "NOACTION")
+            first_failure=_optional_failure_attr("firstFailure"),
+            second_failure=_optional_failure_attr("secondFailure"),
+            third_failure=_optional_failure_attr("thirdFailure"),
+            reset_fail_count_delay_seconds=(
+                _optional_int_attr("resetFailCountDelay")
+                if "resetFailCountDelay" in props.attrib
+                else _legacy_scaled_int_attr("resetPeriod", 86400)
             ),
-            second_failure=_code_to_service_failure(
-                props.get("secondFailure", "NOACTION")
+            restart_service_delay_raw=(
+                _optional_int_attr("restartServiceDelay")
+                if "restartServiceDelay" in props.attrib
+                else _legacy_scaled_int_attr("restartDelay", 60_000_000)
             ),
-            reset_period_days=_int_attr("resetPeriod", 0),
-            restart_delay_minutes=_int_attr("restartDelay", 0),
-            recovery_command=props.get("recoveryCommand", ""),
+            restart_computer_delay_seconds=_optional_int_attr(
+                "restartComputerDelay"
+            ),
+            restart_message=props.get("restartMessage", ""),
+            program=props.get("program", props.get("recoveryCommand", "")),
+            arguments=props.get("args", ""),
+            append_arguments=props.get("append", ""),
             timeout_seconds=_int_attr("timeout", 30),
             account_name=props.get("accountName", ""),
+            interact_with_desktop=props.get("interact", "0") == "1",
             action=action,
             common=common,
             ilt_filter=ilt_filter,

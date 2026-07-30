@@ -2,10 +2,26 @@ import { describe, expect, test } from "vitest";
 
 import {
   findRevisionGppItem,
+  iltOperatorWarning,
   moveGppItemIds,
   prepareGppGroupClone,
   prepareGppRegistryClone,
 } from "../../src/gpo_studio/static/js/gpp.mjs";
+
+describe("OS targeting warnings", () => {
+  test.each([
+    ["WINTHRESHOLDSRV", "Windows Server 2016, 2019, 2022, and 2025"],
+    ["WINTHRESHOLD", "Windows 10 and Windows 11"],
+  ])("explains the %s family token", (version, expected) => {
+    expect(
+      iltOperatorWarning({ type: "os", os_criteria: { version } }),
+    ).toContain(expected);
+  });
+
+  test("does not warn for unrelated predicates", () => {
+    expect(iltOperatorWarning({ type: "ou", value: "OU=Servers" })).toBe("");
+  });
+});
 
 describe("GPP clone shaping", () => {
   test("gives a group and its members new editor identities without losing content", () => {

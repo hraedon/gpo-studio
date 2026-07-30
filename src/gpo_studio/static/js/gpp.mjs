@@ -55,11 +55,20 @@ export function moveGppItemIds(items,id,offset){
   return orderedIds;
 }
 
+export function iltOperatorWarning(predicate){
+  if(predicate?.type!=="os")return "";
+  const version=predicate.os_criteria?.version;
+  if(version==="WINTHRESHOLDSRV")return "Matches the Windows Server 2016, 2019, 2022, and 2025 family; FilterOs cannot distinguish these releases. Use WMI or registry targeting for a specific build.";
+  if(version==="WINTHRESHOLD")return "Matches both Windows 10 and Windows 11; FilterOs cannot distinguish these releases. Use WMI or registry targeting for a specific build.";
+  return "";
+}
+
 function iltSummary(filter){
   const items=filter?.items||[];
   if(!items.length)return "—";
   const hasReadonly=items.some(item=>typeof item!=="object"||item.bool_op==="OR"||!ILT_TYPES.includes(item.type));
-  return `ILT: ${items.length} predicate${items.length===1?'':'s'}${hasReadonly?' · preserved read-only parts':''}`;
+  const operatorWarning=items.map(iltOperatorWarning).find(Boolean);
+  return `ILT: ${items.length} predicate${items.length===1?'':'s'}${hasReadonly?' · preserved read-only parts':''}${operatorWarning?` · ${operatorWarning}`:''}`;
 }
 
 export function renderGpp(){
@@ -331,7 +340,7 @@ function addPredicateRow(listId,previewId,predicate=null){
   if(predicate&&predicate.unknown){row.dataset.readonly="true";row.dataset.unknownPredicate=predicate.raw;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value="[unsupported predicate]";row.title="Unknown ILT predicate — preserved on save, cannot be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unknown — preserved on save";row.appendChild(warn)}
   else if(predicate&&ILT_TYPES.includes(predicate.type)&&predicate.bool_op==="OR"){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="ILT predicate with OR combination — preserved on save, cannot be edited in browser";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ OR — preserved on save";row.appendChild(warn)}
   else if(predicate&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.dataset.unknownAttrs=predicate.unknown_attrs?JSON.stringify(predicate.unknown_attrs):""}
-  else if(predicate){row.dataset.readonly="true";row.dataset.unknownPredicate=predicate.raw||"";typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="Unsupported ILT predicate type — preserved on save, cannot be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unsupported — preserved on save";row.appendChild(warn)}
+  else if(predicate){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);const unsupportedOption=document.createElement("option");unsupportedOption.value=predicate.type;unsupportedOption.textContent=predicate.type==="os"?"Operating system":predicate.type;typeSel.appendChild(unsupportedOption);typeSel.value=predicate.type;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;const criteria=predicate.os_criteria;valueInput.value=criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:predicate.value;negateBox.checked=predicate.negate;const operatorWarning=iltOperatorWarning(predicate);row.title=operatorWarning||"Unsupported ILT predicate type — preserved on save, cannot be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent=operatorWarning||"Unsupported — preserved on save";row.appendChild(warn)}
   update();
   const removeButton=row.querySelector("button");
   if(row.dataset.readonly==="true"){

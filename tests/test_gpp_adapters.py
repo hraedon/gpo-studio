@@ -1124,22 +1124,103 @@ def test_application_unknown_attrs_preserved() -> None:
 def test_service_roundtrip() -> None:
     svc = GppService(
         service_name="Spooler",
-        display_name="Print Spooler",
-        startup_type="disabled",
-        service_action="stop",
-        first_failure="restart",
-        second_failure="reboot",
-        reset_period_days=1,
-        restart_delay_minutes=5,
-        recovery_command=r"C:\fix.bat",
+        startup_type="system",
+        service_action="restart_if_required",
+        first_failure="start",
+        second_failure="stop",
+        third_failure="restart_if_required",
+        reset_fail_count_delay_seconds=86400,
+        restart_service_delay_raw=30000000,
+        restart_computer_delay_seconds=60,
+        restart_message="Restarting after service failure",
+        program=r"C:\fix.bat",
+        arguments="--repair",
+        append_arguments="--service Spooler",
         timeout_seconds=60,
         account_name="LocalSystem",
-        action="replace",
+        interact_with_desktop=True,
     )
     data = serialize_gpp_services((svc,), "computer")
     parsed = parse_gpp_services(data)
     assert len(parsed) == 1
     assert parsed[0] == svc
+
+
+def test_service_uses_protocol_recovery_attribute_names() -> None:
+    svc = GppService(
+        service_name="Spooler",
+        restart_computer_delay_seconds=60,
+        restart_message="Restarting after service failure",
+        program=r"C:\fix.bat",
+        arguments="--repair",
+        append_arguments="--service Spooler",
+    )
+    data = serialize_gpp_services((svc,), "computer")
+    assert b'restartComputerDelay="60"' in data
+    assert b'restartMessage="Restarting after service failure"' in data
+    assert b'program="C:\\fix.bat"' in data
+    assert b'args="--repair"' in data
+    assert b'append="--service Spooler"' in data
+    assert b"displayName" not in data
+    assert b"recoveryCommand" not in data
+
+
+def test_service_migrates_legacy_studio_xml_to_protocol_names() -> None:
+    data = serialize_gpp_services((GppService(service_name="LegacySvc"),), "computer")
+    legacy = data.replace(
+        b' timeout="30"',
+        b' timeout="30" resetPeriod="2" restartDelay="5"'
+        b' recoveryCommand="C:\\legacy.exe" displayName="Legacy Service"',
+    )
+    parsed = parse_gpp_services(legacy)
+    assert parsed[0].reset_fail_count_delay_seconds == 172800
+    assert parsed[0].restart_service_delay_raw == 300000000
+    assert parsed[0].program == r"C:\legacy.exe"
+    emitted = serialize_gpp_services(parsed, "computer")
+    assert b'resetFailCountDelay="172800"' in emitted
+    assert b'restartServiceDelay="300000000"' in emitted
+    assert b'program="C:\\legacy.exe"' in emitted
+    assert b"resetPeriod" not in emitted
+    assert b"restartDelay" not in emitted
+    assert b"recoveryCommand" not in emitted
+    assert b"displayName" not in emitted
+
+
+def test_service_uses_native_recovery_names_and_omits_absent_values() -> None:
+    svc = GppService(
+        service_name="Spooler",
+        first_failure="restart",
+        second_failure="restart",
+        reset_fail_count_delay_seconds=86400,
+        restart_service_delay_raw=30000000,
+    )
+    data = serialize_gpp_services((svc,), "computer")
+    assert b'firstFailure="RESTART"' in data
+    assert b'secondFailure="RESTART"' in data
+    assert b'resetFailCountDelay="86400"' in data
+    assert b'restartServiceDelay="30000000"' in data
+    assert b"thirdFailure" not in data
+    assert b"resetPeriod" not in data
+    assert b"restartDelay" not in data
+    assert b'action="' not in data
+
+
+def test_service_without_recovery_omits_recovery_attributes() -> None:
+    data = serialize_gpp_services((GppService(service_name="W32Time"),), "computer")
+    for attribute in (
+        b"firstFailure",
+        b"secondFailure",
+        b"thirdFailure",
+        b"resetFailCountDelay",
+        b"restartServiceDelay",
+    ):
+        assert attribute not in data
+
+
+def test_service_rejects_synthetic_preference_action() -> None:
+    svc = GppService(service_name="Spooler", action="replace")
+    with pytest.raises(GppError, match="no native Create/Delete/Replace"):
+        serialize_gpp_services((svc,), "computer")
 
 
 def test_service_common_options() -> None:
@@ -1178,8 +1259,10 @@ def test_service_startup_type_codes() -> None:
     """
     for startup, code in [
         ("automatic", "AUTOMATIC"),
+        ("boot", "BOOT"),
         ("manual", "MANUAL"),
         ("disabled", "DISABLED"),
+        ("system", "SYSTEM"),
         ("no_change", "NOCHANGE"),
     ]:
         svc = GppService(service_name="S", startup_type=startup)  # type: ignore[arg-type]
@@ -1187,6 +1270,42 @@ def test_service_startup_type_codes() -> None:
         assert f'startupType="{code}"'.encode() in data
         parsed = parse_gpp_services(data)
         assert parsed[0].startup_type == startup
+
+
+@pytest.mark.parametrize(
+    ("action", "code"),
+    [
+        ("start", "START"),
+        ("stop", "STOP"),
+        ("restart", "RESTART"),
+        ("restart_if_required", "RESTART_IF_REQUIRED"),
+        ("no_change", "NOCHANGE"),
+    ],
+)
+def test_service_action_codes(action: str, code: str) -> None:
+    svc = GppService(service_name="S", service_action=action)  # type: ignore[arg-type]
+    data = serialize_gpp_services((svc,), "computer")
+    assert f'serviceAction="{code}"'.encode() in data
+    assert parse_gpp_services(data)[0].service_action == action
+
+
+@pytest.mark.parametrize(
+    ("action", "code"),
+    [
+        ("start", "START"),
+        ("stop", "STOP"),
+        ("restart", "RESTART"),
+        ("none", "NOACTION"),
+        ("restart_if_required", "RESTART_IF_REQUIRED"),
+        ("reboot", "REBOOT"),
+        ("run_command", "RUNCOMMAND"),
+    ],
+)
+def test_service_failure_action_codes(action: str, code: str) -> None:
+    svc = GppService(service_name="S", first_failure=action)  # type: ignore[arg-type]
+    data = serialize_gpp_services((svc,), "computer")
+    assert f'firstFailure="{code}"'.encode() in data
+    assert parse_gpp_services(data)[0].first_failure == action
 
 
 def test_service_startup_numeric_codes_still_parse() -> None:

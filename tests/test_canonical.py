@@ -27,7 +27,7 @@ from gpo_studio.gpp import (
     GppRegistryValue,
 )
 from gpo_studio.gpp_adapters import GppEnvironment
-from gpo_studio.ilt import IltFilter, IltPredicate
+from gpo_studio.ilt import IltFilter, IltOsCriteria, IltPredicate
 from gpo_studio.model import (
     GPO,
     CseFileEntry,
@@ -941,6 +941,39 @@ def test_policy_hash_changes_on_ilt_unknown_attrs() -> None:
     assert policy_semantic_sha256(gpo_without) != policy_semantic_sha256(gpo_with)
 
 
+def test_policy_hash_changes_on_ilt_os_criteria() -> None:
+    base = GPO(guid="g-os-001", name="OS criteria test")
+
+    def with_version(version: str) -> GPO:
+        return replace(
+            base,
+            gpp_collections=(
+                GppCollection(
+                    scope="computer",
+                    groups=(
+                        GppGroup(
+                            name="G1",
+                            ilt_filter=IltFilter(
+                                items=(
+                                    IltPredicate(
+                                        type="os",
+                                        os_criteria=IltOsCriteria(
+                                            os_class="NT", version=version
+                                        ),
+                                    ),
+                                )
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    assert policy_semantic_sha256(
+        with_version("WINTHRESHOLD")
+    ) != policy_semantic_sha256(with_version("WINTHRESHOLDSRV"))
+
+
 def test_policy_hash_changes_on_ilt_interleaving_order() -> None:
     base = GPO(guid="g-order-001", name="Interleaving test")
     gpo_a = replace(base, gpp_collections=(
@@ -962,6 +995,8 @@ def test_policy_hash_changes_on_ilt_interleaving_order() -> None:
         )),
     ))
     assert policy_semantic_sha256(gpo_a) != policy_semantic_sha256(gpo_b)
+
+
 def test_policy_hash_stable_on_domain_case() -> None:
     gpo_a = GPO(
         guid="g-case-002",

@@ -50,7 +50,13 @@ class WriterConformanceError(ValueError):
 #: GPP families Studio can emit into a native backup container.  Kept in sync
 #: with ``_GPP_EXTENSION_PROFILES`` in :mod:`gpo_studio.export`; a family absent
 #: here is blocked at export rather than guessed at.
-NATIVE_GPP_FAMILIES: tuple[str, ...] = ("drives", "groups", "local_users", "scheduled_tasks")
+NATIVE_GPP_FAMILIES: tuple[str, ...] = (
+    "drives",
+    "groups",
+    "local_users",
+    "scheduled_tasks",
+    "services",
+)
 
 DifferenceKind = Literal["missing", "unexpected", "changed"]
 
@@ -172,11 +178,35 @@ def _scheduled_task(item: Any) -> dict[str, object]:
     }
 
 
+def _service(item: Any) -> dict[str, object]:
+    return {
+        "service_name": item.service_name,
+        "startup_type": item.startup_type,
+        "service_action": item.service_action,
+        "first_failure": item.first_failure,
+        "second_failure": item.second_failure,
+        "third_failure": item.third_failure,
+        "reset_fail_count_delay_seconds": item.reset_fail_count_delay_seconds,
+        "restart_service_delay_raw": item.restart_service_delay_raw,
+        "restart_computer_delay_seconds": item.restart_computer_delay_seconds,
+        "restart_message": item.restart_message,
+        "program": item.program,
+        "arguments": item.arguments,
+        "append_arguments": item.append_arguments,
+        "timeout_seconds": item.timeout_seconds,
+        "account_name": item.account_name,
+        "interact_with_desktop": item.interact_with_desktop,
+        "common": _common(item),
+        "ilt": _ilt(item),
+    }
+
+
 _FAMILY_SUMMARIZERS: dict[str, tuple[str, Any]] = {
     "drives": ("drives", _drive),
     "groups": ("groups", _group),
     "local_users": ("local_users", _local_user),
     "scheduled_tasks": ("scheduled_tasks", _scheduled_task),
+    "services": ("services", _service),
 }
 
 
@@ -187,7 +217,7 @@ def _sort_key(family: str, entry: dict[str, object]) -> str:
     order within a GPP file has no policy meaning for these families, so the
     comparison is order-insensitive.
     """
-    for field_name in ("letter", "name", "user_name"):
+    for field_name in ("letter", "name", "user_name", "service_name"):
         value = entry.get(field_name)
         if isinstance(value, str) and value:
             return value.casefold()
@@ -288,6 +318,7 @@ _REPORT_ROOT_TO_GPP_FILE: dict[str, tuple[str, str]] = {
     "DriveMapSettings": ("Drives", "Drives/Drives.xml"),
     "LocalUsersAndGroups": ("Groups", "Groups/Groups.xml"),
     "ScheduledTasks": ("ScheduledTasks", "ScheduledTasks/ScheduledTasks.xml"),
+    "NTServices": ("NTServices", "Services/Services.xml"),
 }
 
 #: Report-only bookkeeping GPMC adds that has no on-disk counterpart.

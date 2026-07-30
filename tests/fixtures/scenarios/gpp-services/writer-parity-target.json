@@ -3,8 +3,7 @@
   "scenario_id": "writer-parity-target",
   "family": "gpp-services",
   "title": "WI-022 remediation target: the exact wire shape Studio's services writer must emit",
-  "readiness": "blocked",
-  "blocked_reason": "services is outside writer_conformance.NATIVE_GPP_FAMILIES, so the WP-1B lane cannot carry a services candidate yet; extending the lane is part of WI-022. The scenario is executable the moment the lane carries the family.",
+  "readiness": "ready",
   "work_items": ["WI-022"],
   "provenance": {
     "tier": "native-observation",
@@ -63,7 +62,7 @@
           "resetFailCountDelay": "172800",
           "restartServiceDelay": "120000000"
         },
-        "omitted_attrs": ["thirdFailure", "displayName", "accountName", "recoveryCommand"],
+        "omitted_attrs": ["thirdFailure", "accountName", "restartComputerDelay", "restartMessage", "program", "args", "append"],
         "must_not_contain_attrs": ["resetPeriod", "restartDelay"]
       },
       {
@@ -74,7 +73,7 @@
           "serviceAction": "NOCHANGE",
           "timeout": "30"
         },
-        "omitted_attrs": ["firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay", "displayName", "accountName", "recoveryCommand"],
+        "omitted_attrs": ["firstFailure", "secondFailure", "thirdFailure", "resetFailCountDelay", "restartServiceDelay", "accountName", "restartComputerDelay", "restartMessage", "program", "args", "append"],
         "must_not_contain_attrs": ["resetPeriod", "restartDelay"]
       }
     ],

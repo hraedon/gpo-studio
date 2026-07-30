@@ -1643,6 +1643,24 @@ def _adapter_item_from_dict(
     adapter_cls: type,
 ) -> Any:
     """Reconstruct a low-artifact adapter item from a dict."""
+    if adapter_cls.__name__ == "GppService":
+        item_data = dict(item_data)
+        if "program" not in item_data and "recovery_command" in item_data:
+            item_data["program"] = item_data["recovery_command"]
+        if (
+            "reset_fail_count_delay_seconds" not in item_data
+            and "reset_period_days" in item_data
+        ):
+            item_data["reset_fail_count_delay_seconds"] = (
+                int(item_data["reset_period_days"]) * 86400
+            )
+        if (
+            "restart_service_delay_raw" not in item_data
+            and "restart_delay_minutes" in item_data
+        ):
+            item_data["restart_service_delay_raw"] = (
+                int(item_data["restart_delay_minutes"]) * 60_000_000
+            )
     kwargs: dict[str, Any] = {}
     for f in fields(adapter_cls):
         if f.name == "common":
