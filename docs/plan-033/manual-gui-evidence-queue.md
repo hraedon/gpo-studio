@@ -103,5 +103,6 @@ automated accessibility coverage are also automated.
   clean tree. Certified run `wp1b-writer-20260730151953-6878` passed all seven
   candidates under the pre-capture Services semantics; the earlier dirty-tree
   exploratory run was not promoted.
-- [ ] Commit the WI-024 capture-backed correction and rerun WP-1B from that
-  clean source before recertifying Services.
+- [x] Commit the WI-024 capture-backed correction as `716f43c` and rerun WP-1B
+  from that clean source. Certified run `wp1b-writer-20260730164352-5286`
+  passed all seven candidates and recertified Services writer conformance.

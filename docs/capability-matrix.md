@@ -93,12 +93,12 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 > the Users item kinds): each was imported with `Import-GPO`, rendered by GPMC
 > as the correct typed item, and re-exported by `Backup-GPO` with no semantic
 > difference from the authoring model.
-> Plan 033 WP-1B previously passed GPP **Services writer conformance** through
+> Plan 033 WP-1B certifies GPP **Services writer conformance** through
 > `Import-GPO`, GPMC's `ServiceSettings` report rendering, and `Backup-GPO`
-> semantic comparison. A later manual GPMC capture invalidated that run's delay
-> semantics; WI-024 keeps Services unverified until the corrected candidate
-> passes a clean-source rerun. This is not endpoint application evidence and
-> does not make Services browser/API-authorable.
+> semantic comparison. After WI-024 corrected the capture-invalidated delay
+> semantics, clean-source run `wp1b-writer-20260730164352-5286` passed the
+> isolated and mixed candidates from commit `716f43c`. This is not endpoint
+> application evidence and does not make Services browser/API-authorable.
 >
 > **GPP Scheduled Tasks is explicitly NOT promoted as a family.** Plan 033
 > endpoint phase 3 proves the corrected scalar-authored daily Exec `TaskV2`

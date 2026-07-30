@@ -46,7 +46,7 @@ keeps the corpus green.
 |---|---|---|---|
 | gpp-services | native-recovery-units | ready | — |
 | gpp-services | reader-no-silent-drop | ready | — |
-| gpp-services | writer-parity-target | ready | corrected target awaiting a clean WP-1B rerun under WI-024 |
+| gpp-services | writer-parity-target | ready | certified by corrected WP-1B run `wp1b-writer-20260730164352-5286` |
 | security-template | services-area, regkeys-filesecurity, group-membership, codec-edge-cases | blocked | member-ws2025-disposable qualification (open WP-3 PR-19 follow-up) |
 | rsop-topology | lsdou-precedence, disabled-block-enforced, security-filtering, wmi-loopback-slowlink | blocked | client-win11 qualification |
 | ilt-os | server-10x-collision, edition-union-expansion | ready | — |
@@ -78,11 +78,12 @@ The map is enforced by the loader and pinned by
    until a lane genuinely invokes it.
 4. **services in the writer lane**: WI-022 added Services to
    `writer_conformance.NATIVE_GPP_FAMILIES` and the WP-1B candidate set. The
-   isolated and mixed candidates passed the clean-source Windows run
+   initial isolated and mixed candidates passed clean-source Windows run
    `wp1b-writer-20260730151953-6878`, but the later manual capture invalidated
-   that run's delay semantics and opened WI-024. The corrected target requires
-   a new clean-source run before Services is recertified; this lane proves GPMC
-   writer conformance, not endpoint application.
+   that run's delay semantics and opened WI-024. Corrected clean-source run
+   `wp1b-writer-20260730164352-5286` passed all seven candidates from commit
+   `716f43c` and recertified Services. This lane proves GPMC writer conformance,
+   not endpoint application.
 
 ## Per-family payload contract
 
@@ -145,7 +146,7 @@ type error), a directory, and a section in this file.
 3. **Attribute omission rules (WI-024, corrected in code).** The service model
    distinguishes absent recovery values, omits `serviceAction` for No change,
    and omits recovery attributes GPMC did not write. The corrected writer-parity
-   scenario awaits a clean WP-1B Windows rerun.
+   scenario passed clean WP-1B run `wp1b-writer-20260730164352-5286`.
 4. **Services recovery vocabulary and fields (WI-024, capture-settled).** GPMC
    writes Run a Program as `RUNCMD`, Restart the Computer as `REBOOT`, the
    command as `program`/`args`, the append-failure-count checkbox as `append=1`,
