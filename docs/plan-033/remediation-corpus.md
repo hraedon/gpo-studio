@@ -46,7 +46,7 @@ keeps the corpus green.
 |---|---|---|---|
 | gpp-services | native-recovery-units | ready | — |
 | gpp-services | reader-no-silent-drop | ready | — |
-| gpp-services | writer-parity-target | ready | writer lane is qualified and now carries a Services candidate; Windows rerun pending |
+| gpp-services | writer-parity-target | ready | certified by WP-1B run `wp1b-writer-20260730151953-6878` |
 | security-template | services-area, regkeys-filesecurity, group-membership, codec-edge-cases | blocked | member-ws2025-disposable qualification (open WP-3 PR-19 follow-up) |
 | rsop-topology | lsdou-precedence, disabled-block-enforced, security-filtering, wmi-loopback-slowlink | blocked | client-win11 qualification |
 | ilt-os | server-10x-collision, edition-union-expansion | ready | — |
@@ -78,8 +78,9 @@ The map is enforced by the loader and pinned by
    until a lane genuinely invokes it.
 4. **services in the writer lane**: WI-022 added Services to
    `writer_conformance.NATIVE_GPP_FAMILIES` and the WP-1B candidate set. The
-   scenario is executable, but its new candidate has not yet been run on
-   Windows and therefore carries no conformance verdict.
+   isolated and mixed candidates passed the clean-source Windows run
+   `wp1b-writer-20260730151953-6878`; this is GPMC writer-conformance evidence,
+   not endpoint-application evidence.
 
 ## Per-family payload contract
 
@@ -144,7 +145,7 @@ type error), a directory, and a section in this file.
 3. **Attribute omission rules (WI-022, corrected in code).** The service model
    distinguishes absent recovery values and the serializer omits Spooler's
    `thirdFailure` and W32Time's whole recovery set as GPMC does. The
-   writer-parity scenario remains the Windows execution target.
+   writer-parity scenario is certified by the WP-1B Windows writer lane.
 4. **Protocol-only Services shape (WI-022, implemented but not Windows-
    verified).** MS-GPPREF defines `BOOT`, `SYSTEM`, and
    `RESTART_IF_REQUIRED` plus restart-computer, message, program, argument,

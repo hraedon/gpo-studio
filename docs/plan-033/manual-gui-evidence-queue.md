@@ -86,8 +86,7 @@ automated accessibility coverage are also automated.
 
 ## Workflow gates
 
-- [ ] Human-review WI-022 and explicitly accept or reject its adversarial pass.
-- [ ] Explicitly authorize a git commit after WI-023 finishes adversarial
-  review. The clean commit is required before the automated WP-1B run can
-  produce a certifiable evidence manifest; the dirty-tree exploratory run is
-  intentionally not promoted.
+- [x] Human-review and accept WI-022 and WI-023 after their adversarial passes.
+- [x] Authorize and create source commit `b4b9049`, then rerun WP-1B from the
+  clean tree. Certified run `wp1b-writer-20260730151953-6878` passed all seven
+  candidates; the earlier dirty-tree exploratory run was not promoted.

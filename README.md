@@ -68,10 +68,10 @@ accepted minor accessibility observation are recorded in
 The list above is the 1.0 contract and it is unchanged. Development since 1.0
 has added scope of management, delegation, AD discovery, and full GPP adapter
 coverage as live surfaces, plus a set of Plans 025–032 domain layers that are
-implemented but not yet reachable from the API or browser application. None of
-the post-1.0 work is Windows-verified yet; that evidence is produced by
-[Plan 033](plans/033-windows-external-oracle-validation.md), where WP-0,
-WP-1A, WP-2, and parts of WP-1B and WP-3 have certified so far. See
+implemented but not yet reachable from the API or browser application. Windows
+verification is capability-specific rather than inherited from implementation;
+[Plan 033](plans/033-windows-external-oracle-validation.md) has certified WP-0,
+WP-1A, WP-2, and measured parts of WP-1B and WP-3 so far. See
 [the capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced)
 for exactly what is and is not reachable.
 

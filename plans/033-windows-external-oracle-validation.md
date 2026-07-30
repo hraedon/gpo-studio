@@ -1,11 +1,12 @@
 # Plan 033 — Windows external-oracle validation and parity evidence
 
 Status: active — WP-0/WP-2 certified; WP-1A genuine GPMC canaries landed;
-WP-1B automated writer lane plus daily Exec TaskV2 and OS-filter endpoint paths
-certified; WP-3 account/audit/user-rights writer tranche certified, with its
-broader corpus and areas plus the WP-1B manual GPMC edit/save leg remaining.
-WI-022 Services remediation and a seventh WP-1B candidate are implemented but
-not Windows-verified; the existing six-candidate certification remains current.
+WP-1B automated writer lane (all seven candidates, including Services) plus
+daily Exec TaskV2 and OS-filter endpoint paths certified; WP-3
+account/audit/user-rights writer tranche certified, with its broader corpus and
+areas plus the WP-1B manual GPMC edit/save leg remaining. Services is certified
+for GPMC writer conformance, not endpoint application; its manual recovery-field
+capture remains queued.
 The remediation scenario corpus for the Plans 025–032 divergence landed
 2026-07-29 (13 scenarios across gpp-services, security-template,
 rsop-topology, and ilt-os, plus the machine-readable test-platform registry —
@@ -250,31 +251,32 @@ design):**
 
 ### WP-1B — Studio-origin writer conformance
 
-Implementation status (2026-07-30): **automated writer lane certified for its
-original six candidates; WI-018 and WI-021 are fixed and endpoint-verified.
-WI-022 added a seventh Services candidate that has not yet run on Windows.**
+Implementation status (2026-07-30): **automated writer lane certified; all
+seven candidates pass. WI-018 and WI-021 are fixed and endpoint-verified.
+WI-022 Services is GPMC writer-conformance certified, not endpoint-applied.**
 
 The candidate set is one Studio-authored native backup per isolated family
 (`registry-both` as the WP-2 control, `drives-user`, `groups-machine`,
 `localusers-machine`, `scheduledtasks-machine`, `services-machine`) plus
 `mixed-all`. Each is
 imported into its own disposable GPO, so no adapter's result can be hidden by
-another's. The certified run is `wp1b-writer-20260727200636-4528`, source
-commit `8d9872e`, clean tree, against Windows Server 2025 build 26100 /
+another's. The certified run is `wp1b-writer-20260730151953-6878`, source
+commit `b4b9049`, clean tree, against Windows Server 2025 build 26100 /
 GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
 `docs/plan-033/wp1b-evidence/verification.json`.
 
 Results:
 
 - **pass** — `registry-both`, `drives-user`, `groups-machine`,
-  `localusers-machine`, `scheduledtasks-machine`, and `mixed-all`. Each cleared
-  `Import-GPO -WhatIf` without creating the target, real `Import-GPO`, GPMC
-  report semantic equality, `Backup-GPO` re-export semantic equality, native
-  shape comparison, and strict cleanup re-query.
-- **not yet run** — `services-machine`; its implementation and local
-  report-vs-backup controls landed with WI-022, but it cannot inherit the prior
-  six-candidate verdict.
+  `localusers-machine`, `scheduledtasks-machine`, `services-machine`, and
+  `mixed-all`. Each cleared `Import-GPO -WhatIf` without creating the target,
+  real `Import-GPO`, GPMC report semantic equality, `Backup-GPO` re-export
+  semantic equality, native shape comparison, and strict cleanup re-query.
+  GPMC declared `ServiceSettings` for both the isolated Services candidate and
+  the mixed candidate.
 
+The prior six-candidate certified run (`wp1b-writer-20260727200636-4528`, source
+`8d9872e`) remains in git history and is superseded by the seven-candidate run.
 The initial run (`wp1b-writer-20260727143434-7491`, source `83fe9b8`) remains in
 git history as the evidence that exposed WP-1B-1: its two scheduled-task
 candidates failed only the native-shape gate. The current verdict supersedes it

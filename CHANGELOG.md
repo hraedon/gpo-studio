@@ -77,7 +77,8 @@ Current version: `1.0.0`.
   It also covers the complete MS-GPPREF startup, service-action, and failure-
   action vocabularies plus the protocol-defined restart/program fields, GPMC
   report comparison, and a new WP-1B Services candidate. This is implemented
-  and unit-verified, not yet Windows-verified or operator-surfaced.
+  and certified for GPMC writer conformance on Windows Server 2025; it is not
+  endpoint-applied or authorable through the browser/API.
 - WI-023 surfaces the modern `FilterOs` family-token limitation as a preflight
   warning and in Studio bundle manifests: `WINTHRESHOLDSRV` cannot distinguish
   Server 2016/2019/2022/2025, and `WINTHRESHOLD` cannot distinguish Windows 10
@@ -92,8 +93,8 @@ Current version: `1.0.0`.
   allowlist: Drive Maps, Local Users and Groups, Scheduled Tasks, and Services
   are emitted; GPP Registry and uncaptured families must use the Studio bundle
   until their native extension metadata is independently verified. Services
-  extension metadata is capture-backed, but its Studio-origin candidate still
-  awaits the WP-1B Windows rerun noted above.
+  extension metadata is capture-backed and its Studio-origin candidate passes
+  `Import-GPO`, GPMC report comparison, and `Backup-GPO` semantic comparison.
 - Plan 021 WP-1: authoritative GPMC capability inventory
   (`docs/plan-021/capability-inventory.md`) — a versioned, pre-gate matrix of
   GPMC lifecycle/scope/report surfaces, principal-bearing fields, every in-box
