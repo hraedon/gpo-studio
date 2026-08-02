@@ -137,10 +137,13 @@ try {
     $result = Invoke-Command -Session $session `
         -ArgumentList $Action, $Guest, $NetBiosName, $guestUser,
                       $env:GUEST_BOOTSTRAP_PASSWORD, $Command, $RemotePath,
-                      $HostStagingRoot, $stamp, $TimeoutSeconds, $LocalPath `
+                      $HostStagingRoot, $stamp, $TimeoutSeconds `
         -ScriptBlock {
+        # No -LocalPath here on purpose: it names a path on the controller,
+        # which this block cannot see. Both copy legs that touch it run in the
+        # controller's scope.
         param($action, $guest, $netBios, $guestUser, $guestPassword, $command,
-              $remotePath, $hostStagingRoot, $stamp, $timeoutSeconds, $localPath)
+              $remotePath, $hostStagingRoot, $stamp, $timeoutSeconds)
         $ErrorActionPreference = 'Stop'
         Set-StrictMode -Version Latest
         Import-Module Hyper-V

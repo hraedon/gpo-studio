@@ -254,7 +254,20 @@ try {
     } catch { $result.cleanup.errors += "remove-tasks: $($_.Exception.Message)" }
 
     # 5. Settle policy back to the pre-run state.
-    try { & gpupdate.exe /force /target:computer /wait:120 2>&1 | Out-Null } catch { }
+    # Every other cleanup step records its failure into cleanup.errors; this one
+    # swallowed both kinds. gpupdate.exe is a native executable, so a failed
+    # settle sets $LASTEXITCODE and does not throw -- the catch could never have
+    # fired for the failure that actually happens. A silent failure here leaves
+    # the endpoint still carrying the run's policy while the run reports a clean
+    # cleanup, which is exactly the kind of claim this harness exists to refuse.
+    try {
+        & gpupdate.exe /force /target:computer /wait:120 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $result.cleanup.errors += "gpupdate-settle: exited $LASTEXITCODE"
+        }
+    } catch {
+        $result.cleanup.errors += "gpupdate-settle: $($_.Exception.Message)"
+    }
 
     $result | ConvertTo-Json -Depth 20 |
         Set-Content -Path (Join-Path $workDir 'result.json') -Encoding UTF8
