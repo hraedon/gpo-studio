@@ -273,6 +273,67 @@ jobs:
       - name: Test identifier gate fail-closed behavior
         run: pytest tests/test_identifier_gate.py -q
 
+  powershell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        # Pinned for the same reason the Python tools are: an analyzer that
+        # resolves its own version at run time turns unchanged code red.
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+      - name: Parse every script
+        shell: pwsh
+        # Cheap, and catches what an analyzer run cannot: a file that does not
+        # parse produces no findings at all, which reads identically to a clean
+        # file if the analyzer is the only gate.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $failed = $false
+          # Repo-wide rather than scripts/-only, so a .ps1 added elsewhere
+          # cannot escape the gate -- but vendored trees are not ours to fix,
+          # and including them would make a local run disagree with CI, whose
+          # checkout has no node_modules.
+          Get-ChildItem -Recurse -Filter *.ps1 |
+            Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' } |
+            ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              $failed = $true
+              Write-Output "::error file=$($_.Name)::$($errors.Count) parse error(s)"
+              $errors | ForEach-Object { Write-Output "  line $($_.Extent.StartLineNumber): $($_.Message)" }
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Output "All scripts parse."
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $targets = @(
+            Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 |
+              Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' } |
+              ForEach-Object { $_.FullName }
+          )
+          $findings = @($targets | ForEach-Object {
+            Invoke-ScriptAnalyzer -Path $_ -Settings ./PSScriptAnalyzerSettings.psd1
+          })
+          if ($findings) {
+            $findings | ForEach-Object {
+              Write-Output "::error file=$($_.ScriptName),line=$($_.Line)::[$($_.RuleName)] $($_.Message)"
+            }
+            Write-Output "$($findings.Count) finding(s)."
+            exit 1
+          }
+          Write-Output "PSScriptAnalyzer: no findings."
+
   property-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
