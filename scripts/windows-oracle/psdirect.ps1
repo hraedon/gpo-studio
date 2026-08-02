@@ -18,11 +18,28 @@
     filesystem, so `Copy-Item -ToSession` runs twice with a staging directory
     between.
 
-    This does NOT replace the scheduled-task launcher in remote-run.ps1.
-    PowerShell Direct has the same double-hop limitation SSH does -- it cannot
-    delegate credentials to AD -- so GroupPolicy cmdlets still need a real logon
-    token from a one-shot scheduled task. This script gets files and commands to
-    the guest; remote-run.ps1 still decides who runs them.
+    A claim this file made until it was tested: that PowerShell Direct has the
+    same double-hop limitation SSH does and therefore still needs the
+    scheduled-task launcher in remote-run.ps1. That was reasoning by analogy
+    from the SSH transport, and it is WRONG. Measured on the estate as the
+    brokered domain account, over this transport and nothing else:
+
+        New-GPO           succeeded (AD write)
+        Backup-GPO        succeeded
+        \\<domain>\SYSVOL\...  enumerated (network hop to the DC's file share)
+        Remove-GPO        succeeded, absence confirmed by re-query
+
+    The SYSVOL enumeration is the decisive one -- it is exactly what a
+    non-delegable token cannot do. SSH's non-interactive session authenticates
+    the caller with a network logon that leaves no usable secret behind;
+    PowerShell Direct carries the credential to the guest through the
+    hypervisor, where it becomes a logon that can authenticate outward.
+
+    So the scheduled-task launcher is not required for the operation set WP-1B
+    performs. Do not generalise that further than it was measured: a lane that
+    needs something other than AD reads/writes, SYSVOL access, and local file
+    work should establish its own evidence rather than inherit this one. The
+    same over-generalisation is what put the wrong claim here to begin with.
 
     Actions:
         exec   -Command <ps>                     run a command in the guest

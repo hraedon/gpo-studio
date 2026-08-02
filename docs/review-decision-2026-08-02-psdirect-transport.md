@@ -29,6 +29,36 @@ The standing conditions on this, which are what make the ruling reusable:
   from `api.py`, and the static safety gate's reachability check is what keeps
   that true.
 
+## 1a. Correction: the double-hop claim was wrong
+
+Recorded here because it was asserted in the reviewed PR, and a decision record
+that leaves a false premise standing is worse than no record.
+
+PR #26 stated -- in the script header, the commit message, and the PR body --
+that PowerShell Direct has the same double-hop limitation SSH does, and that
+GroupPolicy cmdlets therefore still need the scheduled-task launcher. That was
+inferred from the SSH transport's behaviour and never tested. It is false.
+
+Measured on the estate as the brokered domain account, over this transport
+only: `New-GPO` succeeded, `Backup-GPO` succeeded, `\\<domain>\SYSVOL\...`
+enumerated, and `Remove-GPO` succeeded with absence confirmed by re-query. The
+SYSVOL enumeration settles it, being exactly what a non-delegable token cannot
+do. SSH's non-interactive session authenticates with a network logon that
+leaves no usable secret behind; PowerShell Direct carries the credential to the
+guest through the hypervisor, where it becomes a logon that can authenticate
+outward.
+
+Consequence: the scheduled-task launcher is **not** required for the operation
+set WP-1B performs, and a lane re-pointed at the estate can drop that layer.
+That also removes the `schtasks /RP` password argument, which the lane scripts
+themselves describe as transient but decodable by a privileged observer -- so
+the simpler path is also the safer one.
+
+The scope of this measurement is AD reads and writes, SYSVOL access, and local
+file work. A lane needing anything else establishes its own evidence.
+Inheriting a conclusion beyond what was measured is what produced the wrong
+claim in the first place.
+
 ## 2. There is no automated functional test, and that is the right call
 
 `psdirect.ps1` has no unit test. The operator's ruling: this is inherent to the
