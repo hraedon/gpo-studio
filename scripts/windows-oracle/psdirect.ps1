@@ -48,6 +48,14 @@
     promotion as a domain account under its original short name. It is
     NetBIOS-qualified here because the down-level form is what the guest
     accepts before and after the join.
+
+    -Action exec runs arbitrary PowerShell in the guest, by design and by
+    review: it introduces no trust the SSH encoded-command launcher did not
+    already carry, and the lane scripts are its only callers. That ruling comes
+    with standing conditions -- callers stay in-repo, the estate stays
+    disposable, and this never becomes a publication path -- recorded in
+    docs/review-decision-2026-08-02-psdirect-transport.md. Read it before
+    letting -Command carry anything an operator did not author.
 #>
 [CmdletBinding()]
 param(
