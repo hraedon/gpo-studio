@@ -5,7 +5,8 @@ The gate has two complementary checks:
 2. Secret-driven: scan tracked text files for forbidden identifiers.
 
 This test exercises the pure-Python scanning logic (no git dependency)
-to verify that configured identifiers are caught and clean files pass.
+to verify that configured identifiers are caught and clean files pass, and
+the --strict mode that makes CI fail closed when the denylist is missing.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+
+import pytest
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPT_PATH = _PROJECT_ROOT / "scripts" / "check_committed_identifiers.py"
@@ -129,3 +132,85 @@ def test_violation_dataclass_fields():
     )
     assert v.identifier == "test-host"
     assert v.line_number == 42
+
+
+def test_resolve_identifiers_strict_returns_empty_frozenset_when_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--strict fails closed: a missing denylist is an empty frozenset, not None.
+
+    CI passes --strict so a misconfigured secret cannot silently disable the
+    hard gate. The caller treats an empty frozenset as "refuse", None as "no-op".
+    """
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
+    result = _mod._resolve_identifiers(strict=True)
+    assert result is not None
+    assert result == frozenset()
+
+
+def test_resolve_identifiers_non_strict_returns_none_when_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Default mode fail-opens: a missing denylist is None, so the caller no-ops.
+
+    A fresh clone or fork without the secret must not be bricked.
+    """
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
+    result = _mod._resolve_identifiers(strict=False)
+    assert result is None
+
+
+def test_resolve_identifiers_reads_denylist_file_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The script resolves the denylist from a file when the env var is unset.
+
+    Mirrors githooks/pre-commit so direct invocation (CI, ad-hoc) finds the
+    same denylist the hook does.
+    """
+    denylist = tmp_path / "denylist"
+    denylist.write_text("forbidden-host another-host\n# comment\n")
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", (denylist,))
+    result = _mod._resolve_identifiers(strict=False)
+    assert result is not None
+    assert "forbidden-host" in result
+    assert "another-host" in result
+
+
+def test_resolve_identifiers_env_var_wins_over_file_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The env var takes precedence over the file fallback."""
+    denylist = tmp_path / "denylist"
+    denylist.write_text("file-only-host")
+    monkeypatch.setenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", "env-host")
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", (denylist,))
+    result = _mod._resolve_identifiers(strict=False)
+    assert result is not None
+    assert "env-host" in result
+    assert "file-only-host" not in result
+
+
+def test_main_strict_exits_nonzero_without_denylist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CI mode: --strict with no denylist fails the run rather than no-op'ing."""
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
+    monkeypatch.setattr(_mod, "collect_tracked_paths", lambda: [])
+    rc = _mod.main(["--strict"])
+    assert rc == 1
+
+
+def test_main_non_strict_exits_zero_without_denylist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Default mode: no denylist no-ops (exit 0), so a fresh clone is not bricked."""
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
+    monkeypatch.setattr(_mod, "collect_tracked_paths", lambda: [])
+    rc = _mod.main([])
+    assert rc == 0

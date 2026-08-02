@@ -24,7 +24,24 @@ Two complementary checks:
    undetected in sixteen repositories — eight of them public — because of that
    blind spot. Any denylist entry containing a space must stay quoted.
 
+The denylist is resolved, in order, from:
+
+1. ``$GPO_STUDIO_FORBIDDEN_IDENTIFIERS`` (already exported, e.g. CI);
+2. ``<repo>/.identifiers-denylist.local`` (gitignored, per-repo);
+3. ``~/.config/agent-suite/forbidden-identifiers`` (shared canonical set).
+
+This mirrors ``githooks/pre-commit`` so direct invocation (CI, or a developer
+running the script by hand) finds the same denylist the hook does. The hook
+remains the canonical resolver; this is a fallback for when the script is run
+without it.
+
+**Fail-open by default.** With no denylist the gate exits 0, so a fresh clone
+or a fork without the secret is not bricked. CI passes ``--strict`` to invert
+that: a CI run whose denylist secret is missing or empty fails closed, because
+"CI is the hard gate" is defeated the moment the hard gate silently no-ops.
+
 Run locally: python scripts/check_committed_identifiers.py
+Run in CI:    python scripts/check_committed_identifiers.py --strict
 """
 
 from __future__ import annotations
@@ -55,6 +72,15 @@ _SKIP_DIRS = frozenset({".venv"})
 # guard matches the first path component so a legitimate nested code dir named
 # ``samples`` (e.g. ``tests/samples/``) is not a false positive.
 _GUARDED_DIRS = frozenset({"samples"})
+
+# Denylist file fallbacks, searched in order when the env var is unset. These
+# mirror githooks/pre-commit so the script finds the same denylist whether it
+# is run by the hook or directly. The hook remains the canonical resolver; this
+# is a fallback for direct invocation (CI, ad-hoc runs).
+_DENYLIST_FILE_CANDIDATES: tuple[Path, ...] = (
+    Path(".identifiers-denylist.local"),
+    Path.home() / ".config" / "agent-suite" / "forbidden-identifiers",
+)
 
 
 @dataclass(frozen=True)
@@ -366,25 +392,65 @@ def leaked_tracked_files(paths: list[Path], guarded: frozenset[str]) -> list[Pat
     return [p for p in paths if p.parts and p.parts[0] in guarded]
 
 
-def _resolve_identifiers() -> frozenset[str] | None:
+def _load_denylist_file(path: Path) -> str:
+    """Read a denylist file, returning its raw contents."""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _resolve_denylist_raw() -> str:
+    """Resolve the raw denylist string from the env var or file fallbacks.
+
+    Mirrors githooks/pre-commit: the env var wins; otherwise the per-repo
+    gitignored file and the shared canonical file are tried in order. Returns
+    an empty string when no source is configured, which the caller treats as
+    "no denylist" — fail-open by default, fail-closed under --strict.
+    """
+    raw = os.environ.get("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", "")
+    if raw.strip():
+        return raw
+    for candidate in _DENYLIST_FILE_CANDIDATES:
+        if candidate.is_file():
+            return _load_denylist_file(candidate)
+    return ""
+
+
+def _resolve_identifiers(strict: bool = False) -> frozenset[str] | None:
     """Return the configured denylist, or None if the gate should no-op.
 
     Shared by the message-scanning modes so they honor exactly the same
-    configured/unconfigured semantics as the tracked-tree scan.
+    configured/unconfigured semantics as the tracked-tree scan. When
+    ``strict`` is True (CI), an unresolved denylist returns a sentinel empty
+    frozenset rather than None, so the caller fails closed instead of no-op'ing.
     """
-    raw = os.environ.get("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", "")
+    raw = _resolve_denylist_raw()
     if not raw.strip():
+        if strict:
+            print(
+                "GPO_STUDIO_FORBIDDEN_IDENTIFIERS is unset, empty, and no "
+                "denylist file was found; refusing to run --strict with no "
+                "denylist (CI is the hard gate and must not silently no-op).",
+                file=sys.stderr,
+            )
+            return frozenset()
         # Split so the line still fits at 100 columns after the per-repo env-var
         # substitution: the longest name in the estate is 52 characters, 19 more
         # than the canonical one, which pushed this over the limit in two repos.
         print(
-            "GPO_STUDIO_FORBIDDEN_IDENTIFIERS is empty or unset; "
-            "skipping identifier gate.",
+            "GPO_STUDIO_FORBIDDEN_IDENTIFIERS is empty or unset and no "
+            "denylist file was found; skipping identifier gate.",
             file=sys.stderr,
         )
         return None
     identifiers = parse_identifier_set(raw)
     if not identifiers:
+        if strict:
+            print(
+                "The denylist contained no usable identifiers (minimum length "
+                f"is {MIN_IDENTIFIER_LENGTH} characters); refusing to run "
+                "--strict with an empty denylist.",
+                file=sys.stderr,
+            )
+            return frozenset()
         print(
             "GPO_STUDIO_FORBIDDEN_IDENTIFIERS contained no usable "
             f"identifiers (minimum length is {MIN_IDENTIFIER_LENGTH} "
@@ -408,11 +474,13 @@ def _report_message_violations(label: str, violations: list[Violation]) -> None:
     )
 
 
-def _scan_message_file(path: Path) -> int:
+def _scan_message_file(path: Path, strict: bool = False) -> int:
     """commit-msg hook mode: scan the proposed commit message."""
-    identifiers = _resolve_identifiers()
+    identifiers = _resolve_identifiers(strict=strict)
     if identifiers is None:
         return 0
+    if not identifiers:
+        return 1
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
@@ -427,11 +495,13 @@ def _scan_message_file(path: Path) -> int:
     return 0
 
 
-def _scan_rev_range(rev_range: str) -> int:
+def _scan_rev_range(rev_range: str, strict: bool = False) -> int:
     """pre-push mode: scan every commit message about to be published."""
-    identifiers = _resolve_identifiers()
+    identifiers = _resolve_identifiers(strict=strict)
     if identifiers is None:
         return 0
+    if not identifiers:
+        return 1
     failed = False
     for sha, body in collect_range_messages(rev_range):
         violations = list(scan_text(body, identifiers))
@@ -442,10 +512,11 @@ def _scan_rev_range(rev_range: str) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
+    strict = args.strict
     if args.message_file is not None:
-        return _scan_message_file(Path(args.message_file))
+        return _scan_message_file(Path(args.message_file), strict=strict)
     if args.rev_range is not None:
-        return _scan_rev_range(args.rev_range)
+        return _scan_rev_range(args.rev_range, strict=strict)
 
     paths = collect_staged_paths() if args.staged else collect_tracked_paths()
 
@@ -465,28 +536,13 @@ def _run(args: argparse.Namespace) -> int:
         return 1
 
     # 2. Secret-driven: scan tracked text files (outside guarded dirs) for
-    #    forbidden identifiers. No-op until the secret is configured.
-    raw = os.environ.get("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", "")
-    if not raw.strip():
-        # Split so the line still fits at 100 columns after the per-repo env-var
-        # substitution: the longest name in the estate is 52 characters, 19 more
-        # than the canonical one, which pushed this over the limit in two repos.
-        print(
-            "GPO_STUDIO_FORBIDDEN_IDENTIFIERS is empty or unset; "
-            "skipping identifier gate.",
-            file=sys.stderr,
-        )
+    #    forbidden identifiers. Fail-open by default; --strict (CI) fails closed
+    #    so a misconfigured denylist secret cannot silently disable the hard gate.
+    identifiers = _resolve_identifiers(strict=strict)
+    if identifiers is None:
         return 0
-
-    identifiers = parse_identifier_set(raw)
     if not identifiers:
-        print(
-            "GPO_STUDIO_FORBIDDEN_IDENTIFIERS contained no usable "
-            f"identifiers (minimum length is {MIN_IDENTIFIER_LENGTH} "
-            "characters); skipping gate.",
-            file=sys.stderr,
-        )
-        return 0
+        return 1
 
     scan_paths = [p for p in paths if not any(part in _SKIP_DIRS for part in p.parts)]
     unreadable: list[Path] = []
@@ -518,6 +574,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Scan only staged files (for the pre-commit hook) instead of the "
         "full tracked tree (the CI default).",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail closed when no denylist is configured, instead of no-op'ing. "
+        "CI uses this so a missing or empty denylist secret cannot silently "
+        "disable the hard gate. Local runs omit it so a fresh clone or fork "
+        "without the secret is not bricked.",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(

@@ -3,8 +3,8 @@
 # gpo-studio local identifier gate (project-initiation scaffold).
 #
 # Mirrors the CI `identifier-gate` job so a forbidden work-domain identifier is
-# caught BEFORE it lands in a commit. The CI gate only runs after push, so by the
-# time it flags a token it is already in history; this hook closes that window.
+# caught BEFORE it lands in a commit. The CI gate only runs after push, so by
+# the time it flags a token it is already in history; this hook closes that window.
 #
 # Companion hooks (all installed together): `commit-msg` scans the commit message,
 # `pre-push` checks publication plumbing and messages in the push range.
@@ -18,7 +18,8 @@
 # sixteen repositories, eight of them public, published it. Describe the denylist;
 # never quote it.
 #
-# It is resolved, in order, from:
+# The denylist is resolved by scripts/check_committed_identifiers.py from, in
+# order:
 #   1. $GPO_STUDIO_FORBIDDEN_IDENTIFIERS            (already exported, e.g. CI)
 #   2. <repo>/.identifiers-denylist.local            (gitignored, per-repo)
 #   3. ~/.config/agent-suite/forbidden-identifiers   (shared canonical set)
@@ -26,31 +27,11 @@
 # The shared canonical denylist holds work-domain identifiers only; homelab/lab
 # identifiers are deliberately NOT in it — lab topology is allowed in public
 # repos (docs/publication-review.md). Multi-word entries must be double-quoted.
-# Fail-open if no denylist is found so a fresh clone is not bricked; CI remains
-# the hard gate.
+# The script fail-opens with no denylist so a fresh clone is not bricked; CI
+# passes --strict to fail closed. This hook omits --strict for the same reason.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-
-if [ -z "${GPO_STUDIO_FORBIDDEN_IDENTIFIERS:-}" ]; then
-  for candidate in \
-    "$repo_root/.identifiers-denylist.local" \
-    "$HOME/.config/agent-suite/forbidden-identifiers"; do
-    if [ -f "$candidate" ]; then
-      GPO_STUDIO_FORBIDDEN_IDENTIFIERS="$(cat "$candidate")"
-      export GPO_STUDIO_FORBIDDEN_IDENTIFIERS
-      break
-    fi
-  done
-fi
-
-if [ -z "${GPO_STUDIO_FORBIDDEN_IDENTIFIERS:-}" ]; then
-  echo "gpo-studio pre-commit: identifier gate INACTIVE — no denylist found." >&2
-  echo "  Set \$GPO_STUDIO_FORBIDDEN_IDENTIFIERS, or create .identifiers-denylist.local (gitignored)" >&2
-  echo "  or ~/.config/agent-suite/forbidden-identifiers to enable it. Allowing commit." >&2
-  exit 0
-fi
-
 python_bin="$repo_root/.venv/bin/python"
 [ -x "$python_bin" ] || python_bin="$(command -v python3 || command -v python)"
 
