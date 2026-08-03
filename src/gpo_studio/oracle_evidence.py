@@ -1466,7 +1466,13 @@ def assert_evidence_pack(run_dir: Path, manifest: Mapping[str, object]) -> None:
 # Deployed harness files recorded as hashed input artifacts so a run is bound to
 # the exact scripts and recipe that produced it (and, via git, to the commit).
 # Each entry is (artifact_id, deployed relative path, repository path).
-_HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
+#
+# The set differs by transport, and the difference is the point rather than an
+# inconvenience: over ``psdirect`` there is no privileged launcher to bind,
+# because there is none to deploy.  ``psdirect.ps1`` takes its place in the
+# record -- it runs on the controller, not the guest, but it is just as much
+# part of what produced the run.
+_HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
     (
         "harness-run-evidence",
         "scripts/run-evidence.ps1",
@@ -1478,12 +1484,6 @@ _HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
         "scripts/recipe.json",
         "tests/fixtures/recipes/synthetic-registry-basic.json",
     ),
-    # The privileged launcher the orchestrator deploys and executes on the host.
-    (
-        "harness-remote-run",
-        "scripts/remote-run.ps1",
-        "scripts/windows-oracle/remote-run.ps1",
-    ),
     # The control-plane orchestrator that drives the run.
     (
         "harness-orchestrator",
@@ -1491,6 +1491,29 @@ _HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
         "scripts/windows-oracle/run-windows-oracle.sh",
     ),
 )
+
+_HARNESS_INPUT_FILES: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "ssh": (
+        *_HARNESS_INPUT_FILES_COMMON,
+        # The privileged launcher the orchestrator deploys and executes on the
+        # host, to obtain a logon token SSH's network logon cannot provide.
+        (
+            "harness-remote-run",
+            "scripts/remote-run.ps1",
+            "scripts/windows-oracle/remote-run.ps1",
+        ),
+    ),
+    "psdirect": (
+        *_HARNESS_INPUT_FILES_COMMON,
+        # The transport itself, which reaches the guest through the hypervisor
+        # and needs no launcher.
+        (
+            "harness-psdirect",
+            "orchestrator/psdirect.ps1",
+            "scripts/windows-oracle/psdirect.ps1",
+        ),
+    ),
+}
 _HARNESS_INPUTS_MANIFEST = "harness-inputs.json"
 
 
@@ -1555,10 +1578,22 @@ def build_harness_inputs(
     if not isinstance(deployed, dict):
         raise IntegrityViolation(f"{_HARNESS_INPUTS_MANIFEST}.files must be an object")
 
+    # Which transport carried the run decides which files should be there. The
+    # orchestrator records it at deploy time, alongside the hashes and before
+    # the credential boundary, so the record describes itself rather than
+    # depending on how finalization was invoked. Absent means the run predates
+    # the second transport.
+    transport = inputs.get("transport", "ssh")
+    if transport not in _HARNESS_INPUT_FILES:
+        raise IntegrityViolation(
+            f"{_HARNESS_INPUTS_MANIFEST}.transport is {transport!r}; expected one "
+            f"of {sorted(_HARNESS_INPUT_FILES)}"
+        )
+
     artifacts: list[dict[str, object]] = []
     problems: list[str] = []
     seen: set[str] = set()
-    for artifact_id, relative_path, repo_path in _HARNESS_INPUT_FILES:
+    for artifact_id, relative_path, repo_path in _HARNESS_INPUT_FILES[transport]:
         entry = deployed.get(relative_path)
         if not isinstance(entry, dict):
             problems.append(f"deployed harness input {relative_path!r} is not recorded")

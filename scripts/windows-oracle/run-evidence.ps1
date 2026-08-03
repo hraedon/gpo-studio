@@ -265,7 +265,21 @@ $completedAt = (Get-Date).ToUniversalTime().ToString('o')
 # --- environment fingerprint (real) ----------------------------------------
 $gpModule = Get-Module -ListAvailable GroupPolicy | Select-Object -First 1
 $osInfo = Get-CimInstance Win32_OperatingSystem
-$lgpoSha = if (Test-Path $LgpoPath) { Get-FileSha256 -Path $LgpoPath } else { '0' * 64 }
+# LGPO.exe is recorded, not qualified: no lane executes it. The environment
+# object must carry a SHA-256-shaped value, so an absent binary is an all-zero
+# sentinel there. The TOOLS list is a different claim -- it says what was
+# present and used -- so an absent binary is omitted from it rather than listed
+# at a version nobody observed. The estate has no LGPO.exe, which is the first
+# time this branch describes a real host rather than a hypothetical one.
+$lgpoPresent = Test-Path $LgpoPath
+$lgpoSha = if ($lgpoPresent) { Get-FileSha256 -Path $LgpoPath } else { '0' * 64 }
+
+$tools = @(
+    @{ name = 'GroupPolicy'; version = if ($gpModule) { "$($gpModule.Version)" } else { 'unknown' }; sha256 = $null }
+)
+if ($lgpoPresent) {
+    $tools += @{ name = 'LGPO.exe'; version = '3.0'; sha256 = $lgpoSha }
+}
 
 # --- raw manifest (source + comparisons are filled by finalize) ------------
 $manifest = @{
@@ -292,10 +306,7 @@ $manifest = @{
         locale = (Get-Culture).Name
         lgpo_sha256 = $lgpoSha
     }
-    tools = @(
-        @{ name = 'GroupPolicy'; version = if ($gpModule) { "$($gpModule.Version)" } else { 'unknown' }; sha256 = $null },
-        @{ name = 'LGPO.exe'; version = '3.0'; sha256 = $lgpoSha }
-    )
+    tools = $tools
     artifacts = $artifacts
     commands = $commands
     comparisons = @()
