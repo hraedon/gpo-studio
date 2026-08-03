@@ -77,6 +77,26 @@ endpoint() {
         -LabHost "$GPO_STUDIO_LAB_HOST" -Guest "$GPO_STUDIO_LAB_ENDPOINT_GUEST" "$@"
 }
 
+# Harness scripts are invoked through a per-invocation execution-policy bypass.
+#
+# The client refuses `& script.ps1` outright: Windows client SKUs default to an
+# execution policy of Restricted where the server defaults to RemoteSigned.
+# Found live -- the authoring half ran and the observation half did not.
+#
+# The fix deliberately does NOT set the policy on the guest. This lane certifies
+# the client's Group Policy behaviour, and persistently reconfiguring the machine
+# under test is how a harness starts measuring itself instead of the product.
+# `-ExecutionPolicy Bypass` applies to one process and leaves nothing behind.
+#
+# powershell.exe is called directly rather than through Start-Process because
+# the driver parses the harness's stdout, which Start-Process would swallow. It
+# is a native executable, so a failing harness sets $LASTEXITCODE rather than
+# throwing -- without the explicit check the transport reports success for a
+# script that died.
+run_guest_script() {
+    printf "& powershell.exe -NoProfile -ExecutionPolicy Bypass -File %s; if (\$LASTEXITCODE -ne 0) { throw \"harness exited \$LASTEXITCODE\" }" "$1"
+}
+
 STAMP="$(date +%Y%m%d%H%M%S)"
 CANDIDATE_DIR="/tmp/opencode/endpoint-candidate-$STAMP"
 LOCAL_DIR="/tmp/opencode/endpoint-run-$STAMP"
@@ -104,12 +124,12 @@ cleanup_author() {
     CLEANUP_DONE=1
     echo "--- authoring cleanup ---"
     author -Action exec -TimeoutSeconds 900 -Command \
-        "& '$GUEST_SCRIPTS\\run-endpoint-author.ps1' -Phase cleanup -StatePath '$GUEST_STATE'"
+        "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-author.ps1' -Phase cleanup -StatePath '$GUEST_STATE'")"
 }
 trap 'cleanup_author || echo "WARNING: authoring cleanup failed; the estate may hold a disposable OU, a linked GPO, or a displaced computer account" >&2' EXIT
 
 SETUP_OUT=$(author -Action exec -TimeoutSeconds 1500 -Command \
-    "& '$GUEST_SCRIPTS\\run-endpoint-author.ps1' -Phase setup -StatePath '$GUEST_STATE' -CandidateZip '$GUEST_SCRIPTS\\candidate.zip' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetComputer '$GPO_STUDIO_LAB_ENDPOINT_GUEST'")
+    "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-author.ps1' -Phase setup -StatePath '$GUEST_STATE' -CandidateZip '$GUEST_SCRIPTS\\candidate.zip' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetComputer '$GPO_STUDIO_LAB_ENDPOINT_GUEST'")")
 
 TARGET_GPO=$(printf '%s' "$SETUP_OUT" | tr -d '\r' | sed -n 's/^TARGET_GPO=//p' | head -1)
 AUTHOR_WORK_DIR=$(printf '%s' "$SETUP_OUT" | tr -d '\r' | sed -n 's/^WORK_DIR=//p' | head -1)
@@ -132,7 +152,7 @@ endpoint -Action push -LocalPath "$CANDIDATE_DIR/expected.json" \
 
 OBSERVE_STATUS=0
 OBSERVE_OUT=$(endpoint -Action exec -TimeoutSeconds 2400 -Command \
-    "& '$GUEST_SCRIPTS\\run-endpoint-observe.ps1' -Phase observe -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetGpo '$TARGET_GPO'") || OBSERVE_STATUS=$?
+    "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-observe.ps1' -Phase observe -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetGpo '$TARGET_GPO'")") || OBSERVE_STATUS=$?
 printf '%s\n' "$OBSERVE_OUT"
 
 OBSERVE_WORK_DIR=$(printf '%s' "$OBSERVE_OUT" | tr -d '\r' | sed -n 's/^WORK_DIR=//p' | head -1)
@@ -173,7 +193,7 @@ author -Action pull -RemotePath "$GUEST_SCRIPTS\\run-endpoint-author.ps1" \
 mkdir -p "$LOCAL_DIR/verify"
 VERIFY_STATUS=0
 endpoint -Action exec -TimeoutSeconds 900 -Command \
-    "& '$GUEST_SCRIPTS\\run-endpoint-observe.ps1' -Phase verify -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetGpo '$TARGET_GPO'" >/dev/null || VERIFY_STATUS=$?
+    "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-observe.ps1' -Phase verify -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetGpo '$TARGET_GPO'")" >/dev/null || VERIFY_STATUS=$?
 endpoint -Action pull -RemotePath "$GUEST_OUT\\verify" -LocalPath "$LOCAL_DIR/verify" >/dev/null || true
 if [[ "$VERIFY_STATUS" -ne 0 ]]; then
     echo "WARNING: post-teardown verification exited $VERIFY_STATUS; the client may still carry run state" >&2
