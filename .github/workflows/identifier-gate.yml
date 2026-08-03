@@ -18,4 +18,4 @@ jobs:
       - name: Check for committed work-domain identifiers
         env:
           GPO_STUDIO_FORBIDDEN_IDENTIFIERS: ${{ secrets.GPO_STUDIO_FORBIDDEN_IDENTIFIERS }}
-        run: python3 scripts/check_committed_identifiers.py
+        run: python3 scripts/check_committed_identifiers.py --strict
