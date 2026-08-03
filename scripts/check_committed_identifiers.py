@@ -40,6 +40,17 @@ or a fork without the secret is not bricked. CI passes ``--strict`` to invert
 that: a CI run whose denylist secret is missing or empty fails closed, because
 "CI is the hard gate" is defeated the moment the hard gate silently no-ops.
 
+``--strict`` also narrows the resolution above to source 1 alone. Sources 2 and
+3 are files, and in CI a file is an input the branch under test can write: a
+pull request adding ``.identifiers-denylist.local`` with one harmless token
+would otherwise hand the gate its own denylist, and the gate would run, find
+nothing, and report a pass. That is the original fail-open wearing a green
+check. The repository secret is the only source strict mode trusts.
+
+A consequence worth stating: a pull request from a fork receives no secrets, so
+the gate fails closed there. For a private repository that is the intended
+answer — an unreviewable denylist is worse than a blocked check.
+
 Run locally: python scripts/check_committed_identifiers.py
 Run in CI:    python scripts/check_committed_identifiers.py --strict
 """
@@ -397,17 +408,27 @@ def _load_denylist_file(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def _resolve_denylist_raw() -> str:
+def _resolve_denylist_raw(strict: bool = False) -> str:
     """Resolve the raw denylist string from the env var or file fallbacks.
 
     Mirrors githooks/pre-commit: the env var wins; otherwise the per-repo
     gitignored file and the shared canonical file are tried in order. Returns
     an empty string when no source is configured, which the caller treats as
     "no denylist" — fail-open by default, fail-closed under --strict.
+
+    **Strict mode reads the environment only.** A file fallback is a convenience
+    for a developer's own clone; in CI it is an input the branch under test can
+    write. A pull request that adds ``.identifiers-denylist.local`` containing
+    one harmless token would otherwise supply the gate's own denylist — the gate
+    would run, find nothing, and go green, which is the same failure as no gate
+    at all wearing a passing check. The trusted source in CI is the repository
+    secret, so strict mode accepts nothing else.
     """
     raw = os.environ.get("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", "")
     if raw.strip():
         return raw
+    if strict:
+        return ""
     for candidate in _DENYLIST_FILE_CANDIDATES:
         if candidate.is_file():
             return _load_denylist_file(candidate)
@@ -422,7 +443,7 @@ def _resolve_identifiers(strict: bool = False) -> frozenset[str] | None:
     ``strict`` is True (CI), an unresolved denylist returns a sentinel empty
     frozenset rather than None, so the caller fails closed instead of no-op'ing.
     """
-    raw = _resolve_denylist_raw()
+    raw = _resolve_denylist_raw(strict=strict)
     if not raw.strip():
         if strict:
             print(

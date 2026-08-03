@@ -214,3 +214,38 @@ def test_main_non_strict_exits_zero_without_denylist(
     monkeypatch.setattr(_mod, "collect_tracked_paths", lambda: [])
     rc = _mod.main([])
     assert rc == 0
+
+
+def test_strict_ignores_denylist_file_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--strict reads the environment only, never a file in the tree.
+
+    A denylist file is an input the branch under test can write. If strict mode
+    honored it, a pull request adding .identifiers-denylist.local with one
+    harmless token would supply the gate's own denylist: the gate would run,
+    find nothing, and go green -- the fail-open this flag exists to close,
+    wearing a passing check. The repository secret is the only trusted source.
+    """
+    denylist = tmp_path / "denylist"
+    denylist.write_text("harmless-token")
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", (denylist,))
+
+    # Non-strict still honors it: a developer's own clone is a trusted context.
+    assert _mod._resolve_identifiers(strict=False) == frozenset({"harmless-token"})
+
+    # Strict refuses rather than adopting the tree's own denylist.
+    assert _mod._resolve_identifiers(strict=True) == frozenset()
+
+
+def test_main_strict_refuses_when_only_a_tree_denylist_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """End to end: an attacker-supplied denylist file cannot turn CI green."""
+    denylist = tmp_path / "denylist"
+    denylist.write_text("harmless-token")
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", (denylist,))
+    monkeypatch.setattr(_mod, "collect_tracked_paths", lambda: [])
+    assert _mod.main(["--strict"]) == 1

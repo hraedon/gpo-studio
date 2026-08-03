@@ -33,6 +33,17 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 python_bin="$repo_root/.venv/bin/python"
-[ -x "$python_bin" ] || python_bin="$(command -v python3 || command -v python)"
+[ -x "$python_bin" ] || python_bin="$(command -v python3 || command -v python || true)"
+
+# No interpreter is the same situation as no denylist: the local hook is a
+# convenience and CI is the hard gate, so say so and let the commit through
+# rather than bricking a clone that has not been set up yet. Without this,
+# `set -e` turns an empty $python_bin into a failed exec and every commit is
+# refused with no explanation.
+if [ -z "$python_bin" ]; then
+  echo "gpo-studio pre-commit: identifier gate INACTIVE - no Python interpreter found." >&2
+  echo "  Create the project venv (uv sync) or install python3 to enable it. Allowing commit." >&2
+  exit 0
+fi
 
 exec "$python_bin" "$repo_root/scripts/check_committed_identifiers.py" --staged
