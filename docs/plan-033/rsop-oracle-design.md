@@ -86,8 +86,11 @@ otherwise this recurs a fifth time.
 
 Note the ordering trap: `gpresult`, `whoami` and `secedit` are marked
 "rides the client-win11 qualification" / needs an OS pin. They unblock as a
-consequence of WP-6A, but `lgpo` stays `pending-qualification` **by design** —
-see WP-5 below.
+consequence of WP-6A, but `lgpo` stays `pending-qualification` — **not because
+the tool was ruled out** (it was ruled *in*, see WP-5 below) but because
+qualification is restored by execution, and no lane executes it yet. WP-6A must
+not sweep `lgpo` up with the others; it is the one row whose status is correct
+as written.
 
 ### WP-6B — the computer-scope RSOP lane
 
@@ -119,16 +122,35 @@ applied".
 
 ### WP-6C — user scope is a scope decision, not a task
 
-The user half needs an interactive logon on the client, which the estate has
-never had and which PowerShell Direct does not provide. Options: script an
-autologon on `LabCL01` and snapshot it; drive
-`Get-GPResultantSetOfPolicy -User` from `LabMS01` across the private switch; or
-**declare WP-6 computer-scope-only and say so in the capability matrix.**
+**Ruled 2026-08-03: WP-6 is computer-scope-only, and user scope becomes its own
+follow-up work package — now `WP-9` in `plans/033`.** An interactive logon on a
+disposable estate was explicitly approved, so the constraint that forced this
+split is a sequencing constraint, not a permanent one.
 
-I would take the third for now. Computer scope exercises link order,
-enforcement, block-inheritance and security filtering — the whole of `rsop.py`'s
-interesting surface — and loopback/user-side is a second lane's worth of work
-that should not gate the first result.
+The user half needs an interactive logon on the client, which the estate has
+never had and which PowerShell Direct does not provide. Computer scope exercises
+link order, enforcement, block-inheritance and security filtering — the whole of
+`rsop.py`'s interesting surface — and loopback/user-side is a second lane's worth
+of work that should not gate the first result.
+
+What this ruling obliges, and what it must not be allowed to blur:
+
+- WP-6's acceptance no longer mentions loopback or user-side winners; those
+  criteria moved to WP-9 rather than being dropped. A criterion that is deleted
+  instead of relocated is how an unverified claim becomes a silent one.
+- `docs/capability-matrix.md` must say **computer-scope-only** against every
+  `rsop.py` capability WP-6 certifies. "RSOP validated" without the qualifier
+  would overclaim by half.
+- Loopback is the specific casualty. `rsop.py` models merge and replace; nothing
+  in WP-6 touches either. Until WP-9 runs, loopback stays an unverified claim and
+  the matrix must show it as one.
+
+WP-9 gets the interactive logon: script an autologon on `LabCL01` and take a
+dedicated checkpoint, so the logged-on state is reproducible rather than a
+hand-made condition. `Get-GPResultantSetOfPolicy -User` from `LabMS01` remains
+the second oracle to try (open question 1), but it is a bonus, not the plan —
+the estate has already taught this project not to design against an untested
+transport.
 
 ## Adjacent, and cheaper than it looks
 
@@ -139,13 +161,36 @@ needs no new infrastructure — and `security_template.py` is the one domain lay
 already *proven* wrong on the wire, so this is where a lane is most likely to
 find something.
 
-**WP-5 needs a ruling before it can be planned.** The lane requires `LGPO.exe`;
-the estate has none and cannot fetch it. Either push the binary through
-`psdirect` with a pinned hash — which puts an external Microsoft binary on a
-deliberately isolated estate — or narrow WP-5 to its domain-GPO-processing leg
-and record that the LGPO path is untested. **Recommendation: narrow it.** The
-LGPO leg mostly tests Microsoft's tool; the domain leg tests Studio's output
-reaching a client through SYSVOL, which is the claim that matters.
+**WP-5 keeps both legs — LGPO is approved on the estate.** The lane requires
+`LGPO.exe`; the estate has none and cannot fetch it. The recommendation here was
+to narrow WP-5 to its domain-GPO-processing leg; **the owner ruled on 2026-08-03
+that LGPO.exe on the estate is acceptable**, so the lane keeps its LGPO leg and
+the binary is pushed in over `psdirect`.
+
+That ruling is about *this* estate, and the reasoning should be recorded rather
+than assumed: the lab guests are disposable, checkpoint-backed and deliberately
+isolated, so an external Microsoft binary is a controlled addition to a
+throwaway machine — not a change to the isolation invariant, which is about
+*egress*, not about what is deliberately placed inside.
+
+The conditions that make it defensible, all of which WP-5 must implement:
+
+1. **Hash-pin on the way in and verify on the guest.** The transfer is the
+   trust boundary. `environment-spec.md` already records
+   `lgpo_sha256 = 0c97f295…` from the mvmcitest01 era; WP-5 must verify the
+   binary it actually pushes against a pin, not merely record what arrived.
+   Recording a hash of whatever showed up is provenance theatre.
+2. **Stage it outside the golden checkpoints.** Push post-restore, so no
+   `domain-joined` checkpoint carries the binary and the estate stays
+   reproducible from clean media.
+3. **Restore `lgpo` to qualified in `platforms.json` when — and only when — the
+   lane genuinely executes it.** The 2026-07-29 de-gating exists precisely
+   because a `pass` was being gated on a binary no lane ran; WP-5 is the lane
+   that earns the qualification back, and it earns it by execution.
+
+The domain leg is still the one that matters most — it tests Studio's output
+reaching a client through SYSVOL — and WP-5's acceptance already requires both.
+That stays unchanged.
 
 **WI-025** (WP-1B candidate artifacts not hash-bound) applies to the endpoint
 lane too — it already takes `--candidate-root`, so it never had the
