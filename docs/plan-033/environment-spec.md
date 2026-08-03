@@ -9,9 +9,9 @@ transport retired)
 Validation host: the disposable evidence estate, domain-joined member server,
 PowerShell Direct — see **Qualified environments** below
 Certified passing manifest hash (success-path run
-`live-synthetic-registry-basic-20260803183723-2067`, source commit `1ab9350`,
-tag `evidence/live-synthetic-registry-basic-20260803183723-2067`):
-`fefc80530d875b6c021497982fab31ada8e34da984048f3d9ef5c318e8188d9d`
+`live-synthetic-registry-basic-20260803185359-2024`, source commit `1f71fab`,
+tag `evidence/live-synthetic-registry-basic-20260803185359-2024`):
+`c443ec26a86608ab405c6690a9633a91a624b488fac103ce668ceca6a646d90f`
 
 The corresponding fail-path run
 (`live-synthetic-registry-basic-20260803183850-2692`) parses as `fail`, canonical
@@ -62,14 +62,24 @@ in its own manifest, so a new target needs its own qualification run before it
 can carry evidence. The manifest records `transport`, so a reviewer can tell
 which of these produced a given verdict.
 
-| Environment | Transport | Qualified | Qualifying run |
-|---|---|---|---|
-| Disposable evidence estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803014047-4766` (WP-1B, 7/7 pass, tag `evidence/wp1b-writer-20260803014047-4766`) |
-| — same, WP-0 | `psdirect` | 2026-08-03 | `live-synthetic-registry-basic-20260803183723-2067` (`pass`, tag `evidence/live-synthetic-registry-basic-20260803183723-2067`) |
-| — same, WP-2 | `psdirect` | 2026-08-03 | `wp2-native-import-20260803182557-5095` (17/17, tag `evidence/wp2-native-import-20260803182557-5095`) |
-| — same, WP-3 | `psdirect` | 2026-08-03 | `wp3-security-template-20260803182956-1132` (19/19, tag `evidence/wp3-security-template-20260803182956-1132`) |
-| — same, endpoint (client guest) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real 26200 client) |
-| `mvmcitest01` (historic shared host) | `ssh` + scheduled-task launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (WP-0; commit orphaned, see above) |
+| Lane | Environment | Transport | Qualified | Certifying run (tagged `evidence/<run-id>`) |
+|---|---|---|---|---|
+| WP-0 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `live-synthetic-registry-basic-20260803185359-2024` (`pass`) |
+| WP-1B | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803185534-9464` (7/7) |
+| WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803185216-7115` (17/17) |
+| WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803185307-1615` (19/19) |
+| endpoint | estate, client guest (26200) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real client build) |
+| any | `mvmcitest01` (historic shared host) | `ssh` + launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (commit orphaned, see above) |
+
+Each estate row cites a run made against the **final** lane scripts, on commit
+`1f71fab`, after the SSH branches were removed. The earlier qualifying runs
+(`wp1b-writer-20260803014047-4766`, `live-synthetic-registry-basic-20260803183723-2067`,
+`wp2-native-import-20260803182557-5095`, `wp3-security-template-20260803182956-1132`)
+were produced by the dual-transport versions and remain valid for the commits
+they name; they are superseded here only so that every certification binds the
+code that now ships. The results were identical across both — same checks, same
+7/7 for WP-1B — which is the evidence that removing the SSH branches changed
+nothing about what the psdirect path does.
 
 **The SSH transport is retired.** Every lane is qualified on the estate, so the
 historic host is no longer the only way to run anything — and keeping it meant
