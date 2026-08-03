@@ -72,7 +72,7 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 | Domain configuration | supported | &#10003; | &#10003; | &#10003; | &#9680; | &#10003; | &#10003; | not_validated |
 | Revision history and restore | supported | &#10003; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Estate import (gpo-lens) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; |
-| GPMC backup import (single-GPO) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | native-origin-read |
+| GPMC backup import (single-GPO) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | windows-imported (raw registry, Plan 033 WP-2) |
 | GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry, Drives, Local Users and Groups, Scheduled Tasks daily Exec, Services) |
 | Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | verified |
 | cpassword | blocked | &#10007; | &#10007; | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; |
@@ -356,23 +356,45 @@ Consumes `gpo-lens-estate` JSON exports as read-only archived baselines.
 - Parses settings, links, security filters, WMI filters, CSE metadata, side
   enablement, and domain.
 
-### GPMC backup import (single-GPO) — preview
+### GPMC backup import (single-GPO) — supported
 
-Reads a single-GPO GPMC backup directory: `manifest.xml`, `bkupInfo.xml`,
-`Registry.pol`, `Preferences/Groups/Groups.xml`,
-`Preferences/Registry/Registry.xml`, security filters, and WMI filters.
+Reads a single-GPO GPMC backup directory. Studio emits and imports the native
+v2 format (`Backup.xml`, `{BACKUP_ID}/DomainSysvol/GPO/...` layout); the legacy
+`manifest.xml`/`bkupInfo.xml` format is no longer the contract.
+
+Plan 033 WP-2 certified the native v2 writer on Windows Server 2025 build 26100:
+a fully Studio-generated, registry-both-sides candidate passed `Import-GPO
+-WhatIf`, actual `Import-GPO -CreateIfNeeded`, GroupPolicy registry readback,
+native `Backup-GPO`, side-version reconciliation, and strict cleanup (certified
+run `wp2-native-import-20260726235913-9111`). The import reader handles both the
+native v2 layout and the legacy format for backwards compatibility with pre-WP-2
+Studio archives.
+
+**The WP-2 run's evidence binding is broken and the run is queued for
+re-certification** — see `plans/033-windows-external-oracle-validation.md`. This
+row's status rests on the implementation commit `96f3aec` and the prose record,
+not on a verifiable manifest.
 
 - **API:** `POST /api/backups/import`.
 - Multi-GPO backups are rejected.
 - Symlink, path-traversal, and entity-expansion guards are enforced.
 - Optional migration table can be applied to security filter SIDs/principals.
 
-### GPMC backup export — preview
+### GPMC backup export — supported subset
 
-Emits a deterministic GPMC backup ZIP: `manifest.xml`, `bkupInfo.xml`,
-`gpreport.xml`, `DomainController.xml`, `Registry.pol`, and GPP XML.
+Emits a native v2 GPMC backup (`Backup.xml`, nested `bkupInfo.xml`,
+`{BACKUP_ID}/DomainSysvol/GPO/{Side}/...`, `gpreport.xml`, `Registry.pol`, GPP
+XML). Plan 033 WP-2 certified the format on Windows Server 2025 build 26100, and
+WP-1B certified Studio-origin writer conformance for the registry, Drives, Local
+Users and Groups (Groups and Users item kinds), Scheduled Tasks (daily Exec
+TaskV2), and Services GPP families — each through `Import-GPO`, GPMC report
+rendering, and `Backup-GPO` semantic re-export comparison.
 
 - **API:** `GET /api/gpos/{guid}/gpmc-backup`.
+- Native GPP emission is limited to extension profiles backed by genuine GPMC
+  captures: Drive Maps, Local Users and Groups, and Scheduled Tasks. Other GPP
+  families fail export with `unsupported_native_gpp_extension` rather than
+  guessing Windows metadata.
 - **Blocked** when unknown CSE content is present (see below).
 - **Blocked** when cpassword is detected.
 
@@ -519,7 +541,7 @@ module and delegated GPO rights.
 
 | Policy area | Where it lives instead |
 |-------------|----------------------|
-| WMI filter assignment | GPMC backup export (manifest.xml, gpreport.xml). The plan emits a comment naming the filter but does not assign it. Assign manually via GPMC or the GPMC COM API. |
+| WMI filter assignment | GPMC backup export (`Backup.xml`, `gpreport.xml`). The plan emits a comment naming the filter but does not assign it. Assign manually via GPMC or the GPMC COM API. |
 | GPP Groups and Registry | GPMC backup export (`Preferences/` XML) and Studio bundle export. The plan does not apply GPP content. |
 
 The plan is idempotent for registry values and links. Test it in a lab, review
