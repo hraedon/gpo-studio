@@ -4,9 +4,10 @@ Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). A WP-0
 success-path run has been certified `pass` against a clean, committed source
 tree (commit `000f1b5`). The harness also produces parser-valid `fail`
 manifests for deliberate failure paths.
-Last updated: 2026-07-29 (build-family qualification, LGPO de-gated, client
-re-frozen to 25H2/26200, disposable-estate supersession note)
-Validation host: mvmcitest01
+Last updated: 2026-08-03 (disposable evidence estate qualified over PowerShell
+Direct; WP-1B re-pointed)
+Validation host: mvmcitest01 (historic, SSH); the disposable evidence estate
+(PowerShell Direct) as of 2026-08-03 — see **Qualified environments** below
 Certified passing manifest hash (success-path run
 `live-synthetic-registry-basic-20260726070916`, source commit `000f1b5`):
 `0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`
@@ -34,6 +35,40 @@ Every Plan 033 run records the exact environment in the manifest's
 `environment` object. This document pins the supported builds and tool
 versions. A run on an unfrozen build is `inconclusive` unless the build is
 added here first.
+
+## Qualified environments
+
+A lane may only certify in an environment qualified here. Re-pointing a lane is
+not a variable change: every certification is bound to the environment recorded
+in its own manifest, so a new target needs its own qualification run before it
+can carry evidence. The manifest records `transport`, so a reviewer can tell
+which of these produced a given verdict.
+
+| Environment | Transport | Qualified | Qualifying run |
+|---|---|---|---|
+| `mvmcitest01` (historic shared host) | `ssh` + scheduled-task launcher | 2026-07-26 | `live-synthetic-registry-basic-20260726070916` (WP-0) |
+| Disposable evidence estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803014047-4766` (WP-1B, 7/7 pass, tag `evidence/wp1b-writer-20260803014047-4766`) |
+
+**Why WP-1B qualified the estate.** Its seven candidates already passed on the
+historic host, so re-running them changes exactly one variable — same inputs,
+same expected results, new environment. The estate matched the frozen profile on
+every gated field without amendment (server build family 26100, PowerShell
+5.1.26100, GroupPolicy module 1.0.0.0, en-US), so the run qualifies the estate
+rather than redefining qualification. Nothing below changed to accommodate it.
+
+**The estate lane runs no scheduled task.** The launcher exists only to obtain a
+delegable logon token, which an SSH network logon cannot provide. PowerShell
+Direct carries the credential to the guest through the hypervisor and the
+resulting logon authenticates outward — measured directly (`New-GPO`,
+`Backup-GPO`, SYSVOL enumeration, `Remove-GPO`), and then exercised by a full
+seven-candidate lane that imports, reports, re-exports and removes a GPO per
+candidate. This also removes the `schtasks /RP` password argument the lane
+scripts flag as decodable by a privileged observer, so the estate path is
+strictly safer than the one it replaces, not merely different.
+
+The estate's guests have **no network** at all; the transport reaches them
+through the hypervisor. That is what makes the estate cheap to isolate, and it
+is why `ssh` cannot be used there.
 
 ## Supported builds
 
