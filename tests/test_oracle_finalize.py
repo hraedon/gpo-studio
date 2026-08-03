@@ -67,13 +67,28 @@ _TEST_HARNESS_FILES = {
         "tests/fixtures/recipes/synthetic-registry-basic.json",
         b'{"fixture_id": "x"}\n',
     ),
-    "scripts/remote-run.ps1": (
-        "scripts/windows-oracle/remote-run.ps1",
-        b"# fake remote-run\n",
-    ),
     "orchestrator/run-windows-oracle.sh": (
         "scripts/windows-oracle/run-windows-oracle.sh",
         b"# fake orchestrator\n",
+    ),
+    # No privileged launcher: PowerShell Direct needs none. The transport script
+    # takes its place in the record -- it runs on the controller rather than the
+    # guest, but it is just as much part of what produced the run.
+    "orchestrator/psdirect.ps1": (
+        "scripts/windows-oracle/psdirect.ps1",
+        b"# fake psdirect\n",
+    ),
+}
+
+#: The harness set as it was deployed over the retired SSH transport.
+_TEST_HARNESS_FILES_SSH = {
+    key: value
+    for key, value in _TEST_HARNESS_FILES.items()
+    if key != "orchestrator/psdirect.ps1"
+} | {
+    "scripts/remote-run.ps1": (
+        "scripts/windows-oracle/remote-run.ps1",
+        b"# fake remote-run\n",
     ),
 }
 
@@ -81,13 +96,18 @@ _HARNESS_ARTIFACT_IDS = {
     "harness-run-evidence",
     "harness-common",
     "harness-recipe",
-    "harness-remote-run",
+    "harness-psdirect",
     "harness-orchestrator",
 }
 
 
 def _setup_harness_repo_and_inputs(
-    repo: Path, run_dir: Path, *, commit: str | None = None
+    repo: Path,
+    run_dir: Path,
+    *,
+    commit: str | None = None,
+    transport: str | None = "psdirect",
+    harness_files: dict[str, tuple[str, bytes]] | None = None,
 ) -> str:
     """Create a repo whose committed harness files match the deployed copies.
 
@@ -96,6 +116,8 @@ def _setup_harness_repo_and_inputs(
     """
     import hashlib
 
+    if harness_files is None:
+        harness_files = _TEST_HARNESS_FILES
     repo.mkdir(parents=True, exist_ok=True)
     identity = ["-c", "user.email=test@example.invalid", "-c", "user.name=test"]
 
@@ -109,7 +131,7 @@ def _setup_harness_repo_and_inputs(
         ).stdout.strip()
 
     git("init", "-q")
-    for _deployed_rel, (repo_rel, data) in _TEST_HARNESS_FILES.items():
+    for _deployed_rel, (repo_rel, data) in harness_files.items():
         target = repo / repo_rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -118,7 +140,7 @@ def _setup_harness_repo_and_inputs(
     bound_commit = commit if commit is not None else git("rev-parse", "HEAD")
 
     files: dict[str, dict[str, object]] = {}
-    for deployed_rel, (_repo_rel, data) in _TEST_HARNESS_FILES.items():
+    for deployed_rel, (_repo_rel, data) in harness_files.items():
         deployed_path = run_dir / deployed_rel
         deployed_path.parent.mkdir(parents=True, exist_ok=True)
         deployed_path.write_bytes(data)
@@ -127,9 +149,10 @@ def _setup_harness_repo_and_inputs(
             "size_bytes": len(data),
         }
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "harness-inputs.json").write_text(
-        json.dumps({"commit": bound_commit, "files": files}), encoding="utf-8"
-    )
+    record: dict[str, object] = {"commit": bound_commit, "files": files}
+    if transport is not None:
+        record["transport"] = transport
+    (run_dir / "harness-inputs.json").write_text(json.dumps(record), encoding="utf-8")
     return bound_commit
 
 
@@ -504,6 +527,63 @@ def test_build_harness_inputs_binds_to_commit(tmp_path: Path) -> None:
     ids = {a["artifact_id"] for a in artifacts}
     assert ids == _HARNESS_ARTIFACT_IDS
     assert all(a["role"] == "input" for a in artifacts)
+
+
+def test_build_harness_inputs_refuses_the_retired_ssh_file_set(
+    tmp_path: Path,
+) -> None:
+    """A record carrying the launcher is not a record this tree can verify.
+
+    The transport decides which files should be there, so a mismatch has to be
+    an integrity failure rather than a tolerated extra: silently accepting it
+    would let a run that went through the scheduled-task launcher claim to be
+    evidence from the transport that has none.
+    """
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(
+        repo, run_dir, harness_files=_TEST_HARNESS_FILES_SSH
+    )
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        message = str(exc)
+        assert "orchestrator/psdirect.ps1" in message
+        assert "unexpected deployed harness inputs" in message
+        assert "scripts/remote-run.ps1" in message
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_build_harness_inputs_refuses_a_record_with_no_transport(
+    tmp_path: Path,
+) -> None:
+    """Absent means it came from the retired orchestrator, not "assume default".
+
+    Defaulting would bind such a run against a file set that no longer matches
+    what produced it, and report the anachronism as tampering.
+    """
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir, transport=None)
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        assert "transport is None" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_build_harness_inputs_rejects_an_unknown_transport(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir, transport="carrier-pigeon")
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        assert "carrier-pigeon" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
 
 
 def test_build_harness_inputs_detects_drift_from_commit(tmp_path: Path) -> None:

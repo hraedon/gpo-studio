@@ -729,6 +729,62 @@ def frozen_environment_violations(
     return tuple(violations)
 
 
+#: Fields a lane harness must record for its environment to be checkable at all.
+#: ``lgpo_sha256`` is deliberately absent: it is recorded, not qualified, and no
+#: lane executes the binary (see environment-spec.md).
+_LANE_ENVIRONMENT_FIELDS: tuple[str, ...] = (
+    "server_build",
+    "powershell_edition",
+    "powershell_version",
+    "group_policy_module_version",
+    "gpmc_version",
+    "locale",
+)
+
+
+def lane_environment_violations(
+    recorded: Mapping[str, object],
+    frozen: FrozenEnvironment = FROZEN_ENVIRONMENT,
+) -> tuple[str, ...]:
+    """Check a lane result's ``environment`` object against the frozen profile.
+
+    The WP-1B/WP-2/WP-3/endpoint lanes write a bespoke ``result.json`` rather
+    than a full manifest, so :func:`parse_oracle_manifest` never sees them and
+    its ``pass`` gate never runs.  Environment-spec rule 7 names
+    :data:`FROZEN_ENVIRONMENT` as the single source of truth for the profile;
+    this is how a lane finalizer honours that rule without keeping its own copy.
+
+    A private copy is not a harmless duplication.  WP-3's finalizer carried one
+    that pinned an exact PowerShell servicing revision and gated a pass on
+    ``lgpo_sha256`` -- both of which the 2026-07-29 build-family re-freeze had
+    already removed, and neither of which any lane's evidence depends on.  It
+    would have refused a correct run on a correctly qualified host.
+
+    Extra recorded keys (``server_caption``, ``lgpo_sha256``) are ignored:
+    provenance a lane chooses to record is not something to gate on.  Lanes that
+    never touch a client are on-target with no client evidence; a lane that does
+    touch one asserts a real ``client_build`` in its own finalizer, per rule 6.
+    """
+    missing = [field for field in _LANE_ENVIRONMENT_FIELDS if field not in recorded]
+    if missing:
+        return tuple(
+            f"environment.{field} was not recorded by the harness" for field in missing
+        )
+    environment = WindowsEnvironment(
+        server_build=str(recorded["server_build"]),
+        client_build=str(recorded.get("client_build") or CLIENT_NOT_TESTED),
+        powershell_edition=str(recorded["powershell_edition"]),
+        powershell_version=str(recorded["powershell_version"]),
+        group_policy_module_version=str(recorded["group_policy_module_version"]),
+        gpmc_version=str(recorded["gpmc_version"]),
+        locale=str(recorded["locale"]),
+        # Recorded, not qualified: a placeholder keeps the dataclass honest
+        # without letting a missing binary influence a verdict.
+        lgpo_sha256=str(recorded.get("lgpo_sha256") or "missing"),
+    )
+    return frozen_environment_violations(environment, frozen)
+
+
 def parse_oracle_manifest(raw: object) -> OracleEvidenceManifest:
     """Parse and strictly validate one Plan 033 execution manifest."""
     data = _mapping(raw, "manifest")
@@ -1410,7 +1466,12 @@ def assert_evidence_pack(run_dir: Path, manifest: Mapping[str, object]) -> None:
 # Deployed harness files recorded as hashed input artifacts so a run is bound to
 # the exact scripts and recipe that produced it (and, via git, to the commit).
 # Each entry is (artifact_id, deployed relative path, repository path).
-_HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
+#
+# ``psdirect`` is the only transport. There is no privileged launcher to bind,
+# because there is none to deploy; ``psdirect.ps1`` takes its place in the
+# record -- it runs on the controller, not the guest, but it is just as much
+# part of what produced the run.
+_HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
     (
         "harness-run-evidence",
         "scripts/run-evidence.ps1",
@@ -1422,12 +1483,6 @@ _HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
         "scripts/recipe.json",
         "tests/fixtures/recipes/synthetic-registry-basic.json",
     ),
-    # The privileged launcher the orchestrator deploys and executes on the host.
-    (
-        "harness-remote-run",
-        "scripts/remote-run.ps1",
-        "scripts/windows-oracle/remote-run.ps1",
-    ),
     # The control-plane orchestrator that drives the run.
     (
         "harness-orchestrator",
@@ -1435,6 +1490,19 @@ _HARNESS_INPUT_FILES: tuple[tuple[str, str, str], ...] = (
         "scripts/windows-oracle/run-windows-oracle.sh",
     ),
 )
+
+_HARNESS_INPUT_FILES: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "psdirect": (
+        *_HARNESS_INPUT_FILES_COMMON,
+        # The transport itself, which reaches the guest through the hypervisor
+        # and needs no launcher.
+        (
+            "harness-psdirect",
+            "orchestrator/psdirect.ps1",
+            "scripts/windows-oracle/psdirect.ps1",
+        ),
+    ),
+}
 _HARNESS_INPUTS_MANIFEST = "harness-inputs.json"
 
 
@@ -1453,15 +1521,20 @@ def build_harness_inputs(
     repo_root: Path,
     *,
     commit: str | None = None,
-    check_git: bool = True,
 ) -> list[dict[str, object]]:
     """Verify the deployed harness inputs and describe them as input artifacts.
 
     Reads ``harness-inputs.json`` (written by the orchestrator at deploy time,
     before the credential boundary), confirms each deployed file's hash matches,
-    and - when ``check_git`` is true - confirms the deployed bytes are identical
-    to the file at the recorded commit.  The result is a set of ``input``
-    artifacts that bind the run to the exact harness code that produced it.
+    and confirms the deployed bytes are identical to the file at the recorded
+    commit.  The result is a set of ``input`` artifacts that bind the run to the
+    exact harness code that produced it.
+
+    The git comparison used to be optional behind a ``check_git`` flag that no
+    caller ever passed.  It is the only leg that anchors the recorded hashes to
+    a commit rather than to themselves -- without it a guest that rewrote both a
+    harness file and its record would verify clean -- so an unused opt-out was a
+    pre-built way to turn a noisy integrity failure into a passing manifest.
     """
     inputs_path = run_dir / _HARNESS_INPUTS_MANIFEST
     if not inputs_path.is_file():
@@ -1499,10 +1572,27 @@ def build_harness_inputs(
     if not isinstance(deployed, dict):
         raise IntegrityViolation(f"{_HARNESS_INPUTS_MANIFEST}.files must be an object")
 
+    # Which transport carried the run decides which files should be there. The
+    # orchestrator records it at deploy time, alongside the hashes and before
+    # the credential boundary, so the record describes itself rather than
+    # depending on how finalization was invoked.
+    #
+    # An absent value is refused rather than defaulted. It means the record was
+    # written by the retired SSH orchestrator, whose input set included a
+    # scheduled-task launcher this tree no longer contains -- so the run cannot
+    # be verified here, and saying so is better than binding it against the
+    # wrong set and reporting an integrity failure that is really an anachronism.
+    transport = inputs.get("transport")
+    if transport not in _HARNESS_INPUT_FILES:
+        raise IntegrityViolation(
+            f"{_HARNESS_INPUTS_MANIFEST}.transport is {transport!r}; expected one "
+            f"of {sorted(_HARNESS_INPUT_FILES)}"
+        )
+
     artifacts: list[dict[str, object]] = []
     problems: list[str] = []
     seen: set[str] = set()
-    for artifact_id, relative_path, repo_path in _HARNESS_INPUT_FILES:
+    for artifact_id, relative_path, repo_path in _HARNESS_INPUT_FILES[transport]:
         entry = deployed.get(relative_path)
         if not isinstance(entry, dict):
             problems.append(f"deployed harness input {relative_path!r} is not recorded")
@@ -1527,39 +1617,35 @@ def build_harness_inputs(
                 f"{recorded_sha} != actual {actual_sha}"
             )
             continue
-        if check_git:
-            if not commit or not _COMMIT_SHA_RE.fullmatch(commit):
-                problems.append(
-                    "harness inputs cannot be bound to a commit: no valid "
-                    "commit recorded"
+        if not commit or not _COMMIT_SHA_RE.fullmatch(commit):
+            problems.append(
+                "harness inputs cannot be bound to a commit: no valid commit recorded"
+            )
+            continue
+        try:
+            committed_bytes = _git_show_file(repo_root, commit, repo_path)
+        except (OSError, subprocess.CalledProcessError):
+            problems.append(
+                f"harness input {relative_path!r} not found at commit {commit!r}"
+            )
+            continue
+        if _sha256_of_bytes(committed_bytes) != recorded_sha:
+            problems.append(
+                f"deployed harness input {relative_path!r} differs from the "
+                f"file at commit {commit!r}"
+            )
+            diff = "\n".join(
+                difflib.unified_diff(
+                    committed_bytes.decode("utf-8", "replace").splitlines(),
+                    deployed_path.read_bytes().decode("utf-8", "replace").splitlines(),
+                    fromfile=f"{relative_path}@{commit}",
+                    tofile=f"deployed/{relative_path}",
+                    lineterm="",
                 )
-                continue
-            try:
-                committed_bytes = _git_show_file(repo_root, commit, repo_path)
-            except (OSError, subprocess.CalledProcessError):
-                problems.append(
-                    f"harness input {relative_path!r} not found at commit {commit!r}"
-                )
-                continue
-            if _sha256_of_bytes(committed_bytes) != recorded_sha:
-                problems.append(
-                    f"deployed harness input {relative_path!r} differs from the "
-                    f"file at commit {commit!r}"
-                )
-                diff = "\n".join(
-                    difflib.unified_diff(
-                        committed_bytes.decode("utf-8", "replace").splitlines(),
-                        deployed_path.read_bytes()
-                        .decode("utf-8", "replace")
-                        .splitlines(),
-                        fromfile=f"{relative_path}@{commit}",
-                        tofile=f"deployed/{relative_path}",
-                        lineterm="",
-                    )
-                )
-                if diff:
-                    problems.append(diff)
-                continue
+            )
+            if diff:
+                problems.append(diff)
+            continue
         artifacts.append(
             {
                 "artifact_id": artifact_id,

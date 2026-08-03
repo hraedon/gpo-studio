@@ -15,10 +15,43 @@ from typing import Any
 from gpo_studio.backup import BackupError, read_backup
 from gpo_studio.import_export import extract_side_settings
 from gpo_studio.model import ValidationError
-from gpo_studio.oracle_evidence import OracleEvidenceError, tag_evidence_commit
+from gpo_studio.oracle_evidence import (
+    OracleEvidenceError,
+    lane_environment_violations,
+    tag_evidence_commit,
+)
 from gpo_studio.registry_pol import RegistryPolError
 
 _BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
+
+
+#: Harness files deployed to the Windows guest, per transport.  The finalizer
+#: binds each retrieved copy to the committed source, so this set has to match
+#: what the lane actually deploys or ``harness_matches_source`` is meaningless.
+#:
+#: ``psdirect`` is the only transport, and it deploys the harness alone: no
+#: scheduled-task launcher, because PowerShell Direct carries the credential to
+#: the guest through the hypervisor and the resulting logon authenticates
+#: outward to AD and SYSVOL on its own.  The table stays keyed by transport
+#: because the verdict records which one produced it, and a verdict from the
+#: retired SSH path names a set this table no longer contains -- which is how a
+#: reviewer tells them apart.
+TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
+    "psdirect": {
+        "run-wp2-import.ps1": "scripts/windows-oracle/run-wp2-import.ps1",
+    },
+}
+
+#: Scripts that execute on the controller, where the source-tree copy *is* the
+#: executed copy.  ``psdirect.ps1`` belongs here rather than in the deployed set:
+#: it drives the transport from the controller and is never copied to the guest.
+TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
+    "psdirect": {
+        "run-wp2-oracle.sh": "scripts/windows-oracle/run-wp2-oracle.sh",
+        "build-wp2-candidate.py": "scripts/plan-033/build-wp2-candidate.py",
+        "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+    },
+}
 
 
 def _sha256(path: Path) -> str:
@@ -42,7 +75,21 @@ def _setting_projection(setting: dict[str, Any]) -> tuple[object, ...]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", type=Path)
+    # The candidate this controller built. Required, not optional: it is the
+    # verdict's yardstick. Reading expected.json out of the pulled run directory
+    # meant grading the guest against an answer key the guest itself returned,
+    # so a stale or swapped copy on the guest produced a self-consistent triple
+    # that no check could distinguish from a correct one.
+    parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    # Which transport carried the run. Recorded in the verdict so a reviewer can
+    # tell which qualified environment produced it, and it selects the harness
+    # file set the provenance check expects. Only one transport remains; the
+    # argument stays because the recorded value is what distinguishes these
+    # verdicts from the ones the retired SSH path produced.
+    parser.add_argument(
+        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect"
+    )
     parser.add_argument(
         "--no-tag",
         action="store_true",
@@ -55,9 +102,12 @@ def main() -> int:
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
+    candidate_root = args.candidate_root.resolve()
 
     result = json.loads((run_dir / "result.json").read_text(encoding="utf-8-sig"))
-    expected = json.loads((run_dir / "expected.json").read_text(encoding="utf-8"))
+    expected = json.loads(
+        (candidate_root / "expected.json").read_text(encoding="utf-8")
+    )
     checks: dict[str, bool] = {
         "whatif_succeeded": result["whatif_succeeded"] is True,
         "whatif_target_absent": result["whatif_target_absent"] is True,
@@ -150,13 +200,12 @@ def main() -> int:
     # against source.  Locally-executed scripts are compared from the
     # source-tree copy that ran.
     deployed_map = {
-        "run-wp2-import.ps1": repo_root / "scripts/windows-oracle/run-wp2-import.ps1",
-        "remote-run.ps1": repo_root / "scripts/windows-oracle/remote-run.ps1",
-        "remote-run-launcher.ps1": repo_root / "scripts/windows-oracle/remote-run.ps1",
+        name: repo_root / source
+        for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
     local_map = {
-        "run-wp2-oracle.sh": repo_root / "scripts/windows-oracle/run-wp2-oracle.sh",
-        "build-wp2-candidate.py": repo_root / "scripts/plan-033/build-wp2-candidate.py",
+        name: repo_root / source
+        for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
     }
     source_hashes: dict[str, str] = {}
     harness_ok = True
@@ -167,6 +216,41 @@ def main() -> int:
         if not evidence_path.is_file() or _sha256(evidence_path) != src_hash:
             harness_ok = False
     checks["harness_matches_source"] = harness_ok
+
+    # The guest ran against the candidate this controller built, byte for byte.
+    # Without this, binding the yardstick to the controller copy would prove the
+    # verdict was graded correctly while saying nothing about what was graded.
+    # Recorded here rather than in `source.files`: every entry in that block is
+    # a repository file resolvable at `source.commit`, and the candidate is a
+    # generated artifact that exists at no commit. Filing it there invited a
+    # reviewer to resolve it against the tree and conclude the verdict was
+    # malformed -- which one did.
+    candidate_delivery: dict[str, dict[str, object]] = {}
+    for name in ("candidate.zip", "expected.json"):
+        controller_copy = candidate_root / name
+        guest_copy = run_dir / name
+        intact = (
+            guest_copy.is_file()
+            and controller_copy.is_file()
+            and _sha256(guest_copy) == _sha256(controller_copy)
+        )
+        candidate_delivery[name] = {
+            "controller_sha256": (
+                _sha256(controller_copy) if controller_copy.is_file() else None
+            ),
+            "guest_copy_matches": intact,
+        }
+    checks["candidate_delivered_intact"] = all(
+        bool(entry["guest_copy_matches"]) for entry in candidate_delivery.values()
+    )
+
+    # A lane that does not check where it ran cannot qualify anything: its
+    # "pass" would say the import worked, not that it worked on a host this
+    # project has frozen. The profile comes from FROZEN_ENVIRONMENT, per
+    # environment-spec rule 7 -- never a copy kept here.
+    environment_violations = list(lane_environment_violations(result["environment"]))
+    checks["environment_matches_frozen_spec"] = not environment_violations
+
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=repo_root,
@@ -197,6 +281,10 @@ def main() -> int:
         "passed": all(checks.values()),
         "checks": checks,
         "rebackup_error": rebackup_error,
+        "transport": args.transport,
+        "candidate_delivery": candidate_delivery,
+        "environment": result["environment"],
+        "environment_violations": environment_violations,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
         "artifacts": {
             str(path.relative_to(run_dir)): _sha256(path)

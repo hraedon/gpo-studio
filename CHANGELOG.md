@@ -126,6 +126,30 @@ Current version: `1.0.0`.
 
 ### Changed
 
+- Plan 033: lane verdicts now check what they claim to check. An adversarial
+  review round (three reviewers, hazard-scoped, one cross-lineage) found that
+  WP-2 and WP-3 graded themselves against the copy of `expected.json` the guest
+  returned rather than the candidate the controller built — which also made two
+  of WP-2's named checks structurally unfalsifiable — and that WP-1B, the lane
+  that qualified the estate, had no environment gate at all. Both lanes now take
+  `--candidate-root` and carry a `candidate_delivered_intact` check; WP-1B gates
+  on `FROZEN_ENVIRONMENT` like the others. Every run now owns a private
+  directory tree on the guest, so concurrent runs on one guest can no longer
+  select each other's evidence; `cleanup_succeeded` means the GPO was removed or
+  an independent enumeration shows nothing by that name; orphaned GPOs are
+  reaped and the reap is recorded; and two fail-open defaults
+  (`native_shape_findings` absent, `check_git=False`) are closed.
+- Plan 033: **every evidence lane now runs against the disposable evidence
+  estate over PowerShell Direct, and the SSH transport is retired.** WP-0, WP-2
+  and WP-3 were ported alongside WP-1B and the endpoint lane, each with its own
+  qualification run on the estate (recorded in the Qualified environments table
+  in `docs/plan-033/environment-spec.md`, with committed verdicts and evidence
+  tags). WP-0's certification, whose commit had been orphaned by a squash merge,
+  is re-earned on a commit that resolves. Lane finalizers now check the recorded
+  environment against `FROZEN_ENVIRONMENT` rather than private copies of the
+  profile; WP-2 had not been checking its environment at all, and WP-3's copy
+  had drifted into pinning an exact PowerShell servicing revision and gating on
+  an LGPO hash the 2026-07-29 re-freeze had already removed.
 - Plan 022 closed — REVIEW AND REFINE gate passed 2026-07-25
   (`docs/plan-022/gate-decision-2026-07-25.md`), with ADMX parser fixes and
   code hardening.
@@ -148,6 +172,19 @@ Current version: `1.0.0`.
   in a request path, and `scripts/check_safety.py` fails if an exempt module
   ever becomes reachable from `api.py`, so an exemption cannot silently widen
   into a charter breach.
+
+### Removed
+
+- `scripts/windows-oracle/remote-run.ps1`, the scheduled-task launcher, and
+  every lane's SSH branch. The launcher existed only to obtain a logon token an
+  SSH non-interactive session cannot provide, and it took the credential as a
+  `schtasks /RP` argument — transient, but decodable by a privileged observer on
+  the host for as long as the task existed. PowerShell Direct carries the
+  credential through the hypervisor and needs no launcher, so removing it is a
+  security improvement rather than cleanup. Certifications produced on the
+  retired transport are not retracted, but their evidence packs can no longer be
+  re-verified in this tree, and `build_harness_inputs` reports that explicitly
+  instead of defaulting to a file set that no longer exists.
 
 ### Fixed
 

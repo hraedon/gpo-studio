@@ -49,8 +49,10 @@ $result = [ordered]@{
     environment = [ordered]@{
         server_caption = "$($osInfo.Caption)"
         server_build = "$($osInfo.BuildNumber)"
+        powershell_edition = "$($PSVersionTable.PSEdition)"
         powershell_version = "$($PSVersionTable.PSVersion)"
         group_policy_module_version = if ($gpModule) { "$($gpModule.Version)" } else { 'unknown' }
+        gpmc_version = 'built-in'
         locale = (Get-Culture).Name
     }
     error = $null
@@ -137,16 +139,24 @@ try {
         }
     } else {
         try {
+            # cleanup_succeeded was set unconditionally here, so a run whose
+            # by-name probe was blind reported a successful cleanup of an object
+            # nothing had removed. It now means either this removed the GPO, or
+            # an independent enumeration shows nothing by that name. (The
+            # importedGuid branch above is already honest: Remove-GPO there runs
+            # with -ErrorAction Stop, so reaching the next line means it ran.)
+            $removed = $false
             $partial = Get-GPO -Name $targetName -Domain $Domain -ErrorAction SilentlyContinue
             if ($partial) {
                 Remove-GPO -Guid $partial.Id -Domain $Domain -Confirm:$false -ErrorAction Stop
+                $removed = $true
             }
-            $result.cleanup_succeeded = $true
             $remaining = @(
                 Get-GPO -All -Domain $Domain -ErrorAction Stop |
                     Where-Object { $_.DisplayName -eq $targetName }
             )
             $result.cleanup_state_restored = $remaining.Count -eq 0
+            $result.cleanup_succeeded = $removed -or ($remaining.Count -eq 0)
         } catch {
             $result.error = (($result.error, "cleanup: $($_.Exception.Message)") -ne $null) -join '; '
         }

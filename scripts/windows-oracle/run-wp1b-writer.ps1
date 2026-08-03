@@ -29,11 +29,16 @@ New-Item -ItemType Directory -Force -Path $workDir | Out-Null
 
 $osInfo = Get-CimInstance Win32_OperatingSystem
 $gpModule = Get-Module -ListAvailable GroupPolicy | Select-Object -First 1
+# powershell_edition and gpmc_version are not decoration: the finalizer checks
+# this object against FROZEN_ENVIRONMENT, and a field the harness does not record
+# is a field the frozen profile cannot gate on.
 $environment = [ordered]@{
     server_caption = "$($osInfo.Caption)"
     server_build = "$($osInfo.BuildNumber)"
+    powershell_edition = "$($PSVersionTable.PSEdition)"
     powershell_version = "$($PSVersionTable.PSVersion)"
     group_policy_module_version = if ($gpModule) { "$($gpModule.Version)" } else { 'unknown' }
+    gpmc_version = 'built-in'
     locale = (Get-Culture).Name
     domain = "$Domain"
 }
@@ -168,15 +173,25 @@ foreach ($entry in $index.candidates) {
                 $partial = Get-GPO -Name $targetName -Domain $Domain -ErrorAction SilentlyContinue
                 if ($partial) { $importedGuid = $partial.Id }
             }
+            # cleanup_succeeded was set unconditionally here, so losing track of
+            # the GUID -- Import-GPO creating the GPO but throwing before its Id
+            # was captured, with the by-name fallback also blind -- reported a
+            # successful cleanup of an object nothing had removed.
+            #
+            # It now means what it says: either this removed the GPO, or an
+            # independent enumeration shows nothing by that name. Doing nothing
+            # and seeing nothing is only success when the seeing is evidence.
+            $removed = $false
             if ($importedGuid) {
                 Remove-GPO -Guid $importedGuid -Domain $Domain -Confirm:$false -ErrorAction Stop
+                $removed = $true
             }
-            $result.cleanup_succeeded = $true
             $remaining = @(
                 Get-GPO -All -Domain $Domain -ErrorAction Stop |
                     Where-Object { $_.DisplayName -eq $targetName }
             )
             $result.cleanup_state_restored = $remaining.Count -eq 0
+            $result.cleanup_succeeded = $removed -or ($remaining.Count -eq 0)
         } catch {
             $result.cleanup_succeeded = $false
             $result.error = (@($result.error, "cleanup: $($_.Exception.Message)") |
