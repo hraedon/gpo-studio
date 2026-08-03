@@ -1,0 +1,99 @@
+"""The committed verdicts are the reviewable product; check they are coherent.
+
+A verdict under `docs/plan-033/` is what a reviewer reads instead of re-running
+a lane, so its internal claims have to hold up without the estate. These are the
+checks a reviewer would otherwise have to do by eye, and one of them exists
+because a reviewer did it by eye and reached a wrong conclusion: `source.files`
+had acquired entries (`candidate/candidate.zip`) that are generated artifacts
+rather than repository files, so resolving the block against `source.commit`
+failed and the verdict looked malformed. The block now contains only what its
+name promises, and this pins that.
+"""
+
+from __future__ import annotations
+
+import json
+import runpy
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+
+REPO_ROOT = Path(__file__).parents[1]
+ORACLE_DIR = REPO_ROOT / "scripts" / "windows-oracle"
+EVIDENCE = REPO_ROOT / "docs" / "plan-033"
+
+#: committed verdict -> the finalizer whose tables define its bound file set.
+LANE_VERDICTS = {
+    "wp1b-evidence/verification-estate.json": "finalize_wp1b_run.py",
+    "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
+    "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
+}
+
+
+def _verdict(relative: str) -> dict[str, Any]:
+    return cast(
+        dict[str, Any], json.loads((EVIDENCE / relative).read_text(encoding="utf-8"))
+    )
+
+
+def _bound_names(finalizer: str) -> set[str]:
+    symbols = runpy.run_path(str(ORACLE_DIR / finalizer))
+    deployed = cast(dict[str, dict[str, str]], symbols["TRANSPORT_DEPLOYED_FILES"])
+    local = cast(dict[str, dict[str, str]], symbols["TRANSPORT_LOCAL_FILES"])
+    return set(deployed["psdirect"]) | set(local["psdirect"])
+
+
+@pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
+def test_source_files_holds_exactly_the_bound_repository_files(
+    relative: str, finalizer: str
+) -> None:
+    """Every `source.files` key names a file this lane binds, and nothing else.
+
+    The block sits under `source: {commit, dirty, files}`, so each key has to be
+    resolvable against that commit. A generated artifact filed there is not a
+    small untidiness: it makes the verdict unverifiable by the obvious method.
+    """
+    verdict = _verdict(relative)
+    assert set(verdict["source"]["files"]) == _bound_names(finalizer)
+
+
+@pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
+def test_every_bound_file_still_exists_in_the_tree(
+    relative: str, finalizer: str
+) -> None:
+    """A verdict naming a file the repository no longer has cannot be re-checked."""
+    symbols = runpy.run_path(str(ORACLE_DIR / finalizer))
+    for table in ("TRANSPORT_DEPLOYED_FILES", "TRANSPORT_LOCAL_FILES"):
+        for name, source in cast(
+            dict[str, dict[str, str]], symbols[table]
+        )["psdirect"].items():
+            assert (REPO_ROOT / source).is_file(), f"{name} -> {source}"
+
+
+@pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
+def test_a_passing_verdict_is_internally_consistent(
+    relative: str, finalizer: str
+) -> None:
+    """`passed` must follow from the checks recorded beside it.
+
+    A verdict that says `passed` while carrying a false check would mean the
+    file was edited after the fact, or assembled from more than one run.
+    """
+    verdict = _verdict(relative)
+    assert verdict["passed"] is True
+    if "checks" in verdict:
+        failed = sorted(name for name, ok in verdict["checks"].items() if not ok)
+        assert not failed, f"{relative} claims passed with failing checks: {failed}"
+    for candidate in verdict.get("candidates", []):
+        failed = sorted(name for name, ok in candidate["checks"].items() if not ok)
+        assert not failed, f"{relative}:{candidate['candidate_id']} {failed}"
+        assert candidate["state"] == "pass"
+    assert verdict["source"]["dirty"] is False
+    assert verdict["transport"] == "psdirect"
+
+
+def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
+    manifest = _verdict("wp0-evidence/manifest-estate.json")
+    assert manifest["capability"]["evidence_state"] == "pass"
+    assert manifest["source"]["dirty"] is False

@@ -66,13 +66,16 @@ which of these produced a given verdict.
 |---|---|---|---|---|
 | WP-0 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `live-synthetic-registry-basic-20260803213433-5325` (`pass`) |
 | WP-1B | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803213602-6066` (7/7) |
-| WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803213246-4802` (18/18) |
-| WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803213338-4557` (20/20) |
+| WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803230132-8090` (18/18) |
+| WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803230220-2450` (20/20) |
 | endpoint | estate, client guest (26200) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real client build) |
 | any | `mvmcitest01` (historic shared host) | `ssh` + launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (commit orphaned, see above) |
 
-Each estate row cites a run made against the **final** lane scripts, on commit
-`97bdaf9`, after an adversarial review round changed what several of these
+Each estate row cites a run made against the lane scripts as they ship. WP-2 and
+WP-3 cite `db775b0`, which moved the candidate hashes out of `source.files`;
+WP-0 and WP-1B still cite `97bdaf9` because nothing they bind changed after it,
+and re-certifying a lane whose inputs are identical adds no information. The
+rows were produced after an adversarial review round changed what several of these
 checks mean. WP-1B's verdict now gates on the environment at all; WP-2's and
 WP-3's are graded against the candidate this controller built rather than the
 copy the guest returned, and each carries a `candidate_delivered_intact` check
