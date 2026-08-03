@@ -49,8 +49,10 @@ $result = [ordered]@{
     environment = [ordered]@{
         server_caption = "$($osInfo.Caption)"
         server_build = "$($osInfo.BuildNumber)"
+        powershell_edition = "$($PSVersionTable.PSEdition)"
         powershell_version = "$($PSVersionTable.PSVersion)"
         group_policy_module_version = if ($gpModule) { "$($gpModule.Version)" } else { 'unknown' }
+        gpmc_version = 'built-in'
         locale = (Get-Culture).Name
     }
     error = $null

@@ -729,6 +729,62 @@ def frozen_environment_violations(
     return tuple(violations)
 
 
+#: Fields a lane harness must record for its environment to be checkable at all.
+#: ``lgpo_sha256`` is deliberately absent: it is recorded, not qualified, and no
+#: lane executes the binary (see environment-spec.md).
+_LANE_ENVIRONMENT_FIELDS: tuple[str, ...] = (
+    "server_build",
+    "powershell_edition",
+    "powershell_version",
+    "group_policy_module_version",
+    "gpmc_version",
+    "locale",
+)
+
+
+def lane_environment_violations(
+    recorded: Mapping[str, object],
+    frozen: FrozenEnvironment = FROZEN_ENVIRONMENT,
+) -> tuple[str, ...]:
+    """Check a lane result's ``environment`` object against the frozen profile.
+
+    The WP-1B/WP-2/WP-3/endpoint lanes write a bespoke ``result.json`` rather
+    than a full manifest, so :func:`parse_oracle_manifest` never sees them and
+    its ``pass`` gate never runs.  Environment-spec rule 7 names
+    :data:`FROZEN_ENVIRONMENT` as the single source of truth for the profile;
+    this is how a lane finalizer honours that rule without keeping its own copy.
+
+    A private copy is not a harmless duplication.  WP-3's finalizer carried one
+    that pinned an exact PowerShell servicing revision and gated a pass on
+    ``lgpo_sha256`` -- both of which the 2026-07-29 build-family re-freeze had
+    already removed, and neither of which any lane's evidence depends on.  It
+    would have refused a correct run on a correctly qualified host.
+
+    Extra recorded keys (``server_caption``, ``lgpo_sha256``) are ignored:
+    provenance a lane chooses to record is not something to gate on.  Lanes that
+    never touch a client are on-target with no client evidence; a lane that does
+    touch one asserts a real ``client_build`` in its own finalizer, per rule 6.
+    """
+    missing = [field for field in _LANE_ENVIRONMENT_FIELDS if field not in recorded]
+    if missing:
+        return tuple(
+            f"environment.{field} was not recorded by the harness" for field in missing
+        )
+    environment = WindowsEnvironment(
+        server_build=str(recorded["server_build"]),
+        client_build=str(recorded.get("client_build") or CLIENT_NOT_TESTED),
+        powershell_edition=str(recorded["powershell_edition"]),
+        powershell_version=str(recorded["powershell_version"]),
+        group_policy_module_version=str(recorded["group_policy_module_version"]),
+        gpmc_version=str(recorded["gpmc_version"]),
+        locale=str(recorded["locale"]),
+        # Recorded, not qualified: a placeholder keeps the dataclass honest
+        # without letting a missing binary influence a verdict.
+        lgpo_sha256=str(recorded.get("lgpo_sha256") or "missing"),
+    )
+    return frozen_environment_violations(environment, frozen)
+
+
 def parse_oracle_manifest(raw: object) -> OracleEvidenceManifest:
     """Parse and strictly validate one Plan 033 execution manifest."""
     data = _mapping(raw, "manifest")

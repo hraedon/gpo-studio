@@ -560,6 +560,65 @@ def test_frozen_environment_violations_reports_each_deviation() -> None:
     assert frozen_environment_violations(env, frozen) == ()
 
 
+def _lane_environment(**overrides: str) -> dict[str, str]:
+    """An on-target lane ``environment`` block, in the shape the harnesses write."""
+    recorded = {
+        "server_caption": "Microsoft Windows Server 2025 Standard",
+        "server_build": FROZEN_ENVIRONMENT.server_build_family,
+        "powershell_edition": FROZEN_ENVIRONMENT.powershell_edition,
+        "powershell_version": FROZEN_ENVIRONMENT.powershell_version_family,
+        "group_policy_module_version": (
+            FROZEN_ENVIRONMENT.group_policy_module_version
+        ),
+        "gpmc_version": FROZEN_ENVIRONMENT.gpmc_version,
+        "locale": FROZEN_ENVIRONMENT.locale,
+    }
+    recorded.update(overrides)
+    return recorded
+
+
+def test_lane_environment_accepts_a_servicing_revision_and_a_missing_lgpo() -> None:
+    """The two things WP-3's private profile copy got wrong.
+
+    It pinned an exact PowerShell servicing revision and gated on an LGPO hash,
+    so a correct run on a correctly qualified host would have been refused.
+    """
+    from gpo_studio.oracle_evidence import lane_environment_violations
+
+    recorded = _lane_environment(
+        powershell_version=f"{FROZEN_ENVIRONMENT.powershell_version_family}.7462",
+        lgpo_sha256="missing",
+    )
+    assert lane_environment_violations(recorded) == ()
+
+
+def test_lane_environment_reports_a_deviation() -> None:
+    from gpo_studio.oracle_evidence import lane_environment_violations
+
+    violations = lane_environment_violations(_lane_environment(locale="de-DE"))
+    assert len(violations) == 1
+    assert "locale" in violations[0]
+
+
+def test_lane_environment_refuses_a_field_the_harness_did_not_record() -> None:
+    """A silently absent field must not read as an on-target one."""
+    from gpo_studio.oracle_evidence import lane_environment_violations
+
+    recorded = _lane_environment()
+    del recorded["gpmc_version"]
+    violations = lane_environment_violations(recorded)
+    assert violations == ("environment.gpmc_version was not recorded by the harness",)
+
+
+def test_lane_environment_defaults_the_client_to_not_tested() -> None:
+    """A lane that never touches a client is on-target without endpoint evidence."""
+    from gpo_studio.oracle_evidence import lane_environment_violations
+
+    assert lane_environment_violations(_lane_environment()) == ()
+    off_target = _lane_environment(client_build="12345")
+    assert any("client_build" in problem for problem in lane_environment_violations(off_target))
+
+
 def test_inconclusive_manifest_tolerates_unfrozen_environment() -> None:
     raw = _manifest()
     environment = raw["environment"]

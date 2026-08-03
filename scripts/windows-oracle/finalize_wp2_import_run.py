@@ -15,10 +15,51 @@ from typing import Any
 from gpo_studio.backup import BackupError, read_backup
 from gpo_studio.import_export import extract_side_settings
 from gpo_studio.model import ValidationError
-from gpo_studio.oracle_evidence import OracleEvidenceError, tag_evidence_commit
+from gpo_studio.oracle_evidence import (
+    OracleEvidenceError,
+    lane_environment_violations,
+    tag_evidence_commit,
+)
 from gpo_studio.registry_pol import RegistryPolError
 
 _BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
+
+
+#: Harness files deployed to the Windows guest, per transport.  The finalizer
+#: binds each retrieved copy to the committed source, so this set has to match
+#: what the lane actually deploys or ``harness_matches_source`` is meaningless.
+#:
+#: The two transports differ because ``psdirect`` drops the scheduled-task
+#: launcher.  The launcher existed only to obtain a delegable logon token, which
+#: SSH's network logon cannot provide; PowerShell Direct carries the credential
+#: to the guest through the hypervisor and the resulting logon authenticates
+#: outward to AD and SYSVOL.  Dropping it also removes the ``schtasks /RP``
+#: password argument, so the newer transport is both simpler and safer.
+TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
+    "ssh": {
+        "run-wp2-import.ps1": "scripts/windows-oracle/run-wp2-import.ps1",
+        "remote-run.ps1": "scripts/windows-oracle/remote-run.ps1",
+        "remote-run-launcher.ps1": "scripts/windows-oracle/remote-run.ps1",
+    },
+    "psdirect": {
+        "run-wp2-import.ps1": "scripts/windows-oracle/run-wp2-import.ps1",
+    },
+}
+
+#: Scripts that execute on the controller, where the source-tree copy *is* the
+#: executed copy.  ``psdirect.ps1`` belongs here rather than in the deployed set:
+#: it drives the transport from the controller and is never copied to the guest.
+TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
+    "ssh": {
+        "run-wp2-oracle.sh": "scripts/windows-oracle/run-wp2-oracle.sh",
+        "build-wp2-candidate.py": "scripts/plan-033/build-wp2-candidate.py",
+    },
+    "psdirect": {
+        "run-wp2-oracle.sh": "scripts/windows-oracle/run-wp2-oracle.sh",
+        "build-wp2-candidate.py": "scripts/plan-033/build-wp2-candidate.py",
+        "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+    },
+}
 
 
 def _sha256(path: Path) -> str:
@@ -43,6 +84,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    # Which transport carried the run. This is not cosmetic: it selects the set
+    # of harness files the provenance check expects to find, because the two
+    # transports deploy different files. It is also recorded in the verdict, so
+    # a reviewer can tell which qualified environment produced it.
+    parser.add_argument(
+        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="ssh"
+    )
     parser.add_argument(
         "--no-tag",
         action="store_true",
@@ -150,13 +198,12 @@ def main() -> int:
     # against source.  Locally-executed scripts are compared from the
     # source-tree copy that ran.
     deployed_map = {
-        "run-wp2-import.ps1": repo_root / "scripts/windows-oracle/run-wp2-import.ps1",
-        "remote-run.ps1": repo_root / "scripts/windows-oracle/remote-run.ps1",
-        "remote-run-launcher.ps1": repo_root / "scripts/windows-oracle/remote-run.ps1",
+        name: repo_root / source
+        for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
     local_map = {
-        "run-wp2-oracle.sh": repo_root / "scripts/windows-oracle/run-wp2-oracle.sh",
-        "build-wp2-candidate.py": repo_root / "scripts/plan-033/build-wp2-candidate.py",
+        name: repo_root / source
+        for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
     }
     source_hashes: dict[str, str] = {}
     harness_ok = True
@@ -167,6 +214,14 @@ def main() -> int:
         if not evidence_path.is_file() or _sha256(evidence_path) != src_hash:
             harness_ok = False
     checks["harness_matches_source"] = harness_ok
+
+    # A lane that does not check where it ran cannot qualify anything: its
+    # "pass" would say the import worked, not that it worked on a host this
+    # project has frozen. The profile comes from FROZEN_ENVIRONMENT, per
+    # environment-spec rule 7 -- never a copy kept here.
+    environment_violations = list(lane_environment_violations(result["environment"]))
+    checks["environment_matches_frozen_spec"] = not environment_violations
+
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=repo_root,
@@ -197,6 +252,9 @@ def main() -> int:
         "passed": all(checks.values()),
         "checks": checks,
         "rebackup_error": rebackup_error,
+        "transport": args.transport,
+        "environment": result["environment"],
+        "environment_violations": environment_violations,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
         "artifacts": {
             str(path.relative_to(run_dir)): _sha256(path)
