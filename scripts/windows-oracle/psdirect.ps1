@@ -216,36 +216,59 @@ try {
                 }
             }
             'pull' {
-                $probe = Invoke-Guest -TimeoutSeconds $timeoutSeconds -ArgumentList @($remotePath) -Body {
-                    param($remotePath)
+                # Archive INSIDE the guest, then move one file.
+                #
+                # The obvious shape -- Copy-Item -FromSession the directory to
+                # the host, then compress there -- fails on a real evidence run:
+                # copying a directory out of a PSSession yields entries whose
+                # LastWriteTime cannot be represented in a zip ("The
+                # DateTimeOffset specified cannot be converted into a Zip file
+                # timestamp"), even though every source file on the guest has a
+                # valid timestamp. Compressing where the files are avoids
+                # inventing timestamps, and copying a single file also avoids
+                # Copy-Item -FromSession's directory path entirely -- the same
+                # operation that fails against a Linux destination on the next
+                # hop.
+                #
+                # Contract, unchanged: pulling a DIRECTORY delivers its contents
+                # into -LocalPath (matching the `scp -r host:dir/. local/` idiom
+                # the lanes use, so a finalizer written against the SSH
+                # transport finds the run directory where it expects); pulling a
+                # FILE delivers the file. `\*` on a container is what puts the
+                # contents at the archive root.
+                $guestZip = Invoke-Guest -TimeoutSeconds $timeoutSeconds -ArgumentList @($remotePath, $stamp) -Body {
+                    param($remotePath, $stamp)
                     if (-not (Test-Path -LiteralPath $remotePath)) { return $null }
-                    [pscustomobject]@{
-                        isContainer = (Test-Path -LiteralPath $remotePath -PathType Container)
+                    $isContainer = Test-Path -LiteralPath $remotePath -PathType Container
+                    $source = if ($isContainer) { Join-Path $remotePath '*' } else { $remotePath }
+                    # An empty directory has nothing to compress and is not an
+                    # error: the caller gets an empty destination.
+                    if (@(Get-ChildItem -Path $source -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+                        return 'EMPTY'
                     }
+                    $zip = Join-Path $env:TEMP "gpo-studio-pull-$stamp.zip"
+                    Compress-Archive -Path $source -DestinationPath $zip -Force
+                    return $zip
                 }
-                if (-not $probe) { throw "Guest path '$remotePath' does not exist on '$guest'." }
-
-                New-Item -ItemType Directory -Force -Path $stagePath | Out-Null
-                $guestSession = New-PSSession -VMName $guest -Credential $cred
-                try {
-                    Copy-Item -LiteralPath $remotePath -Destination $stagePath `
-                        -FromSession $guestSession -Recurse -Force
-                } finally {
-                    Remove-PSSession $guestSession -ErrorAction SilentlyContinue
-                }
-
-                # Contract: pulling a DIRECTORY delivers its contents into
-                # -LocalPath, matching the `scp -r host:dir/. local/` idiom the
-                # lanes already use, so a finalizer written against the SSH
-                # transport finds the run directory where it expects. Pulling a
-                # FILE delivers the file. The staged copy always nests the
-                # source under its own leaf name, so a directory pull archives
-                # one level in.
-                if ($probe.isContainer) {
-                    $leaf = Split-Path -Path $remotePath -Leaf
-                    "SOURCE=$(Join-Path (Join-Path $stagePath $leaf) '*')"
-                } else {
-                    "SOURCE=$(Join-Path $stagePath '*')"
+                if (-not $guestZip) { throw "Guest path '$remotePath' does not exist on '$guest'." }
+                if ($guestZip -eq 'EMPTY') { "SOURCE=" } else {
+                    New-Item -ItemType Directory -Force -Path $stagePath | Out-Null
+                    $hostZip = Join-Path $stagePath 'pull.zip'
+                    $guestSession = New-PSSession -VMName $guest -Credential $cred
+                    try {
+                        Copy-Item -LiteralPath $guestZip -Destination $hostZip `
+                            -FromSession $guestSession -Force
+                    } finally {
+                        Remove-PSSession $guestSession -ErrorAction SilentlyContinue
+                    }
+                    # The guest keeps no copy of the evidence archive: this
+                    # transport must not leave artifacts behind on a host whose
+                    # cleanliness the lane re-queries.
+                    Invoke-Guest -TimeoutSeconds $timeoutSeconds -ArgumentList @($guestZip) -Body {
+                        param($guestZip)
+                        Remove-Item -LiteralPath $guestZip -Force -ErrorAction SilentlyContinue
+                    } | Out-Null
+                    "SOURCE=$hostZip"
                 }
             }
         }
@@ -262,27 +285,18 @@ try {
             # found on this object"), and even where it works it is one WinRM
             # round trip per file, which is the slow part of an evidence pull.
             # One archive is also atomic: a partial pull cannot look like a
-            # complete run directory.
+            # complete run directory. The archive was built in the guest; this
+            # leg only moves it.
             $sourceLine = @($result) | Where-Object { "$_" -like 'SOURCE=*' } | Select-Object -First 1
             if (-not $sourceLine) { throw "Guest staging did not report a source path to pull." }
             $source = "$sourceLine".Substring('SOURCE='.Length)
 
-            $archived = Invoke-Command -Session $session -ArgumentList $stagePath, $source -ScriptBlock {
-                param($stagePath, $source)
-                if (@(Get-ChildItem -Path $source -ErrorAction SilentlyContinue).Count -eq 0) { return $null }
-                $zip = "$stagePath.zip"
-                Compress-Archive -Path $source -DestinationPath $zip -Force
-                return $zip
-            }
-
-            if ($archived) {
-                Copy-Item -LiteralPath $archived -Destination $localArchive `
+            # An empty source is a legitimate outcome, not a failure: the caller
+            # asked for a directory that exists and holds nothing.
+            if ($source) {
+                Copy-Item -LiteralPath $source -Destination $localArchive `
                     -FromSession $session -Force
                 Expand-Archive -LiteralPath $localArchive -DestinationPath $LocalPath -Force
-                Invoke-Command -Session $session -ArgumentList $archived -ScriptBlock {
-                    param($archived)
-                    Remove-Item -LiteralPath $archived -Force -ErrorAction SilentlyContinue
-                }
             }
         } finally {
             Remove-Item -LiteralPath $localArchive -Force -ErrorAction SilentlyContinue
