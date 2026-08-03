@@ -266,6 +266,29 @@ another's. Certified run `wp1b-writer-20260730164352-5286`, source commit
 GroupPolicy module 1.0.0.0 / en-US; the verdict is stored at
 `docs/plan-033/wp1b-evidence/verification.json`.
 
+**Estate qualification run (2026-08-03).** The lane was re-pointed onto the
+disposable evidence lab over PowerShell Direct and re-run: certified run
+`wp1b-writer-20260803014047-4766`, source commit `b3aba79`, clean tree,
+`transport: psdirect`, all **seven candidates pass**, verdict at
+`docs/plan-033/wp1b-evidence/verification-estate.json` and source tree preserved
+at tag `evidence/wp1b-writer-20260803014047-4766`.
+
+WP-1B was chosen as the estate's qualification lane because its candidates
+already passed on the historic host, so the re-run changes exactly one variable:
+same inputs, same expected results, new environment. The environment matched the
+frozen profile on every gated field without amendment (build family 26100,
+PowerShell 5.1.26100, GroupPolicy 1.0.0.0, en-US), so this qualifies the estate
+rather than redefining what qualification means. The lane ran with **no
+scheduled-task launcher** -- see the transport note in `environment-spec.md`.
+
+Two transport defects were found and fixed by this run, both invisible to any
+test that does not move real evidence: `Compress-Archive` cannot encode the
+timestamps that `Copy-Item -FromSession` invents for a copied directory, and it
+silently skips hidden files -- which is every `manifest.xml` and `bkupInfo.xml`
+in a `Backup-GPO` tree. The second reported success while dropping 14 of 146
+files, and surfaced as seven candidates failing on a missing manifest. The pull
+now counts what it delivers against what the guest packed.
+
 Results:
 
 - **pass** — `registry-both`, `drives-user`, `groups-machine`,

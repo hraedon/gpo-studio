@@ -7,9 +7,11 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
+from gpo_studio.oracle_evidence import OracleEvidenceError, tag_evidence_commit
 from gpo_studio.security_template import (
     SecurityTemplate,
     SecurityTemplateError,
@@ -148,6 +150,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--no-tag",
+        action="store_true",
+        help=(
+            "do not create the evidence/<run-id> tag for a passing run. The tag "
+            "preserves the source commit that squash-merging would otherwise "
+            "orphan (issue #22); skip it only when tagging is handled elsewhere."
+        ),
+    )
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
@@ -286,11 +297,28 @@ def main() -> int:
             if path.is_file() and path.name != "verification.json"
         },
     }
+    # Bind before recording: a run that cannot be tagged must not leave a
+    # durable "passed" file claiming a binding it does not have. See the same
+    # comment in finalize_wp1b_run.py for the two ways that happens.
+    tag_outcome: str | None = None
+    if verdict["passed"] and not args.no_tag:
+        try:
+            tag_outcome = tag_evidence_commit(repo_root, result["run_id"], commit)
+        except OracleEvidenceError as exc:
+            print(f"evidence tag failed: {exc}", file=sys.stderr)
+            return 1
+
     (run_dir / "verification.json").write_text(
         json.dumps(verdict, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     print(json.dumps(verdict, indent=2, sort_keys=True))
+
+    # Preserve the commit this certification binds to (issue #22). Only WP-0's
+    # finalizer tagged, which is how WP-0's and WP-2's own bindings were lost --
+    # see docs/evidence-binding-audit-2026-08-03.md.
+    if tag_outcome is not None:
+        print(f"EVIDENCE_TAG={tag_outcome}")
     return 0 if verdict["passed"] else 1
 
 

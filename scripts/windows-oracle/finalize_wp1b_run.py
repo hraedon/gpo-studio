@@ -27,12 +27,14 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 from gpo_studio.backup import BackupError, read_backup
 from gpo_studio.model import ValidationError
+from gpo_studio.oracle_evidence import OracleEvidenceError, tag_evidence_commit
 from gpo_studio.registry_pol import RegistryPolError
 from gpo_studio.writer_conformance import (
     compare_preferences,
@@ -61,6 +63,44 @@ _FAMILY_REPORT_MARKERS: dict[str, tuple[str, ...]] = {
         "ScheduledTasksSettings",
         "ServiceSettings",
     ),
+}
+
+
+#: Harness files deployed to the Windows guest, per transport.  The finalizer
+#: binds each retrieved copy to the committed source, so this set has to match
+#: what the lane actually deploys or ``harness_matches_source`` is meaningless.
+#:
+#: The two transports differ because ``psdirect`` drops the scheduled-task
+#: launcher.  The launcher existed only to obtain a delegable logon token, which
+#: SSH's network logon cannot provide; PowerShell Direct carries the credential
+#: to the guest through the hypervisor and the resulting logon authenticates
+#: outward to AD and SYSVOL, measured on the estate.  Dropping it also removes
+#: the ``schtasks /RP`` password argument the lane scripts flag as decodable by
+#: a privileged observer, so the newer transport is both simpler and safer.
+TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
+    "ssh": {
+        "run-wp1b-writer.ps1": "scripts/windows-oracle/run-wp1b-writer.ps1",
+        "remote-run.ps1": "scripts/windows-oracle/remote-run.ps1",
+        "remote-run-launcher.ps1": "scripts/windows-oracle/remote-run.ps1",
+    },
+    "psdirect": {
+        "run-wp1b-writer.ps1": "scripts/windows-oracle/run-wp1b-writer.ps1",
+    },
+}
+
+#: Scripts that execute on the controller, where the source-tree copy *is* the
+#: executed copy.  ``psdirect.ps1`` belongs here rather than in the deployed set:
+#: it drives the transport from the controller and is never copied to the guest.
+TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
+    "ssh": {
+        "run-wp1b-oracle.sh": "scripts/windows-oracle/run-wp1b-oracle.sh",
+        "build-wp1b-candidates.py": "scripts/plan-033/build-wp1b-candidates.py",
+    },
+    "psdirect": {
+        "run-wp1b-oracle.sh": "scripts/windows-oracle/run-wp1b-oracle.sh",
+        "build-wp1b-candidates.py": "scripts/plan-033/build-wp1b-candidates.py",
+        "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+    },
 }
 
 
@@ -214,6 +254,23 @@ def main() -> int:
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    # Which transport carried the run. This is not cosmetic: it selects the set
+    # of harness files that must be bound to the source commit, because the two
+    # transports deploy different files. It is also recorded in the verdict, so
+    # a reviewer can tell how a certification was produced without reading the
+    # lane script at whatever revision it now sits.
+    parser.add_argument(
+        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="ssh"
+    )
+    parser.add_argument(
+        "--no-tag",
+        action="store_true",
+        help=(
+            "do not create the evidence/<run-id> tag for a passing run. The tag "
+            "preserves the source commit that squash-merging would otherwise "
+            "orphan (issue #22); skip it only when tagging is handled elsewhere."
+        ),
+    )
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     candidate_root = args.candidate_root.resolve()
@@ -228,13 +285,12 @@ def main() -> int:
     ]
 
     deployed_map = {
-        "run-wp1b-writer.ps1": repo_root / "scripts/windows-oracle/run-wp1b-writer.ps1",
-        "remote-run.ps1": repo_root / "scripts/windows-oracle/remote-run.ps1",
-        "remote-run-launcher.ps1": repo_root / "scripts/windows-oracle/remote-run.ps1",
+        name: repo_root / source
+        for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
     local_map = {
-        "run-wp1b-oracle.sh": repo_root / "scripts/windows-oracle/run-wp1b-oracle.sh",
-        "build-wp1b-candidates.py": repo_root / "scripts/plan-033/build-wp1b-candidates.py",
+        name: repo_root / source
+        for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
     }
     source_hashes: dict[str, str] = {}
     harness_ok = True
@@ -270,6 +326,7 @@ def main() -> int:
         "run_id": run_result["run_id"],
         "passed": passed,
         "harness_matches_source": harness_ok,
+        "transport": args.transport,
         "environment": run_result["environment"],
         "candidates": candidates,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
@@ -279,6 +336,21 @@ def main() -> int:
             if path.is_file() and path.name != "verification.json"
         },
     }
+    # Bind before recording. The tag is what makes the verdict's `source.commit`
+    # checkable from a fresh clone, so a run that cannot be tagged must not leave
+    # a durable "passed" file claiming a binding it does not have. Two ways that
+    # happens: no git identity (tag -a exits 128), and re-finalizing a run
+    # directory after the tree moved on -- where the verdict would be rewritten
+    # to the new HEAD while the existing tag correctly refuses to move, leaving
+    # the two pointing at different commits permanently.
+    tag_outcome: str | None = None
+    if passed and not args.no_tag:
+        try:
+            tag_outcome = tag_evidence_commit(repo_root, run_result["run_id"], commit)
+        except OracleEvidenceError as exc:
+            print(f"evidence tag failed: {exc}", file=sys.stderr)
+            return 1
+
     (run_dir / "verification.json").write_text(
         json.dumps(verdict, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -301,6 +373,14 @@ def main() -> int:
             if candidate[key]:
                 print(f"             {key}: {candidate[key]}")
     print(f"\nrun {run_result['run_id']}: passed={passed} (source {commit}, dirty={dirty})")
+
+    # Preserve the commit this certification binds to. Only WP-0's finalizer did
+    # this, so every WP-1B certification so far produced a binding that
+    # squash-merge could orphan -- which is how WP-0's and WP-2's own bindings
+    # were lost (docs/evidence-binding-audit-2026-08-03.md). A failing run is
+    # still evidence, but nothing later cites its source tree as proof.
+    if tag_outcome is not None:
+        print(f"EVIDENCE_TAG={tag_outcome}")
     return 0 if passed else 1
 
 

@@ -576,6 +576,86 @@ def evidence_tag_name(run_id: str) -> str:
     return f"{EVIDENCE_TAG_PREFIX}{run_id}"
 
 
+def assert_evidence_tag_writable(repo_root: Path) -> None:
+    """Raise if ``git tag -a`` could not create a tag here.
+
+    Called before a finalizer writes its verdict, so that a run which cannot be
+    bound to a commit fails *before* leaving a durable "passed" file behind. The
+    concrete case is a container or CI shell with no configured git identity:
+    ``git tag -a`` exits 128 with "Committer identity unknown", and a finalizer
+    that had already written its verdict would exit non-zero while leaving on
+    disk a certification nothing preserves the source tree for.
+    """
+    identity = subprocess.run(
+        ["git", "-C", str(repo_root), "var", "GIT_COMMITTER_IDENT"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if identity.returncode != 0:
+        raise OracleEvidenceError(
+            "git has no committer identity, so this run could not be bound to a "
+            f"commit by an evidence tag: {identity.stderr.strip()}"
+        )
+
+
+def tag_evidence_commit(repo_root: Path, run_id: str, commit: str) -> str:
+    """Tag the source commit a certified run binds itself to.
+
+    Squash-merging orphans that commit: it becomes unreachable from ``main`` and
+    is collected eventually, after which the manifest's provenance claim cannot
+    be checked from a fresh clone. The tag costs nothing, keeps the merge policy
+    unchanged, and makes the binding permanent. See issue #22.
+
+    This lives here, rather than in one lane's finalizer, because every lane
+    needs it. It was originally written for the WP-0 finalizer alone, which left
+    WP-1B, WP-2, and WP-3 certifying runs whose commits nothing preserved --
+    exactly how WP-0's and WP-2's own bindings were lost
+    (``docs/evidence-binding-audit-2026-08-03.md``).
+
+    Returns a human-readable outcome; never raises for an already-correct tag,
+    because finalizing twice must stay idempotent.
+    """
+    tag = evidence_tag_name(run_id)
+
+    # `rev-parse --verify refs/tags/<tag>` rather than resolving the bare name:
+    # a bare name would also match a branch called evidence/<run-id>, and the
+    # answer to "does this evidence tag exist" must not depend on some other
+    # ref happening to share its name.
+    existing = subprocess.run(
+        [
+            "git", "-C", str(repo_root), "rev-parse",
+            "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if existing.returncode == 0:
+        found = existing.stdout.strip()
+        if found == commit:
+            return f"tag {tag} already points at {commit[:12]}"
+        raise OracleEvidenceError(
+            f"tag {tag} already exists at {found[:12]} but this run binds to "
+            f"{commit[:12]}; refusing to move an evidence tag"
+        )
+
+    created = subprocess.run(
+        [
+            "git", "-C", str(repo_root), "tag", "-a", tag, commit,
+            "-m", f"Source tree for certified evidence run {run_id} (issue #22).",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if created.returncode != 0:
+        raise OracleEvidenceError(
+            f"could not create evidence tag {tag}: {created.stderr.strip()}"
+        )
+    return f"created {tag} at {commit[:12]} — push it: git push origin {tag}"
+
+
 def _build_family(value: str) -> str | None:
     """Return the trailing build number of an OS build string, if it has one.
 

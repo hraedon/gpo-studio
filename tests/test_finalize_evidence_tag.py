@@ -73,7 +73,7 @@ def _commits(repo: Path) -> tuple[str, str]:
 def test_creates_the_tag_at_the_recorded_commit(finalize: ModuleType, repo: Path) -> None:
     first, _ = _commits(repo)
 
-    outcome = finalize._tag_evidence_commit(repo, "run-0001", first)
+    outcome = finalize.tag_evidence_commit(repo, "run-0001", first)
 
     assert "created" in outcome
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0001^{commit}") == first
@@ -84,9 +84,9 @@ def test_is_idempotent_when_the_tag_already_matches(
 ) -> None:
     """Re-finalizing the same run must not fail or churn the tag."""
     first, _ = _commits(repo)
-    finalize._tag_evidence_commit(repo, "run-0001", first)
+    finalize.tag_evidence_commit(repo, "run-0001", first)
 
-    outcome = finalize._tag_evidence_commit(repo, "run-0001", first)
+    outcome = finalize.tag_evidence_commit(repo, "run-0001", first)
 
     assert "already points at" in outcome
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0001^{commit}") == first
@@ -101,10 +101,10 @@ def test_refuses_to_move_a_tag_to_a_different_commit(
     pointed at a tree that produced different evidence.
     """
     first, second = _commits(repo)
-    finalize._tag_evidence_commit(repo, "run-0001", first)
+    finalize.tag_evidence_commit(repo, "run-0001", first)
 
     with pytest.raises(OracleEvidenceError, match="refusing to move"):
-        finalize._tag_evidence_commit(repo, "run-0001", second)
+        finalize.tag_evidence_commit(repo, "run-0001", second)
 
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0001^{commit}") == first
 
@@ -120,7 +120,7 @@ def test_a_branch_of_the_same_name_is_not_mistaken_for_the_tag(
     first, second = _commits(repo)
     _git(repo, "branch", "evidence/run-0002", second)
 
-    outcome = finalize._tag_evidence_commit(repo, "run-0002", first)
+    outcome = finalize.tag_evidence_commit(repo, "run-0002", first)
 
     assert "created" in outcome
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0002^{commit}") == first
@@ -130,7 +130,7 @@ def test_rejects_an_unsafe_run_id_before_touching_git(
     finalize: ModuleType, repo: Path
 ) -> None:
     with pytest.raises(OracleEvidenceError):
-        finalize._tag_evidence_commit(repo, "bad..id", _commits(repo)[0])
+        finalize.tag_evidence_commit(repo, "bad..id", _commits(repo)[0])
     assert _git(repo, "tag", "-l") == ""
 
 
@@ -165,9 +165,13 @@ def test_main_tags_only_a_passing_run_unless_opted_out(
 
     monkeypatch.setattr(finalize, "finalize_oracle_run", lambda *_: _fake_manifest(state))
     monkeypatch.setattr(finalize, "canonical_manifest_hash", lambda _: "h" * 64)
+    # Writability is a separate property with its own tests below; tmp_path is
+    # not a repository, so leaving the real check in would test git's ident
+    # fallback rather than this dispatch.
+    monkeypatch.setattr(finalize, "assert_evidence_tag_writable", lambda _root: None)
     monkeypatch.setattr(
         finalize,
-        "_tag_evidence_commit",
+        "tag_evidence_commit",
         lambda _root, run_id, commit: calls.append((run_id, commit)) or "tagged",
     )
 
@@ -187,6 +191,61 @@ def test_main_fails_loudly_when_tagging_fails(
 
     monkeypatch.setattr(finalize, "finalize_oracle_run", lambda *_: _fake_manifest("pass"))
     monkeypatch.setattr(finalize, "canonical_manifest_hash", lambda _: "h" * 64)
-    monkeypatch.setattr(finalize, "_tag_evidence_commit", _boom)
+    monkeypatch.setattr(finalize, "assert_evidence_tag_writable", lambda _root: None)
+    monkeypatch.setattr(finalize, "tag_evidence_commit", _boom)
 
     assert finalize.main([str(tmp_path), "--repo-root", str(tmp_path)]) == 1
+
+
+def test_writability_check_passes_in_a_repo_with_an_identity(repo: Path) -> None:
+    from gpo_studio.oracle_evidence import assert_evidence_tag_writable
+
+    assert_evidence_tag_writable(repo)  # does not raise
+
+
+def test_writability_check_refuses_when_git_has_no_identity(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The case that would otherwise write a verdict nothing can bind.
+
+    A container or CI shell with no configured identity makes ``git tag -a``
+    exit 128 with "Committer identity unknown". Finding that out *after* the
+    verdict is on disk leaves a durable certification whose source commit
+    nothing preserves.
+    """
+    from gpo_studio.oracle_evidence import OracleEvidenceError, assert_evidence_tag_writable
+
+    _git(repo, "config", "--unset", "user.email")
+    _git(repo, "config", "--unset", "user.name")
+    _git(repo, "config", "user.useConfigOnly", "true")
+    empty = tmp_path / "empty-gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(empty))
+    monkeypatch.delenv("GIT_AUTHOR_NAME", raising=False)
+    monkeypatch.delenv("GIT_COMMITTER_NAME", raising=False)
+    monkeypatch.delenv("EMAIL", raising=False)
+
+    with pytest.raises(OracleEvidenceError, match="no committer identity"):
+        assert_evidence_tag_writable(repo)
+
+
+def test_the_refused_case_is_the_one_git_actually_refuses(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Pin the check to git's real behaviour, not to an assumption about it."""
+    _git(repo, "config", "--unset", "user.email")
+    _git(repo, "config", "--unset", "user.name")
+    _git(repo, "config", "user.useConfigOnly", "true")
+    empty = tmp_path / "empty-gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(empty))
+
+    attempt = subprocess.run(
+        ["git", "-C", str(repo), "tag", "-a", "evidence/probe", "-m", "m", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert attempt.returncode != 0
