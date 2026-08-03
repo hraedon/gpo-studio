@@ -220,18 +220,29 @@ def main() -> int:
     # The guest ran against the candidate this controller built, byte for byte.
     # Without this, binding the yardstick to the controller copy would prove the
     # verdict was graded correctly while saying nothing about what was graded.
-    candidate_delivery: dict[str, bool] = {}
+    # Recorded here rather than in `source.files`: every entry in that block is
+    # a repository file resolvable at `source.commit`, and the candidate is a
+    # generated artifact that exists at no commit. Filing it there invited a
+    # reviewer to resolve it against the tree and conclude the verdict was
+    # malformed -- which one did.
+    candidate_delivery: dict[str, dict[str, object]] = {}
     for name in ("candidate.zip", "expected.json"):
         controller_copy = candidate_root / name
         guest_copy = run_dir / name
-        candidate_delivery[name] = (
+        intact = (
             guest_copy.is_file()
             and controller_copy.is_file()
             and _sha256(guest_copy) == _sha256(controller_copy)
         )
-        if controller_copy.is_file():
-            source_hashes[f"candidate/{name}"] = _sha256(controller_copy)
-    checks["candidate_delivered_intact"] = all(candidate_delivery.values())
+        candidate_delivery[name] = {
+            "controller_sha256": (
+                _sha256(controller_copy) if controller_copy.is_file() else None
+            ),
+            "guest_copy_matches": intact,
+        }
+    checks["candidate_delivered_intact"] = all(
+        bool(entry["guest_copy_matches"]) for entry in candidate_delivery.values()
+    )
 
     # A lane that does not check where it ran cannot qualify anything: its
     # "pass" would say the import worked, not that it worked on a host this
