@@ -538,7 +538,27 @@ registry-both-sides candidate passed `Import-GPO -WhatIf`, actual
 `Import-GPO -CreateIfNeeded`, GroupPolicy registry readback, native
 `Backup-GPO`, side-version reconciliation, and strict cleanup. The certified
 clean-tree run was `wp2-native-import-20260726235913-9111`; every check in
-the local finalizer passed, with source commit `c8b4fa8` and `dirty: false`.
+the local finalizer passed, with `dirty: false`.
+
+> **Evidence binding broken (found 2026-08-03) — re-certification queued.**
+> This run cannot be verified from the repository. Its recorded source commit
+> `c8b4fa8ed37a86ee…` is not a valid object here, and neither is `5e0a6df` from
+> the superseded dirty-tree run: both were orphaned by squash-merge before the
+> issue #22 remedy landed, and unlike the four commits rescued as `evidence/*`
+> tags, WP-2's were already unreachable by the time that remedy ran, so they
+> cannot be retro-tagged. WP-2 also committed **no evidence manifest** — it has
+> no `docs/plan-033/wp2-evidence/` counterpart to `wp1b-evidence/` and
+> `wp3-evidence/`, so its bindings survive only as the hashes quoted below.
+>
+> Consequence, stated plainly: the `harness_matches_source` claim below is not
+> independently checkable, because the committed tree it compared against is
+> gone. The WP-2 result is a **prose record, not a verifiable certification**.
+> The implementation it describes is on `main` at `96f3aec`; that commit is
+> real, but it is not evidence that the run happened against it.
+>
+> The capability-matrix rows for GPMC backup import/export continue to rest on
+> this record pending re-certification on the lab estate, where the run will
+> produce a committed manifest and an `evidence/` tag like every other lane.
 
 Native GPP emission is deliberately limited to the extension profiles backed
 by genuine GPMC captures: Drive Maps, Local Users and Groups, and Scheduled
@@ -612,11 +632,17 @@ Evidence bindings for the certified clean-tree run:
   `51f9bf99709d4929e627af8d4abc66a1183e511498b54e321ecd94b8c634b330`
 
 The run records source commit `c8b4fa8ed37a86eefc1c6886ed54e09619c55cb2`
-with `dirty: false` and independently proves that every deployed harness
-file retrieved from the Windows host matched the committed source-tree
-bytes. The `harness_matches_source` check compares the remotely deployed
-scripts (retrieved post-run via scp) — not source-tree copies — against the
-committed tree. This is the release-certification pass.
+with `dirty: false`. At the time it ran, the `harness_matches_source` check
+compared the remotely deployed scripts (retrieved post-run via scp) — not
+source-tree copies — against the committed tree, which is the property that
+made this the release-certification pass.
+
+That check can no longer be re-verified: `c8b4fa8` is not a valid object in
+this repository (see the note under **WP-2** above), so the tree it compared
+against is unavailable. The hashes listed here are retained as the historical
+record; they are not independently checkable, and none of them binds to a
+reachable commit. Treat this section as superseded once the queued estate
+re-certification lands.
 
 The prior dirty-tree run (`wp2-native-import-20260726212733-5804`, source
 commit `5e0a6df`, `dirty: true`) is superseded. Its evidence hashes

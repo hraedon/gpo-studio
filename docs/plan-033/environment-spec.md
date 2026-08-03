@@ -12,6 +12,12 @@ Certified passing manifest hash (success-path run
 `live-synthetic-registry-basic-20260726070916`, source commit `000f1b5`):
 `0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`
 
+> **`000f1b5` no longer resolves in this repository** (squash-merge orphan; see
+> `docs/evidence-binding-audit-2026-08-03.md`). This run's integrity pack cannot
+> be re-verified, because the committed tree it compared the deployed harness
+> against is unreachable. The re-freeze of this spec for the disposable lab
+> estate supersedes the binding rather than repairing it.
+
 This run carries the full integrity pack: the deployed harness scripts
 (`run-evidence.ps1`, `common.psm1`, `remote-run.ps1`), the recipe, and the
 control-plane orchestrator are hashed input artifacts bound to the recorded

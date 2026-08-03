@@ -3,7 +3,11 @@
 Status: **ratified** (operator ruling recorded).
 
 This record covers the 2026-07-27 change to `scripts/check_safety.py`, made in
-commit `1edfca9` while fixing the first CI exposure of post-1.0 work. The change
+commit `1edfca9` while fixing the first CI exposure of post-1.0 work. (`1edfca9`
+was squash-merged and no longer resolves — see
+`docs/evidence-binding-audit-2026-08-03.md`. The change is on `main` and the
+property it protects is pinned by `tests/test_safety_gate.py`, so what is lost
+here is traceability, not assurance.) The change
 was flagged for operator ratification at the time because the gate enforces the
 load-bearing charter claim that **the web process never writes to AD or
 SYSVOL** — the single safety property the whole offline-first architecture rests
