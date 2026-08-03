@@ -126,6 +126,19 @@ Current version: `1.0.0`.
 
 ### Changed
 
+- Plan 033: lane verdicts now check what they claim to check. An adversarial
+  review round (three reviewers, hazard-scoped, one cross-lineage) found that
+  WP-2 and WP-3 graded themselves against the copy of `expected.json` the guest
+  returned rather than the candidate the controller built — which also made two
+  of WP-2's named checks structurally unfalsifiable — and that WP-1B, the lane
+  that qualified the estate, had no environment gate at all. Both lanes now take
+  `--candidate-root` and carry a `candidate_delivered_intact` check; WP-1B gates
+  on `FROZEN_ENVIRONMENT` like the others. Every run now owns a private
+  directory tree on the guest, so concurrent runs on one guest can no longer
+  select each other's evidence; `cleanup_succeeded` means the GPO was removed or
+  an independent enumeration shows nothing by that name; orphaned GPOs are
+  reaped and the reap is recorded; and two fail-open defaults
+  (`native_shape_findings` absent, `check_git=False`) are closed.
 - Plan 033: **every evidence lane now runs against the disposable evidence
   estate over PowerShell Direct, and the SSH transport is retired.** WP-0, WP-2
   and WP-3 were ported alongside WP-1B and the endpoint lane, each with its own

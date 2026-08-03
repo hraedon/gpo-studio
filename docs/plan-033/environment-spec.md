@@ -9,9 +9,9 @@ transport retired)
 Validation host: the disposable evidence estate, domain-joined member server,
 PowerShell Direct — see **Qualified environments** below
 Certified passing manifest hash (success-path run
-`live-synthetic-registry-basic-20260803185359-2024`, source commit `1f71fab`,
-tag `evidence/live-synthetic-registry-basic-20260803185359-2024`):
-`c443ec26a86608ab405c6690a9633a91a624b488fac103ce668ceca6a646d90f`
+`live-synthetic-registry-basic-20260803213433-5325`, source commit `97bdaf9`,
+tag `evidence/live-synthetic-registry-basic-20260803213433-5325`):
+`76c79ba93152b59203383b1443b24b159d412bca5dd83775c33a3b8d891d4b3a`
 
 The corresponding fail-path run
 (`live-synthetic-registry-basic-20260803183850-2692`) parses as `fail`, canonical
@@ -64,22 +64,36 @@ which of these produced a given verdict.
 
 | Lane | Environment | Transport | Qualified | Certifying run (tagged `evidence/<run-id>`) |
 |---|---|---|---|---|
-| WP-0 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `live-synthetic-registry-basic-20260803185359-2024` (`pass`) |
-| WP-1B | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803185534-9464` (7/7) |
-| WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803185216-7115` (17/17) |
-| WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803185307-1615` (19/19) |
+| WP-0 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `live-synthetic-registry-basic-20260803213433-5325` (`pass`) |
+| WP-1B | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803213602-6066` (7/7) |
+| WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803213246-4802` (18/18) |
+| WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803213338-4557` (20/20) |
 | endpoint | estate, client guest (26200) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real client build) |
 | any | `mvmcitest01` (historic shared host) | `ssh` + launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (commit orphaned, see above) |
 
 Each estate row cites a run made against the **final** lane scripts, on commit
-`1f71fab`, after the SSH branches were removed. The earlier qualifying runs
-(`wp1b-writer-20260803014047-4766`, `live-synthetic-registry-basic-20260803183723-2067`,
-`wp2-native-import-20260803182557-5095`, `wp3-security-template-20260803182956-1132`)
-were produced by the dual-transport versions and remain valid for the commits
-they name; they are superseded here only so that every certification binds the
-code that now ships. The results were identical across both — same checks, same
-7/7 for WP-1B — which is the evidence that removing the SSH branches changed
-nothing about what the psdirect path does.
+`97bdaf9`, after an adversarial review round changed what several of these
+checks mean. WP-1B's verdict now gates on the environment at all; WP-2's and
+WP-3's are graded against the candidate this controller built rather than the
+copy the guest returned, and each carries a `candidate_delivered_intact` check
+proving the guest ran against that candidate byte for byte. Every run also owns
+a private tree on the guest, so no run can select another's evidence.
+
+Earlier rounds on this branch remain valid for the commits they name, and are
+superseded here for two different reasons worth keeping distinct. The
+dual-transport round (`wp1b-writer-20260803014047-4766`,
+`live-synthetic-registry-basic-20260803183723-2067`,
+`wp2-native-import-20260803182557-5095`,
+`wp3-security-template-20260803182956-1132`) and the SSH-removal round at
+`1f71fab` produced **identical results** — same checks, same 7/7 for WP-1B —
+which is the evidence that removing the SSH branches changed nothing about what
+the psdirect path does. Those are superseded only so that a certification binds
+the code that ships.
+
+The round at `97bdaf9` is different: it is superseded-by-strengthening. WP-2
+went from 17 checks to 18 and WP-3 from 19 to 20, and WP-1B's verdict gained an
+environment gate it never had. A pass under the weaker checks is not a weaker
+claim about the same thing — it is a claim about less.
 
 **The SSH transport is retired.** Every lane is qualified on the estate, so the
 historic host is no longer the only way to run anything — and keeping it meant

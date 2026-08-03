@@ -92,11 +92,11 @@ Implementation status (2026-07-26, post-hardening):
   stderr, successful strict cleanup re-query).
 
   **Re-certified on the disposable evidence estate, 2026-08-03**: run
-  `live-synthetic-registry-basic-20260803185359-2024`, source commit `1f71fab`,
+  `live-synthetic-registry-basic-20260803213433-5325`, source commit `97bdaf9`,
   clean tree, manifest hash
-  `c443ec26a86608ab405c6690a9633a91a624b488fac103ce668ceca6a646d90f`, committed
+  `76c79ba93152b59203383b1443b24b159d412bca5dd83775c33a3b8d891d4b3a`, committed
   at `docs/plan-033/wp0-evidence/manifest-estate.json` and preserved by the tag
-  `evidence/live-synthetic-registry-basic-20260803185359-2024`. The July
+  `evidence/live-synthetic-registry-basic-20260803213433-5325`. The July
   certification on `mvmcitest01` (commit `000f1b5`, hash
   `0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`) is
   superseded: its commit is a squash-merge orphan, so its integrity pack could
