@@ -174,7 +174,11 @@ structure (`{GPO_GUID}/Machine/Registry.pol` vs.
 The defensible known issue is: *GPO Studio's emitted GPMC-style archive was
 not recognized by `Import-GPO` on the tested Windows Server 2025 system.*
 The PowerShell plan execution path is the primary validation method; the
-GPMC backup import capability remains preview.
+GPMC backup import capability remains preview. **Superseded for the
+raw-registry subset by Plan 033 WP-2 (2026-07-27); see the note at the top
+of this section and WP-2 in
+[`plans/033-windows-external-oracle-validation.md`](../plans/033-windows-external-oracle-validation.md).
+The capability is no longer preview for the certified subset.**
 
 ### Evidence report
 
@@ -264,12 +268,13 @@ that interrupted run.
 
 ## Known limitations
 
-- GPMC backup import: `Import-GPO` on Windows Server 2025 does not recognize
-  GPO Studio's `manifest.xml`/`bkupInfo.xml` format. The root cause is
-  established above: `Import-GPO` requires `Backup.xml` (v2.0
-  `GroupPolicyBackupScheme`) and a specific directory structure
-  (`{BACKUP_ID}/DomainSysvol/GPO/Machine/registry.pol`). The capability
-  remains preview.
+- GPMC backup import/export: superseded for the raw-registry subset by Plan 033
+  WP-2 on 2026-07-27 (native v2 `Backup.xml` writer certified on Windows Server
+  2025 build 26100 — see
+  [`plans/033-windows-external-oracle-validation.md`](../plans/033-windows-external-oracle-validation.md)
+  under WP-2). The legacy `manifest.xml`/`bkupInfo.xml` diagnosis below remains
+  the record of why the pre-WP-2 format failed; the capability is no longer
+  preview for the certified subset.
 - The generated PowerShell plan does not apply WMI filter assignments, GPP
   Groups, GPP Registry, or ILT predicates. These capabilities are emitted in
   the GPMC backup XML but have no native Windows tooling validation. Operators
