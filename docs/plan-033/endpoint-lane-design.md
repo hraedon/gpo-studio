@@ -1,7 +1,7 @@
 # The endpoint lane on the evidence estate: measured constraints
 
 **Status:** implemented and certified, 2026-08-03. Run
-`endpoint-observe-20260803140251-7955` passed against the estate — author on the
+`endpoint-observe-20260803142424-3050` passed against the estate — author on the
 member server, observe on the Windows 11 client — and its verdict is at
 `wp1b-evidence/endpoint-result-phase4-estate.json`. The measurements below are
 what the implementation was built from; see "What the run found" at the end.
@@ -127,8 +127,8 @@ is the Windows 11 half of the pair the evidence queue has been asking for.
 
 ## What the run found (2026-08-03)
 
-Run `endpoint-observe-20260803140251-7955`, `state: pass`, clean tree, harness
-bound to `83eaab2`. Client environment recorded as a real `26200` (Windows 11
+Run `endpoint-observe-20260803142424-3050`, `state: pass`, clean tree, harness
+bound to `a4e0ffd`. Client environment recorded as a real `26200` (Windows 11
 Enterprise, en-US) rather than the `not-tested` sentinel, which is the whole
 reason the endpoint had to be the client.
 
@@ -159,6 +159,17 @@ It was load-bearing. With a correct `runAs` identity and nothing varied but a
 bare `03:00:00` `StartBoundary`, the CSE creates no task — while rows G and H,
 which differ only in that boundary, both applied. The fix was doing real work,
 not tidying schema.
+
+### Reproducibility
+
+The lane ran to a `pass` three times against the estate, on three different
+commits, with **identical row results and identical findings** each time —
+including the one row that moved. The row set is not a single sample.
+
+The third run also shows the settle fixes working: `settle_attempts` fell from 2
+to 1 once the CSE search window was opened before the refresh that applies the
+policy rather than after it, and `pre_run_residual_tasks` was empty, confirming
+the endpoint started clean rather than inheriting tasks from the run before.
 
 ### Three defects the estate found that no unit test could
 

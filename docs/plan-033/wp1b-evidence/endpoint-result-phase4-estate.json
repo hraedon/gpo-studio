@@ -1,6 +1,6 @@
 {
   "artifacts": {
-    "author/author-result.json": "0bf14d07719eb7e548ddd8036365d6eaf4a297466093f88198235aa6c14d5f75",
+    "author/author-result.json": "339f6c72a170ae5f3349b8d532478dfada786a19fca882376efa13f8ae6758a3",
     "author/candidate.zip": "866037319398bfe5c30882058b19658e0081610be2f2bd4da8b7ed84f4333a72",
     "author/commands/repadmin-syncall-cleanup.stdout.txt": "51360e590437599fa90b648e224ec8e121a2451bc81c970af9286b718f32e86e",
     "author/commands/repadmin-syncall.stdout.txt": "51360e590437599fa90b648e224ec8e121a2451bc81c970af9286b718f32e86e",
@@ -10,11 +10,10 @@
     "author/input/{319EA8BD-5E46-5A13-AA9A-D6C67E11E6B1}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml": "18861080ec9bc4a55622c2f7a24fa3d9246bf8d8775d85a33ff95b8f8230a895",
     "author/input/{319EA8BD-5E46-5A13-AA9A-D6C67E11E6B1}/bkupInfo.xml": "9a4fc88a384d00fa40c2d7a62310c1951c823457be5b5379f8593f48b4ed6686",
     "build-endpoint-candidate.py": "923e7cb49fc8464b7f597da6e856b75b80b71617ca5ee4eb67cf081c92d5278e",
-    "deployed/run-endpoint-author.ps1": "436a5588e804ceb47a00c7f2bf4c7d41e1c68b59a401276289a3ccc5162e2c0b",
-    "deployed/run-endpoint-observe.ps1": "61c5071e6b65cb9dc7dfaa34d5e27532d12c110c260e95d28a81a5e496b309e5",
-    "observe/commands/gpresult-1.stdout.txt": "ab6194e0f4f37ac7ac98aeb7cb4bd2e654525dec997297239b4386e2646503ce",
+    "deployed/run-endpoint-author.ps1": "ba0715187ffbb83328bf1bb35934f314b8d72ea28e90aa3f8c8cf5f6e6ec7b07",
+    "deployed/run-endpoint-observe.ps1": "9bb15a1d5aec95b46128701dd9ce674301558783e072d4b77c47695680960d55",
+    "observe/commands/gpresult-1.stdout.txt": "1a1a5ab7b0612b5106076b9741ffa832bf1e9c2e19eee129c9eb2f51ef3dd6b6",
     "observe/commands/gpupdate-1.stdout.txt": "fe770c40d6efaee814359a8c9c623e97bc87c25daa3d739dcd456c86980d31de",
-    "observe/commands/gpupdate-settle-1.stdout.txt": "fe770c40d6efaee814359a8c9c623e97bc87c25daa3d739dcd456c86980d31de",
     "observe/commands/task-GPOStudio-EP2-A-nofilter.xml": "b8bb09740e732848bf50d6c1d8e219b9a865233a5a5dcbfc286fdf8e27976e85",
     "observe/commands/task-GPOStudio-EP2-B-os-match.xml": "7848ffe61e21af4f7a2a960eb3f0e00bc01e4df107e7e6cc16d58f9c661570e0",
     "observe/commands/task-GPOStudio-EP2-D-os-negated.xml": "d8abc9873f2f6256dd23c3a809e087777eec3d7c45a81baf84e93398ae936b73",
@@ -23,12 +22,12 @@
     "observe/commands/task-GPOStudio-EP2-H-future-boundary.xml": "2dc560cebaeb70aee74e930bedaed010f4c85232b351dd4703599684523a74d9",
     "observe/commands/task-GPOStudio-EP2-J-native-os-match.xml": "37a34d9744a97d5dd5f610a9a5981c60f0f04c76c51f2917eaac0fad98c28817",
     "observe/expected.json": "011bea37bbbded58329c88263d34e77515e41428bda75cd2ab030eb2991cd0ee",
-    "observe/observe-result.json": "fdde0cc3d7bd0354480c86ded8e0968b7774072e86376b72496fb4cb135a8e96",
+    "observe/observe-result.json": "c84cb7af98c23310076e1afe77f6a7f7389fc23bfbe04ceae6b7fc1cadd84268",
     "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
-    "run-endpoint-oracle.sh": "76418f68e003dc712e219b4506fe932eabaaf13bcd07441831c7246b1c1f6268",
-    "verify/verify-result.json": "3c4e803fbb11dc206ee2b8aa62d0d4fee48ecb998af78cc1c8d5cff37a1b6a56"
+    "run-endpoint-oracle.sh": "fec942b18b5b93237299f3ee279a508dcf85c373b6bd54ccfbb782e76ca117b5",
+    "verify/verify-result.json": "cdf9f1ddd77a0f377bcf2001c3aa91845bef41c4d9284294318a6ab81d91fe34"
   },
-  "author_run_id": "endpoint-author-20260803140223-4866",
+  "author_run_id": "endpoint-author-20260803142420-4256",
   "control_problems": [],
   "environment": {
     "client": {
@@ -86,7 +85,7 @@
     "gpo_still_applied": false,
     "gpupdate_exit_code": 0,
     "residual_tasks": [],
-    "target_gpo": "Endpoint-20260803-140223-4935",
+    "target_gpo": "Endpoint-20260803-142421-1620",
     "tasks_removed": true
   },
   "rows": [
@@ -214,24 +213,24 @@
       "state": null
     }
   ],
-  "run_id": "endpoint-observe-20260803140251-7955",
+  "run_id": "endpoint-observe-20260803142424-3050",
   "schema_version": 1,
   "settling": {
     "apply_attempts": 1,
     "cse_completed": true,
     "gpo_applied": true,
     "observation_settled": true,
-    "settle_attempts": 2
+    "settle_attempts": 1
   },
   "source": {
-    "commit": "83eaab210ba240580fa347e272fbf93fd10f3a0b",
+    "commit": "a4e0ffde975392f87ffaffbace972a5b516c7722",
     "dirty": false,
     "files": {
       "build-endpoint-candidate.py": "923e7cb49fc8464b7f597da6e856b75b80b71617ca5ee4eb67cf081c92d5278e",
       "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
-      "run-endpoint-author.ps1": "436a5588e804ceb47a00c7f2bf4c7d41e1c68b59a401276289a3ccc5162e2c0b",
-      "run-endpoint-observe.ps1": "61c5071e6b65cb9dc7dfaa34d5e27532d12c110c260e95d28a81a5e496b309e5",
-      "run-endpoint-oracle.sh": "76418f68e003dc712e219b4506fe932eabaaf13bcd07441831c7246b1c1f6268"
+      "run-endpoint-author.ps1": "ba0715187ffbb83328bf1bb35934f314b8d72ea28e90aa3f8c8cf5f6e6ec7b07",
+      "run-endpoint-observe.ps1": "9bb15a1d5aec95b46128701dd9ce674301558783e072d4b77c47695680960d55",
+      "run-endpoint-oracle.sh": "fec942b18b5b93237299f3ee279a508dcf85c373b6bd54ccfbb782e76ca117b5"
     }
   },
   "state": "pass",
@@ -239,7 +238,7 @@
     "author_guest": "LABMS01",
     "domain_controller": "LabDC01.ad.labdomain.dev",
     "endpoint_guest": "LABCL01",
-    "target_gpo": "Endpoint-20260803-140223-4935"
+    "target_gpo": "Endpoint-20260803-142421-1620"
   },
   "transport": "psdirect",
   "unexpected_rows": [
