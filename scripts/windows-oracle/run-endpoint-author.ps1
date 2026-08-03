@@ -91,7 +91,24 @@ if ($Phase -eq 'setup') {
     $originalDn = $computer.DistinguishedName
     $originalParent = ($originalDn -split ',', 2)[1]
     $labOuName = "GPOStudioLab-$(Get-Date -Format 'yyyyMMddHHmmss')"
-    $labOuDn = "OU=$labOuName,$originalParent"
+
+    # The disposable OU is created at the DOMAIN ROOT, not as a sibling of the
+    # computer's current parent.
+    #
+    # The single-machine lane created it beside the machine, which worked
+    # because that host sat in OU=Servers. A domain-joined guest lands in the
+    # default CN=Computers, which is a *container*, not an organizational unit
+    # -- and a container cannot parent an OU. Found live on the estate:
+    # "The object cannot be added because the parent is not on the list of
+    # possible superiors". Sibling placement is not portable across the two, and
+    # nothing about the experiment needed it.
+    #
+    # The domain root always accepts an OU. Restoring is unaffected: the
+    # computer's original DN is recorded verbatim and it is moved back to that
+    # parent, and moving INTO a container is allowed even though creating an OU
+    # under one is not.
+    $domainDn = (Get-ADDomain -Server $Domain).DistinguishedName
+    $labOuDn = "OU=$labOuName,$domainDn"
     $targetName = "Endpoint-$(Get-Date -Format 'yyyyMMdd-HHmmss')-$(Get-Random -Minimum 1000 -Maximum 9999)"
 
     $state = [ordered]@{
@@ -105,6 +122,7 @@ if ($Phase -eq 'setup') {
         domain_controller = $dc
         original_dn       = $originalDn
         original_parent   = $originalParent
+        domain_dn         = $domainDn
         lab_ou_name       = $labOuName
         lab_ou_dn         = $labOuDn
         target_gpo        = $targetName
@@ -131,7 +149,7 @@ if ($Phase -eq 'setup') {
     Save-State $state
 
     try {
-        New-ADOrganizationalUnit -Name $labOuName -Path $originalParent -Server $dc `
+        New-ADOrganizationalUnit -Name $labOuName -Path $domainDn -Server $dc `
             -ProtectedFromAccidentalDeletion:$false -ErrorAction Stop
         $state.ou_created = $true
         Save-State $state
