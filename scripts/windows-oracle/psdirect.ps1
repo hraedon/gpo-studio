@@ -236,22 +236,44 @@ try {
                 # transport finds the run directory where it expects); pulling a
                 # FILE delivers the file. `\*` on a container is what puts the
                 # contents at the archive root.
-                $guestZip = Invoke-Guest -TimeoutSeconds $timeoutSeconds -ArgumentList @($remotePath, $stamp) -Body {
+                $packed = Invoke-Guest -TimeoutSeconds $timeoutSeconds -ArgumentList @($remotePath, $stamp) -Body {
                     param($remotePath, $stamp)
                     if (-not (Test-Path -LiteralPath $remotePath)) { return $null }
                     $isContainer = Test-Path -LiteralPath $remotePath -PathType Container
-                    $source = if ($isContainer) { Join-Path $remotePath '*' } else { $remotePath }
-                    # An empty directory has nothing to compress and is not an
-                    # error: the caller gets an empty destination.
-                    if (@(Get-ChildItem -Path $source -Force -ErrorAction SilentlyContinue).Count -eq 0) {
-                        return 'EMPTY'
-                    }
+
+                    # -Force, because GPMC marks manifest.xml and bkupInfo.xml
+                    # HIDDEN in every Backup-GPO tree. This count is the pull's
+                    # completeness check, so it has to see what the archive sees.
+                    $files = @(Get-ChildItem -LiteralPath $remotePath -Recurse -Force -File)
+                    if ($isContainer -and $files.Count -eq 0) { return 'EMPTY' }
+
+                    # NOT Compress-Archive: with a wildcard path it silently
+                    # SKIPS hidden files. That dropped 14 of 146 files on the
+                    # first estate run -- every manifest.xml and bkupInfo.xml --
+                    # and the pull still reported success, so the lane failed on
+                    # a missing manifest instead of on writer conformance. A
+                    # transport that loses evidence quietly is worse than one
+                    # that fails. The .NET API works at the filesystem level and
+                    # has no such exclusion.
+                    Add-Type -AssemblyName System.IO.Compression.FileSystem
                     $zip = Join-Path $env:TEMP "gpo-studio-pull-$stamp.zip"
-                    Compress-Archive -Path $source -DestinationPath $zip -Force
-                    return $zip
+                    if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+                    if ($isContainer) {
+                        # CreateFromDirectory places the directory's CONTENTS at
+                        # the archive root, which is the pull contract exactly.
+                        [System.IO.Compression.ZipFile]::CreateFromDirectory($remotePath, $zip)
+                    } else {
+                        $archive = [System.IO.Compression.ZipFile]::Open($zip, 'Create')
+                        try {
+                            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                                $archive, $remotePath, (Split-Path -Path $remotePath -Leaf)) | Out-Null
+                        } finally { $archive.Dispose() }
+                    }
+                    return "$zip|$($files.Count)"
                 }
-                if (-not $guestZip) { throw "Guest path '$remotePath' does not exist on '$guest'." }
-                if ($guestZip -eq 'EMPTY') { "SOURCE=" } else {
+                if (-not $packed) { throw "Guest path '$remotePath' does not exist on '$guest'." }
+                if ($packed -eq 'EMPTY') { "SOURCE=" } else {
+                    $guestZip, $expectedCount = "$packed".Split('|')
                     New-Item -ItemType Directory -Force -Path $stagePath | Out-Null
                     $hostZip = Join-Path $stagePath 'pull.zip'
                     $guestSession = New-PSSession -VMName $guest -Credential $cred
@@ -269,6 +291,7 @@ try {
                         Remove-Item -LiteralPath $guestZip -Force -ErrorAction SilentlyContinue
                     } | Out-Null
                     "SOURCE=$hostZip"
+                    "EXPECTED_FILES=$expectedCount"
                 }
             }
         }
@@ -297,6 +320,19 @@ try {
                 Copy-Item -LiteralPath $source -Destination $localArchive `
                     -FromSession $session -Force
                 Expand-Archive -LiteralPath $localArchive -DestinationPath $LocalPath -Force
+
+                # Count what arrived against what the guest packed. Evidence
+                # that goes missing in transit must fail the pull, not the lane
+                # three steps later with an unrelated-looking error -- which is
+                # exactly what happened when hidden files were being dropped.
+                $expectedLine = @($result) | Where-Object { "$_" -like 'EXPECTED_FILES=*' } | Select-Object -First 1
+                if ($expectedLine) {
+                    $expected = [int]("$expectedLine".Substring('EXPECTED_FILES='.Length))
+                    $arrived = @(Get-ChildItem -LiteralPath $LocalPath -Recurse -Force -File).Count
+                    if ($arrived -ne $expected) {
+                        throw "Pull of '$RemotePath' delivered $arrived files but the guest packed $expected."
+                    }
+                }
             }
         } finally {
             Remove-Item -LiteralPath $localArchive -Force -ErrorAction SilentlyContinue
