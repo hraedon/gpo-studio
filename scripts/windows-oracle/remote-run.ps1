@@ -8,20 +8,26 @@
 #
 # The password is received as a parameter (never read from disk or environment
 # on the host) and is only held in memory for the task registration.
+#
+# There is no 'endpoint' harness here any more. The single-machine endpoint lane
+# it launched was retired once the two-guest lane on the evidence estate was
+# certified: that lane observes on a real client and asserts a real
+# client_build, where the single-machine one necessarily claimed endpoint
+# evidence from whatever host it ran on. Keeping both would have left a way to
+# produce an endpoint verdict from a server build, which is precisely what
+# environment-spec rule 6 exists to prevent.
 
 param(
     [Parameter(Mandatory = $true)][string]$Upn,
     [Parameter(Mandatory = $true)][string]$Pw,
     [Parameter(Mandatory = $false)][string]$FailFlag = "",
-    [Parameter(Mandatory = $false)][ValidateSet('wp0', 'wp2', 'wp1b', 'wp3', 'endpoint')][string]$Harness = 'wp0'
+    [Parameter(Mandatory = $false)][ValidateSet('wp0', 'wp2', 'wp1b', 'wp3')][string]$Harness = 'wp0'
 )
 
 $taskName = "GPOStudioOracle-$Harness"
 schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
 
-if ($Harness -eq 'endpoint') {
-    $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-endpoint.ps1 -CandidateZip C:\gpo-studio\scripts\candidate.zip -ExpectedPath C:\gpo-studio\scripts\expected.json -OutputDir C:\gpo-studio\out"
-} elseif ($Harness -eq 'wp1b') {
+if ($Harness -eq 'wp1b') {
     $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp1b-writer.ps1 -CandidateRoot C:\gpo-studio\scripts\wp1b -OutputDir C:\gpo-studio\out"
 } elseif ($Harness -eq 'wp3') {
     $tr = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\gpo-studio\scripts\run-wp3-security-template.ps1 -CandidatePath C:\gpo-studio\scripts\candidate.inf -ExpectedPath C:\gpo-studio\scripts\expected.json -OutputDir C:\gpo-studio\out"
@@ -36,7 +42,7 @@ schtasks.exe /Run /TN $taskName | Out-Null
 Start-Sleep -Seconds 2
 # WP-1B imports, reports, re-backs-up and removes one GPO per candidate, so it
 # needs materially longer than the single-GPO WP-0/WP-2 harnesses.
-$timeoutMinutes = if ($Harness -eq 'wp1b') { 25 } elseif ($Harness -eq 'endpoint') { 45 } else { 6 }
+$timeoutMinutes = if ($Harness -eq 'wp1b') { 25 } else { 6 }
 $deadline = (Get-Date).AddMinutes($timeoutMinutes)
 $state = "Running"
 while ((Get-Date) -lt $deadline) {

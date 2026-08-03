@@ -11,9 +11,17 @@ writes Task Scheduler 1.0 scalar attributes onto a `TaskV2` element; GPMC's
 report echoes them back, so no round trip can detect it, and only the CSE's
 behaviour on a real endpoint answers whether it is honoured).
 
-## What the existing lane assumes
+## What the existing lane assumed
 
-`scripts/windows-oracle/run-endpoint.ps1` runs entirely **on one machine**: it
+> **Retired 2026-08-03.** `run-endpoint.ps1` and its `endpoint` branch in
+> `remote-run.ps1` were deleted once the two-guest lane was certified. Its own
+> verdict (`wp1b-evidence/endpoint-result.json`) and evidence tag remain — the
+> record stands; only the harness is gone. Keeping it would have left a way to
+> produce an endpoint verdict from a server build, which is what environment-spec
+> rule 6 exists to prevent. This section is kept because it explains why the
+> replacement has the shape it does.
+
+`scripts/windows-oracle/run-endpoint.ps1` ran entirely **on one machine**: it
 creates a disposable child OU, moves *its own computer account* into it,
 imports and links a GPO, refreshes policy, and reads back the scheduled tasks
 the CSE created. That works only where the endpoint is also a GPMC-capable
