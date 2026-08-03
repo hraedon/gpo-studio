@@ -7,12 +7,17 @@
 # transport: it needs one machine that is both GPMC-capable and the endpoint,
 # and the estate has no such guest (docs/plan-033/endpoint-lane-design.md).
 #
-# Kept, not deleted, because it is the harness that produced the certified
-# verdict at docs/plan-033/wp1b-evidence/endpoint-result.json against the
-# historic shared host, and that certification is bound to the environment
-# recorded in its own manifest. Delete it once the two-guest lane has a
-# certified run of its own -- not before, and not in the same change that
-# introduces the replacement.
+# Kept, not deleted, for two reasons. It is the harness that produced the
+# certified verdict at docs/plan-033/wp1b-evidence/endpoint-result.json against
+# the historic shared host, and that certification is bound to the environment
+# recorded in its own manifest. It is also still the target of remote-run.ps1,
+# the scheduled-task launcher the SSH transport needs; removing this file would
+# break that path rather than retire it.
+#
+# Retiring the SSH endpoint path is a separate decision from replacing the
+# single-machine shape, and it should be taken deliberately -- against the
+# question of whether the historic shared host is still a target at all -- not
+# as a side effect.
 #
 # Runs ON the target (mvmcitest01). Creates a disposable child OU containing
 # only this machine, links a disposable GPO there, forces a computer-side

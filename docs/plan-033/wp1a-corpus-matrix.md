@@ -222,6 +222,20 @@ consequence is worth stating plainly:
 > "Windows Server 2025 Family" is matching every server 2016 and later, and
 > there is no `FilterOs` expression for "Server 2022 only".
 
+> **Endpoint-confirmed 2026-08-03.** The Windows 11 half of that collision is no
+> longer an inference. The two-guest endpoint lane ran against a Windows 11
+> Enterprise client (build 26200) on the evidence estate with a matched pair of
+> rows: a `FilterOs` for `WINTHRESHOLD` **applied**, and one for
+> `WINTHRESHOLDSRV` **did not**. Both polarities were needed — a client code
+> that matches proves nothing on its own if the server code matches too — and
+> each was authored twice, once by Studio and once by hand in the genuine GPMC
+> shape, so a wrong product code would have shown up as the native control
+> failing rather than as a Studio defect. Verdict:
+> `wp1b-evidence/endpoint-result-phase4-estate.json`, finding `OS-VOCABULARY`.
+>
+> So `WINTHRESHOLD` really does cover Windows 11, and the dropdown's unqualified
+> "Windows 10" label really is the trap it looked like.
+
 To be fair to GPMC: three server entries are labelled **"Family"**, which is an
 honest signal that the value spans a range rather than naming one release. But
 "Windows Server 2025 Family" reads naturally as *the 2025 family* — variants of
