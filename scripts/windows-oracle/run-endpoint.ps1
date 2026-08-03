@@ -1,6 +1,19 @@
 #!/usr/bin/env pwsh
 # Plan 033 WP-1B step 5: endpoint evidence for WI-018 and WI-021.
 #
+# SUPERSEDED on the evidence estate by the two-guest pair
+# run-endpoint-author.ps1 + run-endpoint-observe.ps1, which the driver
+# sequences. This single-machine shape cannot be ported by changing a
+# transport: it needs one machine that is both GPMC-capable and the endpoint,
+# and the estate has no such guest (docs/plan-033/endpoint-lane-design.md).
+#
+# Kept, not deleted, because it is the harness that produced the certified
+# verdict at docs/plan-033/wp1b-evidence/endpoint-result.json against the
+# historic shared host, and that certification is bound to the environment
+# recorded in its own manifest. Delete it once the two-guest lane has a
+# certified run of its own -- not before, and not in the same change that
+# introduces the replacement.
+#
 # Runs ON the target (mvmcitest01). Creates a disposable child OU containing
 # only this machine, links a disposable GPO there, forces a computer-side
 # policy refresh, and records which scheduled tasks the Scheduled Tasks CSE

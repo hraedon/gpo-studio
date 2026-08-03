@@ -30,8 +30,21 @@ filter against an excluding one on an otherwise identical item. Only a
 split result — matching applies, excluding does not — shows genuine
 evaluation.
 
-Target is mvmcitest01, Windows Server 2025 Standard, so version
-WINTHRESHOLDSRV matches and XP does not.
+PHASE 4 (2026-08-03) — the endpoint moves to a CLIENT, and the product code
+moves with it.
+
+Phase 3 ran on a Windows Server 2025 host that was both the authoring machine
+and the endpoint. The evidence estate cannot be that, so the lane is now
+two-guest (docs/plan-033/endpoint-lane-design.md) and the endpoint is the
+client. Two consequences for this file:
+
+* the matching product code becomes ``WINTHRESHOLD``. A client does not report
+  ``WINTHRESHOLDSRV``, so carrying the server code across would have produced a
+  filter that legitimately did not match and reported it as a Studio defect;
+* ``WINTHRESHOLD`` is itself only *inferred* to cover Windows 11 — GPMC offers
+  no Windows 11 entry at all — so rows J and K make that inference falsifiable
+  instead of load-bearing. J is the native control for B, and K asserts that
+  the server code does NOT match a client.
 
 Every row varies exactly one thing against a control, because an absent
 scheduled task is otherwise ambiguous between "the shape was ignored" and
@@ -100,6 +113,46 @@ NATIVE_EXCLUDING_FILTER = (
     '<FilterOs bool="AND" not="0" class="NT" version="XP" type="NE" edition="NE" sp="NE"/>'
 )
 
+# The product code that MATCHES the endpoint. This is a parameter, not a
+# constant, and the reason is the whole difference between the old lane and the
+# new one.
+#
+# Phase 2 ran on a Windows Server 2025 host, where WINTHRESHOLDSRV matches. The
+# endpoint is now the CLIENT -- it carries the frozen client build family, and
+# only a lane that applies policy to a client may assert a real client_build.
+# Windows clients report WINTHRESHOLD, not WINTHRESHOLDSRV. Carrying the server
+# code across the port would have turned the WI-021 discriminator into a filter
+# that legitimately does not match, and the run would have reported "Studio's
+# matching filter did not apply" -- a fabricated defect, indistinguishable in
+# the evidence from a real one.
+#
+# WINTHRESHOLD is also not a safe assumption. The vocabulary capture
+# (WI01A-OS-ILT) recorded WINTHRESHOLD against Windows 10 and observed that
+# GPMC offers NO Windows 11 entry at all, from which the corpus matrix INFERS
+# that WINTHRESHOLD covers Windows 11 too. The manual-evidence queue still
+# carries that as an open item wanting endpoint proof. The estate's client is
+# Windows 11, so this run can settle it -- which is precisely why the row set
+# below pairs every Studio filter with a hand-written native one. If the
+# vocabulary guess is wrong, the NATIVE matching row is absent too, and the
+# finalizer reports inconclusive-on-vocabulary rather than blaming Studio.
+CLIENT_MATCH_OS_VERSION = "WINTHRESHOLD"
+SERVER_MATCH_OS_VERSION = "WINTHRESHOLDSRV"
+
+
+def _native_os_filter(version: str) -> str:
+    """Hand-written genuine GPMC FilterOs matching ``version``.
+
+    not="0" means "the OS IS this product". Edition, type and sp stay at NE
+    ("Any") so the match turns only on the product code -- the same reduction
+    the Studio-side rows make, so the pair differs in authoring shape and
+    nothing else.
+    """
+    return (
+        f'<FilterOs bool="AND" not="0" class="NT" version="{version}" '
+        'type="NE" edition="NE" sp="NE"/>'
+    )
+
+
 # Studio's OS predicate, post-WI-021. Serializes to a genuine
 # <FilterOs class= version= type= edition= sp=> element.
 STUDIO_EXCLUDING_FILTER = IltFilter(
@@ -109,16 +162,18 @@ STUDIO_EXCLUDING_FILTER = IltFilter(
         ),
     )
 )
-# Matches the target: Windows Server 2025 reports WINTHRESHOLDSRV. Edition,
-# type and sp are left at NE ("Any") so the match turns only on the product.
-STUDIO_MATCHING_VERSION_FILTER = IltFilter(
-    items=(
-        IltPredicate(
-            type="os",
-            os_criteria=IltOsCriteria(os_class="NT", version="WINTHRESHOLDSRV"),
-        ),
+
+
+def _studio_os_filter(version: str) -> IltFilter:
+    """Studio's OS predicate for one product code, everything else "Any"."""
+    return IltFilter(
+        items=(
+            IltPredicate(
+                type="os",
+                os_criteria=IltOsCriteria(os_class="NT", version=version),
+            ),
+        )
     )
-)
 
 # Same predicate negated: "the OS is NOT Windows XP" -> TRUE on the target.
 # Kept from phase 1 because it exercises the negation path independently of the
@@ -226,9 +281,23 @@ TASKS = (
     (
         "GPOStudio-EP2-B-os-match",
         True,
-        STUDIO_MATCHING_VERSION_FILTER,
+        _studio_os_filter(CLIENT_MATCH_OS_VERSION),
         "WI-021 fix: matching filter must APPLY",
         "present",
+    ),
+    (
+        "GPOStudio-EP2-J-native-os-match",
+        True,
+        IltFilter(items=(_native_os_filter(CLIENT_MATCH_OS_VERSION),)),
+        "vocabulary control for B: does WINTHRESHOLD match a Windows 11 client at all?",
+        "present",
+    ),
+    (
+        "GPOStudio-EP2-K-os-server-code",
+        True,
+        _studio_os_filter(SERVER_MATCH_OS_VERSION),
+        "the server product code must NOT match a client (negative half of the collision proof)",
+        "absent",
     ),
     (
         "GPOStudio-EP2-C-os-exclude",
@@ -314,6 +383,14 @@ def main() -> int:
     expected = {
         "backup_id": native_backup_id(gpo),
         "source_gpo_id": "{" + gpo.guid.upper() + "}",
+        # The finalizer needs these to interpret the filter rows: which product
+        # code was supposed to match, and which was supposed not to. Recording
+        # them here rather than duplicating the constants keeps the candidate
+        # and its verdict describing the same experiment.
+        "endpoint_role": "client",
+        "match_os_version": CLIENT_MATCH_OS_VERSION,
+        "non_match_os_version": SERVER_MATCH_OS_VERSION,
+        "vocabulary_control_task": "GPOStudio-EP2-J-native-os-match",
         "tasks": [
             {"name": name, "isolates": isolates, "expected_if_defects_real": expectation}
             for name, _, _, isolates, expectation in TASKS

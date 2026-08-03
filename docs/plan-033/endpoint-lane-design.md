@@ -68,13 +68,58 @@ Four consequences, in the order they bind:
   server-side environment, binds both deployed harness halves to the source
   commit, and tags on pass like every other lane.
 
-## Not yet decided
+## Decided while implementing (2026-08-03)
 
-- Whether the observation half needs a settle-and-re-observe cycle to
-  distinguish "the CSE did not create the task" from "the CSE has not run yet".
-  The single-machine lane polled until the client reported the GPO applied;
-  the same evidence-not-timer discipline should carry over, but across guests
-  the applied-state probe and the task probe are now two separate calls.
-- Whether the disposable OU should hold the client alone or the client and the
-  member server. Alone is the smaller blast radius; both would let one lane
-  observe server-side and client-side CSE behaviour in one pass.
+Both open questions are now settled, and implementing surfaced a third
+consequence the measurement pass missed.
+
+### Settle-and-re-observe: yes, on evidence rather than on a timer
+
+`run-endpoint-observe.ps1` waits for **two** signals before treating an absent
+task as absent: the client reports the GPO in `gpresult`, *and* the Group Policy
+operational log shows the Scheduled Tasks CSE completing a pass that began after
+the GPO arrived (events 5016/7016/8016 — a CSE that ran and *failed* has still
+answered the question). The loop also exits early when every row expected
+present is present, since there is nothing left to wait for.
+
+If neither exit is reached the run records `observation_settled: false`, and the
+finalizer treats that as a **lane failure with no verdict** rather than a
+negative result. This is the single most important property in the lane: an
+absent task is the expected outcome for several rows, so a too-early sample
+manufactures exactly the defect the lane is looking for.
+
+### Disposable OU: the client alone
+
+Smaller blast radius, and the member server is already qualified as an authoring
+machine by WP-1B — putting it in the link target would add server-side CSE
+observation the lane has no finalizer logic to interpret.
+
+### The product code has to move with the endpoint
+
+Not in the measurement pass, and it would have silently corrupted the port.
+
+`build-endpoint-candidate.py` hardcoded `WINTHRESHOLDSRV` in its matching-filter
+row, because phase 2/3 ran on Windows Server 2025. A **client** does not report
+that code. Carried across unchanged, Studio's matching filter would have failed
+to match for a reason having nothing to do with Studio, and the run would have
+reported a WI-021 regression that does not exist — indistinguishable in the
+evidence from a real one.
+
+The client code is `WINTHRESHOLD`, but that is an **inference**, not an
+observation: the vocabulary capture (`WI01A-OS-ILT`) observed `WINTHRESHOLD`
+against Windows *10* and found GPMC offers no Windows 11 entry at all, from
+which `wp1a-corpus-matrix.md` concludes the value covers Windows 11 too. The
+manual-evidence queue still lists that as wanting endpoint proof.
+
+So the row set gained two rows that make the inference falsifiable instead of
+load-bearing:
+
+| row | filter | expected | purpose |
+|---|---|---|---|
+| `J-native-os-match` | hand-written native `WINTHRESHOLD` | present | vocabulary control for B — if this is absent too, the code is wrong for this OS and B says nothing about Studio |
+| `K-os-server-code` | Studio `WINTHRESHOLDSRV` | absent | the server code must not match a client |
+
+The finalizer treats an absent J as `inconclusive`, never as a Studio defect.
+A clean J-present/K-absent split additionally converts the corpus matrix's
+inferred Windows 11 collision claim into an observed one — the estate's client
+is the Windows 11 half of the pair the evidence queue has been asking for.
