@@ -73,7 +73,7 @@ def _commits(repo: Path) -> tuple[str, str]:
 def test_creates_the_tag_at_the_recorded_commit(finalize: ModuleType, repo: Path) -> None:
     first, _ = _commits(repo)
 
-    outcome = finalize._tag_evidence_commit(repo, "run-0001", first)
+    outcome = finalize.tag_evidence_commit(repo, "run-0001", first)
 
     assert "created" in outcome
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0001^{commit}") == first
@@ -84,9 +84,9 @@ def test_is_idempotent_when_the_tag_already_matches(
 ) -> None:
     """Re-finalizing the same run must not fail or churn the tag."""
     first, _ = _commits(repo)
-    finalize._tag_evidence_commit(repo, "run-0001", first)
+    finalize.tag_evidence_commit(repo, "run-0001", first)
 
-    outcome = finalize._tag_evidence_commit(repo, "run-0001", first)
+    outcome = finalize.tag_evidence_commit(repo, "run-0001", first)
 
     assert "already points at" in outcome
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0001^{commit}") == first
@@ -101,10 +101,10 @@ def test_refuses_to_move_a_tag_to_a_different_commit(
     pointed at a tree that produced different evidence.
     """
     first, second = _commits(repo)
-    finalize._tag_evidence_commit(repo, "run-0001", first)
+    finalize.tag_evidence_commit(repo, "run-0001", first)
 
     with pytest.raises(OracleEvidenceError, match="refusing to move"):
-        finalize._tag_evidence_commit(repo, "run-0001", second)
+        finalize.tag_evidence_commit(repo, "run-0001", second)
 
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0001^{commit}") == first
 
@@ -120,7 +120,7 @@ def test_a_branch_of_the_same_name_is_not_mistaken_for_the_tag(
     first, second = _commits(repo)
     _git(repo, "branch", "evidence/run-0002", second)
 
-    outcome = finalize._tag_evidence_commit(repo, "run-0002", first)
+    outcome = finalize.tag_evidence_commit(repo, "run-0002", first)
 
     assert "created" in outcome
     assert _git(repo, "rev-parse", "refs/tags/evidence/run-0002^{commit}") == first
@@ -130,7 +130,7 @@ def test_rejects_an_unsafe_run_id_before_touching_git(
     finalize: ModuleType, repo: Path
 ) -> None:
     with pytest.raises(OracleEvidenceError):
-        finalize._tag_evidence_commit(repo, "bad..id", _commits(repo)[0])
+        finalize.tag_evidence_commit(repo, "bad..id", _commits(repo)[0])
     assert _git(repo, "tag", "-l") == ""
 
 
@@ -167,7 +167,7 @@ def test_main_tags_only_a_passing_run_unless_opted_out(
     monkeypatch.setattr(finalize, "canonical_manifest_hash", lambda _: "h" * 64)
     monkeypatch.setattr(
         finalize,
-        "_tag_evidence_commit",
+        "tag_evidence_commit",
         lambda _root, run_id, commit: calls.append((run_id, commit)) or "tagged",
     )
 
@@ -187,6 +187,6 @@ def test_main_fails_loudly_when_tagging_fails(
 
     monkeypatch.setattr(finalize, "finalize_oracle_run", lambda *_: _fake_manifest("pass"))
     monkeypatch.setattr(finalize, "canonical_manifest_hash", lambda _: "h" * 64)
-    monkeypatch.setattr(finalize, "_tag_evidence_commit", _boom)
+    monkeypatch.setattr(finalize, "tag_evidence_commit", _boom)
 
     assert finalize.main([str(tmp_path), "--repo-root", str(tmp_path)]) == 1

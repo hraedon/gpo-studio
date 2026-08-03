@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from typing import Any
 from gpo_studio.backup import BackupError, read_backup
 from gpo_studio.import_export import extract_side_settings
 from gpo_studio.model import ValidationError
+from gpo_studio.oracle_evidence import OracleEvidenceError, tag_evidence_commit
 from gpo_studio.registry_pol import RegistryPolError
 
 _BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
@@ -41,6 +43,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--no-tag",
+        action="store_true",
+        help=(
+            "do not create the evidence/<run-id> tag for a passing run. The tag "
+            "preserves the source commit that squash-merging would otherwise "
+            "orphan (issue #22); skip it only when tagging is handled elsewhere."
+        ),
+    )
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
@@ -190,6 +201,16 @@ def main() -> int:
         json.dumps(verdict, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     print(json.dumps(verdict, indent=2, sort_keys=True))
+
+    # Preserve the commit this certification binds to (issue #22). Only WP-0's
+    # finalizer tagged, which is how WP-0's and WP-2's own bindings were lost --
+    # see docs/evidence-binding-audit-2026-08-03.md.
+    if verdict["passed"] and not args.no_tag:
+        try:
+            print(f"EVIDENCE_TAG={tag_evidence_commit(repo_root, result['run_id'], commit)}")
+        except OracleEvidenceError as exc:
+            print(f"evidence tag failed: {exc}", file=sys.stderr)
+            return 1
     return 0 if verdict["passed"] else 1
 
 
