@@ -366,9 +366,14 @@ Plan 033 WP-2 certified the native v2 writer on Windows Server 2025 build 26100:
 a fully Studio-generated, registry-both-sides candidate passed `Import-GPO
 -WhatIf`, actual `Import-GPO -CreateIfNeeded`, GroupPolicy registry readback,
 native `Backup-GPO`, side-version reconciliation, and strict cleanup (certified
-run `wp2-native-import-20260726235913-9111`, source commit `c8b4fa8`). The
-import reader handles both the native v2 layout and the legacy format for
-backwards compatibility with pre-WP-2 Studio archives.
+run `wp2-native-import-20260726235913-9111`). The import reader handles both the
+native v2 layout and the legacy format for backwards compatibility with pre-WP-2
+Studio archives.
+
+**The WP-2 run's evidence binding is broken and the run is queued for
+re-certification** — see `plans/033-windows-external-oracle-validation.md`. This
+row's status rests on the implementation commit `96f3aec` and the prose record,
+not on a verifiable manifest.
 
 - **API:** `POST /api/backups/import`.
 - Multi-GPO backups are rejected.
