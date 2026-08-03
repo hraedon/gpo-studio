@@ -232,21 +232,31 @@ $cleanup = [ordered]@{
 #    FIRST, for the same reason it was first in the single-machine lane: every
 #    later step is tidying, this one is the one that ends the exposure.
 try {
-    if ($state.computer_moved) {
-        $current = Get-ADComputer -Identity $state.target_computer -Properties DistinguishedName -Server $dc
-        if ($current.DistinguishedName -ne $state.original_dn) {
-            Move-ADObject -Identity $current.DistinguishedName -TargetPath $state.original_parent `
-                -Server $dc -ErrorAction Stop
+    # Restore on OBSERVED position, not on the recorded flag.
+    #
+    # The state file is written after each mutation, so there is a window where
+    # the move has happened and `computer_moved` is still false -- setup dying
+    # inside it leaves the computer in the disposable OU while the record says
+    # it was never moved. Trusting the flag there would turn a recoverable
+    # situation into a manual one: cleanup would notice the mismatch, report it,
+    # and leave the account displaced.
+    #
+    # So the flag is not consulted. The account's actual DN is read and, if it
+    # is not where it started, it is moved back -- which is correct whether or
+    # not the move was ever recorded, and is a verified no-op when the computer
+    # never moved at all.
+    $current = Get-ADComputer -Identity $state.target_computer -Properties DistinguishedName -Server $dc
+    if ($current.DistinguishedName -ne $state.original_dn) {
+        Move-ADObject -Identity $current.DistinguishedName -TargetPath $state.original_parent `
+            -Server $dc -ErrorAction Stop
+        if (-not $state.computer_moved) {
+            $cleanup.errors += "restore-computer: found the account displaced although setup never recorded the move; restored it"
         }
-        $check = (Get-ADComputer -Identity $state.target_computer -Properties DistinguishedName -Server $dc).DistinguishedName
-        $cleanup.computer_restored = ($check -eq $state.original_dn)
-        if (-not $cleanup.computer_restored) {
-            $cleanup.errors += "restore-computer: at $check, expected $($state.original_dn)"
-        }
-    } else {
-        # Never moved, so it is where it started. Not a no-op claim: verify.
-        $check = (Get-ADComputer -Identity $state.target_computer -Properties DistinguishedName -Server $dc).DistinguishedName
-        $cleanup.computer_restored = ($check -eq $state.original_dn)
+    }
+    $check = (Get-ADComputer -Identity $state.target_computer -Properties DistinguishedName -Server $dc).DistinguishedName
+    $cleanup.computer_restored = ($check -eq $state.original_dn)
+    if (-not $cleanup.computer_restored) {
+        $cleanup.errors += "restore-computer: at $check, expected $($state.original_dn)"
     }
 } catch { $cleanup.errors += "restore-computer: $($_.Exception.Message)" }
 
