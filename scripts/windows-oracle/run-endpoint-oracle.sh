@@ -56,6 +56,18 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 : "${HYPERV_CONTROL_USERNAME:?composed acb checkout missing (cred:lab-hyperv-control)}"
 : "${GUEST_BOOTSTRAP_USERNAME:?composed acb checkout missing (cred:lab-guest-bootstrap)}"
 
+# Guest names are interpolated into single-quoted PowerShell string literals in
+# the commands below, so a name containing a quote would end the literal and
+# inject the rest as code. These are operator-supplied. A VM name has no business
+# containing anything outside this set, so the check costs nothing and removes
+# the injection entirely rather than trying to escape it.
+for guest in "$GPO_STUDIO_LAB_AUTHOR_GUEST" "$GPO_STUDIO_LAB_ENDPOINT_GUEST"; do
+    if [[ ! "$guest" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        echo "ERROR: guest name '$guest' contains characters this lane will not pass to the guest." >&2
+        exit 2
+    fi
+done
+
 if [[ "$GPO_STUDIO_LAB_AUTHOR_GUEST" == "$GPO_STUDIO_LAB_ENDPOINT_GUEST" ]]; then
     echo "ERROR: author and endpoint guests are the same VM ('$GPO_STUDIO_LAB_AUTHOR_GUEST')." >&2
     echo "       The lane is two-guest by measurement, not by preference; a single-guest" >&2
@@ -115,6 +127,17 @@ author -Action push -LocalPath "$CANDIDATE_DIR/candidate.zip" \
 author -Action push -LocalPath "$CANDIDATE_DIR/expected.json" \
     -RemotePath "$GUEST_SCRIPTS\\expected.json" >/dev/null
 
+# The ENDPOINT's payload is staged BEFORE the authoring setup runs, even though
+# the observation half is not invoked until afterwards. The trap's
+# verify_endpoint needs run-endpoint-observe.ps1 and expected.json to be present
+# on the client; staging them only just before the observation would leave every
+# early-exit path with a teardown it cannot perform.
+endpoint -Action exec -Command "$PREPARE" >/dev/null
+endpoint -Action push -LocalPath "$SCRIPT_DIR/run-endpoint-observe.ps1" \
+    -RemotePath "$GUEST_SCRIPTS\\run-endpoint-observe.ps1" >/dev/null
+endpoint -Action push -LocalPath "$CANDIDATE_DIR/expected.json" \
+    -RemotePath "$GUEST_SCRIPTS\\expected.json" >/dev/null
+
 CLEANUP_DONE=0
 cleanup_author() {
     # Idempotent: the trap fires on both the success path and every failure
@@ -126,7 +149,47 @@ cleanup_author() {
     author -Action exec -TimeoutSeconds 900 -Command \
         "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-author.ps1' -Phase cleanup -StatePath '$GUEST_STATE'")"
 }
-trap 'cleanup_author || echo "WARNING: authoring cleanup failed; the estate may hold a disposable OU, a linked GPO, or a displaced computer account" >&2' EXIT
+
+VERIFY_DONE=0
+verify_endpoint() {
+    # The CLIENT's teardown, and it belongs in the trap for the same reason the
+    # authoring cleanup does.
+    #
+    # It was originally only on the happy path, which left a gap: between the
+    # authoring setup succeeding and the observation half running, the GPO is
+    # linked to an OU containing the client. Any exit in that window -- a failed
+    # push, a transport hiccup, a killed pull -- would tear down the AD side and
+    # never touch the client. If the client's own background refresh had landed
+    # inside the window, its scheduled tasks would exist, and nothing would have
+    # looked for them.
+    #
+    # Runs AFTER cleanup_author, always, because its whole value is that the
+    # policy is gone by the time it refreshes.
+    [[ "$VERIFY_DONE" == "1" ]] && return 0
+    VERIFY_DONE=1
+    echo "--- endpoint verification ---"
+    endpoint -Action exec -TimeoutSeconds 900 -Command \
+        "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-observe.ps1' -Phase verify -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetGpo '$TARGET_GPO'")"
+}
+
+on_exit() {
+    local status=0
+    cleanup_author || {
+        status=1
+        echo "WARNING: authoring cleanup failed; the estate may hold a disposable OU, a linked GPO, or a displaced computer account" >&2
+    }
+    verify_endpoint || {
+        status=1
+        echo "WARNING: endpoint verification failed; the client may still carry the run's scheduled tasks" >&2
+    }
+    return $status
+}
+# TARGET_GPO is referenced by verify_endpoint and may be unset if the trap fires
+# before setup reported it; an empty value makes the verify phase skip its
+# gpresult check rather than fail, which is the right behaviour when no GPO was
+# ever linked.
+TARGET_GPO=""
+trap on_exit EXIT
 
 SETUP_OUT=$(author -Action exec -TimeoutSeconds 1500 -Command \
     "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-author.ps1' -Phase setup -StatePath '$GUEST_STATE' -CandidateZip '$GUEST_SCRIPTS\\candidate.zip' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetComputer '$GPO_STUDIO_LAB_ENDPOINT_GUEST'")")
@@ -144,12 +207,6 @@ echo "TARGET_GPO=$TARGET_GPO"
 # Deliberately not `set -e`-fatal: the observation half can fail legitimately
 # (a GPO that never arrives is a real outcome), and its failure must not skip
 # the evidence pull or pre-empt the trap's cleanup with a bare exit.
-endpoint -Action exec -Command "$PREPARE" >/dev/null
-endpoint -Action push -LocalPath "$SCRIPT_DIR/run-endpoint-observe.ps1" \
-    -RemotePath "$GUEST_SCRIPTS\\run-endpoint-observe.ps1" >/dev/null
-endpoint -Action push -LocalPath "$CANDIDATE_DIR/expected.json" \
-    -RemotePath "$GUEST_SCRIPTS\\expected.json" >/dev/null
-
 OBSERVE_STATUS=0
 OBSERVE_OUT=$(endpoint -Action exec -TimeoutSeconds 2400 -Command \
     "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-observe.ps1' -Phase observe -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetGpo '$TARGET_GPO'")") || OBSERVE_STATUS=$?
@@ -192,8 +249,7 @@ author -Action pull -RemotePath "$GUEST_SCRIPTS\\run-endpoint-author.ps1" \
 # carrying the run's tasks is exactly the claim this harness exists to refuse.
 mkdir -p "$LOCAL_DIR/verify"
 VERIFY_STATUS=0
-endpoint -Action exec -TimeoutSeconds 900 -Command \
-    "$(run_guest_script "'$GUEST_SCRIPTS\\run-endpoint-observe.ps1' -Phase verify -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -TargetGpo '$TARGET_GPO'")" >/dev/null || VERIFY_STATUS=$?
+verify_endpoint >/dev/null || VERIFY_STATUS=$?
 endpoint -Action pull -RemotePath "$GUEST_OUT\\verify" -LocalPath "$LOCAL_DIR/verify" >/dev/null || true
 if [[ "$VERIFY_STATUS" -ne 0 ]]; then
     echo "WARNING: post-teardown verification exited $VERIFY_STATUS; the client may still carry run state" >&2

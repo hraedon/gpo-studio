@@ -218,9 +218,20 @@ def _control_problems(rows: dict[str, dict[str, Any]], expected: dict[str, Any])
         )
 
     # The vocabulary control. Named in the candidate rather than hardcoded, so
-    # the experiment and its verdict cannot drift apart.
+    # the experiment and its verdict cannot drift apart -- but REQUIRED, not
+    # optional. It is the only thing standing between a wrong product code and a
+    # fabricated Studio defect: without it, a matching filter that misses
+    # because the code is wrong for this OS reads identically to one that misses
+    # because Studio wrote it wrong. A candidate that does not name a control
+    # cannot be interpreted, so its absence is a control problem in itself
+    # rather than a check that quietly switches off.
     control_name = expected.get("vocabulary_control_task")
-    if control_name:
+    if not control_name:
+        problems.append(
+            "the candidate names no vocabulary_control_task; the matching-filter "
+            "rows cannot be attributed to Studio without a native control"
+        )
+    else:
         control = rows.get(control_name)
         if control is None:
             problems.append(f"vocabulary control row {control_name} was not observed")

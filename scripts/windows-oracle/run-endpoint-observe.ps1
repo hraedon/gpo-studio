@@ -144,6 +144,8 @@ $result = [ordered]@{
     gpo_applied          = $false
     apply_attempts       = 0
     applied_at           = $null
+    cse_window_start     = $null
+    pre_run_residual_tasks = @()
     cse_completed        = $false
     cse_completed_at     = $null
     observation_settled  = $false
@@ -217,20 +219,54 @@ function Test-CseCompleted {
 }
 
 try {
+    # Start from a known-clean endpoint.
+    #
+    # Any task named by the candidate that is ALREADY present cannot have been
+    # created by this run, and leaving it would poison the settle logic: the
+    # loop treats "every expected-present row is present" as evidence the CSE
+    # ran, and a leftover from a previous run whose cleanup was killed would
+    # satisfy that without this run's CSE doing anything at all. The run would
+    # then report absent rows as genuinely absent on the strength of stale
+    # tasks.
+    #
+    # Purged rather than merely detected, and the purge is RECORDED: a dirty
+    # start is worth seeing even once it has been cleaned, because it means some
+    # earlier run did not finish.
+    $preExisting = @()
+    foreach ($entry in $expected.tasks) {
+        if (Get-ScheduledTask -TaskName $entry.name -ErrorAction SilentlyContinue) {
+            $preExisting += $entry.name
+            Unregister-ScheduledTask -TaskName $entry.name -Confirm:$false -ErrorAction Stop
+        }
+    }
+    $result.pre_run_residual_tasks = $preExisting
+
     # Poll until the client itself reports the GPO applied. An unverified
     # gpupdate is not evidence that policy arrived; the authoring half already
     # pushed replication, but the client may still read from a DC that has not
     # converged.
     $applied = $false
     $attempt = 0
+    # The CSE-completion search window opens BEFORE the refresh that applies the
+    # policy, not after it. The Scheduled Tasks CSE runs *during* that gpupdate,
+    # so a window opened once gpresult confirms the GPO starts after the very
+    # event it is looking for -- the search would then find nothing, the loop
+    # would fall through to its deadline, and a run carrying a real finding
+    # would be reported as an unsettled lane failure instead.
+    $cseWindowStart = Get-Date
     foreach ($attempt in 1..$ApplyAttempts) {
+        $attemptStart = Get-Date
         & gpupdate.exe /force /target:computer /wait:180 2>&1 |
             Out-File (Join-Path $commandDir "gpupdate-$attempt.stdout.txt")
         $result.gpupdate_exit_code = $LASTEXITCODE
         Start-Sleep -Seconds 10
         $rsop = & gpresult.exe /scope:computer /r 2>&1
         $rsop | Out-File (Join-Path $commandDir "gpresult-$attempt.stdout.txt")
-        if ($rsop -match [regex]::Escape($TargetGpo)) { $applied = $true; break }
+        if ($rsop -match [regex]::Escape($TargetGpo)) {
+            $applied = $true
+            $cseWindowStart = $attemptStart
+            break
+        }
         Start-Sleep -Seconds 20
     }
     $result.gpo_applied = $applied
@@ -240,6 +276,7 @@ try {
     }
     $appliedAt = Get-Date
     $result.applied_at = $appliedAt.ToString('o')
+    $result.cse_window_start = $cseWindowStart.ToString('o')
 
     # Settle on EVIDENCE, not on a timer.
     #
@@ -258,7 +295,7 @@ try {
 
         $observed = @(foreach ($entry in $expected.tasks) { Get-TaskObservation -Entry $entry })
 
-        $cseAt = Test-CseCompleted -Since $appliedAt
+        $cseAt = Test-CseCompleted -Since $cseWindowStart
         if ($cseAt) {
             $result.cse_completed = $true
             $result.cse_completed_at = $cseAt.ToString('o')
@@ -274,8 +311,11 @@ try {
         }
 
         # Not settled: nudge another pass rather than only waiting. A CSE with
-        # nothing to do logs nothing, so a refresh is what produces the signal.
-        & gpupdate.exe /target:computer /wait:120 2>&1 |
+        # nothing to do logs nothing, so a refresh is what produces the signal --
+        # and it has to be /force. An ordinary refresh skips extensions whose
+        # GPO has not changed, so the nudge would do nothing at all and the loop
+        # would run out its attempts having generated no new evidence.
+        & gpupdate.exe /force /target:computer /wait:120 2>&1 |
             Out-File (Join-Path $commandDir "gpupdate-settle-$settle.stdout.txt")
     }
     # Final sample after the settle decision, so the recorded observation is the
