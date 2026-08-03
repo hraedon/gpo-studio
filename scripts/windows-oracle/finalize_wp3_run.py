@@ -173,6 +173,12 @@ def _observed_operations_match(result: dict[str, Any]) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_dir", type=Path)
+    # The candidate this controller built. Required, not optional: it is the
+    # verdict's yardstick. Reading expected.json and candidate.inf out of the
+    # pulled run directory meant grading the guest against artifacts the guest
+    # itself returned, so a stale or swapped copy on the guest produced a
+    # self-consistent triple that no check could distinguish from a correct one.
+    parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     # Which transport carried the run. Recorded in the verdict so a reviewer can
     # tell which qualified environment produced it, and it selects the harness
@@ -194,9 +200,12 @@ def main() -> int:
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
+    candidate_root = args.candidate_root.resolve()
 
     result = json.loads((run_dir / "result.json").read_text(encoding="utf-8-sig"))
-    expected = json.loads((run_dir / "expected.json").read_text(encoding="utf-8"))
+    expected = json.loads(
+        (candidate_root / "expected.json").read_text(encoding="utf-8")
+    )
     checks: dict[str, bool] = {
         "validate_succeeded": result["validate_exit_code"] == 0,
         "import_succeeded": result["import_exit_code"] == 0,
@@ -230,8 +239,11 @@ def main() -> int:
     checks["windows_export_decodes"] = False
     checks["windows_export_semantics_match"] = False
     try:
+        # The controller's copy: "Studio authored this template with these
+        # semantics" is a claim about the artifact this repository produced.
+        # Only exported.inf has to come from the guest -- it is Windows' output.
         candidate = parse_security_template(
-            decode_security_template((run_dir / "candidate.inf").read_bytes())
+            decode_security_template((candidate_root / "candidate.inf").read_bytes())
         )
         checks["candidate_decodes"] = True
         checks["candidate_has_required_preamble"] = (
@@ -283,6 +295,22 @@ def main() -> int:
         if not evidence_path.is_file() or _sha256(evidence_path) != source_hash:
             local_evidence_copies_ok = False
     checks["deployed_harness_matches_source"] = deployed_harness_ok
+
+    # The guest ran against the candidate this controller built, byte for byte.
+    # Without this, binding the yardstick to the controller copy would prove the
+    # verdict was graded correctly while saying nothing about what was graded.
+    candidate_delivery: dict[str, bool] = {}
+    for name in ("candidate.inf", "expected.json"):
+        controller_copy = candidate_root / name
+        guest_copy = run_dir / name
+        candidate_delivery[name] = (
+            guest_copy.is_file()
+            and controller_copy.is_file()
+            and _sha256(guest_copy) == _sha256(controller_copy)
+        )
+        if controller_copy.is_file():
+            source_hashes[f"candidate/{name}"] = _sha256(controller_copy)
+    checks["candidate_delivered_intact"] = all(candidate_delivery.values())
     # These files did not round-trip through Windows. This check detects
     # evidence-pack corruption; it is not independent execution provenance.
     checks["local_evidence_copies_match_source"] = local_evidence_copies_ok
@@ -315,6 +343,7 @@ def main() -> int:
         "decode_error": decode_error,
         "harness_error": result["error"],
         "transport": args.transport,
+        "candidate_delivery": candidate_delivery,
         "environment": result["environment"],
         "environment_violations": environment_violations,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},

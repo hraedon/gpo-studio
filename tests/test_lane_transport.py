@@ -14,6 +14,7 @@ over the lanes rather than written once for the lane that happened to have it.
 
 from __future__ import annotations
 
+import re
 import runpy
 from pathlib import Path
 from typing import cast
@@ -103,17 +104,140 @@ def test_the_transport_script_is_bound(lane: str, finalizer: str) -> None:
     assert "psdirect.ps1" not in deployed["psdirect"]
 
 
+def _pull_calls(lane: str) -> list[tuple[str, str]]:
+    """Every `psdirect -Action pull` in a lane, as (remote-path, local-path).
+
+    Parsed rather than substring-matched. The earlier version of this test
+    checked `name in body`, which every deployed file satisfies on its own
+    *push* line -- so it passed with the retrieval deleted, and it did worse
+    than nothing: a cross-lineage reviewer cleared the binding hazard partly
+    because this test claimed to pin it.
+    """
+    body = _lane_body(lane)
+    # Join continuation lines so one invocation is one string.
+    joined = re.sub(r"\\\n\s*", " ", body)
+    calls: list[tuple[str, str]] = []
+    for line in joined.splitlines():
+        if "-Action pull" not in line:
+            continue
+        remote = re.search(r"-RemotePath\s+(\S+)", line)
+        local = re.search(r"-LocalPath\s+(\S+)", line)
+        assert remote and local, f"{lane}: unparsable pull: {line}"
+        calls.append((remote.group(1), local.group(1)))
+    return calls
+
+
 @pytest.mark.parametrize("lane,finalizer", sorted(LANES.items()))
 def test_every_deployed_file_is_retrieved_by_the_lane(lane: str, finalizer: str) -> None:
     """A deployed binding the lane never pulls back fails harness_matches_source
-    at the end of a long run, rather than at review time."""
+    at the end of a long estate run, rather than at review time.
+
+    The finalizer looks for each deployed file by name under `deployed/`, so a
+    pull only satisfies the binding if its remote leaf is that filename AND it
+    lands in `$LOCAL_DIR/deployed`.
+    """
     deployed, _ = _tables(finalizer)
-    body = _lane_body(lane)
+    pulls = _pull_calls(lane)
     for name in deployed["psdirect"]:
-        assert '-LocalPath "$LOCAL_DIR/deployed"' in body, lane
-        assert name in body, f"{lane} never retrieves {name}"
+        matching = [
+            (remote, local)
+            for remote, local in pulls
+            if remote.rstrip('"').endswith(name) and "deployed" in local
+        ]
+        assert matching, (
+            f"{lane} binds {name} but never pulls it into $LOCAL_DIR/deployed; "
+            f"pulls seen: {pulls}"
+        )
+
+
+@pytest.mark.parametrize("lane,finalizer", sorted(LANES.items()))
+def test_the_retrieval_check_can_fail(lane: str, finalizer: str) -> None:
+    """The previous version of the check above could not fail. Prove this one can.
+
+    Feeding the same matcher a pull set with the deployed file's retrieval
+    removed must find nothing. Without this, a future simplification could
+    quietly restore the substring match that made the check vacuous.
+    """
+    deployed, _ = _tables(finalizer)
+    pulls = _pull_calls(lane)
+    for name in deployed["psdirect"]:
+        without = [
+            (remote, local)
+            for remote, local in pulls
+            if not (remote.rstrip('"').endswith(name) and "deployed" in local)
+        ]
+        assert not [
+            (remote, local)
+            for remote, local in without
+            if remote.rstrip('"').endswith(name) and "deployed" in local
+        ]
+        assert len(without) < len(pulls), (
+            f"{lane}: removing {name}'s retrieval changed nothing, so the "
+            "matcher is not selecting on it"
+        )
 
 
 def test_the_launcher_is_gone_from_the_tree() -> None:
     """Deleted, not merely unreferenced: it is what carried the password."""
     assert not (ORACLE_DIR / "remote-run.ps1").exists()
+
+
+# --- WP-0 ------------------------------------------------------------------
+#
+# WP-0 is not in LANES: it has no TRANSPORT_* tables, because its binding lives
+# in the library (`_HARNESS_INPUT_FILES`) and its file list is built inside a
+# bash heredoc in the driver. That is the lane with the strictest binding
+# machinery and it was the only one whose two halves agreed purely by hand --
+# nothing read the heredoc, so a file added to the driver and executed but not
+# added to `sources` would be absent from the record, absent from the table,
+# and therefore absent from the "unexpected extra" check too.
+
+WP0_LANE = ORACLE_DIR / "run-windows-oracle.sh"
+
+
+def _wp0_recorded_paths() -> set[str]:
+    """The deployed-relative paths the driver hashes into harness-inputs.json."""
+    body = WP0_LANE.read_text(encoding="utf-8")
+    block = re.search(r"^sources = \{$(.*?)^\}$", body, re.MULTILINE | re.DOTALL)
+    assert block is not None, "run-windows-oracle.sh no longer builds a sources dict"
+    return set(re.findall(r'^\s*"([^"]+)":', block.group(1), re.MULTILINE))
+
+
+def _library_input_paths() -> set[str]:
+    from gpo_studio import oracle_evidence
+
+    return {
+        relative_path
+        for _artifact_id, relative_path, _repo_path in (
+            oracle_evidence._HARNESS_INPUT_FILES["psdirect"]
+        )
+    }
+
+
+def test_wp0_driver_records_exactly_what_the_library_binds() -> None:
+    assert _wp0_recorded_paths() == _library_input_paths()
+
+
+def test_wp0_guest_files_are_pushed_and_pulled_back() -> None:
+    """Anything bound under `scripts/` ran on the guest, so it must round-trip.
+
+    A file the driver pushes and executes but never pulls cannot be compared to
+    its committed source, and one it records without pushing is a hash of
+    something that never ran.
+    """
+    body = _lane_body("run-windows-oracle.sh")
+    for path in sorted(_library_input_paths()):
+        leaf = path.rsplit("/", 1)[-1]
+        if path.startswith("scripts/"):
+            assert f"-RemotePath \"$GUEST_SCRIPTS\\\\{leaf}\"" in body, (
+                f"WP-0 binds {path} but never pushes it to the guest"
+            )
+            assert leaf in body.split("retrieving run dir")[-1], (
+                f"WP-0 binds {path} but never pulls it back"
+            )
+        else:
+            # Controller-side: the source-tree copy is the executed copy, and
+            # the driver copies it into the run directory after the run.
+            assert f'cp "$SCRIPT_DIR/{leaf}"' in body or f"/{leaf}\"" in body, (
+                f"WP-0 binds {path} but never copies it into the run directory"
+            )

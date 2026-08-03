@@ -75,6 +75,12 @@ def _setting_projection(setting: dict[str, Any]) -> tuple[object, ...]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", type=Path)
+    # The candidate this controller built. Required, not optional: it is the
+    # verdict's yardstick. Reading expected.json out of the pulled run directory
+    # meant grading the guest against an answer key the guest itself returned,
+    # so a stale or swapped copy on the guest produced a self-consistent triple
+    # that no check could distinguish from a correct one.
+    parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     # Which transport carried the run. Recorded in the verdict so a reviewer can
     # tell which qualified environment produced it, and it selects the harness
@@ -96,9 +102,12 @@ def main() -> int:
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
+    candidate_root = args.candidate_root.resolve()
 
     result = json.loads((run_dir / "result.json").read_text(encoding="utf-8-sig"))
-    expected = json.loads((run_dir / "expected.json").read_text(encoding="utf-8"))
+    expected = json.loads(
+        (candidate_root / "expected.json").read_text(encoding="utf-8")
+    )
     checks: dict[str, bool] = {
         "whatif_succeeded": result["whatif_succeeded"] is True,
         "whatif_target_absent": result["whatif_target_absent"] is True,
@@ -208,6 +217,22 @@ def main() -> int:
             harness_ok = False
     checks["harness_matches_source"] = harness_ok
 
+    # The guest ran against the candidate this controller built, byte for byte.
+    # Without this, binding the yardstick to the controller copy would prove the
+    # verdict was graded correctly while saying nothing about what was graded.
+    candidate_delivery: dict[str, bool] = {}
+    for name in ("candidate.zip", "expected.json"):
+        controller_copy = candidate_root / name
+        guest_copy = run_dir / name
+        candidate_delivery[name] = (
+            guest_copy.is_file()
+            and controller_copy.is_file()
+            and _sha256(guest_copy) == _sha256(controller_copy)
+        )
+        if controller_copy.is_file():
+            source_hashes[f"candidate/{name}"] = _sha256(controller_copy)
+    checks["candidate_delivered_intact"] = all(candidate_delivery.values())
+
     # A lane that does not check where it ran cannot qualify anything: its
     # "pass" would say the import worked, not that it worked on a host this
     # project has frozen. The profile comes from FROZEN_ENVIRONMENT, per
@@ -246,6 +271,7 @@ def main() -> int:
         "checks": checks,
         "rebackup_error": rebackup_error,
         "transport": args.transport,
+        "candidate_delivery": candidate_delivery,
         "environment": result["environment"],
         "environment_violations": environment_violations,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},

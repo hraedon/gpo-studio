@@ -1521,15 +1521,20 @@ def build_harness_inputs(
     repo_root: Path,
     *,
     commit: str | None = None,
-    check_git: bool = True,
 ) -> list[dict[str, object]]:
     """Verify the deployed harness inputs and describe them as input artifacts.
 
     Reads ``harness-inputs.json`` (written by the orchestrator at deploy time,
     before the credential boundary), confirms each deployed file's hash matches,
-    and - when ``check_git`` is true - confirms the deployed bytes are identical
-    to the file at the recorded commit.  The result is a set of ``input``
-    artifacts that bind the run to the exact harness code that produced it.
+    and confirms the deployed bytes are identical to the file at the recorded
+    commit.  The result is a set of ``input`` artifacts that bind the run to the
+    exact harness code that produced it.
+
+    The git comparison used to be optional behind a ``check_git`` flag that no
+    caller ever passed.  It is the only leg that anchors the recorded hashes to
+    a commit rather than to themselves -- without it a guest that rewrote both a
+    harness file and its record would verify clean -- so an unused opt-out was a
+    pre-built way to turn a noisy integrity failure into a passing manifest.
     """
     inputs_path = run_dir / _HARNESS_INPUTS_MANIFEST
     if not inputs_path.is_file():
@@ -1612,39 +1617,35 @@ def build_harness_inputs(
                 f"{recorded_sha} != actual {actual_sha}"
             )
             continue
-        if check_git:
-            if not commit or not _COMMIT_SHA_RE.fullmatch(commit):
-                problems.append(
-                    "harness inputs cannot be bound to a commit: no valid "
-                    "commit recorded"
+        if not commit or not _COMMIT_SHA_RE.fullmatch(commit):
+            problems.append(
+                "harness inputs cannot be bound to a commit: no valid commit recorded"
+            )
+            continue
+        try:
+            committed_bytes = _git_show_file(repo_root, commit, repo_path)
+        except (OSError, subprocess.CalledProcessError):
+            problems.append(
+                f"harness input {relative_path!r} not found at commit {commit!r}"
+            )
+            continue
+        if _sha256_of_bytes(committed_bytes) != recorded_sha:
+            problems.append(
+                f"deployed harness input {relative_path!r} differs from the "
+                f"file at commit {commit!r}"
+            )
+            diff = "\n".join(
+                difflib.unified_diff(
+                    committed_bytes.decode("utf-8", "replace").splitlines(),
+                    deployed_path.read_bytes().decode("utf-8", "replace").splitlines(),
+                    fromfile=f"{relative_path}@{commit}",
+                    tofile=f"deployed/{relative_path}",
+                    lineterm="",
                 )
-                continue
-            try:
-                committed_bytes = _git_show_file(repo_root, commit, repo_path)
-            except (OSError, subprocess.CalledProcessError):
-                problems.append(
-                    f"harness input {relative_path!r} not found at commit {commit!r}"
-                )
-                continue
-            if _sha256_of_bytes(committed_bytes) != recorded_sha:
-                problems.append(
-                    f"deployed harness input {relative_path!r} differs from the "
-                    f"file at commit {commit!r}"
-                )
-                diff = "\n".join(
-                    difflib.unified_diff(
-                        committed_bytes.decode("utf-8", "replace").splitlines(),
-                        deployed_path.read_bytes()
-                        .decode("utf-8", "replace")
-                        .splitlines(),
-                        fromfile=f"{relative_path}@{commit}",
-                        tofile=f"deployed/{relative_path}",
-                        lineterm="",
-                    )
-                )
-                if diff:
-                    problems.append(diff)
-                continue
+            )
+            if diff:
+                problems.append(diff)
+            continue
         artifacts.append(
             {
                 "artifact_id": artifact_id,

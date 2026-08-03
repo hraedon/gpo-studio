@@ -24,9 +24,6 @@ TRANSPORT=psdirect
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-GUEST_SCRIPTS='C:\gpo-studio\scripts'
-GUEST_OUT='C:\gpo-studio\out'
-
 : "${GPO_STUDIO_LAB_HOST:?GPO_STUDIO_LAB_HOST not set}"
 : "${GPO_STUDIO_LAB_GUEST:?GPO_STUDIO_LAB_GUEST not set}"
 # psdirect.ps1 enforces the composed acb checkout itself; fail early here so the
@@ -39,17 +36,39 @@ psdirect() {
         -LabHost "$GPO_STUDIO_LAB_HOST" -Guest "$GPO_STUDIO_LAB_GUEST" "$@"
 }
 
-STAMP="$(date +%Y%m%d%H%M%S)"
+# Every run owns a private tree on the guest -- see the comment in
+# run-wp2-oracle.sh. Lanes share one guest, and selecting "the newest output
+# directory" from a shared root let two overlapping runs finalize each other's
+# evidence, silently, because the verdict shape is identical.
+STAMP="$(date +%Y%m%d%H%M%S)-$$"
+GUEST_RUN_ROOT="C:\\gpo-studio\\runs\\$STAMP"
+GUEST_SCRIPTS="$GUEST_RUN_ROOT\\scripts"
+GUEST_OUT="$GUEST_RUN_ROOT\\out"
+
 CANDIDATE_DIR="/tmp/opencode/wp1b-candidates-$STAMP"
 uv run python scripts/plan-033/build-wp1b-candidates.py "$CANDIDATE_DIR"
 
 LOCAL_DIR="/tmp/opencode/wp1b-oracle-run-$STAMP"
 mkdir -p "$LOCAL_DIR/deployed"
 
-PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Remove-Item -Recurse -Force '$GUEST_SCRIPTS\\wp1b' -ErrorAction SilentlyContinue; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force"
-LATEST_RUN="(Get-ChildItem '$GUEST_OUT' -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName"
+# Refuse a colliding root rather than reusing it: reuse is how a run inherits
+# another run's files.
+PREPARE="if (Test-Path '$GUEST_RUN_ROOT') { throw 'run root already exists: $GUEST_RUN_ROOT' }; New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null"
+
+# Reap GPOs this lane orphaned. A harness killed between Import-GPO and its
+# cleanup leaves a uniquely-named GPO that no later run's by-name lookup will
+# ever find, so orphans accumulate on a live domain across runs that each
+# report success. Age-bounded at two hours so this can never reap a concurrent
+# run's in-flight GPO, which would turn a cleanup into a sabotage.
+REAP="Import-Module GroupPolicy -ErrorAction Stop; \$cutoff = (Get-Date).AddHours(-2); \$orphans = @(Get-GPO -All | Where-Object { \$_.DisplayName -like 'WP1B-*' -and \$_.CreationTime -lt \$cutoff }); foreach (\$o in \$orphans) { Remove-GPO -Guid \$o.Id -Confirm:\$false -ErrorAction Stop }; 'REAPED_ORPHANS=' + \$orphans.Count + ' ' + ((\$orphans | ForEach-Object { \$_.DisplayName }) -join ',')"
+
+# Exactly one run directory can exist under a per-invocation output root. Assert
+# it rather than sorting by write time: "newest" is a guess, "the only one" is a
+# fact, and a harness that produced two or zero is a lane failure worth seeing.
+RUN_SELECT="\$d = @(Get-ChildItem '$GUEST_OUT' -Directory); if (\$d.Count -ne 1) { throw ('expected exactly one run directory under $GUEST_OUT, found ' + \$d.Count) }; \$d[0].FullName"
 
 psdirect -Action exec -Command "$PREPARE" >/dev/null
+psdirect -Action exec -Command "$REAP"
 psdirect -Action push -LocalPath "$SCRIPT_DIR/run-wp1b-writer.ps1" \
     -RemotePath "$GUEST_SCRIPTS\\run-wp1b-writer.ps1" >/dev/null
 psdirect -Action push -LocalPath "$CANDIDATE_DIR" -RemotePath "$GUEST_SCRIPTS\\wp1b" >/dev/null
@@ -59,7 +78,7 @@ psdirect -Action push -LocalPath "$CANDIDATE_DIR" -RemotePath "$GUEST_SCRIPTS\\w
 psdirect -Action exec -TimeoutSeconds 1500 -Command \
     "& '$GUEST_SCRIPTS\\run-wp1b-writer.ps1' -CandidateRoot '$GUEST_SCRIPTS\\wp1b' -OutputDir '$GUEST_OUT'"
 
-RUN_DIR=$(psdirect -Action exec -Command "$LATEST_RUN")
+RUN_DIR=$(psdirect -Action exec -Command "$RUN_SELECT")
 RUN_DIR=$(printf '%s' "$RUN_DIR" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 if [[ -z "$RUN_DIR" ]]; then
     echo "ERROR: no WP-1B run directory produced" >&2

@@ -16,7 +16,9 @@
 #
 # This harness never invokes `secedit /configure`. That restriction originally
 # came from sharing a host with another project; it stays because the lane's
-# claim is about template conformance, not about applying policy.
+# claim is about template conformance, not about applying policy. It creates no
+# AD object at all -- its only state is a temporary database inside its own run
+# directory -- so unlike WP-0/WP-1B/WP-2 it has nothing on the estate to reap.
 #
 # Re-pointing a lane is not a variable change: every certification is bound to
 # the environment recorded in its own manifest, so a new host needs a fresh
@@ -28,9 +30,6 @@ set -euo pipefail
 TRANSPORT=psdirect
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-GUEST_SCRIPTS='C:\gpo-studio\scripts'
-GUEST_OUT='C:\gpo-studio\out'
 
 : "${GPO_STUDIO_LAB_HOST:?GPO_STUDIO_LAB_HOST not set}"
 : "${GPO_STUDIO_LAB_GUEST:?GPO_STUDIO_LAB_GUEST not set}"
@@ -44,18 +43,23 @@ psdirect() {
         -LabHost "$GPO_STUDIO_LAB_HOST" -Guest "$GPO_STUDIO_LAB_GUEST" "$@"
 }
 
-STAMP="$(date +%Y%m%d%H%M%S)"
+# Every run owns a private tree on the guest -- see the comment in
+# run-wp2-oracle.sh. WP-3 shared `expected.json` with WP-2 at one fixed guest
+# path, which is the concrete way two lanes could hand each other the wrong
+# answer key.
+STAMP="$(date +%Y%m%d%H%M%S)-$$"
+GUEST_RUN_ROOT="C:\\gpo-studio\\runs\\$STAMP"
+GUEST_SCRIPTS="$GUEST_RUN_ROOT\\scripts"
+GUEST_OUT="$GUEST_RUN_ROOT\\out"
+
 CANDIDATE_DIR="/tmp/opencode/wp3-candidate-$STAMP"
 uv run python scripts/plan-033/build-wp3-candidate.py "$CANDIDATE_DIR"
 
 LOCAL_DIR="/tmp/opencode/wp3-oracle-run-$STAMP"
 mkdir -p "$LOCAL_DIR/deployed"
 
-# Remove this lane's previous run directories before running. Without that, a
-# harness that produces no directory at all leaves the newest STALE one as the
-# "latest", and the lane finalizes yesterday's evidence as today's.
-PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_OUT' -Directory -Filter 'wp3-security-template-*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force"
-LATEST_RUN="(Get-ChildItem '$GUEST_OUT' -Directory -Filter 'wp3-security-template-*' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName"
+PREPARE="if (Test-Path '$GUEST_RUN_ROOT') { throw 'run root already exists: $GUEST_RUN_ROOT' }; New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null"
+RUN_SELECT="\$d = @(Get-ChildItem '$GUEST_OUT' -Directory); if (\$d.Count -ne 1) { throw ('expected exactly one run directory under $GUEST_OUT, found ' + \$d.Count) }; \$d[0].FullName"
 
 psdirect -Action exec -Command "$PREPARE" >/dev/null
 psdirect -Action push -LocalPath "$SCRIPT_DIR/run-wp3-security-template.ps1" \
@@ -68,7 +72,7 @@ psdirect -Action push -LocalPath "$CANDIDATE_DIR/expected.json" \
 psdirect -Action exec -TimeoutSeconds 360 -Command \
     "& '$GUEST_SCRIPTS\\run-wp3-security-template.ps1' -CandidatePath '$GUEST_SCRIPTS\\candidate.inf' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT'"
 
-RUN_DIR=$(psdirect -Action exec -Command "$LATEST_RUN")
+RUN_DIR=$(psdirect -Action exec -Command "$RUN_SELECT")
 RUN_DIR=$(printf '%s' "$RUN_DIR" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 if [[ -z "$RUN_DIR" ]]; then
     echo "ERROR: no WP-3 run directory produced" >&2
@@ -92,5 +96,7 @@ cp "$SCRIPT_DIR/run-wp3-oracle.sh" \
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
+# --candidate-root is not optional: it is what makes the verdict's yardstick the
+# candidate this controller built, rather than the copy the guest returned.
 uv run python "$LOCAL_DIR/finalize_wp3_run.py" "$LOCAL_DIR" \
-    --repo-root "$REPO_ROOT" --transport "$TRANSPORT"
+    --candidate-root "$CANDIDATE_DIR" --repo-root "$REPO_ROOT" --transport "$TRANSPORT"

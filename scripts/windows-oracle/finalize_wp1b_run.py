@@ -34,7 +34,11 @@ from typing import Any
 
 from gpo_studio.backup import BackupError, read_backup
 from gpo_studio.model import ValidationError
-from gpo_studio.oracle_evidence import OracleEvidenceError, tag_evidence_commit
+from gpo_studio.oracle_evidence import (
+    OracleEvidenceError,
+    lane_environment_violations,
+    tag_evidence_commit,
+)
 from gpo_studio.registry_pol import RegistryPolError
 from gpo_studio.writer_conformance import (
     compare_preferences,
@@ -150,8 +154,13 @@ def _finalize_candidate(
     # Shape conformance against the captured native corpus.  Deliberately not
     # inferred from the round trip: GPMC echoes back attributes the CSE ignores,
     # so a synthetic shape can survive import, report, and re-export intact.
-    shape_findings = expected.get("native_shape_findings", [])
-    checks["native_shape_matches_corpus"] = not shape_findings
+    # Fail closed on an absent key. `.get(..., [])` certified shape conformance
+    # for any candidate whose expected.json simply did not mention it -- the
+    # check would read as passing precisely when there was nothing to check.
+    shape_findings = expected.get("native_shape_findings")
+    checks["native_shape_matches_corpus"] = (
+        shape_findings is not None and not shape_findings
+    )
 
     expected_settings = sorted(_setting_projection(item) for item in expected["settings"])
     readback_settings = sorted(_setting_projection(item) for item in result["registry_readback"])
@@ -310,8 +319,22 @@ def main() -> int:
         ).stdout
     )
 
+    # A lane that does not check where it ran cannot qualify anything: without
+    # this, WP-1B would certify 7/7 on a client SKU or an unfrozen build family
+    # and mint an evidence tag for it, while WP-2 and WP-3 on the same guest
+    # refused. WP-1B is the lane that qualified the estate, which made it the
+    # worst one to leave ungated.
+    environment_violations = list(
+        lane_environment_violations(run_result["environment"])
+    )
+
     states = {candidate["state"] for candidate in candidates}
-    passed = harness_ok and not dirty and states == {"pass"}
+    passed = (
+        harness_ok
+        and not dirty
+        and not environment_violations
+        and states == {"pass"}
+    )
     verdict = {
         "schema_version": 1,
         "work_package": "WP-1B",
@@ -320,6 +343,7 @@ def main() -> int:
         "harness_matches_source": harness_ok,
         "transport": args.transport,
         "environment": run_result["environment"],
+        "environment_violations": environment_violations,
         "candidates": candidates,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
         "artifacts": {
