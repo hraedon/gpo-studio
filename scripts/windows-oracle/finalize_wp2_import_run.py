@@ -29,18 +29,14 @@ _BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
 #: binds each retrieved copy to the committed source, so this set has to match
 #: what the lane actually deploys or ``harness_matches_source`` is meaningless.
 #:
-#: The two transports differ because ``psdirect`` drops the scheduled-task
-#: launcher.  The launcher existed only to obtain a delegable logon token, which
-#: SSH's network logon cannot provide; PowerShell Direct carries the credential
-#: to the guest through the hypervisor and the resulting logon authenticates
-#: outward to AD and SYSVOL.  Dropping it also removes the ``schtasks /RP``
-#: password argument, so the newer transport is both simpler and safer.
+#: ``psdirect`` is the only transport, and it deploys the harness alone: no
+#: scheduled-task launcher, because PowerShell Direct carries the credential to
+#: the guest through the hypervisor and the resulting logon authenticates
+#: outward to AD and SYSVOL on its own.  The table stays keyed by transport
+#: because the verdict records which one produced it, and a verdict from the
+#: retired SSH path names a set this table no longer contains -- which is how a
+#: reviewer tells them apart.
 TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
-    "ssh": {
-        "run-wp2-import.ps1": "scripts/windows-oracle/run-wp2-import.ps1",
-        "remote-run.ps1": "scripts/windows-oracle/remote-run.ps1",
-        "remote-run-launcher.ps1": "scripts/windows-oracle/remote-run.ps1",
-    },
     "psdirect": {
         "run-wp2-import.ps1": "scripts/windows-oracle/run-wp2-import.ps1",
     },
@@ -50,10 +46,6 @@ TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
 #: executed copy.  ``psdirect.ps1`` belongs here rather than in the deployed set:
 #: it drives the transport from the controller and is never copied to the guest.
 TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
-    "ssh": {
-        "run-wp2-oracle.sh": "scripts/windows-oracle/run-wp2-oracle.sh",
-        "build-wp2-candidate.py": "scripts/plan-033/build-wp2-candidate.py",
-    },
     "psdirect": {
         "run-wp2-oracle.sh": "scripts/windows-oracle/run-wp2-oracle.sh",
         "build-wp2-candidate.py": "scripts/plan-033/build-wp2-candidate.py",
@@ -84,12 +76,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    # Which transport carried the run. This is not cosmetic: it selects the set
-    # of harness files the provenance check expects to find, because the two
-    # transports deploy different files. It is also recorded in the verdict, so
-    # a reviewer can tell which qualified environment produced it.
+    # Which transport carried the run. Recorded in the verdict so a reviewer can
+    # tell which qualified environment produced it, and it selects the harness
+    # file set the provenance check expects. Only one transport remains; the
+    # argument stays because the recorded value is what distinguishes these
+    # verdicts from the ones the retired SSH path produced.
     parser.add_argument(
-        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="ssh"
+        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect"
     )
     parser.add_argument(
         "--no-tag",

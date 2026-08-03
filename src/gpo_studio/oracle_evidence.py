@@ -1467,9 +1467,8 @@ def assert_evidence_pack(run_dir: Path, manifest: Mapping[str, object]) -> None:
 # the exact scripts and recipe that produced it (and, via git, to the commit).
 # Each entry is (artifact_id, deployed relative path, repository path).
 #
-# The set differs by transport, and the difference is the point rather than an
-# inconvenience: over ``psdirect`` there is no privileged launcher to bind,
-# because there is none to deploy.  ``psdirect.ps1`` takes its place in the
+# ``psdirect`` is the only transport. There is no privileged launcher to bind,
+# because there is none to deploy; ``psdirect.ps1`` takes its place in the
 # record -- it runs on the controller, not the guest, but it is just as much
 # part of what produced the run.
 _HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
@@ -1493,16 +1492,6 @@ _HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
 )
 
 _HARNESS_INPUT_FILES: dict[str, tuple[tuple[str, str, str], ...]] = {
-    "ssh": (
-        *_HARNESS_INPUT_FILES_COMMON,
-        # The privileged launcher the orchestrator deploys and executes on the
-        # host, to obtain a logon token SSH's network logon cannot provide.
-        (
-            "harness-remote-run",
-            "scripts/remote-run.ps1",
-            "scripts/windows-oracle/remote-run.ps1",
-        ),
-    ),
     "psdirect": (
         *_HARNESS_INPUT_FILES_COMMON,
         # The transport itself, which reaches the guest through the hypervisor
@@ -1581,9 +1570,14 @@ def build_harness_inputs(
     # Which transport carried the run decides which files should be there. The
     # orchestrator records it at deploy time, alongside the hashes and before
     # the credential boundary, so the record describes itself rather than
-    # depending on how finalization was invoked. Absent means the run predates
-    # the second transport.
-    transport = inputs.get("transport", "ssh")
+    # depending on how finalization was invoked.
+    #
+    # An absent value is refused rather than defaulted. It means the record was
+    # written by the retired SSH orchestrator, whose input set included a
+    # scheduled-task launcher this tree no longer contains -- so the run cannot
+    # be verified here, and saying so is better than binding it against the
+    # wrong set and reporting an integrity failure that is really an anachronism.
+    transport = inputs.get("transport")
     if transport not in _HARNESS_INPUT_FILES:
         raise IntegrityViolation(
             f"{_HARNESS_INPUTS_MANIFEST}.transport is {transport!r}; expected one "

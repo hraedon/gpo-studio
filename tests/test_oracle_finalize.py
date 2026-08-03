@@ -67,26 +67,28 @@ _TEST_HARNESS_FILES = {
         "tests/fixtures/recipes/synthetic-registry-basic.json",
         b'{"fixture_id": "x"}\n',
     ),
-    "scripts/remote-run.ps1": (
-        "scripts/windows-oracle/remote-run.ps1",
-        b"# fake remote-run\n",
-    ),
     "orchestrator/run-windows-oracle.sh": (
         "scripts/windows-oracle/run-windows-oracle.sh",
         b"# fake orchestrator\n",
     ),
-}
-
-#: The same harness as it is deployed over PowerShell Direct: no privileged
-#: launcher (the transport needs none), and the transport script in its place.
-_TEST_HARNESS_FILES_PSDIRECT = {
-    key: value
-    for key, value in _TEST_HARNESS_FILES.items()
-    if key != "scripts/remote-run.ps1"
-} | {
+    # No privileged launcher: PowerShell Direct needs none. The transport script
+    # takes its place in the record -- it runs on the controller rather than the
+    # guest, but it is just as much part of what produced the run.
     "orchestrator/psdirect.ps1": (
         "scripts/windows-oracle/psdirect.ps1",
         b"# fake psdirect\n",
+    ),
+}
+
+#: The harness set as it was deployed over the retired SSH transport.
+_TEST_HARNESS_FILES_SSH = {
+    key: value
+    for key, value in _TEST_HARNESS_FILES.items()
+    if key != "orchestrator/psdirect.ps1"
+} | {
+    "scripts/remote-run.ps1": (
+        "scripts/windows-oracle/remote-run.ps1",
+        b"# fake remote-run\n",
     ),
 }
 
@@ -94,7 +96,7 @@ _HARNESS_ARTIFACT_IDS = {
     "harness-run-evidence",
     "harness-common",
     "harness-recipe",
-    "harness-remote-run",
+    "harness-psdirect",
     "harness-orchestrator",
 }
 
@@ -104,7 +106,7 @@ def _setup_harness_repo_and_inputs(
     run_dir: Path,
     *,
     commit: str | None = None,
-    transport: str | None = None,
+    transport: str | None = "psdirect",
     harness_files: dict[str, tuple[str, bytes]] | None = None,
 ) -> str:
     """Create a repo whose committed harness files match the deployed copies.
@@ -527,25 +529,10 @@ def test_build_harness_inputs_binds_to_commit(tmp_path: Path) -> None:
     assert all(a["role"] == "input" for a in artifacts)
 
 
-def test_build_harness_inputs_binds_the_psdirect_harness(tmp_path: Path) -> None:
-    """Over PowerShell Direct there is no launcher; the transport takes its place."""
-    repo = tmp_path / "repo"
-    run_dir = tmp_path / "run"
-    commit = _setup_harness_repo_and_inputs(
-        repo,
-        run_dir,
-        transport="psdirect",
-        harness_files=_TEST_HARNESS_FILES_PSDIRECT,
-    )
-    artifacts = build_harness_inputs(run_dir, repo, commit=commit)
-    ids = {a["artifact_id"] for a in artifacts}
-    assert ids == (_HARNESS_ARTIFACT_IDS - {"harness-remote-run"}) | {"harness-psdirect"}
-
-
-def test_build_harness_inputs_refuses_the_wrong_transports_file_set(
+def test_build_harness_inputs_refuses_the_retired_ssh_file_set(
     tmp_path: Path,
 ) -> None:
-    """A record claiming psdirect while carrying the launcher is not psdirect.
+    """A record carrying the launcher is not a record this tree can verify.
 
     The transport decides which files should be there, so a mismatch has to be
     an integrity failure rather than a tolerated extra: silently accepting it
@@ -554,7 +541,9 @@ def test_build_harness_inputs_refuses_the_wrong_transports_file_set(
     """
     repo = tmp_path / "repo"
     run_dir = tmp_path / "run"
-    commit = _setup_harness_repo_and_inputs(repo, run_dir, transport="psdirect")
+    commit = _setup_harness_repo_and_inputs(
+        repo, run_dir, harness_files=_TEST_HARNESS_FILES_SSH
+    )
     try:
         build_harness_inputs(run_dir, repo, commit=commit)
     except IntegrityViolation as exc:
@@ -562,6 +551,25 @@ def test_build_harness_inputs_refuses_the_wrong_transports_file_set(
         assert "orchestrator/psdirect.ps1" in message
         assert "unexpected deployed harness inputs" in message
         assert "scripts/remote-run.ps1" in message
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_build_harness_inputs_refuses_a_record_with_no_transport(
+    tmp_path: Path,
+) -> None:
+    """Absent means it came from the retired orchestrator, not "assume default".
+
+    Defaulting would bind such a run against a file set that no longer matches
+    what produced it, and report the anachronism as tampering.
+    """
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir, transport=None)
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        assert "transport is None" in str(exc)
     else:
         raise AssertionError("expected IntegrityViolation")
 

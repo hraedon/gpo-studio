@@ -69,7 +69,23 @@ which of these produced a given verdict.
 | — same, WP-2 | `psdirect` | 2026-08-03 | `wp2-native-import-20260803182557-5095` (17/17, tag `evidence/wp2-native-import-20260803182557-5095`) |
 | — same, WP-3 | `psdirect` | 2026-08-03 | `wp3-security-template-20260803182956-1132` (19/19, tag `evidence/wp3-security-template-20260803182956-1132`) |
 | — same, endpoint (client guest) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real 26200 client) |
-| `mvmcitest01` (historic shared host) | `ssh` + scheduled-task launcher | 2026-07-26 | `live-synthetic-registry-basic-20260726070916` (WP-0; commit orphaned, see above) |
+| `mvmcitest01` (historic shared host) | `ssh` + scheduled-task launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (WP-0; commit orphaned, see above) |
+
+**The SSH transport is retired.** Every lane is qualified on the estate, so the
+historic host is no longer the only way to run anything — and keeping it meant
+keeping the scheduled-task launcher, which existed solely to obtain a logon
+token an SSH network logon cannot provide. That launcher took the credential as
+a `schtasks /RP` argument: transient, but decodable by a privileged observer on
+the host for as long as the task existed. Removing it is a security improvement,
+not tidying.
+
+Certifications produced on that host are **not retracted** — retiring a
+transport does not retract a certification, which is the point of binding
+verdicts to commits. But no new run can be produced there without restoring the
+transport and re-qualifying, and an evidence pack from it can no longer be
+re-verified in this tree: its harness-input record binds a launcher the tree no
+longer contains. `build_harness_inputs` says so explicitly rather than
+defaulting, so an old pack reports an anachronism instead of tampering.
 
 Each lane needed its own qualifying run rather than inheriting WP-1B's. The
 estate is one environment, but a lane is qualified by evidence that *that lane*

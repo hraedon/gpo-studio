@@ -81,19 +81,26 @@ Implementation status (2026-07-26, post-hardening):
   semantic normalization, comparison binding, and the final evidence state;
 - snapshot-backed dry-run orchestrator (`oracle_harness.py`): implemented;
 - live Windows lab runs against the frozen environment (2026-07-26): the
-  success-path run is a certified **pass** (source commit `000f1b5`, clean
-  tree; genuine semantic equality of two independent GPO reports via
-  normalizer v1; successful cleanup confirmed by an independent LDAPS
-  re-query). It carries the full integrity pack: the deployed harness scripts
-  (`run-evidence.ps1`, `common.psm1`, `remote-run.ps1`), the recipe, and the
-  control-plane orchestrator are hashed input artifacts bound to the recorded
-  commit; every artifact and command stream rehashes intact via
-  `verify_evidence_pack`; and the cleanup re-query is a strict `Get-GPO -All`
-  probe with three outcomes (absent / present / query-error) and both streams
-  recorded as command/artifact evidence. Certified passing manifest hash:
-  `0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`.
-  A deliberate fail-path run is parser-valid **fail** (real failed command,
-  real stderr, successful strict cleanup re-query, independent LDAPS re-query).
+  success-path run is a certified **pass**. It carries the full integrity pack:
+  the deployed harness scripts (`run-evidence.ps1`, `common.psm1`), the recipe,
+  the control-plane orchestrator and the transport (`psdirect.ps1`) are hashed
+  input artifacts bound to the recorded commit; every artifact and command
+  stream rehashes intact via `verify_evidence_pack`; and the cleanup re-query is
+  a strict `Get-GPO -All` probe with three outcomes (absent / present /
+  query-error) and both streams recorded as command/artifact evidence. A
+  deliberate fail-path run is parser-valid **fail** (real failed command, real
+  stderr, successful strict cleanup re-query).
+
+  **Re-certified on the disposable evidence estate, 2026-08-03**: run
+  `live-synthetic-registry-basic-20260803183723-2067`, source commit `1ab9350`,
+  clean tree, manifest hash
+  `fefc80530d875b6c021497982fab31ada8e34da984048f3d9ef5c318e8188d9d`, committed
+  at `docs/plan-033/wp0-evidence/manifest-estate.json` and preserved by the tag
+  `evidence/live-synthetic-registry-basic-20260803183723-2067`. The July
+  certification on `mvmcitest01` (commit `000f1b5`, hash
+  `0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`) is
+  superseded: its commit is a squash-merge orphan, so its integrity pack could
+  not be re-verified against anything.
 
 Note: the previously cited hashes
 `265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` (predates the
@@ -107,12 +114,15 @@ pack but predates the strict cleanup probe, launcher binding, recorded-commit
 enforcement, and verifier hardening) are all superseded by the certified pass
 above.
 
-Note (forward dependency): the current pass was produced through a disposable
-scheduled-task harness (`scripts/windows-oracle/run-windows-oracle.sh`) that
-passes the credential via `schtasks` argv — acceptable for this isolated lab
-but not a model to promote. Certification should migrate to the agent-
-capability-broker Plan 008 WI-3.2 Windows authenticated-launch boundary once it
-lands; the present orchestrator is throwaway scaffolding for that transition.
+Note (resolved 2026-08-03): the July pass was produced through a disposable
+scheduled-task harness that passed the credential via `schtasks` argv —
+acceptable for that isolated lab but not a model to promote. It is gone. Every
+lane now runs over PowerShell Direct against the disposable evidence estate,
+which carries the credential to the guest through the hypervisor and needs no
+launcher, so no lane puts a password in a task registration. The forward
+dependency on the agent-capability-broker Plan 008 WI-3.2 Windows
+authenticated-launch boundary is therefore no longer blocking anything here;
+credentials already arrive through a composed acb checkout.
 
 ### Work
 
