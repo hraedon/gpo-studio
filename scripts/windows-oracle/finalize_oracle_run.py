@@ -27,6 +27,7 @@ if str(_REPO_ROOT / "src") not in sys.path:
 
 from gpo_studio.oracle_evidence import (  # noqa: E402
     OracleEvidenceError,
+    assert_evidence_tag_writable,
     canonical_manifest_hash,
     finalize_oracle_run,
     tag_evidence_commit,
@@ -54,6 +55,16 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir = Path(args.run_dir)
     repo_root = Path(args.repo_root)
+    # This finalizer writes its manifest inside the library call, so the tag
+    # cannot be created first. Check upfront instead that a tag could be created
+    # at all, which is the failure that would otherwise leave a written manifest
+    # with nothing preserving its commit.
+    if not args.no_tag:
+        try:
+            assert_evidence_tag_writable(repo_root)
+        except OracleEvidenceError as exc:
+            print(f"finalize refused: {exc}", file=sys.stderr)
+            return 1
     try:
         manifest = finalize_oracle_run(run_dir, repo_root)
     except OracleEvidenceError as exc:

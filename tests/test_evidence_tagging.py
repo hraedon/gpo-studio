@@ -37,3 +37,43 @@ def test_no_finalizer_reimplements_tagging(name: str) -> None:
     """One implementation, so a fix reaches every lane at once."""
     source = (REPO_ROOT / "scripts" / "windows-oracle" / name).read_text(encoding="utf-8")
     assert "def _tag_evidence_commit" not in source
+
+
+VERDICT_FINALIZERS = (
+    "finalize_wp1b_run.py",
+    "finalize_wp2_import_run.py",
+    "finalize_wp3_run.py",
+)
+
+
+@pytest.mark.parametrize("name", VERDICT_FINALIZERS)
+def test_the_tag_is_created_before_the_verdict_is_written(name: str) -> None:
+    """Bind first, record second.
+
+    The tag is what makes a verdict's ``source.commit`` checkable from a fresh
+    clone. A finalizer that writes ``verification.json`` first and then fails to
+    tag leaves a durable "passed" file claiming a binding it does not have --
+    and re-finalizing a run directory after the tree moved on would rewrite the
+    verdict to the new HEAD while the existing tag correctly refuses to move,
+    leaving the two pointing at different commits permanently.
+
+    This is a structural check on ordering, which no behavioural test in this
+    suite covers: the lanes' real inputs are Windows evidence trees.
+    """
+    source = (REPO_ROOT / "scripts" / "windows-oracle" / name).read_text(encoding="utf-8")
+    tag_at = source.index("tag_evidence_commit(repo_root")
+    write_at = source.index('(run_dir / "verification.json").write_text')
+    assert tag_at < write_at, f"{name} records a verdict before binding it to a commit"
+
+
+def test_wp2_will_not_certify_a_dirty_tree() -> None:
+    """WP-1B gates on it and WP-3 names it; WP-2 did neither.
+
+    A certification names a commit, so an uncommitted working tree cannot be
+    certified -- the commit recorded in ``source`` is not the tree that ran, and
+    the tag would bind the wrong one.
+    """
+    source = (REPO_ROOT / "scripts" / "windows-oracle" / "finalize_wp2_import_run.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'checks["source_tree_clean"] = not dirty' in source

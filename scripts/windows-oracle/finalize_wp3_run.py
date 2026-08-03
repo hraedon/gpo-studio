@@ -297,6 +297,17 @@ def main() -> int:
             if path.is_file() and path.name != "verification.json"
         },
     }
+    # Bind before recording: a run that cannot be tagged must not leave a
+    # durable "passed" file claiming a binding it does not have. See the same
+    # comment in finalize_wp1b_run.py for the two ways that happens.
+    tag_outcome: str | None = None
+    if verdict["passed"] and not args.no_tag:
+        try:
+            tag_outcome = tag_evidence_commit(repo_root, result["run_id"], commit)
+        except OracleEvidenceError as exc:
+            print(f"evidence tag failed: {exc}", file=sys.stderr)
+            return 1
+
     (run_dir / "verification.json").write_text(
         json.dumps(verdict, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -306,12 +317,8 @@ def main() -> int:
     # Preserve the commit this certification binds to (issue #22). Only WP-0's
     # finalizer tagged, which is how WP-0's and WP-2's own bindings were lost --
     # see docs/evidence-binding-audit-2026-08-03.md.
-    if verdict["passed"] and not args.no_tag:
-        try:
-            print(f"EVIDENCE_TAG={tag_evidence_commit(repo_root, result['run_id'], commit)}")
-        except OracleEvidenceError as exc:
-            print(f"evidence tag failed: {exc}", file=sys.stderr)
-            return 1
+    if tag_outcome is not None:
+        print(f"EVIDENCE_TAG={tag_outcome}")
     return 0 if verdict["passed"] else 1
 
 

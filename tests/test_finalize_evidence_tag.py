@@ -165,6 +165,10 @@ def test_main_tags_only_a_passing_run_unless_opted_out(
 
     monkeypatch.setattr(finalize, "finalize_oracle_run", lambda *_: _fake_manifest(state))
     monkeypatch.setattr(finalize, "canonical_manifest_hash", lambda _: "h" * 64)
+    # Writability is a separate property with its own tests below; tmp_path is
+    # not a repository, so leaving the real check in would test git's ident
+    # fallback rather than this dispatch.
+    monkeypatch.setattr(finalize, "assert_evidence_tag_writable", lambda _root: None)
     monkeypatch.setattr(
         finalize,
         "tag_evidence_commit",
@@ -187,6 +191,61 @@ def test_main_fails_loudly_when_tagging_fails(
 
     monkeypatch.setattr(finalize, "finalize_oracle_run", lambda *_: _fake_manifest("pass"))
     monkeypatch.setattr(finalize, "canonical_manifest_hash", lambda _: "h" * 64)
+    monkeypatch.setattr(finalize, "assert_evidence_tag_writable", lambda _root: None)
     monkeypatch.setattr(finalize, "tag_evidence_commit", _boom)
 
     assert finalize.main([str(tmp_path), "--repo-root", str(tmp_path)]) == 1
+
+
+def test_writability_check_passes_in_a_repo_with_an_identity(repo: Path) -> None:
+    from gpo_studio.oracle_evidence import assert_evidence_tag_writable
+
+    assert_evidence_tag_writable(repo)  # does not raise
+
+
+def test_writability_check_refuses_when_git_has_no_identity(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The case that would otherwise write a verdict nothing can bind.
+
+    A container or CI shell with no configured identity makes ``git tag -a``
+    exit 128 with "Committer identity unknown". Finding that out *after* the
+    verdict is on disk leaves a durable certification whose source commit
+    nothing preserves.
+    """
+    from gpo_studio.oracle_evidence import OracleEvidenceError, assert_evidence_tag_writable
+
+    _git(repo, "config", "--unset", "user.email")
+    _git(repo, "config", "--unset", "user.name")
+    _git(repo, "config", "user.useConfigOnly", "true")
+    empty = tmp_path / "empty-gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(empty))
+    monkeypatch.delenv("GIT_AUTHOR_NAME", raising=False)
+    monkeypatch.delenv("GIT_COMMITTER_NAME", raising=False)
+    monkeypatch.delenv("EMAIL", raising=False)
+
+    with pytest.raises(OracleEvidenceError, match="no committer identity"):
+        assert_evidence_tag_writable(repo)
+
+
+def test_the_refused_case_is_the_one_git_actually_refuses(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Pin the check to git's real behaviour, not to an assumption about it."""
+    _git(repo, "config", "--unset", "user.email")
+    _git(repo, "config", "--unset", "user.name")
+    _git(repo, "config", "user.useConfigOnly", "true")
+    empty = tmp_path / "empty-gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(empty))
+
+    attempt = subprocess.run(
+        ["git", "-C", str(repo), "tag", "-a", "evidence/probe", "-m", "m", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert attempt.returncode != 0

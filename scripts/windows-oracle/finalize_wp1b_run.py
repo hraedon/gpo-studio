@@ -336,6 +336,21 @@ def main() -> int:
             if path.is_file() and path.name != "verification.json"
         },
     }
+    # Bind before recording. The tag is what makes the verdict's `source.commit`
+    # checkable from a fresh clone, so a run that cannot be tagged must not leave
+    # a durable "passed" file claiming a binding it does not have. Two ways that
+    # happens: no git identity (tag -a exits 128), and re-finalizing a run
+    # directory after the tree moved on -- where the verdict would be rewritten
+    # to the new HEAD while the existing tag correctly refuses to move, leaving
+    # the two pointing at different commits permanently.
+    tag_outcome: str | None = None
+    if passed and not args.no_tag:
+        try:
+            tag_outcome = tag_evidence_commit(repo_root, run_result["run_id"], commit)
+        except OracleEvidenceError as exc:
+            print(f"evidence tag failed: {exc}", file=sys.stderr)
+            return 1
+
     (run_dir / "verification.json").write_text(
         json.dumps(verdict, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -364,12 +379,8 @@ def main() -> int:
     # squash-merge could orphan -- which is how WP-0's and WP-2's own bindings
     # were lost (docs/evidence-binding-audit-2026-08-03.md). A failing run is
     # still evidence, but nothing later cites its source tree as proof.
-    if passed and not args.no_tag:
-        try:
-            print(f"EVIDENCE_TAG={tag_evidence_commit(repo_root, run_result['run_id'], commit)}")
-        except OracleEvidenceError as exc:
-            print(f"evidence tag failed: {exc}", file=sys.stderr)
-            return 1
+    if tag_outcome is not None:
+        print(f"EVIDENCE_TAG={tag_outcome}")
     return 0 if passed else 1
 
 

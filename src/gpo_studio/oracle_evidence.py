@@ -576,6 +576,29 @@ def evidence_tag_name(run_id: str) -> str:
     return f"{EVIDENCE_TAG_PREFIX}{run_id}"
 
 
+def assert_evidence_tag_writable(repo_root: Path) -> None:
+    """Raise if ``git tag -a`` could not create a tag here.
+
+    Called before a finalizer writes its verdict, so that a run which cannot be
+    bound to a commit fails *before* leaving a durable "passed" file behind. The
+    concrete case is a container or CI shell with no configured git identity:
+    ``git tag -a`` exits 128 with "Committer identity unknown", and a finalizer
+    that had already written its verdict would exit non-zero while leaving on
+    disk a certification nothing preserves the source tree for.
+    """
+    identity = subprocess.run(
+        ["git", "-C", str(repo_root), "var", "GIT_COMMITTER_IDENT"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if identity.returncode != 0:
+        raise OracleEvidenceError(
+            "git has no committer identity, so this run could not be bound to a "
+            f"commit by an evidence tag: {identity.stderr.strip()}"
+        )
+
+
 def tag_evidence_commit(repo_root: Path, run_id: str, commit: str) -> str:
     """Tag the source commit a certified run binds itself to.
 
