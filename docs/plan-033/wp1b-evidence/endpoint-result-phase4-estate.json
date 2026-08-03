@@ -1,0 +1,253 @@
+{
+  "artifacts": {
+    "author/author-result.json": "339f6c72a170ae5f3349b8d532478dfada786a19fca882376efa13f8ae6758a3",
+    "author/candidate.zip": "866037319398bfe5c30882058b19658e0081610be2f2bd4da8b7ed84f4333a72",
+    "author/commands/repadmin-syncall-cleanup.stdout.txt": "51360e590437599fa90b648e224ec8e121a2451bc81c970af9286b718f32e86e",
+    "author/commands/repadmin-syncall.stdout.txt": "51360e590437599fa90b648e224ec8e121a2451bc81c970af9286b718f32e86e",
+    "author/expected.json": "011bea37bbbded58329c88263d34e77515e41428bda75cd2ab030eb2991cd0ee",
+    "author/input/manifest.xml": "2d7074a5989ce52f910af6b024c14f0afcd49eea7e8b58da3faac228b67e7ee4",
+    "author/input/{319EA8BD-5E46-5A13-AA9A-D6C67E11E6B1}/Backup.xml": "14d11854968419a6b36f55f0b5cbae652165984781e3723b8a7383efc0c65e47",
+    "author/input/{319EA8BD-5E46-5A13-AA9A-D6C67E11E6B1}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml": "18861080ec9bc4a55622c2f7a24fa3d9246bf8d8775d85a33ff95b8f8230a895",
+    "author/input/{319EA8BD-5E46-5A13-AA9A-D6C67E11E6B1}/bkupInfo.xml": "9a4fc88a384d00fa40c2d7a62310c1951c823457be5b5379f8593f48b4ed6686",
+    "build-endpoint-candidate.py": "923e7cb49fc8464b7f597da6e856b75b80b71617ca5ee4eb67cf081c92d5278e",
+    "deployed/run-endpoint-author.ps1": "ba0715187ffbb83328bf1bb35934f314b8d72ea28e90aa3f8c8cf5f6e6ec7b07",
+    "deployed/run-endpoint-observe.ps1": "9bb15a1d5aec95b46128701dd9ce674301558783e072d4b77c47695680960d55",
+    "observe/commands/gpresult-1.stdout.txt": "1a1a5ab7b0612b5106076b9741ffa832bf1e9c2e19eee129c9eb2f51ef3dd6b6",
+    "observe/commands/gpupdate-1.stdout.txt": "fe770c40d6efaee814359a8c9c623e97bc87c25daa3d739dcd456c86980d31de",
+    "observe/commands/task-GPOStudio-EP2-A-nofilter.xml": "b8bb09740e732848bf50d6c1d8e219b9a865233a5a5dcbfc286fdf8e27976e85",
+    "observe/commands/task-GPOStudio-EP2-B-os-match.xml": "7848ffe61e21af4f7a2a960eb3f0e00bc01e4df107e7e6cc16d58f9c661570e0",
+    "observe/commands/task-GPOStudio-EP2-D-os-negated.xml": "d8abc9873f2f6256dd23c3a809e087777eec3d7c45a81baf84e93398ae936b73",
+    "observe/commands/task-GPOStudio-EP2-F-scalar-shape.xml": "d2ec7936845fdd2b72ecc746beaaf9b16fdf07812e3f4c1c00f68c1cd4dd4bad",
+    "observe/commands/task-GPOStudio-EP2-G-runas-system.xml": "3f9f40bbb5505d0cea12c613d5e7eb5cda0efe3f68cb834a68aa86494a55882d",
+    "observe/commands/task-GPOStudio-EP2-H-future-boundary.xml": "2dc560cebaeb70aee74e930bedaed010f4c85232b351dd4703599684523a74d9",
+    "observe/commands/task-GPOStudio-EP2-J-native-os-match.xml": "37a34d9744a97d5dd5f610a9a5981c60f0f04c76c51f2917eaac0fad98c28817",
+    "observe/expected.json": "011bea37bbbded58329c88263d34e77515e41428bda75cd2ab030eb2991cd0ee",
+    "observe/observe-result.json": "c84cb7af98c23310076e1afe77f6a7f7389fc23bfbe04ceae6b7fc1cadd84268",
+    "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+    "run-endpoint-oracle.sh": "fec942b18b5b93237299f3ee279a508dcf85c373b6bd54ccfbb782e76ca117b5",
+    "verify/verify-result.json": "cdf9f1ddd77a0f377bcf2001c3aa91845bef41c4d9284294318a6ab81d91fe34"
+  },
+  "author_run_id": "endpoint-author-20260803142420-4256",
+  "control_problems": [],
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "findings": [
+    {
+      "answer": "honoured",
+      "id": "WI-018",
+      "observed": {
+        "GPOStudio-EP2-F-scalar-shape": true
+      },
+      "question": "does a scalar-authored TaskV2 create a task, now that the writer synthesizes an embedded <Task> payload?"
+    },
+    {
+      "answer": "evaluated",
+      "id": "WI-021",
+      "observed": {
+        "GPOStudio-EP2-B-os-match": true,
+        "GPOStudio-EP2-C-os-exclude": false,
+        "GPOStudio-EP2-D-os-negated": true
+      },
+      "question": "is a Studio-authored OS filter actually evaluated by the CSE?"
+    },
+    {
+      "answer": "confirmed",
+      "id": "OS-VOCABULARY",
+      "observed": {
+        "GPOStudio-EP2-J-native-os-match": true,
+        "GPOStudio-EP2-K-os-server-code": false
+      },
+      "question": "does 'WINTHRESHOLD' match a Windows 11 client while 'WINTHRESHOLDSRV' does not? (corpus-matrix inference, previously unproven at an endpoint)"
+    }
+  ],
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": true,
+  "post_teardown_verification": {
+    "computer": "LABCL01",
+    "errors": [],
+    "gpo_still_applied": false,
+    "gpupdate_exit_code": 0,
+    "residual_tasks": [],
+    "target_gpo": "Endpoint-20260803-142421-1620",
+    "tasks_removed": true
+  },
+  "rows": [
+    {
+      "actions": [
+        {
+          "arguments": "/c exit 0",
+          "execute": "C:\\Windows\\System32\\cmd.exe"
+        }
+      ],
+      "expected_if_defects_real": "present",
+      "isolates": "control: task applies at all",
+      "name": "GPOStudio-EP2-A-nofilter",
+      "present": true,
+      "state": "Ready"
+    },
+    {
+      "actions": [
+        {
+          "arguments": "/c exit 0",
+          "execute": "C:\\Windows\\System32\\cmd.exe"
+        }
+      ],
+      "expected_if_defects_real": "present",
+      "isolates": "WI-021 fix: matching filter must APPLY",
+      "name": "GPOStudio-EP2-B-os-match",
+      "present": true,
+      "state": "Ready"
+    },
+    {
+      "actions": [
+        {
+          "arguments": "/c exit 0",
+          "execute": "C:\\Windows\\System32\\cmd.exe"
+        }
+      ],
+      "expected_if_defects_real": "present",
+      "isolates": "vocabulary control for B: does WINTHRESHOLD match a Windows 11 client at all?",
+      "name": "GPOStudio-EP2-J-native-os-match",
+      "present": true,
+      "state": "Ready"
+    },
+    {
+      "actions": [],
+      "expected_if_defects_real": "absent",
+      "isolates": "the server product code must NOT match a client (negative half of the collision proof)",
+      "name": "GPOStudio-EP2-K-os-server-code",
+      "present": false,
+      "state": null
+    },
+    {
+      "actions": [],
+      "expected_if_defects_real": "absent",
+      "isolates": "WI-021 fix: excluding filter must NOT apply",
+      "name": "GPOStudio-EP2-C-os-exclude",
+      "present": false,
+      "state": null
+    },
+    {
+      "actions": [
+        {
+          "arguments": "/c exit 0",
+          "execute": "C:\\Windows\\System32\\cmd.exe"
+        }
+      ],
+      "expected_if_defects_real": "present",
+      "isolates": "WI-021 fix: negation path",
+      "name": "GPOStudio-EP2-D-os-negated",
+      "present": true,
+      "state": "Ready"
+    },
+    {
+      "actions": [],
+      "expected_if_defects_real": "absent",
+      "isolates": "control: hand-written native excluding filter",
+      "name": "GPOStudio-EP2-E-native-control",
+      "present": false,
+      "state": null
+    },
+    {
+      "actions": [
+        {
+          "arguments": "/c exit 0",
+          "execute": "C:\\Windows\\System32\\cmd.exe"
+        }
+      ],
+      "expected_if_defects_real": "present",
+      "isolates": "WI-018 fix: scalar-authored TaskV2 must now CREATE a task",
+      "name": "GPOStudio-EP2-F-scalar-shape",
+      "present": true,
+      "state": "Ready"
+    },
+    {
+      "actions": [
+        {
+          "arguments": "/c exit 0",
+          "execute": "C:\\Windows\\System32\\cmd.exe"
+        }
+      ],
+      "expected_if_defects_real": "present",
+      "isolates": "hypothesis: empty runAs leaves the CSE no identity to register under",
+      "name": "GPOStudio-EP2-G-runas-system",
+      "present": true,
+      "state": "Ready"
+    },
+    {
+      "actions": [
+        {
+          "arguments": "/c exit 0",
+          "execute": "C:\\Windows\\System32\\cmd.exe"
+        }
+      ],
+      "expected_if_defects_real": "present",
+      "isolates": "hypothesis: a 1970 StartBoundary is rejected as too old (DISPROVED: absent)",
+      "name": "GPOStudio-EP2-H-future-boundary",
+      "present": true,
+      "state": "Ready"
+    },
+    {
+      "actions": [],
+      "expected_if_defects_real": "present",
+      "isolates": "was the StartBoundary fix load-bearing, or only schema hygiene?",
+      "name": "GPOStudio-EP2-I-bare-time",
+      "present": false,
+      "state": null
+    }
+  ],
+  "run_id": "endpoint-observe-20260803142424-3050",
+  "schema_version": 1,
+  "settling": {
+    "apply_attempts": 1,
+    "cse_completed": true,
+    "gpo_applied": true,
+    "observation_settled": true,
+    "settle_attempts": 1
+  },
+  "source": {
+    "commit": "a4e0ffde975392f87ffaffbace972a5b516c7722",
+    "dirty": false,
+    "files": {
+      "build-endpoint-candidate.py": "923e7cb49fc8464b7f597da6e856b75b80b71617ca5ee4eb67cf081c92d5278e",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-endpoint-author.ps1": "ba0715187ffbb83328bf1bb35934f314b8d72ea28e90aa3f8c8cf5f6e6ec7b07",
+      "run-endpoint-observe.ps1": "9bb15a1d5aec95b46128701dd9ce674301558783e072d4b77c47695680960d55",
+      "run-endpoint-oracle.sh": "fec942b18b5b93237299f3ee279a508dcf85c373b6bd54ccfbb782e76ca117b5"
+    }
+  },
+  "state": "pass",
+  "topology": {
+    "author_guest": "LABMS01",
+    "domain_controller": "LabDC01.ad.labdomain.dev",
+    "endpoint_guest": "LABCL01",
+    "target_gpo": "Endpoint-20260803-142421-1620"
+  },
+  "transport": "psdirect",
+  "unexpected_rows": [
+    {
+      "expected": "present",
+      "isolates": "was the StartBoundary fix load-bearing, or only schema hygiene?",
+      "name": "GPOStudio-EP2-I-bare-time",
+      "observed": "absent"
+    }
+  ],
+  "work_package": "WP-6-endpoint"
+}

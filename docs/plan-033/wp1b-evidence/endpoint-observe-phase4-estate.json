@@ -1,0 +1,391 @@
+﻿{
+    "run_id":  "endpoint-observe-20260803142424-3050",
+    "computer":  "LABCL01",
+    "target_gpo":  "Endpoint-20260803-142421-1620",
+    "gpupdate_exit_code":  0,
+    "gpo_applied":  true,
+    "apply_attempts":  1,
+    "applied_at":  "2026-08-03T14:24:46.1478298+00:00",
+    "cse_window_start":  "2026-08-03T14:24:29.8467418+00:00",
+    "pre_run_residual_tasks":  [
+
+                               ],
+    "cse_completed":  true,
+    "cse_completed_at":  "2026-08-03T14:24:30.5110662+00:00",
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "observed_tasks":  [
+                           {
+                               "name":  "GPOStudio-EP2-A-nofilter",
+                               "isolates":  "control: task applies at all",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-B-os-match",
+                               "isolates":  "WI-021 fix: matching filter must APPLY",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-J-native-os-match",
+                               "isolates":  "vocabulary control for B: does WINTHRESHOLD match a Windows 11 client at all?",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-K-os-server-code",
+                               "isolates":  "the server product code must NOT match a client (negative half of the collision proof)",
+                               "expected_if_defects_real":  "absent",
+                               "present":  false,
+                               "state":  null,
+                               "actions":  [
+
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-C-os-exclude",
+                               "isolates":  "WI-021 fix: excluding filter must NOT apply",
+                               "expected_if_defects_real":  "absent",
+                               "present":  false,
+                               "state":  null,
+                               "actions":  [
+
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-D-os-negated",
+                               "isolates":  "WI-021 fix: negation path",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-E-native-control",
+                               "isolates":  "control: hand-written native excluding filter",
+                               "expected_if_defects_real":  "absent",
+                               "present":  false,
+                               "state":  null,
+                               "actions":  [
+
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-F-scalar-shape",
+                               "isolates":  "WI-018 fix: scalar-authored TaskV2 must now CREATE a task",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-G-runas-system",
+                               "isolates":  "hypothesis: empty runAs leaves the CSE no identity to register under",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-H-future-boundary",
+                               "isolates":  "hypothesis: a 1970 StartBoundary is rejected as too old (DISPROVED: absent)",
+                               "expected_if_defects_real":  "present",
+                               "present":  true,
+                               "state":  "Ready",
+                               "actions":  [
+                                               {
+                                                   "execute":  "C:\\Windows\\System32\\cmd.exe",
+                                                   "arguments":  "/c exit 0"
+                                               }
+                                           ]
+                           },
+                           {
+                               "name":  "GPOStudio-EP2-I-bare-time",
+                               "isolates":  "was the StartBoundary fix load-bearing, or only schema hygiene?",
+                               "expected_if_defects_real":  "present",
+                               "present":  false,
+                               "state":  null,
+                               "actions":  [
+
+                                           ]
+                           }
+                       ],
+    "cse_events":  [
+                       {
+                           "id":  8004,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.5214333+00:00",
+                           "message":  "Completed manual processing of policy for computer LAB\\LABCL01$ in 0 seconds."
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.5110662+00:00",
+                           "message":  "Completed Group Policy Scheduled Tasks Extension Processing in 203 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.2983292+00:00",
+                           "message":  "Starting Group Policy Scheduled Tasks Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Endpoint-20260803-142421-1620 "
+                       },
+                       {
+                           "id":  5016,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.2954336+00:00",
+                           "message":  "Completed Security Extension Processing in 250 milliseconds."
+                       },
+                       {
+                           "id":  4016,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0564521+00:00",
+                           "message":  "Starting Security Extension Processing. List of applicable Group Policy objects: (Changes were detected.) Default Domain Policy "
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0464837+00:00",
+                           "message":  "Finished checking for non-system extensions."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0464833+00:00",
+                           "message":  "Service configuration update to standalone is not required and will be skipped."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0464824+00:00",
+                           "message":  "Checking for Group Policy client extensions that are not part of the system."
+                       },
+                       {
+                           "id":  5313,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0285326+00:00",
+                           "message":  "The following Group Policy objects were not applicable because they were filtered out : Local Group Policy Not Applied (Empty) "
+                       },
+                       {
+                           "id":  5312,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0285021+00:00",
+                           "message":  "List of applicable Group Policy objects: Default Domain Policy Endpoint-20260803-142421-1620 "
+                       },
+                       {
+                           "id":  5126,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0281349+00:00",
+                           "message":  "Group Policy successfully got applicable GPOs from the domain controller."
+                       },
+                       {
+                           "id":  5216,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0281328+00:00",
+                           "message":  "Successfully saved policies to the local datastore."
+                       },
+                       {
+                           "id":  4216,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0023078+00:00",
+                           "message":  "Starting to save policies to the local datastore."
+                       },
+                       {
+                           "id":  5257,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0018598+00:00",
+                           "message":  "Successfully completed downloading policies."
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0018296+00:00",
+                           "message":  "The system calls to access specified file completed. \\\\AD.LABDOMAIN.DEV\\sysvol\\AD.LABDOMAIN.DEV\\Policies\\{EB159E3C-BB4E-40BD-8E02-6A078F563525}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:30.0000572+00:00",
+                           "message":  "Making system calls to access specified file. \\\\AD.LABDOMAIN.DEV\\sysvol\\AD.LABDOMAIN.DEV\\Policies\\{EB159E3C-BB4E-40BD-8E02-6A078F563525}\\gpt.ini"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.9999862+00:00",
+                           "message":  "The system calls to access specified file completed. \\\\ad.labdomain.dev\\sysvol\\ad.labdomain.dev\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\gpt.ini The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.9977954+00:00",
+                           "message":  "Making system calls to access specified file. \\\\ad.labdomain.dev\\sysvol\\ad.labdomain.dev\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\gpt.ini"
+                       },
+                       {
+                           "id":  5314,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.9977206+00:00",
+                           "message":  "A fast link was detected. The Estimated bandwidth is 1410065 kbps. The slow link threshold is 500 kbps."
+                       },
+                       {
+                           "id":  5327,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.9965678+00:00",
+                           "message":  "Estimated network bandwidth on one of the connections: 1250000000 kbps."
+                       },
+                       {
+                           "id":  4257,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.9856046+00:00",
+                           "message":  "Starting to download policies."
+                       },
+                       {
+                           "id":  4126,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.9816309+00:00",
+                           "message":  "Group Policy receiving applicable GPOs from the domain controller."
+                       },
+                       {
+                           "id":  5311,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.9816286+00:00",
+                           "message":  "The loopback policy processing mode is \"No loopback mode\"."
+                       },
+                       {
+                           "id":  5310,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8769688+00:00",
+                           "message":  "Account details: Account Name : CN=LABCL01,OU=GPOStudioLab-20260803142421,DC=ad,DC=labdomain,DC=dev Account Domain Name : ad.labdomain.dev DC Name : \\\\LabDC01.ad.labdomain.dev DC Domain Name : ad.labdomain.dev"
+                       },
+                       {
+                           "id":  5309,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8769671+00:00",
+                           "message":  "Computer details: Computer role : 2 Network name : \u003cnone\u003e"
+                       },
+                       {
+                           "id":  5326,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8767179+00:00",
+                           "message":  "Group Policy successfully discovered the Domain Controller in 0 milliseconds."
+                       },
+                       {
+                           "id":  5308,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8767165+00:00",
+                           "message":  "Domain Controller details: Domain Controller Name : LabDC01.ad.labdomain.dev Domain Controller IP Address : 10.10.10.10"
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8767139+00:00",
+                           "message":  "The LDAP call to connect and bind to Active Directory completed. LabDC01.ad.labdomain.dev The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8738854+00:00",
+                           "message":  "Making LDAP calls to connect and bind to Active Directory. LabDC01.ad.labdomain.dev"
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8731577+00:00",
+                           "message":  "Retrieving Domain Controller details."
+                       },
+                       {
+                           "id":  4326,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8731567+00:00",
+                           "message":  "Group Policy is trying to discover the Domain Controller information."
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8730663+00:00",
+                           "message":  "Retrieved account information."
+                       },
+                       {
+                           "id":  5017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8730653+00:00",
+                           "message":  "The system call to get account information completed. CN=LABCL01,OU=GPOStudioLab-20260803142421,DC=ad,DC=labdomain,DC=dev The call completed in 0 milliseconds."
+                       },
+                       {
+                           "id":  4017,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8707389+00:00",
+                           "message":  "Making system call to get account information. "
+                       },
+                       {
+                           "id":  5320,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8707376+00:00",
+                           "message":  "Attempting to retrieve the account information."
+                       },
+                       {
+                           "id":  5340,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8705647+00:00",
+                           "message":  "The Group Policy processing mode is Background."
+                       },
+                       {
+                           "id":  4004,
+                           "level":  "Information",
+                           "time":  "2026-08-03T14:24:29.8702483+00:00",
+                           "message":  "Starting manual processing of policy for computer LAB\\LABCL01$. Activity id: {fd11259e-e490-45bb-bb00-be0f6481c21e}"
+                       }
+                   ],
+    "cleanup":  {
+                    "tasks_removed":  true,
+                    "residual_tasks":  [
+
+                                       ],
+                    "errors":  [
+
+                               ]
+                },
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.7705",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

@@ -92,9 +92,18 @@ automated accessibility coverage are also automated.
   the agent will generate the exact `WINTHRESHOLDSRV` candidate, link it only to
   disposable test OUs, collect registry and Group Policy operational-log
   evidence from both hosts, and perform strict cleanup.
-- [ ] Optional but valuable: identify a similarly disposable Windows 10 and
+- [~] Optional but valuable: identify a similarly disposable Windows 10 and
   Windows 11 pair so the `WINTHRESHOLD` client collision can receive the same
   endpoint proof.
+  **Half done, 2026-08-03, and it needed no operator action.** The evidence
+  estate's client *is* a disposable Windows 11 (Enterprise, 26200), so the
+  two-guest endpoint lane settled the Windows 11 side by itself:
+  `WINTHRESHOLD` applied, `WINTHRESHOLDSRV` did not, each authored both by
+  Studio and by hand. See `wp1a-corpus-matrix.md` and finding `OS-VOCABULARY`
+  in `wp1b-evidence/endpoint-result-phase4-estate.json`.
+  What remains is only the Windows **10** side — i.e. that one `WINTHRESHOLD`
+  filter matches *both* client generations, rather than having silently moved.
+  That needs a Windows 10 guest the estate does not have, so it stays queued.
 
 ## Workflow gates
 

@@ -344,20 +344,37 @@ try {
             if ($source) {
                 Copy-Item -LiteralPath $source -Destination $localArchive `
                     -FromSession $session -Force
-                Expand-Archive -LiteralPath $localArchive -DestinationPath $LocalPath -Force
 
                 # Count what arrived against what the guest packed. Evidence
                 # that goes missing in transit must fail the pull, not the lane
                 # three steps later with an unrelated-looking error -- which is
                 # exactly what happened when hidden files were being dropped.
+                #
+                # The count is taken from the ARCHIVE, not from the destination
+                # directory after extraction. Counting the destination assumed
+                # -LocalPath was empty, which is true only for a lane that pulls
+                # into each directory once. The two-guest endpoint lane pulls
+                # both halves' deployed harness files into one `deployed/`
+                # directory, and the second pull then counted the first pull's
+                # file too and failed a delivery that was in fact complete.
+                # Reading the archive checks exactly what this guard is for --
+                # that packing and transit lost nothing -- and does not care
+                # what else already sits in the destination.
                 $expectedLine = @($result) | Where-Object { "$_" -like 'EXPECTED_FILES=*' } | Select-Object -First 1
                 if ($expectedLine) {
                     $expected = [int]("$expectedLine".Substring('EXPECTED_FILES='.Length))
-                    $arrived = @(Get-ChildItem -LiteralPath $LocalPath -Recurse -Force -File).Count
+                    Add-Type -AssemblyName System.IO.Compression.FileSystem
+                    $archive = [System.IO.Compression.ZipFile]::OpenRead($localArchive)
+                    try {
+                        # Directory entries have an empty Name and are not files.
+                        $arrived = @($archive.Entries | Where-Object { $_.Name }).Count
+                    } finally { $archive.Dispose() }
                     if ($arrived -ne $expected) {
                         throw "Pull of '$RemotePath' delivered $arrived files but the guest packed $expected."
                     }
                 }
+
+                Expand-Archive -LiteralPath $localArchive -DestinationPath $LocalPath -Force
             }
         } finally {
             Remove-Item -LiteralPath $localArchive -Force -ErrorAction SilentlyContinue
