@@ -1,29 +1,41 @@
 # Plan 033 frozen environment specification
 
-Status: environment frozen and confirmed on mvmcitest01 (2026-07-26). A WP-0
-success-path run has been certified `pass` against a clean, committed source
-tree (commit `000f1b5`). The harness also produces parser-valid `fail`
-manifests for deliberate failure paths.
-Last updated: 2026-08-03 (disposable evidence estate qualified over PowerShell
-Direct; WP-1B re-pointed)
-Validation host: mvmcitest01 (historic, SSH); the disposable evidence estate
-(PowerShell Direct) as of 2026-08-03 — see **Qualified environments** below
+Status: environment frozen. Every lane is qualified on the disposable evidence
+estate over PowerShell Direct (2026-08-03). A WP-0 success-path run is certified
+`pass` against a clean, committed source tree, and the same harness produces a
+parser-valid `fail` manifest for a deliberate failure path.
+Last updated: 2026-08-03 (WP-0, WP-2 and WP-3 qualified on the estate; the SSH
+transport retired)
+Validation host: the disposable evidence estate, domain-joined member server,
+PowerShell Direct — see **Qualified environments** below
 Certified passing manifest hash (success-path run
-`live-synthetic-registry-basic-20260726070916`, source commit `000f1b5`):
-`0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`
+`live-synthetic-registry-basic-20260803183723-2067`, source commit `1ab9350`,
+tag `evidence/live-synthetic-registry-basic-20260803183723-2067`):
+`fefc80530d875b6c021497982fab31ada8e34da984048f3d9ef5c318e8188d9d`
 
-> **`000f1b5` no longer resolves in this repository** (squash-merge orphan; see
-> `docs/evidence-binding-audit-2026-08-03.md`). This run's integrity pack cannot
-> be re-verified, because the committed tree it compared the deployed harness
-> against is unreachable. The re-freeze of this spec for the disposable lab
-> estate supersedes the binding rather than repairing it.
+The corresponding fail-path run
+(`live-synthetic-registry-basic-20260803183850-2692`) parses as `fail`, canonical
+hash `68c9dfdf24fc955b19f4e8c57e6b8a61ee28c4d3fe3fb2fc30cf29552c628ebe`. It
+carries a real failed command and its real stderr, so the parser is demonstrated
+to tell a failed run from a missing one on this transport too.
 
 This run carries the full integrity pack: the deployed harness scripts
-(`run-evidence.ps1`, `common.psm1`, `remote-run.ps1`), the recipe, and the
-control-plane orchestrator are hashed input artifacts bound to the recorded
-commit; every artifact and command stream rehashes intact; and the cleanup
-re-query is a strict `Get-GPO -All` probe (absent / present / query-error) with
-both streams recorded as command/artifact evidence.
+(`run-evidence.ps1`, `common.psm1`), the recipe, the control-plane orchestrator
+and the transport (`psdirect.ps1`) are hashed input artifacts bound to the
+recorded commit; every artifact and command stream rehashes intact; and the
+cleanup re-query is a strict `Get-GPO -All` probe (absent / present /
+query-error) with both streams recorded as command/artifact evidence. The
+verdict is committed at `docs/plan-033/wp0-evidence/manifest-estate.json`.
+
+> **The superseded mvmcitest01 certification.** Until 2026-08-03 this line cited
+> the success-path run `live-synthetic-registry-basic-20260726070916` at commit
+> `000f1b5`, manifest hash
+> `0751b39667c982784af7f0a221fe193a1fa7ba5d84f601c8c71147aacdfabee9`. That commit
+> is a squash-merge orphan and no longer resolves (see
+> `docs/evidence-binding-audit-2026-08-03.md`), so its integrity pack could not be
+> re-verified: the committed tree it compared the deployed harness against was
+> unreachable. It is superseded rather than repaired — the run above re-earns the
+> certification on a commit that resolves and a tag that preserves it.
 
 Note: the previously cited hashes
 `265cfadc0c692c2cbaa6e69b0306c9c6813746f0caae40352f6ba10fe950d3d0` (predates the
@@ -52,8 +64,18 @@ which of these produced a given verdict.
 
 | Environment | Transport | Qualified | Qualifying run |
 |---|---|---|---|
-| `mvmcitest01` (historic shared host) | `ssh` + scheduled-task launcher | 2026-07-26 | `live-synthetic-registry-basic-20260726070916` (WP-0) |
 | Disposable evidence estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803014047-4766` (WP-1B, 7/7 pass, tag `evidence/wp1b-writer-20260803014047-4766`) |
+| — same, WP-0 | `psdirect` | 2026-08-03 | `live-synthetic-registry-basic-20260803183723-2067` (`pass`, tag `evidence/live-synthetic-registry-basic-20260803183723-2067`) |
+| — same, WP-2 | `psdirect` | 2026-08-03 | `wp2-native-import-20260803182557-5095` (17/17, tag `evidence/wp2-native-import-20260803182557-5095`) |
+| — same, WP-3 | `psdirect` | 2026-08-03 | `wp3-security-template-20260803182956-1132` (19/19, tag `evidence/wp3-security-template-20260803182956-1132`) |
+| — same, endpoint (client guest) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real 26200 client) |
+| `mvmcitest01` (historic shared host) | `ssh` + scheduled-task launcher | 2026-07-26 | `live-synthetic-registry-basic-20260726070916` (WP-0; commit orphaned, see above) |
+
+Each lane needed its own qualifying run rather than inheriting WP-1B's. The
+estate is one environment, but a lane is qualified by evidence that *that lane*
+behaves there, and the ports were not uniform: WP-0's integrity pack binds a
+different file set per transport, and WP-2 and WP-3 were not checking their
+environment at all before this round.
 
 **Why WP-1B qualified the estate.** Its seven candidates already passed on the
 historic host, so re-running them changes exactly one variable — same inputs,

@@ -1,0 +1,299 @@
+{
+  "fixture": {
+    "fixture_id": "synthetic-registry-basic",
+    "generation_recipe": "C:\\gpo-studio\\scripts\\recipe.json"
+  },
+  "comparisons": [
+    {
+      "assertion_id": "wp0-gpo-report-self-consistency",
+      "oracle": "Backup-GPO native gpreport vs Get-GPOReport native output",
+      "boundary_owner": "gpo-backup-content",
+      "normalizer_version": "gpo-studio.windows-oracle-xml.v1",
+      "expected_artifact_id": "normalized-backup-gpreport",
+      "observed_artifact_id": "normalized-standalone-gpreport",
+      "expected_sha256": "00e0e101c81a80fb30ff0588537d2dc0bd316de9be491dc4a518407a2089afc7",
+      "observed_sha256": "00e0e101c81a80fb30ff0588537d2dc0bd316de9be491dc4a518407a2089afc7",
+      "equal": true,
+      "differences": []
+    }
+  ],
+  "run_id": "live-synthetic-registry-basic-20260803183723-2067",
+  "commands": [
+    {
+      "exit_code": 0,
+      "relevant_event_ids": [],
+      "command_line": "New-GPO -Name WP0-DryRun-Registry-20260803-183723-2252",
+      "command_id": "new-gpo",
+      "stdout_sha256": "3a310a88bf77a6de9b34e625641f140a8749c9d17b3319d83a9ae2335153747e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "exit_code": 0,
+      "relevant_event_ids": [],
+      "command_line": "Set-GPRegistryValue (3 settings)",
+      "command_id": "set-gpregistryvalue",
+      "stdout_sha256": "8a567cda7d00ce5f811307cd35ba063de9587da1e1e7990f68a5115b616b0de6",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "exit_code": 0,
+      "relevant_event_ids": [],
+      "command_line": "Backup-GPO -Guid 58fb166f-19bb-4ed6-a997-3641bf6408c3",
+      "command_id": "backup-gpo",
+      "stdout_sha256": "13c87b5f437be3b1ccfd5f5bae7caca38b2fa5861b217b92c1018d40ac22748d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "exit_code": 0,
+      "relevant_event_ids": [],
+      "command_line": "Get-GPOReport -Guid 58fb166f-19bb-4ed6-a997-3641bf6408c3 -ReportType XML",
+      "command_id": "get-gporeport",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "exit_code": 0,
+      "relevant_event_ids": [],
+      "command_line": "Get-GPPermission -Guid 58fb166f-19bb-4ed6-a997-3641bf6408c3 -All",
+      "command_id": "get-gppermission",
+      "stdout_sha256": "fdd51976769e13742f54db44ff67e87d35f8f5bb3367385bfb707fb3fb145652",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "exit_code": 0,
+      "relevant_event_ids": [],
+      "command_line": "Get-GPO -All | filter Id -eq 58fb166f-19bb-4ed6-a997-3641bf6408c3 (strict post-removal re-query)",
+      "command_id": "cleanup-requery",
+      "stdout_sha256": "c52799d2b921eb92941730a4bc0694aa509fb50a0bb5e0be08234bd928126cd9",
+      "stderr_sha256": "b1fbb4f12e18cf54f23365d2602c6ac5f4db32c03815382b18a2e1b8f70071da"
+    }
+  ],
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "size_bytes": 1394,
+      "relative_path": "fixture-input.json",
+      "sha256": "1f7fa469feb617fb4336ce1195837f6920a2c296a9ff37b20c7b65c2815840be",
+      "artifact_id": "fixture-input",
+      "role": "input"
+    },
+    {
+      "size_bytes": 3941,
+      "relative_path": "backup\\{EA17B8DC-324B-4A7B-945D-E069753C27BB}\\Backup.xml",
+      "sha256": "fda84fae7b9416f16c589c673e9e6954cadb90f3802f976d62432f8d91cab8eb",
+      "artifact_id": "backup-backup-EA17B8DC-324B-4A7B-945D-E069753C27BB-Backup.xml",
+      "role": "output"
+    },
+    {
+      "size_bytes": 16994,
+      "relative_path": "backup\\{EA17B8DC-324B-4A7B-945D-E069753C27BB}\\gpreport.xml",
+      "sha256": "e6e2d40e69a36fc101cf5c51a040e998a272b7230ceb8607071b41da4b35d1f2",
+      "artifact_id": "backup-backup-EA17B8DC-324B-4A7B-945D-E069753C27BB-gpreport.xml",
+      "role": "output"
+    },
+    {
+      "size_bytes": 64,
+      "relative_path": "backup\\{EA17B8DC-324B-4A7B-945D-E069753C27BB}\\DomainSysvol\\GPO\\GPO.cmt",
+      "sha256": "083b73413ff5e3192a9414f1e83312d0f941aa7cbc004d85c1a9050c9bfcbfd6",
+      "artifact_id": "backup-backup-EA17B8DC-324B-4A7B-945D-E069753C27BB-DomainSysvol-GPO-GPO.cmt",
+      "role": "output"
+    },
+    {
+      "size_bytes": 268,
+      "relative_path": "backup\\{EA17B8DC-324B-4A7B-945D-E069753C27BB}\\DomainSysvol\\GPO\\Machine\\registry.pol",
+      "sha256": "33006aa22bc14dbe7c11e274408f0e0ac31386e925b0565839e124c7caabaaa9",
+      "artifact_id": "backup-backup-EA17B8DC-324B-4A7B-945D-E069753C27BB-DomainSysvol-GPO-Machine-registry.pol",
+      "role": "output"
+    },
+    {
+      "size_bytes": 158,
+      "relative_path": "backup\\{EA17B8DC-324B-4A7B-945D-E069753C27BB}\\DomainSysvol\\GPO\\User\\registry.pol",
+      "sha256": "655af407f6fe68986811b3ecb09c9ade191eb97b3bdefeacf0f5455ed02a9a6a",
+      "artifact_id": "backup-backup-EA17B8DC-324B-4A7B-945D-E069753C27BB-DomainSysvol-GPO-User-registry.pol",
+      "role": "output"
+    },
+    {
+      "size_bytes": 16992,
+      "relative_path": "gpreport.xml",
+      "sha256": "1dd754d44765538c759bbafbd3652e565965fca797453c58f6f814dfdc794033",
+      "artifact_id": "gpreport",
+      "role": "output"
+    },
+    {
+      "size_bytes": 1310,
+      "relative_path": "permissions.txt",
+      "sha256": "fdd51976769e13742f54db44ff67e87d35f8f5bb3367385bfb707fb3fb145652",
+      "artifact_id": "permissions",
+      "role": "raw-log"
+    },
+    {
+      "size_bytes": 93,
+      "relative_path": "commands\\cleanup-requery.stdout.txt",
+      "sha256": "c52799d2b921eb92941730a4bc0694aa509fb50a0bb5e0be08234bd928126cd9",
+      "artifact_id": "cleanup-requery-stdout",
+      "role": "raw-log"
+    },
+    {
+      "size_bytes": 77,
+      "relative_path": "commands\\cleanup-requery.stderr.txt",
+      "sha256": "b1fbb4f12e18cf54f23365d2602c6ac5f4db32c03815382b18a2e1b8f70071da",
+      "artifact_id": "cleanup-requery-stderr",
+      "role": "raw-log"
+    },
+    {
+      "artifact_id": "new-gpo-stdout",
+      "role": "raw-log",
+      "relative_path": "commands/new-gpo.stdout.txt",
+      "sha256": "3a310a88bf77a6de9b34e625641f140a8749c9d17b3319d83a9ae2335153747e",
+      "size_bytes": 1006
+    },
+    {
+      "artifact_id": "new-gpo-stderr",
+      "role": "raw-log",
+      "relative_path": "commands/new-gpo.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "artifact_id": "set-gpregistryvalue-stdout",
+      "role": "raw-log",
+      "relative_path": "commands/set-gpregistryvalue.stdout.txt",
+      "sha256": "8a567cda7d00ce5f811307cd35ba063de9587da1e1e7990f68a5115b616b0de6",
+      "size_bytes": 2982
+    },
+    {
+      "artifact_id": "set-gpregistryvalue-stderr",
+      "role": "raw-log",
+      "relative_path": "commands/set-gpregistryvalue.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "artifact_id": "backup-gpo-stdout",
+      "role": "raw-log",
+      "relative_path": "commands/backup-gpo.stdout.txt",
+      "sha256": "13c87b5f437be3b1ccfd5f5bae7caca38b2fa5861b217b92c1018d40ac22748d",
+      "size_bytes": 784
+    },
+    {
+      "artifact_id": "backup-gpo-stderr",
+      "role": "raw-log",
+      "relative_path": "commands/backup-gpo.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "artifact_id": "get-gporeport-stdout",
+      "role": "raw-log",
+      "relative_path": "commands/get-gporeport.stdout.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "artifact_id": "get-gporeport-stderr",
+      "role": "raw-log",
+      "relative_path": "commands/get-gporeport.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "artifact_id": "get-gppermission-stdout",
+      "role": "raw-log",
+      "relative_path": "commands/get-gppermission.stdout.txt",
+      "sha256": "fdd51976769e13742f54db44ff67e87d35f8f5bb3367385bfb707fb3fb145652",
+      "size_bytes": 1310
+    },
+    {
+      "artifact_id": "get-gppermission-stderr",
+      "role": "raw-log",
+      "relative_path": "commands/get-gppermission.stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "artifact_id": "harness-run-evidence",
+      "role": "input",
+      "relative_path": "scripts/run-evidence.ps1",
+      "sha256": "3927f3f884a5a2f1db9f0be2d5963ebc1211e29559b950c44ef863c4ea5cba30",
+      "size_bytes": 14344
+    },
+    {
+      "artifact_id": "harness-common",
+      "role": "input",
+      "relative_path": "scripts/common.psm1",
+      "sha256": "df56945f250b1d6238d8fe28928fdbecf32dc9191713cbc8e0f4dde08e3c5f51",
+      "size_bytes": 2674
+    },
+    {
+      "artifact_id": "harness-recipe",
+      "role": "input",
+      "relative_path": "scripts/recipe.json",
+      "sha256": "d14ce94d8a6bf478d8e5601dbaeaa18f05a8e0f1eccf401e49748ba326b9a160",
+      "size_bytes": 875
+    },
+    {
+      "artifact_id": "harness-orchestrator",
+      "role": "input",
+      "relative_path": "orchestrator/run-windows-oracle.sh",
+      "sha256": "36bcfd940e21b9b3bd230e947d16d0e8c3e361ed5eb0e39308996c61b64be614",
+      "size_bytes": 10861
+    },
+    {
+      "artifact_id": "harness-psdirect",
+      "role": "input",
+      "relative_path": "orchestrator/psdirect.ps1",
+      "sha256": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "size_bytes": 21181
+    },
+    {
+      "artifact_id": "normalized-backup-gpreport",
+      "role": "output",
+      "relative_path": "normalized/normalized-backup-gpreport.json",
+      "sha256": "00e0e101c81a80fb30ff0588537d2dc0bd316de9be491dc4a518407a2089afc7",
+      "size_bytes": 17056
+    },
+    {
+      "artifact_id": "normalized-standalone-gpreport",
+      "role": "output",
+      "relative_path": "normalized/normalized-standalone-gpreport.json",
+      "sha256": "00e0e101c81a80fb30ff0588537d2dc0bd316de9be491dc4a518407a2089afc7",
+      "size_bytes": 17056
+    }
+  ],
+  "tools": [
+    {
+      "sha256": null,
+      "name": "GroupPolicy",
+      "version": "1.0.0.0"
+    }
+  ],
+  "source": {
+    "commit": "1ab9350a4c00c6b6c0449575424a840a3d9f01ed",
+    "dirty": false
+  },
+  "started_at": "2026-08-03T18:37:23.7652225Z",
+  "capability": {
+    "matrix_row": "wp0.evidence-harness.self-consistency",
+    "evidence_state": "pass"
+  },
+  "completed_at": "2026-08-03T18:37:27.6670252Z",
+  "cleanup": {
+    "state_restored": true,
+    "attempted": true,
+    "succeeded": true,
+    "removed_resources": [
+      "gpo:58fb166f-19bb-4ed6-a997-3641bf6408c3"
+    ],
+    "failures": []
+  },
+  "environment": {
+    "lgpo_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "group_policy_module_version": "1.0.0.0",
+    "gpmc_version": "built-in",
+    "powershell_edition": "Desktop",
+    "locale": "en-US",
+    "client_build": "not-tested",
+    "server_build": "Microsoft Windows Server 2025 Standard 26100",
+    "powershell_version": "5.1.26100.7462"
+  }
+}
