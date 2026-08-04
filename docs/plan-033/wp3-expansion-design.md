@@ -66,6 +66,10 @@ control in `wp9-results.md`).
 
 ### Tranche A — sections the existing comparison can already judge
 
+> **Measured 2026-08-04, and the grouping below was wrong.** Only ONE of these
+> three sections belongs here. The round trip was run on the estate's member
+> server; see "What the Tranche A round trip actually returned".
+
 `Kerberos Policy`, `Registry Values`, `Group Membership`.
 
 - `Kerberos Policy` is `System Access` in a different section; it needs a DC
@@ -77,9 +81,9 @@ control in `wp9-results.md`).
   the `__Members` / `__Memberof` suffix convention is a parsing surface in its
   own right.
 
-Tranche A needs **no new comparison machinery** beyond generalising the
-principal-set rule from one hard-coded section name to a small table. It can be
-certified the same way the current tranche is.
+The claim was that Tranche A needs **no new comparison machinery** beyond
+generalising the principal-set rule from one hard-coded section name to a small
+table. That holds for exactly one of the three.
 
 ### Tranche B — sections that need a new comparator first
 
@@ -159,6 +163,56 @@ descriptors contain.
 
 The canonical-SDDL control row is still worth carrying, for the same reason as
 before: it is what distinguishes a comparator bug from a module defect.
+
+## What the Tranche A round trip actually returned
+
+A template carrying all three sections was validated, imported into a fresh
+database and exported, on the estate's member server. The three sections behave
+three different ways.
+
+**`Registry Values` — ready as it stands.** Values came back byte-identical
+across all four registry types:
+
+```
+machine\software\studioprobe\sz=1,"hello world"
+machine\software\studioprobe\dword=4,1
+machine\software\studioprobe\multi=7,alpha,beta
+machine\software\studioprobe\expand=2,"%SystemRoot%\probe"
+```
+
+The path is lower-cased and the entry order is not preserved, and **neither
+matters**: `SecurityTemplate.get_value` already folds case on both the section
+name and the key, and lookup by key is order-independent. So this section needs
+*nothing* — not even the table generalisation. It is the whole of Tranche A.
+
+**`Group Membership` — needs principal resolution, so it is not Tranche A.**
+Authored names come back as SIDs, on both sides of the entry:
+
+```
+authored   Administrators__Members = Administrator,*S-1-5-32-544
+exported   *S-1-5-32-544__Members  = *S-1-5-32-544,*S-1-5-21-…-500
+```
+
+The group name in the **key** becomes a SID, and so do the member names. A
+comparison therefore needs a name/SID equivalence, and one of those SIDs
+(`…-500`, the built-in Administrator) is **machine-specific**, so the expected
+side cannot be written as a constant. That is real machinery — different from
+Tranche B's, but not zero.
+
+**`Kerberos Policy` — platform-blocked, not difficulty-blocked.** It exported
+**empty**. Kerberos policy is meaningful only on a domain controller, and this
+lane runs on the member server by design. Testing it means running the lane
+somewhere it currently does not run, which is a platform question and not a
+comparator one. It should be dropped from the expansion until that is decided.
+
+### Revised sequencing
+
+1. **`Registry Values`** — build and certify now; no comparator work.
+2. **`Group Membership`** — needs a principal-resolution comparison and an
+   expected side that can express a machine-specific SID.
+3. **`Registry Keys` / `File Security` / `Service General Setting`** — need the
+   entry-shape comparator described above.
+4. **`Kerberos Policy`** — needs a platform decision first.
 
 ## What this note deliberately does not do
 
