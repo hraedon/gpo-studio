@@ -359,6 +359,63 @@ stops deleting them at all, since run directories are already per-invocation
 and unique), the fallback selects only an observation-bearing directory, and
 the affected lanes are re-certified in the same change.
 
+## WI-038 — three security-template sections are preserve-only, and `diff_templates` cannot see them
+
+**Opened:** 2026-08-04 (WP-3 expansion scoping).
+**Status:** open. Established from the code and three behavioural checks; no
+oracle needed for the part that matters.
+
+`Registry Keys`, `File Security` and `Service General Setting` do not use
+`key = value`. Their entries are bare lines:
+
+```
+"MACHINE\SOFTWARE\A",2,"D:PAR(A;CI;KA;;;BA)"
+```
+
+`parse_security_template` cannot parse that shape. The entries land in
+`InfSection.unknown_lines` with a `parse_warnings` entry, and the section's
+`entries` tuple is **empty**.
+
+**The content is not lost.** `format_security_template` re-emits `unknown_lines`
+on the reconstruction path, and returns `raw_text` verbatim when nothing was
+modified. A read/write round trip preserves these sections faithfully — that was
+checked, because the first reading of this was "silently dropped" and that was
+wrong.
+
+**What is lost is every operation the module offers.** These sections are opaque
+to all of it:
+
+- `get_value("Registry Keys", path)` returns `None`;
+- `validate_security_template` reports **no issues** on a template whose ACLs
+  are arbitrary;
+- **`diff_templates` reports no differences between two templates whose only
+  difference is an ACL trustee.** Checked directly: `D:PAR(A;CI;KA;;;BA)`
+  against `D:PAR(A;CI;KA;;;WD)` — Administrators versus **Everyone** — returns
+  an empty diff.
+
+That last one is the operator-facing defect. A reviewer comparing two security
+templates is told they are identical when one of them grants Everyone full
+control of a registry key. The `parse_warnings` that would have hinted at it are
+consumed by nothing.
+
+**The honest capability state is `preserve-only`**, which is a state Plan 033's
+own promotion rule already defines. `KNOWN_SECTIONS` lists these three
+alongside sections the module genuinely understands, and that membership is
+what implies more than the code does.
+
+**This also redirects the WP-3 expansion.** The entry-shape comparator scoped in
+`wp3-expansion-design.md` was the right answer to the wrong question: there is no
+point teaching the *lane* to compare entries the *module* cannot represent. What
+these sections need first is either real parsing, or an explicit preserve-only
+declaration plus a lane row that tests **preservation** rather than semantics —
+a much cheaper test, and the one that matches what the code actually does.
+
+**Closes when:** the three sections either parse into `entries` (and
+`diff_templates`, `validate_security_template` and the lane treat them like any
+other), or are declared `preserve-only` in the capability matrix with a
+preservation test behind the claim. Silence is the one option that should not
+survive.
+
 ---
 
 ## Not yet numbered

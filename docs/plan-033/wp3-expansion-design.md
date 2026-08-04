@@ -89,11 +89,14 @@ table. That holds for exactly one of the three.
 
 `Registry Keys`, `File Security`, `Service General Setting`.
 
-> **Superseded in part by the measurements below.** The reasoning here — that
-> SDDL canonicalisation is the blocker — turned out not to hold: a canonical
-> descriptor survives an export byte-for-byte. What actually blocks the tranche
-> is the *entry shape*, which is a smaller and differently shaped piece of work.
-> The control row in point (2) survives unchanged and is still required.
+> **Superseded twice.** First: the reasoning here — that SDDL canonicalisation
+> is the blocker — does not hold, because a canonical descriptor survives an
+> export byte-for-byte. Then the entry-shape comparator that replaced it turned
+> out to be the right answer to the wrong question: **the module cannot
+> represent these entries at all** (WI-038), so there is nothing for a lane
+> comparator to compare. See "Where this tranche actually stands" below. The
+> control row in point (2) survives unchanged and is still required *if* the
+> sections are ever parsed.
 
 These should **not** be attempted with the current comparison. The reasoning as
 it stood before the measurement was that they need a decision about what "equal"
@@ -218,6 +221,33 @@ comparator one. It should be dropped from the expansion until that is decided.
 3. **`Registry Keys` / `File Security` / `Service General Setting`** — need the
    entry-shape comparator described above.
 4. **`Kerberos Policy`** — needs a platform decision first.
+
+## Where this tranche actually stands (WI-038)
+
+The three SDDL-bearing sections do not use `key = value`. Their entries are bare
+lines, `parse_security_template` cannot parse that shape, and the entries land
+in `InfSection.unknown_lines` with the section's `entries` tuple left **empty**.
+
+The content is *preserved* — `format_security_template` re-emits `unknown_lines`
+and returns `raw_text` verbatim when nothing changed, so a read/write round trip
+is faithful. But every operation the module offers is blind to them:
+`get_value` returns `None`, `validate_security_template` reports no issues, and
+**`diff_templates` returns an empty diff between two templates whose only
+difference is an ACL trustee** — `BA` versus `WD`, Administrators versus
+Everyone.
+
+So the entry-shape comparator described above should **not** be built yet.
+There is no point teaching the lane to compare entries the module cannot
+represent. The choice to make first is:
+
+- **parse them** into `entries`, after which the lane work is ordinary and the
+  entry-shape comparator becomes exactly right; or
+- **declare them `preserve-only`** — a state Plan 033's promotion rule already
+  defines — and add a lane row that tests *preservation* rather than semantics.
+  Much cheaper, and it matches what the code does today.
+
+Either way `KNOWN_SECTIONS` currently overstates the module: it lists these
+three beside sections that are genuinely understood.
 
 ## What this note deliberately does not do
 
