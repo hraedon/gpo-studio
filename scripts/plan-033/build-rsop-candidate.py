@@ -117,7 +117,11 @@ class WmiIntent:
 
     name: str
     query: str
-    expect_true: bool
+    #: ``None`` means the filter cannot be evaluated at all -- a query naming a
+    #: class that does not exist. The model is then told NOTHING about it, which
+    #: leaves it unknown, which is the honest input: nobody has an answer to
+    #: supply because there is no answer.
+    expect_true: bool | None
     why: str
 
 
@@ -889,6 +893,77 @@ COMPUTER_SECURITY_FILTERING = Scenario(
     ),
 )
 
+#: WP-6 topology item 6's third case, and the one nobody has measured: a WMI
+#: filter that cannot be EVALUATED, as distinct from one that evaluates false.
+#:
+#: THIS SCENARIO CARRIES NO DECLARATION, deliberately. The deny and false-filter
+#: scenarios declared their divergence because the answer was known from the
+#: code; here it is not known what Windows does with an unevaluatable filter,
+#: and declaring a guess would turn the run into a test of the guess. The lane
+#: exists to find out.
+#:
+#: What the model will say is known: nothing supplies a result for a filter that
+#: cannot be evaluated, so it stays unknown, the GPO applies, and the result
+#: carries `wmi_filter_unknown`. Whether Windows agrees is the experiment.
+WMI_FILTERING_ERROR = Scenario(
+    scenario_id="wmi-filtering-error",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    control_gpo="Studio-RSOP-Control",
+    control_value_name="Control",
+    gpos=(
+        PlannedGpo(
+            name="Studio-RSOP-WmiError",
+            guid="00000000-0000-0000-0000-000000001e01",
+            scope="ou",
+            scope_key="child",
+            order=1,
+            values={"Wmi": "error", "WmiErrorOnly": "1"},
+            wmi_filter=WmiIntent(
+                name="StudioRsopUnevaluatable",
+                # A class that does not exist. The WQL is well-formed, so this
+                # is an evaluation failure rather than a parse failure -- those
+                # are different questions and only one of them is item 6's.
+                query="SELECT * FROM Win32_NoSuchClassStudioLab",
+                expect_true=None,
+                why=(
+                    "UNKNOWN OUTCOME: the query is valid WQL naming a class that does not "
+                    "exist, so it can be neither true nor false. What Windows does with it "
+                    "is what this scenario is for."
+                ),
+            ),
+            isolates="a WMI filter that cannot be evaluated -- outcome unmeasured",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-WmiTrue",
+            guid="00000000-0000-0000-0000-000000001e02",
+            scope="ou",
+            scope_key="child",
+            order=2,
+            values={"Wmi": "true", "WmiTrueOnly": "1"},
+            wmi_filter=WmiIntent(
+                name="StudioRsopAlwaysTrue",
+                query="SELECT * FROM Win32_OperatingSystem WHERE BuildNumber >= '1'",
+                expect_true=True,
+                why=(
+                    "CONTROL: proves filter authoring works in this run, so the error row's "
+                    "outcome cannot be blamed on a malformed filter."
+                ),
+            ),
+            isolates="CONTROL: a WMI filter that evaluates TRUE must let its GPO apply",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-Control",
+            guid="00000000-0000-0000-0000-000000001e03",
+            scope="ou",
+            scope_key="child",
+            order=3,
+            values={"Control": "present"},
+            isolates="CONTROL: no WMI filter at all. Absent => the experiment did not run.",
+        ),
+    ),
+)
+
 SCENARIOS: dict[str, Scenario] = {
     LSDOU_PRECEDENCE.scenario_id: LSDOU_PRECEDENCE,
     DISABLED_BLOCK_ENFORCED.scenario_id: DISABLED_BLOCK_ENFORCED,
@@ -899,6 +974,7 @@ SCENARIOS: dict[str, Scenario] = {
     USER_SECURITY_FILTERING_DENY.scenario_id: USER_SECURITY_FILTERING_DENY,
     WMI_FILTERING.scenario_id: WMI_FILTERING,
     COMPUTER_SECURITY_FILTERING.scenario_id: COMPUTER_SECURITY_FILTERING,
+    WMI_FILTERING_ERROR.scenario_id: WMI_FILTERING_ERROR,
 }
 
 
@@ -1024,7 +1100,7 @@ def build_query(
     wmi_results = tuple(
         (f"{planned.name}:wmi", planned.wmi_filter.expect_true)
         for planned in scenario.gpos
-        if planned.wmi_filter is not None
+        if planned.wmi_filter is not None and planned.wmi_filter.expect_true is not None
     )
 
     def links_for(scope_key: str) -> tuple[SomLink, ...]:
