@@ -422,15 +422,27 @@ foreach ($ou in $state.ous) {
 # whose residue would affect machines outside the disposable tree, so a link
 # leak there is worth detecting explicitly rather than inferring from the GPO
 # having been deleted.
+#
+# Read the raw gPLink attribute rather than calling Get-GPInheritance.
+# GET-GPINHERITANCE CANNOT TARGET A SITE -- it accepts only a domain or an OU
+# and throws "The target specified is invalid" on anything else. Found live on
+# the estate 2026-08-04, and it presented in the worst available way: the
+# teardown had actually succeeded, the verification threw, and the lane reported
+# a cleanup failure for an estate that was already clean. A check that cannot
+# run against half the scopes it is given is not a check.
+#
+# gPLink is the attribute Get-GPInheritance summarizes, it exists on every SOM
+# type, and it names linked GPOs by GUID -- so one code path now covers site,
+# domain and OU instead of two behaviours with a silent hole between them.
 foreach ($scopeDn in @($state.site_dn, $state.domain_dn)) {
     try {
-        $inheritance = Get-GPInheritance -Target $scopeDn -Domain $state.domain -Server $dc -ErrorAction Stop
-        foreach ($link in $inheritance.GpoLinks) {
-            foreach ($gpo in $orderedGpos) {
-                if ("$($link.GpoId)" -eq "$($gpo.guid)") {
-                    $residual.surviving_links += "$($gpo.name) @ $scopeDn"
-                    $problems += "link survives at $scopeDn for $($gpo.name)"
-                }
+        $linkValue = "$((Get-ADObject -Identity $scopeDn -Properties gPLink -Server $dc -ErrorAction Stop).gPLink)"
+        foreach ($gpo in $orderedGpos) {
+            if (-not $gpo.guid) { continue }
+            $guid = "$($gpo.guid)".Trim('{}')
+            if ($linkValue -match [regex]::Escape($guid)) {
+                $residual.surviving_links += "$($gpo.name) @ $scopeDn"
+                $problems += "link survives at $scopeDn for $($gpo.name)"
             }
         }
     } catch {
