@@ -121,7 +121,23 @@ def compute_precedence(
     by_dn: dict[str, SomNode] = {n.dn: n for n in nodes}
     target = by_dn.get(target_dn)
     if target is None:
-        return SomPrecedence(target_dn=target_dn, entries=(), warnings=())
+        # WI-026. An unresolvable target DN yields an empty precedence list,
+        # which is indistinguishable from a correctly-computed "no GPOs apply
+        # here" unless it says so. The common way to reach this is passing a
+        # computer's own DN (CN=host,OU=...) where a container DN is required;
+        # every caller in the test suite happens to pass a container, so the
+        # silence went unnoticed until the WP-6B lane fed the model a DN from
+        # a real directory. Whether an object DN *should* resolve to its
+        # parent container is the open half of WI-026 and is not decided here.
+        return SomPrecedence(
+            target_dn=target_dn,
+            entries=(),
+            warnings=(
+                f"Target DN {target_dn!r} does not match any provided SOM node, so no "
+                "links were collected. If this is an object DN, pass the DN of the "
+                "container that holds it.",
+            ),
+        )
 
     warnings: list[str] = []
     path: list[SomNode] = []
