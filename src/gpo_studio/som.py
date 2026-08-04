@@ -93,12 +93,42 @@ def _find_node(nodes: Sequence[SomNode], dn: str) -> SomNode | None:
 
 def _precedence_key(
     link: SomLink, path_index: dict[str, int]
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
+    """Sort key for a link, ascending = higher precedence (applied last, wins).
+
+    WI-031, found by the Plan 033 WP-6B oracle on 2026-08-04 and fixed here.
+
+    Enforcement was previously absent from this key entirely, so an enforced
+    link was ordered by its scope like any other. A GPO enforced at the domain
+    therefore sat in the domain tier and *lost* to a plain OU link -- Studio
+    predicted the OU value where Windows resolved the enforced one. Three
+    consecutive runs on a real 26200 client observed ``domainEnforced`` where
+    Studio predicted ``child``.
+
+    Windows has two rules here and this key encodes both:
+
+    1. **An enforced link outranks every non-enforced link**, whatever their
+       scopes. That is the leading element.
+    2. **Among enforced links the hierarchy inverts**: the enforced link
+       closest to the root wins, so site beats domain beats OU, and a shallower
+       OU beats a deeper one. Negating tier and depth expresses exactly that.
+
+    Link order within a container is unaffected: order 1 still applies last and
+    wins, enforced or not.
+
+    Note that enforcement's *other* effect -- surviving a block-inheritance
+    cutoff -- was already correct and is handled separately, which is why the
+    applied/denied sets matched Windows while the winning value did not. The
+    two halves of "enforced" are independent, and only one of them was
+    implemented.
+    """
     tier = _scope_tier(link.scope)
     # Only OU depth affects ordering within a tier: target (index 0) is closest
     # and wins. Domain and site tiers are sorted by order alone.
     idx = path_index.get(link.scope_dn, 0) if link.scope == "ou" else 0
-    return (tier, idx, link.order)
+    if link.enforced:
+        return (0, -tier, -idx, link.order)
+    return (1, tier, idx, link.order)
 
 
 def compute_precedence(
@@ -206,7 +236,7 @@ def compute_precedence(
                 "inherited links from parent scopes."
             )
 
-    decorated: list[tuple[tuple[int, int, int], PrecedenceEntry]] = []
+    decorated: list[tuple[tuple[int, int, int, int], PrecedenceEntry]] = []
 
     for idx, node in enumerate(path):
         for link in _sorted_enabled_links(node.links):
