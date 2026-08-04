@@ -1,0 +1,209 @@
+{
+  "extension_data_sections": 4,
+  "gpos": [
+    "Studio-RSOP-Control-20260804010734-3045",
+    "Studio-RSOP-Site-20260804010734-3045",
+    "Studio-RSOP-Domain-20260804010734-3045",
+    "Studio-RSOP-Parent-20260804010734-3045",
+    "Local Group Policy",
+    "Studio-RSOP-ChildB-20260804010734-3045",
+    "Default Domain Policy",
+    "Studio-RSOP-ChildA-20260804010734-3045"
+  ],
+  "registry_setting_count": 0,
+  "root": "{http://www.microsoft.com/GroupPolicy/Rsop}Rsop",
+  "searched_som": [
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "5",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010547-8463/StudioRsopParent-20260804010547-8463",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "5",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010734-3045/StudioRsopParent-20260804010734-3045",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "5",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005950-9587/StudioRsopParent-20260804005950-9587",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "6",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005950-9587/StudioRsopParent-20260804005950-9587/StudioRsopChild-20260804005950-9587",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005950-9587",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "6",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005630-1011/StudioRsopParent-20260804005630-1011/StudioRsopChild-20260804005630-1011",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "6",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010734-3045/StudioRsopParent-20260804010734-3045/StudioRsopChild-20260804010734-3045",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "5",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005630-1011/StudioRsopParent-20260804005630-1011",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005630-1011",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "6",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005229-3307/StudioRsopParent-20260804005229-3307/StudioRsopChild-20260804005229-3307",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010337-2551",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "6",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010547-8463/StudioRsopParent-20260804010547-8463/StudioRsopChild-20260804010547-8463",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "1",
+      "Path": "Local",
+      "Reason": "Normal",
+      "Type": "Local"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/GPOStudioLab-20260803142421",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010547-8463",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "5",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010337-2551/StudioRsopParent-20260804010337-2551",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005229-3307",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "5",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804005229-3307/StudioRsopParent-20260804005229-3307",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/GPOStudioLab-20260803140223",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/GPOStudioLab-20260803141740",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "4",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010734-3045",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "3",
+      "Path": "ad.labdomain.dev",
+      "Reason": "Normal",
+      "Type": "Domain"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "6",
+      "Path": "ad.labdomain.dev/StudioRsop-20260804010337-2551/StudioRsopParent-20260804010337-2551/StudioRsopChild-20260804010337-2551",
+      "Reason": "Normal",
+      "Type": "OU"
+    },
+    {
+      "Blocked": "false",
+      "BlocksInheritance": "false",
+      "Order": "2",
+      "Path": "ad.labdomain.dev/Configuration/Sites/Default-First-Site-Name",
+      "Reason": "Normal",
+      "Type": "Site"
+    }
+  ]
+}

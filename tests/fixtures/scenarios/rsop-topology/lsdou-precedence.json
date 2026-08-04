@@ -6,7 +6,7 @@
   "readiness": "ready",
   "provenance": {
     "tier": "spec-informed",
-    "note": "Windows precedence behavior (site, domain, OU; later application wins conflicts; lower link order applies last and wins) is long-established documented behavior, but this lab has no captured gpresult evidence yet; first execution must confirm or correct every expected winner.",
+    "note": "CONFIRMED ON THE WIRE 2026-08-04 (WP-6B, runs rsop-observe-20260804010341-7165 and two identical repeats): every expected winner below was observed on a real Windows 11 26200 client against a natively-authored topology, and rsop.py predicted all of them. Previously spec-informed with no captured evidence; the expectations needed no correction, which is the first time an oracle has said that about a domain layer in this project.",
     "anchors": []
   },
   "platform": {
