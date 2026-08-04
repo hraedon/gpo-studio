@@ -130,7 +130,9 @@ uv run python "$REPO_ROOT/scripts/plan-033/build-rsop-candidate.py" "$CANDIDATE_
     --domain "$DOMAIN" --computer-name "$GPO_STUDIO_LAB_ENDPOINT_GUEST" \
     --user-name "$GPO_STUDIO_RSOP_USER"
 
-PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -LiteralPath '$GUEST_STATE' -Force -ErrorAction SilentlyContinue"
+# The preflight record is removed with everything else: it is a per-run
+# artifact, and a stale one would describe a world two runs old.
+PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -LiteralPath '$GUEST_STATE' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '$GUEST_SCRIPTS\\preflight-residual.json' -Force -ErrorAction SilentlyContinue"
 
 # ------------------------------------------------------------------ stage ---
 author -Action exec -Command "$PREPARE" >/dev/null
@@ -195,6 +197,11 @@ on_exit() {
     return $status
 }
 trap on_exit EXIT
+
+# -------------------------------------------------------------- preflight ---
+# Before the topology exists, so the residual check has a genuine "before".
+endpoint -Action exec -TimeoutSeconds 600 -Command \
+    "$(run_guest_script "'$GUEST_SCRIPTS\\run-rsop-user-observe.ps1' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -Mode preflight")"
 
 # ----------------------------------------------------------------- author ---
 SETUP_OUT=$(author -Action exec -TimeoutSeconds 2400 -Command \

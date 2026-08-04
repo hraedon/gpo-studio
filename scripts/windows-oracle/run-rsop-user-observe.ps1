@@ -65,7 +65,10 @@ param(
     # resession      re-establish the interactive session so the principal's
     #                token picks up a group created after it signed in.
     # post-teardown  put the client back once the topology is gone.
-    [ValidateSet('observe', 'resession', 'resession-verify', 'post-teardown')][string]$Mode = 'observe'
+    # preflight       record the principal's policy values BEFORE the topology
+    #                 exists, which is the only honest "before" moment once a
+    #                 re-session applies policy at logon.
+    [ValidateSet('preflight', 'observe', 'resession', 'resession-verify', 'post-teardown')][string]$Mode = 'observe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -116,6 +119,7 @@ $result = [ordered]@{
     rsop_captured          = $false
     rsop_parse_error       = $null
     pre_run_residual       = @()
+    preflight_taken_at     = $null
     applied_gpos           = @()
     denied_gpos            = @()
     observed_values        = @()
@@ -452,6 +456,38 @@ function Get-UserGpoNames {
     return @{ applied = @($applied); denied = @($denied) }
 }
 
+#: Where the preflight leaves its record. In the scripts directory rather than
+#: the output directory because the output directory is cleared per run, and
+#: this file has to survive from before the authoring half until after it.
+$PreflightPath = Join-Path (Split-Path -Path $ExpectedPath -Parent) 'preflight-residual.json'
+
+if ($Mode -eq 'preflight') {
+    # THE RESIDUAL CHECK NEEDS A BEFORE THAT IS REALLY BEFORE.
+    #
+    # The observation half samples the principal's policy values on entry and
+    # refuses the run if it finds any, because a previous run's leftovers could
+    # otherwise satisfy the control. That sample stopped being a "before" the
+    # moment the lane gained a re-session restart: the client applies this run's
+    # own policy at logon, so the observation half would find this run's values
+    # sitting there and call them residue.
+    #
+    # So the sample is taken here, before the authoring half creates anything.
+    $sid = Resolve-PrincipalSid -Name $principal
+    $record = [ordered]@{
+        run_id    = $runId
+        mode      = 'preflight'
+        principal = $principal
+        sid       = $sid
+        values    = @(Get-UserPolicyValues -Sid $sid)
+        taken_at  = (Get-Date).ToString('o')
+    }
+    $record | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $PreflightPath -Encoding UTF8
+    Write-Output "RUN_ID=$runId"
+    Write-Output "WORK_DIR=$workDir"
+    Write-Output ("PREFLIGHT_VALUES=" + (($record.values | ForEach-Object { $_.value_name }) -join ','))
+    exit 0
+}
+
 if ($Mode -eq 'resession') {
     # A TOKEN IS MINTED AT LOGON AND NEVER UPDATED.
     #
@@ -509,11 +545,30 @@ if ($Mode -eq 'resession') {
 if ($Mode -eq 'resession-verify') {
     # Runs after the guest is back. Confirms the console session AND that the
     # new token holds the group, so the observation half can rely on it.
+    # WAITS, does not sample. PowerShell Direct answers as soon as the OS is
+    # up, which is well before Winlogon has completed the automatic logon --
+    # so a single read here reports "no console session" on a guest that is
+    # about to have one, and the driver treats a healthy restart as a failure.
+    # Found on the first live re-session run.
+    #
+    # The token is only collected once the session exists: each collection
+    # registers and runs a scheduled task, and there is nothing to ask before
+    # the principal is signed in.
     $expectedGroup = "$($expected.group_name)"
     $sid = Resolve-PrincipalSid -Name $principal
-    $session = Get-SessionState -Sid $sid
-    $groups = @(Get-SessionTokenGroups)
-    $holds = @($groups | Where-Object { ($_ -split '\\')[-1] -like "$expectedGroup*" }).Count -gt 0
+    $session = $null
+    $groups = @()
+    $holds = $false
+    $deadline = (Get-Date).AddMinutes(10)
+    while ((Get-Date) -lt $deadline) {
+        $session = Get-SessionState -Sid $sid
+        if ($session.present) {
+            $groups = @(Get-SessionTokenGroups)
+            $holds = @($groups | Where-Object { ($_ -split '\\')[-1] -like "$expectedGroup*" }).Count -gt 0
+            if (-not $expectedGroup -or $holds) { break }
+        }
+        Start-Sleep -Seconds 15
+    }
     $out = [ordered]@{
         run_id         = $runId
         mode           = 'resession-verify'
@@ -628,7 +683,19 @@ try {
             "Restore the estate's user-logged-on checkpoint before running this lane.")
     }
 
-    $result.pre_run_residual = @(Get-UserPolicyValues -Sid $sid)
+    # Read from the preflight rather than sampled here. Sampling now would
+    # report this run's own policy -- applied at the re-session logon -- as a
+    # previous run's residue. Missing preflight is a lane problem rather than a
+    # silent fall back to the wrong moment: a guard that quietly weakens is
+    # worse than one that fails.
+    if (Test-Path -LiteralPath $PreflightPath) {
+        $preflight = Get-Content $PreflightPath -Raw | ConvertFrom-Json
+        $result.pre_run_residual = @($preflight.values)
+        $result.preflight_taken_at = "$($preflight.taken_at)"
+    } else {
+        $result.lane_problems += ("no preflight record at $PreflightPath; the run cannot tell " +
+            "its own values from a previous run's leftovers")
+    }
 
     # The window opens BEFORE the refresh that applies the policy, because the
     # events this lane settles on are logged DURING that refresh. Opening it
