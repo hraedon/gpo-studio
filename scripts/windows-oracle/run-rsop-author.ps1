@@ -82,15 +82,48 @@ function Save-State {
     $State | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $StatePath -Encoding UTF8
 }
 
+# Does this object exist? Ask in a way that can actually answer "no".
+#
+# `Get-ADObject -Identity <missing>` throws ADIdentityNotFoundException, and
+# -ErrorAction SilentlyContinue DOES NOT SUPPRESS IT -- that switch governs
+# non-terminating errors, and this one is terminating. Every existence probe in
+# this script is therefore an explicit try/catch.
+#
+# Found live on the estate 2026-08-04, twice over, and both faults were the
+# resilience code failing in exactly the situation it was written for:
+#
+#   * the cleanup residual check probed the OUs it had just deleted, threw on
+#     the first one, and killed the script BEFORE it wrote cleanup-result.json
+#     -- so a teardown that fully succeeded left no record that it had, and the
+#     lane could not finalize;
+#   * Wait-ForAdObject's retry loop would have thrown on its first miss instead
+#     of retrying. It only ever worked because the estate's single DC made every
+#     object immediately readable. On a slower or multi-DC directory the retry
+#     that exists to absorb replication lag would have been the thing that broke.
+#
+# Only genuine absence is swallowed. Any other failure -- an unreachable DC, a
+# permissions error -- is re-thrown, because "cannot tell" and "not there" are
+# different answers and this script decides teardown on the difference.
+function Test-AdObjectExists {
+    param([string]$Identity, [string]$Server)
+    try {
+        $null = Get-ADObject -Identity $Identity -Server $Server -ErrorAction Stop
+        return $true
+    } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+        return $false
+    } catch {
+        if ("$($_.Exception.Message)" -match 'not found|does not exist') { return $false }
+        throw
+    }
+}
+
 # AD writes are not necessarily readable immediately, even on the DC that
 # accepted them. Inherited from the endpoint lane, where the first live attempt
 # failed with "There is no such object on the server".
 function Wait-ForAdObject {
     param([string]$Identity, [string]$Server, [int]$Attempts = 20)
     foreach ($attempt in 1..$Attempts) {
-        if (Get-ADObject -Identity $Identity -Server $Server -ErrorAction SilentlyContinue) {
-            return $true
-        }
+        if (Test-AdObjectExists -Identity $Identity -Server $Server) { return $true }
         Start-Sleep -Seconds 3
     }
     return $false
@@ -128,7 +161,7 @@ if ($Phase -eq 'setup') {
     # would otherwise have to interpret.
     $configNc = (Get-ADRootDSE -Server $dc).configurationNamingContext
     $siteDn = "CN=$($topology.site_name),CN=Sites,$configNc"
-    if (-not (Get-ADObject -Identity $siteDn -Server $dc -ErrorAction SilentlyContinue)) {
+    if (-not (Test-AdObjectExists -Identity $siteDn -Server $dc)) {
         throw "site '$($topology.site_name)' not found at $siteDn"
     }
 
@@ -412,7 +445,7 @@ foreach ($gpo in $orderedGpos) {
 
 foreach ($ou in $state.ous) {
     if (-not $ou.created) { continue }
-    if (Get-ADObject -Identity $ou.dn -Server $dc -ErrorAction SilentlyContinue) {
+    if (Test-AdObjectExists -Identity $ou.dn -Server $dc) {
         $residual.surviving_ous += $ou.dn
         $problems += "OU still present after delete: $($ou.dn)"
     }
