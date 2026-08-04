@@ -119,27 +119,56 @@ def compute_precedence(
     DN of the node it is attached to is skipped with a warning.
     """
     by_dn: dict[str, SomNode] = {n.dn: n for n in nodes}
-    target = by_dn.get(target_dn)
+    # DNs are matched case-insensitively because Active Directory treats them
+    # that way, and the two DNs being compared here routinely come from
+    # different places: a SOM tree assembled by a caller, and an object DN read
+    # back from the directory, which returns whatever case is stored
+    # (``CN=LABCL01,OU=Studio...``).
+    by_dn_fold: dict[str, SomNode] = {n.dn.casefold(): n for n in nodes}
+    warnings: list[str] = []
+
+    # WI-026, resolved 2026-08-04. A target DN that names no SOM node resolves
+    # to its nearest ancestor that does.
+    #
+    # This function looks up SOM *containers*, but ``RsopTarget.computer_dn``
+    # is an object DN in every real caller -- ``ad_discovery`` returns
+    # ``CN=host,OU=...``, and the same field is matched against security-filter
+    # principals, where the object DN is the correct value. Before this, an
+    # object DN produced an empty precedence list, so ``compute_rsop`` reported
+    # that no GPOs applied to a machine Windows applies six GPOs to, with no
+    # warning to say why.
+    #
+    # Walking up is what Windows does: a computer's GPOs come from its parent
+    # container chain. It is also backwards compatible -- a container DN is
+    # found on the first lookup and never enters the walk -- which is why the
+    # WP-6B certification computed under the old behaviour still stands.
+    #
+    # Verified against the oracle: the lane now passes the client's real object
+    # DN and produces the same prediction Windows confirmed.
+    target = by_dn_fold.get(target_dn.casefold())
     if target is None:
-        # WI-026. An unresolvable target DN yields an empty precedence list,
-        # which is indistinguishable from a correctly-computed "no GPOs apply
-        # here" unless it says so. The common way to reach this is passing a
-        # computer's own DN (CN=host,OU=...) where a container DN is required;
-        # every caller in the test suite happens to pass a container, so the
-        # silence went unnoticed until the WP-6B lane fed the model a DN from
-        # a real directory. Whether an object DN *should* resolve to its
-        # parent container is the open half of WI-026 and is not decided here.
+        remainder = target_dn
+        while "," in remainder:
+            remainder = remainder.split(",", 1)[1].lstrip()
+            ancestor = by_dn_fold.get(remainder.casefold())
+            if ancestor is not None:
+                target = ancestor
+                break
+
+    if target is None:
+        # Nothing in the DN's ancestry is in the tree. The empty result stands,
+        # but it says so: "no node matched" and "no GPOs apply here" are
+        # different answers and a caller cannot tell them apart from an empty
+        # entry list alone.
         return SomPrecedence(
             target_dn=target_dn,
             entries=(),
             warnings=(
-                f"Target DN {target_dn!r} does not match any provided SOM node, so no "
-                "links were collected. If this is an object DN, pass the DN of the "
-                "container that holds it.",
+                f"Target DN {target_dn!r} does not match any provided SOM node, nor does "
+                "any of its ancestors, so no links were collected.",
             ),
         )
 
-    warnings: list[str] = []
     path: list[SomNode] = []
     seen: set[str] = set()
     current: SomNode | None = target

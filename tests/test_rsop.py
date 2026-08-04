@@ -791,22 +791,24 @@ def test_compare_rsop_gpo_changed() -> None:
     assert diffs[0].change_type == "gpo_changed"
 
 
-# WI-026: a target DN that names no SOM node resolves to "nothing applies",
-# silently. Found 2026-08-04 while constructing the WP-6B lane's prediction
-# against the real estate, before the lane ran.
+# WI-026, RESOLVED 2026-08-04: a target DN that names no SOM node now resolves
+# to its nearest ancestor that does.
 #
-# Every other call site in this file passes a *container* DN as computer_dn,
-# which is the convention compute_precedence requires. Real callers do not have
-# that: ad_discovery returns a computer's own DN
-# (CN=LabCL01,OU=Child,...), and RsopTarget.computer_dn is simultaneously used
-# as a principal identity for security filtering, where the object DN is the
-# correct value. The two uses want different strings and only one of them works.
+# Found while constructing the WP-6B lane's prediction against the real estate,
+# before the lane ran. compute_precedence looks up SOM *containers*, but
+# RsopTarget.computer_dn is an object DN in every real caller: ad_discovery
+# returns CN=host,OU=..., and the same field is matched against security-filter
+# principals, where the object DN is the correct value. The two uses wanted
+# different strings and only one of them worked.
 #
-# These tests pin the behaviour as it is rather than as it should be. The
-# semantic question -- whether compute_precedence should walk up from an object
-# DN to its nearest container -- is WI-026 and is deliberately not decided here,
-# because the WP-6B lane's prediction was computed under the current behaviour
-# and a silent change would invalidate it.
+# It survived because all thirteen other call sites in this file pass a
+# container DN, so the model was only ever exercised with the one input shape it
+# tolerated. Self-consistency is not evidence.
+#
+# The fix is backwards compatible -- a container DN is found on the first lookup
+# and never enters the walk -- so the WP-6B certification computed under the old
+# behaviour still stands, and the lane now passes the client's real object DN and
+# produces the same prediction Windows confirmed.
 
 
 def _wi026_nodes() -> tuple[SomNode, ...]:
@@ -823,61 +825,103 @@ def _wi026_nodes() -> tuple[SomNode, ...]:
     )
 
 
-def test_wi026_container_dn_resolves_normally() -> None:
-    """The control: the convention every existing test uses does work."""
-    gpo = _gpo(
+def _wi026_gpo() -> GPO:
+    return _gpo(
         _GPO_A,
         "GPO A",
         settings=(_setting("s1", "computer", r"Software\X", "Val", "applied"),),
     )
+
+
+def test_wi026_container_dn_resolves_normally() -> None:
+    """The pre-existing convention still works, unchanged."""
     query = _query(
         target=_target(computer_name="pc01", computer_dn=_CHILD_OU_DN),
         som_nodes=_wi026_nodes(),
-        gpos=(gpo,),
+        gpos=(_wi026_gpo(),),
     )
     result = compute_rsop(query)
 
     assert [g.gpo_name for g in result.gpos_applied()] == ["GPO A"]
     assert len(result.computer_settings) == 1
+    assert result.warnings == ()
 
 
-def test_wi026_computer_object_dn_yields_empty_rsop() -> None:
-    """A real computer DN produces no applied GPOs and no settings.
+def test_wi026_computer_object_dn_resolves_to_its_container() -> None:
+    """The shape a real directory returns now produces the right answer.
 
-    Windows applies GPO A to this computer. Studio reports that nothing
-    applies -- not an error, not an empty-target validation failure, just an
-    empty result that looks exactly like a correctly-computed "no policy".
+    Before the fix this returned no applied GPOs and no settings -- an empty
+    result identical to a correctly-computed "no policy applies", for a machine
+    Windows applies policy to.
     """
-    gpo = _gpo(
-        _GPO_A,
-        "GPO A",
-        settings=(_setting("s1", "computer", r"Software\X", "Val", "applied"),),
-    )
     query = _query(
         target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
         som_nodes=_wi026_nodes(),
-        gpos=(gpo,),
+        gpos=(_wi026_gpo(),),
+    )
+    result = compute_rsop(query)
+
+    assert [g.gpo_name for g in result.gpos_applied()] == ["GPO A"]
+    assert len(result.computer_settings) == 1
+    assert result.computer_settings[0].effective_value == "applied"
+
+
+def test_wi026_object_dn_resolution_is_case_insensitive() -> None:
+    """AD returns whatever case it stored; the SOM tree is built by a caller.
+
+    The live estate returns ``CN=LABCL01,OU=StudioRsopChild-...`` for a computer
+    whose OU the harness created as ``StudioRsopChild-...``, so the two DNs being
+    compared genuinely differ in case.
+    """
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn=("CN=PC01," + _CHILD_OU_DN).upper()),
+        som_nodes=_wi026_nodes(),
+        gpos=(_wi026_gpo(),),
+    )
+    result = compute_rsop(query)
+
+    assert [g.gpo_name for g in result.gpos_applied()] == ["GPO A"]
+
+
+def test_wi026_deeply_nested_object_dn_finds_the_nearest_container() -> None:
+    """Resolution stops at the FIRST ancestor in the tree, not the domain.
+
+    Walking too far would silently compute policy for the wrong container --
+    which is a worse failure than the empty result it replaces, because it looks
+    like an answer.
+    """
+    nodes = (
+        _node(_CHILD_OU_DN, "Child", "ou", parent_dn=_OU_DN, links=(_link(_GPO_A, _CHILD_OU_DN),)),
+        _node(_OU_DN, "Servers", "ou", parent_dn=_DOMAIN_DN, links=(_link(_GPO_B, _OU_DN),)),
+        _node(_DOMAIN_DN, "ad", "domain"),
+    )
+    gpo_a = _wi026_gpo()
+    gpo_b = _gpo(
+        _GPO_B,
+        "GPO B",
+        settings=(_setting("s2", "computer", r"Software\X", "Val", "parent"),),
+    )
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+        som_nodes=nodes,
+        gpos=(gpo_a, gpo_b),
+    )
+    result = compute_rsop(query)
+
+    # The child OU applies last and wins; reaching only the parent would have
+    # produced "parent" here.
+    assert result.computer_settings[0].effective_value == "applied"
+    assert result.computer_settings[0].winning_gpo_name == "GPO A"
+
+
+def test_wi026_wholly_unrelated_dn_still_warns() -> None:
+    """When nothing in the ancestry matches, the empty result must say so."""
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn="CN=pc01,OU=Elsewhere,DC=other,DC=test"),
+        som_nodes=_wi026_nodes(),
+        gpos=(_wi026_gpo(),),
     )
     result = compute_rsop(query)
 
     assert result.gpo_results == ()
-    assert result.computer_settings == ()
-
-
-def test_wi026_unresolvable_target_dn_is_warned_about() -> None:
-    """The empty result must at least be diagnosable.
-
-    Silence is the part of WI-026 that is unambiguously wrong: a caller who
-    passes a DN the SOM tree does not contain cannot tell that answer apart
-    from a genuine "no GPOs apply here". Whether the DN *should* resolve is a
-    separate question; that it went unremarked is not.
-    """
-    gpo = _gpo(_GPO_A, "GPO A")
-    query = _query(
-        target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
-        som_nodes=_wi026_nodes(),
-        gpos=(gpo,),
-    )
-    result = compute_rsop(query)
-
-    assert any("does not match any" in warning for warning in result.warnings), result.warnings
+    assert any("nor does" in warning for warning in result.warnings), result.warnings
