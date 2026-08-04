@@ -41,6 +41,7 @@ LANE_VERDICTS = {
     "wp6-evidence/verdict-rsop-observe-20260804070708-6831.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804151624-6393.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804152957-1430.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804154241-9337.json": "finalize_rsop_run.py",
     "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json": (
         "finalize_rsop_user_run.py"
     ),

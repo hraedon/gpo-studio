@@ -861,7 +861,7 @@ not the same as "WP-6 is done":**
 | 3 | block inheritance | **certified** (same) |
 | 4 | enforced links above a block | **certified** (same — and it found WI-031) |
 | 5 | Apply+Read, missing Apply, explicit deny, group nesting | certified for the user account (WP-9) **and for the computer account** (`computer-security-filtering`, 2026-08-04). **Group nesting is user-side only** — a computer's membership lives in its machine token, minted at boot |
-| 6 | WMI true, false, and evaluation-error | true and false **certified** (`wmi-filtering`, which found WI-035); **evaluation-error not covered** |
+| 6 | WMI true, false, and evaluation-error | **all three certified** — true/false by `wmi-filtering` (which found WI-035), evaluation-error by `wmi-filtering-error` (which found WI-039, the only undeclared finding this lane has produced) |
 | 7 | slow-link / safe-mode | **not covered.** The fields are accepted and never read (WI-036), and the estate cannot classify a link as slow — capping the vNIC does not work, measured |
 
 Work item 8 (validating effective rights against `Get-Acl`, `Get-GPPermission
@@ -873,8 +873,7 @@ and those are different claims.
 So the certified region is LSDOU, link order, block inheritance, enforcement,
 disabled links and sides, filtering on both principals, and WMI true/false.
 What remains: **group nesting for the computer** (its token is minted at boot,
-so a run-created group is not in it), item 6's evaluation-error case, item 7
-entirely, and item 8.
+so a run-created group is not in it), item 7 entirely, and item 8.
 
 ### Topology
 

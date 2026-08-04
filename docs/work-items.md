@@ -539,9 +539,15 @@ The bottom two are different facts and the model conflates them. "Nobody
 supplied an answer" and "there is no answer to supply" deserve different
 predictions, and only the second one is knowable in advance.
 
-**Closes when:** `wmi_filter_results` can carry an unevaluatable state that
-blocks with its own reason, `absent` keeps meaning unknown, and the scenario
-re-certifies as an ordinary pass.
+**FIXED AND CLOSED 2026-08-04** by `rsop-observe-20260804154241-9337`, which
+certifies `pass`. `wmi_filter_results` carries a third value; the reason is its
+own (`wmi_filter_unevaluatable`, not `wmi_filter_false`); and **absent still
+means unknown**, which is the distinction the whole item was about.
+
+WI-035's argument against reading absence as false stands untouched. What it
+missed was that a third state exists — and it took Windows to say so, which is
+what makes this the one finding here that reading the code could not have
+produced.
 
 ---
 
