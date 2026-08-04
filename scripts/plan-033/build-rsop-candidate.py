@@ -142,7 +142,7 @@ class PlannedFilter:
                 ``rsop-user-observe-20260804065525-9254``.
     """
 
-    principal_key: str  # "user" | "group" | "authenticated-users"
+    principal_key: str  # "user" | "computer" | "group" | "authenticated-users"
     kind: str  # apply | read | deny
 
 
@@ -812,6 +812,83 @@ WMI_FILTERING = Scenario(
     ),
 )
 
+# ---------------------------------------------------------------------------
+# WP-6 item 5: the same filtering, against the COMPUTER account
+# ---------------------------------------------------------------------------
+#
+# WP-9 certified filtering for the user. The plan's topology item 5 asks for it
+# "as they apply to the **computer** account", which is a different principal
+# and a different token, so the user result does not carry over.
+#
+# The nesting row is deliberately absent. A computer's group membership lives
+# in its machine token, minted at boot, so a group created by the run would not
+# be in it -- the same trap the user lane hit, and there it cost a re-session
+# restart to fix. Allow, read-without-apply and deny need no group at all and
+# cover the rest of the item; nesting for the computer is left as its own
+# question rather than smuggled in half-tested.
+
+COMPUTER_SECURITY_FILTERING = Scenario(
+    scenario_id="computer-security-filtering",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    control_gpo="Studio-RSOP-Control",
+    control_value_name="Control",
+    gpos=(
+        PlannedGpo(
+            name="Studio-RSOP-CompFilterDeny",
+            guid="00000000-0000-0000-0000-00000000cf01",
+            scope="ou",
+            scope_key="child",
+            order=1,
+            values={"Filter": "deny", "DenyOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="computer", kind="apply"),
+                PlannedFilter(principal_key="computer", kind="deny"),
+            ),
+            isolates=(
+                "an explicit deny on Apply keeps the GPO off the COMPUTER, and at link "
+                "order 1 the model must not name Filter=deny as the winner"
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-CompFilterAllow",
+            guid="00000000-0000-0000-0000-00000000cf02",
+            scope="ou",
+            scope_key="child",
+            order=2,
+            values={"Filter": "allow", "AllowOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="computer", kind="apply"),
+            ),
+            isolates="Read + Apply for the computer: applies, and wins once the deny row is out",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-CompFilterReadOnly",
+            guid="00000000-0000-0000-0000-00000000cf03",
+            scope="ou",
+            scope_key="child",
+            order=3,
+            values={"Filter": "readOnly", "ReadOnlyOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="computer", kind="read"),
+            ),
+            isolates="Read WITHOUT Apply: ReadOnlyOnly must be ABSENT",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-Control",
+            guid="00000000-0000-0000-0000-00000000cf04",
+            scope="ou",
+            scope_key="child",
+            order=4,
+            values={"Control": "present"},
+            isolates="CONTROL: default filtering, unconflicted. Absent => nothing applied.",
+        ),
+    ),
+)
+
 SCENARIOS: dict[str, Scenario] = {
     LSDOU_PRECEDENCE.scenario_id: LSDOU_PRECEDENCE,
     DISABLED_BLOCK_ENFORCED.scenario_id: DISABLED_BLOCK_ENFORCED,
@@ -821,6 +898,7 @@ SCENARIOS: dict[str, Scenario] = {
     USER_SECURITY_FILTERING.scenario_id: USER_SECURITY_FILTERING,
     USER_SECURITY_FILTERING_DENY.scenario_id: USER_SECURITY_FILTERING_DENY,
     WMI_FILTERING.scenario_id: WMI_FILTERING,
+    COMPUTER_SECURITY_FILTERING.scenario_id: COMPUTER_SECURITY_FILTERING,
 }
 
 
@@ -900,6 +978,7 @@ def build_query(
         for index, planned_filter in enumerate(planned.filters):
             principal = {
                 "user": user_name,
+                "computer": computer_name,
                 "group": GROUP_NAME,
                 "authenticated-users": "Authenticated Users",
             }[planned_filter.principal_key]

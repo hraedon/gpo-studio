@@ -478,11 +478,16 @@ if ($Phase -eq 'setup') {
             foreach ($planned in $gpo.filters) {
                 $principal = switch ("$($planned.principal)") {
                     'user' { $state.target_user }
+                    'computer' { $state.target_computer }
                     'group' { $groupName }
                     'authenticated-users' { 'Authenticated Users' }
                     default { throw "unknown filter principal '$($planned.principal)' on $($gpo.name)" }
                 }
-                $principalType = if ("$($planned.principal)" -eq 'user') { 'User' } else { 'Group' }
+                $principalType = switch ("$($planned.principal)") {
+                    'user' { 'User' }
+                    'computer' { 'Computer' }
+                    default { 'Group' }
+                }
 
                 switch ("$($planned.kind)") {
                     'read' {
@@ -506,10 +511,14 @@ if ($Phase -eq 'setup') {
                         # single out.
                         $applyRight = [guid]'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
                         $gpoDn = "CN={$($created.Id)},CN=Policies,CN=System,$domainDn"
-                        $identity = if ("$($planned.principal)" -eq 'user') {
-                            (Get-ADUser -Identity $principal -Server $dc).SID
-                        } else {
-                            (Get-ADGroup -Identity $principal -Server $dc).SID
+                        $identity = switch ("$($planned.principal)") {
+                            'user' { (Get-ADUser -Identity $principal -Server $dc).SID }
+                            # A computer account's SID comes from the computer
+                            # object, and Get-ADGroup would not find it -- the
+                            # sAMAccountName carries a trailing $ that only
+                            # Get-ADComputer resolves from the bare name.
+                            'computer' { (Get-ADComputer -Identity $principal -Server $dc).SID }
+                            default { (Get-ADGroup -Identity $principal -Server $dc).SID }
                         }
                         $acl = Get-Acl -Path "AD:$gpoDn"
                         $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
@@ -613,6 +622,7 @@ if ($Phase -eq 'setup') {
             foreach ($planned in $gpo.filters) {
                 $principal = switch ("$($planned.principal)") {
                     'user' { $state.target_user }
+                    'computer' { $state.target_computer }
                     'group' { $groupName }
                     'authenticated-users' { 'Authenticated Users' }
                 }
