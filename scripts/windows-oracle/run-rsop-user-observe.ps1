@@ -52,7 +52,16 @@
 param(
     [Parameter(Mandatory = $true)][string]$ExpectedPath,
     [Parameter(Mandatory = $true)][string]$OutputDir,
-    [ValidateRange(1, 40)][int]$SettleAttempts = 12
+    [ValidateRange(1, 40)][int]$SettleAttempts = 12,
+
+    # observe        the experiment.
+    # post-teardown  put the client back: refresh both sides once the topology
+    #                has been removed from the directory, and report what is
+    #                left. This is a MODE of this script rather than a line in
+    #                the driver because removing the principal's user policy
+    #                requires a refresh inside the principal's session, which
+    #                only this script knows how to do.
+    [ValidateSet('observe', 'post-teardown')][string]$Mode = 'observe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,6 +102,7 @@ $result = [ordered]@{
     loopback_control_ok    = $false
     observation_settled    = $false
     settle_attempts        = 0
+    computer_refresh_exit  = $null
     user_policy_completed  = $false
     user_policy_completed_at = $null
     refresh_task_results   = @()
@@ -342,6 +352,80 @@ function Get-UserGpoNames {
     return @{ applied = @($applied); denied = @($denied) }
 }
 
+if ($Mode -eq 'post-teardown') {
+    # Both sides, and the user side IN THE PRINCIPAL'S SESSION.
+    #
+    # The driver used to do this with a bare `gpupdate /force` over PowerShell
+    # Direct, which refreshes the HARNESS account's user policy -- an account
+    # this lane never gave any policy to. The principal's HKCU values therefore
+    # survived teardown, and the NEXT run found them sitting in the hive before
+    # it began.
+    #
+    # That was caught by the pre-run residual check rather than being read as
+    # this run's evidence, which is the whole reason that check exists. It is
+    # still a defect: a lane that cannot run twice in a row is not repeatable,
+    # and WP-8 requires repeatability.
+    $teardown = [ordered]@{
+        run_id           = $runId
+        mode             = 'post-teardown'
+        principal        = $principal
+        principal_sid    = $null
+        computer_exit    = $null
+        user_task        = $null
+        remaining_user   = @()
+        remaining_machine = @()
+        problems         = @()
+    }
+    try {
+        $sid = Resolve-PrincipalSid -Name $principal
+        $teardown.principal_sid = $sid
+
+        & gpupdate.exe /force /target:computer /wait:300 2>&1 |
+            Out-File (Join-Path $commandDir 'gpupdate-computer-teardown.stdout.txt')
+        $teardown.computer_exit = $LASTEXITCODE
+
+        $session = Get-SessionState -Sid $sid
+        if ($session.present) {
+            $teardown.user_task = Invoke-UserPolicyRefresh -Label 'teardown'
+        } else {
+            # Not a failure to repair here: with no session there is no loaded
+            # hive to hold values, and the estate's checkpoint restores one.
+            $teardown.problems += "no interactive session for '$principal'; user policy was not refreshed"
+        }
+
+        $teardown.remaining_user = @(Get-UserPolicyValues -Sid $sid)
+        $machinePath = "HKLM:\$policySubKey"
+        if (Test-Path -LiteralPath $machinePath) {
+            $item = Get-ItemProperty -LiteralPath $machinePath -ErrorAction SilentlyContinue
+            if ($item) {
+                foreach ($property in $item.PSObject.Properties) {
+                    if ($property.Name -like 'PS*') { continue }
+                    $teardown.remaining_machine += [ordered]@{
+                        value_name = $property.Name; value = "$($property.Value)"
+                    }
+                }
+            }
+        }
+        # Reported, not thrown. The driver runs this on its way out of both the
+        # success and the failure path, and a teardown refresh that cannot
+        # finish must not replace whatever went wrong before it.
+        if ($teardown.remaining_user.Count -gt 0) {
+            $teardown.problems += ("the principal's hive still holds " +
+                (($teardown.remaining_user | ForEach-Object { $_.value_name }) -join ', '))
+        }
+    } catch {
+        $teardown.problems += "post-teardown refresh threw: $($_.Exception.Message)"
+    } finally {
+        Unregister-ScheduledTask -TaskName $refreshTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    }
+    $teardown | ConvertTo-Json -Depth 20 |
+        Set-Content -LiteralPath (Join-Path $workDir 'post-teardown.json') -Encoding UTF8
+    Write-Output "RUN_ID=$runId"
+    Write-Output "WORK_DIR=$workDir"
+    Write-Output ("POST_TEARDOWN_PROBLEMS=" + ($teardown.problems -join '; '))
+    exit 0
+}
+
 try {
     $sid = Resolve-PrincipalSid -Name $principal
     $result.principal_sid = $sid
@@ -367,6 +451,25 @@ try {
     # defect an earlier review found in the endpoint lane.
     $windowStart = (Get-Date).AddSeconds(-5)
 
+    # THE COMPUTER SIDE REFRESHES FIRST, and on a loopback scenario that
+    # ordering is the experiment rather than tidiness.
+    #
+    # Loopback is a MACHINE policy: 'Configure user Group Policy loopback
+    # processing mode' writes UserPolicyMode under HKLM, and the user side only
+    # behaves differently once the client is actually carrying it. A lane that
+    # refreshed only the user side would ask a machine that had never heard of
+    # loopback to demonstrate loopback.
+    #
+    # Found on the first live loopback run, and found the RIGHT way: the
+    # observation showed only the user-location values, event 5311 said "no
+    # loopback mode", and the finalizer refused to call it anything but a lane
+    # problem. Had the lane trusted the values alone it would have reported
+    # "replace discarded the computer-location settings" -- a fabricated
+    # finding about a mode that never ran.
+    & gpupdate.exe /force /target:computer /wait:300 2>&1 |
+        Out-File (Join-Path $commandDir 'gpupdate-computer.stdout.txt')
+    $result.computer_refresh_exit = $LASTEXITCODE
+
     $null = Invoke-UserPolicyRefresh -Label 'initial'
 
     foreach ($settle in 1..$SettleAttempts) {
@@ -386,6 +489,24 @@ try {
         if ($controlPresent -and $result.user_policy_completed) {
             $result.observation_settled = $true
             break
+        }
+
+        # Once a user pass has completed and Windows has named the loopback
+        # mode it used, waiting cannot change the answer: a run whose mode is
+        # not the one the topology authored is inconclusive no matter how many
+        # more refreshes it is given. Leaving the loop here turns a worst case
+        # measured in tens of minutes into one measured in one refresh, and it
+        # exits WITHOUT setting observation_settled, so the run stays a lane
+        # problem rather than becoming a verdict.
+        if ($result.user_policy_completed) {
+            $modeSoFar = Get-ObservedLoopbackMode -Since $windowStart
+            if ($modeSoFar -and "$modeSoFar" -ne "$($result.intended_loopback_mode)") {
+                $result.observed_loopback_mode = $modeSoFar
+                $result.lane_problems += ("stopped settling after $settle attempts: Windows " +
+                    "processed the user side with loopback '$modeSoFar', not the " +
+                    "'$($result.intended_loopback_mode)' this topology authored")
+                break
+            }
         }
         if ($settle -lt $SettleAttempts) {
             $null = Invoke-UserPolicyRefresh -Label "settle-$settle"

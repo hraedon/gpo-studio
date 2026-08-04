@@ -173,11 +173,13 @@ refresh_endpoint() {
     [[ "$REFRESH_DONE" == "1" ]] && return 0
     REFRESH_DONE=1
     echo "--- endpoint post-teardown refresh ---"
-    # BOTH targets. The computer side carried the loopback switch, and the user
-    # side carried the values under test; refreshing only one leaves the client
-    # holding half of a topology that no longer exists in the directory.
-    endpoint -Action exec -TimeoutSeconds 900 -Command \
-        "& gpupdate.exe /force /wait:300; \$null = \$LASTEXITCODE; (Get-ItemProperty -LiteralPath 'HKLM:\\Software\\Policies\\StudioLab' -ErrorAction SilentlyContinue | Out-String)"
+    # Delegated to the observation script's post-teardown mode, because the
+    # user half of this has to run INSIDE the principal's session. A bare
+    # gpupdate here refreshes the harness account -- which this lane never gave
+    # any policy to -- and leaves the principal's HKCU values in place for the
+    # next run to trip over.
+    endpoint -Action exec -TimeoutSeconds 1200 -Command \
+        "$(run_guest_script "'$GUEST_SCRIPTS\\run-rsop-user-observe.ps1' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -Mode post-teardown")"
 }
 
 on_exit() {
