@@ -238,48 +238,51 @@ function Invoke-UserPolicyRefresh {
 
 function Get-SessionTokenGroups {
     <#
-        The principal's groups AS ITS OWN TOKEN SEES THEM, collected inside its
-        session.
+        The principal's groups AS GROUP POLICY RESOLVED THEM.
 
-        WP-6's rule is that an interactive `whoami /groups` is the USER context
-        and must never be used as the computer token. The converse is what makes
-        it right here: the nesting case is a claim about the user's token, and
-        the only thing that holds a user's token is the user's own session.
+        This used to run `whoami /groups` inside an interactive scheduled task,
+        on the reasoning that the only thing holding a user's token is the
+        user's own session. The reasoning was right and the mechanism was
+        wrong: **a process started by Task Scheduler does not carry the desktop
+        session's group membership.** Measured on the estate 2026-08-04 --
+        the task's token holds nine SIDs, all well-known or local, with
+        `Domain Users` ABSENT, while `gpresult` on the same guest at the same
+        moment reports `Domain Users` among the user's security groups.
 
-        Collected with the same interactive scheduled task the refresh uses, so
-        no password is needed.
+        That mattered: the lane's nesting row is gated on the group being in
+        the token, and the gate was reading a token the CSE never uses.
+
+        `gpresult /r /scope:user /user <principal>` reports the groups Group
+        Policy itself evaluated filtering against, which is the exact question
+        the gate is asking -- a strictly better source than any token this
+        script could sample, and one the lane already depends on.
+
+        ASSERT ON THE ARTIFACT: gpresult exits 0 while printing nothing useful,
+        so an empty parse returns an empty list and the finalizer refuses the
+        run rather than reading silence as "the principal is in no groups".
     #>
-    $marker = Join-Path $commandDir 'whoami-groups.txt'
-    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-    $taskName = "StudioLabUserToken-$runId"
-    # Built by concatenation, NOT interpolation. `$LASTEXITCODE` inside a
-    # double-quoted string is expanded HERE, by the script composing the
-    # command, so the task received `exit ` with nothing after it and died
-    # before writing anything. The failure was silent: the collection returned
-    # an empty list, which the finalizer then correctly refused as "no token
-    # groups collected" -- one layer away from being read as "the principal is
-    # in no groups".
-    $inner = '& whoami.exe /groups /fo csv > ' + "'" + $marker + "'"
-    $arg = '-NoProfile -ExecutionPolicy Bypass -Command "' + $inner + '"'
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
-    $taskPrincipal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$principal" -LogonType Interactive
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $taskPrincipal | Out-Null
-    try {
-        Start-ScheduledTask -TaskName $taskName
-        $deadline = (Get-Date).AddSeconds(120)
-        while ((Get-Date) -lt $deadline) {
-            Start-Sleep -Seconds 3
-            if ("$((Get-ScheduledTask -TaskName $taskName).State)" -ne 'Running') { break }
+    $target = "$env:USERDOMAIN\$principal"
+    $raw = & gpresult.exe /r /scope:user /user $target 2>&1 | Out-String
+    $raw | Out-File (Join-Path $commandDir 'gpresult-r-groups.stdout.txt')
+
+    # The section is a header, a rule of dashes, then one indented name per
+    # line until the block ends. Parsed positionally rather than by matching
+    # names, so a group this lane has never heard of is still collected.
+    $groups = @()
+    $inSection = $false
+    foreach ($line in ($raw -split "`r?`n")) {
+        if ($line -match 'security groups') { $inSection = $true; continue }
+        if (-not $inSection) { continue }
+        if ($line -match '^\s*-{3,}\s*$') { continue }
+        if ($line.Trim() -eq '') {
+            # A blank line inside the block is tolerated; two in a row, or any
+            # unindented line, ends it.
+            continue
         }
-        # ASSERT ON THE ARTIFACT. whoami.exe is a native executable, so the
-        # task result says nothing about whether the file was written.
-        if (-not (Test-Path -LiteralPath $marker)) { return @() }
-        $rows = @(Import-Csv -LiteralPath $marker -ErrorAction SilentlyContinue)
-        return @($rows | ForEach-Object { "$($_.'Group Name')" } | Where-Object { $_ })
-    } finally {
-        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        if ($line -notmatch '^\s') { break }
+        $groups += $line.Trim()
     }
+    return @($groups)
 }
 
 function Get-LdapTokenGroups {
