@@ -1,0 +1,87 @@
+{
+  "author_run_id": "rsop-author-20260804020303-2998",
+  "candidate": {
+    "expected.json": "249df8a53d2ff65b5bb103f307cfa1ce18af5d8ed5ffd25585383542a26a837a",
+    "prediction.json": "a562ed22ffd63c11bcc7efd2b1bb781597078a456d2ffe4a92a1eed78ae87ab6",
+    "topology.json": "bc74eaa63ac95c2c1e703f01b50296299d57f87ad55268cd4159fe920030a1fc"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [],
+    "observed_applied": [
+      "Studio-RSOP-ChildGPO",
+      "Studio-RSOP-Control",
+      "Studio-RSOP-DomainEnforced",
+      "Studio-RSOP-UserSideOff"
+    ],
+    "observed_foreign_gpos": [
+      "Default Domain Policy",
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "Block": "domainEnforced",
+      "Control": "present",
+      "EnforcedOnly": "1",
+      "MachineVal": "1",
+      "Side": "computer"
+    },
+    "predicted_applied": [
+      "Studio-RSOP-ChildGPO",
+      "Studio-RSOP-Control",
+      "Studio-RSOP-DomainEnforced",
+      "Studio-RSOP-UserSideOff"
+    ],
+    "predicted_winners": {
+      "Block": "domainEnforced",
+      "Control": "present",
+      "EnforcedOnly": "1",
+      "MachineVal": "1",
+      "Side": "computer"
+    },
+    "value_findings": []
+  },
+  "control_problems": [],
+  "cse_completed": true,
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": true,
+  "run_id": "rsop-observe-20260804020308-9752",
+  "scenario_id": "disabled-block-enforced",
+  "schema_version": 1,
+  "scope": "computer",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "d2bc71a4ce84152f45961bf6790547d15d25dc86",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "8f4b711d16b2a679f8d80a77dac5605ed87dd9f280b54f9df06acb80d2725d03",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "82e31b06c795eb9581530492b8ad6b066e020e802aa2dedc761d617962b099e5",
+      "run-rsop-observe.ps1": "8feeb65bd38c71ddf31df86bade1fe767181e76695faf9fcc38ae3b87d93eec9",
+      "run-rsop-oracle.sh": "74262f77b49b69132fbddd03f65e5c4c41b3773ac1d7257c7727f821005e0c0b"
+    }
+  },
+  "state": "pass",
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "work_package": "WP-6B"
+}

@@ -66,8 +66,16 @@ before this is closed.
 
 ## WI-029 — `disabled-block-enforced` is one assertion away from being WP-6B-runnable
 
-**Opened:** 2026-08-04 (WP-6A).
-**Status:** open. Corpus authoring, not a defect.
+**Opened:** 2026-08-04 (WP-6A). **CLOSED** 2026-08-04.
+
+The user-side assertion was relocated to the WP-9 `user-side-disabled` scenario
+— relocated, not deleted, which a test enforces in both directions — and
+`disabled-block-enforced` now runs green under WP-6B. Doing so immediately found
+WI-031, so the corpus this unblocked paid for itself on its first execution.
+
+The original statement follows.
+
+**Status when opened:** open. Corpus authoring, not a defect.
 
 Every expected winner in that scenario is HKLM except one: the
 `Studio-RSOP-UserSideOff` assertion that `HKCU\Software\Policies\StudioLab\UserVal`
@@ -98,6 +106,29 @@ user scope and loopback are all unverified.
 qualifiers — scope (WP-9), coverage (the blocked corpus scenarios), and a
 decision that surfacing is wanted. It is listed here so that "WP-6 passed" is
 never mistaken for "RSOP is a feature".
+
+## WI-031 — enforced links did not win conflicts
+
+**Opened and closed:** 2026-08-04 (WP-6B).
+
+Recorded here because it is the first defect an external oracle has found in
+`rsop.py`, and because how it hid is more instructive than the fix.
+
+Enforcement was absent from the precedence sort key entirely, so an enforced
+link was ordered by its scope like any other and a GPO enforced at the domain
+lost to a plain OU link. Three consecutive runs on a real 26200 client resolved
+`Block=domainEnforced` where Studio predicted `Block=child`; two runs after the
+fix pass, and the already-certified `lsdou-precedence` scenario still passes.
+
+**How it survived.** Enforcement has two independent effects and only one was
+implemented. Surviving a block-inheritance cutoff worked correctly — so the
+applied and denied GPO sets matched Windows *exactly* while the winning value
+did not. A lane that compared only which GPOs applied would have called this a
+pass. It took comparing the winning value to see it, which is the same reason
+the registry read is not redundant with the RSOP capture.
+
+No test exercised enforced-versus-lower-scope precedence, so 2996 tests stayed
+green over it.
 
 ---
 

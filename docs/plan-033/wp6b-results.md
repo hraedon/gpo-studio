@@ -10,6 +10,32 @@ endpoint. Verdicts in `wp6-evidence/`, tagged
 This is the first time `rsop.py` has ever been compared against Windows. It was
 the largest standing unverified claim in the project.
 
+## Update 2026-08-04: the lane found a real defect
+
+WI-029 relocated a single user-scope assertion out of `disabled-block-enforced`,
+which made that scenario runnable. Its first execution found **WI-031**: an
+enforced link did not win conflicts. `rsop.py` predicted `Block=child`; Windows
+resolved `Block=domainEnforced`, three runs running. Fixed, and two runs after
+the fix pass with `lsdou-precedence` still passing.
+
+Enforcement has two independent effects and only one was implemented. Surviving
+a block-inheritance cutoff worked, so **the applied and denied GPO sets matched
+Windows exactly while the winning value did not**. A lane that compared only
+which GPOs applied would have called this a pass. That is the concrete
+vindication of open question 2's answer: the registry read is not redundant with
+the RSOP capture, and here it was the only thing that could see the defect.
+
+A second predicted disagreement did *not* survive contact with the oracle, which
+is the other half of why the lane exists. `rsop.py` omits a disabled-link GPO
+from its result entirely rather than reporting it denied, and the scenario
+expected it denied — but Windows omits blocked and disabled-link GPOs from
+`ComputerResults` too. Both disagreements were recorded in the scenario's
+`open_questions` *before* execution, and `rsop.py` was left untouched until
+Windows arbitrated. Had I "fixed" the disabled-link reporting on my own reading,
+I would have changed correct behaviour to match a wrong expectation.
+
+The sections below are the original write-up of the first certification.
+
 ## The headline: the prediction was right
 
 For the `lsdou-precedence` topology — site, domain, parent OU, child OU, with a
