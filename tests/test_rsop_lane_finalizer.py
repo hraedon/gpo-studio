@@ -352,6 +352,53 @@ def test_gpo_predicted_but_not_applied_is_a_finding(lane) -> None:
     assert verdict["comparison"]["applied_only_predicted"] == ["Studio-RSOP-Site"]
 
 
+def test_declared_divergence_is_an_expected_finding_and_still_not_a_pass(lane) -> None:
+    """The WMI row demonstrates a capability the model does not have.
+
+    `_gpo_filter_status` treats a WMI filter as a warning and applies the GPO
+    anyway, so a filter that evaluates FALSE on the target is predicted to
+    apply. Declaring that in advance separates a demonstrated gap from a
+    surprise -- and must not soften it into a pass, because the model is still
+    telling an operator that settings will arrive when they will not.
+    """
+    run_dir, candidate = lane(
+        observation=_observation(
+            observed_values=[
+                {"value_name": "ChildBOnly", "value": "1"},
+                {"value_name": "Control", "value": "present"},
+                {"value_name": "Precedence", "value": "childA"},
+                {"value_name": "SiteOnly", "value": "1"},
+                {"value_name": "WmiFalseOnly", "value": "1"},
+            ]
+        )
+    )
+    expected = json.loads((candidate / "expected.json").read_text())
+    expected["expect_finding"] = "rsop.py cannot evaluate a WMI filter"
+    (candidate / "expected.json").write_text(json.dumps(expected))
+
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "expected-finding"
+    assert verdict["passed"] is False
+    assert verdict["expected_finding"].startswith("rsop.py")
+    assert [f["value_name"] for f in verdict["comparison"]["value_findings"]] == ["WmiFalseOnly"]
+
+
+def test_declared_divergence_that_does_not_happen_is_not_a_pass(lane) -> None:
+    """A stale declaration must not certify.
+
+    Either the model gained a capability nobody recorded, or the row was never
+    authored. Both need a human, and neither is a pass.
+    """
+    run_dir, candidate = lane()
+    expected = json.loads((candidate / "expected.json").read_text())
+    expected["expect_finding"] = "rsop.py cannot evaluate a WMI filter"
+    (candidate / "expected.json").write_text(json.dumps(expected))
+
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "unexpected-agreement"
+    assert verdict["passed"] is False
+
+
 def test_lane_failure_suppresses_the_comparison_entirely(lane) -> None:
     """A run that cannot be trusted must not also publish a verdict about
     Studio -- in either direction. A 'pass' from a broken lane is worse than

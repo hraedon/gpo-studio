@@ -254,6 +254,8 @@ if ($Phase -eq 'setup') {
             user_values   = $gpo.user_values
             raw_values    = $gpo.raw_values
             filters       = $gpo.filters
+            wmi_filter    = $gpo.wmi_filter
+            wmi_filter_id = $null
             guid          = $null
             created       = $false
             linked        = $false
@@ -422,6 +424,47 @@ if ($Phase -eq 'setup') {
                 -ErrorAction Stop | Out-Null
             $gpo.linked = $true
             Save-State $state
+
+            # WMI FILTERING, authored as a raw directory object.
+            #
+            # There is no cmdlet for this. A WMI filter is an msWMI-Som object
+            # under CN=SOM,CN=WMIPolicy,CN=System, and a GPO points at one
+            # through its gPCWQLFilter attribute. Both halves are written here.
+            #
+            # msWMI-Parm2 is a LENGTH-PREFIXED blob, not a query string:
+            #
+            #     <queries>;3;<namespace length>;<query length>;WQL;<ns>;<query>;
+            #
+            # The lengths are load-bearing -- a wrong count yields a filter
+            # Windows treats as unsatisfied, which fails CLOSED and looks
+            # exactly like the false-filter row working. That is why this
+            # scenario carries a filter written to be TRUE as its control.
+            if ($gpo.wmi_filter) {
+                $filterId = "{$([guid]::NewGuid())}"
+                $filterName = "$($gpo.wmi_filter.name)-$stamp"
+                $query = "$($gpo.wmi_filter.query)"
+                $namespace = 'root\CIMv2'
+                $parm2 = "1;3;$($namespace.Length);$($query.Length);WQL;$namespace;$query;"
+                $now = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss') + '.000000-000'
+                $somPath = "CN=SOM,CN=WMIPolicy,CN=System,$domainDn"
+
+                New-ADObject -Name $filterId -Type 'msWMI-Som' -Path $somPath -Server $dc `
+                    -OtherAttributes @{
+                        'msWMI-Name'         = $filterName
+                        'msWMI-Parm1'        = 'Studio RSOP lane, disposable'
+                        'msWMI-Parm2'        = $parm2
+                        'msWMI-ID'           = $filterId
+                        'msWMI-Author'       = "$($env:USERNAME)@$Domain"
+                        'msWMI-ChangeDate'   = $now
+                        'msWMI-CreationDate' = $now
+                    } -ErrorAction Stop
+                $gpo.wmi_filter_id = $filterId
+                Save-State $state
+
+                $gpoDn = "CN={$($created.Id)},CN=Policies,CN=System,$domainDn"
+                Set-ADObject -Identity $gpoDn -Server $dc `
+                    -Replace @{ gPCWQLFilter = "[$Domain;$filterId;0]" } -ErrorAction Stop
+            }
 
             # SECURITY FILTERING, applied after the link so the GPO exists in
             # every sense before its DACL is touched.
@@ -600,6 +643,16 @@ if ($Phase -eq 'setup') {
             }
         }
 
+        foreach ($gpo in $state.gpos) {
+            if (-not $gpo.created) { continue }
+            if (-not $gpo.wmi_filter) { continue }
+            $gpoDn = "CN={$($gpo.guid)},CN=Policies,CN=System,$domainDn"
+            $linked = "$((Get-ADObject -Identity $gpoDn -Properties gPCWQLFilter -Server $dc -ErrorAction Stop).gPCWQLFilter)"
+            if ($linked -notmatch [regex]::Escape("$($gpo.wmi_filter_id)")) {
+                $authoredProblems += "$($gpo.name): gPCWQLFilter is '$linked', expected the filter this run created"
+            }
+        }
+
         foreach ($ou in $state.ous) {
             if (-not $ou.created) { continue }
             $inheritance = Get-GPInheritance -Target $ou.dn -Domain $Domain -Server $dc -ErrorAction Stop
@@ -713,6 +766,22 @@ foreach ($gpo in $orderedGpos) {
     }
 }
 
+# WMI filters live under CN=SOM,CN=WMIPolicy and are not inside the disposable
+# OU tree, so nothing else would ever remove them. They go after the GPOs that
+# referenced them: deleting a filter a live GPO still points at leaves a
+# dangling reference that Windows treats as unsatisfied, which would silently
+# change what a concurrent run observes.
+foreach ($gpo in $orderedGpos) {
+    if (-not ($gpo.PSObject.Properties.Name -contains 'wmi_filter_id')) { continue }
+    if (-not $gpo.wmi_filter_id) { continue }
+    $filterDn = "CN=$($gpo.wmi_filter_id),CN=SOM,CN=WMIPolicy,CN=System,$($state.domain_dn)"
+    try {
+        Remove-ADObject -Identity $filterDn -Server $dc -Confirm:$false -ErrorAction Stop
+    } catch {
+        $problems += "WMI filter delete failed for $filterDn : $($_.Exception.Message)"
+    }
+}
+
 # The disposable group goes before the OUs that contain it: an OU with a child
 # object cannot be removed, and -Recursive is deliberately not used anywhere in
 # this teardown -- a recursive delete would hide exactly the leftovers the
@@ -748,6 +817,7 @@ $residual = [ordered]@{
     user_dn          = $null
     user_restored    = $null
     surviving_group  = $null
+    surviving_wmi_filters = @()
     surviving_links  = @()
     surviving_gpos   = @()
     surviving_ous    = @()
@@ -799,6 +869,16 @@ foreach ($gpo in $orderedGpos) {
     if ($stillPresent) {
         $residual.surviving_gpos += $gpo.name
         $problems += "GPO still present after delete: $($gpo.name)"
+    }
+}
+
+foreach ($gpo in $orderedGpos) {
+    if (-not ($gpo.PSObject.Properties.Name -contains 'wmi_filter_id')) { continue }
+    if (-not $gpo.wmi_filter_id) { continue }
+    $filterDn = "CN=$($gpo.wmi_filter_id),CN=SOM,CN=WMIPolicy,CN=System,$($state.domain_dn)"
+    if (Test-AdObjectExists -Identity $filterDn -Server $dc) {
+        $residual.surviving_wmi_filters += $filterDn
+        $problems += "WMI filter still present after delete: $filterDn"
     }
 }
 

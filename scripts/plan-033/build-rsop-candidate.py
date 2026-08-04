@@ -101,6 +101,22 @@ class RawValue:
 
 
 @dataclass(frozen=True)
+class WmiIntent:
+    """A WMI filter the estate authors, and what it should evaluate to.
+
+    ``expect_true`` is the lane's control dimension. A filter written to be
+    TRUE must let its GPO apply; if it does not, the filter was authored wrong
+    and the run says nothing about the model. Only once that holds does the
+    FALSE row mean anything.
+    """
+
+    name: str
+    query: str
+    expect_true: bool
+    why: str
+
+
+@dataclass(frozen=True)
 class PlannedFilter:
     """One security-filtering intent on a GPO.
 
@@ -145,6 +161,12 @@ class PlannedGpo:
     #: Authenticated Users = Read + Apply, which is what makes an unfiltered
     #: control row a control.
     filters: tuple[PlannedFilter, ...] = ()
+    #: A WMI filter to author and link. The WQL is written for the estate's
+    #: client and is expected to evaluate to the stated truth value there.
+    #: **Not given to the model**: `rsop.py` cannot evaluate WQL, and handing
+    #: it the query would only let it record that a filter exists -- which it
+    #: already does, as a warning.
+    wmi_filter: WmiIntent | None = None
     #: User-side values. Authored so the GPO genuinely carries a user side --
     #: which is what makes "the computer side still applies" a real test rather
     #: than a statement about an empty GPO. WP-6 never *asserts* on them; that
@@ -714,6 +736,92 @@ USER_SECURITY_FILTERING_DENY = Scenario(
     gpos=_filtering_gpos(include_deny=True),
 )
 
+# ---------------------------------------------------------------------------
+# WP-6B extension: WMI filtering
+# ---------------------------------------------------------------------------
+#
+# `_gpo_filter_status` records a WMI filter as the warning `wmi_filter_unknown`
+# and applies the GPO anyway. Measured directly: a GPO whose filter can never
+# be true is predicted to apply, and its settings are predicted to win.
+#
+# So this scenario is DECLARED to diverge, like the deny row in the user lane,
+# and for the same reason -- the failure direction is the dangerous one. An
+# operator asking "what will this machine get?" is told about settings a WMI
+# filter will keep off the machine entirely.
+#
+# THE TRUE ROW IS THE CONTROL, and it is not optional. A WMI filter is authored
+# as a raw directory object with a length-prefixed query format that is easy to
+# get subtly wrong; a malformed filter fails closed, and its GPO not applying
+# looks exactly like the FALSE row working. If the true-filtered GPO does not
+# apply, the filter authoring is broken and the run is a lane failure rather
+# than a finding.
+
+WMI_FILTERING = Scenario(
+    scenario_id="wmi-filtering",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    control_gpo="Studio-RSOP-Control",
+    control_value_name="Control",
+    expect_finding=(
+        "rsop.py cannot evaluate WQL: _gpo_filter_status records a WMI filter as the "
+        "warning 'wmi_filter_unknown' and applies the GPO regardless. Predicted: "
+        "Wmi=false (the false-filtered GPO holds link order 1) and WmiFalseOnly=1. "
+        "Expected from Windows: Wmi=true and no WmiFalseOnly, because a filter that "
+        "evaluates false keeps its GPO off the machine."
+    ),
+    gpos=(
+        PlannedGpo(
+            name="Studio-RSOP-WmiFalse",
+            guid="00000000-0000-0000-0000-000000001f00",
+            scope="ou",
+            scope_key="child",
+            order=1,
+            values={"Wmi": "false", "WmiFalseOnly": "1"},
+            wmi_filter=WmiIntent(
+                name="StudioRsopNeverTrue",
+                # A build number no Windows has. Deliberately a query the
+                # client can EVALUATE and answer no to, rather than one it
+                # cannot parse -- an unparseable filter fails for a different
+                # reason and would prove something else.
+                query="SELECT * FROM Win32_OperatingSystem WHERE BuildNumber = '99999'",
+                expect_true=False,
+                why=(
+                    "EXPECTED DIVERGENCE: Windows will not apply this GPO. Studio "
+                    "predicts it does and, at link order 1, that it wins the conflict."
+                ),
+            ),
+            isolates="a WMI filter that evaluates FALSE must keep its GPO off the machine",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-WmiTrue",
+            guid="00000000-0000-0000-0000-000000001f01",
+            scope="ou",
+            scope_key="child",
+            order=2,
+            values={"Wmi": "true", "WmiTrueOnly": "1"},
+            wmi_filter=WmiIntent(
+                name="StudioRsopAlwaysTrue",
+                query="SELECT * FROM Win32_OperatingSystem WHERE BuildNumber >= '1'",
+                expect_true=True,
+                why=(
+                    "CONTROL: proves the filter authoring works. If this GPO does not "
+                    "apply, the false row says nothing."
+                ),
+            ),
+            isolates="CONTROL: a WMI filter that evaluates TRUE must let its GPO apply",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-Control",
+            guid="00000000-0000-0000-0000-000000001f02",
+            scope="ou",
+            scope_key="child",
+            order=3,
+            values={"Control": "present"},
+            isolates="CONTROL: no WMI filter at all. Absent => the experiment did not run.",
+        ),
+    ),
+)
+
 SCENARIOS: dict[str, Scenario] = {
     LSDOU_PRECEDENCE.scenario_id: LSDOU_PRECEDENCE,
     DISABLED_BLOCK_ENFORCED.scenario_id: DISABLED_BLOCK_ENFORCED,
@@ -722,6 +830,7 @@ SCENARIOS: dict[str, Scenario] = {
     LOOPBACK_REPLACE.scenario_id: LOOPBACK_REPLACE,
     USER_SECURITY_FILTERING.scenario_id: USER_SECURITY_FILTERING,
     USER_SECURITY_FILTERING_DENY.scenario_id: USER_SECURITY_FILTERING_DENY,
+    WMI_FILTERING.scenario_id: WMI_FILTERING,
 }
 
 
@@ -1071,6 +1180,16 @@ def topology_document(
                     {"principal": planned_filter.principal_key, "kind": planned_filter.kind}
                     for planned_filter in planned.filters
                 ],
+                "wmi_filter": (
+                    {
+                        "name": planned.wmi_filter.name,
+                        "query": planned.wmi_filter.query,
+                        "expect_true": planned.wmi_filter.expect_true,
+                        "why": planned.wmi_filter.why,
+                    }
+                    if planned.wmi_filter
+                    else None
+                ),
             }
             for planned in scenario.gpos
         ],

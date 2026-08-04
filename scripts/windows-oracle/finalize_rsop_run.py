@@ -376,16 +376,26 @@ def main(argv: list[str] | None = None) -> int:
         else None
     )
 
+    # A scenario may declare in advance that it EXPECTS to disagree, with the
+    # reason -- the WMI row exists to demonstrate a capability the model does
+    # not have. The declaration changes what the verdict is called and nothing
+    # else: the comparison still runs, the divergence is recorded in full, and
+    # `passed` stays false. Same contract as the user-scope lane's.
+    expected_finding = str(expected.get("expect_finding") or "")
+
     if lane_problems:
         state = "lane-failure"
     elif control_problems:
         state = "inconclusive"
     elif comparison and comparison["agrees"]:
-        state = "pass"
+        # A scenario that declared a divergence and did not produce one is its
+        # own kind of wrong: either the model gained a capability nobody
+        # recorded, or the row was not authored.
+        state = "unexpected-agreement" if expected_finding else "pass"
     else:
         # The prediction was wrong. That is a result, not an error: this lane
         # exists to find out whether rsop.py is right, and "no" is an answer.
-        state = "finding"
+        state = "expected-finding" if expected_finding else "finding"
 
     verdict = {
         "schema_version": 1,
@@ -397,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
         "passed": state == "pass",
         "transport": args.transport,
         "scenario_id": expected.get("scenario_id"),
+        "expected_finding": expected_finding,
         "lane_problems": lane_problems,
         "control_problems": control_problems,
         "comparison": comparison,
