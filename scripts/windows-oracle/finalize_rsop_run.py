@@ -113,6 +113,13 @@ def _lane_validity(
         problems.append("authoring half never completed setup")
     if not author.get("computer_moved"):
         problems.append("the endpoint's computer account was never moved into the target OU")
+    for problem in author.get("authored_problems") or []:
+        # The directory did not end up describing the topology that was asked
+        # for -- a disabled link that is enabled, an enforced link that is not,
+        # a side status that did not persist. The prediction then describes a
+        # different experiment, and without this the mismatch would surface as a
+        # FINDING ABOUT STUDIO for what is really a harness defect.
+        problems.append(f"authored topology does not match intent: {problem}")
 
     # Cleanup is a lane-validity concern rather than housekeeping. This lane
     # links policy at the domain root and at the site, which reaches every

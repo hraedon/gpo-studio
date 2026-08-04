@@ -1,0 +1,84 @@
+{
+  "schema_version": "1",
+  "scenario_id": "user-side-disabled",
+  "family": "rsop-topology",
+  "title": "A GPO with its user side disabled contributes nothing to the user scope",
+  "readiness": "blocked",
+  "blocked_reason": "Needs a user-scope capture under an interactive session, which the estate has never had and PowerShell Direct does not provide. WP-9 establishes one by scripted autologon plus a dedicated checkpoint.",
+  "provenance": {
+    "tier": "spec-informed",
+    "note": "RELOCATED from disabled-block-enforced 2026-08-04 (WI-029), not newly authored. That scenario was blocked in full for this single HKCU assertion while the rest of it was computer-scope and runnable; moving the assertion here freed the other half for WP-6B and kept this claim visible instead of dropping it. The computer-side half -- that MachineVal still applies from the same GPO -- is now WP-6B-verified, so this scenario asserts only the part that needs the user scope.",
+    "anchors": []
+  },
+  "platform": {
+    "lane": "rsop-user-loopback",
+    "boundaries": [
+      "endpoint-resultant-state"
+    ]
+  },
+  "authored_intent": {
+    "topology": {
+      "som": [
+        {
+          "id": "domain",
+          "kind": "domain"
+        },
+        {
+          "id": "ou-studio-child",
+          "kind": "ou",
+          "parent": "domain"
+        }
+      ],
+      "gpos": [
+        {
+          "name": "Studio-RSOP-UserSideOff",
+          "user_enabled": false,
+          "sets_user": {
+            "UserVal": "1"
+          },
+          "sets": {
+            "MachineVal": "1"
+          }
+        }
+      ],
+      "links": [
+        {
+          "som": "ou-studio-child",
+          "gpo": "Studio-RSOP-UserSideOff",
+          "order": 1,
+          "enabled": true,
+          "enforced": false
+        }
+      ],
+      "target": {
+        "computer": "studio test computer in ou-studio-child",
+        "user": "lab user in ou-studio-child"
+      }
+    },
+    "operator_meaning": [
+      "A GPO whose user side is disabled must contribute nothing to the user scope",
+      "The same GPO's computer side must still apply -- verified by WP-6B, restated here only as the control that makes the absence meaningful"
+    ]
+  },
+  "expected_native": {
+    "winners": [
+      {
+        "key": "HKCU\\Software\\Policies\\StudioLab\\UserVal",
+        "absent": true,
+        "reason": "user side disabled contributes nothing to the user scope"
+      },
+      {
+        "key": "HKLM\\Software\\Policies\\StudioLab\\MachineVal",
+        "value": "1",
+        "source_gpo": "Studio-RSOP-UserSideOff",
+        "reason": "CONTROL: the computer side still applies. WP-6B observed this on a real 26200 client. If it is absent here, the GPO did not apply at all and the HKCU absence above says nothing."
+      }
+    ],
+    "derivations": [
+      "A disabled side removes only that scope's contribution; the other side is unaffected. The computer-side half of this claim is WP-6B-verified; the user-side half is what this scenario exists to test."
+    ]
+  },
+  "open_questions": [
+    "Does gpresult /x /scope:user report the GPO as applied-with-no-settings, or omit it from ComputerResults' user counterpart entirely? Recorded verbatim at first execution."
+  ]
+}
