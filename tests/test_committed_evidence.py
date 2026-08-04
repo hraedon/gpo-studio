@@ -38,6 +38,7 @@ LANE_VERDICTS = {
     "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804070708-6831.json": "finalize_rsop_run.py",
     "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json": (
         "finalize_rsop_user_run.py"
     ),
@@ -45,6 +46,12 @@ LANE_VERDICTS = {
         "finalize_rsop_user_run.py"
     ),
     "wp9-evidence/verdict-rsop-user-observe-20260804045809-8312.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804065146-4224.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804065525-9254.json": (
         "finalize_rsop_user_run.py"
     ),
 }
@@ -106,15 +113,37 @@ def test_every_bound_file_still_exists_in_the_tree(
 
 
 @pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
-def test_a_passing_verdict_is_internally_consistent(
-    relative: str, finalizer: str
-) -> None:
-    """`passed` must follow from the checks recorded beside it.
+def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> None:
+    """`passed` must follow from the state and the checks recorded beside it.
 
-    A verdict that says `passed` while carrying a false check would mean the
-    file was edited after the fact, or assembled from more than one run.
+    Committed evidence is no longer all passes. A scenario may DECLARE that it
+    expects to diverge -- the deny row and the WMI row exist to demonstrate
+    capabilities the model does not have -- and its verdict is committed as
+    evidence of the gap. Such a verdict must carry `expected-finding`, must not
+    claim `passed`, and must actually contain the divergence: a declared
+    divergence with an empty finding list would be a claim with nothing behind
+    it.
+
+    Everything else must be a pass whose checks agree with it. A verdict that
+    said `passed` while carrying a false check would mean the file was edited
+    after the fact, or assembled from more than one run.
     """
     verdict = _verdict(relative)
+    if verdict.get("state") == "expected-finding":
+        assert verdict["passed"] is False
+        assert verdict["expected_finding"], relative
+        comparison = verdict["comparison"]
+        assert comparison is not None, relative
+        divergences = (
+            comparison["value_findings"]
+            + comparison["applied_only_predicted"]
+            + comparison["applied_only_observed"]
+        )
+        assert divergences, f"{relative} declares a divergence and records none"
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
     assert verdict["passed"] is True
     if "checks" in verdict:
         failed = sorted(name for name, ok in verdict["checks"].items() if not ok)

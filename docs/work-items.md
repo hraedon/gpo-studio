@@ -237,6 +237,44 @@ system. Three revisions of this item all theorised about the guest's state;
 none of them questioned whether the thing being measured was the thing the
 system uses.
 
+## WI-035 — `rsop.py` cannot evaluate a WMI filter, and applies the GPO anyway
+
+**Opened:** 2026-08-04 (WP-6B, `wmi-filtering`).
+**Status:** open. Demonstrated against Windows, declared before the run.
+
+`_gpo_filter_status` records a WMI filter as the warning `wmi_filter_unknown`
+and leaves `blocking` untouched, so the GPO applies. There is no evaluation and
+no way to supply an answer: a GPO whose filter can never be true is modelled as
+applying, and its settings are modelled as winning.
+
+Certified run `rsop-observe-20260804070708-6831`, `expected-finding`, on the
+estate's 26200 client. The divergences are exactly the two the candidate
+declared before it ran:
+
+* `Wmi`: predicted `false`, observed `true`;
+* `WmiFalseOnly`: predicted `1`, observed absent.
+
+**The failure direction is the problem**, and it is the same one as WI-033: the
+model says a GPO applies when it does not, so an operator is told about
+settings that will never arrive. Between them, the two items mean `rsop.py` is
+wrong in the same direction for the two most common ways a GPO is scoped out of
+a machine.
+
+The control row did its job. A WMI filter is authored as a raw `msWMI-Som`
+object whose `msWMI-Parm2` is a length-prefixed blob; a wrong length yields a
+filter Windows treats as unsatisfied, which fails closed and is
+indistinguishable from the false row working. The scenario therefore carries a
+filter written to be TRUE, and its GPO applying (`Wmi=true`, `WmiTrueOnly=1`)
+is what makes the false row's absence mean something.
+
+**Closes when:** the model can be given a WMI evaluation result per target --
+not a WQL engine, which is not Studio's job, but a way for a caller to say
+"this filter evaluated false here" and have precedence honour it -- and the
+scenario's declaration is removed so the lane certifies it as an ordinary pass.
+Needs a re-certification run, because the verdict's meaning changes.
+
+Not fixed during the run that measured it, as with WI-026, WI-032 and WI-033.
+
 ---
 
 ## Not yet numbered

@@ -117,6 +117,23 @@ choice, because a lane that fed the model an object DN would have predicted
 failure that was really a caller error. Sequencing the fix after the measurement
 was what kept those two things distinguishable.
 
+## WMI filtering: a second capability gap, declared in advance
+
+Certified run `rsop-observe-20260804070708-6831`, state `expected-finding`.
+
+`_gpo_filter_status` records a WMI filter as a warning and applies the GPO
+regardless, so the model predicted `Wmi=false` and `WmiFalseOnly=1` from a GPO
+whose filter can never be true. Windows resolved `Wmi=true` and never wrote
+`WmiFalseOnly` — exactly the two divergences the candidate declared before the
+run. See WI-035.
+
+The true-filter control is what makes it a finding rather than a shrug. A WMI
+filter is authored here as a raw `msWMI-Som` object with a length-prefixed
+`msWMI-Parm2`, and a malformed one fails closed — indistinguishable from the
+false row working. `Wmi=true` and `WmiTrueOnly=1` on the client prove the
+authoring is sound before the absence of `WmiFalseOnly` is allowed to mean
+anything.
+
 ## The open questions, answered
 
 ### 1. Can the member server reach the client for RPC/WMI?
