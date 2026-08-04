@@ -1,30 +1,30 @@
 {
   "artifacts": {
-    "build-wp3-candidate.py": "35ee02b1acbd3dd09cceb99486cba48e617a96dc45e08b5fc3f178d012f84ada",
-    "candidate.inf": "c2051e4603d9f213a519f5caf2e1adc6b2ad0ca8db11ca3d6794c03f79cc94b8",
-    "commands/export.log": "17a2ea00c566c635fbe73392cbc72e1e917d71d1593d8ac5ec300478cf7e9307",
+    "build-wp3-candidate.py": "7949c34a6db1481ee3d90b868d244fba76aaf85cb132969f58d48e128b197163",
+    "candidate.inf": "12be63fa3cd12f93ad559a21adc487fc3fd370158eabede0b22f117f01a75e7d",
+    "commands/export.log": "6f9bceb9b02603076e8d1a4069b6235c278de1afb18f86b597d1806748bed531",
     "commands/export.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/export.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/import.log": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
     "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/import.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/validate.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/validate.stdout.txt": "d34c314fa6c228e4049e71b72a26d06c90e2d0d7860dd2e2535ee1c464418d70",
-    "deployed/run-wp3-security-template.ps1": "cc5367fc27f7feb717c654a2dba93ecfdde4cc51852b7687f615f3d2fc1a3be4",
-    "expected.json": "d5e37fea4ddf29652a3870b404e483477ce22611c170d5f43066909a3bc0e343",
-    "exported.inf": "e8d9daa252da94905ad87eb03f7f58b6ad2a5f243a59521011f45bd4d95faea3",
-    "finalize_wp3_run.py": "a25d5adc28fd4e46570bae25286ee6b5031b164186ef53a791595faf9006ce3a",
+    "commands/validate.stdout.txt": "7700b3b960bd89aa751a2367d9f3d6a5fa06651ddcecbfb01f40abba5a3735df",
+    "deployed/run-wp3-security-template.ps1": "674bd680ab3005ee2e76cbd43c38980506ca49842275b1fdc7420b8b87f12bc2",
+    "expected.json": "dd7e167c3f9445135fe1879662f75baf455ebff29b90b4bd4d1fb78b2b424f0a",
+    "exported.inf": "1450aa7fd43a1f424a9f39d2833b59dd58069b9ac69d3fb5fbd1df362f1b3905",
+    "finalize_wp3_run.py": "a686238dfd8c78e84ab47255b1b42e77fd0900084fcafe303ddfbd7248db24d4",
     "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
-    "result.json": "977f7a1f7be5ee447f5637f5fa1cef8f84b74262a8d5a420219376f784d837c7",
+    "result.json": "cc0cb5d583475253424246457de8d53878954f933b449ea5c984fd76c7971a14",
     "run-wp3-oracle.sh": "a9a2b18d2ec11e1a669d9a32e9275da9155e9ef3983158a929def8d4d7d1a871"
   },
   "candidate_delivery": {
     "candidate.inf": {
-      "controller_sha256": "c2051e4603d9f213a519f5caf2e1adc6b2ad0ca8db11ca3d6794c03f79cc94b8",
+      "controller_sha256": "12be63fa3cd12f93ad559a21adc487fc3fd370158eabede0b22f117f01a75e7d",
       "guest_copy_matches": true
     },
     "expected.json": {
-      "controller_sha256": "d5e37fea4ddf29652a3870b404e483477ce22611c170d5f43066909a3bc0e343",
+      "controller_sha256": "dd7e167c3f9445135fe1879662f75baf455ebff29b90b4bd4d1fb78b2b424f0a",
       "guest_copy_matches": true
     }
   },
@@ -66,17 +66,17 @@
   "export_differences": [],
   "harness_error": null,
   "passed": true,
-  "run_id": "wp3-security-template-20260804141203-9781",
+  "run_id": "wp3-security-template-20260804143907-9761",
   "schema_version": 1,
   "source": {
-    "commit": "d827dd6a102e697b3f51bc1cf7118aed4253499d",
+    "commit": "968b48a7dbdcc76274db213690f4ed56e4da7366",
     "dirty": false,
     "files": {
-      "build-wp3-candidate.py": "35ee02b1acbd3dd09cceb99486cba48e617a96dc45e08b5fc3f178d012f84ada",
-      "finalize_wp3_run.py": "a25d5adc28fd4e46570bae25286ee6b5031b164186ef53a791595faf9006ce3a",
+      "build-wp3-candidate.py": "7949c34a6db1481ee3d90b868d244fba76aaf85cb132969f58d48e128b197163",
+      "finalize_wp3_run.py": "a686238dfd8c78e84ab47255b1b42e77fd0900084fcafe303ddfbd7248db24d4",
       "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
       "run-wp3-oracle.sh": "a9a2b18d2ec11e1a669d9a32e9275da9155e9ef3983158a929def8d4d7d1a871",
-      "run-wp3-security-template.ps1": "cc5367fc27f7feb717c654a2dba93ecfdde4cc51852b7687f615f3d2fc1a3be4"
+      "run-wp3-security-template.ps1": "674bd680ab3005ee2e76cbd43c38980506ca49842275b1fdc7420b8b87f12bc2"
     }
   },
   "transport": "psdirect"

@@ -216,10 +216,23 @@ comparator one. It should be dropped from the expansion until that is decided.
    member server. All four registry types round-tripped through `secedit`
    intact, and no comparator change was needed — exactly as the round trip
    predicted. Verdict at `wp3-evidence/verification-estate.json`.
-2. **`Group Membership`** — needs a principal-resolution comparison and an
-   expected side that can express a machine-specific SID.
-3. **`Registry Keys` / `File Security` / `Service General Setting`** — need the
-   entry-shape comparator described above.
+2. **`Group Membership`** — ~~needs a principal-resolution comparison~~
+   **DONE 2026-08-04**, certified by
+   `wp3-security-template-20260804143907-9761` at commit `968b48a`. It did need
+   that comparison (well-known aliases to constant SIDs, anything
+   machine-relative reduced to its RID, members and the key both compared as
+   principals) — and it *also* needed something this note had not considered:
+   **the lane was asking `secedit` for `/areas securitypolicy user_rights`
+   only**, so a `group_mgmt` section never reached the database and never
+   appeared in the export. The first run reported both rows as "expected X,
+   actual None", which reads exactly like a defect in what Studio wrote.
+   Both area lists now include `group_mgmt`, and the finalizer checks that
+   import and export request the same areas.
+3. **`Registry Keys` / `File Security` / `Service General Setting`** — blocked
+   on WI-038 (the module cannot represent these entries at all), and they will
+   *additionally* need their `secedit` areas added — `regkeys`, `filestore` and
+   `services` respectively. The area point applies to every future section and
+   is the cheaper half to forget.
 4. **`Kerberos Policy`** — needs a platform decision first.
 
 ## Where this tranche actually stands (WI-038)
