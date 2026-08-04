@@ -288,13 +288,23 @@ indistinguishable from the false row working. The scenario therefore carries a
 filter written to be TRUE, and its GPO applying (`Wmi=true`, `WmiTrueOnly=1`)
 is what makes the false row's absence mean something.
 
-**Closes when:** the model can be given a WMI evaluation result per target --
-not a WQL engine, which is not Studio's job, but a way for a caller to say
-"this filter evaluated false here" and have precedence honour it -- and the
-scenario's declaration is removed so the lane certifies it as an ordinary pass.
-Needs a re-certification run, because the verdict's meaning changes.
+**FIXED AND CLOSED 2026-08-04** by `rsop-observe-20260804151624-6393`, which
+certifies `pass` with predicted and observed winners identical.
 
-Not fixed during the run that measured it, as with WI-026, WI-032 and WI-033.
+`RsopQuery.wmi_filter_results` carries how each filter evaluated on the target,
+keyed by `WmiFilter.id`. Studio evaluates no WQL and is not asked to -- that is
+the CSE's job against the live machine -- but it now honours an answer a caller
+already has.
+
+Three states, and the third is why the warning survives: **false** blocks the
+GPO, **true** applies silently so the warning keeps meaning something, and
+**unevaluated** still applies and still warns. Treating unknown as false would
+have replaced a visible gap with an invisible one, and an absence is the harder
+error to notice; a test pins it.
+
+Fixed after the run that measured it, as with WI-026, WI-032 and WI-033. Both
+verdicts are committed -- the `expected-finding` and the `pass` -- so the gap
+and its closure are each readable from the repository.
 
 ## WI-036 — `slow_link` and `safe_mode` are accepted and silently ignored
 

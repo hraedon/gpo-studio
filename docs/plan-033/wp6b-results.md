@@ -121,11 +121,15 @@ was what kept those two things distinguishable.
 
 Certified run `rsop-observe-20260804070708-6831`, state `expected-finding`.
 
-`_gpo_filter_status` records a WMI filter as a warning and applies the GPO
+`_gpo_filter_status` recorded a WMI filter as a warning and applied the GPO
 regardless, so the model predicted `Wmi=false` and `WmiFalseOnly=1` from a GPO
 whose filter can never be true. Windows resolved `Wmi=true` and never wrote
 `WmiFalseOnly` — exactly the two divergences the candidate declared before the
-run. See WI-035.
+run.
+
+**Fixed and re-certified the same day** (`rsop-observe-20260804151624-6393`,
+`pass`). A caller can now supply how a filter evaluated and precedence honours
+it; an unevaluated filter still applies and still warns. See WI-035.
 
 The true-filter control is what makes it a finding rather than a shrug. A WMI
 filter is authored here as a raw `msWMI-Som` object with a length-prefixed

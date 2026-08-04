@@ -533,17 +533,23 @@ Three consequences worth stating plainly:
      - ~~**deny ACEs**~~ — **fixed 2026-08-04** (WI-033). The gap was
        demonstrated against a real client first, then closed: `SecurityFilter`
        carries polarity and a deny wins over an allow for the same principal;
-     - **WMI filters** — `rsop.py` cannot evaluate one and predicts the GPO
-       applies (WI-035, demonstrated);
+     - ~~**WMI filters**~~ — **fixed 2026-08-04** (WI-035). Demonstrated first,
+       then closed: a caller can supply how a filter evaluated and precedence
+       honours it. An *unevaluated* filter still applies and still warns, so
+       the remaining uncertainty stays visible rather than being guessed away;
      - **slow link and safe mode** — the fields are accepted and never read
        (WI-036). Capping the client's vNIC does not produce a slow link either:
        Group Policy reads the adapter's advertised speed, measured 2026-08-04.
 
      Those two shared a failure direction — the model saying a GPO applies when
-     it does not, for the two most common ways a GPO is scoped out of a machine.
-     One is now closed. The WMI half is not, and it is the reason the qualifier
-     stays: a WMI-filtered GPO is still predicted to apply whatever the filter
-     evaluates to.
+     it does not, for the two most common ways a GPO is scoped out of a machine
+     — and **both are now closed**, each demonstrated against a real client
+     before being fixed and re-certified afterwards.
+
+     The qualifier stays for what remains: slow link and safe mode are still
+     accepted and never read, an unevaluated WMI filter is still an assumption
+     the caller must supply, and no certified topology covers user-side WMI or
+     slow-link behaviour at all.
   3. **Surfacing is a decision nobody has made.** It is reachable from no API
      endpoint, which is correct for now (WI-030).
 
