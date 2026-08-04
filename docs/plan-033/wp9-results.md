@@ -133,16 +133,22 @@ Three defects, three guards, no wrong answers. The guards were the point.
 WI-034 blocks execution. Everything below is either committed code or an
 observation from a run the finalizer REFUSED, and is labelled as such.
 
-The blocker is worth stating precisely, because the first attempt to state it
-was wrong. A session established by **boot-time autologon** carries a token
-with **no domain groups at all** -- not even `Domain Users` -- while the DC is
-reachable and the secure channel is healthy. A session restored from the
-`user-logged-on` checkpoint behaves normally. So group-based filtering cannot
-be observed on a session the lane creates by restarting the guest, and the
-re-session step built to re-mint the token does not do so. See WI-034 for the
-measurements and for the three candidate directions, of which the least clever
--- provisioning the group as estate furniture, before any session exists -- is
-the most promising.
+The blocker is worth stating precisely, because it took three attempts and each
+of the first two proposed a fix the next measurement killed. The collected token
+for the principal carries **no domain groups at all** -- not even `Domain Users`
+-- and it does so in *both* session types: the one created by a boot autologon
+and the one restored from the `user-logged-on` checkpoint. Kerberos, nine SIDs,
+all well-known or local.
+
+So group-based user filtering is not observable here yet, and the re-session
+restart the lane builds for it does not change the token. The recommended fix
+in the previous revision -- provision the group before any session exists --
+would not have worked either; measuring is what stopped it being built.
+
+One confound is named rather than buried: every token measurement so far samples
+a process started by **Task Scheduler** as the principal, not the interactive
+desktop session's own token. The next step is a measurement that distinguishes
+those two, not a fix. See WI-034.
 
 ### The case the model cannot express
 

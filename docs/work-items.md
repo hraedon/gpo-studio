@@ -193,58 +193,58 @@ pass. Needs a re-certification run, because the verdict's meaning changes.
 Not fixed during the run that measured it, for the same reason as WI-026 and
 WI-032.
 
-## WI-034 — a boot-autologon session is not equivalent to a restored one
+## WI-034 — the collected token has no domain groups, in either session
 
-**Opened:** 2026-08-04 (WP-9 filtering). **Revised the same day, after measuring
-rather than assuming.** **This blocks the two `user-security-filtering*`
-scenarios from certifying.**
+**Opened, then revised twice on 2026-08-04.** Both revisions were caused by
+measuring something the previous version had assumed. **This blocks the two
+`user-security-filtering*` scenarios from certifying.**
 
-The first write-up of this item said the in-session refresh "stops working after
-the re-session restart". That was the symptom, stated as a mechanism, and it was
-wrong in a way worth recording: the same probe run against a session restored
-from the `user-logged-on` checkpoint works perfectly — task result 0, `gpupdate`
-runs in session 1 as the principal, output file written.
+The write-up history is part of the item, because each version proposed a fix
+the next measurement killed:
 
-What is actually measured:
+1. *"The in-session refresh stops working after the re-session restart."*
+   Symptom stated as mechanism. Wrong: the same probe against a session
+   restored from the `user-logged-on` checkpoint works — task result 0,
+   `gpupdate` runs in session 1, output written.
+2. *"A boot-autologon session is not equivalent to a restored one."* The
+   post-reboot session's collected token had no domain groups, so the reboot
+   looked like the discriminator, and the recommended fix was to provision the
+   group as estate furniture before any session exists.
+3. **What is now measured: the token has no domain groups in EITHER session.**
+   On the restored checkpoint session — the one where the task works — the
+   collection returns the same nine SIDs: `Everyone`, `BUILTIN\Users`,
+   `INTERACTIVE`, `CONSOLE LOGON`, `Authenticated Users`, `This Organization`,
+   `LOCAL`, the asserted-identity SID, the integrity label. `authtype=Kerberos`,
+   `groupcount=9`, and **no `Domain Users`**.
 
-| session came from | interactive scheduled task | token contents |
-|---|---|---|
-| the `user-logged-on` checkpoint | works (result 0, writes output) | not separately captured |
-| autologon after a **reboot** | fails (result 1, no output, no `8005`) | **no domain groups at all** |
+So **provisioning the group earlier would not have helped**, and building that
+fix would have consumed a session and produced the same refusal. Measuring
+first is what stopped it.
 
-The token is the decisive observation. `whoami /groups` captured inside the
-post-reboot session lists only well-known and local SIDs — `Everyone`,
-`BUILTIN\Users`, `INTERACTIVE`, `CONSOLE LOGON`, `Authenticated Users`,
-`This Organization`, `LOCAL`, the asserted-identity SID and the integrity
-label. **`Domain Users` is absent**, and so is the run's own group. A domain
-user's token cannot legitimately lack `Domain Users`.
+**A confound this item must not hide.** Every token measurement here samples a
+process started by **Task Scheduler** as the principal, not the interactive
+desktop session's own token. Whether the desktop session's token also lacks
+domain groups is *unmeasured*. It is the desktop token the CSE resolves user
+policy against, and the nesting GPO did not apply — which is consistent with
+the desktop token lacking the group, but does not establish it.
 
-Meanwhile, from the harness session on the same guest at the same time, the DC
-answers on 389 and `Test-ComputerSecureChannel` returns true. So this is not a
-broken machine account or an unreachable directory *now* — it is about what the
-logon had available *when it happened*, early in boot.
+**Separately:** the task's failure (`result 1`, no output) is intermittent and
+is *not* the same phenomenon as the missing groups. It failed on one
+post-reboot session and succeeded on the restored one; both had the same
+nine-SID token.
 
-**Consequence for the lane, and for any future user-scope work.** Group-based
-user filtering cannot be tested on a session established by boot-time
-autologon: the group is not in the token, so the GPO correctly does not apply,
-and the lane's token gate correctly refuses the run. The re-session restart was
-built to re-mint the token and does not achieve it.
+**What is not in doubt:** the estate, the directory and the authored topology
+are all correct. The DC answers on 389, `Test-ComputerSecureChannel` is true,
+the group exists with the principal as a member, and the DACLs match intent.
 
-**Candidate directions, none tested:**
+**Next step, and it is a measurement, not a fix:** capture the *desktop*
+session's token without going through Task Scheduler — for example by having
+the autologon session itself write `whoami /groups` at logon, through a
+per-user Run key or a logon script, which is a different token acquisition
+path. Until that distinguishes "the desktop token lacks domain groups" from
+"Task Scheduler hands out a token that does", any fix is a guess.
 
-* have the logon happen after the network is up rather than at boot — a delayed
-  or triggered logon rather than `AutoAdminLogon` at Winlogon start;
-* re-mint the token without a reboot (a logoff and a fresh autologon), which
-  needs the `ForceAutoLogon` question settled first;
-* avoid needing a re-mint at all by creating the group and its membership
-  *before* the session exists — i.e. as estate furniture provisioned by
-  `enable_lab_autologon.ps1`, with the lane granting Apply to an
-  already-populated group.
-
-The third is the most promising and the least clever: it removes the
-requirement rather than working around it.
-
-**Closes when:** a filtering run certifies, with the principal's session token
+**Closes when:** a filtering run certifies with the principal's session token
 demonstrably containing the group.
 
 ---
