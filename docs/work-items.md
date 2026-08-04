@@ -410,11 +410,31 @@ these sections need first is either real parsing, or an explicit preserve-only
 declaration plus a lane row that tests **preservation** rather than semantics —
 a much cheaper test, and the one that matches what the code actually does.
 
-**Closes when:** the three sections either parse into `entries` (and
-`diff_templates`, `validate_security_template` and the lane treat them like any
-other), or are declared `preserve-only` in the capability matrix with a
-preservation test behind the claim. Silence is the one option that should not
-survive.
+**Partly addressed 2026-08-04, without pre-empting the scope decision.** The
+silence is gone; the capability question is not:
+
+- `diff_templates` now compares `unknown_lines` and reports a `removed` and an
+  `added` for a changed ACL. Deliberately **not** a `modified` pair — calling it
+  a modification would claim the two lines describe the same entry, and
+  identifying the entry means parsing the path out, which is the thing this
+  module cannot do. "This line went, that line arrived" is the strongest true
+  statement available;
+- `validate_security_template` now emits an `unparsed_entries` **warning**
+  naming the section and the line count. A warning rather than an error,
+  because the lines survive a round trip verbatim: such a template is not
+  malformed, only partly understood.
+
+Both are proved by mutation, and the identical-input case is pinned so the
+report is a difference detector rather than a noise generator.
+
+**Still open, and it is a product decision rather than an engineering one:**
+whether these sections should be *supported* (parsed into `entries`, after
+which the lane work is ordinary) or declared **`preserve-only`** in the
+capability matrix with a preservation test behind the claim. `KNOWN_SECTIONS`
+still lists them beside sections that are genuinely understood, and that is
+what overstates the module.
+
+**Closes when:** that decision is taken and the matrix says which.
 
 ---
 

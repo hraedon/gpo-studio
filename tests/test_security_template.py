@@ -958,3 +958,66 @@ def test_normalized_format_separates_sections_with_blank_line() -> None:
     )
     formatted = format_security_template(template)
     assert "[Version]\nsignature = \"$CHICAGO$\"\n\n[System Access]" in formatted
+
+
+class TestUnparsedEntriesAreVisible:
+    """WI-038: the sections this parser cannot read must not read as unchanged.
+
+    `Registry Keys`, `File Security` and `Service General Setting` carry bare
+    `"path",mode,"SDDL"` lines rather than `key = value`. They are preserved
+    verbatim, and before this they were invisible to every operation the module
+    offers -- including the one an operator would rely on to spot exactly the
+    change these tests are about.
+    """
+
+    def _template(self, sddl: str) -> str:
+        return (
+            "[Unicode]\n"
+            "Unicode=yes\n"
+            "[Registry Keys]\n"
+            f'"MACHINE\\SOFTWARE\\A",2,"{sddl}"\n'
+            "[Version]\n"
+            'signature="$CHICAGO$"\n'
+        )
+
+    def test_an_acl_trustee_change_is_reported(self) -> None:
+        """Administrators versus Everyone must not compare as identical."""
+        baseline = parse_security_template(self._template("D:PAR(A;CI;KA;;;BA)"))
+        current = parse_security_template(self._template("D:PAR(A;CI;KA;;;WD)"))
+
+        diffs = diff_templates(baseline, current)
+
+        assert diffs, "a changed ACL trustee produced no diff at all"
+        kinds = {d.change_type for d in diffs}
+        assert kinds == {"removed", "added"}
+        assert all(d.section == "Registry Keys" for d in diffs)
+        removed = next(d for d in diffs if d.change_type == "removed")
+        added = next(d for d in diffs if d.change_type == "added")
+        assert removed.baseline_value is not None and ";BA)" in removed.baseline_value
+        assert added.current_value is not None and ";WD)" in added.current_value
+
+    def test_identical_unparsed_lines_produce_no_diff(self) -> None:
+        """The report must be a difference detector, not a noise generator."""
+        text = self._template("D:PAR(A;CI;KA;;;BA)")
+        assert diff_templates(parse_security_template(text), parse_security_template(text)) == ()
+
+    def test_validation_says_the_section_is_not_understood(self) -> None:
+        """Silence here was the more dangerous half: arbitrary ACLs validated clean."""
+        template = parse_security_template(self._template("D:PAR(A;CI;KA;;;WD)"))
+
+        issues = validate_security_template(template)
+
+        unparsed = [i for i in issues if i.code == "unparsed_entries"]
+        assert len(unparsed) == 1
+        assert unparsed[0].severity == "warning"
+        assert unparsed[0].path == "Registry Keys"
+
+    def test_a_fully_understood_template_gains_no_warning(self) -> None:
+        """The warning has to mean something, so it must not fire on everything."""
+        template = parse_security_template(
+            "[Unicode]\nUnicode=yes\n"
+            "[System Access]\nMinimumPasswordLength = 14\n"
+            "[Version]\nsignature=\"$CHICAGO$\"\n"
+        )
+        issues = validate_security_template(template)
+        assert [i for i in issues if i.code == "unparsed_entries"] == []
