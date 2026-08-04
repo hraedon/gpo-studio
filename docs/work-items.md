@@ -316,6 +316,49 @@ Windows applies it), or they are removed from the public shape so the API stops
 offering something it does not honour. Both are defensible; silently accepting
 them is not.
 
+## WI-037 — a run's staging destroys the previous run's evidence on the guest
+
+**Opened:** 2026-08-04 (WP-9). **Deliberately not fixed in the same change; see
+the last paragraph.**
+
+Every lane driver's `PREPARE` step removes all directories under the guest's
+output root before it stages anything. That made sense when a failed run left
+nothing worth keeping. It no longer does: a run that fails now leaves its
+`observation.json`, its `commands/` transcripts and its `resession-verify.json`
+on the guest, and the pull only happens on paths that reach it. **The next run
+deletes exactly the evidence a human needs to explain why the last one
+failed.**
+
+It cost real time twice in one session:
+
+* the first `loopback-merge` attempt died on a transport flake during staging;
+  the next scenario's `PREPARE` wiped its directory, and the failure became
+  unattributable;
+* a `resession-verify` exited without writing its JSON, and by the time that
+  was noticed the following run had removed the directory that would have said
+  why.
+
+A second, smaller edge in the same area: each *mode* invocation of
+`run-rsop-user-observe.ps1` mints its own run directory, so a single lane run
+now leaves four or five of them. The driver parses `WORK_DIR` from the
+observation invocation and is correct, but its fallback — "the newest output
+directory" — can now select a `preflight` or `resession-verify` directory
+instead. That fails safe today (the finalizer refuses when `observation.json`
+is absent) and is worth tightening rather than relying on.
+
+**Why it is not fixed here.** Both fixes touch `run-rsop-user-observe.ps1` and
+the drivers, which are hash-bound inputs to every WP-9 certification made this
+session. Changing them would leave five freshly certified runs describing a
+harness the tree no longer has — the same situation that required WP-6B to be
+re-certified when the shared authoring half changed. The fix is cheap; the
+re-certification is not, and batching it with the next change that touches
+these files costs nothing extra.
+
+**Closes when:** staging preserves at least the previous run's directories (or
+stops deleting them at all, since run directories are already per-invocation
+and unique), the fallback selects only an observation-bearing directory, and
+the affected lanes are re-certified in the same change.
+
 ---
 
 ## Not yet numbered
