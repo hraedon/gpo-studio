@@ -173,20 +173,56 @@ if ($Phase -eq 'setup') {
     foreach ($ou in $topology.ous) {
         $ouPlan += [ordered]@{
             symbolic_name     = $ou.name
+            key               = "$($ou.key)"
+            parent_key        = "$($ou.parent_key)"
             name              = "$($ou.name)-$stamp"
             block_inheritance = [bool]$ou.block_inheritance
         }
     }
-    # Resolve real DNs top-down: each OU's parent is the previous one's real DN.
-    $realOuDns = @{}
-    $parentDn = $domainDn
+    # Resolve real DNs by PARENT KEY, not by position.
+    #
+    # This used to treat the list as a chain -- each OU parented to the one
+    # before it -- which is true of the computer-scope tree and false of the
+    # split tree the loopback scenarios need, where the user branch hangs off
+    # the root beside the computer branch. A chain would have built the right
+    # OUs in the wrong shape: every object would exist, every link would
+    # succeed, and the estate would apply a topology the prediction does not
+    # describe. That is the failure this lane most needs not to have, because
+    # it surfaces as a finding about Studio.
+    #
+    # The candidate emits parents in dependency order, and this asserts it
+    # rather than assuming it.
+    $realOuDns = @{ 'domain' = $domainDn }
     foreach ($ou in $ouPlan) {
-        $ou.parent_dn = $parentDn
-        $ou.dn = "OU=$($ou.name),$parentDn"
-        $realOuDns[$ou.symbolic_name] = $ou.dn
-        $parentDn = $ou.dn
+        if (-not $realOuDns.ContainsKey($ou.parent_key)) {
+            throw "OU '$($ou.symbolic_name)' names parent '$($ou.parent_key)', which has not been resolved yet. The candidate must emit OUs parents-first."
+        }
+        $ou.parent_dn = $realOuDns[$ou.parent_key]
+        $ou.dn = "OU=$($ou.name),$($ou.parent_dn)"
+        $realOuDns[$ou.key] = $ou.dn
     }
-    $childOuDn = $ouPlan[-1].dn
+
+    # Where the COMPUTER goes. Named by key rather than taken as "the last OU",
+    # which stopped being the same thing once the tree branched.
+    $targetOuKey = "$($topology.target_ou_key)"
+    if (-not $realOuDns.ContainsKey($targetOuKey)) {
+        throw "topology target_ou_key '$targetOuKey' does not name an OU in the tree."
+    }
+    $childOuDn = $realOuDns[$targetOuKey]
+
+    # Where the USER goes, on user-scope scenarios only.
+    $scope = "$($topology.scope)"
+    if (-not $scope) { $scope = 'computer' }
+    $targetUser = "$($topology.endpoint_user)"
+    $userOuDn = ''
+    if ($scope -eq 'user') {
+        if (-not $targetUser) { throw "scope is 'user' but the topology names no endpoint_user." }
+        $userOuKey = "$($topology.user_ou_key)"
+        if (-not $realOuDns.ContainsKey($userOuKey)) {
+            throw "topology user_ou_key '$userOuKey' does not name an OU in the tree."
+        }
+        $userOuDn = $realOuDns[$userOuKey]
+    }
 
     $gpoPlan = @()
     foreach ($gpo in $topology.gpos) {
@@ -216,10 +252,25 @@ if ($Phase -eq 'setup') {
             user_enabled  = [bool]$gpo.user_enabled
             values        = $gpo.values
             user_values   = $gpo.user_values
+            raw_values    = $gpo.raw_values
             guid          = $null
             created       = $false
             linked        = $false
         }
+    }
+
+    # The user object is READ before anything is created, for the same reason
+    # the computer is: cleanup restores it to where the directory says it was,
+    # and a record written after the first mutation is a record of a state that
+    # already changed.
+    $userOriginalDn = $null
+    $userOriginalParent = $null
+    $userSid = $null
+    if ($scope -eq 'user') {
+        $userObject = Get-ADUser -Identity $targetUser -Properties DistinguishedName -Server $dc
+        $userOriginalDn = "$($userObject.DistinguishedName)"
+        $userOriginalParent = ($userOriginalDn -split ',', 2)[1]
+        $userSid = "$($userObject.SID)"
     }
 
     $state = [ordered]@{
@@ -237,6 +288,14 @@ if ($Phase -eq 'setup') {
         original_dn       = $originalDn
         original_parent   = $originalParent
         child_ou_dn       = $childOuDn
+        scope             = $scope
+        loopback_mode     = "$($topology.loopback_mode)"
+        target_user       = $targetUser
+        user_ou_dn        = $userOuDn
+        user_original_dn  = $userOriginalDn
+        user_original_parent = $userOriginalParent
+        user_sid          = $userSid
+        user_moved        = $false
         ous               = $ouPlan
         gpos              = $gpoPlan
         computer_moved    = $false
@@ -276,6 +335,17 @@ if ($Phase -eq 'setup') {
         $state.computer_moved = $true
         Save-State $state
 
+        # The user goes into its own container on user-scope scenarios. On the
+        # loopback scenarios that container is deliberately NOT the computer's:
+        # merge and replace are both statements about preferring the computer's
+        # location over the user's, so a user and a computer in one OU make
+        # every loopback mode produce the same answer.
+        if ($scope -eq 'user') {
+            Move-ADObject -Identity $state.user_original_dn -TargetPath $userOuDn -Server $dc -ErrorAction Stop
+            $state.user_moved = $true
+            Save-State $state
+        }
+
         foreach ($gpo in $state.gpos) {
             $created = New-GPO -Name $gpo.name -Domain $Domain -Server $dc -ErrorAction Stop
             $gpo.guid = "$($created.Id)"
@@ -299,6 +369,17 @@ if ($Phase -eq 'setup') {
                 Set-GPRegistryValue -Guid $created.Id -Domain $Domain -Server $dc `
                     -Key "HKCU\$($state.policy_key)" `
                     -ValueName $value.value_name -Type String -Value $value.value `
+                    -ErrorAction Stop | Out-Null
+            }
+            # Values outside the lane's own policy key, with their own type.
+            # Loopback is the only user so far: 'Configure user Group Policy
+            # loopback processing mode' is an ordinary machine registry policy,
+            # and authoring it natively is what makes the mode real on the
+            # client rather than an assertion in the candidate.
+            foreach ($value in $gpo.raw_values) {
+                Set-GPRegistryValue -Guid $created.Id -Domain $Domain -Server $dc `
+                    -Key "HKLM\$($value.key)" `
+                    -ValueName $value.value_name -Type $value.type -Value $value.value `
                     -ErrorAction Stop | Out-Null
             }
             # Side status is set AFTER the values are written: disabling a side
@@ -439,6 +520,24 @@ if ($state.computer_moved) {
     }
 }
 
+# The user object comes back next, and for the same reason as the computer: it
+# is a step that stops policy applying, not a tidy-up. It is restored to where
+# the DIRECTORY says it is rather than to where setup wrote it down, because a
+# setup that died between the move and its Save-State leaves an object this
+# script never recorded -- the same failure the computer restore was fixed for.
+if ($state.PSObject.Properties.Name -contains 'user_moved' -and $state.user_moved) {
+    try {
+        $currentUser = Get-ADUser -Identity $state.target_user -Server $dc `
+            -Properties DistinguishedName -ErrorAction Stop
+        if ($currentUser.DistinguishedName -ne $state.user_original_dn) {
+            Move-ADObject -Identity $currentUser.DistinguishedName `
+                -TargetPath $state.user_original_parent -Server $dc -ErrorAction Stop
+        }
+    } catch {
+        $problems += "user restore failed: $($_.Exception.Message)"
+    }
+}
+
 # Links next, and the wide ones first: the site and domain links are the ones
 # with a blast radius beyond the disposable OU tree, so they are the ones worth
 # removing before anything else can go wrong.
@@ -488,6 +587,8 @@ foreach ($ou in $reversed) {
 $residual = [ordered]@{
     computer_dn      = $null
     computer_restored = $false
+    user_dn          = $null
+    user_restored    = $null
     surviving_links  = @()
     surviving_gpos   = @()
     surviving_ous    = @()
@@ -502,6 +603,20 @@ try {
     }
 } catch {
     $problems += "could not re-query computer: $($_.Exception.Message)"
+}
+
+if ($state.PSObject.Properties.Name -contains 'user_moved' -and $state.user_moved) {
+    try {
+        $currentUser = Get-ADUser -Identity $state.target_user -Server $dc `
+            -Properties DistinguishedName -ErrorAction Stop
+        $residual.user_dn = "$($currentUser.DistinguishedName)"
+        $residual.user_restored = ($currentUser.DistinguishedName -eq $state.user_original_dn)
+        if (-not $residual.user_restored) {
+            $problems += "user is at $($currentUser.DistinguishedName), expected $($state.user_original_dn)"
+        }
+    } catch {
+        $problems += "could not re-query user: $($_.Exception.Message)"
+    }
 }
 
 foreach ($gpo in $orderedGpos) {

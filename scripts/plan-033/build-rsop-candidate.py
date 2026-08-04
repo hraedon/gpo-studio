@@ -81,6 +81,26 @@ POLICY_KEY = r"Software\Policies\StudioLab"
 
 
 @dataclass(frozen=True)
+class RawValue:
+    """A machine value written outside the lane's own policy key.
+
+    Only loopback needs this so far. Loopback is not a setting Studio resolves
+    -- it is the switch that decides HOW the user side is resolved at all, and
+    ``rsop.py`` models it as a property of the target rather than as a registry
+    value. So these values are authored into the GPO and are deliberately
+    ABSENT from the model query: feeding them in as settings would make
+    ``UserPolicyMode`` show up as a predicted winner, and the lane would then be
+    checking that Studio can echo back a number it was handed.
+    """
+
+    key: str
+    value_name: str
+    value: int | str
+    value_type: str  # DWord | String
+    why: str
+
+
+@dataclass(frozen=True)
 class PlannedGpo:
     """One GPO in the topology: where it links, and what it writes."""
 
@@ -93,6 +113,8 @@ class PlannedGpo:
     isolates: str
     enforced: bool = False
     link_enabled: bool = True
+    #: Machine values outside the policy key, excluded from the prediction.
+    raw_values: tuple[RawValue, ...] = ()
     #: User-side values. Authored so the GPO genuinely carries a user side --
     #: which is what makes "the computer side still applies" a real test rather
     #: than a statement about an empty GPO. WP-6 never *asserts* on them; that
@@ -113,7 +135,14 @@ class PlannedOu:
 
 @dataclass(frozen=True)
 class Scenario:
-    """A corpus scenario expressed as something the lane can build and predict."""
+    """A corpus scenario expressed as something the lane can build and predict.
+
+    ``scope`` decides three things at once and they must not be allowed to
+    drift apart: which side of the model the prediction is emitted from, which
+    hive the observation reads, and which principal the lane moves into the
+    disposable tree. A scenario that predicted the user side while the lane
+    moved only the computer would be comparing two different experiments.
+    """
 
     scenario_id: str
     ous: tuple[PlannedOu, ...]
@@ -121,6 +150,15 @@ class Scenario:
     target_ou_key: str
     control_gpo: str
     control_value_name: str
+    scope: str = "computer"  # computer | user
+    #: Where the USER object is placed. Distinct from ``target_ou_key`` on
+    #: purpose: loopback is only observable when the user and the computer sit
+    #: in different containers with different policy linked to each, because
+    #: merge and replace are both statements about preferring the COMPUTER's
+    #: location over the USER's. Put them in one container and every loopback
+    #: mode produces the same answer.
+    user_ou_key: str = ""
+    loopback_mode: str = "disabled"  # disabled | merge | replace
 
 
 OU_ROOT = "StudioRsop"
@@ -283,9 +321,180 @@ DISABLED_BLOCK_ENFORCED = Scenario(
     ),
 )
 
+# ---------------------------------------------------------------------------
+# WP-9: user scope and loopback
+# ---------------------------------------------------------------------------
+#
+# These became runnable when the estate gained a scripted interactive logon
+# (windows-evidence-lab, scripts/enable_lab_autologon.ps1). Everything below
+# asserts on HKCU under the logged-on principal.
+
+OU_USER = "StudioRsopUser"
+
+#: Two branches under one root: the computer in one, the user in the other.
+#: Loopback needs them separated, and using the same tree for the non-loopback
+#: user scenario keeps one shape across the whole work package.
+SPLIT_OUS: tuple[PlannedOu, ...] = (
+    PlannedOu(key="root", name=OU_ROOT, parent_key="domain"),
+    PlannedOu(key="parent", name=OU_PARENT, parent_key="root"),
+    PlannedOu(key="child", name=OU_CHILD, parent_key="parent"),
+    PlannedOu(key="user", name=OU_USER, parent_key="root"),
+)
+
+#: The corpus `user-side-disabled` scenario. One claim, and a control that makes
+#: its absence mean something: a GPO whose user side is disabled contributes
+#: nothing to the user scope, while its computer side still applies.
+#: The user sits in the SAME container as the computer here, which is the
+#: corpus scenario's own shape: its computer-side control ("MachineVal still
+#: applies") is only meaningful if the GPO scopes the computer too. The split
+#: tree below exists for loopback, where separation is the whole point.
+USER_SIDE_DISABLED = Scenario(
+    scenario_id="user-side-disabled",
+    scope="user",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    user_ou_key="child",
+    control_gpo="Studio-RSOP-UserControl",
+    control_value_name="Control",
+    gpos=(
+        PlannedGpo(
+            name="Studio-RSOP-UserSideOff",
+            guid="00000000-0000-0000-0000-000000005500",
+            scope="ou",
+            scope_key="child",
+            order=1,
+            user_enabled=False,
+            values={"MachineVal": "1"},
+            user_values={"UserVal": "1"},
+            isolates="a disabled user side must contribute NOTHING to the user scope",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-UserOn",
+            guid="00000000-0000-0000-0000-000000005501",
+            scope="ou",
+            scope_key="child",
+            order=2,
+            values={},
+            user_values={"UserWinner": "userOn"},
+            isolates=(
+                "the same container, user side ENABLED: separates 'disabled sides work' "
+                "from 'no user policy processed at all'"
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-UserControl",
+            guid="00000000-0000-0000-0000-000000005502",
+            scope="ou",
+            scope_key="child",
+            order=3,
+            values={},
+            user_values={"Control": "present"},
+            isolates="CONTROL: unconflicted, unfiltered. Absent => the experiment did not run.",
+        ),
+    ),
+)
+
+
+def _loopback_scenario(mode: str, guid_tail: str) -> Scenario:
+    """Build the merge or replace loopback scenario.
+
+    They differ in exactly one authored byte -- ``UserPolicyMode`` -- and in
+    what they expect. Writing them as one function keeps that true: a
+    hand-copied pair would eventually diverge somewhere that is not the thing
+    under test, and the difference between "merge lost a value" and "the two
+    topologies were not the same" would be unrecoverable from the evidence.
+    """
+    user_policy_mode = 2 if mode == "merge" else 1
+    return Scenario(
+        scenario_id=f"loopback-{mode}",
+        scope="user",
+        ous=SPLIT_OUS,
+        target_ou_key="child",
+        user_ou_key="user",
+        loopback_mode=mode,
+        control_gpo="Studio-RSOP-UserControl",
+        control_value_name="Control",
+        gpos=(
+            PlannedGpo(
+                name="Studio-RSOP-Loopback",
+                guid=f"00000000-0000-0000-0000-00000000{guid_tail}",
+                scope="ou",
+                scope_key="child",
+                order=1,
+                values={"LoopbackOn": mode},
+                raw_values=(
+                    RawValue(
+                        key=r"Software\Policies\Microsoft\Windows\System",
+                        value_name="UserPolicyMode",
+                        value=user_policy_mode,
+                        value_type="DWord",
+                        why=(
+                            "'Configure user Group Policy loopback processing mode' "
+                            f"= {mode}. A COMPUTER-side value that changes how the "
+                            "USER side is resolved."
+                        ),
+                    ),
+                ),
+                isolates=f"turns loopback {mode} on for the client",
+            ),
+            PlannedGpo(
+                name="Studio-RSOP-CompLocation",
+                guid="00000000-0000-0000-0000-00000000c10c",
+                scope="ou",
+                scope_key="child",
+                order=2,
+                values={},
+                user_values={"Loop": "computerLocation", "CompOnly": "1"},
+                isolates=(
+                    "user settings in the COMPUTER's container: applied at all only "
+                    "because loopback is on, and under merge they win the conflict"
+                ),
+            ),
+            PlannedGpo(
+                name="Studio-RSOP-UserLocation",
+                guid="00000000-0000-0000-0000-000000075e12",
+                scope="ou",
+                scope_key="user",
+                order=1,
+                values={},
+                user_values={"Loop": "userLocation", "UserOnly": "1"},
+                isolates=(
+                    "user settings in the USER's container: kept under merge, "
+                    "discarded entirely under replace"
+                ),
+            ),
+            PlannedGpo(
+                name="Studio-RSOP-UserControl",
+                guid="00000000-0000-0000-0000-00000000c04f",
+                scope="ou",
+                scope_key="child",
+                order=3,
+                values={},
+                user_values={"Control": "present"},
+                isolates=(
+                    "CONTROL: in the COMPUTER's container, so it applies under either "
+                    "loopback mode. Absent => the experiment did not run."
+                ),
+            ),
+        ),
+    )
+
+
+#: Under merge, user-location settings apply first and computer-location
+#: settings apply second, so ``Loop=computerLocation`` and both unique values
+#: survive. Under replace, the user's own container is not consulted at all:
+#: ``UserOnly`` must be ABSENT, which is the assertion that distinguishes
+#: replace from merge and is only readable because the control row proves the
+#: run happened.
+LOOPBACK_MERGE = _loopback_scenario("merge", "10e6")
+LOOPBACK_REPLACE = _loopback_scenario("replace", "10e7")
+
 SCENARIOS: dict[str, Scenario] = {
     LSDOU_PRECEDENCE.scenario_id: LSDOU_PRECEDENCE,
     DISABLED_BLOCK_ENFORCED.scenario_id: DISABLED_BLOCK_ENFORCED,
+    USER_SIDE_DISABLED.scenario_id: USER_SIDE_DISABLED,
+    LOOPBACK_MERGE.scenario_id: LOOPBACK_MERGE,
+    LOOPBACK_REPLACE.scenario_id: LOOPBACK_REPLACE,
 }
 
 
@@ -335,7 +544,11 @@ def _settings(gpo: PlannedGpo) -> tuple[RegistrySetting, ...]:
 
 
 def build_query(
-    scenario: Scenario, domain: str, site_name: str, computer_name: str
+    scenario: Scenario,
+    domain: str,
+    site_name: str,
+    computer_name: str,
+    user_name: str = "",
 ) -> RsopQuery:
     """Build the RSOP query for the planned topology.
 
@@ -422,6 +635,21 @@ def build_query(
             # ancestor in the SOM tree), so the lane feeds the honest input and
             # the oracle checks the fix rather than working around it.
             computer_dn=f"CN={computer_name},{dns[scenario.target_ou_key]}",
+            # The user half, present only for user-scope scenarios. Same object-DN
+            # shape as the computer, resolved by the same WI-026 ancestor walk.
+            user_name=user_name,
+            user_dn=(
+                f"CN={user_name},{dns[scenario.user_ou_key]}"
+                if scenario.scope == "user" and user_name
+                else ""
+            ),
+            # Loopback is a property of the target here, and a machine registry
+            # value on the estate. The lane authors the value and tells the model
+            # the mode; nothing derives one from the other, so a lane that failed
+            # to make loopback take effect cannot quietly become a model that was
+            # asked to predict the wrong thing. Windows' own event 5311 is what
+            # settles which mode actually ran.
+            loopback_mode=scenario.loopback_mode,  # type: ignore[arg-type]
             site_name=site_name,
             domain=domain,
         ),
@@ -431,15 +659,30 @@ def build_query(
 
 
 def prediction_document(
-    scenario: Scenario, domain: str, site_name: str, computer_name: str
+    scenario: Scenario,
+    domain: str,
+    site_name: str,
+    computer_name: str,
+    user_name: str = "",
 ) -> dict[str, Any]:
     """Run ``compute_rsop`` and normalize it to the shape the finalizer diffs.
 
-    Only the COMPUTER side is emitted. WP-6 is computer scope by ruling, and a
-    predicted user-side winner that the lane cannot observe would sit in the
-    verdict looking like a tested claim.
+    ONE SIDE IS EMITTED, the one the scenario is about. A computer-scope
+    scenario emits ``computer_settings`` and a user-scope scenario emits
+    ``user_settings``; the other side is dropped rather than carried along,
+    because a predicted winner the lane does not observe would sit in the
+    verdict looking exactly like a tested claim.
+
+    ``applied_gpos`` IS NOT A PER-SIDE SET, and the verdict says so. The model
+    reports one ``is_applied`` per GPO, meaning "applied on at least one side",
+    so on a user-scope scenario whose GPOs also scope the computer the two are
+    not the same question. The finalizer therefore gates on the winners --
+    which is what the corpus scenarios actually assert -- and records the
+    applied sets as observation rather than as a check. See WI-032.
     """
-    result = compute_rsop(build_query(scenario, domain, site_name, computer_name))
+    result = compute_rsop(
+        build_query(scenario, domain, site_name, computer_name, user_name)
+    )
 
     applied = sorted(g.gpo_name for g in result.gpo_results if g.is_applied)
     denied = sorted(
@@ -451,17 +694,21 @@ def prediction_document(
         key=lambda row: str(row["gpo"]),
     )
 
+    resolved = (
+        result.user_settings if scenario.scope == "user" else result.computer_settings
+    )
+    default_hive = "HKCU" if scenario.scope == "user" else "HKLM"
     winners = sorted(
         (
             {
-                "hive": setting.hive or "HKLM",
+                "hive": setting.hive or default_hive,
                 "key": setting.key,
                 "value_name": setting.value_name,
                 "value": setting.effective_value,
                 "winning_gpo": setting.winning_gpo_name,
                 "overridden_by": sorted(setting.overridden_by),
             }
-            for setting in result.computer_settings
+            for setting in resolved
         ),
         key=lambda row: str(row["value_name"]),
     )
@@ -469,9 +716,11 @@ def prediction_document(
     return {
         "query_id": result.query_id,
         "scenario_id": scenario.scenario_id,
-        "scope": "computer",
+        "scope": scenario.scope,
+        "loopback_mode": scenario.loopback_mode,
         "target": {
             "computer_name": result.target.computer_name,
+            "user_name": result.target.user_name,
             "site_name": result.target.site_name,
             "domain": result.target.domain,
         },
@@ -483,30 +732,51 @@ def prediction_document(
 
 
 def topology_document(
-    scenario: Scenario, domain: str, site_name: str, computer_name: str
+    scenario: Scenario,
+    domain: str,
+    site_name: str,
+    computer_name: str,
+    user_name: str = "",
 ) -> dict[str, Any]:
-    """The authoring instructions, symbolic where the estate must resolve them."""
+    """The authoring instructions, symbolic where the estate must resolve them.
+
+    Each OU names its parent SYMBOLICALLY as well as by DN. The authoring half
+    used to treat the OU list as a chain, each entry parented to the one before
+    it, which is true of the computer-scope tree and false of the split tree
+    loopback needs -- there the user branch hangs off the root beside the
+    computer branch. A chain would have built the right OUs in the wrong shape
+    and produced a topology the prediction does not describe.
+    """
     dns = _scope_dns(scenario, domain, site_name)
     return {
         "scenario_id": scenario.scenario_id,
+        "scope": scenario.scope,
+        "loopback_mode": scenario.loopback_mode,
         "domain": domain,
         "site_name": site_name,
         "endpoint_computer": computer_name,
+        "endpoint_user": user_name,
         "policy_key": POLICY_KEY,
         "ous": [
             {
+                "key": ou.key,
                 "name": ou.name,
                 "dn": dns[ou.key],
+                "parent_key": ou.parent_key,
                 "parent_dn": dns[ou.parent_key],
                 "block_inheritance": ou.block_inheritance,
             }
             for ou in scenario.ous
         ],
         "target_ou_dn": dns[scenario.target_ou_key],
+        "target_ou_key": scenario.target_ou_key,
+        "user_ou_dn": dns[scenario.user_ou_key] if scenario.user_ou_key else "",
+        "user_ou_key": scenario.user_ou_key,
         "gpos": [
             {
                 "name": planned.name,
                 "scope": planned.scope,
+                "scope_key": planned.scope_key,
                 "scope_dn": dns[planned.scope_key],
                 "order": planned.order,
                 "enforced": planned.enforced,
@@ -519,6 +789,18 @@ def topology_document(
                 "user_values": [
                     {"value_name": name, "value": value, "type": "String"}
                     for name, value in sorted(planned.user_values.items())
+                ],
+                # Written to their own key, with their own type, and absent from
+                # the prediction on purpose (see RawValue).
+                "raw_values": [
+                    {
+                        "key": raw.key,
+                        "value_name": raw.value_name,
+                        "value": raw.value,
+                        "type": raw.value_type,
+                        "why": raw.why,
+                    }
+                    for raw in planned.raw_values
                 ],
             }
             for planned in scenario.gpos
@@ -550,18 +832,46 @@ def main() -> int:
         required=True,
         help="The endpoint computer's sAMAccountName without the trailing $",
     )
+    parser.add_argument(
+        "--user-name",
+        default="",
+        help=(
+            "The interactively logged-on principal's sAMAccountName. Required "
+            "for user-scope scenarios and refused for computer-scope ones."
+        ),
+    )
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     scenario = SCENARIOS[args.scenario]
 
-    topology = topology_document(scenario, args.domain, args.site_name, args.computer_name)
-    prediction = prediction_document(scenario, args.domain, args.site_name, args.computer_name)
+    # A user-scope scenario with no principal would silently predict an empty
+    # user side -- no applied GPOs and no winners -- which is also what a
+    # correct model produces for a user nothing applies to. Two very different
+    # situations with one evidence signature is the shape this project keeps
+    # having to design out, so it is refused at the door instead.
+    if scenario.scope == "user" and not args.user_name:
+        parser.error(f"--user-name is required for the user-scope scenario {scenario.scenario_id}")
+    if scenario.scope != "user" and args.user_name:
+        parser.error(
+            f"--user-name was given for {scenario.scenario_id}, which is a "
+            "computer-scope scenario; it would be authored into the topology "
+            "and asserted on by nothing"
+        )
+
+    topology = topology_document(
+        scenario, args.domain, args.site_name, args.computer_name, args.user_name
+    )
+    prediction = prediction_document(
+        scenario, args.domain, args.site_name, args.computer_name, args.user_name
+    )
     expected = {
         "scenario_id": scenario.scenario_id,
-        "scope": "computer",
+        "scope": scenario.scope,
+        "loopback_mode": scenario.loopback_mode,
         "control_gpo": scenario.control_gpo,
         "control_value_name": scenario.control_value_name,
         "policy_key": POLICY_KEY,
+        "endpoint_user": args.user_name,
         "rows": [
             {"gpo": planned.name, "isolates": planned.isolates} for planned in scenario.gpos
         ],
