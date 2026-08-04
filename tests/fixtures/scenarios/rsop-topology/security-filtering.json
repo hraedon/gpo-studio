@@ -3,7 +3,7 @@
   "scenario_id": "security-filtering",
   "family": "rsop-topology",
   "title": "Security filtering: allow, read-without-apply, explicit deny, and group nesting, with independent token collection",
-  "readiness": "blocked",
+  "readiness": "ready",
   "provenance": {
     "tier": "spec-informed",
     "note": "Apply Group Policy gating (Read + Apply required, deny dominates, nesting expands through the token) is documented Windows behavior; the Plan 033 preconditions separately require evaluating Apply as a control-access right (CR) with real AD access masks, which Studio's delegation model historically got wrong.",
@@ -187,6 +187,5 @@
   "open_questions": [
     "PARTIALLY ANSWERED 2026-08-04, in runs the finalizer REFUSED to certify -- so this is an observation about Windows, not certified evidence. gpresult's UserResults omits a GPO denied by filtering rather than listing it with a reason, for both the missing-Apply and the explicit-deny cases. The lane therefore distinguishes them by which unique value is absent instead. Get-GPResultantSetOfPolicy remains untested: the GroupPolicy module is absent from the client and RSAT is a Feature-on-Demand the isolated estate cannot fetch.",
     "NEW, and the more useful finding: Get-GPPermission cannot express the deny either. Once a Deny ACE exists for a trustee it collapses that trustee to GpoCustom with Denied=False and stops reporting GpoApply, while the raw DACL carries both ACEs and the CSE honours the deny. A reader built on the cmdlet inherits the blind spot; see WI-033."
-  ],
-  "blocked_reason": "Platform-ready but execution-blocked. The user-scope lane, the topology, the deny ACE authoring and the finalizer all exist and are tested (WP-9, 2026-08-04); what blocks it is WI-034 -- the in-session policy refresh the lane depends on stops working after the re-session restart that the nesting row requires, so the observation never settles. This is a harness defect, not a missing platform: the estate itself is qualified and the interactive logon exists."
+  ]
 }

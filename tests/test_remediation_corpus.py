@@ -125,7 +125,10 @@ class TestCorpus:
             "group-membership": "ready",
             "regkeys-filesecurity": "ready",
             "services-area": "ready",
-            "security-filtering": "blocked",
+            # Ready since 2026-08-04: WP-9 ran both halves of it, the
+            # representable cases as a pass and the deny case as a declared
+            # divergence (WI-033).
+            "security-filtering": "ready",
             # Ready since 2026-08-04: WP-9 executed it against a real
             # interactive session and certified it. See wp9-results.md.
             "user-side-disabled": "ready",
@@ -157,6 +160,7 @@ class TestCorpus:
         assert runnable == [
             "disabled-block-enforced",
             "lsdou-precedence",
+            "security-filtering",
             "user-side-disabled",
         ]
         for scenario in rsop:

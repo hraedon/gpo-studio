@@ -193,59 +193,49 @@ pass. Needs a re-certification run, because the verdict's meaning changes.
 Not fixed during the run that measured it, for the same reason as WI-026 and
 WI-032.
 
-## WI-034 — the collected token has no domain groups, in either session
+## WI-034 — the token gate was reading a token the CSE never uses
 
-**Opened, then revised twice on 2026-08-04.** Both revisions were caused by
-measuring something the previous version had assumed. **This blocks the two
-`user-security-filtering*` scenarios from certifying.**
+**Opened, revised twice, and closed on 2026-08-04.** Closed by
+`rsop-user-observe-20260804065146-4224`.
 
-The write-up history is part of the item, because each version proposed a fix
-the next measurement killed:
+Kept at length because the two wrong versions are the useful part: each
+proposed a fix that the next measurement killed, and the third measurement
+showed the premise underneath all of them was wrong.
 
 1. *"The in-session refresh stops working after the re-session restart."*
-   Symptom stated as mechanism. Wrong: the same probe against a session
-   restored from the `user-logged-on` checkpoint works — task result 0,
-   `gpupdate` runs in session 1, output written.
+   Symptom stated as mechanism. The same probe against a session restored from
+   the `user-logged-on` checkpoint works.
 2. *"A boot-autologon session is not equivalent to a restored one."* The
-   post-reboot session's collected token had no domain groups, so the reboot
-   looked like the discriminator, and the recommended fix was to provision the
-   group as estate furniture before any session exists.
-3. **What is now measured: the token has no domain groups in EITHER session.**
-   On the restored checkpoint session — the one where the task works — the
-   collection returns the same nine SIDs: `Everyone`, `BUILTIN\Users`,
-   `INTERACTIVE`, `CONSOLE LOGON`, `Authenticated Users`, `This Organization`,
-   `LOCAL`, the asserted-identity SID, the integrity label. `authtype=Kerberos`,
-   `groupcount=9`, and **no `Domain Users`**.
+   post-reboot collection returned no domain groups, so the reboot looked like
+   the discriminator. Recommended fix: provision the group as estate furniture
+   before any session exists.
+3. *"The token has no domain groups in either session."* True of what was being
+   collected — and it retired fix 2 before it was built, because the restored
+   session returned the same nine well-known SIDs.
 
-So **provisioning the group earlier would not have helped**, and building that
-fix would have consumed a session and produced the same refusal. Measuring
-first is what stopped it.
+**What was actually wrong.** The collection ran `whoami /groups` inside an
+interactive scheduled task. **A process started by Task Scheduler does not
+carry the desktop session's group membership.** Measured on the same guest at
+the same moment: the task's token holds nine SIDs with `Domain Users` absent,
+while `gpresult /r /scope:user /user <principal>` reports ten — including
+`Domain Users`.
 
-**A confound this item must not hide.** Every token measurement here samples a
-process started by **Task Scheduler** as the principal, not the interactive
-desktop session's own token. Whether the desktop session's token also lacks
-domain groups is *unmeasured*. It is the desktop token the CSE resolves user
-policy against, and the nesting GPO did not apply — which is consistent with
-the desktop token lacking the group, but does not establish it.
+The desktop session was correct the whole time. So was the estate, the
+directory, the group membership and the DACLs. The gate was asking the right
+question of the wrong token, and every "fix" aimed at the session rather than
+at the acquisition path.
 
-**Separately:** the task's failure (`result 1`, no output) is intermittent and
-is *not* the same phenomenon as the missing groups. It failed on one
-post-reboot session and succeeded on the restored one; both had the same
-nine-SID token.
+**The fix.** Collect from `gpresult`'s security-groups section: the groups
+**Group Policy itself** evaluated filtering against. That is the exact question
+the gate asks, it is the CSE's own view rather than something this script
+sampled, and it comes from a tool the lane already depends on. It also removes
+a scheduled-task dependency from the collection path.
 
-**What is not in doubt:** the estate, the directory and the authored topology
-are all correct. The DC answers on 389, `Test-ComputerSecureChannel` is true,
-the group exists with the principal as a member, and the DACLs match intent.
-
-**Next step, and it is a measurement, not a fix:** capture the *desktop*
-session's token without going through Task Scheduler — for example by having
-the autologon session itself write `whoami /groups` at logon, through a
-per-user Run key or a logon script, which is a different token acquisition
-path. Until that distinguishes "the desktop token lacks domain groups" from
-"Task Scheduler hands out a token that does", any fix is a guess.
-
-**Closes when:** a filtering run certifies with the principal's session token
-demonstrably containing the group.
+**The lesson, and it generalises past this lane.** When a check disagrees with
+a system that is behaving correctly, suspect the *acquisition path* before the
+system. Three revisions of this item all theorised about the guest's state;
+none of them questioned whether the thing being measured was the thing the
+system uses.
 
 ---
 

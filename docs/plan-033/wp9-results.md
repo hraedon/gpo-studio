@@ -127,28 +127,28 @@ false finding about the model, caused by a constant in the harness.
 
 Three defects, three guards, no wrong answers. The guards were the point.
 
-## Security filtering: built, not yet certified
+## Security filtering: certified
 
-**Status: the lane exists and is tested; no filtering scenario has certified.**
-WI-034 blocks execution. Everything below is either committed code or an
-observation from a run the finalizer REFUSED, and is labelled as such.
+Two scenarios, both run 2026-08-04 against the estate:
 
-The blocker is worth stating precisely, because it took three attempts and each
-of the first two proposed a fix the next measurement killed. The collected token
-for the principal carries **no domain groups at all** -- not even `Domain Users`
--- and it does so in *both* session types: the one created by a boot autologon
-and the one restored from the `user-logged-on` checkpoint. Kerberos, nine SIDs,
-all well-known or local.
+| scenario | state | run |
+|---|---|---|
+| `user-security-filtering` | **pass** | `rsop-user-observe-20260804065146-4224` |
+| `user-security-filtering-deny` | **expected-finding** | `rsop-user-observe-20260804065525-9254` |
 
-So group-based user filtering is not observable here yet, and the re-session
-restart the lane builds for it does not change the token. The recommended fix
-in the previous revision -- provision the group before any session exists --
-would not have worked either; measuring is what stopped it being built.
+The pass covers Read+Apply, Read-without-Apply, and Apply through a group the
+principal belongs to. Predicted and observed winners are identical:
+`Filter=allow`, `AllowOnly=1`, `NestedOnly=1`, `Control=present`, with
+`ReadOnlyOnly` absent.
 
-One confound is named rather than buried: every token measurement so far samples
-a process started by **Task Scheduler** as the principal, not the interactive
-desktop session's own token. The next step is a measurement that distinguishes
-those two, not a fix. See WI-034.
+The deny scenario produced **exactly the two divergences its candidate declared
+before it ran**:
+
+- `Filter`: predicted `deny`, observed `allow`
+- `DenyOnly`: predicted `1`, observed absent
+
+That is WI-033 demonstrated rather than argued: `SecurityFilter` has no deny
+polarity, so the model says a GPO applies when a deny ACE means it does not.
 
 ### The case the model cannot express
 
