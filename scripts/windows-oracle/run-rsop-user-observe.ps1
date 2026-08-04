@@ -106,6 +106,9 @@ $result = [ordered]@{
     user_policy_completed  = $false
     user_policy_completed_at = $null
     refresh_task_results   = @()
+    token_groups_session   = @()
+    token_groups_ldap      = @()
+    token_collection_error = $null
     rsop_captured          = $false
     rsop_parse_error       = $null
     pre_run_residual       = @()
@@ -222,6 +225,85 @@ function Invoke-UserPolicyRefresh {
         return $record
     } finally {
         Unregister-ScheduledTask -TaskName $refreshTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-SessionTokenGroups {
+    <#
+        The principal's groups AS ITS OWN TOKEN SEES THEM, collected inside its
+        session.
+
+        WP-6's rule is that an interactive `whoami /groups` is the USER context
+        and must never be used as the computer token. The converse is what makes
+        it right here: the nesting case is a claim about the user's token, and
+        the only thing that holds a user's token is the user's own session.
+
+        Collected with the same interactive scheduled task the refresh uses, so
+        no password is needed.
+    #>
+    $marker = Join-Path $commandDir 'whoami-groups.txt'
+    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    $taskName = "StudioLabUserToken-$runId"
+    $inner = "& whoami.exe /groups /fo csv > '$marker'; exit $LASTEXITCODE"
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -Command \"$inner\""
+    $taskPrincipal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$principal" -LogonType Interactive
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $taskPrincipal | Out-Null
+    try {
+        Start-ScheduledTask -TaskName $taskName
+        $deadline = (Get-Date).AddSeconds(120)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 3
+            if ("$((Get-ScheduledTask -TaskName $taskName).State)" -ne 'Running') { break }
+        }
+        # ASSERT ON THE ARTIFACT. whoami.exe is a native executable, so the
+        # task result says nothing about whether the file was written.
+        if (-not (Test-Path -LiteralPath $marker)) { return @() }
+        $rows = @(Import-Csv -LiteralPath $marker -ErrorAction SilentlyContinue)
+        return @($rows | ForEach-Object { "$($_.'Group Name')" } | Where-Object { $_ })
+    } finally {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-LdapTokenGroups {
+    <#
+        The same question asked of the directory instead of the session.
+
+        `tokenGroups` is a constructed attribute: the DC computes the expanded
+        transitive set, so nesting is resolved by the directory rather than by
+        this script walking memberOf and getting it subtly wrong. Available
+        through [adsisearcher] with no RSAT, which the client does not have.
+
+        Two independent collections rather than one, because they can disagree
+        in a way that matters: a group added AFTER the session was established
+        is in the directory and not in the token, and the user must sign in
+        again before it applies. That disagreement is real Windows behaviour and
+        the lane should be able to see it rather than average over it.
+    #>
+    param([string]$Sid)
+    try {
+        $searcher = [adsisearcher]"(objectSid=$Sid)"
+        $searcher.PropertiesToLoad.Add('tokenGroups') | Out-Null
+        $found = $searcher.FindOne()
+        if (-not $found) { return @() }
+        $entry = $found.GetDirectoryEntry()
+        $entry.RefreshCache(@('tokenGroups'))
+        $names = @()
+        foreach ($raw in $entry.Properties['tokenGroups']) {
+            $groupSid = New-Object System.Security.Principal.SecurityIdentifier($raw, 0)
+            try {
+                $names += "$($groupSid.Translate([System.Security.Principal.NTAccount]).Value)"
+            } catch {
+                # A SID that will not translate is recorded as a SID rather than
+                # dropped: a silently shorter list is a weaker assertion.
+                $names += "$($groupSid.Value)"
+            }
+        }
+        return @($names)
+    } catch {
+        return @()
     }
 }
 
@@ -516,6 +598,15 @@ try {
     $result.observed_values = @(Get-UserPolicyValues -Sid $sid)
     $result.control_present = @($result.observed_values | Where-Object {
             $_.value_name -eq $expected.control_value_name }).Count -gt 0
+
+    # Token collection, after the refresh so it describes the session the
+    # observation was taken from.
+    try {
+        $result.token_groups_session = @(Get-SessionTokenGroups)
+        $result.token_groups_ldap = @(Get-LdapTokenGroups -Sid $sid)
+    } catch {
+        $result.token_collection_error = "$($_.Exception.Message)"
+    }
 
     # The loopback control is read AFTER the settle loop, so it describes the
     # processing pass whose results are being recorded.

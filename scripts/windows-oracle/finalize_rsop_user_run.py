@@ -171,6 +171,54 @@ def _lane_validity(
     return problems
 
 
+def _token_problems(observe: dict[str, Any], expected: dict[str, Any]) -> list[str]:
+    """Reasons the prediction's group-membership input is not corroborated.
+
+    The nesting row is only a test of the model if the principal really is in
+    the group the model was told about. The candidate states that membership as
+    an input; the estate has to confirm it, from the principal's OWN token and
+    from the directory, or the prediction rests on a fiction and every nesting
+    result is meaningless.
+
+    A lane problem rather than a finding: nothing here is a claim about
+    ``rsop.py``.
+    """
+    group = str(expected.get("group_name") or "")
+    if not group:
+        return []
+
+    problems: list[str] = []
+    if observe.get("token_collection_error"):
+        problems.append(f"token collection failed: {observe['token_collection_error']}")
+
+    # Names arrive as DOMAIN\Name from both sources; the stamped group name is
+    # matched as a suffix so neither the domain prefix nor the run stamp has to
+    # be reconstructed here.
+    def _holds(rows: Any) -> bool:
+        return any(str(row).split("\\")[-1].startswith(group) for row in (rows or []))
+
+    session = observe.get("token_groups_session") or []
+    ldap = observe.get("token_groups_ldap") or []
+    if not session:
+        problems.append(
+            "no token groups were collected from the principal's session; the nesting "
+            "row's input is unverified"
+        )
+    elif not _holds(session):
+        # The specific, real failure this catches: a group added after the
+        # session was established is in the directory and NOT in the token, so
+        # the GPO legitimately does not apply and the model -- told only about
+        # the directory -- predicts that it does.
+        problems.append(
+            f"the principal's session token does not contain {group!r}; a group added "
+            "after sign-in is in the directory and not in the token, so the nesting "
+            "prediction describes a membership the session does not have"
+        )
+    if ldap and not _holds(ldap):
+        problems.append(f"the directory's tokenGroups for the principal do not contain {group!r}")
+    return problems
+
+
 def _control_problems(observe: dict[str, Any], expected: dict[str, Any]) -> list[str]:
     """Reasons the experiment says nothing about the model.
 
@@ -346,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         author, cleanup, observe, harness_ok, dirty, topology_delivered_intact
     )
     lane_problems += _client_environment_problems(observe)
+    lane_problems += _token_problems(observe, expected)
     control_problems = _control_problems(observe, expected) if not lane_problems else []
     comparison = (
         _compare(prediction, observe, symbolic)
@@ -353,14 +402,27 @@ def main(argv: list[str] | None = None) -> int:
         else None
     )
 
+    # A scenario may declare in advance that it EXPECTS to disagree, with the
+    # reason -- the deny row exists to demonstrate a capability the model does
+    # not have. That declaration changes what the verdict is called and nothing
+    # else: the comparison still runs, the divergence is still recorded in
+    # full, and `passed` stays false. Suppressing it into a pass would hide the
+    # gap; calling it an ordinary finding would lose the fact that it was
+    # predicted before the run rather than discovered after it.
+    expected_finding = str(expected.get("expect_finding") or "")
+
     if lane_problems:
         state = "lane-failure"
     elif control_problems:
         state = "inconclusive"
     elif comparison and comparison["agrees"]:
-        state = "pass"
+        # A scenario that declared a divergence and did not produce one is its
+        # own kind of wrong: either the model gained a capability nobody
+        # recorded, or the row was not authored. Either way the declaration is
+        # stale and must not be certified as a pass.
+        state = "unexpected-agreement" if expected_finding else "pass"
     else:
-        state = "finding"
+        state = "expected-finding" if expected_finding else "finding"
 
     verdict = {
         "schema_version": 1,
@@ -378,6 +440,12 @@ def main(argv: list[str] | None = None) -> int:
             "intended": expected.get("loopback_mode"),
             "observed": observe.get("observed_loopback_mode"),
             "control_ok": observe.get("loopback_control_ok"),
+        },
+        "expected_finding": expected_finding,
+        "token_groups": {
+            "group": expected.get("group_name"),
+            "session": observe.get("token_groups_session"),
+            "directory": observe.get("token_groups_ldap"),
         },
         "lane_problems": lane_problems,
         "control_problems": control_problems,

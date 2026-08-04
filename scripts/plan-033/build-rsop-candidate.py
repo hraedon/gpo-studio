@@ -69,7 +69,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from gpo_studio.model import GPO, RegistrySetting  # noqa: E402
+from gpo_studio.model import GPO, RegistrySetting, SecurityFilter  # noqa: E402
 from gpo_studio.rsop import RsopQuery, RsopTarget, compute_rsop  # noqa: E402
 from gpo_studio.som import SomLink, SomNode  # noqa: E402
 
@@ -101,6 +101,32 @@ class RawValue:
 
 
 @dataclass(frozen=True)
+class PlannedFilter:
+    """One security-filtering intent on a GPO.
+
+    ``kind`` maps to what the estate authors and to what the model is told, and
+    the two are NOT the same set -- which is the point of the deny row:
+
+    ``apply``   Read + Apply Group Policy for the principal. Authored with
+                Set-GPPermission; expressed to the model as an ``apply``
+                SecurityFilter.
+    ``read``    Read only, no Apply. The principal can see the GPO and does not
+                receive it. Expressed as a ``read`` filter, which the resolver
+                correctly treats as not-applying.
+    ``deny``    An explicit DENY ace on the Apply Group Policy control right,
+                written straight onto the groupPolicyContainer's DACL.
+                **Studio's model cannot express this**: ``SecurityFilter``
+                has ``permission: Literal["apply", "read"]`` and no polarity,
+                so there is no way to tell ``compute_rsop`` that a deny exists.
+                The row is authored anyway, and the divergence it produces is
+                the finding.
+    """
+
+    principal_key: str  # "user" | "group" | "authenticated-users"
+    kind: str  # apply | read | deny
+
+
+@dataclass(frozen=True)
 class PlannedGpo:
     """One GPO in the topology: where it links, and what it writes."""
 
@@ -115,6 +141,10 @@ class PlannedGpo:
     link_enabled: bool = True
     #: Machine values outside the policy key, excluded from the prediction.
     raw_values: tuple[RawValue, ...] = ()
+    #: Security filtering. Empty means the GPO keeps the default
+    #: Authenticated Users = Read + Apply, which is what makes an unfiltered
+    #: control row a control.
+    filters: tuple[PlannedFilter, ...] = ()
     #: User-side values. Authored so the GPO genuinely carries a user side --
     #: which is what makes "the computer side still applies" a real test rather
     #: than a statement about an empty GPO. WP-6 never *asserts* on them; that
@@ -159,7 +189,22 @@ class Scenario:
     #: mode produces the same answer.
     user_ou_key: str = ""
     loopback_mode: str = "disabled"  # disabled | merge | replace
+    #: The lane creates a disposable group and puts the principal in it, so
+    #: nesting can be tested without touching any pre-existing group.
+    needs_group: bool = False
+    #: Set when the scenario is EXPECTED to disagree with Windows, with the
+    #: reason. Declared in the candidate so a divergence cannot be explained
+    #: after the fact -- and so the finalizer can tell a predicted capability
+    #: gap from a surprise.
+    expect_finding: str = ""
 
+
+#: The disposable group used for the nesting case. Symbolic here; the estate
+#: stamps it per run. The model is told the principal is a member, and the
+#: observation half proves that membership independently from the principal's
+#: actual token -- otherwise the prediction rests on an input the estate does
+#: not corroborate.
+GROUP_NAME = "StudioRsopGroup"
 
 OU_ROOT = "StudioRsop"
 OU_PARENT = "StudioRsopParent"
@@ -503,12 +548,180 @@ def _loopback_scenario(mode: str, guid_tail: str) -> Scenario:
 LOOPBACK_MERGE = _loopback_scenario("merge", "10e6")
 LOOPBACK_REPLACE = _loopback_scenario("replace", "10e7")
 
+# ---------------------------------------------------------------------------
+# WP-9: user-side security filtering
+# ---------------------------------------------------------------------------
+#
+# The corpus `security-filtering` scenario, split in two. The split is the
+# design: the first three cases are things Studio's model can be TOLD about,
+# and the deny case is one it cannot. Running them together would produce a
+# single verdict in which a genuine capability gap and three working
+# behaviours are indistinguishable.
+#
+# MS16-072 shapes every row. Since that update user GPOs are retrieved in the
+# COMPUTER's security context, so a GPO the computer cannot read does not apply
+# to the user however the user is filtered. Every filtered GPO below therefore
+# keeps Authenticated Users at READ and only moves Apply -- which is also the
+# supported way to security-filter, and the reason the `read` row is a real
+# case rather than a contrivance.
+
+
+def _filtering_gpos(include_deny: bool) -> tuple[PlannedGpo, ...]:
+    """The filtering rows, with the deny row optional.
+
+    Every row writes a UNIQUELY named value as well as the shared conflicting
+    one. That is not decoration: this lane gates on winners and treats the
+    applied-GPO set as advisory (WI-032), so "did this GPO apply?" has to be
+    answerable from a value, not from a GPO list.
+    """
+    # With the deny row present it takes link order 1, so it is the row Studio
+    # predicts will WIN the conflict. That placement is deliberate: at any
+    # lower precedence the only divergence would be its unique value going
+    # missing, and the sharper failure -- the model naming a winning value that
+    # never arrives on the machine -- would go undemonstrated. Everything else
+    # keeps its relative order.
+    offset = 1 if include_deny else 0
+    rows = [
+        PlannedGpo(
+            name="Studio-RSOP-FilterAllow",
+            guid="00000000-0000-0000-0000-00000000fa11",
+            scope="ou",
+            scope_key="child",
+            order=1 + offset,
+            values={},
+            user_values={"Filter": "allow", "AllowOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="user", kind="apply"),
+            ),
+            isolates="Read + Apply for the principal: applies, and wins the conflict at order 1",
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-FilterReadOnly",
+            guid="00000000-0000-0000-0000-00000000fa12",
+            scope="ou",
+            scope_key="child",
+            order=2 + offset,
+            values={},
+            user_values={"Filter": "readOnly", "ReadOnlyOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="user", kind="read"),
+            ),
+            isolates=(
+                "Read WITHOUT Apply: the principal can see the GPO and must not receive it. "
+                "ReadOnlyOnly must be ABSENT"
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-FilterNested",
+            guid="00000000-0000-0000-0000-00000000fa14",
+            scope="ou",
+            scope_key="child",
+            order=3 + offset,
+            values={},
+            user_values={"Filter": "nested", "NestedOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="group", kind="apply"),
+            ),
+            isolates=(
+                "Apply granted to a GROUP the principal belongs to: applies through the "
+                "token. NestedOnly must be present"
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-UserControl",
+            guid="00000000-0000-0000-0000-00000000fa15",
+            scope="ou",
+            scope_key="child",
+            order=4 + offset,
+            values={},
+            user_values={"Control": "present"},
+            isolates=(
+                "CONTROL: default Authenticated Users Read+Apply, unconflicted. Absent => "
+                "the experiment did not run, and every absence above means nothing."
+            ),
+        ),
+    ]
+    if include_deny:
+        rows.insert(
+            0,
+            PlannedGpo(
+                name="Studio-RSOP-FilterDeny",
+                guid="00000000-0000-0000-0000-00000000fa13",
+                scope="ou",
+                scope_key="child",
+                order=1,
+                values={},
+                user_values={"Filter": "deny", "DenyOnly": "1"},
+                filters=(
+                    PlannedFilter(principal_key="authenticated-users", kind="read"),
+                    PlannedFilter(principal_key="user", kind="apply"),
+                    PlannedFilter(principal_key="user", kind="deny"),
+                ),
+                isolates=(
+                    "EXPECTED DIVERGENCE: an explicit deny on Apply dominates the allow, so "
+                    "Windows will not apply this GPO. Studio's SecurityFilter has no "
+                    "polarity, so the model is told only about the allow, predicts that it "
+                    "applies, and -- at link order 1 -- that it WINS the conflict."
+                ),
+            ),
+        )
+    return tuple(rows)
+
+
+#: The representable cases. A pass here means Studio resolves Apply, Read
+#: without Apply, and group nesting the way Windows does.
+USER_SECURITY_FILTERING = Scenario(
+    scenario_id="user-security-filtering",
+    scope="user",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    user_ou_key="child",
+    control_gpo="Studio-RSOP-UserControl",
+    control_value_name="Control",
+    needs_group=True,
+    gpos=_filtering_gpos(include_deny=False),
+)
+
+#: The unrepresentable case, declared as such BEFORE it runs.
+#:
+#: This scenario is expected to produce a FINDING, and saying so in advance is
+#: what separates a demonstrated capability gap from a surprise. Studio predicts
+#: Filter=deny (the deny row holds link order 1) and DenyOnly=1; Windows will
+#: resolve Filter=allow and omit DenyOnly, because a deny ACE on Apply Group
+#: Policy dominates the allow for the same principal.
+#:
+#: The failure direction is the part that matters: the model says a GPO applies
+#: when it does not. An operator asking "what will this machine get?" is told
+#: about settings that will never arrive.
+USER_SECURITY_FILTERING_DENY = Scenario(
+    scenario_id="user-security-filtering-deny",
+    scope="user",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    user_ou_key="child",
+    control_gpo="Studio-RSOP-UserControl",
+    control_value_name="Control",
+    needs_group=True,
+    expect_finding=(
+        "SecurityFilter has no deny polarity, so the model cannot be told the deny ACE "
+        "exists. Predicted: Filter=deny (the deny row holds link order 1) and DenyOnly=1. "
+        "Expected from Windows: Filter=allow and no DenyOnly, because a deny on Apply "
+        "Group Policy dominates the allow for the same principal."
+    ),
+    gpos=_filtering_gpos(include_deny=True),
+)
+
 SCENARIOS: dict[str, Scenario] = {
     LSDOU_PRECEDENCE.scenario_id: LSDOU_PRECEDENCE,
     DISABLED_BLOCK_ENFORCED.scenario_id: DISABLED_BLOCK_ENFORCED,
     USER_SIDE_DISABLED.scenario_id: USER_SIDE_DISABLED,
     LOOPBACK_MERGE.scenario_id: LOOPBACK_MERGE,
     LOOPBACK_REPLACE.scenario_id: LOOPBACK_REPLACE,
+    USER_SECURITY_FILTERING.scenario_id: USER_SECURITY_FILTERING,
+    USER_SECURITY_FILTERING_DENY.scenario_id: USER_SECURITY_FILTERING_DENY,
 }
 
 
@@ -573,6 +786,34 @@ def build_query(
     """
     dns = _scope_dns(scenario, domain, site_name)
 
+    def filters_for(planned: PlannedGpo) -> tuple[SecurityFilter, ...]:
+        """Translate authored filtering into what the model can be told.
+
+        DENY ROWS ARE DROPPED, and that is the experiment rather than an
+        oversight: ``SecurityFilter.permission`` is ``Literal["apply", "read"]``
+        with no polarity, so there is no representation for "this principal is
+        denied Apply". Inventing one here -- silently turning the deny into the
+        absence of an allow -- would make the model look correct about a case
+        it cannot express, which is the opposite of what an oracle is for.
+        """
+        expressible: list[SecurityFilter] = []
+        for index, planned_filter in enumerate(planned.filters):
+            if planned_filter.kind == "deny":
+                continue
+            principal = {
+                "user": user_name,
+                "group": GROUP_NAME,
+                "authenticated-users": "Authenticated Users",
+            }[planned_filter.principal_key]
+            expressible.append(
+                SecurityFilter(
+                    id=f"{planned.name}:{index}",
+                    principal=principal,
+                    permission="apply" if planned_filter.kind == "apply" else "read",
+                )
+            )
+        return tuple(expressible)
+
     gpos = tuple(
         GPO(
             guid=planned.guid,
@@ -580,6 +821,7 @@ def build_query(
             computer_enabled=True,
             user_enabled=planned.user_enabled,
             settings=_settings(planned),
+            security_filters=filters_for(planned),
             domain=domain,
         )
         for planned in scenario.gpos
@@ -664,6 +906,12 @@ def build_query(
             # asked to predict the wrong thing. Windows' own event 5311 is what
             # settles which mode actually ran.
             loopback_mode=scenario.loopback_mode,  # type: ignore[arg-type]
+            # The nesting case, stated as an input rather than discovered. The
+            # observation half collects the principal's real token groups two
+            # independent ways and the finalizer refuses the run if the group
+            # is not in them -- so this is a claim the estate has to
+            # corroborate, not one the prediction gets for free.
+            group_memberships=(GROUP_NAME,) if scenario.needs_group else (),
             site_name=site_name,
             domain=domain,
         ),
@@ -732,6 +980,8 @@ def prediction_document(
         "scenario_id": scenario.scenario_id,
         "scope": scenario.scope,
         "loopback_mode": scenario.loopback_mode,
+        "expect_finding": scenario.expect_finding,
+        "group_memberships": list(result.target.group_memberships),
         "target": {
             "computer_name": result.target.computer_name,
             "user_name": result.target.user_name,
@@ -786,6 +1036,7 @@ def topology_document(
         "target_ou_key": scenario.target_ou_key,
         "user_ou_dn": dns[scenario.user_ou_key] if scenario.user_ou_key else "",
         "user_ou_key": scenario.user_ou_key,
+        "group_name": GROUP_NAME if scenario.needs_group else "",
         "gpos": [
             {
                 "name": planned.name,
@@ -815,6 +1066,10 @@ def topology_document(
                         "why": raw.why,
                     }
                     for raw in planned.raw_values
+                ],
+                "filters": [
+                    {"principal": planned_filter.principal_key, "kind": planned_filter.kind}
+                    for planned_filter in planned.filters
                 ],
             }
             for planned in scenario.gpos
@@ -886,6 +1141,8 @@ def main() -> int:
         "control_value_name": scenario.control_value_name,
         "policy_key": POLICY_KEY,
         "endpoint_user": args.user_name,
+        "group_name": GROUP_NAME if scenario.needs_group else "",
+        "expect_finding": scenario.expect_finding,
         "rows": [
             {"gpo": planned.name, "isolates": planned.isolates} for planned in scenario.gpos
         ],

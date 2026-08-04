@@ -253,11 +253,18 @@ if ($Phase -eq 'setup') {
             values        = $gpo.values
             user_values   = $gpo.user_values
             raw_values    = $gpo.raw_values
+            filters       = $gpo.filters
             guid          = $null
             created       = $false
             linked        = $false
         }
     }
+
+    # The nesting case needs a group the principal belongs to. Created here per
+    # run and deleted in cleanup: no pre-existing group is touched, so nothing
+    # about the estate's own membership can leak into the result.
+    $groupName = ''
+    if ("$($topology.group_name)") { $groupName = "$($topology.group_name)-$stamp" }
 
     # The user object is READ before anything is created, for the same reason
     # the computer is: cleanup restores it to where the directory says it was,
@@ -295,6 +302,10 @@ if ($Phase -eq 'setup') {
         user_original_dn  = $userOriginalDn
         user_original_parent = $userOriginalParent
         user_sid          = $userSid
+        group_name        = $groupName
+        group_dn          = $null
+        group_created     = $false
+        group_sid         = $null
         user_moved        = $false
         ous               = $ouPlan
         gpos              = $gpoPlan
@@ -329,6 +340,20 @@ if ($Phase -eq 'setup') {
                 Set-GPInheritance -Target $ou.dn -IsBlocked Yes -Domain $Domain -Server $dc `
                     -ErrorAction Stop | Out-Null
             }
+        }
+
+        if ($groupName) {
+            New-ADGroup -Name $groupName -GroupScope Global -GroupCategory Security `
+                -Path $childOuDn -Server $dc -ErrorAction Stop
+            $state.group_created = $true
+            $state.group_dn = "CN=$groupName,$childOuDn"
+            Save-State $state
+            if (-not (Wait-ForAdObject -Identity $state.group_dn -Server $dc)) {
+                throw "group not readable on $dc after creation: $($state.group_dn)"
+            }
+            Add-ADGroupMember -Identity $state.group_dn -Members $targetUser -Server $dc -ErrorAction Stop
+            $state.group_sid = "$((Get-ADGroup -Identity $state.group_dn -Server $dc).SID)"
+            Save-State $state
         }
 
         Move-ADObject -Identity $originalDn -TargetPath $childOuDn -Server $dc -ErrorAction Stop
@@ -397,6 +422,64 @@ if ($Phase -eq 'setup') {
             $gpo.linked = $true
             Save-State $state
 
+            # SECURITY FILTERING, applied after the link so the GPO exists in
+            # every sense before its DACL is touched.
+            #
+            # MS16-072 is why Authenticated Users keeps READ on every filtered
+            # GPO. Since that update a USER's GPOs are retrieved in the
+            # COMPUTER's security context, so a GPO the computer cannot read
+            # does not reach the user however the user is filtered -- and the
+            # lane would record a filtering result that is really a read
+            # failure. Only Apply is moved.
+            foreach ($planned in $gpo.filters) {
+                $principal = switch ("$($planned.principal)") {
+                    'user' { $state.target_user }
+                    'group' { $groupName }
+                    'authenticated-users' { 'Authenticated Users' }
+                    default { throw "unknown filter principal '$($planned.principal)' on $($gpo.name)" }
+                }
+                $principalType = if ("$($planned.principal)" -eq 'user') { 'User' } else { 'Group' }
+
+                switch ("$($planned.kind)") {
+                    'read' {
+                        # -Replace, so an existing Read+Apply for the same
+                        # principal is reduced rather than added beside.
+                        Set-GPPermission -Guid $created.Id -Domain $Domain -Server $dc `
+                            -TargetName $principal -TargetType $principalType `
+                            -PermissionLevel GpoRead -Replace -ErrorAction Stop | Out-Null
+                    }
+                    'apply' {
+                        Set-GPPermission -Guid $created.Id -Domain $Domain -Server $dc `
+                            -TargetName $principal -TargetType $principalType `
+                            -PermissionLevel GpoApply -ErrorAction Stop | Out-Null
+                    }
+                    'deny' {
+                        # No cmdlet writes a deny ACE, so this goes onto the
+                        # groupPolicyContainer's DACL directly. The right is
+                        # Apply Group Policy, a CONTROL-ACCESS right
+                        # (ExtendedRight) rather than a property right, which is
+                        # exactly the distinction Plan 033's preconditions
+                        # single out.
+                        $applyRight = [guid]'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
+                        $gpoDn = "CN={$($created.Id)},CN=Policies,CN=System,$domainDn"
+                        $identity = if ("$($planned.principal)" -eq 'user') {
+                            (Get-ADUser -Identity $principal -Server $dc).SID
+                        } else {
+                            (Get-ADGroup -Identity $principal -Server $dc).SID
+                        }
+                        $acl = Get-Acl -Path "AD:$gpoDn"
+                        $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+                            $identity,
+                            [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+                            [System.Security.AccessControl.AccessControlType]::Deny,
+                            $applyRight)
+                        $acl.AddAccessRule($ace)
+                        Set-Acl -Path "AD:$gpoDn" -AclObject $acl
+                    }
+                    default { throw "unknown filter kind '$($planned.kind)' on $($gpo.name)" }
+                }
+            }
+
             # Link order is set AFTER creation, because New-GPLink appends and
             # the resulting order depends on what is already linked to that
             # container. Setting it explicitly makes the topology independent of
@@ -454,6 +537,52 @@ if ($Phase -eq 'setup') {
                 }
             }
         }
+        # Filtering is verified for the same reason link state is: if the DACL
+        # does not say what the topology asked for, the estate is running a
+        # different experiment and the prediction describes the wrong one. A
+        # mismatch here would surface as a FINDING ABOUT STUDIO.
+        foreach ($gpo in $state.gpos) {
+            if (-not $gpo.created) { continue }
+            if (@($gpo.filters).Count -eq 0) { continue }
+            $permissions = @(Get-GPPermission -Guid $gpo.guid -All -Domain $Domain -Server $dc -ErrorAction Stop)
+            $gpoDn = "CN={$($gpo.guid)},CN=Policies,CN=System,$domainDn"
+            $dacl = (Get-Acl -Path "AD:$gpoDn").Access
+            $applyRight = 'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
+
+            foreach ($planned in $gpo.filters) {
+                $principal = switch ("$($planned.principal)") {
+                    'user' { $state.target_user }
+                    'group' { $groupName }
+                    'authenticated-users' { 'Authenticated Users' }
+                }
+                $held = @($permissions | Where-Object {
+                    "$($_.Trustee.Name)" -eq "$principal" -and "$($_.Permission)" -match 'GpoApply'
+                })
+                $denied = @($dacl | Where-Object {
+                    "$($_.AccessControlType)" -eq 'Deny' -and
+                    "$($_.ObjectType)" -eq $applyRight -and
+                    "$($_.IdentityReference)" -match [regex]::Escape($principal)
+                })
+                switch ("$($planned.kind)") {
+                    'apply' {
+                        if ($held.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): '$principal' was granted Apply and does not hold it"
+                        }
+                    }
+                    'read' {
+                        if ($held.Count -gt 0) {
+                            $authoredProblems += "$($gpo.name): '$principal' should hold Read WITHOUT Apply and holds Apply"
+                        }
+                    }
+                    'deny' {
+                        if ($denied.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): no deny ACE on Apply Group Policy for '$principal'"
+                        }
+                    }
+                }
+            }
+        }
+
         foreach ($ou in $state.ous) {
             if (-not $ou.created) { continue }
             $inheritance = Get-GPInheritance -Target $ou.dn -Domain $Domain -Server $dc -ErrorAction Stop
@@ -567,6 +696,18 @@ foreach ($gpo in $orderedGpos) {
     }
 }
 
+# The disposable group goes before the OUs that contain it: an OU with a child
+# object cannot be removed, and -Recursive is deliberately not used anywhere in
+# this teardown -- a recursive delete would hide exactly the leftovers the
+# residual check below exists to find.
+if ($state.PSObject.Properties.Name -contains 'group_created' -and $state.group_created) {
+    try {
+        Remove-ADGroup -Identity $state.group_dn -Server $dc -Confirm:$false -ErrorAction Stop
+    } catch {
+        $problems += "group delete failed for $($state.group_dn): $($_.Exception.Message)"
+    }
+}
+
 # OUs leaf-first: a parent with children cannot be removed.
 $reversed = @($state.ous)
 [array]::Reverse($reversed)
@@ -589,6 +730,7 @@ $residual = [ordered]@{
     computer_restored = $false
     user_dn          = $null
     user_restored    = $null
+    surviving_group  = $null
     surviving_links  = @()
     surviving_gpos   = @()
     surviving_ous    = @()
@@ -640,6 +782,13 @@ foreach ($gpo in $orderedGpos) {
     if ($stillPresent) {
         $residual.surviving_gpos += $gpo.name
         $problems += "GPO still present after delete: $($gpo.name)"
+    }
+}
+
+if ($state.PSObject.Properties.Name -contains 'group_created' -and $state.group_created) {
+    if (Test-AdObjectExists -Identity $state.group_dn -Server $dc) {
+        $residual.surviving_group = "$($state.group_dn)"
+        $problems += "group still present after delete: $($state.group_dn)"
     }
 }
 

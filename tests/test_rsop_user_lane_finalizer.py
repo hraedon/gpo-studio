@@ -436,6 +436,120 @@ def test_applied_set_difference_alone_does_not_decide_the_verdict(lane) -> None:
     assert verdict["comparison"]["applied_set_difference_is_advisory"] is True
 
 
+def _filtering_lane(lane, **observation_overrides):
+    """A security-filtering run: a group in the token and a nesting prediction."""
+    observation = _observation(
+        intended_loopback_mode="disabled",
+        observed_loopback_mode="disabled",
+        token_groups_session=["LAB\\Domain Users", "LAB\\StudioRsopGroup-20260804-1"],
+        token_groups_ldap=["LAB\\Domain Users", "LAB\\StudioRsopGroup-20260804-1"],
+        observed_values=[{"value_name": "Control", "value": "present"}],
+    )
+    observation.update(observation_overrides)
+    return lane(
+        expected=_expected(
+            scenario_id="user-security-filtering",
+            loopback_mode="disabled",
+            group_name="StudioRsopGroup",
+        ),
+        prediction=_prediction(
+            loopback_mode="disabled",
+            winners=[
+                {
+                    "value_name": "Control",
+                    "value": "present",
+                    "winning_gpo": "Studio-RSOP-UserControl",
+                }
+            ],
+        ),
+        observation=observation,
+    )
+
+
+def test_group_absent_from_the_session_token_is_a_lane_failure(lane) -> None:
+    """The nesting prediction rests on a membership the estate must corroborate.
+
+    The concrete failure: a group added after the session was established is in
+    the directory and NOT in the token, so the GPO legitimately does not apply
+    while the model -- told only about the directory -- predicts that it does.
+    That is a false finding waiting to happen, so the run is refused instead.
+    """
+    verdict = _finalize(
+        *_filtering_lane(
+            lane,
+            token_groups_session=["LAB\\Domain Users"],
+        )
+    )
+    assert verdict["state"] == "lane-failure"
+    assert verdict["comparison"] is None
+    assert any("session token does not contain" in p for p in verdict["lane_problems"])
+
+
+def test_no_token_collection_at_all_is_a_lane_failure(lane) -> None:
+    """An empty collection is not a passing collection."""
+    verdict = _finalize(*_filtering_lane(lane, token_groups_session=[]))
+    assert verdict["state"] == "lane-failure"
+    assert any("no token groups were collected" in p for p in verdict["lane_problems"])
+
+
+def test_token_check_is_skipped_when_no_group_is_involved(lane) -> None:
+    """Scenarios without a nesting row must not be gated on a group they never use."""
+    verdict = _finalize(*lane())
+    assert verdict["state"] == "pass"
+
+
+def test_an_undeclared_divergence_is_an_ordinary_finding(lane) -> None:
+    """The baseline the declared cases are measured against."""
+    verdict = _finalize(
+        *_filtering_lane(
+            lane,
+            observed_values=[
+                {"value_name": "Control", "value": "present"},
+                {"value_name": "Filter", "value": "allow"},
+            ],
+        )
+    )
+    assert verdict["state"] == "finding"
+    assert verdict["expected_finding"] == ""
+
+
+def test_declared_divergence_states(lane) -> None:
+    """`expect_finding` renames the outcome without softening it."""
+    run_dir, candidate = _filtering_lane(
+        lane,
+        observed_values=[
+            {"value_name": "Control", "value": "present"},
+            {"value_name": "DenyOnly", "value": "1"},
+        ],
+    )
+    expected = json.loads((candidate / "expected.json").read_text())
+    expected["expect_finding"] = "SecurityFilter has no deny polarity"
+    (candidate / "expected.json").write_text(json.dumps(expected))
+
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "expected-finding"
+    assert verdict["passed"] is False
+    assert verdict["expected_finding"].startswith("SecurityFilter")
+    # The divergence is recorded in full, not summarised away.
+    assert [f["value_name"] for f in verdict["comparison"]["value_findings"]] == ["DenyOnly"]
+
+
+def test_declared_divergence_that_does_not_happen_is_not_a_pass(lane) -> None:
+    """A stale declaration must not certify.
+
+    Either the model gained a capability nobody recorded, or the row was never
+    authored. Both need a human, and neither is a pass.
+    """
+    run_dir, candidate = _filtering_lane(lane)
+    expected = json.loads((candidate / "expected.json").read_text())
+    expected["expect_finding"] = "SecurityFilter has no deny polarity"
+    (candidate / "expected.json").write_text(json.dumps(expected))
+
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "unexpected-agreement"
+    assert verdict["passed"] is False
+
+
 def test_server_build_on_the_client_is_a_lane_failure(lane) -> None:
     """Shared environment gate: this lane observes a client, and says so."""
     verdict = _finalize(
