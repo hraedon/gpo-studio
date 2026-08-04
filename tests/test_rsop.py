@@ -1253,3 +1253,36 @@ class TestWmiFilterEvaluation:
         result = self._result((("someone-else", False),))
         assert any(g.is_applied for g in result.gpo_results)
         assert "wmi_filter_unknown" in result.warnings
+
+    def test_an_unevaluatable_filter_blocks(self) -> None:
+        """WI-039, measured: Windows fails closed on a filter it cannot evaluate.
+
+        A filter naming a class the target does not have cannot be true, and
+        the machine treats that as not-applying rather than as not-filtering.
+        """
+        result = self._result((("w1", "unevaluatable"),))
+        assert not any(g.is_applied for g in result.gpo_results)
+        reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
+        assert "wmi_filter_unevaluatable" in reasons
+
+    def test_unevaluatable_is_not_reported_as_false(self) -> None:
+        """The reason has to distinguish them: they are different facts.
+
+        A filter that evaluated false was evaluated. One that could not be
+        evaluated was not, and an operator reading the reason should be able to
+        tell which happened.
+        """
+        result = self._result((("w1", "unevaluatable"),))
+        reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
+        assert "wmi_filter_false" not in reasons
+
+    def test_unevaluatable_and_absent_stay_different(self) -> None:
+        """The distinction WI-039 exists for.
+
+        "Nobody supplied an answer" and "there is no answer to supply" deserve
+        different predictions. Collapsing them is what the fix undoes.
+        """
+        unevaluatable = self._result((("w1", "unevaluatable"),))
+        absent = self._result(())
+        assert not any(g.is_applied for g in unevaluatable.gpo_results)
+        assert any(g.is_applied for g in absent.gpo_results)

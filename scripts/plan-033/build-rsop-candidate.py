@@ -1097,10 +1097,18 @@ def build_query(
     # condition really held -- the true-filtered GPO applying is what makes the
     # false one's absence mean anything. Studio evaluates no WQL here and is
     # not being asked to.
+    # ``None`` in the scenario means the filter cannot be evaluated on this
+    # target, which is a FACT about it and not an absence of information -- so
+    # it is supplied to the model as `"unevaluatable"` rather than withheld.
+    # Withholding it would say "nobody looked", and somebody did (WI-039).
     wmi_results = tuple(
-        (f"{planned.name}:wmi", planned.wmi_filter.expect_true)
+        (
+            f"{planned.name}:wmi",
+            "unevaluatable" if planned.wmi_filter.expect_true is None
+            else planned.wmi_filter.expect_true,
+        )
         for planned in scenario.gpos
-        if planned.wmi_filter is not None and planned.wmi_filter.expect_true is not None
+        if planned.wmi_filter is not None
     )
 
     def links_for(scope_key: str) -> tuple[SomLink, ...]:

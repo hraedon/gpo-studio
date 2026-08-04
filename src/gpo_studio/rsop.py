@@ -17,6 +17,15 @@ from .som import PrecedenceEntry, SomNode, SomPrecedence, compute_precedence
 
 RsopMode = Literal["planning", "logging"]
 LoopbackMode = Literal["disabled", "merge", "replace"]
+#: How a WMI filter turned out on a target.
+#:
+#: ``"unevaluatable"`` is not a third flavour of false, and the distinction was
+#: measured rather than reasoned: a filter naming a class the target does not
+#: have cannot be true, and **Windows fails closed on it** (WI-039, run
+#: ``rsop-observe-20260804153726-7284``). A filter simply ABSENT from the
+#: mapping still means "nobody looked", which is a different fact and keeps its
+#: old behaviour -- the GPO applies and the result warns.
+WmiEvaluation = bool | Literal["unevaluatable"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +100,7 @@ class RsopQuery:
     #: ``wmi_filter_unknown``. Guessing "unknown means false" would trade a
     #: false promise for a false absence, and an absence is the harder error to
     #: notice.
-    wmi_filter_results: tuple[tuple[str, bool], ...] = ()
+    wmi_filter_results: tuple[tuple[str, WmiEvaluation], ...] = ()
     simulate_no_loopback: bool = False
     simulate_slow_link: bool | None = None
     simulate_safe_mode: bool | None = None
@@ -256,7 +265,7 @@ def _gpo_filter_status(
     gpo: GPO,
     entry: PrecedenceEntry,
     target: RsopTarget,
-    wmi_results: dict[str, bool] | None = None,
+    wmi_results: dict[str, WmiEvaluation] | None = None,
 ) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
     """Return (is_applied, blocking_reasons, warning_reasons) for a GPO."""
     blocking: list[str] = []
@@ -307,6 +316,11 @@ def _gpo_filter_status(
         evaluated = (wmi_results or {}).get(gpo.wmi_filter.id)
         if evaluated is False:
             blocking.append("wmi_filter_false")
+        elif evaluated == "unevaluatable":
+            # Its own reason, not `wmi_filter_false`: the filter did not
+            # evaluate to false, it could not be evaluated at all, and an
+            # operator reading the reason should be able to tell those apart.
+            blocking.append("wmi_filter_unevaluatable")
         elif evaluated is None:
             warnings.append("wmi_filter_unknown")
 
