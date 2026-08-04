@@ -1,11 +1,16 @@
 # WP-3 expansion — what the security-template lane does not yet touch
 
 **Status: design note, written 2026-08-04 from the code rather than the plan.**
-No lane row has run. The two measurements at the end WERE taken, on the estate,
-and one of them replaced this note's original recommendation -- which is why
-they are at the end rather than in a follow-up. It exists so the expansion is sequenced by *risk* instead
-of by section order, because the sections differ enormously in how easy it is to
-tell a Studio defect from a `secedit` normalisation.
+
+No lane row has run. It exists so the expansion is sequenced by *risk* rather
+than by section order, because the sections differ enormously in how easy it is
+to tell a Studio defect from a `secedit` normalisation.
+
+The two measurements at the end **were** taken, on the estate, and one of them
+replaced this note's own recommendation. They are left at the end, after the
+reasoning they overturned, because the order is the point: the argument for a
+semantic SDDL comparator was sound and it was still wrong about what blocks the
+work. **Read the measurements before implementing Tranche B.**
 
 ## What is certified, and what is not
 
@@ -76,13 +81,20 @@ Tranche A needs **no new comparison machinery** beyond generalising the
 principal-set rule from one hard-coded section name to a small table. It can be
 certified the same way the current tranche is.
 
-### Tranche B — sections that need a semantic comparator first
+### Tranche B — sections that need a new comparator first
 
 `Registry Keys`, `File Security`, `Service General Setting`.
 
-These should **not** be attempted with the current comparison. What they need
-first is a decision about what "equal" means for a security descriptor, and a
-control that proves the decision is sound:
+> **Superseded in part by the measurements below.** The reasoning here — that
+> SDDL canonicalisation is the blocker — turned out not to hold: a canonical
+> descriptor survives an export byte-for-byte. What actually blocks the tranche
+> is the *entry shape*, which is a smaller and differently shaped piece of work.
+> The control row in point (2) survives unchanged and is still required.
+
+These should **not** be attempted with the current comparison. The reasoning as
+it stood before the measurement was that they need a decision about what "equal"
+means for a security descriptor, plus a control that proves the decision is
+sound:
 
 1. compare parsed descriptors rather than SDDL strings — owner, group, and the
    ACE list as a *set* of (type, flags, rights, trustee) — so canonical
