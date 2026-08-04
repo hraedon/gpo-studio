@@ -130,12 +130,11 @@ class PlannedFilter:
                 receive it. Expressed as a ``read`` filter, which the resolver
                 correctly treats as not-applying.
     ``deny``    An explicit DENY ace on the Apply Group Policy control right,
-                written straight onto the groupPolicyContainer's DACL.
-                **Studio's model cannot express this**: ``SecurityFilter``
-                has ``permission: Literal["apply", "read"]`` and no polarity,
-                so there is no way to tell ``compute_rsop`` that a deny exists.
-                The row is authored anyway, and the divergence it produces is
-                the finding.
+                written straight onto the groupPolicyContainer's DACL, and
+                expressed to the model as a filter with ``deny=True``. Studio
+                could not express this at all until WI-033 was fixed, and the
+                run that demonstrated the gap is
+                ``rsop-user-observe-20260804065525-9254``.
     """
 
     principal_key: str  # "user" | "group" | "authenticated-users"
@@ -707,17 +706,16 @@ USER_SECURITY_FILTERING = Scenario(
     gpos=_filtering_gpos(include_deny=False),
 )
 
-#: The unrepresentable case, declared as such BEFORE it runs.
+#: The deny case. It WAS a declared divergence -- Studio predicted `Filter=deny`
+#: and `DenyOnly=1` while Windows resolved `Filter=allow` and never wrote
+#: `DenyOnly`, certified as an expected-finding on 2026-08-04. WI-033 fixed the
+#: model, so the declaration is gone and this scenario is now an ordinary
+#: agreement: a deny ACE keeps its GPO off the machine, and Studio says so.
 #:
-#: This scenario is expected to produce a FINDING, and saying so in advance is
-#: what separates a demonstrated capability gap from a surprise. Studio predicts
-#: Filter=deny (the deny row holds link order 1) and DenyOnly=1; Windows will
-#: resolve Filter=allow and omit DenyOnly, because a deny ACE on Apply Group
-#: Policy dominates the allow for the same principal.
-#:
-#: The failure direction is the part that matters: the model says a GPO applies
-#: when it does not. An operator asking "what will this machine get?" is told
-#: about settings that will never arrive.
+#: The row stays at link order 1 for the same reason it was placed there: at any
+#: lower precedence the only thing at stake would be its unique value, and the
+#: sharper property -- that the model does not name a winning value the machine
+#: never receives -- would go untested.
 USER_SECURITY_FILTERING_DENY = Scenario(
     scenario_id="user-security-filtering-deny",
     scope="user",
@@ -727,12 +725,6 @@ USER_SECURITY_FILTERING_DENY = Scenario(
     control_gpo="Studio-RSOP-UserControl",
     control_value_name="Control",
     needs_group=True,
-    expect_finding=(
-        "SecurityFilter has no deny polarity, so the model cannot be told the deny ACE "
-        "exists. Predicted: Filter=deny (the deny row holds link order 1) and DenyOnly=1. "
-        "Expected from Windows: Filter=allow and no DenyOnly, because a deny on Apply "
-        "Group Policy dominates the allow for the same principal."
-    ),
     gpos=_filtering_gpos(include_deny=True),
 )
 
@@ -896,19 +888,18 @@ def build_query(
     dns = _scope_dns(scenario, domain, site_name)
 
     def filters_for(planned: PlannedGpo) -> tuple[SecurityFilter, ...]:
-        """Translate authored filtering into what the model can be told.
+        """Translate authored filtering into what the model is told.
 
-        DENY ROWS ARE DROPPED, and that is the experiment rather than an
-        oversight: ``SecurityFilter.permission`` is ``Literal["apply", "read"]``
-        with no polarity, so there is no representation for "this principal is
-        denied Apply". Inventing one here -- silently turning the deny into the
-        absence of an allow -- would make the model look correct about a case
-        it cannot express, which is the opposite of what an oracle is for.
+        Deny rows used to be DROPPED here, because ``SecurityFilter`` had no
+        polarity and inventing one -- silently turning a deny into the absence
+        of an allow -- would have made the model look correct about a case it
+        could not express. The lane demonstrated the consequence against a real
+        client (WI-033) and `SecurityFilter.deny` now exists, so the deny is
+        passed through like any other filter and the scenario expects an
+        ordinary agreement.
         """
         expressible: list[SecurityFilter] = []
         for index, planned_filter in enumerate(planned.filters):
-            if planned_filter.kind == "deny":
-                continue
             principal = {
                 "user": user_name,
                 "group": GROUP_NAME,
@@ -918,7 +909,8 @@ def build_query(
                 SecurityFilter(
                     id=f"{planned.name}:{index}",
                     principal=principal,
-                    permission="apply" if planned_filter.kind == "apply" else "read",
+                    permission="read" if planned_filter.kind == "read" else "apply",
+                    deny=planned_filter.kind == "deny",
                 )
             )
         return tuple(expressible)

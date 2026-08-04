@@ -251,12 +251,32 @@ def _gpo_filter_status(
 
     filters = gpo.security_filters
     if filters:
-        has_apply = any(
-            filter_.permission == "apply" and _filter_matches(filter_, target)
+        # DENY WINS, which is how token evaluation works and is why this is
+        # checked before the allow.
+        #
+        # Without it, a GPO whose DACL holds both an allow and a deny for the
+        # same principal was reported as applying -- the model saying a machine
+        # would receive settings that Windows keeps off it. That failure
+        # direction is the dangerous one for an operator asking "what will this
+        # machine get?", and it was demonstrated against a real client before
+        # being fixed here (WI-033).
+        denied = any(
+            filter_.deny
+            and filter_.permission == "apply"
+            and _filter_matches(filter_, target)
             for filter_ in filters
         )
-        if not has_apply:
-            blocking.append("security_filter_mismatch")
+        if denied:
+            blocking.append("security_filter_denied")
+        else:
+            has_apply = any(
+                filter_.permission == "apply"
+                and not filter_.deny
+                and _filter_matches(filter_, target)
+                for filter_ in filters
+            )
+            if not has_apply:
+                blocking.append("security_filter_mismatch")
 
     if gpo.wmi_filter is not None and gpo.wmi_filter.query:
         warnings.append("wmi_filter_unknown")

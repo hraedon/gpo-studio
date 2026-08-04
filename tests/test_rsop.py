@@ -1072,3 +1072,110 @@ def test_wi031_non_enforced_precedence_is_unchanged() -> None:
     winner = result.get_effective_value("computer", r"Software\X", "Block")
     assert winner is not None
     assert winner.effective_value == "child"
+
+
+class TestDenyFiltering:
+    """WI-033: a deny ACE on Apply Group Policy keeps the GPO off the target.
+
+    Before this, `SecurityFilter` had no polarity, so a DACL holding both an
+    allow and a deny for the same principal was modelled as applying. The model
+    told an operator a machine would receive settings Windows keeps off it --
+    the dangerous direction, and demonstrated against a real 26200 client
+    before being fixed.
+    """
+
+    def _query(self, filters: tuple[SecurityFilter, ...]) -> RsopQuery:
+        dn = "OU=Child,DC=x"
+        gpo = GPO(
+            guid="g1",
+            name="Filtered",
+            security_filters=filters,
+            settings=(
+                RegistrySetting(
+                    id="s",
+                    side="computer",
+                    hive="HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    registry_type="REG_SZ",
+                    value="applied",
+                ),
+            ),
+        )
+        return RsopQuery(
+            query_id="q",
+            target=RsopTarget(
+                computer_name="C",
+                computer_dn=f"CN=C,{dn}",
+                domain="x",
+                group_memberships=("LabGroup",),
+            ),
+            som_nodes=(
+                SomNode(
+                    dn=dn,
+                    name="Child",
+                    scope="ou",
+                    parent_dn="",
+                    links=(SomLink(gpo_guid="g1", scope="ou", scope_dn=dn, order=1),),
+                ),
+            ),
+            gpos=(gpo,),
+        )
+
+    def _applied(self, filters: tuple[SecurityFilter, ...]) -> bool:
+        result = compute_rsop(self._query(filters))
+        return any(g.is_applied for g in result.gpo_results)
+
+    def test_an_allow_alone_applies(self) -> None:
+        """The control: without it, a deny test proves only that nothing applies."""
+        assert self._applied((SecurityFilter(id="a", principal="C", permission="apply"),))
+
+    def test_a_deny_beside_an_allow_wins(self) -> None:
+        """The case that was wrong."""
+        assert not self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="C", permission="apply", deny=True),
+            )
+        )
+
+    def test_a_deny_on_a_group_the_target_belongs_to_wins(self) -> None:
+        """Deny reaches through the token, exactly as allow does."""
+        assert not self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="LabGroup", permission="apply", deny=True),
+            )
+        )
+
+    def test_a_deny_for_someone_else_does_not_block(self) -> None:
+        """Still a filter: a deny naming a principal the target is not must not bite."""
+        assert self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="Stranger", permission="apply", deny=True),
+            )
+        )
+
+    def test_a_deny_on_read_does_not_block_apply(self) -> None:
+        """The right being denied matters; this models Apply Group Policy only."""
+        assert self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="C", permission="read", deny=True),
+            )
+        )
+
+    def test_the_reason_names_the_deny(self) -> None:
+        """`security_filter_mismatch` would say the principal lacked Apply, which is false."""
+        result = compute_rsop(
+            self._query(
+                (
+                    SecurityFilter(id="a", principal="C", permission="apply"),
+                    SecurityFilter(id="d", principal="C", permission="apply", deny=True),
+                )
+            )
+        )
+        reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
+        assert "security_filter_denied" in reasons
+        assert "security_filter_mismatch" not in reasons
