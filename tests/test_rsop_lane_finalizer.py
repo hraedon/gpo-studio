@@ -350,3 +350,77 @@ def test_lane_failure_suppresses_the_comparison_entirely(lane) -> None:
     assert verdict["state"] == "lane-failure"
     assert verdict["comparison"] is None
     assert verdict["control_problems"] == []
+
+
+def test_tagging_call_matches_the_real_signature(tmp_path: Path, monkeypatch) -> None:
+    """The pass path must actually be able to tag.
+
+    This is here because it was missed: the other tests pass --no-tag and stub
+    tag_evidence_commit with a permissive lambda, so a wrong call signature
+    sailed through every one of them and only surfaced against the live estate,
+    on the pass path, after the experiment had already run. A stub that accepts
+    anything tests nothing about the call.
+
+    So this test binds the finalizer's call against the REAL function's
+    signature and lets a mismatch raise, without tagging anything.
+    """
+    import inspect
+
+    from gpo_studio.oracle_evidence import tag_evidence_commit as real
+
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def recording(*args: Any, **kwargs: Any) -> str:
+        # Raises TypeError if the finalizer's call does not fit the real
+        # function -- which is exactly the defect this pins.
+        inspect.signature(real).bind(*args, **kwargs)
+        calls.append((args, kwargs))
+        return "evidence/stub"
+
+    run_dir = tmp_path / "run"
+    (run_dir / "author").mkdir(parents=True)
+    (run_dir / "observe").mkdir(parents=True)
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+
+    monkeypatch.setattr(finalize_rsop_run, "DEPLOYED_FILES", {})
+    monkeypatch.setattr(finalize_rsop_run, "LOCAL_FILES", {})
+    monkeypatch.setattr(finalize_rsop_run, "tag_evidence_commit", recording)
+
+    def fake_run(args: list[str], **kwargs: Any):
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(finalize_rsop_run.subprocess, "run", fake_run)
+
+    (run_dir / "author" / "author-state.json").write_text(
+        json.dumps(_author_state()), encoding="utf-8"
+    )
+    (run_dir / "author" / "cleanup-result.json").write_text(
+        json.dumps(_cleanup_result()), encoding="utf-8"
+    )
+    (run_dir / "observe" / "observation.json").write_text(
+        json.dumps(_observation()), encoding="utf-8"
+    )
+    (candidate / "prediction.json").write_text(json.dumps(_prediction()), encoding="utf-8")
+    (candidate / "expected.json").write_text(json.dumps(_expected()), encoding="utf-8")
+
+    # No --no-tag: the tagging path is the point.
+    finalize_rsop_run.main([str(run_dir), "--candidate-root", str(candidate)])
+
+    verdict = json.loads((run_dir / "rsop-verdict.json").read_text(encoding="utf-8"))
+    assert verdict["state"] == "pass"
+    assert len(calls) == 1
+
+
+def test_guest_json_with_a_bom_still_loads(tmp_path: Path) -> None:
+    """PowerShell's Set-Content -Encoding UTF8 writes a BOM.
+
+    Reading it as plain utf-8 raises before the finalizer decides anything, so
+    the lane presents as crashed rather than as any of its four outcomes. Also
+    found live rather than here, which is why it is now pinned here.
+    """
+    path = tmp_path / "observation.json"
+    path.write_text(json.dumps({"run_id": "x"}), encoding="utf-8-sig")
+    assert finalize_rsop_run._load(path) == {"run_id": "x"}

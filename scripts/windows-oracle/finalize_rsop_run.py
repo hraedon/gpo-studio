@@ -371,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if state == "pass" and not args.no_tag:
         try:
-            tag_evidence_commit(str(observe.get("run_id")), commit, repo_root=repo_root)
+            tag_evidence_commit(repo_root, str(observe.get("run_id")), commit)
         except OracleEvidenceError as error:
             # A pass that cannot be tagged must not leave a durable verdict
             # claiming a binding that does not exist.
