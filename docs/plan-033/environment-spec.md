@@ -69,6 +69,7 @@ which of these produced a given verdict.
 | WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803230132-8090` (18/18) |
 | WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803230220-2450` (20/20) |
 | endpoint | estate, client guest (26200) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real client build) |
+| WP-6B | estate, member server + client guest (26200) | `psdirect` | 2026-08-04 | `rsop-observe-20260804010341-7165` (`pass`; also `rsop-observe-20260804010551-9363` and `rsop-observe-20260804010738-5543`, identical) |
 | any | `mvmcitest01` (historic shared host) | `ssh` + launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (commit orphaned, see above) |
 
 Each estate row cites a run made against the lane scripts as they ship. WP-2 and

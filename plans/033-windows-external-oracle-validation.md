@@ -823,6 +823,14 @@ inside. Three conditions attach:
 
 ## WP-6 — Controlled RSOP and effective-rights oracle (computer scope)
 
+**Status 2026-08-04: partially delivered.** WP-6A reconciled the platform
+registry; WP-6B built the lane and certified `lsdou-precedence` over three
+identical passes — the first external check `rsop.py` has ever had. It covers
+LSDOU ordering, same-container link order and non-conflicting inheritance, and
+nothing else: items 2, 5 and 6 of the topology below are untested, their corpus
+scenarios being blocked or user-scope. Findings and the answered open questions
+are in `docs/plan-033/wp6b-results.md`; WI-026 is open.
+
 Do not use whatever 3–5 GPOs happen to exist. Create a deterministic topology
 with intentional conflicts so that every expected winner is known.
 
