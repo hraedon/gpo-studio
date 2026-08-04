@@ -257,6 +257,7 @@ if ($Phase -eq 'setup') {
             guid          = $null
             created       = $false
             linked        = $false
+            permission_summary = @()
         }
     }
 
@@ -541,13 +542,30 @@ if ($Phase -eq 'setup') {
         # does not say what the topology asked for, the estate is running a
         # different experiment and the prediction describes the wrong one. A
         # mismatch here would surface as a FINDING ABOUT STUDIO.
+        #
+        # THE ASSERTION IS ON THE RAW DACL, not on Get-GPPermission, and that
+        # is a measured decision. Once a Deny ace exists for a trustee, the
+        # cmdlet collapses that trustee's entry to `GpoCustom` with
+        # `Denied=False` and stops reporting GpoApply at all -- so a check
+        # written against it fails on precisely the row that carries a deny,
+        # while the DACL underneath is completely correct (measured on the
+        # estate 2026-08-04: three ACEs present, allow and deny both).
+        #
+        # It is also what Plan 033's preconditions ask for: real CR/RP ACEs
+        # rather than a tool's summary of them. Apply Group Policy is a
+        # control-access right, so an allow is an ExtendedRight ace whose
+        # ObjectType is its GUID.
+        $applyRight = 'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
         foreach ($gpo in $state.gpos) {
             if (-not $gpo.created) { continue }
             if (@($gpo.filters).Count -eq 0) { continue }
-            $permissions = @(Get-GPPermission -Guid $gpo.guid -All -Domain $Domain -Server $dc -ErrorAction Stop)
             $gpoDn = "CN={$($gpo.guid)},CN=Policies,CN=System,$domainDn"
-            $dacl = (Get-Acl -Path "AD:$gpoDn").Access
-            $applyRight = 'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
+            $dacl = @((Get-Acl -Path "AD:$gpoDn").Access)
+            # Kept as evidence, not as a gate: it is what an operator would see,
+            # and its disagreement with the DACL is itself worth recording.
+            $summary = @(Get-GPPermission -Guid $gpo.guid -All -Domain $Domain -Server $dc -ErrorAction Stop |
+                ForEach-Object { "$($_.Trustee.Name)=$($_.Permission)" })
+            $gpo.permission_summary = $summary
 
             foreach ($planned in $gpo.filters) {
                 $principal = switch ("$($planned.principal)") {
@@ -555,28 +573,27 @@ if ($Phase -eq 'setup') {
                     'group' { $groupName }
                     'authenticated-users' { 'Authenticated Users' }
                 }
-                $held = @($permissions | Where-Object {
-                    "$($_.Trustee.Name)" -eq "$principal" -and "$($_.Permission)" -match 'GpoApply'
+                $mine = @($dacl | Where-Object {
+                    "$($_.IdentityReference)" -match [regex]::Escape($principal) -and
+                    "$($_.ObjectType)" -eq $applyRight
                 })
-                $denied = @($dacl | Where-Object {
-                    "$($_.AccessControlType)" -eq 'Deny' -and
-                    "$($_.ObjectType)" -eq $applyRight -and
-                    "$($_.IdentityReference)" -match [regex]::Escape($principal)
-                })
+                $allowApply = @($mine | Where-Object { "$($_.AccessControlType)" -eq 'Allow' })
+                $denyApply = @($mine | Where-Object { "$($_.AccessControlType)" -eq 'Deny' })
+
                 switch ("$($planned.kind)") {
                     'apply' {
-                        if ($held.Count -eq 0) {
-                            $authoredProblems += "$($gpo.name): '$principal' was granted Apply and does not hold it"
+                        if ($allowApply.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): '$principal' has no Allow ace for Apply Group Policy"
                         }
                     }
                     'read' {
-                        if ($held.Count -gt 0) {
-                            $authoredProblems += "$($gpo.name): '$principal' should hold Read WITHOUT Apply and holds Apply"
+                        if ($allowApply.Count -gt 0) {
+                            $authoredProblems += "$($gpo.name): '$principal' should hold Read WITHOUT Apply and has an Allow ace for Apply Group Policy"
                         }
                     }
                     'deny' {
-                        if ($denied.Count -eq 0) {
-                            $authoredProblems += "$($gpo.name): no deny ACE on Apply Group Policy for '$principal'"
+                        if ($denyApply.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): no Deny ace on Apply Group Policy for '$principal'"
                         }
                     }
                 }

@@ -207,6 +207,34 @@ if [[ -z "$AUTHOR_WORK_DIR" ]]; then
     exit 1
 fi
 
+# -------------------------------------------------------------- resession ---
+# A token is minted at logon and never updated, so a group this run created
+# after the guest signed in is in the directory and not in the principal's
+# token. Only scenarios that need a group pay the restart.
+NEEDS_GROUP=$(python3 -c "import json,sys; print(json.load(open('$CANDIDATE_DIR/expected.json')).get('group_name') or '')" 2>/dev/null || true)
+if [[ -n "$NEEDS_GROUP" ]]; then
+    echo "--- re-establishing the interactive session (group '$NEEDS_GROUP') ---"
+    endpoint -Action exec -TimeoutSeconds 300 -Command \
+        "$(run_guest_script "'$GUEST_SCRIPTS\\run-rsop-user-observe.ps1' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -Mode resession")" >/dev/null || true
+
+    # Wait for the guest to come back before asking it anything. The exec above
+    # dies with the restart it requested, so its exit status says nothing.
+    RESESSION_OK=0
+    for _ in $(seq 1 30); do
+        sleep 20
+        if endpoint -Action exec -TimeoutSeconds 60 -Command '"up"' >/dev/null 2>&1; then
+            RESESSION_OK=1
+            break
+        fi
+    done
+    if [[ "$RESESSION_OK" != "1" ]]; then
+        echo "ERROR: the client did not come back after the re-session restart." >&2
+        exit 1
+    fi
+    endpoint -Action exec -TimeoutSeconds 600 -Command \
+        "$(run_guest_script "'$GUEST_SCRIPTS\\run-rsop-user-observe.ps1' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT' -Mode resession-verify")"
+fi
+
 # ---------------------------------------------------------------- observe ---
 # Deliberately not `set -e`-fatal: the observation half can fail legitimately,
 # and its failure must not skip the evidence pull or pre-empt the trap's

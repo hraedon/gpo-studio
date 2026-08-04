@@ -61,7 +61,11 @@ param(
     #                the driver because removing the principal's user policy
     #                requires a refresh inside the principal's session, which
     #                only this script knows how to do.
-    [ValidateSet('observe', 'post-teardown')][string]$Mode = 'observe'
+    # observe        the experiment.
+    # resession      re-establish the interactive session so the principal's
+    #                token picks up a group created after it signed in.
+    # post-teardown  put the client back once the topology is gone.
+    [ValidateSet('observe', 'resession', 'resession-verify', 'post-teardown')][string]$Mode = 'observe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -244,9 +248,16 @@ function Get-SessionTokenGroups {
     $marker = Join-Path $commandDir 'whoami-groups.txt'
     Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
     $taskName = "StudioLabUserToken-$runId"
-    $inner = "& whoami.exe /groups /fo csv > '$marker'; exit $LASTEXITCODE"
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument "-NoProfile -ExecutionPolicy Bypass -Command \"$inner\""
+    # Built by concatenation, NOT interpolation. `$LASTEXITCODE` inside a
+    # double-quoted string is expanded HERE, by the script composing the
+    # command, so the task received `exit ` with nothing after it and died
+    # before writing anything. The failure was silent: the collection returned
+    # an empty list, which the finalizer then correctly refused as "no token
+    # groups collected" -- one layer away from being read as "the principal is
+    # in no groups".
+    $inner = '& whoami.exe /groups /fo csv > ' + "'" + $marker + "'"
+    $arg = '-NoProfile -ExecutionPolicy Bypass -Command "' + $inner + '"'
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
     $taskPrincipal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$principal" -LogonType Interactive
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     Register-ScheduledTask -TaskName $taskName -Action $action -Principal $taskPrincipal | Out-Null
@@ -284,11 +295,18 @@ function Get-LdapTokenGroups {
     #>
     param([string]$Sid)
     try {
+        # TWO STEPS, because tokenGroups CANNOT BE RETRIEVED BY A SEARCH.
+        # It is a constructed attribute the DC computes per object, and asking
+        # for it through a subtree search fails with "An operations error
+        # occurred" -- an error that says nothing about the real constraint.
+        # Measured on the estate 2026-08-04. So: an ordinary search for the DN,
+        # then a BASE-scope read of the object itself.
         $searcher = [adsisearcher]"(objectSid=$Sid)"
-        $searcher.PropertiesToLoad.Add('tokenGroups') | Out-Null
+        $searcher.PropertiesToLoad.Add('distinguishedName') | Out-Null
         $found = $searcher.FindOne()
         if (-not $found) { return @() }
-        $entry = $found.GetDirectoryEntry()
+        $dn = "$($found.Properties['distinguishedname'][0])"
+        $entry = [ADSI]"LDAP://$dn"
         $entry.RefreshCache(@('tokenGroups'))
         $names = @()
         foreach ($raw in $entry.Properties['tokenGroups']) {
@@ -432,6 +450,91 @@ function Get-UserGpoNames {
         else { $denied += [ordered]@{ gpo = $name; reasons = $reasons } }
     }
     return @{ applied = @($applied); denied = @($denied) }
+}
+
+if ($Mode -eq 'resession') {
+    # A TOKEN IS MINTED AT LOGON AND NEVER UPDATED.
+    #
+    # The nesting row needs the principal to be IN a group, and the lane creates
+    # that group per run -- after the autologon session was established at boot.
+    # Group membership added afterwards is in the directory and NOT in the
+    # session's token, so the GPO filtered to that group does not apply, and a
+    # lane that predicted it would apply would report a defect in rsop.py that
+    # is really a sequencing error in the harness.
+    #
+    # The finalizer's token gate catches exactly this and refuses the run. This
+    # mode is what makes the run possible rather than merely refused: restart
+    # the client, let autologon sign in again, and confirm the new token holds
+    # the group.
+    #
+    # A RESTART rather than a logoff, deliberately. Autologon on boot is the
+    # path the estate's own provisioning script proved and waits for; whether
+    # Winlogon re-runs AutoAdminLogon after an interactive logoff without
+    # ForceAutoLogon is exactly the kind of untested mechanism this project has
+    # already been burned designing against.
+    $expectedGroup = "$($expected.group_name)"
+    $out = [ordered]@{
+        run_id         = $runId
+        mode           = 'resession'
+        principal      = $principal
+        expected_group = $expectedGroup
+        rebooted       = $false
+        session_back   = $false
+        token_groups   = @()
+        holds_group    = $false
+        problems       = @()
+    }
+    try {
+        # Nothing after the restart can be observed from inside this session, so
+        # there is no boot time to compare here -- the controller waits for the
+        # guest to answer again and then calls -Mode resession-verify, which is
+        # where the session and the token are checked.
+        & shutdown.exe /r /t 0 /f
+        Start-Sleep -Seconds 20
+    } catch {
+        $out.problems += "could not request a restart: $($_.Exception.Message)"
+    }
+    # The guest goes away here; the controller reconnects and calls this mode a
+    # second time with -Mode resession-verify. Splitting it is not optional: the
+    # PowerShell Direct session this script runs in dies with the restart, so
+    # nothing after the reboot can be observed from inside it.
+    $out | ConvertTo-Json -Depth 20 |
+        Set-Content -LiteralPath (Join-Path $workDir 'resession.json') -Encoding UTF8
+    Write-Output "RUN_ID=$runId"
+    Write-Output "WORK_DIR=$workDir"
+    Write-Output "RESTART_REQUESTED=1"
+    exit 0
+}
+
+if ($Mode -eq 'resession-verify') {
+    # Runs after the guest is back. Confirms the console session AND that the
+    # new token holds the group, so the observation half can rely on it.
+    $expectedGroup = "$($expected.group_name)"
+    $sid = Resolve-PrincipalSid -Name $principal
+    $session = Get-SessionState -Sid $sid
+    $groups = @(Get-SessionTokenGroups)
+    $holds = @($groups | Where-Object { ($_ -split '\\')[-1] -like "$expectedGroup*" }).Count -gt 0
+    $out = [ordered]@{
+        run_id         = $runId
+        mode           = 'resession-verify'
+        principal      = $principal
+        expected_group = $expectedGroup
+        session        = $session
+        token_groups   = $groups
+        holds_group    = $holds
+        problems       = @()
+    }
+    if (-not $session.present) { $out.problems += "no console session for '$principal' after the restart" }
+    if ($expectedGroup -and -not $holds) {
+        $out.problems += "the new session token still does not hold '$expectedGroup'"
+    }
+    $out | ConvertTo-Json -Depth 20 |
+        Set-Content -LiteralPath (Join-Path $workDir 'resession-verify.json') -Encoding UTF8
+    Write-Output "RUN_ID=$runId"
+    Write-Output "WORK_DIR=$workDir"
+    Write-Output ("RESESSION_PROBLEMS=" + ($out.problems -join '; '))
+    if ($out.problems.Count -gt 0) { exit 1 }
+    exit 0
 }
 
 if ($Mode -eq 'post-teardown') {
