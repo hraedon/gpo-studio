@@ -4,7 +4,6 @@
   "family": "rsop-topology",
   "title": "Security filtering: allow, read-without-apply, explicit deny, and group nesting, with independent token collection",
   "readiness": "blocked",
-  "blocked_reason": "User-scope scenario. The expected winners are HKCU values resolved against the user token, plus an explicit assertion that the value is absent for computer scope; filtering by user principals cannot be observed without an interactive logon, which the estate has never had. WP-9, not WP-6.",
   "provenance": {
     "tier": "spec-informed",
     "note": "Apply Group Policy gating (Read + Apply required, deny dominates, nesting expands through the token) is documented Windows behavior; the Plan 033 preconditions separately require evaluating Apply as a control-access right (CR) with real AD access masks, which Studio's delegation model historically got wrong.",
@@ -12,32 +11,133 @@
   },
   "platform": {
     "lane": "rsop-user-loopback",
-    "boundaries": ["endpoint-resultant-state", "gpo-ad-object-security"]
+    "boundaries": [
+      "endpoint-resultant-state",
+      "gpo-ad-object-security"
+    ]
   },
   "authored_intent": {
     "topology": {
       "som": [
-        {"id": "domain", "kind": "domain"},
-        {"id": "ou-studio-filter", "kind": "ou", "parent": "domain"}
+        {
+          "id": "domain",
+          "kind": "domain"
+        },
+        {
+          "id": "ou-studio-filter",
+          "kind": "ou",
+          "parent": "domain"
+        }
       ],
       "principals": [
-        {"name": "LabUser1", "kind": "user"},
-        {"name": "LabComp1$", "kind": "computer"},
-        {"name": "LabGroup", "kind": "group", "members": ["LabUser1"]}
+        {
+          "name": "LabUser1",
+          "kind": "user"
+        },
+        {
+          "name": "LabComp1$",
+          "kind": "computer"
+        },
+        {
+          "name": "LabGroup",
+          "kind": "group",
+          "members": [
+            "LabUser1"
+          ]
+        }
       ],
       "gpos": [
-        {"name": "Studio-RSOP-Allow", "filter": [{"principal": "LabUser1", "read": "allow", "apply": "allow"}], "sets": {"Filter": "allow"}},
-        {"name": "Studio-RSOP-ReadOnly", "filter": [{"principal": "LabUser1", "read": "allow", "apply": "absent"}], "sets": {"Filter": "readOnly"}},
-        {"name": "Studio-RSOP-Deny", "filter": [{"principal": "LabComp1$", "read": "allow", "apply": "allow"}, {"principal": "LabComp1$", "apply": "deny"}], "sets": {"Filter": "deny"}},
-        {"name": "Studio-RSOP-Nested", "filter": [{"principal": "LabGroup", "read": "allow", "apply": "allow"}], "sets": {"Filter": "nested"}}
+        {
+          "name": "Studio-RSOP-Allow",
+          "filter": [
+            {
+              "principal": "LabUser1",
+              "read": "allow",
+              "apply": "allow"
+            }
+          ],
+          "sets": {
+            "Filter": "allow"
+          }
+        },
+        {
+          "name": "Studio-RSOP-ReadOnly",
+          "filter": [
+            {
+              "principal": "LabUser1",
+              "read": "allow",
+              "apply": "absent"
+            }
+          ],
+          "sets": {
+            "Filter": "readOnly"
+          }
+        },
+        {
+          "name": "Studio-RSOP-Deny",
+          "filter": [
+            {
+              "principal": "LabComp1$",
+              "read": "allow",
+              "apply": "allow"
+            },
+            {
+              "principal": "LabComp1$",
+              "apply": "deny"
+            }
+          ],
+          "sets": {
+            "Filter": "deny"
+          }
+        },
+        {
+          "name": "Studio-RSOP-Nested",
+          "filter": [
+            {
+              "principal": "LabGroup",
+              "read": "allow",
+              "apply": "allow"
+            }
+          ],
+          "sets": {
+            "Filter": "nested"
+          }
+        }
       ],
       "links": [
-        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-Allow", "order": 1, "enabled": true, "enforced": false},
-        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-ReadOnly", "order": 2, "enabled": true, "enforced": false},
-        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-Deny", "order": 3, "enabled": true, "enforced": false},
-        {"som": "ou-studio-filter", "gpo": "Studio-RSOP-Nested", "order": 4, "enabled": true, "enforced": false}
+        {
+          "som": "ou-studio-filter",
+          "gpo": "Studio-RSOP-Allow",
+          "order": 1,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-filter",
+          "gpo": "Studio-RSOP-ReadOnly",
+          "order": 2,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-filter",
+          "gpo": "Studio-RSOP-Deny",
+          "order": 3,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-filter",
+          "gpo": "Studio-RSOP-Nested",
+          "order": 4,
+          "enabled": true,
+          "enforced": false
+        }
       ],
-      "target": {"computer": "LabComp1$ in ou-studio-filter", "user": "LabUser1 in ou-studio-filter"}
+      "target": {
+        "computer": "LabComp1$ in ou-studio-filter",
+        "user": "LabUser1 in ou-studio-filter"
+      }
     },
     "operator_meaning": [
       "Read + Apply allow: applies",
@@ -47,14 +147,32 @@
     ]
   },
   "expected_native": {
-    "applied": ["Studio-RSOP-Allow", "Studio-RSOP-Nested"],
+    "applied": [
+      "Studio-RSOP-Allow",
+      "Studio-RSOP-Nested"
+    ],
     "denied": [
-      {"gpo": "Studio-RSOP-ReadOnly", "reason": "filtering: principal lacks Apply Group Policy"},
-      {"gpo": "Studio-RSOP-Deny", "reason": "filtering: explicit deny on Apply Group Policy dominates allow"}
+      {
+        "gpo": "Studio-RSOP-ReadOnly",
+        "reason": "filtering: principal lacks Apply Group Policy"
+      },
+      {
+        "gpo": "Studio-RSOP-Deny",
+        "reason": "filtering: explicit deny on Apply Group Policy dominates allow"
+      }
     ],
     "winners": [
-      {"key": "HKCU\\Software\\Policies\\StudioLab\\Filter", "value": "allow", "source_gpo": "Studio-RSOP-Allow", "reason": "highest-precedence applied GPO for the user scope"},
-      {"key": "HKCU\\Software\\Policies\\StudioLab\\Filter", "value_absent_for": "computer scope", "reason": "user-scope value evaluated against the user token; the deny case is exercised on the computer scope for LabComp1$"}
+      {
+        "key": "HKCU\\Software\\Policies\\StudioLab\\Filter",
+        "value": "allow",
+        "source_gpo": "Studio-RSOP-Allow",
+        "reason": "highest-precedence applied GPO for the user scope"
+      },
+      {
+        "key": "HKCU\\Software\\Policies\\StudioLab\\Filter",
+        "value_absent_for": "computer scope",
+        "reason": "user-scope value evaluated against the user token; the deny case is exercised on the computer scope for LabComp1$"
+      }
     ],
     "token_collection": {
       "computer": "LDAP tokenGroups on the computer object, collected by the harness; an interactive whoami /groups is the user context and is never the computer token (WP-6 rule)",
@@ -67,6 +185,8 @@
     ]
   },
   "open_questions": [
-    "What reason category does gpresult report for a GPO denied solely by a missing Apply right versus an explicit deny, and does Get-GPResultantSetOfPolicy expose the same distinction?"
-  ]
+    "PARTIALLY ANSWERED 2026-08-04, in runs the finalizer REFUSED to certify -- so this is an observation about Windows, not certified evidence. gpresult's UserResults omits a GPO denied by filtering rather than listing it with a reason, for both the missing-Apply and the explicit-deny cases. The lane therefore distinguishes them by which unique value is absent instead. Get-GPResultantSetOfPolicy remains untested: the GroupPolicy module is absent from the client and RSAT is a Feature-on-Demand the isolated estate cannot fetch.",
+    "NEW, and the more useful finding: Get-GPPermission cannot express the deny either. Once a Deny ACE exists for a trustee it collapses that trustee to GpoCustom with Denied=False and stops reporting GpoApply, while the raw DACL carries both ACEs and the CSE honours the deny. A reader built on the cmdlet inherits the blind spot; see WI-033."
+  ],
+  "blocked_reason": "Platform-ready but execution-blocked. The user-scope lane, the topology, the deny ACE authoring and the finalizer all exist and are tested (WP-9, 2026-08-04); what blocks it is WI-034 -- the in-session policy refresh the lane depends on stops working after the re-session restart that the nesting row requires, so the observation never settles. This is a harness defect, not a missing platform: the estate itself is qualified and the interactive logon exists."
 }

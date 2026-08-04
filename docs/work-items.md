@@ -160,6 +160,78 @@ same sequencing WI-026 followed.
 applied-set comparison from advisory to gated — with a re-certification run,
 because the verdict's meaning changes.
 
+## WI-033 — `SecurityFilter` cannot express a deny
+
+**Opened:** 2026-08-04 (WP-9, `user-security-filtering-deny`).
+**Status:** open. Demonstrated against Windows rather than inferred.
+
+`SecurityFilter.permission` is `Literal["apply", "read"]` and carries no
+polarity, so there is no way to tell `compute_rsop` that a principal is
+*denied* Apply Group Policy. `_gpo_filter_status` asks only whether some
+`apply` filter matches, so a GPO whose DACL holds both an allow and a deny for
+the same principal is modelled as applying.
+
+**The failure direction is the problem.** The model says a GPO applies when it
+does not, so an operator asking "what will this machine get?" is told about
+settings that will never arrive.
+
+Two things measured on the estate while building the scenario:
+
+* the deny is real and the CSE honours it — the raw DACL carries three ACEs
+  (the allow pair and the deny) and the value never reached the client;
+* **GPMC's own summary cannot express it either.** Once a deny ACE exists for a
+  trustee, `Get-GPPermission -All` collapses that trustee to `GpoCustom` with
+  `Denied=False` and stops reporting `GpoApply`. A reader built on the cmdlet
+  inherits the same blind spot, which is a plausible origin for the model's
+  shape.
+
+**Closes when:** the filter model can represent a deny, `_gpo_filter_status`
+gives deny precedence over allow for the same principal, and the scenario's
+`expect_finding` declaration is removed so the lane certifies it as an ordinary
+pass. Needs a re-certification run, because the verdict's meaning changes.
+
+Not fixed during the run that measured it, for the same reason as WI-026 and
+WI-032.
+
+## WI-034 — the in-session refresh stops working after the re-session restart
+
+**Opened:** 2026-08-04 (WP-9 filtering).
+**Status:** open, reproduced, cause not established. **This blocks the two
+`user-security-filtering*` scenarios from certifying.**
+
+The lane refreshes user policy inside the principal's session with a scheduled
+task registered `-LogonType Interactive`. That mechanism was measured working
+and carried three certified scenarios. After the filtering lane's re-session
+restart it stops: the task runs and exits **1**, writes no output file, and no
+`8005` "completed manual processing of policy for user" event appears. The
+observation half therefore never settles and the run is bounded out.
+
+Reproduced outside the lane with a minimal task on the same guest — same
+result=1, no marker — so it is not specific to the lane's own command
+construction.
+
+What is known:
+
+* the restart itself is fine: the guest reboots, autologon signs the principal
+  back in, and the session is verified present before the observation starts;
+* the same task shape wrote a file successfully in the same location **before**
+  any restart;
+* the estate's own state is otherwise correct — the DACLs, the group
+  membership, and the applied values for the representable rows all match
+  intent (Read+Apply applied, Read-without-Apply did not).
+
+What is not known: why the task's process exits 1 after the restart. Candidates
+not yet distinguished include the redirect target's permissions for a
+non-administrative user in a freshly re-created session, and something about
+the profile state of a session established by autologon after a policy-bearing
+boot.
+
+**Closes when:** the cause is established and either fixed or designed around
+(for example by having the task write somewhere the principal certainly owns,
+or by settling on evidence that does not require running anything in the
+session). The scenarios and the finalizer are complete and tested; only the
+execution path is blocked.
+
 ---
 
 ## Not yet numbered

@@ -126,3 +126,81 @@ must be absent. Without the 5311 control the lane would have reported
 false finding about the model, caused by a constant in the harness.
 
 Three defects, three guards, no wrong answers. The guards were the point.
+
+## Security filtering: built, not yet certified
+
+**Status: the lane exists and is tested; no filtering scenario has certified.**
+WI-034 blocks execution -- the in-session policy refresh stops working after the
+re-session restart the nesting row requires, so the observation never settles.
+Everything below is either committed code or an observation from a run the
+finalizer REFUSED, and is labelled as such.
+
+### The case the model cannot express
+
+The corpus's `security-filtering` scenario asks four questions. They divide on
+something that turned out to matter more than the questions themselves:
+**whether Studio's model can be told about the case at all.**
+
+| case | authored | model told | result |
+|---|---|---|---|
+| Read + Apply | `Set-GPPermission GpoApply` | `apply` filter | applies, wins at link order 1 |
+| Read without Apply | `Set-GPPermission GpoRead -Replace` | `read` filter | does not apply |
+| Apply via a group | Apply granted to a disposable group | `apply` filter + group membership | applies through the token |
+| **Explicit deny on Apply** | a Deny ACE on the control right, written onto the DACL | **nothing — it is inexpressible** | **the model says it applies; Windows does not** |
+
+So the lane runs two scenarios, not one. Merging them would put a genuine
+capability gap and three working behaviours behind a single verdict.
+
+`user-security-filtering` covers the first three. `user-security-filtering-deny`
+adds the fourth and **declares in advance that it will diverge**, with the
+reason, in the candidate. That declaration renames the outcome
+(`expected-finding`) and softens nothing: the comparison still runs, the
+divergence is recorded in full, and `passed` stays false. A declared divergence
+that does *not* happen is `unexpected-agreement`, also not a pass — either the
+model gained a capability nobody recorded, or the row was never authored.
+
+Deny rows are dropped from the model query rather than translated into "no
+allow". Inventing a representation would make the model look correct about a
+case it cannot express, which is the opposite of what an oracle is for.
+
+### MS16-072 shapes every row
+
+Since that update a **user's** GPOs are retrieved in the **computer's** security
+context. A GPO the computer cannot read does not reach the user however the
+user is filtered, so every filtered GPO here keeps Authenticated Users at Read
+and moves only Apply. Stripping Authenticated Users entirely would produce
+filtering results that are really read failures.
+
+### Token collection is a gate, not a record
+
+The nesting row states the principal's group membership as a model *input*, so
+the estate has to corroborate it. The observation half collects the groups
+twice: from the principal's own session (`whoami /groups` inside an interactive
+scheduled task) and from the directory's constructed `tokenGroups` attribute.
+If the group is missing from the **session** token, the run is a lane failure.
+
+That is not hypothetical. **A token is minted at logon and never updated**, and
+the lane creates its group per run — after the guest signed in at boot. The
+first live run showed exactly the split the gate was written for: the directory
+had the membership, the session did not, and the nesting GPO legitimately did
+not apply. A lane without the gate would have reported a defect in `rsop.py`.
+
+The lane therefore restarts the client after the topology is authored, lets
+autologon sign the principal in again, and verifies the **new** token holds the
+group before the experiment runs.
+
+### What the estate taught about the tooling
+
+Two measurements worth keeping, both made while chasing a check that failed on
+a correct estate:
+
+- **`Get-GPPermission` cannot express a deny.** Once a Deny ACE exists for a
+  trustee, the cmdlet collapses that trustee's entry to `GpoCustom` with
+  `Denied=False` and stops reporting `GpoApply` — while the raw DACL underneath
+  carries the allow and the deny both, and the CSE honours the deny. The lane's
+  verification reads the DACL, which is also what Plan 033's preconditions ask
+  for: real CR/RP ACEs rather than a tool's summary of them.
+- **`tokenGroups` cannot be retrieved by a search.** It is constructed per
+  object; a subtree search fails with "An operations error occurred", which
+  says nothing about the real constraint. It needs an ordinary search for the
+  DN followed by a base-scope read of the object.
