@@ -530,17 +530,20 @@ Three consequences worth stating plainly:
      inheritance, enforcement, disabled links and sides (computer side), and
      user-side resolution, loopback merge/replace and security filtering (user
      side). What they do **not** cover, and what the oracle found instead:
-     - **deny ACEs** — `rsop.py` cannot express one and predicts the GPO
-       applies (WI-033, demonstrated);
+     - ~~**deny ACEs**~~ — **fixed 2026-08-04** (WI-033). The gap was
+       demonstrated against a real client first, then closed: `SecurityFilter`
+       carries polarity and a deny wins over an allow for the same principal;
      - **WMI filters** — `rsop.py` cannot evaluate one and predicts the GPO
        applies (WI-035, demonstrated);
      - **slow link and safe mode** — the fields are accepted and never read
-       (WI-036), and the estate cannot produce a slow link to test against.
+       (WI-036). Capping the client's vNIC does not produce a slow link either:
+       Group Policy reads the adapter's advertised speed, measured 2026-08-04.
 
-     The first two are the same failure direction: the model says a GPO applies
-     when it does not, for the two most common ways a GPO is scoped out of a
-     machine. That is a sharper statement about this module than any single
-     finding, and it is the reason the qualifier stays.
+     Those two shared a failure direction — the model saying a GPO applies when
+     it does not, for the two most common ways a GPO is scoped out of a machine.
+     One is now closed. The WMI half is not, and it is the reason the qualifier
+     stays: a WMI-filtered GPO is still predicted to apply whatever the filter
+     evaluates to.
   3. **Surfacing is a decision nobody has made.** It is reachable from no API
      endpoint, which is correct for now (WI-030).
 

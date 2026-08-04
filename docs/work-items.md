@@ -190,8 +190,24 @@ gives deny precedence over allow for the same principal, and the scenario's
 `expect_finding` declaration is removed so the lane certifies it as an ordinary
 pass. Needs a re-certification run, because the verdict's meaning changes.
 
-Not fixed during the run that measured it, for the same reason as WI-026 and
-WI-032.
+**FIXED 2026-08-04.** `SecurityFilter` gained `deny`, and `_gpo_filter_status`
+checks it before the allow, because that is how token evaluation works. The
+reason it records is its own -- `security_filter_denied`, not
+`security_filter_mismatch`, which would have said the principal lacked Apply and
+that is false. `deny` defaults to `False`, so every reader predating the field
+keeps meaning what it meant.
+
+The candidate builder no longer drops deny rows. Dropping them was correct while
+the model could not express a deny -- inventing a representation would have made
+it look right about a case it could not represent -- and is wrong now that it
+can. The scenario's declaration is removed with it.
+
+Fixed **after** the run that measured it, not during, for the same reason as
+WI-026 and WI-032: a model corrected mid-lane is no longer being checked by an
+independent oracle. The sequence was predict, observe, certify the divergence as
+an `expected-finding`, then fix, then re-run.
+
+**Closes when:** the re-run certifies an ordinary pass.
 
 ## WI-034 — the token gate was reading a token the CSE never uses
 
