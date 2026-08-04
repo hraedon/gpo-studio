@@ -503,6 +503,46 @@ what overstates the module.
 
 **Closes when:** that decision is taken and the matrix says which.
 
+## WI-039 — an unevaluatable WMI filter is not the same as an unknown one
+
+**Opened:** 2026-08-04 (WP-6, `wmi-filtering-error`).
+**Status:** open. **The first undeclared finding of this lane's history** — every
+earlier divergence was predicted from the code before the run; this one was not.
+
+Certified run `rsop-observe-20260804153726-7284`, state `finding`:
+
+* `Wmi`: predicted `error`, observed `true`;
+* `WmiErrorOnly`: predicted `1`, observed **absent**.
+
+**Windows fails closed.** A GPO whose WMI filter names a class that does not
+exist — valid WQL, unevaluatable target — does not apply. The filter cannot be
+true, and Windows treats that as not-applying rather than as not-filtering.
+
+**What the model gets wrong, and why the earlier reasoning was incomplete.**
+WI-035 gave `wmi_filter_results` two states: a filter evaluated `True` applies,
+one evaluated `False` blocks, and one absent from the mapping stays *unknown* —
+the GPO applies and the result warns. That was argued at the time as refusing to
+turn a visible gap into an invisible one, and it is still right **for the state
+it was designed for**: a caller who simply has not supplied an answer is not
+saying the filter fails.
+
+Windows has three states where the model has two:
+
+| state | meaning | Windows | model |
+|---|---|---|---|
+| supplied `True` | evaluated, matched | applies | applies |
+| supplied `False` | evaluated, did not match | blocks | blocks |
+| **unevaluatable** | cannot be evaluated on this target | **blocks** | **applies + warns** |
+| absent | nobody has looked | — | applies + warns |
+
+The bottom two are different facts and the model conflates them. "Nobody
+supplied an answer" and "there is no answer to supply" deserve different
+predictions, and only the second one is knowable in advance.
+
+**Closes when:** `wmi_filter_results` can carry an unevaluatable state that
+blocks with its own reason, `absent` keeps meaning unknown, and the scenario
+re-certifies as an ordinary pass.
+
 ---
 
 ## Not yet numbered
