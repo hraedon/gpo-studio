@@ -925,3 +925,150 @@ def test_wi026_wholly_unrelated_dn_still_warns() -> None:
 
     assert result.gpo_results == ()
     assert any("nor does" in warning for warning in result.warnings), result.warnings
+
+
+# WI-031, found by the WP-6B oracle 2026-08-04 and fixed the same day.
+#
+# Enforcement was absent from the precedence sort key entirely, so an enforced
+# link was ordered by its scope like any other: a GPO enforced at the domain sat
+# in the domain tier and LOST to a plain OU link. Three consecutive runs on a
+# real Windows 11 26200 client resolved `domainEnforced` where Studio predicted
+# `child`.
+#
+# Enforcement has two independent effects and only one was implemented. Surviving
+# a block-inheritance cutoff worked -- which is why the applied/denied sets
+# matched Windows exactly while the winning VALUE did not, and why a lane that
+# compared only applied sets would have called this a pass.
+#
+# No existing test exercised enforced-versus-lower-scope precedence, which is why
+# the whole suite stayed green over it.
+
+
+def test_wi031_enforced_domain_link_beats_a_plain_ou_link() -> None:
+    """The defect the oracle found, in the shape it found it."""
+    domain_enforced = _gpo(
+        _GPO_A,
+        "DomainEnforced",
+        settings=(_setting("s1", "computer", r"Software\X", "Block", "domainEnforced"),),
+    )
+    child = _gpo(
+        _GPO_B,
+        "ChildGPO",
+        settings=(_setting("s2", "computer", r"Software\X", "Block", "child"),),
+    )
+    nodes = (
+        _node(
+            _CHILD_OU_DN,
+            "Child",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_B, _CHILD_OU_DN),),
+        ),
+        _node(
+            _DOMAIN_DN,
+            "ad",
+            "domain",
+            links=(_link(_GPO_A, _DOMAIN_DN, scope="domain", enforced=True),),
+        ),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+            som_nodes=nodes,
+            gpos=(domain_enforced, child),
+        )
+    )
+
+    winner = result.get_effective_value("computer", r"Software\X", "Block")
+    assert winner is not None
+    assert winner.effective_value == "domainEnforced"
+    assert winner.winning_gpo_name == "DomainEnforced"
+
+
+def test_wi031_among_enforced_links_the_higher_scope_wins() -> None:
+    """The hierarchy inverts for enforced links: closest to the root wins.
+
+    Two enforced links in conflict is the case that distinguishes "enforced
+    outranks non-enforced" from the full rule. Without the inversion an enforced
+    OU link would beat an enforced domain link, which is backwards.
+    """
+    domain_enforced = _gpo(
+        _GPO_A,
+        "DomainEnforced",
+        settings=(_setting("s1", "computer", r"Software\X", "Block", "domain"),),
+    )
+    ou_enforced = _gpo(
+        _GPO_B,
+        "OuEnforced",
+        settings=(_setting("s2", "computer", r"Software\X", "Block", "ou"),),
+    )
+    nodes = (
+        _node(
+            _CHILD_OU_DN,
+            "Child",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_B, _CHILD_OU_DN, enforced=True),),
+        ),
+        _node(
+            _DOMAIN_DN,
+            "ad",
+            "domain",
+            links=(_link(_GPO_A, _DOMAIN_DN, scope="domain", enforced=True),),
+        ),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+            som_nodes=nodes,
+            gpos=(domain_enforced, ou_enforced),
+        )
+    )
+
+    winner = result.get_effective_value("computer", r"Software\X", "Block")
+    assert winner is not None
+    assert winner.effective_value == "domain"
+
+
+def test_wi031_non_enforced_precedence_is_unchanged() -> None:
+    """The regression guard: ordinary LSDOU must not move.
+
+    lsdou-precedence is WP-6B-certified against Windows, so any change to this
+    ordering would invalidate a passing certification rather than improve it.
+    """
+    domain_gpo = _gpo(
+        _GPO_A,
+        "DomainPlain",
+        settings=(_setting("s1", "computer", r"Software\X", "Block", "domain"),),
+    )
+    child = _gpo(
+        _GPO_B,
+        "ChildGPO",
+        settings=(_setting("s2", "computer", r"Software\X", "Block", "child"),),
+    )
+    nodes = (
+        _node(
+            _CHILD_OU_DN,
+            "Child",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_B, _CHILD_OU_DN),),
+        ),
+        _node(
+            _DOMAIN_DN,
+            "ad",
+            "domain",
+            links=(_link(_GPO_A, _DOMAIN_DN, scope="domain"),),
+        ),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+            som_nodes=nodes,
+            gpos=(domain_gpo, child),
+        )
+    )
+
+    winner = result.get_effective_value("computer", r"Software\X", "Block")
+    assert winner is not None
+    assert winner.effective_value == "child"
