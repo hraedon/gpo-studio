@@ -130,11 +130,45 @@ the registry read is not redundant with the RSOP capture.
 No test exercised enforced-versus-lower-scope precedence, so 2996 tests stayed
 green over it.
 
+## WI-032 — `RsopResult` has no per-side applied/denied set
+
+**Opened:** 2026-08-04 (WP-9).
+**Status:** open, deliberately not fixed during the lane that found it.
+
+`RsopGpoResult.is_applied` means "applied on at least one side". Windows
+reports the two sides separately: `ComputerResults` lists what applied to the
+computer and `UserResults` lists what applied to the user, and on a topology
+whose GPOs scope both they are different sets.
+
+The concrete case is the loopback scenarios' `Studio-RSOP-Loopback`, a
+computer-side GPO that the model reports as applied and that correctly never
+appears in `UserResults`. There is nothing wrong with either answer; they
+answer different questions.
+
+So the WP-9 finalizer **gates on the winners and records the applied sets
+without gating on them**. Gating would manufacture findings out of a reporting
+gap, which is the precise failure mode this lane's controls exist to prevent —
+and a lane that reported a false defect on its first run would be worse than
+one that reported nothing.
+
+The model was left alone on purpose: changing the result shape during the run
+that measures it is how a lane stops being an independent oracle. This is the
+same sequencing WI-026 followed.
+
+**Closes when:** `RsopResult` can answer "which GPOs applied to the user" and
+"which applied to the computer" separately, and the WP-9 finalizer promotes the
+applied-set comparison from advisory to gated — with a re-certification run,
+because the verdict's meaning changes.
+
 ---
 
 ## Not yet numbered
 
 Open question 1 from `plan-033/rsop-oracle-design.md` — whether `LabMS01` can
-reach `LabCL01` over the private switch for RPC/WMI — remains untested. WP-6B
-never needed it, since `gpresult.exe` on the client is sufficient for computer
-scope. It gets a number if and when WP-9 depends on it.
+reach `LabCL01` over the private switch for RPC/WMI — remains untested, and
+**WP-9 did not need it either**. It was carried as the possible second oracle
+for user scope, on the assumption that the user side would have to be captured
+from the member server. It does not: `gpresult /x /f /scope:user /user
+<principal>` on the client itself produces a `UserResults` document for a
+principal signed in at the console, measured 2026-08-04. The question can stay
+closed unless something needs RPC/WMI for its own sake.
