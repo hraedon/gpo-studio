@@ -101,7 +101,14 @@ if [[ -z "$DOMAIN" ]]; then
 fi
 echo "DOMAIN=$DOMAIN"
 
+# Which corpus scenario this run builds a topology and prediction for. Each is
+# a separate experiment with its own topology, so they are run one at a time --
+# a combined topology would make a disagreement impossible to attribute.
+SCENARIO="${GPO_STUDIO_RSOP_SCENARIO:-lsdou-precedence}"
+echo "SCENARIO=$SCENARIO"
+
 uv run python "$REPO_ROOT/scripts/plan-033/build-rsop-candidate.py" "$CANDIDATE_DIR" \
+    --scenario "$SCENARIO" \
     --domain "$DOMAIN" --computer-name "$GPO_STUDIO_LAB_ENDPOINT_GUEST"
 
 PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -LiteralPath '$GUEST_STATE' -Force -ErrorAction SilentlyContinue"

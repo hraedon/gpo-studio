@@ -472,3 +472,22 @@ def test_missing_guest_topology_is_a_lane_failure(lane) -> None:
     assert verdict["state"] == "lane-failure"
     assert verdict["topology_delivered_intact"] is None
     assert any("nothing" in p and "binds" in p for p in verdict["lane_problems"])
+
+
+def test_authored_topology_mismatch_is_a_lane_failure(lane) -> None:
+    """The directory did not end up describing the topology that was asked for.
+
+    A disabled link that is silently enabled, or a side status that did not
+    persist, means the estate applied a different experiment from the one
+    predicted. Without this check that surfaces as a finding about Studio --
+    the most misleading outcome the lane can produce, because it blames the
+    product for the harness.
+    """
+    author = _author_state()
+    author["authored_problems"] = [
+        "Studio-RSOP-DisabledLink: link enabled=True, intended False"
+    ]
+    verdict = _finalize(*lane(author=author))
+    assert verdict["state"] == "lane-failure"
+    assert verdict["comparison"] is None
+    assert any("does not match intent" in p for p in verdict["lane_problems"])

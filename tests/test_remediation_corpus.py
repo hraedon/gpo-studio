@@ -79,7 +79,7 @@ class TestSchemas:
 class TestCorpus:
     def test_corpus_loads_all_files(self, registry) -> None:  # type: ignore[no-untyped-def]
         scenarios = load_corpus(SCENARIO_DIR, registry)
-        assert len(scenarios) == len(SCENARIO_FILES) == 13
+        assert len(scenarios) == len(SCENARIO_FILES) == 14
         assert {scenario.family for scenario in scenarios} == set(FAMILIES)
 
     def test_every_anchor_hash_verifies(self, registry) -> None:  # type: ignore[no-untyped-def]
@@ -120,33 +120,50 @@ class TestCorpus:
             "edition-union-expansion": "ready",
             "server-10x-collision": "ready",
             "lsdou-precedence": "ready",
+            "disabled-block-enforced": "ready",
             "codec-edge-cases": "ready",
             "group-membership": "ready",
             "regkeys-filesecurity": "ready",
             "services-area": "ready",
-            "disabled-block-enforced": "blocked",
             "security-filtering": "blocked",
+            "user-side-disabled": "blocked",
             "wmi-loopback-slowlink": "blocked",
         }
 
-    def test_rsop_corpus_is_mostly_user_scope(self, registry) -> None:  # type: ignore[no-untyped-def]
+    def test_rsop_corpus_scope_split_is_explicit(self, registry) -> None:  # type: ignore[no-untyped-def]
         """The cost of the computer-scope-only ruling, made visible.
 
-        Three of the four authored rsop-topology scenarios need a user-scope
-        capture, so WP-6B inherits a one-scenario corpus. That is a real
-        consequence of a real decision, and it should break this test if
-        someone quietly re-marks those scenarios ready to make the lane look
-        better fed than it is.
+        WP-6B started with a one-scenario corpus because three of the four
+        authored rsop-topology scenarios needed a user-scope capture. WI-029
+        relocated a single HKCU assertion out of disabled-block-enforced --
+        relocated, not deleted, which is why user-side-disabled exists -- and
+        that doubled the runnable corpus.
+
+        This breaks if someone re-marks a genuinely user-scope scenario ready to
+        make the lane look better fed than it is, and it breaks if the relocated
+        assertion goes missing.
         """
         scenarios = {s.scenario_id: s for s in load_corpus(SCENARIO_DIR, registry)}
         rsop = [s for s in scenarios.values() if s.family == "rsop-topology"]
-        computer_scope = [s for s in rsop if s.readiness == "ready"]
-        assert len(rsop) == 4
-        assert [s.scenario_id for s in computer_scope] == ["lsdou-precedence"]
+        runnable = sorted(s.scenario_id for s in rsop if s.readiness == "ready")
+        assert runnable == ["disabled-block-enforced", "lsdou-precedence"]
         for scenario in rsop:
             if scenario.readiness == "blocked":
                 assert scenario.blocked_reason is not None
-                assert "WP-9" in scenario.blocked_reason, scenario.scenario_id
+                assert "WP-9" in scenario.blocked_reason or "user-scope" in scenario.blocked_reason
+
+        # The relocated assertion must still exist somewhere. A criterion that
+        # is dropped instead of moved is how an unverified claim becomes an
+        # invisible one.
+        relocated = scenarios["user-side-disabled"].expected_native["winners"]
+        assert any(
+            row.get("absent") and "HKCU" in row["key"] and row["key"].endswith("UserVal")
+            for row in relocated
+        )
+        assert not any(
+            "HKCU" in row["key"]
+            for row in scenarios["disabled-block-enforced"].expected_native["winners"]
+        )
 
     def test_frozen_host_matches_environment_spec(self, registry) -> None:  # type: ignore[no-untyped-def]
         """Doc-truth coupling: a host row claiming frozen status must match

@@ -3,59 +3,180 @@
   "scenario_id": "disabled-block-enforced",
   "family": "rsop-topology",
   "title": "Disabled links and sides, block inheritance, and enforced links above a block",
-  "readiness": "blocked",
-  "blocked_reason": "Mixed scope, and the platform is not the gap. Every expected winner is HKLM except one: the Studio-RSOP-UserSideOff assertion that HKCU\\Software\\Policies\\StudioLab\\UserVal is absent, which needs a user-scope capture and so lands in WP-9. Split candidate: the computer-scope half is executable under WP-6B today if that assertion is relocated to its own WP-9 scenario rather than dropped.",
+  "readiness": "ready",
   "provenance": {
     "tier": "spec-informed",
-    "note": "Documented Windows behavior (disabled link applies nothing; disabled side contributes nothing to that scope; block inheritance stops higher containers; enforced defeats the block and wins final precedence). No captured gpresult evidence exists in this lab yet.",
+    "note": "Documented Windows behavior (disabled link applies nothing; disabled side contributes nothing to that scope; block inheritance stops higher containers; enforced defeats the block and wins final precedence). WI-029 2026-08-04: the single HKCU assertion moved to the user-side-disabled scenario so this one could run under WP-6B's computer scope; the assertion was relocated, not dropped.",
     "anchors": []
   },
   "platform": {
     "lane": "rsop-endpoint",
-    "boundaries": ["endpoint-resultant-state", "som-link-block-inheritance"]
+    "boundaries": [
+      "endpoint-resultant-state",
+      "som-link-block-inheritance"
+    ]
   },
   "authored_intent": {
     "topology": {
       "som": [
-        {"id": "domain", "kind": "domain"},
-        {"id": "ou-studio-parent", "kind": "ou", "parent": "domain"},
-        {"id": "ou-studio-child", "kind": "ou", "parent": "ou-studio-parent", "block_inheritance": true}
+        {
+          "id": "domain",
+          "kind": "domain"
+        },
+        {
+          "id": "ou-studio-parent",
+          "kind": "ou",
+          "parent": "domain"
+        },
+        {
+          "id": "ou-studio-child",
+          "kind": "ou",
+          "parent": "ou-studio-parent",
+          "block_inheritance": true
+        }
       ],
       "gpos": [
-        {"name": "Studio-RSOP-DomainPlain", "sets": {"Block": "domainPlain"}},
-        {"name": "Studio-RSOP-DomainEnforced", "sets": {"Block": "domainEnforced", "EnforcedOnly": "1"}},
-        {"name": "Studio-RSOP-ChildGPO", "sets": {"Block": "child", "Side": "computer"}},
-        {"name": "Studio-RSOP-UserSideOff", "user_enabled": false, "sets_user": {"UserVal": "1"}, "sets": {"MachineVal": "1"}},
-        {"name": "Studio-RSOP-DisabledLink", "sets": {"DisabledLinkVal": "1"}}
+        {
+          "name": "Studio-RSOP-DomainPlain",
+          "sets": {
+            "Block": "domainPlain"
+          }
+        },
+        {
+          "name": "Studio-RSOP-DomainEnforced",
+          "sets": {
+            "Block": "domainEnforced",
+            "EnforcedOnly": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-ChildGPO",
+          "sets": {
+            "Block": "child",
+            "Side": "computer"
+          }
+        },
+        {
+          "name": "Studio-RSOP-UserSideOff",
+          "user_enabled": false,
+          "sets_user": {
+            "UserVal": "1"
+          },
+          "sets": {
+            "MachineVal": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-DisabledLink",
+          "sets": {
+            "DisabledLinkVal": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-Control",
+          "sets": {
+            "Control": "present"
+          }
+        }
       ],
       "links": [
-        {"som": "domain", "gpo": "Studio-RSOP-DomainPlain", "order": 1, "enabled": true, "enforced": false},
-        {"som": "domain", "gpo": "Studio-RSOP-DomainEnforced", "order": 2, "enabled": true, "enforced": true},
-        {"som": "ou-studio-child", "gpo": "Studio-RSOP-ChildGPO", "order": 1, "enabled": true, "enforced": false},
-        {"som": "ou-studio-child", "gpo": "Studio-RSOP-UserSideOff", "order": 2, "enabled": true, "enforced": false},
-        {"som": "ou-studio-child", "gpo": "Studio-RSOP-DisabledLink", "order": 3, "enabled": false, "enforced": false}
+        {
+          "som": "domain",
+          "gpo": "Studio-RSOP-DomainPlain",
+          "order": 1,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "domain",
+          "gpo": "Studio-RSOP-DomainEnforced",
+          "order": 2,
+          "enabled": true,
+          "enforced": true
+        },
+        {
+          "som": "ou-studio-child",
+          "gpo": "Studio-RSOP-ChildGPO",
+          "order": 1,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-child",
+          "gpo": "Studio-RSOP-UserSideOff",
+          "order": 2,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-child",
+          "gpo": "Studio-RSOP-DisabledLink",
+          "order": 3,
+          "enabled": false,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-child",
+          "gpo": "Studio-RSOP-Control",
+          "order": 4,
+          "enabled": true,
+          "enforced": false
+        }
       ],
       "conflict_key": "HKLM\\Software\\Policies\\StudioLab\\Block",
-      "target": {"computer": "studio test computer in ou-studio-child", "user": "lab user in ou-studio-child"}
+      "target": {
+        "computer": "studio test computer in ou-studio-child",
+        "user": "lab user in ou-studio-child"
+      }
     },
     "operator_meaning": [
       "The child OU blocks inheritance, so the plain domain GPO must not reach it",
       "The enforced domain GPO must reach it anyway and win the conflict",
-      "The user-side-disabled GPO must contribute nothing to the user scope while still applying computer-side",
+      "The computer side of a user-side-disabled GPO must still apply",
       "The disabled link must make its GPO vanish entirely"
     ]
   },
   "expected_native": {
-    "applied": ["Studio-RSOP-DomainEnforced", "Studio-RSOP-ChildGPO", "Studio-RSOP-UserSideOff"],
+    "applied": [
+      "Studio-RSOP-DomainEnforced",
+      "Studio-RSOP-ChildGPO",
+      "Studio-RSOP-UserSideOff"
+    ],
     "denied": [
-      {"gpo": "Studio-RSOP-DomainPlain", "reason": "blocked by inheritance block on ou-studio-child"},
-      {"gpo": "Studio-RSOP-DisabledLink", "reason": "link disabled"}
+      {
+        "gpo": "Studio-RSOP-DomainPlain",
+        "reason": "blocked by inheritance block on ou-studio-child"
+      },
+      {
+        "gpo": "Studio-RSOP-DisabledLink",
+        "reason": "link disabled"
+      }
     ],
     "winners": [
-      {"key": "HKLM\\Software\\Policies\\StudioLab\\Block", "value": "domainEnforced", "source_gpo": "Studio-RSOP-DomainEnforced", "reason": "enforced links apply after non-enforced and win conflicts, and defeat block inheritance"},
-      {"key": "HKLM\\Software\\Policies\\StudioLab\\EnforcedOnly", "value": "1", "source_gpo": "Studio-RSOP-DomainEnforced", "reason": "enforced GPO survives the block"},
-      {"key": "HKLM\\Software\\Policies\\StudioLab\\MachineVal", "value": "1", "source_gpo": "Studio-RSOP-UserSideOff", "reason": "computer side still applies when only the user side is disabled"},
-      {"key": "HKCU\\Software\\Policies\\StudioLab\\UserVal", "absent": true, "reason": "user side disabled contributes nothing to the user scope"}
+      {
+        "key": "HKLM\\Software\\Policies\\StudioLab\\Block",
+        "value": "domainEnforced",
+        "source_gpo": "Studio-RSOP-DomainEnforced",
+        "reason": "enforced links apply after non-enforced and win conflicts, and defeat block inheritance"
+      },
+      {
+        "key": "HKLM\\Software\\Policies\\StudioLab\\EnforcedOnly",
+        "value": "1",
+        "source_gpo": "Studio-RSOP-DomainEnforced",
+        "reason": "enforced GPO survives the block"
+      },
+      {
+        "key": "HKLM\\Software\\Policies\\StudioLab\\MachineVal",
+        "value": "1",
+        "source_gpo": "Studio-RSOP-UserSideOff",
+        "reason": "computer side still applies when only the user side is disabled"
+      },
+      {
+        "key": "HKLM\\Software\\Policies\\StudioLab\\Control",
+        "value": "present",
+        "source_gpo": "Studio-RSOP-Control",
+        "reason": "CONTROL: unconflicted and unfiltered. Absent means the experiment did not run."
+      }
     ],
     "derivations": [
       "Block inheritance on a container stops GPOs linked above it, except enforced links; enforced links also apply last in precedence order and therefore win conflicts.",
@@ -64,6 +185,7 @@
     ]
   },
   "open_questions": [
-    "Which exact reason strings does WS2025 gpresult report for inheritance-blocked versus link-disabled GPOs? Recorded verbatim at first execution; Studio's model must map to the reported category, not the string."
+    "Which exact reason strings does WS2025 gpresult report for inheritance-blocked versus link-disabled GPOs? Recorded verbatim at first execution; Studio's model must map to the reported category, not the string.",
+    "rsop.py PREDICTS Block=child (the OU-linked GPO wins) where this scenario expects Block=domainEnforced, and it omits the disabled-link GPO from its result entirely rather than reporting it denied. Both disagreements are recorded before execution; Windows arbitrates."
   ]
 }

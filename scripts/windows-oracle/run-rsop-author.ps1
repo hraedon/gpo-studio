@@ -172,8 +172,9 @@ if ($Phase -eq 'setup') {
     $ouPlan = @()
     foreach ($ou in $topology.ous) {
         $ouPlan += [ordered]@{
-            symbolic_name = $ou.name
-            name          = "$($ou.name)-$stamp"
+            symbolic_name     = $ou.name
+            name              = "$($ou.name)-$stamp"
+            block_inheritance = [bool]$ou.block_inheritance
         }
     }
     # Resolve real DNs top-down: each OU's parent is the previous one's real DN.
@@ -211,7 +212,10 @@ if ($Phase -eq 'setup') {
             scope_dn      = $scopeDn
             order         = $gpo.order
             enforced      = [bool]$gpo.enforced
+            link_enabled  = [bool]$gpo.link_enabled
+            user_enabled  = [bool]$gpo.user_enabled
             values        = $gpo.values
+            user_values   = $gpo.user_values
             guid          = $null
             created       = $false
             linked        = $false
@@ -236,6 +240,7 @@ if ($Phase -eq 'setup') {
         ous               = $ouPlan
         gpos              = $gpoPlan
         computer_moved    = $false
+        authored_problems = @()
         setup_completed   = $false
         replication_run   = $false
         environment       = [ordered]@{
@@ -261,6 +266,10 @@ if ($Phase -eq 'setup') {
             if (-not (Wait-ForAdObject -Identity $ou.dn -Server $dc)) {
                 throw "OU not readable on $dc after creation: $($ou.dn)"
             }
+            if ($ou.block_inheritance) {
+                Set-GPInheritance -Target $ou.dn -IsBlocked Yes -Domain $Domain -Server $dc `
+                    -ErrorAction Stop | Out-Null
+            }
         }
 
         Move-ADObject -Identity $originalDn -TargetPath $childOuDn -Server $dc -ErrorAction Stop
@@ -281,9 +290,28 @@ if ($Phase -eq 'setup') {
                     -ValueName $value.value_name -Type String -Value $value.value `
                     -ErrorAction Stop | Out-Null
             }
+            # User-side values are authored even though WP-6 never asserts on
+            # them. A GPO whose user side is disabled but carries nothing on
+            # that side would make "the computer side still applies" a claim
+            # about an empty GPO, which tests nothing. The assertion about what
+            # the user side does NOT contribute is WP-9's.
+            foreach ($value in $gpo.user_values) {
+                Set-GPRegistryValue -Guid $created.Id -Domain $Domain -Server $dc `
+                    -Key "HKCU\$($state.policy_key)" `
+                    -ValueName $value.value_name -Type String -Value $value.value `
+                    -ErrorAction Stop | Out-Null
+            }
+            # Side status is set AFTER the values are written: disabling a side
+            # first would not prevent the write, but it makes the intent of the
+            # sequence unreadable, and the CSE cares only about the final state.
+            if (-not $gpo.user_enabled) {
+                $gpoObject = Get-GPO -Guid $created.Id -Domain $Domain -Server $dc -ErrorAction Stop
+                $gpoObject.GpoStatus = 'UserSettingsDisabled'
+            }
 
             New-GPLink -Guid $created.Id -Target $gpo.scope_dn -Domain $Domain -Server $dc `
-                -LinkEnabled Yes -Enforced ($(if ($gpo.enforced) { 'Yes' } else { 'No' })) `
+                -LinkEnabled ($(if ($gpo.link_enabled) { 'Yes' } else { 'No' })) `
+                -Enforced ($(if ($gpo.enforced) { 'Yes' } else { 'No' })) `
                 -ErrorAction Stop | Out-Null
             $gpo.linked = $true
             Save-State $state
@@ -297,6 +325,63 @@ if ($Phase -eq 'setup') {
             Set-GPLink -Guid $created.Id -Target $gpo.scope_dn -Domain $Domain -Server $dc `
                 -Order $gpo.order -ErrorAction Stop | Out-Null
         }
+
+        # VERIFY WHAT WAS ACTUALLY AUTHORED, before handing the topology to the
+        # client.
+        #
+        # Two of the mechanics here are assumptions until measured: that
+        # assigning $gpo.GpoStatus persists a disabled user side, and that
+        # Set-GPLink -Order preserves LinkEnabled rather than silently
+        # re-enabling a link this scenario needs disabled. If either is wrong the
+        # estate would apply a topology the prediction does not describe, and the
+        # finalizer would report a FINDING ABOUT STUDIO for a harness defect --
+        # the single most misleading outcome this lane can produce.
+        #
+        # So the directory is re-read and compared against intent. A mismatch is
+        # a lane failure, recorded here rather than inferred later.
+        $authoredProblems = @()
+        foreach ($gpo in $state.gpos) {
+            if (-not $gpo.created) { continue }
+            $live = Get-GPO -Guid $gpo.guid -Domain $Domain -Server $dc -ErrorAction Stop
+            $userDisabled = ("$($live.GpoStatus)" -match 'UserSettingsDisabled' -or
+                             "$($live.GpoStatus)" -match 'AllSettingsDisabled')
+            if ($gpo.user_enabled -and $userDisabled) {
+                $authoredProblems += "$($gpo.name): user side disabled but intended enabled"
+            }
+            if (-not $gpo.user_enabled -and -not $userDisabled) {
+                $authoredProblems += "$($gpo.name): user side is '$($live.GpoStatus)', intended UserSettingsDisabled"
+            }
+
+            # gPLink encodes both enablement and enforcement in a per-link
+            # options bitmask: bit 0 = link DISABLED, bit 1 = enforced. Reading
+            # the raw attribute avoids Get-GPInheritance, which cannot target a
+            # site (found live 2026-08-04).
+            $linkValue = "$((Get-ADObject -Identity $gpo.scope_dn -Properties gPLink -Server $dc -ErrorAction Stop).gPLink)"
+            $guidBare = "$($gpo.guid)".Trim('{}')
+            $matched = [regex]::Match($linkValue, '\[LDAP://[^;\]]*' + [regex]::Escape($guidBare) + '[^;\]]*;(\d+)\]', 'IgnoreCase')
+            if (-not $matched.Success) {
+                $authoredProblems += "$($gpo.name): no gPLink entry at $($gpo.scope_dn)"
+            } else {
+                $options = [int]$matched.Groups[1].Value
+                $liveEnabled = -not ($options -band 1)
+                $liveEnforced = [bool]($options -band 2)
+                if ($liveEnabled -ne $gpo.link_enabled) {
+                    $authoredProblems += "$($gpo.name): link enabled=$liveEnabled, intended $($gpo.link_enabled)"
+                }
+                if ($liveEnforced -ne $gpo.enforced) {
+                    $authoredProblems += "$($gpo.name): link enforced=$liveEnforced, intended $($gpo.enforced)"
+                }
+            }
+        }
+        foreach ($ou in $state.ous) {
+            if (-not $ou.created) { continue }
+            $inheritance = Get-GPInheritance -Target $ou.dn -Domain $Domain -Server $dc -ErrorAction Stop
+            if ([bool]$inheritance.GpoInheritanceBlocked -ne [bool]$ou.block_inheritance) {
+                $authoredProblems += "$($ou.name): inheritance blocked=$($inheritance.GpoInheritanceBlocked), intended $($ou.block_inheritance)"
+            }
+        }
+        $state.authored_problems = $authoredProblems
+        Save-State $state
 
         # Push replication from the machine that holds the tooling; the client
         # has no repadmin. This is a convergence push, not a guarantee -- the
