@@ -404,7 +404,21 @@ def _loopback_scenario(mode: str, guid_tail: str) -> Scenario:
     under test, and the difference between "merge lost a value" and "the two
     topologies were not the same" would be unrecoverable from the evidence.
     """
-    user_policy_mode = 2 if mode == "merge" else 1
+    # 1 = merge, 2 = replace.
+    #
+    # This was written the other way round, and Windows is what corrected it.
+    # The first replace run authored UserPolicyMode=1 and event 5311 reported
+    # that the pass had run with loopback MERGE -- so the lane compared nothing
+    # and reported `inconclusive`, naming the mismatch.
+    #
+    # Worth being precise about what that avoided. Under merge the
+    # user-location GPO still applies, so `UserOnly` was present; the replace
+    # prediction says it must be absent. A lane without the 5311 control would
+    # have read that as "rsop.py gets loopback replace wrong" -- a confident,
+    # well-evidenced, entirely false finding about the model, caused by a
+    # constant in the harness. It is the exact failure the control was built
+    # for, and it fired on the first run that could trigger it.
+    user_policy_mode = 1 if mode == "merge" else 2
     return Scenario(
         scenario_id=f"loopback-{mode}",
         scope="user",
