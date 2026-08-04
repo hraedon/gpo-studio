@@ -207,7 +207,12 @@ comparator one. It should be dropped from the expansion until that is decided.
 
 ### Revised sequencing
 
-1. **`Registry Values`** — build and certify now; no comparator work.
+1. **`Registry Values`** — ~~build and certify now~~ **DONE 2026-08-04**.
+   Certified by `wp3-security-template-20260804141203-9781` at commit
+   `d827dd6`, 20/20 checks true, `export_differences: []`, on the estate's
+   member server. All four registry types round-tripped through `secedit`
+   intact, and no comparator change was needed — exactly as the round trip
+   predicted. Verdict at `wp3-evidence/verification-estate.json`.
 2. **`Group Membership`** — needs a principal-resolution comparison and an
    expected side that can express a machine-specific SID.
 3. **`Registry Keys` / `File Security` / `Service General Setting`** — need the
