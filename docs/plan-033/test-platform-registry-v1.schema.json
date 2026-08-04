@@ -18,6 +18,16 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["host_id", "role", "os", "build", "status"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {"status": {"const": "frozen"}},
+              "required": ["status"]
+            },
+            "then": {"required": ["qualifying_run"]},
+            "else": {"not": {"required": ["qualifying_run"]}}
+          }
+        ],
         "properties": {
           "host_id": {
             "type": "string",
@@ -39,6 +49,11 @@
             "type": "string",
             "enum": ["frozen", "pending-qualification"],
             "description": "frozen = appears in environment-spec.md supported builds; pending-qualification = needed by scenarios but not yet qualified"
+          },
+          "qualifying_run": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run id of the evidence run that qualified this host, as cited in the Qualified environments table of environment-spec.md. Required when status is frozen and forbidden otherwise: a frozen claim must name the evidence that earned it, and a registry that cannot be mechanically reconciled with the spec drifts silently (this field exists because it did)."
           },
           "snapshot_required": {
             "type": "boolean",

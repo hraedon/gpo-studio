@@ -85,6 +85,7 @@ class Host:
     os: str
     build: str
     status: PlatformStatus
+    qualifying_run: str | None
     snapshot_required: bool
     notes: str
 
@@ -226,13 +227,36 @@ def load_platform_registry(path: Path) -> PlatformRegistry:
     for entry in hosts_raw:
         if not isinstance(entry, dict):
             raise _err(context, "hosts entries must be objects")
+        host_id = _require_str(entry, "host_id", context)
+        status = _status(entry, context)
+        qualifying_run_raw = entry.get("qualifying_run")
+        if qualifying_run_raw is not None and not isinstance(qualifying_run_raw, str):
+            raise _err(context, f"{host_id}: qualifying_run must be a string")
+        # A frozen host must name the run that earned it, and a pending host
+        # must not name one. Without this the registry can claim a
+        # qualification no evidence supports, or lag one that exists -- the
+        # latter is what actually happened, four times.
+        if status == "frozen" and not qualifying_run_raw:
+            raise _err(
+                context,
+                f"{host_id}: a frozen host must cite the qualifying_run that "
+                "qualified it, as recorded in environment-spec.md",
+            )
+        if status == "pending-qualification" and qualifying_run_raw:
+            raise _err(
+                context,
+                f"{host_id}: a pending-qualification host must not cite a "
+                f"qualifying_run (got {qualifying_run_raw!r}); if the run is real, "
+                "the status is stale",
+            )
         hosts.append(
             Host(
-                host_id=_require_str(entry, "host_id", context),
+                host_id=host_id,
                 role=_require_str(entry, "role", context),
                 os=_require_str(entry, "os", context),
                 build=_require_str(entry, "build", context),
-                status=_status(entry, context),
+                status=status,
+                qualifying_run=qualifying_run_raw,
                 snapshot_required=bool(entry.get("snapshot_required", False)),
                 notes=str(entry.get("notes", "")),
             )

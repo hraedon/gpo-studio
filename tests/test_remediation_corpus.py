@@ -11,6 +11,7 @@ WI-022 reader/writer checks pinned to the genuine Services capture.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import jsonschema
@@ -118,15 +119,34 @@ class TestCorpus:
             "writer-parity-target": "ready",
             "edition-union-expansion": "ready",
             "server-10x-collision": "ready",
+            "lsdou-precedence": "ready",
+            "codec-edge-cases": "ready",
+            "group-membership": "ready",
+            "regkeys-filesecurity": "ready",
+            "services-area": "ready",
             "disabled-block-enforced": "blocked",
-            "lsdou-precedence": "blocked",
             "security-filtering": "blocked",
             "wmi-loopback-slowlink": "blocked",
-            "codec-edge-cases": "blocked",
-            "group-membership": "blocked",
-            "regkeys-filesecurity": "blocked",
-            "services-area": "blocked",
         }
+
+    def test_rsop_corpus_is_mostly_user_scope(self, registry) -> None:  # type: ignore[no-untyped-def]
+        """The cost of the computer-scope-only ruling, made visible.
+
+        Three of the four authored rsop-topology scenarios need a user-scope
+        capture, so WP-6B inherits a one-scenario corpus. That is a real
+        consequence of a real decision, and it should break this test if
+        someone quietly re-marks those scenarios ready to make the lane look
+        better fed than it is.
+        """
+        scenarios = {s.scenario_id: s for s in load_corpus(SCENARIO_DIR, registry)}
+        rsop = [s for s in scenarios.values() if s.family == "rsop-topology"]
+        computer_scope = [s for s in rsop if s.readiness == "ready"]
+        assert len(rsop) == 4
+        assert [s.scenario_id for s in computer_scope] == ["lsdou-precedence"]
+        for scenario in rsop:
+            if scenario.readiness == "blocked":
+                assert scenario.blocked_reason is not None
+                assert "WP-9" in scenario.blocked_reason, scenario.scenario_id
 
     def test_frozen_host_matches_environment_spec(self, registry) -> None:  # type: ignore[no-untyped-def]
         """Doc-truth coupling: a host row claiming frozen status must match
@@ -136,6 +156,51 @@ class TestCorpus:
             if host.status == "frozen":
                 assert host.build in spec, host.host_id
                 assert host.os.split(" Standard")[0] in spec, host.host_id
+                assert host.qualifying_run is not None
+                assert host.qualifying_run in spec, (
+                    f"{host.host_id}: cites qualifying run {host.qualifying_run!r}, "
+                    "which environment-spec.md does not record"
+                )
+
+    def test_every_qualified_environment_is_acknowledged_by_the_registry(self) -> None:
+        """The registry may not lag a qualification the spec already records.
+
+        This is the guard for a failure mode that has now recurred four times
+        in this project: plan status lines said `proposed` while implemented,
+        the capability matrix said `failed` while supported,
+        environment-spec.md cited an orphaned commit, and platforms.json said
+        `pending-qualification` for two hosts that had been qualified the same
+        session. Each time the document that *gates work* disagreed with the
+        document that *records reality*, and each time a human found it.
+
+        A qualification is not real until the registry that gates work on it
+        says so. So: every run id the spec's Qualified environments table
+        cites -- except rows explicitly marked retired -- must appear
+        somewhere in platforms.json. The check is deliberately textual rather
+        than structural, because the point is that nobody can land a
+        qualification in the spec while leaving the registry silent about it.
+        """
+        spec = (SCHEMA_DIR / "environment-spec.md").read_text(encoding="utf-8")
+        registry_text = PLATFORM_REGISTRY_PATH.read_text(encoding="utf-8")
+
+        table = [
+            line
+            for line in spec.splitlines()
+            if line.startswith("|") and "`" in line and "retired" not in line
+        ]
+        run_ids = {
+            run_id
+            for line in table
+            for run_id in re.findall(r"[a-z0-9][a-z0-9-]*-\d{14}-\d+", line)
+        }
+        assert run_ids, "no run ids parsed from the Qualified environments table"
+
+        missing = sorted(run_id for run_id in run_ids if run_id not in registry_text)
+        assert missing == [], (
+            "environment-spec.md records these qualifying runs but platforms.json "
+            f"never mentions them: {missing}. A qualification is not real until the "
+            "registry that gates work on it says so."
+        )
 
 
 class TestLoaderNegatives:
@@ -233,10 +298,15 @@ class TestLoaderNegatives:
             load_scenario(path, registry)
 
     def test_ready_on_unqualified_platform_rejected(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
+        """Uses rsop-user-loopback, whose `whoami` row is pending because the
+        estate has no interactive logon. This test previously pointed at
+        rsop-endpoint, and the 2026-08-03 estate qualification silently turned
+        it vacuous -- a negative test is only a check while its example is
+        still an example."""
         data = self._base_scenario()
         data["family"] = "rsop-topology"
         data["platform"] = {
-            "lane": "rsop-endpoint",
+            "lane": "rsop-user-loopback",
             "boundaries": ["endpoint-resultant-state"],
         }
         data["authored_intent"] = {"topology": {"som": []}}

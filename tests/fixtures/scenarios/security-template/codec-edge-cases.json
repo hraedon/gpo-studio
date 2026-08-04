@@ -3,8 +3,7 @@
   "scenario_id": "codec-edge-cases",
   "family": "security-template",
   "title": "INF codec edge cases: continuation lines, comments, empty assignments, unknown sections, Unicode",
-  "readiness": "blocked",
-  "blocked_reason": "The secedit half of this scenario requires the security-template-secedit lane on member-ws2025-disposable (pending-qualification) per the open WP-3 PR-19 follow-up. The Studio-side decode/parse/format half is exercisable offline today and is covered by unit tests.",
+  "readiness": "ready",
   "provenance": {
     "tier": "native-observation",
     "note": "The wire-format entries (UTF-16LE/BOM, CRLF, [Unicode] preamble, *SID principals) were certified against secedit in the WP-3 tranche; the remaining edge cases extend the same harness mechanics to inputs the certified candidate did not exercise.",

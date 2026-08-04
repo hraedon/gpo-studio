@@ -146,7 +146,7 @@ is why `ssh` cannot be used there.
 | Role | OS | Build | Notes |
 |------|----|-------|-------|
 | DC / server | Windows Server 2025 Standard | 26100 family | Primary validation target |
-| Client | Windows 11 Enterprise (25H2) | 26200 family | Endpoint processing oracle (not yet tested) |
+| Client | Windows 11 Enterprise (25H2) | 26200 family | Endpoint processing oracle; **qualified 2026-08-03** by `endpoint-observe-20260803142424-3050` |
 
 Builds are qualified by **family**, not by exact servicing revision. A run on
 `26100.4652` and a run on `26100.5011` are both on-target for the 26100 family;
@@ -164,14 +164,37 @@ media is Windows 11 25H2 (build 26200 family), so the client is re-frozen to
 26200 before the WP-6 endpoint lane produces its first evidence. Nothing is
 invalidated by this change, precisely because the endpoint lane had never run.
 
+**Client qualification (2026-08-03).** The client is no longer untested. Run
+`endpoint-observe-20260803142424-3050` applied real policy to the estate client
+guest and observed CSE evidence, passing with no lane problems and no control
+problems, on a genuine 26200 build. Two limits were measured at the same time,
+and they constrain every lane built on this host rather than being defects to
+fix:
+
+- **The `GroupPolicy` module is absent**, so `Get-GPResultantSetOfPolicy` is not
+  available. RSAT is a Feature-on-Demand whose source is on the internet, which
+  an estate with no egress cannot reach. That is the isolation invariant
+  working. Client-side RSOP capture is `gpresult.exe` only.
+- **The estate has never had an interactive logon**, and PowerShell Direct does
+  not provide one. `gpresult /x` without `/scope:computer` therefore exits **0**,
+  writes **no file**, and reports that the invoking account has no RSoP data.
+  User-scope resolution is WP-9 work; WP-6 is computer scope only.
+
 ## Tool versions (frozen from live dry run 2026-07-26)
 
 | Tool | Qualified on | Source |
 |------|--------------|--------|
 | PowerShell | 5.1.26100 family, Desktop edition | Built into Windows |
-| GroupPolicy module | 1.0.0.0 (exact) | `Get-Module GroupPolicy` |
+| GroupPolicy module | 1.0.0.0 (exact) | `Get-Module GroupPolicy` — **server only**, absent on the client |
 | GPMC | built-in (matched to OS build) | Server Manager feature |
+| secedit | rides the server OS build family (26100) | Built into Windows; exercised 20/20 by `wp3-security-template-20260803230220-2450` |
+| gpresult.exe | rides the client OS build family (26200) | Built into Windows; qualified with the client 2026-08-03 |
 | LGPO.exe | **recorded, not qualified** — see below | Microsoft Security Compliance Toolkit |
+
+`secedit` and `gpresult.exe` carry no independent version pin: they ship with
+the OS and are qualified by the build family of the host they run on. Recording
+that explicitly is the point — an inbox tool with no pin looks identical to an
+inbox tool nobody thought about.
 
 ## Locale
 
@@ -195,25 +218,59 @@ single byte of the evidence it was gating. If a lane is ever written that
 genuinely invokes LGPO, restore the qualification check in
 `frozen_environment_violations()` at the same time.
 
+**Ruling 2026-08-03: LGPO.exe is approved on the evidence estate.** The estate
+has no egress and cannot fetch the binary, so WP-5 pushes it in over `psdirect`
+rather than being narrowed to its domain-GPO leg. The guests are disposable and
+checkpoint-backed, and the isolation invariant governs *egress*, not what is
+deliberately placed inside. The path recorded above (`C:\gpo-tools\LGPO_30\`)
+is the retired shared host's; WP-5 records the estate path when it stages the
+binary. Three conditions bind that work:
+
+1. Verify the pushed binary against a **pinned** SHA-256 on the guest. The
+   transfer is the trust boundary; hashing whatever arrived and recording it is
+   provenance, not verification.
+2. Stage it **after checkpoint restore**, so no golden checkpoint carries it and
+   the estate stays reproducible from clean media.
+3. Restore the qualification check only when the lane genuinely executes the
+   binary. The ruling makes LGPO permissible, not qualified — qualification is
+   earned by execution, which is the whole reason the 2026-07-29 de-gating
+   exists.
+
 ## Domain environment
 
-> **Superseded when the disposable lab estate lands.** The values below describe
-> validation against the live `ad.hraedon.com` forest from the shared host
-> `mvmcitest01`. That host is shared with another project, which is why WP-3
-> forbids `secedit /configure` and why the endpoint lane has never run. The
-> replacement is a disposable three-VM estate (`ad.labdomain.dev`) on the
-> dedicated Hyper-V host; this section and the validation-host line at the top
-> of this document must be re-frozen against it, with a fresh qualification run,
-> before any lane is re-pointed. Do not re-point a certified lane without that
-> re-freeze — every existing certification is bound to the environment recorded
-> in its own manifest.
+**Superseded 2026-08-03: the disposable estate is the domain environment.** The
+re-freeze the note below demanded has happened — every lane is qualified on the
+estate with its own run, and the SSH transport to the shared host is retired.
 
 | Property | Value |
 |----------|-------|
-| Forest/domain | ad.hraedon.com |
-| NetBIOS | HRAENET |
-| DCs | MVMDC01 (192.168.1.29), MVMDC02 (192.168.1.19), MVMDC03 (192.168.1.21) |
-| DC OS | Windows Server 2025 Standard |
+| Forest/domain | ad.labdomain.dev |
+| NetBIOS | LAB |
+| Guests | LabDC01 (domain controller), LabMS01 (member server), LabCL01 (client) |
+| DC OS | Windows Server 2025 Standard, 26100 family |
+| Client OS | Windows 11 Enterprise 25H2, 26200 family |
+| Networking | none — the guests have no network at all; the transport reaches them through the hypervisor |
+
+Lanes needing GPMC execute on **LabMS01** and reach the DC for AD and SYSVOL.
+`LabCL01` is the endpoint oracle. The guests are checkpoint-backed and
+disposable, which is what makes destructive operations (`secedit /configure`,
+policy application, staging LGPO.exe) permissible here and not on the retired
+shared host.
+
+> **The retired shared host.** Until 2026-08-03 this section described
+> validation against the live `ad.hraedon.com` forest from `mvmcitest01`, a
+> host shared with another project — which is why WP-3 forbade
+> `secedit /configure` there and why the endpoint lane had never run. Those
+> constraints belonged to that host, not to Plan 033. Certifications produced
+> against it are **not retracted**: each is bound to the environment recorded in
+> its own manifest. But no new run can be produced there without restoring the
+> transport and re-qualifying.
+>
+> | Property | Value |
+> |----------|-------|
+> | Forest/domain | ad.hraedon.com |
+> | NetBIOS | HRAENET |
+> | DCs | MVMDC01 (192.168.1.29), MVMDC02 (192.168.1.19), MVMDC03 (192.168.1.21) |
 
 ## Freeze rules
 

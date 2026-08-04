@@ -3,8 +3,7 @@
   "scenario_id": "lsdou-precedence",
   "family": "rsop-topology",
   "title": "LSDOU application order and same-container link order with observable winners",
-  "readiness": "blocked",
-  "blocked_reason": "The rsop-endpoint lane requires client-win11 (pending-qualification in environment-spec.md, listed as not yet tested).",
+  "readiness": "ready",
   "provenance": {
     "tier": "spec-informed",
     "note": "Windows precedence behavior (site, domain, OU; later application wins conflicts; lower link order applies last and wins) is long-established documented behavior, but this lab has no captured gpresult evidence yet; first execution must confirm or correct every expected winner.",

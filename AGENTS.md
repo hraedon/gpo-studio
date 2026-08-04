@@ -52,6 +52,18 @@ must never write directly to Active Directory or SYSVOL.
   whether it is Windows-verified. Stale `proposed` headers on implemented
   plans have been a repeat defect in this project; a plan header that lies is
   a bug in the same sense the capability matrix is.
+- **A qualification is not real until the registry that gates work on it says
+  so.** The same failure has now recurred four times, and only the surface
+  changes: plan status lines said `proposed` while implemented, the capability
+  matrix said `failed` while supported, `environment-spec.md` cited an orphaned
+  commit, and `platforms.json` said `pending-qualification` for two hosts
+  qualified in the same session. Each time, the document that *gates work*
+  disagreed with the document that *records reality*, and each time a human
+  found it rather than a test. When a lab session qualifies a host or tool,
+  update the registry in that change — and prefer a mechanical check to a
+  promise:
+  `test_every_qualified_environment_is_acknowledged_by_the_registry` is the one
+  for this pair.
 - Self-consistency is not evidence. Round-trip tests prove Studio can read its
   own output; only the Plan 033 oracle proves Windows agrees.
 

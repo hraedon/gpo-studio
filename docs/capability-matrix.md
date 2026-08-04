@@ -508,7 +508,12 @@ Three consequences worth stating plainly:
 
 - **`rsop.py` predicts Windows behavior.** A prediction that has never been
   compared against `gpresult` is a hypothesis. It must not reach operators
-  before the Plan 033 WP-6 oracle validates it.
+  before the Plan 033 WP-6 oracle validates it. Note the shape of what WP-6 can
+  deliver: it was ruled **computer scope only** on 2026-08-03, so even a clean
+  WP-6 pass leaves user-scope resolution and loopback (merge and replace)
+  unverified until WP-9. When WP-6 lands, every capability it certifies is
+  recorded here with that qualifier; dropping the qualifier without WP-9 having
+  run would overclaim by half.
 - **`publication.py` / `publisher.py` do not weaken the charter.** Both are
   pure and side-effect-free; they emit no writes. The web process still never
   writes to AD or SYSVOL.

@@ -3,8 +3,7 @@
   "scenario_id": "services-area",
   "family": "security-template",
   "title": "Service General Setting area: startup modes and service security descriptors",
-  "readiness": "blocked",
-  "blocked_reason": "The security-template-secedit lane requires member-ws2025-disposable (pending-qualification): the open WP-3 PR-19 follow-up forbids expanding the lane beyond the certified account/audit/user-rights tranche on the shared host.",
+  "readiness": "ready",
   "provenance": {
     "tier": "spec-informed",
     "note": "Shape derived from Microsoft secedit/security-template documentation and well-known GptTmpl.inf layout. No native capture of this area exists in the repo yet; the first secedit /export capture on the disposable host must confirm or correct every entry here before any claim.",
