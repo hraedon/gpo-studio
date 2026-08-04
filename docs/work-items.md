@@ -359,6 +359,16 @@ stops deleting them at all, since run directories are already per-invocation
 and unique), the fallback selects only an observation-bearing directory, and
 the affected lanes are re-certified in the same change.
 
+**Related, and noticed the same way:** `PREPARE` clears the output root and a
+couple of named files, and never touches `C:\gpo-studio\scripts`. Anything
+pushed there by hand — a diagnostic probe, a one-off script — stays until
+someone removes it, and six such files accumulated across one session before
+being swept up. That is not a correctness problem (the lane pushes its own
+harness by name and hashes what it deploys) but it is an estate-hygiene one,
+and the same change should decide whether staging owns that directory or
+whether a `scripts/` sweep belongs somewhere else. Diagnostics written during a
+session should be treated as lab debris and removed with everything else.
+
 ## WI-038 — three security-template sections are preserve-only, and `diff_templates` cannot see them
 
 **Opened:** 2026-08-04 (WP-3 expansion scoping).
