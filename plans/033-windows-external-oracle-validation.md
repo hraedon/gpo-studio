@@ -781,6 +781,20 @@ security, and Unicode.
 
 ## WP-5 — Registry.pol Windows-client conformance
 
+**LGPO ruling, 2026-08-03: `LGPO.exe` is approved on the evidence estate, and
+WP-5 keeps both legs.** The estate cannot fetch the binary, so WP-5 pushes it in
+over `psdirect`. The lab guests are disposable, checkpoint-backed and isolated;
+the isolation invariant is about egress, not about what is deliberately placed
+inside. Three conditions attach:
+
+- Verify the pushed binary against a pinned SHA-256 **on the guest**. Recording
+  the hash of whatever arrived is provenance theatre, not verification.
+- Stage it after checkpoint restore, so no golden checkpoint carries it and the
+  estate stays reproducible from clean media.
+- Restore `lgpo` to qualified in `platforms.json` only when this lane genuinely
+  executes it. The 2026-07-29 de-gating exists because a `pass` was once gated
+  on a binary no lane ran; qualification is earned by execution.
+
 ### Work
 
 1. Generate separate `Machine/Registry.pol` and `User/Registry.pol` files.
@@ -807,10 +821,18 @@ security, and Unicode.
 - Domain GPO processing and LGPO processing both pass.
 - Cleanup restores the pre-test state.
 
-## WP-6 — Controlled RSOP and effective-rights oracle
+## WP-6 — Controlled RSOP and effective-rights oracle (computer scope)
 
 Do not use whatever 3–5 GPOs happen to exist. Create a deterministic topology
 with intentional conflicts so that every expected winner is known.
+
+**Scope ruling, 2026-08-03: WP-6 is computer-scope-only.** The user half needs an
+interactive logon the estate has never had, and PowerShell Direct does not
+provide one. Rather than stall the lane, user scope and loopback move to WP-9,
+which is a committed follow-up and not an optional one. Nothing below may be read
+as certifying user-side resolution, and no capability WP-6 certifies may be
+recorded in `docs/capability-matrix.md` without the words *computer scope*.
+See `docs/plan-033/rsop-oracle-design.md`, which measured the estate first.
 
 ### Topology
 
@@ -821,13 +843,16 @@ principals. Cover:
 2. disabled link and disabled GPO side;
 3. block inheritance;
 4. enforced links above a block;
-5. Apply+Read allow, missing Apply, explicit deny, and group nesting;
+5. Apply+Read allow, missing Apply, explicit deny, and group nesting, as they
+   apply to the **computer** account;
 6. WMI true, false, and evaluation-error outcomes;
-7. loopback disabled, merge, and replace;
-8. slow-link/safe-mode behavior for every capability Studio claims to model.
+7. slow-link/safe-mode behavior for every capability Studio claims to model on
+   the computer side.
 
-Each applicable scenario must contain conflicting user or computer registry
-values so the winning setting—not merely the applied GPO set—is observable.
+Loopback (disabled, merge, replace) is deliberately absent — it is WP-9.
+
+Each applicable scenario must contain conflicting **computer** registry values
+so the winning setting—not merely the applied GPO set—is observable.
 
 ### Work
 
@@ -835,28 +860,43 @@ values so the winning setting—not merely the applied GPO set—is observable.
    user's groups. `whoami /groups` from an interactive session is not the
    computer security token; use LDAP `tokenGroups` or an audited SYSTEM-context
    collection for the computer.
-2. Collect user token groups separately, including nested and deny-only cases
-   where representable.
-3. Run `gpupdate /force`, collect `gpresult /x` for computer and user scopes,
-   `Get-GPResultantSetOfPolicy`, direct winning registry values, and relevant
-   GroupPolicy operational events.
+2. Run `gpupdate /force`, then collect `gpresult /x … /f /scope:computer`,
+   direct winning registry values, and relevant GroupPolicy operational events.
+   `Get-GPResultantSetOfPolicy` is **not available on the qualified client** —
+   the `GroupPolicy` module is absent and RSAT is a Feature-on-Demand the
+   isolated estate cannot fetch. Build on `gpresult.exe` alone.
+3. Assert on artifacts, never on exit codes. `gpresult.exe` exits 0 while
+   writing no file at all; a lane that trusts the exit code parses a missing or
+   stale document and certifies it. Require the file to exist, to parse, and its
+   `ComputerResults` to name the GPO the run applied.
 4. Run `compute_rsop()` from the exact captured SOM, GPO, WMI, and token inputs.
 5. Compare:
    - applied and denied GPO sets;
    - link/application precedence;
    - filtering reason where Windows exposes it;
-   - winning GPO and effective value for every conflict;
-   - loopback source and winner.
-6. Validate delegation/effective-rights results against `Get-Acl`,
+   - winning GPO and effective value for every conflict.
+6. Compute the prediction *before* applying anything, and commit it as an input
+   artifact, so the prediction cannot be retrofitted to the observation.
+7. Include at least one control row whose winning GPO is decided by a mechanism
+   Studio does not model. Without it, "Studio predicted wrong" is
+   indistinguishable in the evidence from "nothing applied" — the same
+   vocabulary-control lesson the endpoint lane had to learn.
+8. Validate delegation/effective-rights results against `Get-Acl`,
    `Get-GPPermission -All`, and real object-specific `CR`, `RP`, `WP`, `WD`,
    `WO`, `SD`, and `CC` ACEs.
 
 ### Acceptance
 
-- Applied/denied sets and every observable winning value match Windows.
-- Loopback merge proves computer-location user settings win conflicts.
+- Applied/denied sets and every observable computer-side winning value match
+  Windows.
 - Real Apply Group Policy `CR` ACEs are recognized.
-- There are zero unexplained discrepancies in supported behavior.
+- There are zero unexplained discrepancies in supported computer-scope behavior.
+- Three outcomes stay distinct in the evidence and are never collapsed:
+  prediction matched; prediction wrong (a finding about Studio); experiment did
+  not run (inconclusive).
+- Every capability this WP certifies is recorded in the capability matrix as
+  **computer scope only**, with user-side and loopback shown as unverified
+  pending WP-9.
 - An unresolved discrepancy blocks predictive/publication gating or
   downgrades the affected capability.
 
@@ -925,6 +965,53 @@ different adapter.
   and endpoint evidence where applicable.
 - Independent review has no unresolved critical/high findings.
 
+## WP-9 — User-scope RSOP and loopback
+
+Created 2026-08-03 when WP-6 was ruled computer-scope-only. This work package
+exists so that decision is a deferral with a name attached rather than a quiet
+reduction in what the project claims to have validated. Until it runs,
+`rsop.py`'s user-side and loopback behavior is an unverified claim and the
+capability matrix must say so.
+
+The blocker was never policy — an interactive logon on the disposable estate is
+approved. The blocker is that the estate has never had one, and PowerShell
+Direct does not provide one.
+
+### Work
+
+1. Establish a reproducible interactive session on `LabCL01`: script an
+   autologon for a synthetic lab principal and take a dedicated checkpoint, so
+   the logged-on state is restorable rather than hand-made. A hand-made logon
+   makes the lane unrepeatable, which fails WP-8's repeatability requirement.
+2. Collect user token groups separately from the computer token, including
+   nested and deny-only cases where representable. Do not reuse the computer
+   token collection; conflating the two is the specific error WP-6 work item 1
+   exists to prevent.
+3. Author user-side conflicts: link order, security filtering on user
+   principals, and conflicting HKCU values so the winning setting is observable
+   rather than only the applied GPO set.
+4. Capture `gpresult /x … /f /scope:user` under that session, with the same
+   artifact-based assertions WP-6 uses — the exit code proves nothing, and the
+   silent-empty-file failure is *how this trap first appeared*, on a
+   user-scope invocation.
+5. Cover loopback disabled, merge, and replace.
+6. Diff against `compute_rsop()` predictions committed before application.
+7. If `Get-GPResultantSetOfPolicy -User` from `LabMS01` proves reachable across
+   the private switch, use it as a second independent oracle. Treat it as a
+   bonus: it is untested, and this project has already been burned once by
+   designing a lane against an unmeasured transport.
+
+### Acceptance
+
+- User-side applied/denied sets and every observable winning HKCU value match
+  Windows.
+- Loopback merge proves computer-location user settings win conflicts.
+- Loopback replace proves user-location settings are discarded entirely.
+- The interactive session is established from a checkpoint by script, and a
+  second run from that checkpoint reproduces the result.
+- The capability matrix is updated to drop the *computer scope only* qualifier
+  from every capability this WP verifies — and only those.
+
 ## Sequencing
 
 ```text
@@ -937,7 +1024,8 @@ WP-0 evidence contract
       └─ WP-7 lifecycle round trip
 
 WP-4 discovery + verified policy application
- └─ WP-6 controlled RSOP/effective rights
+ └─ WP-6 controlled RSOP/effective rights (computer scope)
+      └─ WP-9 user scope + loopback
 
 WP-1 through WP-7
  └─ WP-8 integrated certification
@@ -946,6 +1034,12 @@ WP-1 through WP-7
 WP-1A native-origin reader fixtures can start after WP-0 and run in parallel
 with WP-2. WP-1B cannot start until the native backup/publication boundary is
 verified. WP-3 and the LGPO-only portion of WP-5 can also run in parallel.
+
+WP-9 does not gate WP-8. WP-8 certifies what WP-1 through WP-7 verified, and
+computer-scope RSOP is what WP-6 verified — so an integrated certification can
+complete while user-scope RSOP remains outstanding, *provided* the matrix
+carries the scope qualifier. If that qualifier is ever dropped without WP-9
+having run, WP-8's certification becomes an overclaim.
 
 ## Planning guidance
 
