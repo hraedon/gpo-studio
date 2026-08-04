@@ -525,12 +525,22 @@ Three consequences worth stating plainly:
      side is *coverage*, not scope: security filtering on user principals,
      WMI filters and slow-link behaviour are untested there as they are on the
      computer side, so reason 2 below now carries both scopes.
-  2. **Coverage.** Security filtering, WMI filters and slow-link behaviour are
-     absent from every certified topology, on both scopes. Block inheritance and
-     enforcement are covered on the computer side only (WP-6B's
-     `disabled-block-enforced`, which is where WI-031 was found). The corpus
-     scenarios covering the rest are still blocked, so a clean WP-6B and a clean
-     WP-9 together say nothing about any of them.
+  2. **Coverage**, and it is now the qualifier that carries the weight. As of
+     2026-08-04 the certified topologies cover LSDOU order, link order, block
+     inheritance, enforcement, disabled links and sides (computer side), and
+     user-side resolution, loopback merge/replace and security filtering (user
+     side). What they do **not** cover, and what the oracle found instead:
+     - **deny ACEs** — `rsop.py` cannot express one and predicts the GPO
+       applies (WI-033, demonstrated);
+     - **WMI filters** — `rsop.py` cannot evaluate one and predicts the GPO
+       applies (WI-035, demonstrated);
+     - **slow link and safe mode** — the fields are accepted and never read
+       (WI-036), and the estate cannot produce a slow link to test against.
+
+     The first two are the same failure direction: the model says a GPO applies
+     when it does not, for the two most common ways a GPO is scoped out of a
+     machine. That is a sharper statement about this module than any single
+     finding, and it is the reason the qualifier stays.
   3. **Surfacing is a decision nobody has made.** It is reachable from no API
      endpoint, which is correct for now (WI-030).
 

@@ -275,6 +275,47 @@ Needs a re-certification run, because the verdict's meaning changes.
 
 Not fixed during the run that measured it, as with WI-026, WI-032 and WI-033.
 
+## WI-036 — `slow_link` and `safe_mode` are accepted and silently ignored
+
+**Opened:** 2026-08-04, while reconciling the corpus after WI-035.
+**Status:** open. Established from the code and a behavioural check, and it
+needs no oracle.
+
+`RsopTarget.slow_link`, `RsopTarget.safe_mode`, `RsopQuery.simulate_slow_link`
+and `RsopQuery.simulate_safe_mode` are declared and **read nowhere**. A search
+across `src/` finds only their definitions. Driving `compute_rsop` with each
+set to true returns byte-identical applied sets, winners and warnings.
+
+This is a different shape from WI-033 and WI-035, and worse in one respect.
+Those two are *absences*: the model cannot be told about a deny ACE or a WMI
+result. This one is an *invitation*: the API offers the caller a field, accepts
+it, changes nothing, and does not warn. A caller who sets `slow_link=True` has
+every reason to believe the answer accounts for it.
+
+**Why it matters.** Under a slow link Windows applies only the extensions that
+are always-on — Registry and Security — and skips the rest by default:
+software installation, folder redirection, scripts, disk quota, IE maintenance.
+So the prediction is wrong for precisely the extensions slow-link handling
+exists to govern. Safe mode is narrower but the same shape.
+
+**What the estate can and cannot do about it.** Nothing here needs an oracle:
+"the field is never read" is a fact about the code. A *lane* demonstration
+would need a genuinely slow link, which this estate cannot currently produce —
+Group Policy measures bandwidth across the private switch and finds it fast,
+and throttling it is not something the isolation invariant makes easy. So this
+item is deliberately recorded without a lane run, and the corpus scenario that
+covers slow-link behaviour stays blocked for that reason rather than for a
+missing platform.
+
+No test pins the current behaviour on purpose: a test asserting that these
+fields do nothing would have to be deleted to fix them, and would read as an
+endorsement in the meantime.
+
+**Closes when:** either the fields drive resolution (per-CSE, since that is how
+Windows applies it), or they are removed from the public shape so the API stops
+offering something it does not honour. Both are defensible; silently accepting
+them is not.
+
 ---
 
 ## Not yet numbered

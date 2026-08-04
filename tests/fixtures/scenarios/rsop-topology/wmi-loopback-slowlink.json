@@ -4,7 +4,7 @@
   "family": "rsop-topology",
   "title": "WMI evaluation outcomes, loopback modes, and slow-link registry behavior",
   "readiness": "blocked",
-  "blocked_reason": "Loopback merge and replace decide most of the expected winners and are out of WP-6's computer-only scope. The WMI true/false/error half is computer-scope and would run today, but the per_mode expectations are authored as one matrix, so the scenario is held whole for WP-9 rather than half-executed.",
+  "blocked_reason": "Two of its three claims are now verified, by lane scenarios rather than by this file: loopback merge and replace certified 2026-08-04 (WP-9, loopback-merge and loopback-replace), and WMI true/false certified the same day (WP-6B, wmi-filtering, as the declared divergence WI-035). What keeps this scenario blocked is the SLOW-LINK half alone, and for two independent reasons: the estate cannot produce a genuinely slow link -- Group Policy measures bandwidth across the private switch and finds it fast -- and rsop.py does not read its own slow_link field anyway (WI-036), so there is currently nothing on either side to compare.",
   "provenance": {
     "tier": "spec-informed",
     "note": "WMI-true applies and WMI-false filters are documented; the evaluation-error outcome is a recorded hypothesis (treated as false) that must be captured, not assumed. Loopback merge semantics (computer-location user settings win conflicts) are documented and are also a named Plan 033 precondition: Studio's earlier merge order was wrong. Slow-link: the registry CSE always processes; other CSE behaviors are outside Studio's model and recorded as open questions.",
@@ -12,35 +12,124 @@
   },
   "platform": {
     "lane": "rsop-user-loopback",
-    "boundaries": ["endpoint-resultant-state", "wmi-filter-object-association"]
+    "boundaries": [
+      "endpoint-resultant-state",
+      "wmi-filter-object-association"
+    ]
   },
   "authored_intent": {
     "topology": {
       "som": [
-        {"id": "domain", "kind": "domain"},
-        {"id": "ou-studio-computers", "kind": "ou", "parent": "domain"},
-        {"id": "ou-studio-users", "kind": "ou", "parent": "domain"}
+        {
+          "id": "domain",
+          "kind": "domain"
+        },
+        {
+          "id": "ou-studio-computers",
+          "kind": "ou",
+          "parent": "domain"
+        },
+        {
+          "id": "ou-studio-users",
+          "kind": "ou",
+          "parent": "domain"
+        }
       ],
       "gpos": [
-        {"name": "Studio-RSOP-WmiTrue", "wmi": "SELECT BuildNumber FROM Win32_OperatingSystem WHERE BuildNumber = '26100'", "sets": {"Cond": "wmiTrue"}},
-        {"name": "Studio-RSOP-WmiFalse", "wmi": "SELECT BuildNumber FROM Win32_OperatingSystem WHERE BuildNumber = '99999'", "sets": {"Cond": "wmiFalse"}},
-        {"name": "Studio-RSOP-WmiError", "wmi": "SELECT NoSuchProperty FROM Win32_NoSuchClass", "sets": {"Cond": "wmiError"}},
-        {"name": "Studio-RSOP-ComputerLoc", "sets_user": {"Loop": "computerLocation", "LoopComputerOnly": "1"}},
-        {"name": "Studio-RSOP-UserLoc", "sets_user": {"Loop": "userLocation", "LoopUserOnly": "1"}}
+        {
+          "name": "Studio-RSOP-WmiTrue",
+          "wmi": "SELECT BuildNumber FROM Win32_OperatingSystem WHERE BuildNumber = '26100'",
+          "sets": {
+            "Cond": "wmiTrue"
+          }
+        },
+        {
+          "name": "Studio-RSOP-WmiFalse",
+          "wmi": "SELECT BuildNumber FROM Win32_OperatingSystem WHERE BuildNumber = '99999'",
+          "sets": {
+            "Cond": "wmiFalse"
+          }
+        },
+        {
+          "name": "Studio-RSOP-WmiError",
+          "wmi": "SELECT NoSuchProperty FROM Win32_NoSuchClass",
+          "sets": {
+            "Cond": "wmiError"
+          }
+        },
+        {
+          "name": "Studio-RSOP-ComputerLoc",
+          "sets_user": {
+            "Loop": "computerLocation",
+            "LoopComputerOnly": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-UserLoc",
+          "sets_user": {
+            "Loop": "userLocation",
+            "LoopUserOnly": "1"
+          }
+        }
       ],
       "links": [
-        {"som": "ou-studio-computers", "gpo": "Studio-RSOP-WmiTrue", "order": 1, "enabled": true, "enforced": false},
-        {"som": "ou-studio-computers", "gpo": "Studio-RSOP-WmiFalse", "order": 2, "enabled": true, "enforced": false},
-        {"som": "ou-studio-computers", "gpo": "Studio-RSOP-WmiError", "order": 3, "enabled": true, "enforced": false},
-        {"som": "ou-studio-computers", "gpo": "Studio-RSOP-ComputerLoc", "order": 4, "enabled": true, "enforced": false},
-        {"som": "ou-studio-users", "gpo": "Studio-RSOP-UserLoc", "order": 1, "enabled": true, "enforced": false}
+        {
+          "som": "ou-studio-computers",
+          "gpo": "Studio-RSOP-WmiTrue",
+          "order": 1,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-computers",
+          "gpo": "Studio-RSOP-WmiFalse",
+          "order": 2,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-computers",
+          "gpo": "Studio-RSOP-WmiError",
+          "order": 3,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-computers",
+          "gpo": "Studio-RSOP-ComputerLoc",
+          "order": 4,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-users",
+          "gpo": "Studio-RSOP-UserLoc",
+          "order": 1,
+          "enabled": true,
+          "enforced": false
+        }
       ],
-      "target": {"computer": "studio test computer in ou-studio-computers", "user": "lab user in ou-studio-users"},
+      "target": {
+        "computer": "studio test computer in ou-studio-computers",
+        "user": "lab user in ou-studio-users"
+      },
       "modes": [
-        {"loopback": "disabled", "slow_link": false},
-        {"loopback": "merge", "slow_link": false},
-        {"loopback": "replace", "slow_link": false},
-        {"loopback": "disabled", "slow_link": true}
+        {
+          "loopback": "disabled",
+          "slow_link": false
+        },
+        {
+          "loopback": "merge",
+          "slow_link": false
+        },
+        {
+          "loopback": "replace",
+          "slow_link": false
+        },
+        {
+          "loopback": "disabled",
+          "slow_link": true
+        }
       ]
     },
     "operator_meaning": [
@@ -52,35 +141,90 @@
   "expected_native": {
     "per_mode": [
       {
-        "mode": {"loopback": "disabled", "slow_link": false},
-        "applied": ["Studio-RSOP-WmiTrue", "Studio-RSOP-ComputerLoc", "Studio-RSOP-UserLoc"],
+        "mode": {
+          "loopback": "disabled",
+          "slow_link": false
+        },
+        "applied": [
+          "Studio-RSOP-WmiTrue",
+          "Studio-RSOP-ComputerLoc",
+          "Studio-RSOP-UserLoc"
+        ],
         "denied": [
-          {"gpo": "Studio-RSOP-WmiFalse", "reason": "WMI filter evaluated false"},
-          {"gpo": "Studio-RSOP-WmiError", "reason": "WMI filter evaluation error treated as false (hypothesis to capture)"}
+          {
+            "gpo": "Studio-RSOP-WmiFalse",
+            "reason": "WMI filter evaluated false"
+          },
+          {
+            "gpo": "Studio-RSOP-WmiError",
+            "reason": "WMI filter evaluation error treated as false (hypothesis to capture)"
+          }
         ],
         "winners": [
-          {"key": "HKLM\\Software\\Policies\\StudioLab\\Cond", "value": "wmiTrue", "source_gpo": "Studio-RSOP-WmiTrue"},
-          {"key": "HKCU\\Software\\Policies\\StudioLab\\Loop", "value": "userLocation", "source_gpo": "Studio-RSOP-UserLoc", "reason": "loopback disabled: normal user precedence, the computer-location GPO's user settings do not apply"}
+          {
+            "key": "HKLM\\Software\\Policies\\StudioLab\\Cond",
+            "value": "wmiTrue",
+            "source_gpo": "Studio-RSOP-WmiTrue"
+          },
+          {
+            "key": "HKCU\\Software\\Policies\\StudioLab\\Loop",
+            "value": "userLocation",
+            "source_gpo": "Studio-RSOP-UserLoc",
+            "reason": "loopback disabled: normal user precedence, the computer-location GPO's user settings do not apply"
+          }
         ]
       },
       {
-        "mode": {"loopback": "merge", "slow_link": false},
+        "mode": {
+          "loopback": "merge",
+          "slow_link": false
+        },
         "winners": [
-          {"key": "HKCU\\Software\\Policies\\StudioLab\\Loop", "value": "computerLocation", "source_gpo": "Studio-RSOP-ComputerLoc", "reason": "loopback merge: computer-location user settings apply after and win conflicts (the Plan 033 precondition Studio previously got backwards)"},
-          {"key": "HKCU\\Software\\Policies\\StudioLab\\LoopUserOnly", "value": "1", "source_gpo": "Studio-RSOP-UserLoc", "reason": "merge keeps non-conflicting user-location values"}
+          {
+            "key": "HKCU\\Software\\Policies\\StudioLab\\Loop",
+            "value": "computerLocation",
+            "source_gpo": "Studio-RSOP-ComputerLoc",
+            "reason": "loopback merge: computer-location user settings apply after and win conflicts (the Plan 033 precondition Studio previously got backwards)"
+          },
+          {
+            "key": "HKCU\\Software\\Policies\\StudioLab\\LoopUserOnly",
+            "value": "1",
+            "source_gpo": "Studio-RSOP-UserLoc",
+            "reason": "merge keeps non-conflicting user-location values"
+          }
         ]
       },
       {
-        "mode": {"loopback": "replace", "slow_link": false},
+        "mode": {
+          "loopback": "replace",
+          "slow_link": false
+        },
         "winners": [
-          {"key": "HKCU\\Software\\Policies\\StudioLab\\Loop", "value": "computerLocation", "source_gpo": "Studio-RSOP-ComputerLoc", "reason": "loopback replace: only computer-location user settings apply"},
-          {"key": "HKCU\\Software\\Policies\\StudioLab\\LoopUserOnly", "absent": true, "reason": "replace discards the user's own location GPOs entirely"}
+          {
+            "key": "HKCU\\Software\\Policies\\StudioLab\\Loop",
+            "value": "computerLocation",
+            "source_gpo": "Studio-RSOP-ComputerLoc",
+            "reason": "loopback replace: only computer-location user settings apply"
+          },
+          {
+            "key": "HKCU\\Software\\Policies\\StudioLab\\LoopUserOnly",
+            "absent": true,
+            "reason": "replace discards the user's own location GPOs entirely"
+          }
         ]
       },
       {
-        "mode": {"loopback": "disabled", "slow_link": true},
+        "mode": {
+          "loopback": "disabled",
+          "slow_link": true
+        },
         "winners": [
-          {"key": "HKLM\\Software\\Policies\\StudioLab\\Cond", "value": "wmiTrue", "source_gpo": "Studio-RSOP-WmiTrue", "reason": "the registry CSE always processes, including over slow links"}
+          {
+            "key": "HKLM\\Software\\Policies\\StudioLab\\Cond",
+            "value": "wmiTrue",
+            "source_gpo": "Studio-RSOP-WmiTrue",
+            "reason": "the registry CSE always processes, including over slow links"
+          }
         ]
       }
     ],
