@@ -506,14 +506,31 @@ has yet checked.
 
 Three consequences worth stating plainly:
 
-- **`rsop.py` predicts Windows behavior.** A prediction that has never been
-  compared against `gpresult` is a hypothesis. It must not reach operators
-  before the Plan 033 WP-6 oracle validates it. Note the shape of what WP-6 can
-  deliver: it was ruled **computer scope only** on 2026-08-03, so even a clean
-  WP-6 pass leaves user-scope resolution and loopback (merge and replace)
-  unverified until WP-9. When WP-6 lands, every capability it certifies is
-  recorded here with that qualifier; dropping the qualifier without WP-9 having
-  run would overclaim by half.
+- **`rsop.py` has now been compared against `gpresult` — in one narrow region.**
+  WP-6B ran on 2026-08-04 and passed three times with identical results:
+  for LSDOU ordering, same-container link order and non-conflicting
+  inheritance, **on the computer side**, the prediction matched Windows exactly
+  (`docs/plan-033/wp6b-results.md`). That is the first external check this
+  module has ever had.
+
+  It remains **not** an operator-facing capability, for three separate reasons,
+  and all three must go before the qualifier does:
+
+  1. **Scope.** WP-6 is computer-scope only by the 2026-08-03 ruling. User-scope
+     resolution and loopback (merge and replace) are unverified until WP-9.
+  2. **Coverage.** Security filtering, WMI filters, block inheritance and
+     enforcement are absent from the certified topology. The corpus scenarios
+     covering them are blocked or user-scope, so a clean WP-6B says nothing
+     about any of them.
+  3. **Surfacing is a decision nobody has made.** It is reachable from no API
+     endpoint, which is correct for now (WI-030).
+
+  WI-026 — an empty result when handed a computer's own DN, the shape a real
+  caller gets from a directory — *was* a fourth reason and is now fixed, with the
+  fix re-certified against Windows rather than only unit-tested.
+
+  Open work items for this module are tracked in
+  [`docs/work-items.md`](work-items.md).
 - **`publication.py` / `publisher.py` do not weaken the charter.** Both are
   pure and side-effect-free; they emit no writes. The web process still never
   writes to AD or SYSVOL.

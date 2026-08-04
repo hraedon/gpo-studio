@@ -789,3 +789,286 @@ def test_compare_rsop_gpo_changed() -> None:
     diffs = compare_rsop_results(baseline, current)
     assert len(diffs) == 1
     assert diffs[0].change_type == "gpo_changed"
+
+
+# WI-026, RESOLVED 2026-08-04: a target DN that names no SOM node now resolves
+# to its nearest ancestor that does.
+#
+# Found while constructing the WP-6B lane's prediction against the real estate,
+# before the lane ran. compute_precedence looks up SOM *containers*, but
+# RsopTarget.computer_dn is an object DN in every real caller: ad_discovery
+# returns CN=host,OU=..., and the same field is matched against security-filter
+# principals, where the object DN is the correct value. The two uses wanted
+# different strings and only one of them worked.
+#
+# It survived because all thirteen other call sites in this file pass a
+# container DN, so the model was only ever exercised with the one input shape it
+# tolerated. Self-consistency is not evidence.
+#
+# The fix is backwards compatible -- a container DN is found on the first lookup
+# and never enters the walk -- so the WP-6B certification computed under the old
+# behaviour still stands, and the lane now passes the client's real object DN and
+# produces the same prediction Windows confirmed.
+
+
+def _wi026_nodes() -> tuple[SomNode, ...]:
+    return (
+        _node(
+            _CHILD_OU_DN,
+            "Child",
+            "ou",
+            parent_dn=_OU_DN,
+            links=(_link(_GPO_A, _CHILD_OU_DN),),
+        ),
+        _node(_OU_DN, "Servers", "ou", parent_dn=_DOMAIN_DN),
+        _node(_DOMAIN_DN, "ad", "domain"),
+    )
+
+
+def _wi026_gpo() -> GPO:
+    return _gpo(
+        _GPO_A,
+        "GPO A",
+        settings=(_setting("s1", "computer", r"Software\X", "Val", "applied"),),
+    )
+
+
+def test_wi026_container_dn_resolves_normally() -> None:
+    """The pre-existing convention still works, unchanged."""
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn=_CHILD_OU_DN),
+        som_nodes=_wi026_nodes(),
+        gpos=(_wi026_gpo(),),
+    )
+    result = compute_rsop(query)
+
+    assert [g.gpo_name for g in result.gpos_applied()] == ["GPO A"]
+    assert len(result.computer_settings) == 1
+    assert result.warnings == ()
+
+
+def test_wi026_computer_object_dn_resolves_to_its_container() -> None:
+    """The shape a real directory returns now produces the right answer.
+
+    Before the fix this returned no applied GPOs and no settings -- an empty
+    result identical to a correctly-computed "no policy applies", for a machine
+    Windows applies policy to.
+    """
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+        som_nodes=_wi026_nodes(),
+        gpos=(_wi026_gpo(),),
+    )
+    result = compute_rsop(query)
+
+    assert [g.gpo_name for g in result.gpos_applied()] == ["GPO A"]
+    assert len(result.computer_settings) == 1
+    assert result.computer_settings[0].effective_value == "applied"
+
+
+def test_wi026_object_dn_resolution_is_case_insensitive() -> None:
+    """AD returns whatever case it stored; the SOM tree is built by a caller.
+
+    The live estate returns ``CN=LABCL01,OU=StudioRsopChild-...`` for a computer
+    whose OU the harness created as ``StudioRsopChild-...``, so the two DNs being
+    compared genuinely differ in case.
+    """
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn=("CN=PC01," + _CHILD_OU_DN).upper()),
+        som_nodes=_wi026_nodes(),
+        gpos=(_wi026_gpo(),),
+    )
+    result = compute_rsop(query)
+
+    assert [g.gpo_name for g in result.gpos_applied()] == ["GPO A"]
+
+
+def test_wi026_deeply_nested_object_dn_finds_the_nearest_container() -> None:
+    """Resolution stops at the FIRST ancestor in the tree, not the domain.
+
+    Walking too far would silently compute policy for the wrong container --
+    which is a worse failure than the empty result it replaces, because it looks
+    like an answer.
+    """
+    nodes = (
+        _node(_CHILD_OU_DN, "Child", "ou", parent_dn=_OU_DN, links=(_link(_GPO_A, _CHILD_OU_DN),)),
+        _node(_OU_DN, "Servers", "ou", parent_dn=_DOMAIN_DN, links=(_link(_GPO_B, _OU_DN),)),
+        _node(_DOMAIN_DN, "ad", "domain"),
+    )
+    gpo_a = _wi026_gpo()
+    gpo_b = _gpo(
+        _GPO_B,
+        "GPO B",
+        settings=(_setting("s2", "computer", r"Software\X", "Val", "parent"),),
+    )
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+        som_nodes=nodes,
+        gpos=(gpo_a, gpo_b),
+    )
+    result = compute_rsop(query)
+
+    # The child OU applies last and wins; reaching only the parent would have
+    # produced "parent" here.
+    assert result.computer_settings[0].effective_value == "applied"
+    assert result.computer_settings[0].winning_gpo_name == "GPO A"
+
+
+def test_wi026_wholly_unrelated_dn_still_warns() -> None:
+    """When nothing in the ancestry matches, the empty result must say so."""
+    query = _query(
+        target=_target(computer_name="pc01", computer_dn="CN=pc01,OU=Elsewhere,DC=other,DC=test"),
+        som_nodes=_wi026_nodes(),
+        gpos=(_wi026_gpo(),),
+    )
+    result = compute_rsop(query)
+
+    assert result.gpo_results == ()
+    assert any("nor does" in warning for warning in result.warnings), result.warnings
+
+
+# WI-031, found by the WP-6B oracle 2026-08-04 and fixed the same day.
+#
+# Enforcement was absent from the precedence sort key entirely, so an enforced
+# link was ordered by its scope like any other: a GPO enforced at the domain sat
+# in the domain tier and LOST to a plain OU link. Three consecutive runs on a
+# real Windows 11 26200 client resolved `domainEnforced` where Studio predicted
+# `child`.
+#
+# Enforcement has two independent effects and only one was implemented. Surviving
+# a block-inheritance cutoff worked -- which is why the applied/denied sets
+# matched Windows exactly while the winning VALUE did not, and why a lane that
+# compared only applied sets would have called this a pass.
+#
+# No existing test exercised enforced-versus-lower-scope precedence, which is why
+# the whole suite stayed green over it.
+
+
+def test_wi031_enforced_domain_link_beats_a_plain_ou_link() -> None:
+    """The defect the oracle found, in the shape it found it."""
+    domain_enforced = _gpo(
+        _GPO_A,
+        "DomainEnforced",
+        settings=(_setting("s1", "computer", r"Software\X", "Block", "domainEnforced"),),
+    )
+    child = _gpo(
+        _GPO_B,
+        "ChildGPO",
+        settings=(_setting("s2", "computer", r"Software\X", "Block", "child"),),
+    )
+    nodes = (
+        _node(
+            _CHILD_OU_DN,
+            "Child",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_B, _CHILD_OU_DN),),
+        ),
+        _node(
+            _DOMAIN_DN,
+            "ad",
+            "domain",
+            links=(_link(_GPO_A, _DOMAIN_DN, scope="domain", enforced=True),),
+        ),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+            som_nodes=nodes,
+            gpos=(domain_enforced, child),
+        )
+    )
+
+    winner = result.get_effective_value("computer", r"Software\X", "Block")
+    assert winner is not None
+    assert winner.effective_value == "domainEnforced"
+    assert winner.winning_gpo_name == "DomainEnforced"
+
+
+def test_wi031_among_enforced_links_the_higher_scope_wins() -> None:
+    """The hierarchy inverts for enforced links: closest to the root wins.
+
+    Two enforced links in conflict is the case that distinguishes "enforced
+    outranks non-enforced" from the full rule. Without the inversion an enforced
+    OU link would beat an enforced domain link, which is backwards.
+    """
+    domain_enforced = _gpo(
+        _GPO_A,
+        "DomainEnforced",
+        settings=(_setting("s1", "computer", r"Software\X", "Block", "domain"),),
+    )
+    ou_enforced = _gpo(
+        _GPO_B,
+        "OuEnforced",
+        settings=(_setting("s2", "computer", r"Software\X", "Block", "ou"),),
+    )
+    nodes = (
+        _node(
+            _CHILD_OU_DN,
+            "Child",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_B, _CHILD_OU_DN, enforced=True),),
+        ),
+        _node(
+            _DOMAIN_DN,
+            "ad",
+            "domain",
+            links=(_link(_GPO_A, _DOMAIN_DN, scope="domain", enforced=True),),
+        ),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+            som_nodes=nodes,
+            gpos=(domain_enforced, ou_enforced),
+        )
+    )
+
+    winner = result.get_effective_value("computer", r"Software\X", "Block")
+    assert winner is not None
+    assert winner.effective_value == "domain"
+
+
+def test_wi031_non_enforced_precedence_is_unchanged() -> None:
+    """The regression guard: ordinary LSDOU must not move.
+
+    lsdou-precedence is WP-6B-certified against Windows, so any change to this
+    ordering would invalidate a passing certification rather than improve it.
+    """
+    domain_gpo = _gpo(
+        _GPO_A,
+        "DomainPlain",
+        settings=(_setting("s1", "computer", r"Software\X", "Block", "domain"),),
+    )
+    child = _gpo(
+        _GPO_B,
+        "ChildGPO",
+        settings=(_setting("s2", "computer", r"Software\X", "Block", "child"),),
+    )
+    nodes = (
+        _node(
+            _CHILD_OU_DN,
+            "Child",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_B, _CHILD_OU_DN),),
+        ),
+        _node(
+            _DOMAIN_DN,
+            "ad",
+            "domain",
+            links=(_link(_GPO_A, _DOMAIN_DN, scope="domain"),),
+        ),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(computer_name="pc01", computer_dn="CN=pc01," + _CHILD_OU_DN),
+            som_nodes=nodes,
+            gpos=(domain_gpo, child),
+        )
+    )
+
+    winner = result.get_effective_value("computer", r"Software\X", "Block")
+    assert winner is not None
+    assert winner.effective_value == "child"
