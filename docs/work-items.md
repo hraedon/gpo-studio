@@ -207,7 +207,12 @@ WI-026 and WI-032: a model corrected mid-lane is no longer being checked by an
 independent oracle. The sequence was predict, observe, certify the divergence as
 an `expected-finding`, then fix, then re-run.
 
-**Closes when:** the re-run certifies an ordinary pass.
+**CLOSED 2026-08-04** by `rsop-user-observe-20260804150527-3868`: the scenario
+certifies `pass`, with predicted and observed winners identical and the deny row
+reported denied for its own reason. The full arc is the point — predict,
+observe, certify the divergence as an `expected-finding`, fix, re-run, agree —
+and the two verdicts are both committed, so the gap and its closure are each
+readable from the repository.
 
 ## WI-034 — the token gate was reading a token the CSE never uses
 

@@ -147,8 +147,16 @@ before it ran**:
 - `Filter`: predicted `deny`, observed `allow`
 - `DenyOnly`: predicted `1`, observed absent
 
-That is WI-033 demonstrated rather than argued: `SecurityFilter` has no deny
-polarity, so the model says a GPO applies when a deny ACE means it does not.
+That was WI-033 demonstrated rather than argued: `SecurityFilter` had no deny
+polarity, so the model said a GPO applies when a deny ACE means it does not.
+
+**Fixed and re-certified the same day.** `SecurityFilter` gained `deny`,
+`_gpo_filter_status` gives it precedence over the allow as token evaluation
+does, and the scenario now certifies `pass`
+(`rsop-user-observe-20260804150527-3868`) with predicted and observed winners
+identical. Both verdicts are committed: the divergence and its closure are each
+readable from the repository, and the fix came *after* the measurement rather
+than during it.
 
 ### The case the model cannot express
 
