@@ -130,10 +130,19 @@ Three defects, three guards, no wrong answers. The guards were the point.
 ## Security filtering: built, not yet certified
 
 **Status: the lane exists and is tested; no filtering scenario has certified.**
-WI-034 blocks execution -- the in-session policy refresh stops working after the
-re-session restart the nesting row requires, so the observation never settles.
-Everything below is either committed code or an observation from a run the
-finalizer REFUSED, and is labelled as such.
+WI-034 blocks execution. Everything below is either committed code or an
+observation from a run the finalizer REFUSED, and is labelled as such.
+
+The blocker is worth stating precisely, because the first attempt to state it
+was wrong. A session established by **boot-time autologon** carries a token
+with **no domain groups at all** -- not even `Domain Users` -- while the DC is
+reachable and the secure channel is healthy. A session restored from the
+`user-logged-on` checkpoint behaves normally. So group-based filtering cannot
+be observed on a session the lane creates by restarting the guest, and the
+re-session step built to re-mint the token does not do so. See WI-034 for the
+measurements and for the three candidate directions, of which the least clever
+-- provisioning the group as estate furniture, before any session exists -- is
+the most promising.
 
 ### The case the model cannot express
 

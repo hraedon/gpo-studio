@@ -193,44 +193,59 @@ pass. Needs a re-certification run, because the verdict's meaning changes.
 Not fixed during the run that measured it, for the same reason as WI-026 and
 WI-032.
 
-## WI-034 — the in-session refresh stops working after the re-session restart
+## WI-034 — a boot-autologon session is not equivalent to a restored one
 
-**Opened:** 2026-08-04 (WP-9 filtering).
-**Status:** open, reproduced, cause not established. **This blocks the two
-`user-security-filtering*` scenarios from certifying.**
+**Opened:** 2026-08-04 (WP-9 filtering). **Revised the same day, after measuring
+rather than assuming.** **This blocks the two `user-security-filtering*`
+scenarios from certifying.**
 
-The lane refreshes user policy inside the principal's session with a scheduled
-task registered `-LogonType Interactive`. That mechanism was measured working
-and carried three certified scenarios. After the filtering lane's re-session
-restart it stops: the task runs and exits **1**, writes no output file, and no
-`8005` "completed manual processing of policy for user" event appears. The
-observation half therefore never settles and the run is bounded out.
+The first write-up of this item said the in-session refresh "stops working after
+the re-session restart". That was the symptom, stated as a mechanism, and it was
+wrong in a way worth recording: the same probe run against a session restored
+from the `user-logged-on` checkpoint works perfectly — task result 0, `gpupdate`
+runs in session 1 as the principal, output file written.
 
-Reproduced outside the lane with a minimal task on the same guest — same
-result=1, no marker — so it is not specific to the lane's own command
-construction.
+What is actually measured:
 
-What is known:
+| session came from | interactive scheduled task | token contents |
+|---|---|---|
+| the `user-logged-on` checkpoint | works (result 0, writes output) | not separately captured |
+| autologon after a **reboot** | fails (result 1, no output, no `8005`) | **no domain groups at all** |
 
-* the restart itself is fine: the guest reboots, autologon signs the principal
-  back in, and the session is verified present before the observation starts;
-* the same task shape wrote a file successfully in the same location **before**
-  any restart;
-* the estate's own state is otherwise correct — the DACLs, the group
-  membership, and the applied values for the representable rows all match
-  intent (Read+Apply applied, Read-without-Apply did not).
+The token is the decisive observation. `whoami /groups` captured inside the
+post-reboot session lists only well-known and local SIDs — `Everyone`,
+`BUILTIN\Users`, `INTERACTIVE`, `CONSOLE LOGON`, `Authenticated Users`,
+`This Organization`, `LOCAL`, the asserted-identity SID and the integrity
+label. **`Domain Users` is absent**, and so is the run's own group. A domain
+user's token cannot legitimately lack `Domain Users`.
 
-What is not known: why the task's process exits 1 after the restart. Candidates
-not yet distinguished include the redirect target's permissions for a
-non-administrative user in a freshly re-created session, and something about
-the profile state of a session established by autologon after a policy-bearing
-boot.
+Meanwhile, from the harness session on the same guest at the same time, the DC
+answers on 389 and `Test-ComputerSecureChannel` returns true. So this is not a
+broken machine account or an unreachable directory *now* — it is about what the
+logon had available *when it happened*, early in boot.
 
-**Closes when:** the cause is established and either fixed or designed around
-(for example by having the task write somewhere the principal certainly owns,
-or by settling on evidence that does not require running anything in the
-session). The scenarios and the finalizer are complete and tested; only the
-execution path is blocked.
+**Consequence for the lane, and for any future user-scope work.** Group-based
+user filtering cannot be tested on a session established by boot-time
+autologon: the group is not in the token, so the GPO correctly does not apply,
+and the lane's token gate correctly refuses the run. The re-session restart was
+built to re-mint the token and does not achieve it.
+
+**Candidate directions, none tested:**
+
+* have the logon happen after the network is up rather than at boot — a delayed
+  or triggered logon rather than `AutoAdminLogon` at Winlogon start;
+* re-mint the token without a reboot (a logoff and a fresh autologon), which
+  needs the `ForceAutoLogon` question settled first;
+* avoid needing a re-mint at all by creating the group and its membership
+  *before* the session exists — i.e. as estate furniture provisioned by
+  `enable_lab_autologon.ps1`, with the lane granting Apply to an
+  already-populated group.
+
+The third is the most promising and the least clever: it removes the
+requirement rather than working around it.
+
+**Closes when:** a filtering run certifies, with the principal's session token
+demonstrably containing the group.
 
 ---
 
