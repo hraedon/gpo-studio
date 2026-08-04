@@ -71,7 +71,10 @@ def _sha256(path: Path) -> str:
 
 
 def _load(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    # utf-8-sig: PowerShell's Set-Content -Encoding UTF8 writes a BOM. Reading
+    # these as plain utf-8 raises before the finalizer decides anything, which
+    # presents as "the lane crashed" rather than as any of its four outcomes.
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def _build_family(build: str) -> str:
