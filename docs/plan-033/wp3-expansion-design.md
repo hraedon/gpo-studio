@@ -1,7 +1,9 @@
 # WP-3 expansion — what the security-template lane does not yet touch
 
 **Status: design note, written 2026-08-04 from the code rather than the plan.**
-Nothing here has run. It exists so the expansion is sequenced by *risk* instead
+No lane row has run. The two measurements at the end WERE taken, on the estate,
+and one of them replaced this note's original recommendation -- which is why
+they are at the end rather than in a follow-up. It exists so the expansion is sequenced by *risk* instead
 of by section order, because the sections differ enormously in how easy it is to
 tell a Studio defect from a `secedit` normalisation.
 
@@ -95,21 +97,56 @@ Without (2), a canonicalisation bug in the comparator is indistinguishable from
 a defect in `security_template.py`, and the run that "found" it would be the
 most convincing wrong answer this lane could produce.
 
-## Two things to measure before building Tranche B
+## The two measurements — taken 2026-08-04, and one of them changes the plan
 
-Both are cheap and neither needs the full lane:
+Both were cheap, neither needed a lane row, and they were run on the estate's
+member server before anything above was built on.
 
-- **Does `secedit /export` reproduce an SDDL byte-for-byte?** Import a template
-  with a known-canonical descriptor, export, and diff. The answer decides
-  whether (1) above is required or merely prudent.
-- **Does `secedit /validate` reject a malformed SDDL, or accept it silently?**
-  If it accepts, then `validate_security_template` is the only thing standing
-  between Studio and an invalid template, and its coverage of these sections
-  (currently: none — it checks `[Version]`, empty names, unknown sections, and
-  two account-policy consistency rules) becomes a finding in its own right.
+**1. `secedit /validate` DOES reject a malformed SDDL.** A `Registry Keys` entry
+carrying `D:PAR(A;CI;KA;;;NOT-A-SID)(this is not sddl` fails with exit 1 and
+`"The access control list (ACL) structure is invalid. Error building security
+descriptor for object MACHINE\SOFTWARE\StudioProbe."` So `secedit` is a real
+oracle for descriptor validity, and Studio emitting an invalid one would be
+caught rather than silently accepted. `validate_security_template` still cannot
+catch it itself — that remains true and remains worth fixing — but it is not the
+only guard.
 
-The second question is the more interesting one, and it can be answered without
-writing a single lane row.
+**2. `secedit /export` reproduced a canonical SDDL byte-for-byte.**
+`D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)` came back verbatim. So for an
+already-canonical descriptor, a string comparison of the SDDL is sound, and the
+semantic comparator proposed above is **prudent rather than required** — it is
+still the right thing for descriptors that are not already canonical, but it is
+not what blocks the tranche.
+
+### What actually blocks it, and it was not the SDDL
+
+The exported entry reads:
+
+```
+1="machine\software\studioprobe", 2, "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+```
+
+against an authored entry keyed by the path. Three transformations at once:
+
+- **the key is now an ordinal index** (`1=`), and the path has moved into the
+  value;
+- **the path is lower-cased**;
+- **commas gain trailing spaces**.
+
+The finalizer looks entries up with `template.get_value(section, key)`. For
+these sections there is no such key on the export side, so **every row would be
+reported as missing** — a clean sweep of false findings, and none of them about
+SDDL at all.
+
+So Tranche B's real prerequisite is an **entry-shape comparator**: match by
+parsing the value into (path, mode, descriptor), compare the path
+case-insensitively, and compare the descriptor. That is a different and smaller
+piece of work than the semantic-SDDL comparator this note originally proposed,
+and it is needed for all three Tranche B sections regardless of what the
+descriptors contain.
+
+The canonical-SDDL control row is still worth carrying, for the same reason as
+before: it is what distinguishes a comparator bug from a module defect.
 
 ## What this note deliberately does not do
 
