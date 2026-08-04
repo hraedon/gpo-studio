@@ -7,26 +7,29 @@
       "os": "Windows Server 2025 Standard",
       "build": "26100 family",
       "status": "frozen",
+      "qualifying_run": "wp2-native-import-20260803230132-8090",
       "snapshot_required": false,
-      "notes": "Primary validation target mvmcitest01 per environment-spec.md; domain ad.hraedon.com, DCs MVMDC01-03. Shared host: no secedit /configure, no endpoint-mutating operations. Superseded when the disposable ad.labdomain.dev estate lands; certified lanes keep their recorded environment until a re-freeze."
+      "notes": "The estate domain controller LabDC01, forest ad.labdomain.dev (LAB). Re-pointed 2026-08-03 from the retired shared host mvmcitest01 / ad.hraedon.com, which the SSH transport retirement took out of service; the host_id is historical and does not imply the lane executes on the DC. Lanes needing GPMC run on member-ws2025-disposable and reach this host for AD and SYSVOL, which is what wp2-native-import exercised end to end. Certifications produced against mvmcitest01 keep the environment recorded in their own manifests and are not retracted."
     },
     {
       "host_id": "client-win11",
       "role": "client",
       "os": "Windows 11 Enterprise (25H2)",
       "build": "26200 family",
-      "status": "pending-qualification",
+      "status": "frozen",
+      "qualifying_run": "endpoint-observe-20260803142424-3050",
       "snapshot_required": true,
-      "notes": "Endpoint processing oracle. Re-frozen 2026-07-29 from 24H2/26100 to 25H2/26200 (available lab media); still not yet tested, so no certification depends on it. Required by rsop-topology and endpoint ILT scenarios. Qualification produces its own evidence manifest and an environment-spec update before any claim."
+      "notes": "The estate client guest LabCL01. Qualified 2026-08-03 by a real 26200 client run that applied policy and observed CSE evidence (passed, no lane or control problems). Re-frozen 2026-07-29 from 24H2/26100 to 25H2/26200. Two measured limits shape every lane that uses it: the GroupPolicy module is absent (RSAT is a Feature-on-Demand the isolated estate cannot fetch), and the estate has never had an interactive logon, so user-scope resolution is WP-9 rather than WP-6."
     },
     {
       "host_id": "member-ws2025-disposable",
       "role": "member-server",
       "os": "Windows Server 2025 Standard",
       "build": "26100 family",
-      "status": "pending-qualification",
+      "status": "frozen",
+      "qualifying_run": "wp3-security-template-20260803230220-2450",
       "snapshot_required": true,
-      "notes": "Dedicated disposable host demanded by the open WP-3 PR-19 follow-up: the security-template lane may not expand beyond the certified account/audit/user-rights tranche on the shared host, and endpoint-application tests require a restorable snapshot with a generated rollback template. Lands within the planned disposable ad.labdomain.dev estate per the 2026-07-29 environment-spec supersession note."
+      "notes": "The estate member server LabMS01, domain-joined, checkpoint-backed. Qualified 2026-08-03 by a 20/20 WP-3 run with zero environment violations. This is where WP-0, WP-1B, WP-2 and WP-3 actually execute: the same estate qualification also produced live-synthetic-registry-basic-20260803213433-5325 (WP-0), wp1b-writer-20260803213602-6066 (WP-1B) and wp2-native-import-20260803230132-8090 (WP-2) on this host. Qualifying the host does not itself expand any lane: that run exercised the same validate/import/export tranche as the shared host did, so secedit /configure and the wider template areas remain unexecuted work, not new evidence."
     }
   ],
   "tools": [
@@ -42,7 +45,7 @@
       "kind": "microsoft-inbox",
       "frozen_version": "1.0.0.0",
       "status": "frozen",
-      "notes": "Pinned in environment-spec.md."
+      "notes": "Pinned in environment-spec.md. Server-side only: it is present on the estate member server and absent on the client guest, so a lane may use it to author or inspect a topology but may not rely on it as a client-side oracle."
     },
     {
       "tool_id": "gpmc",
@@ -56,25 +59,27 @@
       "kind": "microsoft-download",
       "frozen_version": "3.0 (Security Compliance Toolkit), SHA-256 0c97f29543418b30340c4ff5d930d31e6196dd59c2cc74b6b890fa7b90c910c7",
       "status": "pending-qualification",
-      "notes": "Recorded, not qualified (changed 2026-07-29): no current lane executes LGPO, so its hash is provenance only. The endpoint-application lane (WP-5) is the lane that would genuinely invoke it; per the 2026-07-29 ruling, qualification is restored when that lane is written. Until then this row stays pending, which keeps endpoint scenarios blocked."
+      "notes": "Recorded, not qualified (changed 2026-07-29): no current lane executes LGPO, so its hash is provenance only. Ruled 2026-08-03 that placing LGPO.exe on the estate is acceptable — disposable, checkpoint-backed guests, and the isolation invariant governs egress rather than what is deliberately placed inside — so WP-5 keeps its LGPO leg and this row is not pending because the tool was ruled out. It is pending because qualification is earned by execution: WP-5 must push the binary post-restore, verify it on the guest against a pinned SHA-256, and only then restore the check in frozen_environment_violations(). Do not flip this row on the strength of the ruling alone."
     },
     {
       "tool_id": "secedit",
       "kind": "microsoft-inbox",
-      "status": "pending-qualification",
-      "notes": "Inbox tool exercised by the certified WP-3 tranche but not version-pinned in environment-spec.md. The open WP-3 follow-up (environment qualification profile) must pin the OS/PowerShell build family and the explicit re-freeze step; secedit rides the OS build."
+      "frozen_version": "rides the server OS build family (26100)",
+      "status": "frozen",
+      "notes": "Qualified 2026-08-03: the estate WP-3 run wp3-security-template-20260803230220-2450 exercised it 20/20 with environment_matches_frozen_spec true, on a host whose build family is pinned. It rides the OS build rather than carrying its own version pin, which is why environment-spec.md records it that way. Note what this does not cover: /configure has still never been invoked by any lane."
     },
     {
       "tool_id": "gpresult",
       "kind": "microsoft-inbox",
-      "status": "pending-qualification",
-      "notes": "Required by rsop-endpoint scenarios (gpresult /x, Get-GPResultantSetOfPolicy). Not yet pinned; rides the client-win11 qualification."
+      "frozen_version": "rides the client OS build family (26200)",
+      "status": "frozen",
+      "notes": "Qualified by the client-win11 qualification 2026-08-03. Two measured facts the rsop-endpoint lane is built on, both of which contradict the oracle this registry previously claimed: Get-GPResultantSetOfPolicy is NOT available (no GroupPolicy module on the client), so the lane is gpresult.exe-only; and `gpresult /x` without /scope:computer exits 0, writes no file, and reports that the invoking account has no RSoP data. Assert on the artifact, never on the exit code."
     },
     {
       "tool_id": "whoami",
       "kind": "microsoft-inbox",
       "status": "pending-qualification",
-      "notes": "Token-group collection for the rsop-endpoint lane. WP-6 forbids using an interactive whoami /groups as the computer token; the harness uses LDAP tokenGroups for the computer and whoami only for the user context. Rides the client-win11 qualification."
+      "notes": "User-context token collection, and the honest reason the user-scope lane is still gated. WP-6 forbids using an interactive whoami /groups as the computer token; the computer side uses LDAP tokenGroups via [adsisearcher], which is measured available and needs no interactive session. whoami's collection therefore rides an interactive logon the estate has never had, which is WP-9 work, not a consequence of the client qualification."
     },
     {
       "tool_id": "studio-finalize",
@@ -88,7 +93,7 @@
       "lane_id": "gpp-reader-native",
       "plan_wp": "WP-1A",
       "boundaries": ["gpo-backup-content"],
-      "required_hosts": ["dc-ws2025"],
+      "required_hosts": ["member-ws2025-disposable", "dc-ws2025"],
       "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1"],
       "oracle": "Native GPMC-authored backup captures (committed, sanitized) read through Studio's public import path; no Studio participation on the expected side.",
       "status": "partial",
@@ -98,7 +103,7 @@
       "lane_id": "gpp-writer-conformance",
       "plan_wp": "WP-1B",
       "boundaries": ["gpo-backup-content"],
-      "required_hosts": ["dc-ws2025"],
+      "required_hosts": ["member-ws2025-disposable", "dc-ws2025"],
       "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1", "studio-finalize"],
       "oracle": "Import-GPO of a Studio-authored native backup, then GPMC report parse plus Backup-GPO round trip; agreement is between two independent readers of the same policy.",
       "status": "partial",
@@ -112,17 +117,17 @@
       "required_tools": ["secedit", "powershell-5.1", "studio-finalize"],
       "oracle": "secedit /validate, /import /overwrite into a fresh temporary database, /export; semantic comparison against the exported template. /configure is never invoked on a shared host.",
       "status": "partial",
-      "notes": "Account/audit/user-rights tranche certified on dc-ws2025 (run wp3-security-template-20260727220623-7682). Lane expansion to services, regkeys, filestore, and group_mgmt areas is gated on the disposable host per the open PR-19 follow-up."
+      "notes": "Account/audit/user-rights tranche certified, and re-certified on the estate 2026-08-03 (wp3-security-template-20260803230220-2450, 20/20). Expansion to the services, regkeys, filestore and group_mgmt areas is no longer platform-gated — the disposable host exists and is qualified — but it is also not done: the estate run repeated the certified tranche rather than widening it. This is the lane most likely to find something, because security_template.py is the one domain layer already proven wrong on the wire."
     },
     {
       "lane_id": "endpoint-application",
       "plan_wp": "WP-5",
       "boundaries": ["endpoint-resultant-state"],
-      "required_hosts": ["client-win11"],
+      "required_hosts": ["client-win11", "member-ws2025-disposable", "dc-ws2025"],
       "required_tools": ["lgpo", "gpresult", "powershell-5.1"],
       "oracle": "LGPO import, policy refresh, direct registry API reads, and GroupPolicy operational events on a snapshot-backed endpoint, plus domain-GPO processing through the verified WP-2 path.",
       "status": "defined",
-      "notes": "Blocked on client-win11 qualification."
+      "notes": "Hosts qualified 2026-08-03; now blocked only on lgpo, which the 2026-08-03 ruling keeps in the lane rather than narrowing it away. The binary must be pushed post-restore over psdirect and hash-verified on the guest, so no golden checkpoint carries it. The domain-GPO leg is the one that tests Studio (its output reaching a client through SYSVOL); the LGPO leg mostly tests Microsoft's tool, and WP-5 acceptance requires both."
     },
     {
       "lane_id": "rsop-endpoint",
@@ -133,11 +138,26 @@
         "gpo-ad-object-security",
         "wmi-filter-object-association"
       ],
-      "required_hosts": ["dc-ws2025", "client-win11"],
-      "required_tools": ["gpresult", "grouppolicy-module", "whoami", "powershell-5.1"],
-      "oracle": "gpresult /x and Get-GPResultantSetOfPolicy for computer and user scopes, direct winning-registry reads, GroupPolicy operational events, LDAP tokenGroups for the computer token, and Get-Acl / Get-GPPermission -All for effective rights.",
+      "required_hosts": ["dc-ws2025", "member-ws2025-disposable", "client-win11"],
+      "required_tools": ["gpresult", "grouppolicy-module", "powershell-5.1"],
+      "oracle": "gpresult.exe /x <file> /f /scope:computer on the client, parsed from the http://www.microsoft.com/GroupPolicy/Rsop namespace, plus direct winning-registry reads, GroupPolicy operational events, LDAP tokenGroups via [adsisearcher] for the computer token, and Get-Acl / Get-GPPermission -All for effective rights.",
       "status": "defined",
-      "notes": "Blocked on client-win11 qualification. Deterministic disposable topology per WP-6; no use of pre-existing lab GPOs."
+      "notes": "Computer scope only, per the 2026-08-03 ruling; user scope and loopback are the rsop-user-loopback lane. Platforms qualified 2026-08-03, so this lane is no longer platform-blocked — it is unbuilt, which is WP-6B. Two corrections from measuring the client: Get-GPResultantSetOfPolicy is gone from the oracle because the module is absent, and whoami is gone from required_tools because the computer token comes from LDAP tokenGroups. Deterministic disposable topology per WP-6; no use of pre-existing lab GPOs; at least one control row must be decided by a mechanism Studio does not model."
+    },
+    {
+      "lane_id": "rsop-user-loopback",
+      "plan_wp": "WP-9",
+      "boundaries": [
+        "endpoint-resultant-state",
+        "som-link-block-inheritance",
+        "gpo-ad-object-security",
+        "wmi-filter-object-association"
+      ],
+      "required_hosts": ["dc-ws2025", "member-ws2025-disposable", "client-win11"],
+      "required_tools": ["gpresult", "whoami", "grouppolicy-module", "powershell-5.1"],
+      "oracle": "gpresult.exe /x <file> /f /scope:user captured under a real interactive session on the client, direct winning HKCU reads, and user token groups collected separately from the computer token.",
+      "status": "defined",
+      "notes": "Created 2026-08-03 when WP-6 was ruled computer-scope-only, so the deferral carries a lane and a gate instead of disappearing. Blocked on whoami, which stands in for the real gap: the estate has never had an interactive logon and PowerShell Direct does not provide one. WP-9 establishes one by scripted autologon plus a dedicated checkpoint, because a hand-made session is unrepeatable and would fail WP-8. Get-GPResultantSetOfPolicy -User from the member server is a possible second oracle but is untested across the private switch, so it is a bonus and not the plan."
     }
   ]
 }

@@ -4,7 +4,7 @@
   "family": "rsop-topology",
   "title": "Disabled links and sides, block inheritance, and enforced links above a block",
   "readiness": "blocked",
-  "blocked_reason": "The rsop-endpoint lane requires client-win11 (pending-qualification in environment-spec.md, listed as not yet tested).",
+  "blocked_reason": "Mixed scope, and the platform is not the gap. Every expected winner is HKLM except one: the Studio-RSOP-UserSideOff assertion that HKCU\\Software\\Policies\\StudioLab\\UserVal is absent, which needs a user-scope capture and so lands in WP-9. Split candidate: the computer-scope half is executable under WP-6B today if that assertion is relocated to its own WP-9 scenario rather than dropped.",
   "provenance": {
     "tier": "spec-informed",
     "note": "Documented Windows behavior (disabled link applies nothing; disabled side contributes nothing to that scope; block inheritance stops higher containers; enforced defeats the block and wins final precedence). No captured gpresult evidence exists in this lab yet.",

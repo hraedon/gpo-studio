@@ -3,8 +3,7 @@
   "scenario_id": "group-membership",
   "family": "security-template",
   "title": "Group Membership area: restricted groups with members and memberof directions",
-  "readiness": "blocked",
-  "blocked_reason": "The security-template-secedit lane requires member-ws2025-disposable (pending-qualification): the open WP-3 PR-19 follow-up forbids expanding the lane beyond the certified account/audit/user-rights tranche on the shared host.",
+  "readiness": "ready",
   "provenance": {
     "tier": "spec-informed",
     "note": "Shape derived from Microsoft security-template documentation for restricted groups. SID-star syntax follows the certified Privilege Rights precedent in the WP-3 tranche (principals as *S-1-5-...), which is native-observed; the __Members/__Memberof key suffixes are spec-informed until captured.",

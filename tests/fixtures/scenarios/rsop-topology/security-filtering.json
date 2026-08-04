@@ -4,14 +4,14 @@
   "family": "rsop-topology",
   "title": "Security filtering: allow, read-without-apply, explicit deny, and group nesting, with independent token collection",
   "readiness": "blocked",
-  "blocked_reason": "The rsop-endpoint lane requires client-win11 (pending-qualification in environment-spec.md, listed as not yet tested).",
+  "blocked_reason": "User-scope scenario. The expected winners are HKCU values resolved against the user token, plus an explicit assertion that the value is absent for computer scope; filtering by user principals cannot be observed without an interactive logon, which the estate has never had. WP-9, not WP-6.",
   "provenance": {
     "tier": "spec-informed",
     "note": "Apply Group Policy gating (Read + Apply required, deny dominates, nesting expands through the token) is documented Windows behavior; the Plan 033 preconditions separately require evaluating Apply as a control-access right (CR) with real AD access masks, which Studio's delegation model historically got wrong.",
     "anchors": []
   },
   "platform": {
-    "lane": "rsop-endpoint",
+    "lane": "rsop-user-loopback",
     "boundaries": ["endpoint-resultant-state", "gpo-ad-object-security"]
   },
   "authored_intent": {

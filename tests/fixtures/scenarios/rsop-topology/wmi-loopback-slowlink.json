@@ -4,14 +4,14 @@
   "family": "rsop-topology",
   "title": "WMI evaluation outcomes, loopback modes, and slow-link registry behavior",
   "readiness": "blocked",
-  "blocked_reason": "The rsop-endpoint lane requires client-win11 (pending-qualification in environment-spec.md, listed as not yet tested).",
+  "blocked_reason": "Loopback merge and replace decide most of the expected winners and are out of WP-6's computer-only scope. The WMI true/false/error half is computer-scope and would run today, but the per_mode expectations are authored as one matrix, so the scenario is held whole for WP-9 rather than half-executed.",
   "provenance": {
     "tier": "spec-informed",
     "note": "WMI-true applies and WMI-false filters are documented; the evaluation-error outcome is a recorded hypothesis (treated as false) that must be captured, not assumed. Loopback merge semantics (computer-location user settings win conflicts) are documented and are also a named Plan 033 precondition: Studio's earlier merge order was wrong. Slow-link: the registry CSE always processes; other CSE behaviors are outside Studio's model and recorded as open questions.",
     "anchors": []
   },
   "platform": {
-    "lane": "rsop-endpoint",
+    "lane": "rsop-user-loopback",
     "boundaries": ["endpoint-resultant-state", "wmi-filter-object-association"]
   },
   "authored_intent": {
