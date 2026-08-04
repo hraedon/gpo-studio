@@ -36,6 +36,8 @@ LANE_VERDICTS = {
     "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json": "finalize_rsop_run.py",
     "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json": (
         "finalize_rsop_user_run.py"
     ),

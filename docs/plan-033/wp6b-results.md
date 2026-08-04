@@ -36,6 +36,20 @@ I would have changed correct behaviour to match a wrong expectation.
 
 The sections below are the original write-up of the first certification.
 
+## Re-certified 2026-08-04 on the WP-9 commit
+
+WP-9 changed the authoring half this lane shares -- the OU tree is resolved by
+parent key rather than by position, the user object is moved and restored, and
+values outside the lane's policy key can be authored. A certification binds the
+harness that produced it, so a shared change means the previous verdicts
+describe code that no longer ships.
+
+Both scenarios were re-run against the estate and both `pass` at commit
+`1eb1ec3`: `rsop-observe-20260804051032-8845` (`lsdou-precedence`) and
+`rsop-observe-20260804051228-2926` (`disabled-block-enforced`), verdicts
+committed beside the originals. Identical results to the first certification,
+including the WI-031 fix's `Block=domainEnforced`.
+
 ## The headline: the prediction was right
 
 For the `lsdou-precedence` topology — site, domain, parent OU, child OU, with a
