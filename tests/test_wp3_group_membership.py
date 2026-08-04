@@ -134,3 +134,56 @@ class TestGroupMembershipKeySet:
             "*S-1-5-32-551__Members = *S-1-5-32-544"
         )
         assert not finalize_wp3._candidate_key_set_matches(template, self._settings())
+
+
+class TestSeceditAreasAreChecked:
+    """Import and export must request the same areas.
+
+    `secedit` handles only the areas it is asked for and says nothing about the
+    rest, so a section outside them never reaches the database and never appears
+    in the export. The comparison then reports "expected X, actual None", which
+    is indistinguishable from a template Studio wrote wrongly. That cost a real
+    run before this check existed.
+    """
+
+    def _result(self, import_areas: list[str], export_areas: list[str]) -> dict:
+        return {
+            "invoked_operations": [
+                {"name": "validate", "arguments": ["/validate", "cfg.inf"]},
+                {
+                    "name": "import",
+                    "arguments": ["/import", "/db", "d.sdb", "/areas", *import_areas, "/quiet"],
+                },
+                {
+                    "name": "export",
+                    "arguments": ["/export", "/db", "d.sdb", "/areas", *export_areas, "/quiet"],
+                },
+            ]
+        }
+
+    def test_matching_areas_pass(self) -> None:
+        areas = ["securitypolicy", "user_rights", "group_mgmt"]
+        assert finalize_wp3._observed_operations_match(self._result(areas, areas))
+
+    def test_order_does_not_matter(self) -> None:
+        assert finalize_wp3._observed_operations_match(
+            self._result(["user_rights", "securitypolicy"], ["securitypolicy", "user_rights"])
+        )
+
+    def test_an_export_missing_an_area_is_rejected(self) -> None:
+        """The exact drift that would silently hide a section from the comparison."""
+        assert not finalize_wp3._observed_operations_match(
+            self._result(["securitypolicy", "group_mgmt"], ["securitypolicy"])
+        )
+
+    def test_an_absent_areas_flag_is_rejected(self) -> None:
+        """Defaulting is not the same as asking, and the lane should not guess."""
+        result = self._result(["securitypolicy"], ["securitypolicy"])
+        result["invoked_operations"][1]["arguments"] = ["/import", "/db", "d.sdb", "/quiet"]
+        assert not finalize_wp3._observed_operations_match(result)
+
+    def test_configure_is_still_refused(self) -> None:
+        """The pre-existing safety property must survive this addition."""
+        result = self._result(["securitypolicy"], ["securitypolicy"])
+        result["invoked_operations"][1]["arguments"].append("/configure")
+        assert not finalize_wp3._observed_operations_match(result)

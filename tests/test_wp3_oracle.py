@@ -82,11 +82,17 @@ def test_candidate_key_set_rejects_unexpected_authored_section() -> None:
 
 
 def test_observed_operations_require_exact_non_applying_sequence() -> None:
+    # The fixture carries /areas because the check now requires import and
+    # export to request the same ones (2026-08-04). This test's subject is
+    # unchanged -- the operation sequence, and the refusal of /configure -- but
+    # a result without /areas is no longer something the runner can produce, so
+    # a fixture without it was testing a shape that cannot occur.
+    areas = ["/areas", "securitypolicy", "user_rights"]
     result = {
         "invoked_operations": [
             {"name": "validate", "arguments": ["/validate", "candidate.inf"]},
-            {"name": "import", "arguments": ["/import", "/db", "temporary.sdb"]},
-            {"name": "export", "arguments": ["/export", "/db", "temporary.sdb"]},
+            {"name": "import", "arguments": ["/import", "/db", "temporary.sdb", *areas]},
+            {"name": "export", "arguments": ["/export", "/db", "temporary.sdb", *areas]},
         ]
     }
     assert _observed_operations_match(result)

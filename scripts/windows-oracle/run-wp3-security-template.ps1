@@ -85,7 +85,24 @@ try {
         '/db', $databasePath,
         '/cfg', $candidateCopy,
         '/overwrite',
-        '/areas', 'securitypolicy', 'user_rights',
+        # AREAS BOUND WHAT THIS LANE CAN EVER SEE, and the failure is silent.
+        #
+        # secedit only imports and exports the areas it is asked for. A section
+        # outside them is not rejected -- it simply never reaches the database,
+        # and the export comes back without it, which the finalizer reports as
+        # "expected X, actual None". That reads exactly like a defect in the
+        # template Studio wrote.
+        #
+        # Measured 2026-08-04: a Group Membership row round-trips perfectly on
+        # its own and vanished entirely inside the lane, because group_mgmt was
+        # not in this list. Any future section needs its area added here AND to
+        # the export below -- registry keys, file security and services each
+        # need one too (regkeys, filestore, services).
+        #
+        # Still no /configure anywhere: this imports into a fresh temporary
+        # database, so widening the areas changes what is READ, never what is
+        # applied to the guest.
+        '/areas', 'securitypolicy', 'user_rights', 'group_mgmt',
         '/log', (Join-Path $commandDir 'import.log'),
         '/quiet'
     )
@@ -97,7 +114,9 @@ try {
         '/export',
         '/db', $databasePath,
         '/cfg', $exportPath,
-        '/areas', 'securitypolicy', 'user_rights',
+        # Must match the import list above, or the lane compares against an
+        # export that was never asked for the section it is checking.
+        '/areas', 'securitypolicy', 'user_rights', 'group_mgmt',
         '/log', (Join-Path $commandDir 'export.log'),
         '/quiet'
     )

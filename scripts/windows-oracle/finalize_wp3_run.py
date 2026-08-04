@@ -253,7 +253,40 @@ def _observed_operations_match(result: dict[str, Any]) -> bool:
             return False
         if any(str(argument).casefold() == "/configure" for argument in arguments):
             return False
-    return observed_names == expected_names
+    if observed_names != expected_names:
+        return False
+
+    # Import and export must request the SAME areas.
+    #
+    # secedit only handles the areas it is asked for, and it says nothing about
+    # the ones it was not: a section outside them never reaches the database and
+    # never appears in the export, which the comparison reports as "expected X,
+    # actual None" -- indistinguishable from a template Studio wrote wrongly.
+    # That cost a run on 2026-08-04, when Group Membership was authored while
+    # the lane still asked only for securitypolicy and user_rights.
+    #
+    # If the two lists ever drift apart the lane compares against an export that
+    # was never asked for the section under test, so the disagreement is checked
+    # rather than assumed.
+    def _areas(operation_name: str) -> list[str] | None:
+        for operation in operations:
+            if operation.get("name") != operation_name:
+                continue
+            arguments = [str(item) for item in operation.get("arguments", [])]
+            if "/areas" not in [a.casefold() for a in arguments]:
+                return None
+            index = [a.casefold() for a in arguments].index("/areas")
+            collected: list[str] = []
+            for argument in arguments[index + 1 :]:
+                if argument.startswith("/"):
+                    break
+                collected.append(argument.casefold())
+            return sorted(collected)
+        return None
+
+    import_areas = _areas("import")
+    export_areas = _areas("export")
+    return bool(import_areas) and import_areas == export_areas
 
 
 def main() -> int:
