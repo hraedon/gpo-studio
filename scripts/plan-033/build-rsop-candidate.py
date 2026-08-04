@@ -274,24 +274,27 @@ def build_query(domain: str, site_name: str, computer_name: str) -> RsopQuery:
         mode="planning",
         target=RsopTarget(
             computer_name=computer_name,
-            # WI-026, and the first thing this lane found -- before it ran.
+            # The computer's own object DN -- the shape a real directory
+            # returns, and the shape an operator-facing caller would supply.
             #
-            # This is the CONTAINER DN, not the computer's own DN. Passing
-            # CN=<computer>,<container> -- which is what a real directory
-            # returns and what RsopTarget.computer_dn reads like it wants --
-            # makes compute_precedence resolve nothing and compute_rsop return
-            # an empty result: no applied GPOs, no winners. Windows applies
-            # five GPOs to this machine.
+            # WI-026 was the first thing this lane found, before it ran once:
+            # this exact value used to make compute_precedence resolve nothing
+            # and compute_rsop return an empty result -- no applied GPOs, no
+            # winners -- for a machine Windows applies six GPOs to. The lane
+            # therefore ran its first certification against the CONTAINER DN,
+            # recorded as an adapter choice, because a lane that fed the model
+            # an object DN would have predicted "nothing applies", observed six
+            # applied GPOs, and reported a spectacular model failure that was
+            # really a caller error.
             #
-            # So this line is an adapter choice, and the design doc's open
-            # question 3 warned that adapter choices are themselves part of
-            # what is being tested. Recording it here rather than burying it:
-            # the lane's prediction is what Studio says *when handed the input
-            # shape it actually requires*. The lane is not testing WI-026, and
-            # a lane that silently fed the model an object DN would predict
-            # "nothing applies", observe five applied GPOs, and report a
-            # spectacular model failure that was really a caller error.
-            computer_dn=dns["child"],
+            # WI-026 is now fixed (an unresolved DN walks up to its nearest
+            # ancestor in the SOM tree), so the lane feeds the honest input and
+            # the oracle checks the fix rather than working around it. The
+            # earlier certification still stands: a container DN resolves on
+            # the first lookup and never enters the walk, so the prediction is
+            # unchanged -- and the run after this change proves that against
+            # Windows rather than asserting it.
+            computer_dn=f"CN={computer_name},{dns['child']}",
             site_name=site_name,
             domain=domain,
         ),

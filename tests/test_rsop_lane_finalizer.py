@@ -122,6 +122,12 @@ def _prediction() -> dict[str, Any]:
     }
 
 
+#: The authoring half copies its input into its own work dir, which the driver
+#: pulls; the finalizer compares the two copies byte for byte. The content does
+#: not matter to these tests -- only that the two copies agree.
+_TOPOLOGY = '{"domain": "ad.labdomain.dev", "gpos": []}'
+
+
 def _expected() -> dict[str, Any]:
     return {
         "scenario_id": "lsdou-precedence",
@@ -166,7 +172,11 @@ def lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         cleanup: dict[str, Any] | None = None,
         observation: dict[str, Any] | None = None,
         prediction: dict[str, Any] | None = None,
+        guest_topology: str | None = _TOPOLOGY,
     ) -> tuple[Path, Path]:
+        (candidate / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+        if guest_topology is not None:
+            (run_dir / "author" / "topology.json").write_text(guest_topology, encoding="utf-8")
         (run_dir / "author" / "author-state.json").write_text(
             json.dumps(author or _author_state()), encoding="utf-8"
         )
@@ -405,6 +415,8 @@ def test_tagging_call_matches_the_real_signature(tmp_path: Path, monkeypatch) ->
     )
     (candidate / "prediction.json").write_text(json.dumps(_prediction()), encoding="utf-8")
     (candidate / "expected.json").write_text(json.dumps(_expected()), encoding="utf-8")
+    (candidate / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+    (run_dir / "author" / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
 
     # No --no-tag: the tagging path is the point.
     finalize_rsop_run.main([str(run_dir), "--candidate-root", str(candidate)])
@@ -424,3 +436,39 @@ def test_guest_json_with_a_bom_still_loads(tmp_path: Path) -> None:
     path = tmp_path / "observation.json"
     path.write_text(json.dumps({"run_id": "x"}), encoding="utf-8-sig")
     assert finalize_rsop_run._load(path) == {"run_id": "x"}
+
+
+def test_candidate_artifacts_are_hash_bound(lane) -> None:
+    """WI-025 in this lane: the verdict must name what it compared against.
+
+    The prediction is the input artifact this lane's entire claim rests on. A
+    verdict that cites it without hashing it asserts a comparison nobody can
+    re-check.
+    """
+    run_dir, candidate = lane()
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "pass"
+    assert set(verdict["candidate"]) == {"topology.json", "prediction.json", "expected.json"}
+    assert all(len(h) == 64 for h in verdict["candidate"].values())
+    assert verdict["topology_delivered_intact"] is True
+
+
+def test_guest_topology_mismatch_is_a_lane_failure(lane) -> None:
+    """The guest built a different experiment from the one predicted.
+
+    Without this check the verdict compares a forecast about one topology
+    against results from another, and the mismatch would be reported as a model
+    defect -- the lane blaming Studio for the harness's own drift.
+    """
+    verdict = _finalize(*lane(guest_topology='{"domain": "ad.labdomain.dev", "gpos": ["drift"]}'))
+    assert verdict["state"] == "lane-failure"
+    assert verdict["topology_delivered_intact"] is False
+    assert any("different experiment" in p for p in verdict["lane_problems"])
+
+
+def test_missing_guest_topology_is_a_lane_failure(lane) -> None:
+    """Nothing binds the prediction to the experiment that ran."""
+    verdict = _finalize(*lane(guest_topology=None))
+    assert verdict["state"] == "lane-failure"
+    assert verdict["topology_delivered_intact"] is None
+    assert any("nothing" in p and "binds" in p for p in verdict["lane_problems"])

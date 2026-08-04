@@ -104,6 +104,7 @@ def _lane_validity(
     observe: dict[str, Any],
     harness_ok: bool,
     dirty: bool,
+    topology_delivered_intact: bool | None,
 ) -> list[str]:
     """Reasons this run cannot produce a verdict about Studio at all."""
     problems: list[str] = []
@@ -136,6 +137,21 @@ def _lane_validity(
 
     for problem in observe.get("lane_problems") or []:
         problems.append(f"observation: {problem}")
+    if topology_delivered_intact is False:
+        # WI-025 in this lane. The prediction describes a specific topology;
+        # nothing otherwise proves the guest built THAT topology. Without this
+        # the verdict compares a forecast about one experiment against the
+        # results of another, and a mismatch would be reported as a model
+        # defect.
+        problems.append(
+            "the topology the authoring half used does not match the candidate this "
+            "controller built; the prediction describes a different experiment"
+        )
+    elif topology_delivered_intact is None:
+        problems.append(
+            "the authoring half returned no copy of the topology it used, so nothing "
+            "binds the prediction to the experiment that ran"
+        )
     if observe.get("error"):
         problems.append(f"observation half threw: {observe['error']}")
     if not observe.get("rsop_captured"):
@@ -322,8 +338,29 @@ def main(argv: list[str] | None = None) -> int:
         ).stdout
     )
 
+    # Bind the candidate. The prediction is the input artifact this lane's
+    # whole claim rests on, and WI-025 is exactly this gap left open in the
+    # WP-1B and endpoint lanes: a verdict that names an artifact nothing hashes.
+    candidate_hashes = {
+        name: _sha256(args.candidate_root / name)
+        for name in ("topology.json", "prediction.json", "expected.json")
+        if (args.candidate_root / name).is_file()
+    }
+
+    # And prove the guest built the topology the prediction describes. The
+    # authoring half copies its input into its own work dir, which the driver
+    # pulls, so the two copies can be compared byte for byte.
+    guest_topology = _find_one(run_dir / "author", "topology.json")
+    topology_delivered_intact: bool | None = None
+    if guest_topology is not None and (args.candidate_root / "topology.json").is_file():
+        topology_delivered_intact = _sha256(guest_topology) == _sha256(
+            args.candidate_root / "topology.json"
+        )
+
     symbolic = _symbolic_map(author)
-    lane_problems = _lane_validity(author, cleanup, observe, harness_ok, dirty)
+    lane_problems = _lane_validity(
+        author, cleanup, observe, harness_ok, dirty, topology_delivered_intact
+    )
     lane_problems += _client_environment_problems(observe)
     control_problems = _control_problems(observe, expected) if not lane_problems else []
     comparison = (
@@ -364,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
         "harness_matches_source": harness_ok,
+        "candidate": candidate_hashes,
+        "topology_delivered_intact": topology_delivered_intact,
     }
 
     output = run_dir / "rsop-verdict.json"
