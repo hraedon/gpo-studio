@@ -90,6 +90,23 @@ def main() -> int:
                 ("MACHINE\\Software\\StudioLab\\MultiSz", "7,alpha,beta"),
             ),
         ),
+        # Two rows, and the pairing is the control.
+        #
+        # `secedit` rewrites every principal as a SID on export -- the group in
+        # the key AND the members in the value. The Backup Operators row is
+        # authored entirely in well-known SIDs, so if IT fails to match, the
+        # comparison itself is broken and nothing the name row says is
+        # trustworthy. The Power Users row is authored with a NAME, which is the
+        # case worth testing, and it names the built-in Administrator whose SID
+        # is machine-specific -- so the expected side cannot spell it out and the
+        # comparison has to reduce it to a RID.
+        InfSection(
+            name="Group Membership",
+            entries=(
+                ("*S-1-5-32-551__Members", "*S-1-5-32-544"),
+                ("Power Users__Members", "Administrator"),
+            ),
+        ),
         InfSection(
             name="Version",
             entries=(

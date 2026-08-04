@@ -59,6 +59,65 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+#: Well-known principals, by the SID `secedit` resolves them to on export.
+#:
+#: The estate's export replaces every authored NAME with a SID, on both sides of
+#: a `Group Membership` entry -- the group in the key and the members in the
+#: value. Two of those SIDs are constants (`BUILTIN\` aliases), and one is not:
+#: the built-in Administrator is `S-1-5-21-<machine>-500`, so the expected side
+#: cannot spell it out. It is matched on its **RID** instead, which is what
+#: makes it well-known in the first place.
+_WELL_KNOWN_SIDS: dict[str, str] = {
+    "administrators": "S-1-5-32-544",
+    "power users": "S-1-5-32-547",
+    "backup operators": "S-1-5-32-551",
+    "users": "S-1-5-32-545",
+}
+_WELL_KNOWN_RIDS: dict[str, str] = {
+    "administrator": "500",
+    "guest": "501",
+}
+
+
+def _canonical_principal(raw: str) -> str:
+    """Reduce a principal to a form both sides of the comparison can reach.
+
+    `secedit` writes SIDs; the candidate writes whichever is clearer to read.
+    A domain or machine-relative SID is reduced to its RID, because the machine
+    half is not knowable when the candidate is built.
+    """
+    value = raw.strip().lstrip("*").casefold()
+    if not value:
+        return ""
+    if value in _WELL_KNOWN_SIDS:
+        return _WELL_KNOWN_SIDS[value].casefold()
+    if value in _WELL_KNOWN_RIDS:
+        return f"rid:{_WELL_KNOWN_RIDS[value]}"
+    if value.startswith("s-1-5-21-"):
+        return f"rid:{value.rsplit('-', 1)[-1]}"
+    return value
+
+
+def _principal_set(raw: str) -> set[str]:
+    return {
+        canonical
+        for part in raw.split(",")
+        if (canonical := _canonical_principal(part))
+    }
+
+
+def _group_membership_key_matches(expected_key: str, actual_key: str) -> bool:
+    """Match `<group>__Members` where the group may be a name or a SID."""
+    for suffix in ("__memberof", "__members"):
+        expected_folded = expected_key.casefold()
+        actual_folded = actual_key.casefold()
+        if expected_folded.endswith(suffix) and actual_folded.endswith(suffix):
+            return _canonical_principal(
+                expected_folded[: -len(suffix)]
+            ) == _canonical_principal(actual_folded[: -len(suffix)])
+    return False
+
+
 def _setting_matches(
     template: SecurityTemplate,
     *,
@@ -66,6 +125,17 @@ def _setting_matches(
     key: str,
     expected: str,
 ) -> bool:
+    if section.casefold() == "group membership":
+        # The key itself is a principal here, and the export rewrites it, so the
+        # entry cannot be found by lookup at all -- it has to be searched for.
+        actual_section = template.get_section(section)
+        if actual_section is None:
+            return False
+        for actual_key, actual_value in actual_section.entries:
+            if _group_membership_key_matches(key, actual_key):
+                return _principal_set(actual_value) == _principal_set(expected)
+        return False
+
     actual = template.get_value(section, key)
     if actual is None:
         return False
@@ -139,10 +209,26 @@ def _candidate_key_set_matches(
         if section is None:
             return False
         actual_keys = [key.casefold() for key, _ in section.entries]
-        if (
-            len(actual_keys) != len(set(actual_keys))
-            or set(actual_keys) != expected_keys
-        ):
+        if len(actual_keys) != len(set(actual_keys)):
+            return False
+        if section_name == "group membership":
+            # Keys here are principals and the export rewrites them, so an exact
+            # set comparison would fail on a correctly authored template. Match
+            # them pairwise instead, still requiring a bijection so an extra or
+            # missing entry is caught.
+            unmatched = list(actual_keys)
+            for expected_key in expected_keys:
+                found = next(
+                    (a for a in unmatched if _group_membership_key_matches(expected_key, a)),
+                    None,
+                )
+                if found is None:
+                    return False
+                unmatched.remove(found)
+            if unmatched:
+                return False
+            continue
+        if set(actual_keys) != expected_keys:
             return False
     return True
 
