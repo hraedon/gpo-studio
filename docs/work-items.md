@@ -300,12 +300,38 @@ exists to govern. Safe mode is narrower but the same shape.
 
 **What the estate can and cannot do about it.** Nothing here needs an oracle:
 "the field is never read" is a fact about the code. A *lane* demonstration
-would need a genuinely slow link, which this estate cannot currently produce —
-Group Policy measures bandwidth across the private switch and finds it fast,
-and throttling it is not something the isolation invariant makes easy. So this
-item is deliberately recorded without a lane run, and the corpus scenario that
-covers slow-link behaviour stays blocked for that reason rather than for a
-missing platform.
+would need Windows to classify the link as slow, and the obvious route has been
+measured and does **not** work.
+
+*Measured 2026-08-04.* Hyper-V can cap a vNIC (`Set-VMNetworkAdapter
+-MaximumBandwidth`), and the estate's switch supports it (`Absolute`
+reservation mode). Capped at **100 kbps**, a forced computer refresh on the
+client still logged:
+
+```
+5327  Estimated network bandwidth on one of the connections: 1250000000 kbps.
+5314  A fast link was detected. The Estimated bandwidth is 1410065 kbps.
+      The slow link threshold is 500 kbps.
+```
+
+**Group Policy reads the adapter's advertised link speed, not measured
+throughput.** Hyper-V's cap throttles what actually flows and leaves the
+advertised speed untouched, so the guest still reports a 1.25 Gbps connection.
+Capping bandwidth cannot produce a slow link, and that route should not be
+tried again.
+
+**The viable route, untried:** raise the threshold instead of lowering the
+link. The "Group Policy slow link detection" policy sets
+`GroupPolicyMinTransferRate`; set above the estimated bandwidth, Windows
+classifies the link as slow and takes the same code path it would on a real one.
+
+That still is not sufficient on its own, and the second requirement is the
+expensive half: **the Registry CSE is always applied, slow link or not.** Every
+row this lane authors is a registry value, so a slow-link run against the
+current topology would show no difference and prove nothing. Demonstrating this
+needs a CSE that *is* skipped — software installation, folder redirection,
+scripts, disk quota — which is a different authoring surface from anything the
+RSOP lanes currently build.
 
 No test pins the current behaviour on purpose: a test asserting that these
 fields do nothing would have to be deleted to fix them, and would read as an
