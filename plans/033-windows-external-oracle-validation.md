@@ -666,6 +666,15 @@ certified run above.
 
 ## WP-3 — Security-template conformance
 
+**Expansion scoped 2026-08-04:** `docs/plan-033/wp3-expansion-design.md`. The
+certified tranche covers three of the module's eleven sections, all of them
+plain key/value or principal-list shapes. The six untouched sections split by
+risk: `Kerberos Policy`, `Registry Values` and `Group Membership` need no new
+comparison machinery, while `Registry Keys`, `File Security` and
+`Service General Setting` carry SDDL, which Windows canonicalises -- so an exact
+comparison would report a Microsoft normalisation as a Studio defect. Two cheap
+measurements are named there that settle the question before any row is written.
+
 Implementation status (2026-07-28): the byte codec and first Studio-origin
 writer tranche are certified against the frozen Windows Server 2025 oracle.
 `security_template.py` now emits and strictly decodes the MS-GPSB UTF-16LE/BOM
