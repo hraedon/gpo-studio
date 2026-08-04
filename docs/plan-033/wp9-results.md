@@ -158,33 +158,38 @@ identical. Both verdicts are committed: the divergence and its closure are each
 readable from the repository, and the fix came *after* the measurement rather
 than during it.
 
-### The case the model cannot express
+### The case the model could not express, and now can
 
-The corpus's `security-filtering` scenario asks four questions. They divide on
+The corpus's `security-filtering` scenario asks four questions. They divided on
 something that turned out to matter more than the questions themselves:
-**whether Studio's model can be told about the case at all.**
+**whether Studio's model could be told about the case at all.**
 
 | case | authored | model told | result |
 |---|---|---|---|
 | Read + Apply | `Set-GPPermission GpoApply` | `apply` filter | applies, wins at link order 1 |
 | Read without Apply | `Set-GPPermission GpoRead -Replace` | `read` filter | does not apply |
 | Apply via a group | Apply granted to a disposable group | `apply` filter + group membership | applies through the token |
-| **Explicit deny on Apply** | a Deny ACE on the control right, written onto the DACL | **nothing — it is inexpressible** | **the model says it applies; Windows does not** |
+| **Explicit deny on Apply** | a Deny ACE on the control right, written onto the DACL | ~~nothing — inexpressible~~ → a filter with `deny=True` | **was**: the model says it applies, Windows does not. **Now**: both say it does not |
 
-So the lane runs two scenarios, not one. Merging them would put a genuine
+So the lane runs two scenarios, not one. Merging them would have put a genuine
 capability gap and three working behaviours behind a single verdict.
 
 `user-security-filtering` covers the first three. `user-security-filtering-deny`
-adds the fourth and **declares in advance that it will diverge**, with the
-reason, in the candidate. That declaration renames the outcome
-(`expected-finding`) and softens nothing: the comparison still runs, the
-divergence is recorded in full, and `passed` stays false. A declared divergence
-that does *not* happen is `unexpected-agreement`, also not a pass — either the
-model gained a capability nobody recorded, or the row was never authored.
+added the fourth and **declared in advance that it would diverge**, with the
+reason, in the candidate. That declaration renamed the outcome
+(`expected-finding`) and softened nothing: the comparison still ran, the
+divergence was recorded in full, and `passed` stayed false. A declared
+divergence that does *not* happen is `unexpected-agreement`, also not a pass —
+either the model gained a capability nobody recorded, or the row was never
+authored.
 
-Deny rows are dropped from the model query rather than translated into "no
-allow". Inventing a representation would make the model look correct about a
-case it cannot express, which is the opposite of what an oracle is for.
+Deny rows **used to be** dropped from the model query rather than translated
+into "no allow", because inventing a representation would have made the model
+look correct about a case it could not express — the opposite of what an oracle
+is for. Once WI-033 gave `SecurityFilter` a polarity, the deny is passed through
+like any other filter and the declaration was removed. The sequence matters and
+is the reusable part: **express nothing you cannot express, demonstrate the
+consequence, fix it afterwards, then re-run.**
 
 ### MS16-072 shapes every row
 

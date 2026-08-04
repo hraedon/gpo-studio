@@ -851,6 +851,29 @@ as certifying user-side resolution, and no capability WP-6 certifies may be
 recorded in `docs/capability-matrix.md` without the words *computer scope*.
 See `docs/plan-033/rsop-oracle-design.md`, which measured the estate first.
 
+**Status 2026-08-04 — partially executed. Item by item, because "WP-6 ran" is
+not the same as "WP-6 is done":**
+
+| # | topology requirement | state |
+|---|---|---|
+| 1 | LSDOU and same-container link order | **certified** (`lsdou-precedence`) |
+| 2 | disabled link and disabled GPO side | **certified** (`disabled-block-enforced`) |
+| 3 | block inheritance | **certified** (same) |
+| 4 | enforced links above a block | **certified** (same — and it found WI-031) |
+| 5 | Apply+Read, missing Apply, explicit deny, group nesting | certified **for the user account** (WP-9), **not** for the computer account as this item asks |
+| 6 | WMI true, false, and evaluation-error | true and false **certified** (`wmi-filtering`, which found WI-035); **evaluation-error not covered** |
+| 7 | slow-link / safe-mode | **not covered.** The fields are accepted and never read (WI-036), and the estate cannot classify a link as slow — capping the vNIC does not work, measured |
+
+Work item 8 (validating effective rights against `Get-Acl`, `Get-GPPermission
+-All` and real `CR`/`RP` ACEs) is **not** covered either. The lane reads the raw
+DACL to verify *its own authoring* — which is how WI-033 was authored correctly
+— but it does not compare Studio's effective-rights model against those ACEs,
+and those are different claims.
+
+So the certified region is LSDOU, link order, block inheritance, enforcement,
+disabled links and sides on the computer side, plus filtering and WMI. Item 5's
+computer-account half, item 6's error case, item 7 entirely, and item 8 remain.
+
 ### Topology
 
 Create disposable site/domain/parent-OU/child-OU scopes and synthetic lab
