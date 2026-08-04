@@ -87,7 +87,8 @@
           },
           "status": {
             "type": "string",
-            "enum": ["frozen", "pending-qualification"]
+            "enum": ["frozen", "pending-qualification", "not-used"],
+            "description": "frozen = qualified and pinned; pending-qualification = a lane needs it and it has not been qualified; not-used = it was carried as a requirement and the lane turned out not to need it. The third value exists because the registry could previously only say 'qualified' or 'not yet', which forced a tool whose requirement had evaporated to be either misdescribed or deleted -- and deleting it loses the record that the gate it stood for was closed rather than dropped."
           },
           "notes": {
             "type": "string"

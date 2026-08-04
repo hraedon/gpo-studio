@@ -126,7 +126,9 @@ class TestCorpus:
             "regkeys-filesecurity": "ready",
             "services-area": "ready",
             "security-filtering": "blocked",
-            "user-side-disabled": "blocked",
+            # Ready since 2026-08-04: WP-9 executed it against a real
+            # interactive session and certified it. See wp9-results.md.
+            "user-side-disabled": "ready",
             "wmi-loopback-slowlink": "blocked",
         }
 
@@ -142,11 +144,21 @@ class TestCorpus:
         This breaks if someone re-marks a genuinely user-scope scenario ready to
         make the lane look better fed than it is, and it breaks if the relocated
         assertion goes missing.
+
+        `user-side-disabled` joined the runnable set on 2026-08-04, when WP-9
+        ran it against a real interactive session and certified it
+        (`docs/plan-033/wp9-results.md`). That is the legitimate way into this
+        list: a scenario becomes ready because a lane executed it, not because
+        marking it ready would make the corpus look healthier.
         """
         scenarios = {s.scenario_id: s for s in load_corpus(SCENARIO_DIR, registry)}
         rsop = [s for s in scenarios.values() if s.family == "rsop-topology"]
         runnable = sorted(s.scenario_id for s in rsop if s.readiness == "ready")
-        assert runnable == ["disabled-block-enforced", "lsdou-precedence"]
+        assert runnable == [
+            "disabled-block-enforced",
+            "lsdou-precedence",
+            "user-side-disabled",
+        ]
         for scenario in rsop:
             if scenario.readiness == "blocked":
                 assert scenario.blocked_reason is not None
@@ -315,22 +327,52 @@ class TestLoaderNegatives:
             load_scenario(path, registry)
 
     def test_ready_on_unqualified_platform_rejected(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
-        """Uses rsop-user-loopback, whose `whoami` row is pending because the
-        estate has no interactive logon. This test previously pointed at
-        rsop-endpoint, and the 2026-08-03 estate qualification silently turned
-        it vacuous -- a negative test is only a check while its example is
-        still an example."""
+        """Uses endpoint-application, whose `lgpo` row is pending because the
+        binary has never been executed by a lane.
+
+        THIS EXAMPLE HAS NOW GONE VACUOUS TWICE. It first pointed at
+        rsop-endpoint until the 2026-08-03 estate qualification made that lane's
+        platforms frozen; it then pointed at rsop-user-loopback until WP-9 ran
+        on 2026-08-04, which closed the `whoami` gap this test was leaning on.
+        Both times the test kept passing for the wrong reason -- the scenario
+        was rejected, but no longer for lacking a qualified platform.
+
+        The pattern is the lesson: a negative test whose example is a temporary
+        state of the world expires silently when that state improves. When this
+        one expires again, re-point it at a genuinely pending row and add
+        another line here rather than deleting the test."""
         data = self._base_scenario()
-        data["family"] = "rsop-topology"
         data["platform"] = {
-            "lane": "rsop-user-loopback",
+            "lane": "endpoint-application",
             "boundaries": ["endpoint-resultant-state"],
         }
-        data["authored_intent"] = {"topology": {"som": []}}
-        data["expected_native"] = {"winners": [{"key": "k"}]}
-        path = self._write_scenario(tmp_path, "rsop-topology", "neg-case", data)
+        path = self._write_scenario(tmp_path, "ilt-os", "neg-case", data)
         with pytest.raises(RemediationCorpusError, match="unqualified platforms"):
             load_scenario(path, registry)
+
+    def test_lane_requiring_a_not_used_tool_is_rejected(self, tmp_path: Path) -> None:
+        """`not-used` is a claim about the lanes, so a lane naming one contradicts it.
+
+        Left unchecked the readiness gate reads such a row as unqualified and
+        blocks every scenario on that lane for a requirement nobody has -- which
+        is a corpus that looks under-provisioned for a reason that no longer
+        exists.
+        """
+        registry_data = json.loads(
+            (Path(__file__).parents[1] / "tests/fixtures/scenarios/platforms.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for tool in registry_data["tools"]:
+            if tool["tool_id"] == "whoami":
+                tool["status"] = "not-used"
+        for lane in registry_data["lanes"]:
+            if lane["lane_id"] == "rsop-user-loopback":
+                lane["required_tools"] = [*lane["required_tools"], "whoami"]
+        path = tmp_path / "platforms.json"
+        path.write_text(json.dumps(registry_data), encoding="utf-8")
+        with pytest.raises(RemediationCorpusError, match="not-used"):
+            load_platform_registry(path)
 
     def test_ready_with_blocked_reason_rejected(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
         data = self._base_scenario()

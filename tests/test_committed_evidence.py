@@ -24,10 +24,27 @@ ORACLE_DIR = REPO_ROOT / "scripts" / "windows-oracle"
 EVIDENCE = REPO_ROOT / "docs" / "plan-033"
 
 #: committed verdict -> the finalizer whose tables define its bound file set.
+#:
+#: The RSOP lanes were absent from this map until 2026-08-04, so their committed
+#: verdicts -- the ones a reviewer reads instead of re-running the lane -- were
+#: the only ones nothing checked. Their finalizers use flat file tables rather
+#: than the transport-keyed shape the older lanes use, and that difference is
+#: what kept them out; `_bound_names` now handles both rather than the map
+#: quietly covering three lanes out of five.
 LANE_VERDICTS = {
     "wp1b-evidence/verification-estate.json": "finalize_wp1b_run.py",
     "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804045552-9148.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804045809-8312.json": (
+        "finalize_rsop_user_run.py"
+    ),
 }
 
 
@@ -37,11 +54,29 @@ def _verdict(relative: str) -> dict[str, Any]:
     )
 
 
-def _bound_names(finalizer: str) -> set[str]:
+def _file_tables(finalizer: str) -> list[dict[str, str]]:
+    """The name -> repository path tables this finalizer binds, in either shape.
+
+    Lanes that once supported two transports key their tables by transport;
+    the RSOP lanes were written after the SSH path was deleted and key them
+    directly. Both are read here so the checks below cover every lane rather
+    than the ones that happen to share a shape.
+    """
     symbols = runpy.run_path(str(ORACLE_DIR / finalizer))
-    deployed = cast(dict[str, dict[str, str]], symbols["TRANSPORT_DEPLOYED_FILES"])
-    local = cast(dict[str, dict[str, str]], symbols["TRANSPORT_LOCAL_FILES"])
-    return set(deployed["psdirect"]) | set(local["psdirect"])
+    tables: list[dict[str, str]] = []
+    for transport_keyed, flat in (
+        ("TRANSPORT_DEPLOYED_FILES", "DEPLOYED_FILES"),
+        ("TRANSPORT_LOCAL_FILES", "LOCAL_FILES"),
+    ):
+        if transport_keyed in symbols:
+            tables.append(cast(dict[str, dict[str, str]], symbols[transport_keyed])["psdirect"])
+        else:
+            tables.append(cast(dict[str, str], symbols[flat]))
+    return tables
+
+
+def _bound_names(finalizer: str) -> set[str]:
+    return {name for table in _file_tables(finalizer) for name in table}
 
 
 @pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
@@ -63,11 +98,8 @@ def test_every_bound_file_still_exists_in_the_tree(
     relative: str, finalizer: str
 ) -> None:
     """A verdict naming a file the repository no longer has cannot be re-checked."""
-    symbols = runpy.run_path(str(ORACLE_DIR / finalizer))
-    for table in ("TRANSPORT_DEPLOYED_FILES", "TRANSPORT_LOCAL_FILES"):
-        for name, source in cast(
-            dict[str, dict[str, str]], symbols[table]
-        )["psdirect"].items():
+    for table in _file_tables(finalizer):
+        for name, source in table.items():
             assert (REPO_ROOT / source).is_file(), f"{name} -> {source}"
 
 

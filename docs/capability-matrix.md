@@ -506,7 +506,8 @@ has yet checked.
 
 Three consequences worth stating plainly:
 
-- **`rsop.py` has now been compared against `gpresult` — in one narrow region.**
+- **`rsop.py` has now been compared against `gpresult` — in two narrow regions,
+  one per scope.**
   WP-6B ran on 2026-08-04 and passed three times with identical results:
   for LSDOU ordering, same-container link order and non-conflicting
   inheritance, **on the computer side**, the prediction matched Windows exactly
@@ -516,12 +517,20 @@ Three consequences worth stating plainly:
   It remains **not** an operator-facing capability, for three separate reasons,
   and all three must go before the qualifier does:
 
-  1. **Scope.** WP-6 is computer-scope only by the 2026-08-03 ruling. User-scope
-     resolution and loopback (merge and replace) are unverified until WP-9.
-  2. **Coverage.** Security filtering, WMI filters, block inheritance and
-     enforcement are absent from the certified topology. The corpus scenarios
-     covering them are blocked or user-scope, so a clean WP-6B says nothing
-     about any of them.
+  1. **Scope.** ~~WP-6 is computer-scope only~~ — **closed 2026-08-04 by WP-9**
+     (`docs/plan-033/wp9-results.md`). User-side resolution, loopback merge and
+     loopback replace each certified `pass` against a real 26200 client, with
+     the prediction committed before application and Windows' own event 5311
+     confirming the loopback mode it used. What remains unverified on the user
+     side is *coverage*, not scope: security filtering on user principals,
+     WMI filters and slow-link behaviour are untested there as they are on the
+     computer side, so reason 2 below now carries both scopes.
+  2. **Coverage.** Security filtering, WMI filters and slow-link behaviour are
+     absent from every certified topology, on both scopes. Block inheritance and
+     enforcement are covered on the computer side only (WP-6B's
+     `disabled-block-enforced`, which is where WI-031 was found). The corpus
+     scenarios covering the rest are still blocked, so a clean WP-6B and a clean
+     WP-9 together say nothing about any of them.
   3. **Surfacing is a decision nobody has made.** It is reachable from no API
      endpoint, which is correct for now (WI-030).
 

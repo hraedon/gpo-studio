@@ -975,6 +975,17 @@ different adapter.
 
 ## WP-9 — User-scope RSOP and loopback
 
+**Status: executed 2026-08-04, acceptance partially met.** Three scenarios
+certified `pass` against the estate's client
+(`docs/plan-033/wp9-results.md`): `user-side-disabled`, `loopback-merge` and
+`loopback-replace`. The interactive session is established from a checkpoint by
+script, as work item 1 required. Outstanding against the acceptance criteria
+below: user-side **security filtering** and separate **token-group collection**
+(work items 2 and 3's filtering half) are not covered, so the capability matrix
+keeps a coverage qualifier even though the scope qualifier is gone. A second
+run from the checkpoint reproducing a result has been demonstrated for the lane
+as a whole, not yet as a scripted acceptance step.
+
 Created 2026-08-03 when WP-6 was ruled computer-scope-only. This work package
 exists so that decision is a deferral with a name attached rather than a quiet
 reduction in what the project claims to have validated. Until it runs,

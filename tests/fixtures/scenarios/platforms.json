@@ -59,7 +59,7 @@
       "kind": "microsoft-download",
       "frozen_version": "3.0 (Security Compliance Toolkit), SHA-256 0c97f29543418b30340c4ff5d930d31e6196dd59c2cc74b6b890fa7b90c910c7",
       "status": "pending-qualification",
-      "notes": "Recorded, not qualified (changed 2026-07-29): no current lane executes LGPO, so its hash is provenance only. Ruled 2026-08-03 that placing LGPO.exe on the estate is acceptable — disposable, checkpoint-backed guests, and the isolation invariant governs egress rather than what is deliberately placed inside — so WP-5 keeps its LGPO leg and this row is not pending because the tool was ruled out. It is pending because qualification is earned by execution: WP-5 must push the binary post-restore, verify it on the guest against a pinned SHA-256, and only then restore the check in frozen_environment_violations(). Do not flip this row on the strength of the ruling alone."
+      "notes": "Recorded, not qualified (changed 2026-07-29): no current lane executes LGPO, so its hash is provenance only. Ruled 2026-08-03 that placing LGPO.exe on the estate is acceptable \u2014 disposable, checkpoint-backed guests, and the isolation invariant governs egress rather than what is deliberately placed inside \u2014 so WP-5 keeps its LGPO leg and this row is not pending because the tool was ruled out. It is pending because qualification is earned by execution: WP-5 must push the binary post-restore, verify it on the guest against a pinned SHA-256, and only then restore the check in frozen_environment_violations(). Do not flip this row on the strength of the ruling alone."
     },
     {
       "tool_id": "secedit",
@@ -78,8 +78,8 @@
     {
       "tool_id": "whoami",
       "kind": "microsoft-inbox",
-      "status": "pending-qualification",
-      "notes": "User-context token collection, and the honest reason the user-scope lane is still gated. WP-6 forbids using an interactive whoami /groups as the computer token; the computer side uses LDAP tokenGroups via [adsisearcher], which is measured available and needs no interactive session. whoami's collection therefore rides an interactive logon the estate has never had, which is WP-9 work, not a consequence of the client qualification."
+      "status": "not-used",
+      "notes": "Not used by any lane, and the reason is worth keeping. This row stood in for the user-scope gap: WP-6 forbids an interactive `whoami /groups` as the computer token, and the collection it described rode an interactive logon the estate did not have. The estate has one now (windows-evidence-lab, the `user-logged-on` checkpoint), and WP-9 was built without whoami: the principal's SID comes from an NTAccount translation, the winning values from the loaded hive at HKEY_USERS\\<SID>, and the resultant set from gpresult /scope:user /user <principal>. Kept as a row rather than deleted so the gate it represented is visibly closed rather than quietly removed."
     },
     {
       "tool_id": "studio-finalize",
@@ -92,9 +92,18 @@
     {
       "lane_id": "gpp-reader-native",
       "plan_wp": "WP-1A",
-      "boundaries": ["gpo-backup-content"],
-      "required_hosts": ["member-ws2025-disposable", "dc-ws2025"],
-      "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1"],
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable",
+        "dc-ws2025"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "powershell-5.1"
+      ],
       "oracle": "Native GPMC-authored backup captures (committed, sanitized) read through Studio's public import path; no Studio participation on the expected side.",
       "status": "partial",
       "notes": "Fifteen genuine captures committed under tests/fixtures/native-gpp-gpmc. Analysis of existing captures executes offline today; new captures require the lab."
@@ -102,9 +111,19 @@
     {
       "lane_id": "gpp-writer-conformance",
       "plan_wp": "WP-1B",
-      "boundaries": ["gpo-backup-content"],
-      "required_hosts": ["member-ws2025-disposable", "dc-ws2025"],
-      "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1", "studio-finalize"],
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable",
+        "dc-ws2025"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
       "oracle": "Import-GPO of a Studio-authored native backup, then GPMC report parse plus Backup-GPO round trip; agreement is between two independent readers of the same policy.",
       "status": "partial",
       "notes": "Certified for drives, local users and groups, daily Exec TaskV2 scheduled tasks, and Services plus the registry-both control. The clean seven-candidate run is wp1b-writer-20260730151953-6878; Services is GPMC writer-conformance evidence, not endpoint application."
@@ -112,19 +131,37 @@
     {
       "lane_id": "security-template-secedit",
       "plan_wp": "WP-3",
-      "boundaries": ["gpo-backup-content"],
-      "required_hosts": ["member-ws2025-disposable"],
-      "required_tools": ["secedit", "powershell-5.1", "studio-finalize"],
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "secedit",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
       "oracle": "secedit /validate, /import /overwrite into a fresh temporary database, /export; semantic comparison against the exported template. /configure is never invoked on a shared host.",
       "status": "partial",
-      "notes": "Account/audit/user-rights tranche certified, and re-certified on the estate 2026-08-03 (wp3-security-template-20260803230220-2450, 20/20). Expansion to the services, regkeys, filestore and group_mgmt areas is no longer platform-gated — the disposable host exists and is qualified — but it is also not done: the estate run repeated the certified tranche rather than widening it. This is the lane most likely to find something, because security_template.py is the one domain layer already proven wrong on the wire."
+      "notes": "Account/audit/user-rights tranche certified, and re-certified on the estate 2026-08-03 (wp3-security-template-20260803230220-2450, 20/20). Expansion to the services, regkeys, filestore and group_mgmt areas is no longer platform-gated \u2014 the disposable host exists and is qualified \u2014 but it is also not done: the estate run repeated the certified tranche rather than widening it. This is the lane most likely to find something, because security_template.py is the one domain layer already proven wrong on the wire."
     },
     {
       "lane_id": "endpoint-application",
       "plan_wp": "WP-5",
-      "boundaries": ["endpoint-resultant-state"],
-      "required_hosts": ["client-win11", "member-ws2025-disposable", "dc-ws2025"],
-      "required_tools": ["lgpo", "gpresult", "powershell-5.1"],
+      "boundaries": [
+        "endpoint-resultant-state"
+      ],
+      "required_hosts": [
+        "client-win11",
+        "member-ws2025-disposable",
+        "dc-ws2025"
+      ],
+      "required_tools": [
+        "lgpo",
+        "gpresult",
+        "powershell-5.1"
+      ],
       "oracle": "LGPO import, policy refresh, direct registry API reads, and GroupPolicy operational events on a snapshot-backed endpoint, plus domain-GPO processing through the verified WP-2 path.",
       "status": "defined",
       "notes": "Hosts qualified 2026-08-03; now blocked only on lgpo, which the 2026-08-03 ruling keeps in the lane rather than narrowing it away. The binary must be pushed post-restore over psdirect and hash-verified on the guest, so no golden checkpoint carries it. The domain-GPO leg is the one that tests Studio (its output reaching a client through SYSVOL); the LGPO leg mostly tests Microsoft's tool, and WP-5 acceptance requires both."
@@ -138,11 +175,19 @@
         "gpo-ad-object-security",
         "wmi-filter-object-association"
       ],
-      "required_hosts": ["dc-ws2025", "member-ws2025-disposable", "client-win11"],
-      "required_tools": ["gpresult", "grouppolicy-module", "powershell-5.1"],
+      "required_hosts": [
+        "dc-ws2025",
+        "member-ws2025-disposable",
+        "client-win11"
+      ],
+      "required_tools": [
+        "gpresult",
+        "grouppolicy-module",
+        "powershell-5.1"
+      ],
       "oracle": "gpresult.exe /x <file> /f /scope:computer on the client, parsed from the http://www.microsoft.com/GroupPolicy/Rsop namespace, plus direct winning-registry reads, GroupPolicy operational events, LDAP tokenGroups via [adsisearcher] for the computer token, and Get-Acl / Get-GPPermission -All for effective rights.",
       "status": "partial",
-      "notes": "Computer scope only, per the 2026-08-03 ruling; user scope and loopback are the rsop-user-loopback lane. BUILT AND CERTIFIED 2026-08-04 for lsdou-precedence: three consecutive passes (rsop-observe-20260804010341-7165, rsop-observe-20260804010551-9363, rsop-observe-20260804010738-5543), identical results, each from a clean endpoint. Extended 2026-08-04 to disabled-block-enforced (WI-029), which added block inheritance, enforced links, disabled links and per-side GPO status — and immediately found WI-031, a real defect in rsop.py's enforced-link precedence, now fixed and re-verified. Still partial: security filtering and WMI filters are absent from both topologies, and user scope is WP-9. It needs TWO oracles, not one: the Rsop document names the applied GPOs but carries zero RegistrySetting entries for the values set, so only the registry read answers which value won. See wp6b-results.md. Two corrections from measuring the client: Get-GPResultantSetOfPolicy is gone from the oracle because the module is absent, and whoami is gone from required_tools because the computer token comes from LDAP tokenGroups. Deterministic disposable topology per WP-6; no use of pre-existing lab GPOs; at least one control row must be decided by a mechanism Studio does not model."
+      "notes": "Computer scope only, per the 2026-08-03 ruling; user scope and loopback are the rsop-user-loopback lane. BUILT AND CERTIFIED 2026-08-04 for lsdou-precedence: three consecutive passes (rsop-observe-20260804010341-7165, rsop-observe-20260804010551-9363, rsop-observe-20260804010738-5543), identical results, each from a clean endpoint. Extended 2026-08-04 to disabled-block-enforced (WI-029), which added block inheritance, enforced links, disabled links and per-side GPO status \u2014 and immediately found WI-031, a real defect in rsop.py's enforced-link precedence, now fixed and re-verified. Still partial: security filtering and WMI filters are absent from both topologies, and user scope is WP-9. It needs TWO oracles, not one: the Rsop document names the applied GPOs but carries zero RegistrySetting entries for the values set, so only the registry read answers which value won. See wp6b-results.md. Two corrections from measuring the client: Get-GPResultantSetOfPolicy is gone from the oracle because the module is absent, and whoami is gone from required_tools because the computer token comes from LDAP tokenGroups. Deterministic disposable topology per WP-6; no use of pre-existing lab GPOs; at least one control row must be decided by a mechanism Studio does not model."
     },
     {
       "lane_id": "rsop-user-loopback",
@@ -153,11 +198,20 @@
         "gpo-ad-object-security",
         "wmi-filter-object-association"
       ],
-      "required_hosts": ["dc-ws2025", "member-ws2025-disposable", "client-win11"],
-      "required_tools": ["gpresult", "whoami", "grouppolicy-module", "powershell-5.1"],
-      "oracle": "gpresult.exe /x <file> /f /scope:user captured under a real interactive session on the client, direct winning HKCU reads, and user token groups collected separately from the computer token.",
-      "status": "defined",
-      "notes": "Created 2026-08-03 when WP-6 was ruled computer-scope-only, so the deferral carries a lane and a gate instead of disappearing. Blocked on whoami, which stands in for the real gap: the estate has never had an interactive logon and PowerShell Direct does not provide one. WP-9 establishes one by scripted autologon plus a dedicated checkpoint, because a hand-made session is unrepeatable and would fail WP-8. Get-GPResultantSetOfPolicy -User from the member server is a possible second oracle but is untested across the private switch, so it is a bonus and not the plan."
+      "required_hosts": [
+        "dc-ws2025",
+        "member-ws2025-disposable",
+        "client-win11"
+      ],
+      "required_tools": [
+        "gpresult",
+        "grouppolicy-module",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "gpresult.exe /x <file> /f /scope:user /user <DOMAIN>\\<principal> on the client, parsed from the http://www.microsoft.com/GroupPolicy/Rsop namespace's UserResults section, plus the winning HKCU values read from the principal's loaded hive at HKEY_USERS\\<SID>, plus GroupPolicy operational events -- 8005 for the completion of the principal's own processing pass, and 5311 for the loopback mode Windows actually used.",
+      "status": "partial",
+      "notes": "BUILT AND CERTIFIED 2026-08-04 for three scenarios: user-side-disabled, loopback-merge and loopback-replace. This is the first external check rsop.py's user side and loopback have ever had. Measured facts the lane is built on, all taken before it was designed: an admin can capture another principal's user-scope RSoP from outside the session with /user (without it, gpresult exits 0 and writes nothing); the principal's hive is readable at HKEY_USERS\\<SID>, and reading HKCU instead would return the HARNESS account's hive and report every value absent; and a scheduled task with -LogonType Interactive refreshes user policy inside the principal's session without needing its password. Event 5311 is the load-bearing control: under replace the expected observation is that a GPO's values are ABSENT, which is also what a run where loopback never engaged looks like, so a mode mismatch is inconclusive rather than a finding -- and it fired twice on real runs. Still partial: security filtering on user principals, slow-link and WMI outcomes on the user side are not covered, and the applied-GPO comparison is advisory rather than gated (WI-032). Requires the estate's user-logged-on checkpoint; the lane refuses to run without a verified console session."
     }
   ]
 }

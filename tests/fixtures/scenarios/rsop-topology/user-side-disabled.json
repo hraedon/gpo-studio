@@ -3,8 +3,7 @@
   "scenario_id": "user-side-disabled",
   "family": "rsop-topology",
   "title": "A GPO with its user side disabled contributes nothing to the user scope",
-  "readiness": "blocked",
-  "blocked_reason": "Needs a user-scope capture under an interactive session, which the estate has never had and PowerShell Direct does not provide. WP-9 establishes one by scripted autologon plus a dedicated checkpoint.",
+  "readiness": "ready",
   "provenance": {
     "tier": "spec-informed",
     "note": "RELOCATED from disabled-block-enforced 2026-08-04 (WI-029), not newly authored. That scenario was blocked in full for this single HKCU assertion while the rest of it was computer-scope and runnable; moving the assertion here freed the other half for WP-6B and kept this claim visible instead of dropping it. The computer-side half -- that MachineVal still applies from the same GPO -- is now WP-6B-verified, so this scenario asserts only the part that needs the user scope.",
@@ -79,6 +78,6 @@
     ]
   },
   "open_questions": [
-    "Does gpresult /x /scope:user report the GPO as applied-with-no-settings, or omit it from ComputerResults' user counterpart entirely? Recorded verbatim at first execution."
+    "ANSWERED 2026-08-04: gpresult /x /scope:user OMITS the GPO from UserResults entirely rather than reporting it applied-with-no-settings. The certified run observed UserWinner and Control from the two enabled GPOs and nothing from Studio-RSOP-UserSideOff, whose user side was disabled."
   ]
 }
