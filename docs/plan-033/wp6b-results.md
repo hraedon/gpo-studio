@@ -55,16 +55,27 @@ All thirteen existing call sites in `tests/test_rsop.py` pass a container DN, so
 the model was only ever exercised with the one input shape it tolerates. This is
 what "self-consistency is not evidence" looks like when it bites.
 
-**Fixed:** only the silence. An unresolvable target DN now warns, because "no
-node matched" being indistinguishable from "no GPOs apply here" is the
-unambiguously wrong half. **Still open:** whether an object DN should resolve to
-its parent container. That is a semantic change that would alter predictions,
-and this lane's prediction was computed under current behaviour — deciding it
-quietly mid-lane would have invalidated the result.
+**Resolved 2026-08-04, after the first certification.** An unresolved target DN
+now walks up to its nearest ancestor in the SOM tree, which is what Windows does
+— a computer's GPOs come from its parent container chain — and DN matching is
+case-insensitive, because AD is. Resolution stops at the *first* matching
+ancestor: walking further would silently compute policy for the wrong container,
+which is worse than the empty result it replaces because it looks like an answer.
 
-The lane therefore passes the container DN explicitly, with the reasoning at the
-call site. That is an adapter choice, and open question 3 warned that adapter
-choices are part of what is being tested.
+The fix is backwards compatible by construction: a container DN is found on the
+first lookup and never enters the walk. So the original certification stands, and
+the lane now passes the client's **real object DN** — the shape a directory
+returns and an operator-facing caller would supply — with two further passing
+runs to prove it (`rsop-observe-20260804012618-5426`,
+`rsop-observe-20260804012803-7606`). The rebuilt prediction is byte-identical to
+the certified one, so the oracle checks the fix rather than the lane working
+around it.
+
+The first certification ran against the container DN, recorded as an adapter
+choice, because a lane that fed the model an object DN would have predicted
+"nothing applies", observed six applied GPOs, and reported a spectacular model
+failure that was really a caller error. Sequencing the fix after the measurement
+was what kept those two things distinguishable.
 
 ## The open questions, answered
 
@@ -95,10 +106,12 @@ built on `gpresult /x` alone would have verified half of what it claimed to.
 
 ### 3. Is `rsop.py`'s output shape close enough to diff without a lossy adapter?
 
-Partly. GPO identity diffs cleanly once names are mapped. Winning *values* have
-no counterpart in the document at all (see above), so they are diffed against
-the registry instead — which is a second oracle, not an adapter. The one real
-adapter choice is WI-026's container DN, recorded at the call site.
+Partly, and there is now no adapter left to argue about. GPO identity diffs
+cleanly once names are mapped. Winning *values* have no counterpart in the
+document at all (see above), so they are diffed against the registry instead —
+which is a second oracle, not an adapter. The one real adapter choice *was*
+WI-026's container DN; with WI-026 fixed the lane passes the directory's own
+value and the workaround is gone.
 
 ## Gotcha: `SearchedSOM` accumulates deleted OUs
 
@@ -154,5 +167,5 @@ Recorded here so the capability matrix and any future summary stay honest:
   corpus scenarios covering these are blocked or user-scope; the topology this
   lane runs contains none of them;
 - **`rsop.py` as an operator-facing feature**: it is still reachable from no API
-  endpoint, and WI-026 means the input shape a real caller would supply produces
-  an empty answer.
+  endpoint (WI-030). WI-026 is fixed, so the input shape a real caller supplies
+  now works — but scope and coverage remain, and they are the larger two.

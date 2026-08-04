@@ -64,8 +64,16 @@ must never write directly to Active Directory or SYSVOL.
   promise:
   `test_every_qualified_environment_is_acknowledged_by_the_registry` is the one
   for this pair.
+- **A WI number in one prose paragraph is a note, not a work item.** Open items
+  live in [`docs/work-items.md`](docs/work-items.md), with a stated closing
+  condition. WI-025 was minted in a design doc in July and rediscovered in
+  August only because someone re-read that paragraph — it had never been
+  anywhere a person would look for outstanding work.
 - Self-consistency is not evidence. Round-trip tests prove Studio can read its
-  own output; only the Plan 033 oracle proves Windows agrees.
+  own output; only the Plan 033 oracle proves Windows agrees. WI-026 is the
+  worked example: thirteen tests passed a container DN because that is what the
+  model tolerated, so the shape every real caller supplies returned "no policy
+  applies" and nothing noticed until an oracle was pointed at it.
 
 ## Build and verify
 

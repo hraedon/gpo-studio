@@ -522,12 +522,15 @@ Three consequences worth stating plainly:
      enforcement are absent from the certified topology. The corpus scenarios
      covering them are blocked or user-scope, so a clean WP-6B says nothing
      about any of them.
-  3. **WI-026.** `rsop.py` returns an empty result when handed a computer's own
-     DN — the shape a real caller gets from a directory. Until that is decided,
-     surfacing the module would ship a feature that answers "no policy applies"
-     to the most natural input.
+  3. **Surfacing is a decision nobody has made.** It is reachable from no API
+     endpoint, which is correct for now (WI-030).
 
-  It is still reachable from no API endpoint, which is correct.
+  WI-026 — an empty result when handed a computer's own DN, the shape a real
+  caller gets from a directory — *was* a fourth reason and is now fixed, with the
+  fix re-certified against Windows rather than only unit-tested.
+
+  Open work items for this module are tracked in
+  [`docs/work-items.md`](work-items.md).
 - **`publication.py` / `publisher.py` do not weaken the charter.** Both are
   pure and side-effect-free; they emit no writes. The web process still never
   writes to AD or SYSVOL.
