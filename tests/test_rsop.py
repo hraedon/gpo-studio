@@ -1179,3 +1179,77 @@ class TestDenyFiltering:
         reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
         assert "security_filter_denied" in reasons
         assert "security_filter_mismatch" not in reasons
+
+
+class TestWmiFilterEvaluation:
+    """WI-035: a WMI filter the caller has evaluated must be honoured.
+
+    Studio does not evaluate WQL and should not -- that is the CSE's job on the
+    live machine. What it can do is honour an answer a caller already has.
+    Before this, a WMI-filtered GPO was predicted to apply whatever its filter
+    would evaluate to, which tells an operator settings will arrive when they
+    will not. Demonstrated against a real 26200 client before being fixed.
+    """
+
+    def _query(self, results: tuple[tuple[str, bool], ...]) -> RsopQuery:
+        dn = "OU=Child,DC=x"
+        gpo = GPO(
+            guid="g1",
+            name="Filtered",
+            wmi_filter=WmiFilter(
+                id="w1", name="never", query="SELECT * FROM Win32_OperatingSystem"
+            ),
+            settings=(
+                RegistrySetting(
+                    id="s",
+                    side="computer",
+                    hive="HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    registry_type="REG_SZ",
+                    value="applied",
+                ),
+            ),
+        )
+        return RsopQuery(
+            query_id="q",
+            target=RsopTarget(computer_name="C", computer_dn=f"CN=C,{dn}", domain="x"),
+            som_nodes=(
+                SomNode(
+                    dn=dn,
+                    name="Child",
+                    scope="ou",
+                    parent_dn="",
+                    links=(SomLink(gpo_guid="g1", scope="ou", scope_dn=dn, order=1),),
+                ),
+            ),
+            gpos=(gpo,),
+            wmi_filter_results=results,
+        )
+
+    def _result(self, results: tuple[tuple[str, bool], ...]):
+        return compute_rsop(self._query(results))
+
+    def test_a_filter_evaluated_false_blocks_the_gpo(self) -> None:
+        """The case that was wrong."""
+        result = self._result((("w1", False),))
+        assert not any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_false" in {r for g in result.gpo_results for r in g.filtering_reasons}
+
+    def test_a_filter_evaluated_true_applies_without_a_warning(self) -> None:
+        """A known-true filter is not a caveat; saying so keeps the warning meaningful."""
+        result = self._result((("w1", True),))
+        assert any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_unknown" not in result.warnings
+
+    def test_an_unevaluated_filter_still_applies_and_still_warns(self) -> None:
+        """Unknown must not become false: an invented absence is harder to notice."""
+        result = self._result(())
+        assert any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_unknown" in result.warnings
+
+    def test_a_result_for_another_filter_does_not_apply_here(self) -> None:
+        """Results are keyed by filter, not merged into one verdict."""
+        result = self._result((("someone-else", False),))
+        assert any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_unknown" in result.warnings

@@ -69,7 +69,12 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from gpo_studio.model import GPO, RegistrySetting, SecurityFilter  # noqa: E402
+from gpo_studio.model import (  # noqa: E402
+    GPO,
+    RegistrySetting,
+    SecurityFilter,
+    WmiFilter,
+)
 from gpo_studio.rsop import RsopQuery, RsopTarget, compute_rsop  # noqa: E402
 from gpo_studio.som import SomLink, SomNode  # noqa: E402
 
@@ -736,10 +741,10 @@ USER_SECURITY_FILTERING_DENY = Scenario(
 # and applies the GPO anyway. Measured directly: a GPO whose filter can never
 # be true is predicted to apply, and its settings are predicted to win.
 #
-# So this scenario is DECLARED to diverge, like the deny row in the user lane,
-# and for the same reason -- the failure direction is the dangerous one. An
-# operator asking "what will this machine get?" is told about settings a WMI
-# filter will keep off the machine entirely.
+# That WAS a declared divergence, certified as an expected-finding on
+# 2026-08-04. WI-035 then gave the model a way to be TOLD how a filter
+# evaluated -- not a WQL engine, which is the CSE's job, but an answer a caller
+# already has -- so the scenario is now an ordinary agreement.
 #
 # THE TRUE ROW IS THE CONTROL, and it is not optional. A WMI filter is authored
 # as a raw directory object with a length-prefixed query format that is easy to
@@ -754,13 +759,6 @@ WMI_FILTERING = Scenario(
     target_ou_key="child",
     control_gpo="Studio-RSOP-Control",
     control_value_name="Control",
-    expect_finding=(
-        "rsop.py cannot evaluate WQL: _gpo_filter_status records a WMI filter as the "
-        "warning 'wmi_filter_unknown' and applies the GPO regardless. Predicted: "
-        "Wmi=false (the false-filtered GPO holds link order 1) and WmiFalseOnly=1. "
-        "Expected from Windows: Wmi=true and no WmiFalseOnly, because a filter that "
-        "evaluates false keeps its GPO off the machine."
-    ),
     gpos=(
         PlannedGpo(
             name="Studio-RSOP-WmiFalse",
@@ -915,6 +913,15 @@ def build_query(
             )
         return tuple(expressible)
 
+    def wmi_for(planned: PlannedGpo) -> WmiFilter | None:
+        if planned.wmi_filter is None:
+            return None
+        return WmiFilter(
+            id=f"{planned.name}:wmi",
+            name=planned.wmi_filter.name,
+            query=planned.wmi_filter.query,
+        )
+
     gpos = tuple(
         GPO(
             guid=planned.guid,
@@ -923,9 +930,22 @@ def build_query(
             user_enabled=planned.user_enabled,
             settings=_settings(planned),
             security_filters=filters_for(planned),
+            wmi_filter=wmi_for(planned),
             domain=domain,
         )
         for planned in scenario.gpos
+    )
+
+    # The scenario states how each filter evaluates on this client, and the
+    # model is told. That is the same division loopback uses: the lane authors
+    # the condition AND declares it, and Windows independently confirms the
+    # condition really held -- the true-filtered GPO applying is what makes the
+    # false one's absence mean anything. Studio evaluates no WQL here and is
+    # not being asked to.
+    wmi_results = tuple(
+        (f"{planned.name}:wmi", planned.wmi_filter.expect_true)
+        for planned in scenario.gpos
+        if planned.wmi_filter is not None
     )
 
     def links_for(scope_key: str) -> tuple[SomLink, ...]:
@@ -1018,6 +1038,7 @@ def build_query(
         ),
         som_nodes=tuple(som_nodes),
         gpos=gpos,
+        wmi_filter_results=wmi_results,
     )
 
 

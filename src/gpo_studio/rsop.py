@@ -76,6 +76,22 @@ class RsopQuery:
     target: RsopTarget = field(default_factory=RsopTarget)
     som_nodes: tuple[SomNode, ...] = field(default_factory=tuple)
     gpos: tuple[GPO, ...] = field(default_factory=tuple)
+    #: How each WMI filter evaluated ON THIS TARGET, keyed by ``WmiFilter.id``.
+    #:
+    #: Studio does not evaluate WQL and should not: that is the CSE's job
+    #: against the live machine. What it can do is honour an answer a caller
+    #: already has -- from a lab observation, an inventory, or an operator who
+    #: knows the machine. Before this existed, a WMI-filtered GPO was predicted
+    #: to apply whatever its filter would evaluate to, which is the failure
+    #: direction that tells an operator settings will arrive when they will not
+    #: (WI-035, demonstrated against a real client).
+    #:
+    #: A filter absent from this mapping stays UNKNOWN and keeps the old
+    #: behaviour -- the GPO applies and the result carries
+    #: ``wmi_filter_unknown``. Guessing "unknown means false" would trade a
+    #: false promise for a false absence, and an absence is the harder error to
+    #: notice.
+    wmi_filter_results: tuple[tuple[str, bool], ...] = ()
     simulate_no_loopback: bool = False
     simulate_slow_link: bool | None = None
     simulate_safe_mode: bool | None = None
@@ -240,6 +256,7 @@ def _gpo_filter_status(
     gpo: GPO,
     entry: PrecedenceEntry,
     target: RsopTarget,
+    wmi_results: dict[str, bool] | None = None,
 ) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
     """Return (is_applied, blocking_reasons, warning_reasons) for a GPO."""
     blocking: list[str] = []
@@ -279,7 +296,19 @@ def _gpo_filter_status(
                 blocking.append("security_filter_mismatch")
 
     if gpo.wmi_filter is not None and gpo.wmi_filter.query:
-        warnings.append("wmi_filter_unknown")
+        # Three states, and the third is why the warning survives.
+        #
+        # A filter the caller has evaluated to FALSE blocks the GPO, which is
+        # what Windows does and what this could not previously express. One
+        # evaluated TRUE applies silently. One nobody has evaluated is still
+        # unknown: the GPO applies and the warning says the prediction rests on
+        # an unevaluated filter, because inventing an answer here would replace
+        # a visible gap with an invisible one.
+        evaluated = (wmi_results or {}).get(gpo.wmi_filter.id)
+        if evaluated is False:
+            blocking.append("wmi_filter_false")
+        elif evaluated is None:
+            warnings.append("wmi_filter_unknown")
 
     return (not blocking), tuple(blocking), tuple(warnings)
 
@@ -353,7 +382,9 @@ def _resolve_side(
         if gpo is None:
             continue
 
-        applies, blocking, warnings = _gpo_filter_status(gpo, entry, query.target)
+        applies, blocking, warnings = _gpo_filter_status(
+            gpo, entry, query.target, dict(query.wmi_filter_results)
+        )
         side_enabled = _side_enabled(gpo, side)
         if side_enabled and applies:
             effective_applies = True
