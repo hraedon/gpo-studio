@@ -627,3 +627,79 @@ def test_an_altered_local_copy_fails_the_harness_check(tmp_path: Path, monkeypat
         tmp_path, monkeypatch, run_dir_copy="# not the script that ran\n"
     )
     assert verdict["harness_matches_source"] is False
+
+
+def test_an_abstention_is_excluded_from_the_applied_comparison_in_both_directions(
+    lane,
+) -> None:
+    """WI-043: the finalizer must not grade a GPO the model declined to predict.
+
+    This is the computer lane, where the applied-set comparison is GATED rather
+    than advisory -- so getting it wrong here does not produce a note, it
+    produces a false `finding` against `rsop.py`.
+
+    The observed direction is the dangerous one and is what this pins. The GPO
+    is in the authoring half's symbolic map and Windows DID apply it, so without
+    the exclusion it lands in `applied_only_observed` and the lane reports that
+    the model missed a GPO -- when the model explicitly said it had no basis to
+    predict one. An earlier version of this test used a name absent from the
+    symbolic map, which never reached the filter at all and proved only the
+    inconclusive gate.
+    """
+    prediction = _prediction()
+    prediction["applied_gpos"] = [
+        name for name in prediction["applied_gpos"] if name != "Studio-RSOP-Site"
+    ]
+    prediction["unevaluable_gpos"] = [
+        {
+            "gpo": "Studio-RSOP-Site",
+            "reasons": ["security_filter_read_denied_user_scope_unmeasured"],
+        }
+    ]
+    run_dir, candidate = lane(prediction=prediction)
+
+    verdict = _finalize(run_dir, candidate)
+    comparison = verdict["comparison"]
+
+    # Windows applied it (`Studio-RSOP-Site-S` is in the observation), and the
+    # model abstained. Neither direction may record a difference.
+    assert comparison["unevaluable_gpos"] == ["Studio-RSOP-Site"]
+    assert "Studio-RSOP-Site" not in comparison["observed_applied"]
+    assert "Studio-RSOP-Site" not in comparison["predicted_applied"]
+    assert comparison["applied_only_observed"] == []
+    assert comparison["applied_only_predicted"] == []
+
+    # And the run still cannot certify: part of it was never graded.
+    assert comparison["conclusive"] is False
+    assert verdict["state"] == "inconclusive"
+    assert verdict["passed"] is False
+
+
+def test_without_an_abstention_the_same_lane_passes(lane) -> None:
+    """The control.
+
+    Without it the test above would pass against a finalizer that reported
+    `inconclusive` unconditionally, which would hide every real result the lane
+    is for.
+    """
+    verdict = _finalize(*lane())
+    assert verdict["state"] == "pass"
+    assert verdict["comparison"]["conclusive"] is True
+    assert verdict["comparison"]["unevaluable_gpos"] == []
+
+
+def test_an_unpredicted_gpo_that_was_not_abstained_is_still_a_finding(lane) -> None:
+    """The abstention list must not become a way to silence real disagreements.
+
+    Same shape as above -- a GPO Windows applied and the model did not predict --
+    but with no abstention recorded. That is exactly the finding this lane
+    exists to produce, and it must survive.
+    """
+    prediction = _prediction()
+    prediction["applied_gpos"] = [
+        name for name in prediction["applied_gpos"] if name != "Studio-RSOP-Site"
+    ]
+    verdict = _finalize(*lane(prediction=prediction))
+
+    assert verdict["comparison"]["applied_only_observed"] == ["Studio-RSOP-Site"]
+    assert verdict["state"] == "finding"

@@ -422,7 +422,7 @@ def test_computer_scope_candidate_is_refused(lane, capsys) -> None:
 def test_applied_set_difference_alone_does_not_decide_the_verdict(lane) -> None:
     """WI-032: the applied sets are recorded, not gated.
 
-    ``RsopResult.is_applied`` means "applied on at least one side", while
+    ``RsopGpoResult.status`` is "applied on at least one side", while
     ``UserResults`` lists what applied to the USER. On a topology whose GPOs
     also scope the computer these are different questions, and gating on the
     difference would manufacture findings out of a reporting gap.
@@ -656,3 +656,51 @@ def test_user_altered_local_copy_fails_the_harness_check(
         tmp_path, monkeypatch, run_dir_copy="# not the script that ran\n"
     )
     assert verdict["harness_matches_source"] is False
+
+
+def test_a_model_abstention_is_inconclusive_not_a_pass(lane) -> None:
+    """WI-043: a lane cannot certify a region the model declined to predict.
+
+    `unevaluable_gpos` in the prediction says "no measurement covers this GPO's
+    outcome". Grading those rows either way is wrong: if Windows applies such a
+    GPO, comparing it against an abstention yields `applied_only_observed` and
+    the lane reports a model defect that does not exist -- manufacturing a
+    finding out of the model being honest, which is the failure these controls
+    exist to prevent.
+
+    So the rows are excluded from the comparison and the verdict is
+    `inconclusive`. Not `pass`: some of what the scenario set out to check was
+    never graded, and a pass would say otherwise.
+    """
+    run_dir, candidate = _filtering_lane(lane)
+    prediction = json.loads((candidate / "prediction.json").read_text())
+    # A GPO the authoring half really created, so it IS in the symbolic map and
+    # Windows really applied it. Naming one that is absent from that map -- which
+    # this test did at first -- never reaches the observed-side filter at all,
+    # and proves only the inconclusive gate.
+    prediction["unevaluable_gpos"] = [
+        {
+            "gpo": "Studio-RSOP-UserLocation",
+            "reasons": ["security_filter_read_denied_user_scope_unmeasured"],
+        }
+    ]
+    (candidate / "prediction.json").write_text(json.dumps(prediction))
+
+    verdict = _finalize(run_dir, candidate)
+    comparison = verdict["comparison"]
+    assert verdict["state"] == "inconclusive"
+    assert verdict["passed"] is False
+    assert comparison["conclusive"] is False
+    assert comparison["unevaluable_gpos"] == ["Studio-RSOP-UserLocation"]
+    # Excluded in BOTH directions, which is the part the first version missed.
+    assert "Studio-RSOP-UserLocation" not in comparison["observed_applied_user_side"]
+    assert "Studio-RSOP-UserLocation" not in comparison["applied_only_observed"]
+    assert "Studio-RSOP-UserLocation" not in comparison["applied_only_predicted"]
+
+
+def test_the_abstention_gate_is_off_when_nothing_is_unevaluable(lane) -> None:
+    """The control. Without it, the test above would pass on a lane that never certifies."""
+    verdict = _finalize(*_filtering_lane(lane))
+    assert verdict["state"] == "pass"
+    assert verdict["comparison"]["conclusive"] is True
+    assert verdict["comparison"]["unevaluable_gpos"] == []

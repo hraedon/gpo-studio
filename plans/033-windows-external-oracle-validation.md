@@ -837,6 +837,27 @@ inside. Three conditions attach:
 
 ## WP-6 — Controlled RSOP and effective-rights oracle (computer scope)
 
+> **Live certification set: eleven runs at `faad341`, 2026-08-05.** Six WP-6
+> scenarios and five WP-9, every one `pass`, clean tree, `transport: psdirect`,
+> `conclusive: true`, `harness_matches_source: true`. They supersede every
+> earlier RSOP verdict in this plan, including the `a85736a` set run a few hours
+> before them: review round 3 changed `build-rsop-candidate.py`, that file is
+> bound by hash, and so the older set describes a harness that no longer ships.
+> The prediction output is byte-identical across the two — verified by
+> rebuilding the deny-read candidate and diffing all three artifacts — which is
+> worth knowing and is **not** the standard. A certification binds the harness,
+> not the output.
+>
+> Not because the earlier ones were wrong, but because **a certification binds
+> the harness that produced it**, and WI-043 changed what a verdict means: the
+> prediction now carries `unevaluable_gpos` and the finalizers refuse to grade
+> those rows. A verdict written before that describes code that no longer
+> ships. The superseded verdicts stay committed as the historical record — the
+> two WI-040 ones in particular, because the divergence `...045139-3731`
+> observed against a real client is what the item is *about*, and that
+> observation does not depend on the harness check that was later found
+> unfalsifiable. Cite the `a85736a` set for anything load-bearing.
+
 **Status 2026-08-05: partially delivered.** WP-6A reconciled the platform
 registry; WP-6B built the lane — the first external check `rsop.py` has ever
 had — and it has since certified items 1 through 6 of the topology below.
@@ -867,7 +888,7 @@ not the same as "WP-6 is done":**
 | 2 | disabled link and disabled GPO side | **certified** (`disabled-block-enforced`) |
 | 3 | block inheritance | **certified** (same) |
 | 4 | enforced links above a block | **certified** (same — and it found WI-031) |
-| 5 | Apply+Read, missing Apply, explicit deny, group nesting | certified for the user account (WP-9) **and for the computer account** (`computer-security-filtering`, 2026-08-04). **Group nesting is user-side only** — a computer's membership lives in its machine token, minted at boot |
+| 5 | Apply+Read, missing Apply, explicit deny, group nesting | certified for the user account (WP-9) **and for the computer account** (`computer-security-filtering`, 2026-08-04). **A deny on READ is a second, independent gate** — certified on the computer 2026-08-05 by `computer-security-filtering-deny-read` (WI-040: measured as a divergence on `rsop-observe-20260805045139-3731`, fixed, re-certified). Its user-scope counterpart is **not** certified and the model now returns `unevaluable` there rather than guessing (WI-043). **Group nesting is user-side only** — a computer's membership lives in its machine token, minted at boot |
 | 6 | WMI true, false, and evaluation-error | **all three certified** — true/false by `wmi-filtering` (which found WI-035), evaluation-error by `wmi-filtering-error` (which found WI-039, the only undeclared finding this lane has produced) |
 | 7 | slow-link / safe-mode | **not covered.** The fields are accepted and never read (WI-036), and the estate cannot classify a link as slow — capping the vNIC does not work, measured |
 
@@ -878,9 +899,12 @@ DACL to verify *its own authoring* — which is how WI-033 was authored correctl
 and those are different claims.
 
 So the certified region is LSDOU, link order, block inheritance, enforcement,
-disabled links and sides, filtering on both principals, and WMI true/false.
+disabled links and sides, filtering on both principals — including a deny on
+Read for the computer — and WMI true/false/unevaluatable.
 What remains: **group nesting for the computer** (its token is minted at boot,
-so a run-created group is not in it), item 7 entirely, and item 8.
+so a run-created group is not in it), **the user-scope read deny** (WI-043 —
+unmeasured, and the model reports it as `unevaluable` rather than answering),
+item 7 entirely, and item 8.
 
 ### Topology
 

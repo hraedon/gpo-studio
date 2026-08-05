@@ -85,6 +85,11 @@ LANE_VERDICTS = {
     "wp6-evidence/verdict-rsop-observe-20260805064351-9402.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260805064540-1562.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260805064725-4970.json": "finalize_rsop_run.py",
+    # WI-040, both halves of the arc: the `expected-finding` that measured the
+    # read-deny gap and the `pass` that certified the fix. Committed together
+    # on purpose -- the gap and its closure are only readable as a pair.
+    "wp6-evidence/verdict-rsop-observe-20260805045139-3731.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805045851-3883.json": "finalize_rsop_run.py",
     "wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json": (
         "finalize_rsop_user_run.py"
     ),
@@ -98,6 +103,64 @@ LANE_VERDICTS = {
         "finalize_rsop_user_run.py"
     ),
     "wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # Re-certification 2026-08-05 under the WI-043 result contract. Making
+    # `_gpo_filter_status` side-aware changed what a verdict MEANS -- the
+    # prediction gained `unevaluable_gpos` and the finalizers stopped grading
+    # those rows -- so every earlier verdict describes a harness that no longer
+    # ships. Eleven scenarios at `a85736a`, all `pass`, all conclusive. This set
+    # also re-earns the two WI-040 verdicts, whose `harness_matches_source` was
+    # produced by the self-comparing check fixed in `d1eec72` hours after they
+    # ran; those two are kept below as the historical record of the divergence,
+    # not as live certifications.
+    "wp6-evidence/verdict-rsop-observe-20260805194053-7180.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194245-3734.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194432-5944.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194627-2633.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194814-2731.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805195001-1590.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260805195149-5629.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805195400-1809.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # Re-certification 2026-08-05 (second round) at `faad341`, after review
+    # round 3 added exhaustive dispatch to the candidate builder. That file is
+    # bound BY HASH in `LOCAL_FILES`, so changing it invalidated the `a85736a`
+    # set above even though the prediction output is byte-identical -- verified
+    # by rebuilding the deny-read candidate and diffing all three artifacts.
+    # "The output did not change" is not the rule; a certification binds the
+    # harness. Eleven scenarios, all `pass`, all conclusive.
+    "wp6-evidence/verdict-rsop-observe-20260805220819-4762.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221004-8571.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221150-4243.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221335-1702.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221522-1983.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221707-4871.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260805221856-6415.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222106-2378.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222317-3382.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222624-9750.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json": (
         "finalize_rsop_user_run.py"
     ),
 }
@@ -115,9 +178,7 @@ PRE_TRANSPORT_VERDICTS = {
 
 
 def _verdict(relative: str) -> dict[str, Any]:
-    return cast(
-        dict[str, Any], json.loads((EVIDENCE / relative).read_text(encoding="utf-8"))
-    )
+    return cast(dict[str, Any], json.loads((EVIDENCE / relative).read_text(encoding="utf-8")))
 
 
 def _file_tables(finalizer: str) -> list[dict[str, str]]:
@@ -160,9 +221,7 @@ def test_source_files_holds_exactly_the_bound_repository_files(
 
 
 @pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
-def test_every_bound_file_still_exists_in_the_tree(
-    relative: str, finalizer: str
-) -> None:
+def test_every_bound_file_still_exists_in_the_tree(relative: str, finalizer: str) -> None:
     """A verdict naming a file the repository no longer has cannot be re-checked."""
     for table in _file_tables(finalizer):
         for name, source in table.items():

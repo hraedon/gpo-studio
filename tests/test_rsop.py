@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Literal
+
 import pytest
 
 from gpo_studio.model import (
@@ -495,7 +498,7 @@ def test_compute_rsop_computer_disabled() -> None:
     assert len(result.computer_settings) == 0
     assert len(result.user_settings) == 1
     gpo_result = result.gpo_results[0]
-    assert gpo_result.is_applied
+    assert gpo_result.status == "applied"
     assert "computer_side_disabled" in gpo_result.filtering_reasons
 
 
@@ -726,8 +729,8 @@ def test_rsop_result_gpos_applied_and_filtered() -> None:
         mode="planning",
         target=_target(user_name="alice"),
         gpo_results=(
-            RsopGpoResult(gpo_guid=_GPO_A, gpo_name="A", is_applied=True),
-            RsopGpoResult(gpo_guid=_GPO_B, gpo_name="B", is_applied=False),
+            RsopGpoResult(gpo_guid=_GPO_A, gpo_name="A", status="applied"),
+            RsopGpoResult(gpo_guid=_GPO_B, gpo_name="B", status="blocked"),
         ),
     )
     assert len(result.gpos_applied()) == 1
@@ -1124,7 +1127,7 @@ class TestDenyFiltering:
 
     def _applied(self, filters: tuple[SecurityFilter, ...]) -> bool:
         result = compute_rsop(self._query(filters))
-        return any(g.is_applied for g in result.gpo_results)
+        return any(g.status == "applied" for g in result.gpo_results)
 
     def test_an_allow_alone_applies(self) -> None:
         """The control: without it, a deny test proves only that nothing applies."""
@@ -1157,14 +1160,49 @@ class TestDenyFiltering:
             )
         )
 
-    def test_a_deny_on_read_does_not_block_apply(self) -> None:
-        """The right being denied matters; this models Apply Group Policy only."""
-        assert self._applied(
+    def test_a_deny_on_read_blocks_even_with_apply_allowed(self) -> None:
+        """WI-040, and it got INVERTED by the oracle rather than confirmed.
+
+        This assertion used to run the other way, under the name
+        `test_a_deny_on_read_does_not_block_apply` and the docstring "the right
+        being denied matters; this models Apply Group Policy only" -- which read
+        as a certified design decision while sitting among four deny cases that
+        really were measured. It was an assumption in the vocabulary of a
+        certification, and it was wrong.
+
+        Run `rsop-observe-20260805045139-3731` settled it on a real 26200
+        client: a GPO carrying a deny on GenericRead, with its Read + Apply
+        allow INTACT, did not apply. Applying takes both rights.
+        """
+        assert not self._applied(
             (
                 SecurityFilter(id="a", principal="C", permission="apply"),
                 SecurityFilter(id="d", principal="C", permission="read", deny=True),
             )
         )
+
+    def test_a_read_deny_for_someone_else_does_not_block(self) -> None:
+        """The mirror of the Apply case: a read deny must still be matched."""
+        assert self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="Stranger", permission="read", deny=True),
+            )
+        )
+
+    def test_the_reason_names_the_denied_right(self) -> None:
+        """`security_filter_denied` would send an operator to Apply, which IS granted."""
+        result = compute_rsop(
+            self._query(
+                (
+                    SecurityFilter(id="a", principal="C", permission="apply"),
+                    SecurityFilter(id="d", principal="C", permission="read", deny=True),
+                )
+            )
+        )
+        reasons = result.gpo_results[0].filtering_reasons
+        assert "security_filter_read_denied" in reasons
+        assert "security_filter_denied" not in reasons
 
     def test_the_reason_names_the_deny(self) -> None:
         """`security_filter_mismatch` would say the principal lacked Apply, which is false."""
@@ -1233,25 +1271,25 @@ class TestWmiFilterEvaluation:
     def test_a_filter_evaluated_false_blocks_the_gpo(self) -> None:
         """The case that was wrong."""
         result = self._result((("w1", False),))
-        assert not any(g.is_applied for g in result.gpo_results)
+        assert not any(g.status == "applied" for g in result.gpo_results)
         assert "wmi_filter_false" in {r for g in result.gpo_results for r in g.filtering_reasons}
 
     def test_a_filter_evaluated_true_applies_without_a_warning(self) -> None:
         """A known-true filter is not a caveat; saying so keeps the warning meaningful."""
         result = self._result((("w1", True),))
-        assert any(g.is_applied for g in result.gpo_results)
+        assert any(g.status == "applied" for g in result.gpo_results)
         assert "wmi_filter_unknown" not in result.warnings
 
     def test_an_unevaluated_filter_still_applies_and_still_warns(self) -> None:
         """Unknown must not become false: an invented absence is harder to notice."""
         result = self._result(())
-        assert any(g.is_applied for g in result.gpo_results)
+        assert any(g.status == "applied" for g in result.gpo_results)
         assert "wmi_filter_unknown" in result.warnings
 
     def test_a_result_for_another_filter_does_not_apply_here(self) -> None:
         """Results are keyed by filter, not merged into one verdict."""
         result = self._result((("someone-else", False),))
-        assert any(g.is_applied for g in result.gpo_results)
+        assert any(g.status == "applied" for g in result.gpo_results)
         assert "wmi_filter_unknown" in result.warnings
 
     def test_an_unevaluatable_filter_blocks(self) -> None:
@@ -1261,7 +1299,7 @@ class TestWmiFilterEvaluation:
         the machine treats that as not-applying rather than as not-filtering.
         """
         result = self._result((("w1", "unevaluatable"),))
-        assert not any(g.is_applied for g in result.gpo_results)
+        assert not any(g.status == "applied" for g in result.gpo_results)
         reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
         assert "wmi_filter_unevaluatable" in reasons
 
@@ -1284,5 +1322,220 @@ class TestWmiFilterEvaluation:
         """
         unevaluatable = self._result((("w1", "unevaluatable"),))
         absent = self._result(())
-        assert not any(g.is_applied for g in unevaluatable.gpo_results)
-        assert any(g.is_applied for g in absent.gpo_results)
+        assert not any(g.status == "applied" for g in unevaluatable.gpo_results)
+        assert any(g.status == "applied" for g in absent.gpo_results)
+
+
+class TestUserScopeReadDenyIsUnevaluable:
+    """WI-043: the read-deny rule is certified on the computer, not the user.
+
+    WI-040 measured a deny on Read against a real 26200 client and the model
+    gained a `security_filter_read_denied` branch. That branch was written
+    without a side, and `_filter_matches` compares against the union of the
+    computer's and the user's identities -- so the certified computer rule was
+    silently answering for the user too.
+
+    It is not a gap that can be closed by picking the other answer. MS16-072
+    has a user's GPOs retrieved in the COMPUTER's security context, so a deny on
+    the user's read may never be evaluated against the reading principal at all.
+    Both "blocks" and "does not block" are unfounded, so the model returns
+    neither. Same ruling as WI-039's unevaluatable WMI filter and WI-041's
+    refusal to export an inexpressible deny.
+    """
+
+    def _query(self, side: Literal["computer", "user"]) -> RsopQuery:
+        dn = "OU=Child,DC=x"
+        gpo = GPO(
+            guid="g1",
+            name="ReadDenied",
+            security_filters=(
+                SecurityFilter(id="a", principal="P", permission="apply"),
+                SecurityFilter(id="d", principal="P", permission="read", deny=True),
+            ),
+            settings=(
+                RegistrySetting(
+                    id="s",
+                    side=side,
+                    hive="HKCU" if side == "user" else "HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    registry_type="REG_SZ",
+                    value="applied",
+                ),
+            ),
+        )
+        target = (
+            RsopTarget(user_name="P", user_dn=f"CN=P,{dn}", domain="x")
+            if side == "user"
+            else RsopTarget(computer_name="P", computer_dn=f"CN=P,{dn}", domain="x")
+        )
+        return RsopQuery(
+            query_id="q",
+            target=target,
+            som_nodes=(
+                SomNode(
+                    dn=dn,
+                    name="Child",
+                    scope="ou",
+                    parent_dn="",
+                    links=(SomLink(gpo_guid="g1", scope="ou", scope_dn=dn, order=1),),
+                ),
+            ),
+            gpos=(gpo,),
+        )
+
+    def test_the_computer_side_still_blocks(self) -> None:
+        """The control. Without it this suite would pass by never blocking."""
+        result = compute_rsop(self._query("computer"))
+        assert result.gpo_results[0].status == "blocked"
+        assert "security_filter_read_denied" in result.gpo_results[0].filtering_reasons
+
+    def test_the_user_side_is_unevaluable(self) -> None:
+        result = compute_rsop(self._query("user"))
+        assert result.gpo_results[0].status == "unevaluable"
+        assert (
+            "security_filter_read_denied_user_scope_unmeasured"
+            in result.gpo_results[0].filtering_reasons
+        )
+
+    def test_unevaluable_is_neither_applied_nor_filtered(self) -> None:
+        """The whole point of the third state: it must not collapse into either.
+
+        `gpos_filtered()` is deliberately not the complement of
+        `gpos_applied()`. If it were, every existing caller iterating "the ones
+        that did not apply" would quietly re-acquire the wrong answer.
+        """
+        result = compute_rsop(self._query("user"))
+        assert result.gpos_applied() == ()
+        assert result.gpos_filtered() == ()
+        assert [g.gpo_guid for g in result.gpos_unevaluable()] == ["g1"]
+
+    def test_the_result_says_it_is_not_conclusive(self) -> None:
+        result = compute_rsop(self._query("user"))
+        assert not result.is_conclusive()
+        assert any("rsop_result_is_not_conclusive" in w for w in result.warnings)
+        assert compute_rsop(self._query("computer")).is_conclusive()
+
+    def test_a_winner_an_unevaluable_gpo_could_override_says_so(self) -> None:
+        """Uncertainty about a GPO is uncertainty about every value it writes.
+
+        The lower-precedence GPO's value is the answer *if* the unevaluable one
+        does not apply. Reporting it bare would hand a caller a settled-looking
+        value whose correctness depends on an open question.
+        """
+        query = self._query("user")
+        loser = GPO(
+            guid="g0",
+            name="Loser",
+            settings=(
+                RegistrySetting(
+                    id="s0",
+                    side="user",
+                    hive="HKCU",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    registry_type="REG_SZ",
+                    value="loser",
+                ),
+            ),
+        )
+        node = query.som_nodes[0]
+        query = replace(
+            query,
+            gpos=(*query.gpos, loser),
+            som_nodes=(
+                replace(
+                    node,
+                    links=(
+                        *node.links,
+                        SomLink(gpo_guid="g0", scope="ou", scope_dn=node.dn, order=2),
+                    ),
+                ),
+            ),
+        )
+        result = compute_rsop(query)
+        winner = result.get_effective_value("user", "Software\\Policies\\StudioLab", "V")
+        assert winner is not None
+        assert winner.effective_value == "loser"
+        assert winner.unevaluable_gpos == ("g1",)
+
+    def test_a_definite_block_outranks_the_open_question(self) -> None:
+        """An unmeasured rule changes nothing when a measured one already blocks.
+
+        The blocking reason has to come from a DIFFERENT rule than the read
+        deny, or this proves nothing. A deny on Apply short-circuits before the
+        read branch is ever reached, so both reasons are never populated at
+        once and the ordering under test is not exercised -- the first version
+        of this test made exactly that mistake and survived a mutation that
+        inverted the precedence. A WMI filter evaluated FALSE blocks on its own
+        path, so both lists are non-empty here.
+        """
+        query = self._query("user")
+        gpo = replace(
+            query.gpos[0],
+            wmi_filter=WmiFilter(id="w", name="Never", query="SELECT * FROM Win32_OS"),
+        )
+        query = replace(
+            query, gpos=(gpo,), wmi_filter_results=(("w", False),)
+        )
+        result = compute_rsop(query)
+        assert result.gpo_results[0].status == "blocked"
+        assert "wmi_filter_false" in result.gpo_results[0].filtering_reasons
+        assert result.is_conclusive()
+
+
+class TestUncertaintySurvivesTheDiff:
+    """WI-043: `compare_rsop_results` must not delete uncertainty on the way out.
+
+    A diff is what a caller compares two estates with. Two results can name the
+    same winner with the same value and differ in whether an unevaluable GPO
+    could have overridden it -- and the first version of this function compared
+    only value and winning GPO, so that pair returned an EMPTY diff. Every other
+    part of the module was careful to represent the third state; this was the
+    one exported function that quietly dropped it.
+    """
+
+    def _result(self, unevaluable: tuple[str, ...]) -> RsopResult:
+        return RsopResult(
+            query_id="q",
+            mode="planning",
+            target=RsopTarget(computer_name="C", domain="x"),
+            computer_settings=(
+                RsopSettingResult(
+                    setting_id="s",
+                    side="computer",
+                    hive="HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    effective_value="same",
+                    winning_gpo_guid="g0",
+                    unevaluable_gpos=unevaluable,
+                ),
+            ),
+        )
+
+    def test_a_change_in_certainty_alone_is_a_difference(self) -> None:
+        diffs = compare_rsop_results(self._result(()), self._result(("g1",)))
+        assert [d.change_type for d in diffs] == ["uncertainty_changed"]
+        assert diffs[0].value_name == "V"
+
+    def test_it_is_symmetric(self) -> None:
+        """Gaining certainty is as much a change as losing it."""
+        diffs = compare_rsop_results(self._result(("g1",)), self._result(()))
+        assert [d.change_type for d in diffs] == ["uncertainty_changed"]
+
+    def test_identical_results_still_diff_to_nothing(self) -> None:
+        """The control: without it, a function that flagged everything would pass."""
+        assert compare_rsop_results(self._result(("g1",)), self._result(("g1",))) == ()
+        assert compare_rsop_results(self._result(()), self._result(())) == ()
+
+    def test_a_value_change_still_outranks_it(self) -> None:
+        """A changed value is reported as `modified`, not demoted to uncertainty."""
+        current = replace(
+            self._result(("g1",)),
+            computer_settings=(
+                replace(self._result(("g1",)).computer_settings[0], effective_value="other"),
+            ),
+        )
+        diffs = compare_rsop_results(self._result(()), current)
+        assert [d.change_type for d in diffs] == ["modified"]

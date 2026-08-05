@@ -135,7 +135,7 @@ green over it.
 **Opened:** 2026-08-04 (WP-9).
 **Status:** open, deliberately not fixed during the lane that found it.
 
-`RsopGpoResult.is_applied` means "applied on at least one side". Windows
+`RsopGpoResult.status` collapses to "applied on at least one side". Windows
 reports the two sides separately: `ComputerResults` lists what applied to the
 computer and `UserResults` lists what applied to the user, and on a topology
 whose GPOs scope both they are different sets.
@@ -555,6 +555,118 @@ produced.
 
 ---
 
+## WI-040 — a deny on READ is a second gate, and the model has no branch for it
+
+**Opened:** 2026-08-05 (WP-6, `computer-security-filtering-deny-read`).
+**FIXED AND CLOSED 2026-08-05.** Found by review rather than by a lane, then
+settled by one.
+
+**Measured:** `rsop-observe-20260805045139-3731`, state `expected-finding`, on a
+real 26200 client. `Studio-RSOP-CompFilterDenyRead` predicted applied, Windows
+did not apply it; `Filter` predicted `denyRead`, observed `allow`;
+`DenyReadOnly` predicted `1`, observed absent. The control row carried the
+identical Read + Apply grant differing only in the absence of the read deny and
+applied, so the absence was the deny working rather than a DACL write that
+failed silently.
+
+**Fixed:** `_gpo_filter_status` now evaluates two independent denies. The reason
+is its own — `security_filter_read_denied`, because an operator reading
+`security_filter_denied` would go looking at Apply Group Policy and find it
+granted. Three tests, all proved by mutation.
+
+**Re-certified:** `rsop-observe-20260805045851-3883`, state `pass`, bound to the
+commit carrying the fix. Both verdicts are committed side by side so the gap and
+its closure are each readable from the repo.
+
+> **Both of those verdicts predate `d1eec72`, and their
+> `harness_matches_source: true` is not trustworthy.** They ran at `a212515`
+> and `2611d25`; `d1eec72` landed hours later and fixed a finalizer that had
+> been comparing the source files against *themselves*, so that check could not
+> fail for either of them. Found by review, 2026-08-05.
+>
+> They are **kept, not deleted.** What `...045139-3731` is worth is the
+> divergence it recorded against a real 26200 client — Windows did not apply a
+> GPO whose Read was denied with the Apply allow intact — and that observation
+> does not depend on the harness-binding check. What it is *not* is a
+> verifiable certification.
+>
+> The live certification for this item is **`rsop-observe-20260805221707-4871`**
+> (`pass`, commit `a85736a`, clean tree, `harness_matches_source` from the
+> corrected comparison, `conclusive: true`), run under the WI-043 contract.
+> Cite that one.
+
+**What it adds to WP-6:** topology item 5 gains a case nobody had asked for —
+security filtering has **two** gates, and only one of them was ever modelled.
+
+**Scope of the fix, stated so it is not over-read:** the certification is
+computer scope, and the branch it added is not restricted to computer scope.
+That gap is tracked as WI-043 and is not closed by this item.
+
+---
+
+*Everything below records the state when this item was opened, and is written
+in the present tense of that moment. It is history, not current behaviour.*
+
+Applying a GPO requires **both** Read and Apply Group Policy. A deny on Read is
+therefore a second, independent way to keep a GPO off a target, and it leaves
+the Apply allow completely intact — which is precisely what makes it invisible
+to a reader that inspects Apply.
+
+`_gpo_filter_status` inspects only `permission == "apply"` rows, in **both** its
+deny branch and its allow branch, so a `SecurityFilter(permission="read",
+deny=True)` is not so much handled as unseen. The prediction built from the new
+scenario says so concretely: at link order 1 the model names
+`Filter=denyRead` the winner and predicts `DenyReadOnly=1` present.
+
+**This is the WI-033 failure direction**: the model promising an operator that
+settings arrive on a machine Windows keeps them off. WI-033 fixed that for a
+deny on Apply. The same fix left the Read half of the same gate untouched.
+
+**What made it look settled.** `tests/test_rsop.py` carried
+`test_a_deny_on_read_does_not_block_apply`, docstring "the right being denied
+matters; this models Apply Group Policy only" — reading as a certified design
+decision, sitting among four deny cases that really were measured against
+Windows. No oracle run has ever carried a read deny. The test is renamed
+`test_a_deny_on_read_is_currently_ignored_UNMEASURED` and now says what it is.
+The behaviour is deliberately **not** changed: see the ordering note below.
+
+**Why the computer scope, and not by preference.** MS16-072 is the reason.
+Since that update a *user's* GPOs are retrieved in the *computer's* security
+context, so denying the USER read would be evaluated against a principal that
+is not the one doing the reading — and a null result would be uninterpretable.
+It could mean Windows ignores read denies, or it could mean the computer read
+the GPO on the user's behalf exactly as designed. On the computer scope the
+filtered principal and the reading principal are the same account, and the
+experiment says one thing. (The user-scope behaviour is a genuine second
+question and is **not** answered by this item.)
+
+**The model is left untouched until Windows rules.** WP-6B's disabled-link case
+is the counter-example that earns this ordering: a predicted "defect" that
+turned out to be correct behaviour, and would have been *fixed into* a real one
+had the code been changed first. WI-039 is the other half of the argument —
+the one finding this lane produced that reading the code could not have.
+
+**Authoring note.** The deny is written as a `GenericRead` deny straight onto
+the groupPolicyContainer's DACL: Read is a *property* right, not the
+control-access right the WI-033 deny uses, so it carries no object GUID. The
+authored-state check needed its own DACL query for the same reason — the
+existing one is narrowed to `ObjectType = <Apply Group Policy GUID>` and would
+have found nothing and reported a correctly authored DACL as missing. That
+check also asserts the Apply allow **survives**, because if it did not the row
+would degenerate into an ordinary missing-Apply block that the model already
+predicts correctly, and the run would certify agreement on an experiment it did
+not perform. The `switch` gained a `default` that flags any filter kind with no
+authored-state check, so the next kind added cannot go silently unverified.
+
+**Also observed while scoping this.** The corpus fixture
+`tests/fixtures/scenarios/rsop-topology/security-filtering.json` already states
+the rule this item is about — its `provenance` note says "Read + Apply
+required, deny dominates", and its `derivations` name Read as RP — while
+exercising only read-allow-without-apply and deny-on-Apply. The project's own
+scenario knew the rule and the coverage did not follow it.
+
+---
+
 ## WI-042 — the LDAP half of the token-group gate fails open
 
 **Opened:** 2026-08-05 (independent review of PR #38). **Status:** open.
@@ -589,18 +701,106 @@ right instinct, and the outer `catch` violates it wholesale — it returns the
 silently shortest list there is.
 
 **No committed certification is affected, and this was checked rather than
-assumed.** All eleven WP-9 verdicts carry a populated `directory` list
-alongside their `session` list, so every nesting claim on the record really was
-corroborated twice. The defect is in what a *future* run could get away with.
+assumed — but the first version of this paragraph overstated it, so state it
+exactly.** Every WP-9 verdict whose scenario *relies on group nesting* —
+`user-security-filtering` and `user-security-filtering-deny` — carries a
+populated `directory` list beside its `session` list, so every nesting claim on
+the record really was corroborated twice. Three early verdicts
+(`...045552-9148` loopback-merge, `...045809-8312` loopback-replace,
+`...050024-4383` user-side-disabled) contain **no `token_groups` block at all**;
+they predate the collection and their scenarios make no nesting claim, so there
+is nothing for this gate to have protected. The claim "all eleven verdicts carry
+a populated directory list" was simply false, and it is the kind of falsehood
+this register exists to prevent. The defect is in what a *future* run could get
+away with.
 
 Not fixed in the change that found it, for the same reason as WI-026, WI-032
 and WI-033: the gate's meaning changes, so closing it calls for a
 re-certification run rather than an edit. Doing that inside the review that
 found it would leave the lane checked by a harness nobody had run.
 
+**Release impact: BLOCKING for any release, not blocking for merge.** The
+distinction is deliberate. Nothing already certified is weakened by this — every
+committed WP-9 verdict carries a populated directory list, checked — and the
+lane is not operator-facing, so merging it does not ship a defect to anyone. But
+a release asserts that the evidence behind it holds, and this lane could produce
+a verdict that certifies on a one-sided token collection without saying so. Do
+not cut a release with this open.
+
 **Closes when:** a failed `tokenGroups` query is distinguishable from an empty
 one — an explicit collection-failed marker the finalizer treats as a hard
 refusal, not an absence — and the nesting rows are re-certified against it.
+
+
+## WI-043 — the read-deny branch generalises past its evidence to user scope
+
+**Opened:** 2026-08-05 (independent review of PR #39). **Status:** open.
+
+WI-040 established, against a real 26200 client, that a deny on Read keeps a
+GPO off a **computer** even with the Apply allow intact. The model now has a
+`security_filter_read_denied` branch and agrees. That certification is sound.
+
+The branch it added is not scoped to what was certified. `_gpo_filter_status`
+never receives the side it is resolving, and `_filter_matches` compares filters
+against the union of the computer's and the user's identities, so a deny on
+Read naming a **user** produces `security_filter_read_denied` too — with no
+measurement behind it.
+
+**Why this is more than an uncovered case.** The scenario that settled WI-040
+was confined to computer scope on purpose, and `build-rsop-candidate.py` states
+the reason: MS16-072 has a user's GPOs retrieved in the *computer's* security
+context, so a deny on the user's read would be evaluated against a principal
+that is not the one doing the reading. The row was kept to computer scope
+precisely because a user-side result would have been uninterpretable. The model
+now answers that question anyway, and answers it "blocks" — the direction the
+physics argues against. If Windows in fact ignores a user read-deny, the model
+reports a GPO withheld that the user actually receives.
+
+That is the WI-033 failure direction inverted, and it is the shape this project
+has now hit three times: WI-033, WI-040 and this one are all a filtering rule
+believed on reasoning rather than measurement. Two of the three were wrong.
+
+**Not a regression, and be precise about what is uncertified.** Deny-on-Apply
+*is* certified on a user principal — that is exactly what WI-033 measured, and
+`user-security-filtering-deny` re-ran to `pass` on
+`rsop-user-observe-20260804150527-3868`. What no run covers, for either rule, is
+**cross-principal matching**: `_filter_matches` compares each filter against the
+union of the computer's and the user's identities, so a filter naming the
+computer can decide the user side and vice versa. Every certified scenario has
+the filtered principal and the resolving side aligned, so the union has never
+been exercised. WI-040 did not introduce it; it added a second rule that
+inherits it.
+
+**Second half done 2026-08-05, operator ruling.** `_gpo_filter_status` now takes
+the side it is resolving and returns a closed `RsopGpoStatus` of
+`applied | blocked | unevaluable`; the user-scope read deny returns
+`unevaluable` with reason `security_filter_read_denied_user_scope_unmeasured`.
+
+There is deliberately **no `is_applied` bool left anywhere in the module.** It
+was removed rather than kept as a convenience property, because every caller
+writing `if g.is_applied` would silently have read `unevaluable` as "not
+applied" — reintroducing the same unfounded answer through the back door.
+Fourteen call sites had to be updated, which is the point: a closed set makes
+the type checker and the test suite name everyone who has not considered the
+third case. `gpos_filtered()` is likewise **not** the complement of
+`gpos_applied()`.
+
+Uncertainty propagates. A winner an unevaluable GPO could have overridden
+carries `unevaluable_gpos`; a result containing any reports
+`is_conclusive() == False` and a `rsop_result_is_not_conclusive` warning. The
+lanes carry it too: the prediction gains an `unevaluable_gpos` list, the
+finalizers exclude those rows from the applied comparison **in both directions**
+— grading an abstention would report a model defect out of the model being
+honest — and a run containing one is `inconclusive`, never `pass`.
+
+**Still open, and this is what remains:** no run has measured the user-scope
+read deny. The model now declines to answer instead of guessing, which is
+honest but is not knowledge.
+
+**Closes when:** a user-scope read-deny scenario measures what Windows actually
+does, the model is scoped to that measurement, and the `unevaluable` branch is
+removed or narrowed to whatever is still unmeasured. Cross-principal matching
+(above) wants its own scenario and may want its own item.
 
 ## Not yet numbered
 

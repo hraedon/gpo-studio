@@ -541,19 +541,37 @@ Three consequences worth stating plainly:
        then closed: a caller can supply how a filter evaluated and precedence
        honours it. An *unevaluated* filter still applies and still warns, so
        the remaining uncertainty stays visible rather than being guessed away;
+     - ~~**a deny on READ**~~ — **fixed 2026-08-05** (WI-040), and it is a
+       *second* gate, not a variant of the first. Applying a GPO takes Read and
+       Apply Group Policy, so a deny on Read keeps a GPO off a target with the
+       Apply allow intact — invisible to a reader that inspects Apply, which is
+       every branch the model had. Demonstrated against a real client
+       (`rsop-observe-20260805045139-3731`), fixed, re-certified
+       (`rsop-observe-20260805221707-4871`). **Computer scope only** — see
+       below;
      - **slow link and safe mode** — the fields are accepted and never read
        (WI-036). Capping the client's vNIC does not produce a slow link either:
        Group Policy reads the adapter's advertised speed, measured 2026-08-04.
 
-     Those two shared a failure direction — the model saying a GPO applies when
-     it does not, for the two most common ways a GPO is scoped out of a machine
-     — and **both are now closed**, each demonstrated against a real client
-     before being fixed and re-certified afterwards.
+     Those three shared a failure direction — the model saying a GPO applies
+     when it does not, for the most common ways a GPO is scoped out of a
+     machine — and **all are now closed**, each demonstrated against a real
+     client before being fixed and re-certified afterwards.
 
      The qualifier stays for what remains: slow link and safe mode are still
      accepted and never read, an unevaluated WMI filter is still an assumption
      the caller must supply, and no certified topology covers user-side WMI or
      slow-link behaviour at all.
+
+     **One region is now explicitly unanswerable rather than merely uncovered**
+     (WI-043). The read-deny rule is certified on the computer and unmeasured on
+     the user, because MS16-072 has a user's GPOs retrieved in the computer's
+     security context — so the denied principal may not be the reading one, and
+     both possible answers are unfounded. `RsopGpoResult.status` is a closed set
+     of `applied | blocked | unevaluable`, and that case returns `unevaluable`;
+     a result containing one reports `is_conclusive() == False`. This is the
+     same ruling as WI-039 (an unevaluatable WMI filter is not a flavour of
+     false) and WI-041 (an inexpressible deny is refused, not approximated).
   3. **Surfacing is a decision nobody has made.** It is reachable from no API
      endpoint, which is correct for now (WI-030).
 
