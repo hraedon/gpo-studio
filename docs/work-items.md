@@ -558,8 +558,28 @@ produced.
 ## WI-040 — a deny on READ is a second gate, and the model has no branch for it
 
 **Opened:** 2026-08-05 (WP-6, `computer-security-filtering-deny-read`).
-**Status:** open, scenario built, **not yet run**. Found by review rather than
-by a lane.
+**FIXED AND CLOSED 2026-08-05.** Found by review rather than by a lane, then
+settled by one.
+
+**Measured:** `rsop-observe-20260805045139-3731`, state `expected-finding`, on a
+real 26200 client. `Studio-RSOP-CompFilterDenyRead` predicted applied, Windows
+did not apply it; `Filter` predicted `denyRead`, observed `allow`;
+`DenyReadOnly` predicted `1`, observed absent. The control row carried the
+identical Read + Apply grant differing only in the absence of the read deny and
+applied, so the absence was the deny working rather than a DACL write that
+failed silently.
+
+**Fixed:** `_gpo_filter_status` now evaluates two independent denies. The reason
+is its own — `security_filter_read_denied`, because an operator reading
+`security_filter_denied` would go looking at Apply Group Policy and find it
+granted. Three tests, all proved by mutation.
+
+**Re-certified:** `rsop-observe-20260805045851-3883`, state `pass`, bound to the
+commit carrying the fix, evidence tag pushed. Both verdicts are committed side
+by side so the gap and its closure are each readable from the repo.
+
+**What it adds to WP-6:** topology item 5 gains a case nobody had asked for —
+security filtering has **two** gates, and only one of them was ever modelled.
 
 Applying a GPO requires **both** Read and Apply Group Policy. A deny on Read is
 therefore a second, independent way to keep a GPO off a target, and it leaves
