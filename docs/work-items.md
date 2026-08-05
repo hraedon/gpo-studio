@@ -693,6 +693,14 @@ and WI-033: the gate's meaning changes, so closing it calls for a
 re-certification run rather than an edit. Doing that inside the review that
 found it would leave the lane checked by a harness nobody had run.
 
+**Release impact: BLOCKING for any release, not blocking for merge.** The
+distinction is deliberate. Nothing already certified is weakened by this — every
+committed WP-9 verdict carries a populated directory list, checked — and the
+lane is not operator-facing, so merging it does not ship a defect to anyone. But
+a release asserts that the evidence behind it holds, and this lane could produce
+a verdict that certifies on a one-sided token collection without saying so. Do
+not cut a release with this open.
+
 **Closes when:** a failed `tokenGroups` query is distinguishable from an empty
 one — an explicit collection-failed marker the finalizer treats as a hard
 refusal, not an absence — and the nesting rows are re-certified against it.
