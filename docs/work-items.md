@@ -575,8 +575,25 @@ is its own — `security_filter_read_denied`, because an operator reading
 granted. Three tests, all proved by mutation.
 
 **Re-certified:** `rsop-observe-20260805045851-3883`, state `pass`, bound to the
-commit carrying the fix, evidence tag pushed. Both verdicts are committed side
-by side so the gap and its closure are each readable from the repo.
+commit carrying the fix. Both verdicts are committed side by side so the gap and
+its closure are each readable from the repo.
+
+> **Both of those verdicts predate `d1eec72`, and their
+> `harness_matches_source: true` is not trustworthy.** They ran at `a212515`
+> and `2611d25`; `d1eec72` landed hours later and fixed a finalizer that had
+> been comparing the source files against *themselves*, so that check could not
+> fail for either of them. Found by review, 2026-08-05.
+>
+> They are **kept, not deleted.** What `...045139-3731` is worth is the
+> divergence it recorded against a real 26200 client — Windows did not apply a
+> GPO whose Read was denied with the Apply allow intact — and that observation
+> does not depend on the harness-binding check. What it is *not* is a
+> verifiable certification.
+>
+> The live certification for this item is **`rsop-observe-20260805195001-1590`**
+> (`pass`, commit `a85736a`, clean tree, `harness_matches_source` from the
+> corrected comparison, `conclusive: true`), run under the WI-043 contract.
+> Cite that one.
 
 **What it adds to WP-6:** topology item 5 gains a case nobody had asked for —
 security filtering has **two** gates, and only one of them was ever modelled.

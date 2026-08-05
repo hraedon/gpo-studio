@@ -547,7 +547,7 @@ Three consequences worth stating plainly:
        Apply allow intact — invisible to a reader that inspects Apply, which is
        every branch the model had. Demonstrated against a real client
        (`rsop-observe-20260805045139-3731`), fixed, re-certified
-       (`rsop-observe-20260805045851-3883`). **Computer scope only** — see
+       (`rsop-observe-20260805195001-1590`). **Computer scope only** — see
        below;
      - **slow link and safe mode** — the fields are accepted and never read
        (WI-036). Capping the client's vNIC does not produce a slow link either:
