@@ -76,6 +76,30 @@ LANE_VERDICTS = {
     "wp6-evidence/verdict-rsop-observe-20260804020308-9752.json": "finalize_rsop_run.py",
     # WI-039: the one undeclared finding this lane has produced.
     "wp6-evidence/verdict-rsop-observe-20260804153726-7284.json": "finalize_rsop_run.py",
+    # Re-certification 2026-08-05, after the finalizers' harness check was made
+    # falsifiable (review finding 3). A certification binds the harness that
+    # produced it, so changing the finalizer meant every earlier verdict
+    # described code that no longer ships. Ten scenarios, all `pass`.
+    "wp6-evidence/verdict-rsop-observe-20260805064008-9181.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064155-8996.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064351-9402.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064540-1562.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064725-4970.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805065415-8622.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805065630-6815.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805065943-6615.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json": (
+        "finalize_rsop_user_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
