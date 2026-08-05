@@ -581,6 +581,15 @@ by side so the gap and its closure are each readable from the repo.
 **What it adds to WP-6:** topology item 5 gains a case nobody had asked for —
 security filtering has **two** gates, and only one of them was ever modelled.
 
+**Scope of the fix, stated so it is not over-read:** the certification is
+computer scope, and the branch it added is not restricted to computer scope.
+That gap is tracked as WI-043 and is not closed by this item.
+
+---
+
+*Everything below records the state when this item was opened, and is written
+in the present tense of that moment. It is history, not current behaviour.*
+
 Applying a GPO requires **both** Read and Apply Group Policy. A deny on Read is
 therefore a second, independent way to keep a GPO off a target, and it leaves
 the Apply allow completely intact — which is precisely what makes it invisible
@@ -688,6 +697,44 @@ found it would leave the lane checked by a harness nobody had run.
 one — an explicit collection-failed marker the finalizer treats as a hard
 refusal, not an absence — and the nesting rows are re-certified against it.
 
+
+## WI-043 — the read-deny branch generalises past its evidence to user scope
+
+**Opened:** 2026-08-05 (independent review of PR #39). **Status:** open.
+
+WI-040 established, against a real 26200 client, that a deny on Read keeps a
+GPO off a **computer** even with the Apply allow intact. The model now has a
+`security_filter_read_denied` branch and agrees. That certification is sound.
+
+The branch it added is not scoped to what was certified. `_gpo_filter_status`
+never receives the side it is resolving, and `_filter_matches` compares filters
+against the union of the computer's and the user's identities, so a deny on
+Read naming a **user** produces `security_filter_read_denied` too — with no
+measurement behind it.
+
+**Why this is more than an uncovered case.** The scenario that settled WI-040
+was confined to computer scope on purpose, and `build-rsop-candidate.py` states
+the reason: MS16-072 has a user's GPOs retrieved in the *computer's* security
+context, so a deny on the user's read would be evaluated against a principal
+that is not the one doing the reading. The row was kept to computer scope
+precisely because a user-side result would have been uninterpretable. The model
+now answers that question anyway, and answers it "blocks" — the direction the
+physics argues against. If Windows in fact ignores a user read-deny, the model
+reports a GPO withheld that the user actually receives.
+
+That is the WI-033 failure direction inverted, and it is the shape this project
+has now hit three times: WI-033, WI-040 and this one are all a filtering rule
+believed on reasoning rather than measurement. Two of the three were wrong.
+
+**Not a regression.** The side-agnostic union predates this change — WI-033's
+deny-on-Apply branch has the same property, and it is equally uncertified for
+user scope. WI-040 did not introduce the flaw; it added a second rule that
+inherits it, which is why the boundary is now written down instead of implied.
+
+**Closes when:** either a user-scope read-deny scenario measures what Windows
+does and the model is scoped to match, or `_gpo_filter_status` is made
+side-aware and the user side declines to answer rather than guessing. Fixing it
+by reasoning alone is the specific thing this item exists to prevent.
 
 ## Not yet numbered
 

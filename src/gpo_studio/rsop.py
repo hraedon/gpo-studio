@@ -299,6 +299,18 @@ def _gpo_filter_status(
         # find it granted; the right actually denied is the one worth naming.
         # Same argument as WI-039's `wmi_filter_unevaluatable` versus
         # `wmi_filter_false`.
+        #
+        # SCOPE BOUNDARY, AND IT IS WIDER THAN THE EVIDENCE (WI-043).
+        # `_filter_matches` compares against the union of the computer's and the
+        # user's identities, so `denied_read` fires for a deny naming EITHER
+        # principal. What was measured is the computer, and deliberately so: the
+        # scenario that settled WI-040 was confined to computer scope because
+        # MS16-072 has a user's GPOs retrieved in the COMPUTER's security
+        # context, which makes a read deny on the USER a genuinely open question
+        # -- Windows may never evaluate it against the denied principal at all.
+        # So the branch below currently answers that question "blocks", on no
+        # evidence, in the region its own experiment declined to enter. Do not
+        # read a user-scope read-deny prediction as certified.
         denied_apply = any(
             filter_.deny
             and filter_.permission == "apply"

@@ -85,6 +85,11 @@ LANE_VERDICTS = {
     "wp6-evidence/verdict-rsop-observe-20260805064351-9402.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260805064540-1562.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260805064725-4970.json": "finalize_rsop_run.py",
+    # WI-040, both halves of the arc: the `expected-finding` that measured the
+    # read-deny gap and the `pass` that certified the fix. Committed together
+    # on purpose -- the gap and its closure are only readable as a pair.
+    "wp6-evidence/verdict-rsop-observe-20260805045139-3731.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805045851-3883.json": "finalize_rsop_run.py",
     "wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json": (
         "finalize_rsop_user_run.py"
     ),
