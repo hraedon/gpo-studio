@@ -330,7 +330,14 @@ def main(argv: list[str] | None = None) -> int:
     for name, source in {**DEPLOYED_FILES, **LOCAL_FILES}.items():
         src_hash = _sha256(repo_root / source)
         source_hashes[name] = src_hash
-        evidence = run_dir / "deployed" / name if name in DEPLOYED_FILES else repo_root / source
+        # The evidence copy, NOT the source again. See the identical fix in
+        # `finalize_rsop_user_run.py`: reading `repo_root / source` here
+        # compared a file against itself, so `harness_matches_source` could not
+        # fail and a run whose local scripts were never copied certified as an
+        # intact harness. The lane copies them to the run directory's root.
+        evidence = (
+            run_dir / "deployed" / name if name in DEPLOYED_FILES else run_dir / name
+        )
         if not evidence.is_file() or _sha256(evidence) != src_hash:
             harness_ok = False
 

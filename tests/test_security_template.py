@@ -1021,3 +1021,68 @@ class TestUnparsedEntriesAreVisible:
         )
         issues = validate_security_template(template)
         assert [i for i in issues if i.code == "unparsed_entries"] == []
+
+
+class TestUnparsedLineHandling:
+    """Review findings 5 and 6: what `unknown_lines` says, and what it counts."""
+
+    @staticmethod
+    def _template(section_body: str) -> str:
+        return f"[Unicode]\nUnicode=yes\n[Registry Values]\n{section_body}"
+
+    def test_a_comment_is_not_reported_as_unparsed(self) -> None:
+        """Finding 5. Comments live in `unknown_lines` so they round-trip.
+
+        Counting them told an operator their template held entries this module
+        did not understand, when all it held was remarks.
+        """
+        template = parse_security_template(
+            self._template("; a perfectly ordinary comment\nMACHINE\\Foo=1,1\n")
+        )
+        issues = validate_security_template(template)
+        assert not [i for i in issues if i.code == "unparsed_entries"]
+
+    def test_genuinely_unparsed_content_is_still_reported(self) -> None:
+        """The control. Suppressing the comment must not suppress the warning."""
+        template = parse_security_template(
+            self._template("this line has no equals sign\nMACHINE\\Foo=1,1\n")
+        )
+        issues = validate_security_template(template)
+        assert [i for i in issues if i.code == "unparsed_entries"]
+
+    def test_a_comment_beside_real_unparsed_content_is_not_counted(self) -> None:
+        """The count has to be of the thing warned about, not of both."""
+        template = parse_security_template(
+            self._template("; a comment\nthis line has no equals sign\n")
+        )
+        issue = next(
+            i for i in validate_security_template(template) if i.code == "unparsed_entries"
+        )
+        assert "1 line(s)" in issue.message
+
+    def test_removing_one_of_two_identical_lines_is_a_diff(self) -> None:
+        """Finding 6. Membership cannot see multiplicity.
+
+        A section holding the same line twice and then losing one of them
+        diffed as UNCHANGED -- an entry left the template and the diff said
+        nothing. Duplicates are ordinary in the ACL and registry sections.
+        """
+        baseline = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        current = parse_security_template(self._template("duplicate line\n"))
+        diffs = diff_templates(baseline, current)
+        removed = [d for d in diffs if d.change_type == "removed"]
+        assert len(removed) == 1
+        assert removed[0].baseline_value == "duplicate line"
+
+    def test_identical_duplicates_still_diff_as_unchanged(self) -> None:
+        """The control: without it, the test above passes on a comparator that
+        reports every duplicate as removed."""
+        baseline = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        current = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        assert not diff_templates(baseline, current)
+
+    def test_adding_a_second_copy_is_a_diff(self) -> None:
+        baseline = parse_security_template(self._template("duplicate line\n"))
+        current = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        added = [d for d in diff_templates(baseline, current) if d.change_type == "added"]
+        assert len(added) == 1

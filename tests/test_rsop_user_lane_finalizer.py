@@ -573,3 +573,86 @@ def test_lane_failure_suppresses_the_controls_and_the_comparison(lane) -> None:
     assert verdict["state"] == "lane-failure"
     assert verdict["control_problems"] == []
     assert verdict["comparison"] is None
+
+
+def _finalize_user_with_local_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, run_dir_copy: str | None
+) -> dict[str, Any]:
+    """Drive the harness check with exactly one locally-executed script.
+
+    The `lane` fixture blanks LOCAL_FILES so the harness binding is forced
+    passing and other tests earn their outcome from what they vary. That is
+    right for them and useless here, so this builds the run directly.
+    """
+    run_dir = tmp_path / "run"
+    (run_dir / "author").mkdir(parents=True)
+    (run_dir / "observe").mkdir(parents=True)
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    source_rel = "scripts/plan-033/build-rsop-candidate.py"
+
+    monkeypatch.setattr(finalize_user, "DEPLOYED_FILES", {})
+    monkeypatch.setattr(finalize_user, "LOCAL_FILES", {"build-rsop-candidate.py": source_rel})
+    monkeypatch.setattr(finalize_user, "tag_evidence_commit", lambda *a, **k: None)
+
+    def fake_run(args: list[str], **kwargs: Any):
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(finalize_user.subprocess, "run", fake_run)
+
+    (candidate / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+    (run_dir / "author" / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+    (run_dir / "author" / "author-state.json").write_text(
+        json.dumps(_author_state()), encoding="utf-8"
+    )
+    (run_dir / "author" / "cleanup-result.json").write_text(
+        json.dumps(_cleanup_result()), encoding="utf-8"
+    )
+    (run_dir / "observe" / "observation.json").write_text(
+        json.dumps(_observation()), encoding="utf-8"
+    )
+    (candidate / "prediction.json").write_text(json.dumps(_prediction()), encoding="utf-8")
+    (candidate / "expected.json").write_text(json.dumps(_expected()), encoding="utf-8")
+
+    if run_dir_copy is not None:
+        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8")
+
+    finalize_user.main(
+        [
+            str(run_dir),
+            "--candidate-root",
+            str(candidate),
+            "--no-tag",
+            "--repo-root",
+            str(_REPO_ROOT),
+        ]
+    )
+    return json.loads((run_dir / "rsop-user-verdict.json").read_text(encoding="utf-8"))
+
+
+def test_user_harness_check_passes_when_the_local_copy_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control: without it, both tests below pass on a check that always fails."""
+    real = (_REPO_ROOT / "scripts/plan-033/build-rsop-candidate.py").read_text(encoding="utf-8")
+    verdict = _finalize_user_with_local_file(tmp_path, monkeypatch, run_dir_copy=real)
+    assert verdict["harness_matches_source"] is True
+
+
+def test_user_missing_local_copy_fails_the_harness_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WI-042, user lane. The comparison was a file against itself."""
+    verdict = _finalize_user_with_local_file(tmp_path, monkeypatch, run_dir_copy=None)
+    assert verdict["harness_matches_source"] is False
+
+
+def test_user_altered_local_copy_fails_the_harness_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verdict = _finalize_user_with_local_file(
+        tmp_path, monkeypatch, run_dir_copy="# not the script that ran\n"
+    )
+    assert verdict["harness_matches_source"] is False

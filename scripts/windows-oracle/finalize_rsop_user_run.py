@@ -361,7 +361,19 @@ def main(argv: list[str] | None = None) -> int:
     for name, source in {**DEPLOYED_FILES, **LOCAL_FILES}.items():
         src_hash = _sha256(repo_root / source)
         source_hashes[name] = src_hash
-        evidence = run_dir / "deployed" / name if name in DEPLOYED_FILES else repo_root / source
+        # The evidence copy, NOT the source again.
+        #
+        # This used to read `repo_root / source` for the locally-executed half
+        # -- the same path `src_hash` was just computed from -- so the
+        # comparison was a file against itself and `harness_matches_source`
+        # could not fail. A run whose local scripts were never copied, or
+        # whose copies were altered afterwards, certified as an intact harness.
+        # The lane copies them to the run directory's root
+        # (`run-rsop-user-oracle.sh`, "Locally-executed scripts"), and that copy
+        # is what the verdict is entitled to bind.
+        evidence = (
+            run_dir / "deployed" / name if name in DEPLOYED_FILES else run_dir / name
+        )
         if not evidence.is_file() or _sha256(evidence) != src_hash:
             harness_ok = False
 

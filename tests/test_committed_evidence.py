@@ -60,6 +60,33 @@ LANE_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260804150527-3868.json": (
         "finalize_rsop_user_run.py"
     ),
+    # WP-6B's first certification and the WI-031 enforcement arc. These were
+    # committed but never mapped, so nothing checked them -- and the four
+    # `finding` verdicts among them could not have been added at all, because
+    # the consistency test had no branch for that state and demanded `passed`.
+    "wp6-evidence/verdict-rsop-observe-20260804010341-7165.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804010551-9363.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804010738-5543.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804012618-5426.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804012803-7606.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804015016-5317.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804015258-1810.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804015447-4913.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804020109-7624.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804020308-9752.json": "finalize_rsop_run.py",
+    # WI-039: the one undeclared finding this lane has produced.
+    "wp6-evidence/verdict-rsop-observe-20260804153726-7284.json": "finalize_rsop_run.py",
+}
+
+#: Verdicts committed BEFORE the transport was recorded, kept as history.
+#:
+#: They are listed rather than skipped by pattern so that adding to this set is
+#: a deliberate act with a reason, not something a new file drifts into. The
+#: psdirect assertions genuinely cannot apply to them; every other verdict must
+#: be mapped above.
+PRE_TRANSPORT_VERDICTS = {
+    "wp1b-evidence/verification.json",
+    "wp3-evidence/verification.json",
 }
 
 
@@ -150,6 +177,29 @@ def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> No
         assert verdict["transport"] == "psdirect"
         return
 
+    if verdict.get("state") == "finding":
+        # An UNDECLARED divergence: the lane predicted one thing, Windows did
+        # another, and nobody saw it coming. WI-039 is the example and it is the
+        # most valuable evidence this lane has produced -- reading the code
+        # could not have found it.
+        #
+        # There was no branch for this state, so the assertions below demanded
+        # `passed` and any attempt to commit such a verdict into the map failed.
+        # The effect was that the one class of finding worth keeping was the one
+        # class that could not be recorded here.
+        assert verdict["passed"] is False, relative
+        comparison = verdict["comparison"]
+        assert comparison is not None, relative
+        divergences = (
+            comparison["value_findings"]
+            + comparison["applied_only_predicted"]
+            + comparison["applied_only_observed"]
+        )
+        assert divergences, f"{relative} is a finding and records no divergence"
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
     assert verdict["passed"] is True
     if "checks" in verdict:
         failed = sorted(name for name, ok in verdict["checks"].items() if not ok)
@@ -166,3 +216,39 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     manifest = _verdict("wp0-evidence/manifest-estate.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
+
+
+def test_every_committed_verdict_is_covered() -> None:
+    """The map must not be able to omit a verdict, which is how this failed.
+
+    `LANE_VERDICTS` was hand-maintained, so a committed verdict was checked
+    only if somebody remembered to add it. Twelve were not -- including all
+    four `finding` verdicts, the ones carrying the most information. Nothing
+    was wrong with the files; they were simply invisible to every test above.
+
+    So coverage is now derived from the directory rather than asserted by
+    memory. A new verdict is checked by default and can only escape by being
+    named in `PRE_TRANSPORT_VERDICTS`, which is a deliberate act with a reason
+    attached.
+    """
+    committed = {
+        str(path.relative_to(EVIDENCE))
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        if path.name.startswith(("verdict-", "verification"))
+    }
+    unmapped = sorted(committed - set(LANE_VERDICTS) - PRE_TRANSPORT_VERDICTS)
+    assert not unmapped, (
+        "These verdicts are committed but checked by nothing: "
+        f"{unmapped}. Add them to LANE_VERDICTS, or to PRE_TRANSPORT_VERDICTS "
+        "with a reason."
+    )
+
+
+def test_the_coverage_guard_is_looking_at_real_files() -> None:
+    """The control. A glob that matches nothing makes the test above vacuous."""
+    committed = {
+        str(path.relative_to(EVIDENCE))
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        if path.name.startswith(("verdict-", "verification"))
+    }
+    assert len(committed) >= len(LANE_VERDICTS)

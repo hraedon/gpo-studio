@@ -11,6 +11,7 @@ convention shared by :mod:`registry_pol` and :mod:`sddl`.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
@@ -458,10 +459,18 @@ def diff_templates(
         # the path out -- which is exactly what this module cannot do. Saying
         # "this line went, that line arrived" is the strongest true statement
         # available. See WI-038.
-        base_unknown = list(base_sec.unknown_lines) if base_sec is not None else []
-        cur_unknown = list(cur_sec.unknown_lines) if cur_sec is not None else []
-        for line in base_unknown:
-            if line not in cur_unknown:
+        # COUNTED, NOT JUST MEMBERSHIP-TESTED.
+        #
+        # `line not in cur_unknown` cannot see multiplicity, so a section
+        # holding the same ACL line twice and then losing one of them diffed as
+        # UNCHANGED -- an entry disappeared from the template and the diff said
+        # nothing. Duplicate lines are ordinary here: `[Registry Values]` and
+        # the ACL sections repeat identical entries across scopes, which is
+        # exactly where this would bite.
+        base_unknown = Counter(base_sec.unknown_lines) if base_sec is not None else Counter()
+        cur_unknown = Counter(cur_sec.unknown_lines) if cur_sec is not None else Counter()
+        for line, count in sorted((base_unknown - cur_unknown).items()):
+            for _ in range(count):
                 diffs.append(
                     TemplateDiff(
                         section=section_name,
@@ -471,8 +480,8 @@ def diff_templates(
                         change_type="removed",
                     )
                 )
-        for line in cur_unknown:
-            if line not in base_unknown:
+        for line, count in sorted((cur_unknown - base_unknown).items()):
+            for _ in range(count):
                 diffs.append(
                     TemplateDiff(
                         section=section_name,
@@ -558,13 +567,20 @@ def validate_security_template(
     # round trip, so a template carrying them is not malformed -- it is only
     # partly understood, and the caller deserves to know which part.
     for s in template.sections:
-        if s.unknown_lines:
+        # COMMENTS ARE NOT UNPARSED CONTENT. They land in `unknown_lines`
+        # because that is how they survive a round trip verbatim, which is
+        # right -- but counting them here told an operator their template held
+        # entries this module did not understand when all it held was remarks.
+        # A warning that cries wolf on an ordinary comment is worse than no
+        # warning, because the real ones stop being read.
+        unparsed = [line for line in s.unknown_lines if not line.startswith(";")]
+        if unparsed:
             issues.append(
                 ValidationIssue(
                     "warning",
                     "unparsed_entries",
                     (
-                        f"{len(s.unknown_lines)} line(s) in section {s.name!r} are preserved "
+                        f"{len(unparsed)} line(s) in section {s.name!r} are preserved "
                         "verbatim but not understood, so they are not validated and are "
                         "compared only as whole lines."
                     ),
