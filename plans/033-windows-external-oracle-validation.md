@@ -837,9 +837,16 @@ inside. Three conditions attach:
 
 ## WP-6 — Controlled RSOP and effective-rights oracle (computer scope)
 
-> **Live certification set: eleven runs at `a85736a`, 2026-08-05.** Six WP-6
+> **Live certification set: eleven runs at `faad341`, 2026-08-05.** Six WP-6
 > scenarios and five WP-9, every one `pass`, clean tree, `transport: psdirect`,
-> `conclusive: true`. They supersede every earlier RSOP verdict in this plan.
+> `conclusive: true`, `harness_matches_source: true`. They supersede every
+> earlier RSOP verdict in this plan, including the `a85736a` set run a few hours
+> before them: review round 3 changed `build-rsop-candidate.py`, that file is
+> bound by hash, and so the older set describes a harness that no longer ships.
+> The prediction output is byte-identical across the two — verified by
+> rebuilding the deny-read candidate and diffing all three artifacts — which is
+> worth knowing and is **not** the standard. A certification binds the harness,
+> not the output.
 >
 > Not because the earlier ones were wrong, but because **a certification binds
 > the harness that produced it**, and WI-043 changed what a verdict means: the

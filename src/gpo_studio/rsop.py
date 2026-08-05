@@ -33,7 +33,7 @@ WmiEvaluation = bool | Literal["unevaluatable"]
 #: answers and the model has three situations: it applies, it is kept off, and
 #: -- for regions no oracle has measured -- nobody knows. WI-043: a deny on Read
 #: is certified for the COMPUTER (WI-040, run
-#: ``rsop-observe-20260805195001-1590``) and is unmeasured for the USER, because
+#: ``rsop-observe-20260805221707-4871``) and is unmeasured for the USER, because
 #: MS16-072 has a user's GPOs retrieved in the computer's security context, so
 #: the denied principal may never be the reading one. Answering that with
 #: ``False`` would be as unfounded as answering it with ``True``; both convert an
@@ -364,7 +364,7 @@ def _gpo_filter_status(
         #
         # `_filter_matches` compares against the union of the computer's and the
         # user's identities, so a read deny naming either principal matches. On
-        # the computer side that is measured: `rsop-observe-20260805195001-1590`
+        # the computer side that is measured: `rsop-observe-20260805221707-4871`
         # authored a deny on GenericRead beside an intact Read + Apply allow and
         # Windows did not apply the GPO.
         #

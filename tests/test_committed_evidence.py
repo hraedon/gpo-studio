@@ -135,6 +135,34 @@ LANE_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json": (
         "finalize_rsop_user_run.py"
     ),
+    # Re-certification 2026-08-05 (second round) at `faad341`, after review
+    # round 3 added exhaustive dispatch to the candidate builder. That file is
+    # bound BY HASH in `LOCAL_FILES`, so changing it invalidated the `a85736a`
+    # set above even though the prediction output is byte-identical -- verified
+    # by rebuilding the deny-read candidate and diffing all three artifacts.
+    # "The output did not change" is not the rule; a certification binds the
+    # harness. Eleven scenarios, all `pass`, all conclusive.
+    "wp6-evidence/verdict-rsop-observe-20260805220819-4762.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221004-8571.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221150-4243.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221335-1702.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221522-1983.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805221707-4871.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260805221856-6415.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222106-2378.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222317-3382.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222624-9750.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json": (
+        "finalize_rsop_user_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.

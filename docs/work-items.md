@@ -590,7 +590,7 @@ its closure are each readable from the repo.
 > does not depend on the harness-binding check. What it is *not* is a
 > verifiable certification.
 >
-> The live certification for this item is **`rsop-observe-20260805195001-1590`**
+> The live certification for this item is **`rsop-observe-20260805221707-4871`**
 > (`pass`, commit `a85736a`, clean tree, `harness_matches_source` from the
 > corrected comparison, `conclusive: true`), run under the WI-043 contract.
 > Cite that one.
