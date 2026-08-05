@@ -109,7 +109,7 @@ never mistaken for "RSOP is a feature".
 
 ## WI-031 — enforced links did not win conflicts
 
-**Opened and closed:** 2026-08-04 (WP-6B).
+**Opened and closed:** 2026-08-04 (WP-6B). **Status:** closed.
 
 Recorded here because it is the first defect an external oracle has found in
 `rsop.py`, and because how it hid is more instructive than the fix.
@@ -163,7 +163,9 @@ because the verdict's meaning changes.
 ## WI-033 — `SecurityFilter` cannot express a deny
 
 **Opened:** 2026-08-04 (WP-9, `user-security-filtering-deny`).
-**Status:** open. Demonstrated against Windows rather than inferred.
+**FIXED AND CLOSED 2026-08-04** by `rsop-user-observe-20260804150527-3868`;
+see the closure record below. Demonstrated against Windows rather than
+inferred.
 
 `SecurityFilter.permission` is `Literal["apply", "read"]` and carries no
 polarity, so there is no way to tell `compute_rsop` that a principal is
@@ -216,7 +218,7 @@ readable from the repository.
 
 ## WI-034 — the token gate was reading a token the CSE never uses
 
-**Opened, revised twice, and closed on 2026-08-04.** Closed by
+**Status:** closed. **Opened, revised twice, and closed on 2026-08-04.** Closed by
 `rsop-user-observe-20260804065146-4224`.
 
 Kept at length because the two wrong versions are the useful part: each
@@ -261,7 +263,8 @@ system uses.
 ## WI-035 — `rsop.py` cannot evaluate a WMI filter, and applies the GPO anyway
 
 **Opened:** 2026-08-04 (WP-6B, `wmi-filtering`).
-**Status:** open. Demonstrated against Windows, declared before the run.
+**FIXED AND CLOSED 2026-08-04** by `rsop-observe-20260804151624-6393`; see the
+closure record below. Demonstrated against Windows, declared before the run.
 
 `_gpo_filter_status` records a WMI filter as the warning `wmi_filter_unknown`
 and leaves `blocking` untouched, so the GPO applies. There is no evaluation and
@@ -375,7 +378,7 @@ them is not.
 
 ## WI-037 — a run's staging destroys the previous run's evidence on the guest
 
-**Opened:** 2026-08-04 (WP-9). **Deliberately not fixed in the same change; see
+**Opened:** 2026-08-04 (WP-9). **Status:** open. **Deliberately not fixed in the same change; see
 the last paragraph.**
 
 Every lane driver's `PREPARE` step removes all directories under the guest's
@@ -506,7 +509,8 @@ what overstates the module.
 ## WI-039 — an unevaluatable WMI filter is not the same as an unknown one
 
 **Opened:** 2026-08-04 (WP-6, `wmi-filtering-error`).
-**Status:** open. **The first undeclared finding of this lane's history** — every
+**FIXED AND CLOSED 2026-08-04** by `rsop-observe-20260804154241-9337`; see the
+closure record below. **The first undeclared finding of this lane's history** — every
 earlier divergence was predicted from the code before the run; this one was not.
 
 Certified run `rsop-observe-20260804153726-7284`, state `finding`:

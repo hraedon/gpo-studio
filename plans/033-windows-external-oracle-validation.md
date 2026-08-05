@@ -6,7 +6,13 @@ source, including Services after WI-024; daily Exec TaskV2 and OS-filter
 endpoint paths are certified. The WP-3 account/audit/user-rights writer tranche
 is certified, with its broader corpus and areas plus the WP-1B manual GPMC
 edit/save leg remaining. Services is GPMC writer-conformance certified, not
-endpoint-applied.
+endpoint-applied. WP-3's Registry Values and Group Membership sections are
+certified on the estate; WP-6 has certified topology items 1-6 including
+security filtering for both the user and the computer account and all three WMI
+cases; WP-9 has certified the user side and both loopback modes. Six model
+defects were found and closed by those lanes (WI-031, WI-033, WI-035, WI-039,
+WI-040) together with WI-041 on the write path, each fixed only after Windows
+had ruled and each re-certified on the commit that ships the fix.
 The remediation scenario corpus for the Plans 025–032 divergence landed
 2026-07-29 (13 scenarios across gpp-services, security-template,
 rsop-topology, and ilt-os, plus the machine-readable test-platform registry —
@@ -1008,16 +1014,18 @@ different adapter.
 
 ## WP-9 — User-scope RSOP and loopback
 
-**Status: executed 2026-08-04, acceptance partially met.** Three scenarios
-certified `pass` against the estate's client
-(`docs/plan-033/wp9-results.md`): `user-side-disabled`, `loopback-merge` and
-`loopback-replace`. The interactive session is established from a checkpoint by
-script, as work item 1 required. Outstanding against the acceptance criteria
-below: user-side **security filtering** and separate **token-group collection**
-(work items 2 and 3's filtering half) are not covered, so the capability matrix
-keeps a coverage qualifier even though the scope qualifier is gone. A second
-run from the checkpoint reproducing a result has been demonstrated for the lane
-as a whole, not yet as a scripted acceptance step.
+**Status: executed 2026-08-04, acceptance partially met.** Five scenarios
+certified against the estate's client (`docs/plan-033/wp9-results.md`):
+`user-side-disabled`, `loopback-merge` and `loopback-replace` as `pass`, plus
+**user-side security filtering** — `user-security-filtering` as `pass` and
+`user-security-filtering-deny`, which certified an `expected-finding` (WI-033),
+was fixed, and re-ran to `pass` on `rsop-user-observe-20260804150527-3868`. The
+interactive session is established from a checkpoint by script, as work item 1
+required. Outstanding against the acceptance criteria below: separate
+**token-group collection** (work item 3) is not covered, so the capability
+matrix keeps a coverage qualifier even though the scope qualifier is gone. A
+second run from the checkpoint reproducing a result has been demonstrated for
+the lane as a whole, not yet as a scripted acceptance step.
 
 Created 2026-08-03 when WP-6 was ruled computer-scope-only. This work package
 exists so that decision is a deferral with a name attached rather than a quiet
