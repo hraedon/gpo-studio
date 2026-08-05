@@ -115,9 +115,7 @@ PRE_TRANSPORT_VERDICTS = {
 
 
 def _verdict(relative: str) -> dict[str, Any]:
-    return cast(
-        dict[str, Any], json.loads((EVIDENCE / relative).read_text(encoding="utf-8"))
-    )
+    return cast(dict[str, Any], json.loads((EVIDENCE / relative).read_text(encoding="utf-8")))
 
 
 def _file_tables(finalizer: str) -> list[dict[str, str]]:
@@ -160,9 +158,7 @@ def test_source_files_holds_exactly_the_bound_repository_files(
 
 
 @pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
-def test_every_bound_file_still_exists_in_the_tree(
-    relative: str, finalizer: str
-) -> None:
+def test_every_bound_file_still_exists_in_the_tree(relative: str, finalizer: str) -> None:
     """A verdict naming a file the repository no longer has cannot be re-checked."""
     for table in _file_tables(finalizer):
         for name, source in table.items():
