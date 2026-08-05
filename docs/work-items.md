@@ -726,15 +726,47 @@ That is the WI-033 failure direction inverted, and it is the shape this project
 has now hit three times: WI-033, WI-040 and this one are all a filtering rule
 believed on reasoning rather than measurement. Two of the three were wrong.
 
-**Not a regression.** The side-agnostic union predates this change — WI-033's
-deny-on-Apply branch has the same property, and it is equally uncertified for
-user scope. WI-040 did not introduce the flaw; it added a second rule that
-inherits it, which is why the boundary is now written down instead of implied.
+**Not a regression, and be precise about what is uncertified.** Deny-on-Apply
+*is* certified on a user principal — that is exactly what WI-033 measured, and
+`user-security-filtering-deny` re-ran to `pass` on
+`rsop-user-observe-20260804150527-3868`. What no run covers, for either rule, is
+**cross-principal matching**: `_filter_matches` compares each filter against the
+union of the computer's and the user's identities, so a filter naming the
+computer can decide the user side and vice versa. Every certified scenario has
+the filtered principal and the resolving side aligned, so the union has never
+been exercised. WI-040 did not introduce it; it added a second rule that
+inherits it.
 
-**Closes when:** either a user-scope read-deny scenario measures what Windows
-does and the model is scoped to match, or `_gpo_filter_status` is made
-side-aware and the user side declines to answer rather than guessing. Fixing it
-by reasoning alone is the specific thing this item exists to prevent.
+**Second half done 2026-08-05, operator ruling.** `_gpo_filter_status` now takes
+the side it is resolving and returns a closed `RsopGpoStatus` of
+`applied | blocked | unevaluable`; the user-scope read deny returns
+`unevaluable` with reason `security_filter_read_denied_user_scope_unmeasured`.
+
+There is deliberately **no `is_applied` bool left anywhere in the module.** It
+was removed rather than kept as a convenience property, because every caller
+writing `if g.is_applied` would silently have read `unevaluable` as "not
+applied" — reintroducing the same unfounded answer through the back door.
+Fourteen call sites had to be updated, which is the point: a closed set makes
+the type checker and the test suite name everyone who has not considered the
+third case. `gpos_filtered()` is likewise **not** the complement of
+`gpos_applied()`.
+
+Uncertainty propagates. A winner an unevaluable GPO could have overridden
+carries `unevaluable_gpos`; a result containing any reports
+`is_conclusive() == False` and a `rsop_result_is_not_conclusive` warning. The
+lanes carry it too: the prediction gains an `unevaluable_gpos` list, the
+finalizers exclude those rows from the applied comparison **in both directions**
+— grading an abstention would report a model defect out of the model being
+honest — and a run containing one is `inconclusive`, never `pass`.
+
+**Still open, and this is what remains:** no run has measured the user-scope
+read deny. The model now declines to answer instead of guessing, which is
+honest but is not knowledge.
+
+**Closes when:** a user-scope read-deny scenario measures what Windows actually
+does, the model is scoped to that measurement, and the `unevaluable` branch is
+removed or narrowed to whatever is still unmeasured. Cross-principal matching
+(above) wants its own scenario and may want its own item.
 
 ## Not yet numbered
 
