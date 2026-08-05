@@ -475,6 +475,20 @@ if ($Phase -eq 'setup') {
             # does not reach the user however the user is filtered -- and the
             # lane would record a filtering result that is really a read
             # failure. Only Apply is moved.
+            #
+            # Shared by both deny branches below. A computer account's SID comes
+            # from the computer object and Get-ADGroup would not find it -- the
+            # sAMAccountName carries a trailing $ that only Get-ADComputer
+            # resolves from the bare name.
+            $resolvePrincipalSid = {
+                param($principalKind, $principalName)
+                switch ("$principalKind") {
+                    'user' { (Get-ADUser -Identity $principalName -Server $dc).SID }
+                    'computer' { (Get-ADComputer -Identity $principalName -Server $dc).SID }
+                    default { (Get-ADGroup -Identity $principalName -Server $dc).SID }
+                }
+            }
+
             foreach ($planned in $gpo.filters) {
                 $principal = switch ("$($planned.principal)") {
                     'user' { $state.target_user }
@@ -511,21 +525,36 @@ if ($Phase -eq 'setup') {
                         # single out.
                         $applyRight = [guid]'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
                         $gpoDn = "CN={$($created.Id)},CN=Policies,CN=System,$domainDn"
-                        $identity = switch ("$($planned.principal)") {
-                            'user' { (Get-ADUser -Identity $principal -Server $dc).SID }
-                            # A computer account's SID comes from the computer
-                            # object, and Get-ADGroup would not find it -- the
-                            # sAMAccountName carries a trailing $ that only
-                            # Get-ADComputer resolves from the bare name.
-                            'computer' { (Get-ADComputer -Identity $principal -Server $dc).SID }
-                            default { (Get-ADGroup -Identity $principal -Server $dc).SID }
-                        }
+                        $identity = & $resolvePrincipalSid $planned.principal $principal
                         $acl = Get-Acl -Path "AD:$gpoDn"
                         $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
                             $identity,
                             [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
                             [System.Security.AccessControl.AccessControlType]::Deny,
                             $applyRight)
+                        $acl.AddAccessRule($ace)
+                        Set-Acl -Path "AD:$gpoDn" -AclObject $acl
+                    }
+                    'deny-read' {
+                        # WI-040. The OTHER half of the gate: applying a GPO
+                        # takes Read AND Apply Group Policy, so denying the read
+                        # keeps the GPO off the target with the Apply allow left
+                        # completely intact. That is what makes this a separate
+                        # case rather than a restatement of 'deny' -- the Apply
+                        # ACE a reader inspects still says yes.
+                        #
+                        # GenericRead, NOT ExtendedRight: Read is a property
+                        # right, which is the distinction the 'deny' branch
+                        # above exists to respect in the other direction. No
+                        # object GUID, because this denies read of the object
+                        # rather than of one property set.
+                        $gpoDn = "CN={$($created.Id)},CN=Policies,CN=System,$domainDn"
+                        $identity = & $resolvePrincipalSid $planned.principal $principal
+                        $acl = Get-Acl -Path "AD:$gpoDn"
+                        $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+                            $identity,
+                            [System.DirectoryServices.ActiveDirectoryRights]::GenericRead,
+                            [System.Security.AccessControl.AccessControlType]::Deny)
                         $acl.AddAccessRule($ace)
                         Set-Acl -Path "AD:$gpoDn" -AclObject $acl
                     }
@@ -648,6 +677,47 @@ if ($Phase -eq 'setup') {
                         if ($denyApply.Count -eq 0) {
                             $authoredProblems += "$($gpo.name): no Deny ace on Apply Group Policy for '$principal'"
                         }
+                    }
+                    'deny-read' {
+                        # A DIFFERENT ACE SHAPE, so it cannot reuse $mine above:
+                        # that set is narrowed to ObjectType = the Apply Group
+                        # Policy GUID, and a GenericRead deny is not an
+                        # object-specific ace at all -- its ObjectType is the
+                        # all-zero GUID. Matching on $mine would find nothing and
+                        # report a correctly authored DACL as missing.
+                        #
+                        # THE TEST IS ON THE MASK, not on the rendered name.
+                        # ActiveDirectoryRights is a [Flags] enum and GenericRead
+                        # is the composite 131220 (ReadControl | ListChildren |
+                        # ReadProperty | ListObject). .NET renders that exact
+                        # value as the single name "GenericRead", but a mask
+                        # carrying any additional bit decomposes into its
+                        # individual flags instead -- so a string match would
+                        # pass on the ace this branch writes and fail on an
+                        # equally valid one that denies a superset. A bitwise
+                        # test says "these rights are denied" regardless of how
+                        # the enum chose to print itself.
+                        $genericRead = [int][System.DirectoryServices.ActiveDirectoryRights]::GenericRead
+                        $denyRead = @($dacl | Where-Object {
+                            "$($_.IdentityReference)" -match [regex]::Escape($principal) -and
+                            "$($_.AccessControlType)" -eq 'Deny' -and
+                            ([int]$_.ActiveDirectoryRights -band $genericRead) -eq $genericRead
+                        })
+                        if ($denyRead.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): no Deny ace on GenericRead for '$principal'"
+                        }
+                        # The Apply allow must SURVIVE the read deny, and this is
+                        # the whole point of the case rather than a belt-and-
+                        # braces check: if the allow were gone the row would
+                        # degenerate into an ordinary missing-Apply block, which
+                        # the model already predicts correctly, and the run would
+                        # certify agreement on an experiment it did not perform.
+                        if ($allowApply.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): '$principal' lost its Allow ace for Apply Group Policy, so the read deny is not what is being measured"
+                        }
+                    }
+                    default {
+                        $authoredProblems += "$($gpo.name): filter kind '$($planned.kind)' has no authored-state check, so its DACL was never verified"
                     }
                 }
             }
