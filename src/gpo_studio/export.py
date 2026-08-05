@@ -170,6 +170,44 @@ def powershell_plan(gpo: GPO) -> str:
             ]
         )
     if gpo.security_filters:
+        # REFUSED, NOT APPROXIMATED (WI-041).
+        #
+        # `Set-GPPermission` cannot express a deny ACE at all -- that is WI-033's
+        # own recorded finding about the cmdlet, and it is why the RSOP lane
+        # writes denies straight onto the groupPolicyContainer's DACL. Every way
+        # of emitting one anyway is wrong in the dangerous direction:
+        #
+        #   * emitting `-PermissionLevel GpoApply` INVERTS it, and this is what
+        #     the module used to do -- a plan authored as "keep this GPO off
+        #     these machines" GRANTED the permission instead, byte-identical to
+        #     the allow plan;
+        #   * silently dropping the row publishes a plan that leaves the deny
+        #     unapplied while looking complete, which fails in the same
+        #     direction one step later.
+        #
+        # A plan an operator reviews and runs has to mean what it says. So a GPO
+        # carrying a deny does not get a partial plan; it gets no plan and a
+        # reason. Same call as the cpassword refusal below, and WI-012's on
+        # `explicitValue`: refuse what cannot be expressed rather than guess.
+        denied = [sf for sf in gpo.security_filters if sf.deny]
+        if denied:
+            raise ValidationError(
+                [
+                    ValidationIssue(
+                        severity="error",
+                        code="deny_filter_not_expressible",
+                        message=(
+                            "Security filter for "
+                            f"{', '.join(sorted(sf.principal for sf in denied))} "
+                            "is a DENY, which Set-GPPermission cannot express. "
+                            "A PowerShell plan cannot be generated for this GPO "
+                            "without changing what the deny means. Remove the "
+                            "deny, or apply it out of band as a DACL ACE."
+                        ),
+                        path="security_filters",
+                    )
+                ]
+            )
         lines.append("")
         lines.append("# Security filtering — reconcile GpoApply permissions only.")
         lines.append("# GpoEdit, GpoRead, and other management permissions are preserved.")

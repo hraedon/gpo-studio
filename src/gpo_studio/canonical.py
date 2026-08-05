@@ -278,6 +278,7 @@ def policy_semantic_dict(gpo: GPO) -> dict[str, Any]:
         key=lambda sf: (
             sf.principal.casefold(),
             sf.permission,
+            sf.deny,
             sf.inheritable,
             sf.target_type,
             sf.sid,
@@ -295,6 +296,21 @@ def policy_semantic_dict(gpo: GPO) -> dict[str, Any]:
             {
                 "principal": sf.principal.casefold(),
                 "permission": sf.permission,
+                # An allow and a deny for the same principal and right are
+                # OPPOSITE policy, and without this they hashed identically --
+                # so the review hash, whose whole job is to make a semantic
+                # change visible, could not see a filter's polarity flip.
+                #
+                # EMITTED ONLY WHEN TRUE, and that is not tidiness. Emitting it
+                # unconditionally changes the canonical form of every GPO ever
+                # hashed, including the ones with no deny in them -- which would
+                # move `policy_semantic_sha256` and `review_model_sha256`
+                # estate-wide, invalidate the hash-pinned release evidence, and
+                # break every detached cairn signature over a
+                # `canonical_pack_hash`. A GPO with no deny is byte-for-byte the
+                # document it always was; only a GPO that actually carries one
+                # hashes differently, which is exactly the set that should.
+                **({"deny": True} if sf.deny else {}),
                 "inheritable": sf.inheritable,
                 "target_type": sf.target_type,
                 "sid": sf.sid.lower(),

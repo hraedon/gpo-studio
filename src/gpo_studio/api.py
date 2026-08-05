@@ -238,6 +238,10 @@ class SecurityFilterData(BaseModel):
     inheritable: bool = True
     target_type: Literal["user", "group", "computer"] = "group"
     sid: str = Field(default="", max_length=255)
+    #: Defaults to allow, so every existing client keeps its meaning. Without
+    #: this field the API could not author a deny at all, and a deny imported
+    #: from an estate snapshot came back through the API as an allow.
+    deny: bool = False
 
 
 class SecurityFilterMutation(Audit):
@@ -826,6 +830,9 @@ class SecurityFilterResponse(BaseModel):
     id: str
     principal: str
     permission: str
+    #: Omitting this made the API report a deny as an ordinary allow, so a
+    #: reader could not see the polarity of a filter it had just been given.
+    deny: bool
     inheritable: bool
     target_type: str
     sid: str
