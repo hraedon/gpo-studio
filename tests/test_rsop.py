@@ -1157,8 +1157,25 @@ class TestDenyFiltering:
             )
         )
 
-    def test_a_deny_on_read_does_not_block_apply(self) -> None:
-        """The right being denied matters; this models Apply Group Policy only."""
+    def test_a_deny_on_read_is_currently_ignored_UNMEASURED(self) -> None:
+        """WI-040: records what the model does, and does NOT claim Windows agrees.
+
+        The previous name and docstring -- `test_a_deny_on_read_does_not_block_apply`,
+        "the right being denied matters" -- read as a certified design decision
+        sitting among four deny cases that really were measured against Windows.
+        It is not one. `_gpo_filter_status` inspects only `permission == "apply"`
+        rows in every branch it has, so a read deny is not so much handled as
+        unseen, and no oracle run has ever carried one.
+
+        Applying a GPO requires BOTH Read and Apply Group Policy, so the
+        expectation is that Windows BLOCKS here and this assertion is backwards.
+        It is left standing on purpose: WP-6B's disabled-link case is what
+        happens when a predicted defect is "fixed" before the oracle rules, and
+        the correct behaviour is changed into a real defect. The scenario
+        `computer-security-filtering-deny-read` exists to settle it.
+
+        When it runs, this test either gets its old name back or gets inverted.
+        """
         assert self._applied(
             (
                 SecurityFilter(id="a", principal="C", permission="apply"),

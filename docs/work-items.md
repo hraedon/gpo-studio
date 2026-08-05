@@ -555,6 +555,72 @@ produced.
 
 ---
 
+## WI-040 — a deny on READ is a second gate, and the model has no branch for it
+
+**Opened:** 2026-08-05 (WP-6, `computer-security-filtering-deny-read`).
+**Status:** open, scenario built, **not yet run**. Found by review rather than
+by a lane.
+
+Applying a GPO requires **both** Read and Apply Group Policy. A deny on Read is
+therefore a second, independent way to keep a GPO off a target, and it leaves
+the Apply allow completely intact — which is precisely what makes it invisible
+to a reader that inspects Apply.
+
+`_gpo_filter_status` inspects only `permission == "apply"` rows, in **both** its
+deny branch and its allow branch, so a `SecurityFilter(permission="read",
+deny=True)` is not so much handled as unseen. The prediction built from the new
+scenario says so concretely: at link order 1 the model names
+`Filter=denyRead` the winner and predicts `DenyReadOnly=1` present.
+
+**This is the WI-033 failure direction**: the model promising an operator that
+settings arrive on a machine Windows keeps them off. WI-033 fixed that for a
+deny on Apply. The same fix left the Read half of the same gate untouched.
+
+**What made it look settled.** `tests/test_rsop.py` carried
+`test_a_deny_on_read_does_not_block_apply`, docstring "the right being denied
+matters; this models Apply Group Policy only" — reading as a certified design
+decision, sitting among four deny cases that really were measured against
+Windows. No oracle run has ever carried a read deny. The test is renamed
+`test_a_deny_on_read_is_currently_ignored_UNMEASURED` and now says what it is.
+The behaviour is deliberately **not** changed: see the ordering note below.
+
+**Why the computer scope, and not by preference.** MS16-072 is the reason.
+Since that update a *user's* GPOs are retrieved in the *computer's* security
+context, so denying the USER read would be evaluated against a principal that
+is not the one doing the reading — and a null result would be uninterpretable.
+It could mean Windows ignores read denies, or it could mean the computer read
+the GPO on the user's behalf exactly as designed. On the computer scope the
+filtered principal and the reading principal are the same account, and the
+experiment says one thing. (The user-scope behaviour is a genuine second
+question and is **not** answered by this item.)
+
+**The model is left untouched until Windows rules.** WP-6B's disabled-link case
+is the counter-example that earns this ordering: a predicted "defect" that
+turned out to be correct behaviour, and would have been *fixed into* a real one
+had the code been changed first. WI-039 is the other half of the argument —
+the one finding this lane produced that reading the code could not have.
+
+**Authoring note.** The deny is written as a `GenericRead` deny straight onto
+the groupPolicyContainer's DACL: Read is a *property* right, not the
+control-access right the WI-033 deny uses, so it carries no object GUID. The
+authored-state check needed its own DACL query for the same reason — the
+existing one is narrowed to `ObjectType = <Apply Group Policy GUID>` and would
+have found nothing and reported a correctly authored DACL as missing. That
+check also asserts the Apply allow **survives**, because if it did not the row
+would degenerate into an ordinary missing-Apply block that the model already
+predicts correctly, and the run would certify agreement on an experiment it did
+not perform. The `switch` gained a `default` that flags any filter kind with no
+authored-state check, so the next kind added cannot go silently unverified.
+
+**Also observed while scoping this.** The corpus fixture
+`tests/fixtures/scenarios/rsop-topology/security-filtering.json` already states
+the rule this item is about — its `provenance` note says "Read + Apply
+required, deny dominates", and its `derivations` name Read as RP — while
+exercising only read-allow-without-apply and deny-on-Apply. The project's own
+scenario knew the rule and the coverage did not follow it.
+
+---
+
 ## WI-042 — the LDAP half of the token-group gate fails open
 
 **Opened:** 2026-08-05 (independent review of PR #38). **Status:** open.
@@ -601,6 +667,7 @@ found it would leave the lane checked by a harness nobody had run.
 **Closes when:** a failed `tokenGroups` query is distinguishable from an empty
 one — an explicit collection-failed marker the finalizer treats as a hard
 refusal, not an absence — and the nesting rows are re-certified against it.
+
 
 ## Not yet numbered
 

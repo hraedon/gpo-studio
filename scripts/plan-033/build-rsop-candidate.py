@@ -144,10 +144,19 @@ class PlannedFilter:
                 could not express this at all until WI-033 was fixed, and the
                 run that demonstrated the gap is
                 ``rsop-user-observe-20260804065525-9254``.
+    ``deny-read``
+                An explicit DENY ace on GENERIC READ, beside an intact
+                Read + Apply allow. Applying a GPO requires BOTH rights, so
+                denying the read is a second, independent way to keep a GPO off
+                a target -- and it is the one no scenario has ever exercised
+                (WI-040). Expressed to the model as ``permission="read"`` with
+                ``deny=True``, which `_gpo_filter_status` currently ignores
+                entirely: it inspects only ``permission == "apply"`` rows, in
+                both its deny branch and its allow branch.
     """
 
     principal_key: str  # "user" | "computer" | "group" | "authenticated-users"
-    kind: str  # apply | read | deny
+    kind: str  # apply | read | deny | deny-read
 
 
 @dataclass(frozen=True)
@@ -691,10 +700,12 @@ def _filtering_gpos(include_deny: bool) -> tuple[PlannedGpo, ...]:
                     PlannedFilter(principal_key="user", kind="deny"),
                 ),
                 isolates=(
-                    "EXPECTED DIVERGENCE: an explicit deny on Apply dominates the allow, so "
-                    "Windows will not apply this GPO. Studio's SecurityFilter has no "
-                    "polarity, so the model is told only about the allow, predicts that it "
-                    "applies, and -- at link order 1 -- that it WINS the conflict."
+                    "An explicit deny on Apply dominates the allow, so "
+                    "Windows will not apply this GPO. WI-033 gave SecurityFilter its "
+                    "polarity and the model now says so too; before that fix the model "
+                    "was told only about the allow, predicted that it applied, and -- at "
+                    "link order 1 -- that it WON the conflict. Certified as an ordinary "
+                    "agreement by rsop-user-observe-20260804065525-9254."
                 ),
             ),
         )
@@ -893,6 +904,89 @@ COMPUTER_SECURITY_FILTERING = Scenario(
     ),
 )
 
+#: WI-040: the deny nobody has measured. Applying a GPO takes Read AND Apply
+#: Group Policy, so a deny on READ keeps a GPO off a target with the Apply
+#: allow left completely intact -- a second, independent gate that
+#: `_gpo_filter_status` cannot see, because every branch it has inspects only
+#: `permission == "apply"` rows.
+#:
+#: THE COMPUTER SCOPE, AND NOT BY PREFERENCE. MS16-072 is why: since that
+#: update a USER's GPOs are retrieved in the COMPUTER's security context, so
+#: denying the USER read would be evaluated against a principal that is not the
+#: one doing the reading, and a null result would be uninterpretable -- it could
+#: mean Windows ignores read denies, or it could mean the computer read the GPO
+#: on the user's behalf exactly as designed. Here the filtered principal and the
+#: reading principal are the same account and the experiment says one thing.
+#: (`_filtering_gpos` keeps Authenticated Users' Read for the same reason, which
+#: is also why THIS row denies the computer specifically rather than removing a
+#: grant.)
+#:
+#: A DECLARED DIVERGENCE, built the way WP-6B's were: the model is left
+#: untouched and Windows arbitrates. That ordering is not ceremony. WP-6B's
+#: disabled-link case is the counter-example -- a predicted "defect" that turned
+#: out to be correct behaviour, and would have been "fixed" into a real one had
+#: the code been changed first.
+#:
+#: The prediction is that Windows BLOCKS. If it does, the model is wrong in the
+#: WI-033 direction -- promising an operator settings that never arrive -- and
+#: `test_a_deny_on_read_does_not_block_apply` is asserting a falsehood.
+COMPUTER_SECURITY_FILTERING_DENY_READ = Scenario(
+    scenario_id="computer-security-filtering-deny-read",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    control_gpo="Studio-RSOP-Control",
+    control_value_name="Control",
+    gpos=(
+        PlannedGpo(
+            name="Studio-RSOP-CompFilterDenyRead",
+            guid="00000000-0000-0000-0000-00000000cf05",
+            scope="ou",
+            scope_key="child",
+            order=1,
+            values={"Filter": "denyRead", "DenyReadOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="computer", kind="apply"),
+                PlannedFilter(principal_key="computer", kind="deny-read"),
+            ),
+            isolates=(
+                "EXPECTED DIVERGENCE (WI-040): a deny on READ, with the Apply allow "
+                "intact. The model never sees the deny, so it predicts this GPO applies "
+                "and -- at link order 1 -- that Filter=denyRead WINS. DenyReadOnly is "
+                "the sharp assertion: Studio predicts it present, Windows is expected to "
+                "leave it ABSENT."
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-CompFilterAllow",
+            guid="00000000-0000-0000-0000-00000000cf06",
+            scope="ou",
+            scope_key="child",
+            order=2,
+            values={"Filter": "allow", "AllowOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="computer", kind="apply"),
+            ),
+            isolates=(
+                "CONTROL, and the one that makes the deny-read row mean something: the "
+                "SAME Read+Apply grant, differing only in the absence of the read deny. "
+                "If this GPO does not apply either, the run measured a broken DACL write "
+                "rather than a read deny"
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-Control",
+            guid="00000000-0000-0000-0000-00000000cf07",
+            scope="ou",
+            scope_key="child",
+            order=3,
+            values={"Control": "present"},
+            isolates="CONTROL: default filtering, unconflicted. Absent => nothing applied.",
+        ),
+    ),
+)
+
 #: WP-6 topology item 6's third case, and the one nobody has measured: a WMI
 #: filter that cannot be EVALUATED, as distinct from one that evaluates false.
 #:
@@ -974,6 +1068,7 @@ SCENARIOS: dict[str, Scenario] = {
     USER_SECURITY_FILTERING_DENY.scenario_id: USER_SECURITY_FILTERING_DENY,
     WMI_FILTERING.scenario_id: WMI_FILTERING,
     COMPUTER_SECURITY_FILTERING.scenario_id: COMPUTER_SECURITY_FILTERING,
+    COMPUTER_SECURITY_FILTERING_DENY_READ.scenario_id: (COMPUTER_SECURITY_FILTERING_DENY_READ),
     WMI_FILTERING_ERROR.scenario_id: WMI_FILTERING_ERROR,
 }
 
@@ -1062,8 +1157,10 @@ def build_query(
                 SecurityFilter(
                     id=f"{planned.name}:{index}",
                     principal=principal,
-                    permission="read" if planned_filter.kind == "read" else "apply",
-                    deny=planned_filter.kind == "deny",
+                    permission=(
+                        "read" if planned_filter.kind in ("read", "deny-read") else "apply"
+                    ),
+                    deny=planned_filter.kind in ("deny", "deny-read"),
                 )
             )
         return tuple(expressible)
