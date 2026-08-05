@@ -150,9 +150,10 @@ class PlannedFilter:
                 denying the read is a second, independent way to keep a GPO off
                 a target -- and it is the one no scenario has ever exercised
                 (WI-040). Expressed to the model as ``permission="read"`` with
-                ``deny=True``, which `_gpo_filter_status` currently ignores
-                entirely: it inspects only ``permission == "apply"`` rows, in
-                both its deny branch and its allow branch.
+                ``deny=True``. `_gpo_filter_status` ignored these rows entirely
+                until 2026-08-05 -- it inspected only ``permission == "apply"``
+                rows in both its deny and its allow branch -- and now reports
+                them as ``security_filter_read_denied``.
     """
 
     principal_key: str  # "user" | "computer" | "group" | "authenticated-users"
@@ -791,8 +792,10 @@ WMI_FILTERING = Scenario(
                 query="SELECT * FROM Win32_OperatingSystem WHERE BuildNumber = '99999'",
                 expect_true=False,
                 why=(
-                    "EXPECTED DIVERGENCE: Windows will not apply this GPO. Studio "
-                    "predicts it does and, at link order 1, that it wins the conflict."
+                    "Windows will not apply this GPO, and since WI-035 neither does "
+                    "Studio when it is told how the filter evaluated. This was an "
+                    "expected divergence until 2026-08-04, when the model predicted "
+                    "it applied and, at link order 1, won the conflict."
                 ),
             ),
             isolates="a WMI filter that evaluates FALSE must keep its GPO off the machine",
@@ -904,11 +907,15 @@ COMPUTER_SECURITY_FILTERING = Scenario(
     ),
 )
 
-#: WI-040: the deny nobody has measured. Applying a GPO takes Read AND Apply
+#: WI-040, MEASURED AND CLOSED 2026-08-05. Applying a GPO takes Read AND Apply
 #: Group Policy, so a deny on READ keeps a GPO off a target with the Apply
 #: allow left completely intact -- a second, independent gate that
-#: `_gpo_filter_status` cannot see, because every branch it has inspects only
-#: `permission == "apply"` rows.
+#: `_gpo_filter_status` could not see, because every branch it had inspected
+#: only `permission == "apply"` rows. Windows blocked, as predicted; the model
+#: now has a `security_filter_read_denied` branch and agrees.
+#:
+#: The history below is kept because the ORDER is the point, not the answer.
+#: Read it as a record of how the row was built, not as its current state.
 #:
 #: THE COMPUTER SCOPE, AND NOT BY PREFERENCE. MS16-072 is why: since that
 #: update a USER's GPOs are retrieved in the COMPUTER's security context, so
@@ -921,15 +928,17 @@ COMPUTER_SECURITY_FILTERING = Scenario(
 #: is also why THIS row denies the computer specifically rather than removing a
 #: grant.)
 #:
-#: A DECLARED DIVERGENCE, built the way WP-6B's were: the model is left
-#: untouched and Windows arbitrates. That ordering is not ceremony. WP-6B's
+#: It was built as A DECLARED DIVERGENCE, the way WP-6B's were: the model was
+#: left untouched and Windows arbitrated. That ordering is not ceremony. WP-6B's
 #: disabled-link case is the counter-example -- a predicted "defect" that turned
 #: out to be correct behaviour, and would have been "fixed" into a real one had
 #: the code been changed first.
 #:
-#: The prediction is that Windows BLOCKS. If it does, the model is wrong in the
-#: WI-033 direction -- promising an operator settings that never arrive -- and
-#: `test_a_deny_on_read_does_not_block_apply` is asserting a falsehood.
+#: The prediction was that Windows BLOCKS. It does
+#: (`rsop-observe-20260805045139-3731`), so the model was wrong in the WI-033
+#: direction -- promising an operator settings that never arrive -- and the
+#: green test named `test_a_deny_on_read_does_not_block_apply` had been
+#: asserting that falsehood as correct behaviour. Both are fixed.
 COMPUTER_SECURITY_FILTERING_DENY_READ = Scenario(
     scenario_id="computer-security-filtering-deny-read",
     ous=PLAIN_OUS,
@@ -955,11 +964,12 @@ COMPUTER_SECURITY_FILTERING_DENY_READ = Scenario(
                 PlannedFilter(principal_key="computer", kind="deny-read"),
             ),
             isolates=(
-                "EXPECTED DIVERGENCE (WI-040): a deny on READ, with the Apply allow "
-                "intact. The model never sees the deny, so it predicts this GPO applies "
-                "and -- at link order 1 -- that Filter=denyRead WINS. DenyReadOnly is "
-                "the sharp assertion: Studio predicts it present, Windows is expected to "
-                "leave it ABSENT."
+                "a deny on READ, with the Apply allow intact (WI-040). Read and Apply "
+                "are two independent gates and this row denies only the first, so both "
+                "Windows and -- since the fix -- the model keep this GPO off the target "
+                "at link order 1. DenyReadOnly is the sharp assertion: it must be "
+                "ABSENT. Before the fix the model predicted it PRESENT, which is what "
+                "the expected-finding verdict records."
             ),
         ),
         PlannedGpo(
