@@ -1,0 +1,99 @@
+{
+  "author_run_id": "rsop-author-20260805045134-4396",
+  "candidate": {
+    "expected.json": "151cd93a02d0563df6a43a7a0a437b4a93cac05fcb593e7b94e33ca2d8b3bec8",
+    "prediction.json": "19adcb97940e9bd5049a90264a0971b91c5d6126912a520915f2e055ddff032d",
+    "topology.json": "8b2a11a698c4bf36cdc1a64b000bbfd82d5814d7c9de9a0a53c9bf48c590c748"
+  },
+  "comparison": {
+    "agrees": false,
+    "applied_only_observed": [],
+    "applied_only_predicted": [
+      "Studio-RSOP-CompFilterDenyRead"
+    ],
+    "observed_applied": [
+      "Studio-RSOP-CompFilterAllow",
+      "Studio-RSOP-Control"
+    ],
+    "observed_foreign_gpos": [
+      "Default Domain Policy",
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "Filter": "allow"
+    },
+    "predicted_applied": [
+      "Studio-RSOP-CompFilterAllow",
+      "Studio-RSOP-CompFilterDenyRead",
+      "Studio-RSOP-Control"
+    ],
+    "predicted_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "DenyReadOnly": "1",
+      "Filter": "denyRead"
+    },
+    "value_findings": [
+      {
+        "kind": "predicted_but_absent",
+        "observed": null,
+        "predicted": "1",
+        "predicted_winning_gpo": "Studio-RSOP-CompFilterDenyRead",
+        "value_name": "DenyReadOnly"
+      },
+      {
+        "kind": "wrong_value",
+        "observed": "allow",
+        "predicted": "denyRead",
+        "predicted_winning_gpo": "Studio-RSOP-CompFilterDenyRead",
+        "value_name": "Filter"
+      }
+    ]
+  },
+  "control_problems": [],
+  "cse_completed": true,
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "expected_finding": "WI-040: `_gpo_filter_status` inspects only `permission == 'apply'` rows, so a deny on Read is invisible to the model. Studio predicts Studio-RSOP-CompFilterDenyRead applies and wins at link order 1 (Filter=denyRead, DenyReadOnly=1); Windows is expected to keep it off the machine, leaving Filter=allow and DenyReadOnly absent. The model is deliberately unchanged until this run rules.",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": false,
+  "run_id": "rsop-observe-20260805045139-3731",
+  "scenario_id": "computer-security-filtering-deny-read",
+  "schema_version": 1,
+  "scope": "computer",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "a2125157f183735e963f6377ae90b5a68f0c4ef8",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "ebdaa1db8022d6897371e3c7807e3969a82f3db01d7fbd4ea0e0825075204aaa",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "8b03e2c4a92593e265e84dcc4cf3907e3fa3a53ab6cdaff31877bd88b73532c4",
+      "run-rsop-observe.ps1": "8feeb65bd38c71ddf31df86bade1fe767181e76695faf9fcc38ae3b87d93eec9",
+      "run-rsop-oracle.sh": "74262f77b49b69132fbddd03f65e5c4c41b3773ac1d7257c7727f821005e0c0b"
+    }
+  },
+  "state": "expected-finding",
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "work_package": "WP-6B"
+}
