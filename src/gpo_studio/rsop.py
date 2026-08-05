@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Literal, assert_never
 
 from .model import GPO, RegistrySetting, SecurityFilter, ValidationError, ValidationIssue
 from .som import PrecedenceEntry, SomNode, SomPrecedence, compute_precedence
@@ -47,6 +47,17 @@ WmiEvaluation = bool | Literal["unevaluatable"]
 #: with ``assert_never`` and the type checker will find the callers that have not
 #: considered the third case.
 RsopGpoStatus = Literal["applied", "blocked", "unevaluable"]
+
+#: How one setting differs between two RSOP results.
+#:
+#: ``"uncertainty_changed"`` carries no value change at all: the winner and its
+#: value are identical and what moved is whether an unevaluable GPO could have
+#: overridden it. That is still a difference between two estates, and omitting
+#: it made `compare_rsop_results` the one place uncertainty could leave the
+#: module silently.
+RsopChangeType = Literal[
+    "added", "removed", "modified", "gpo_changed", "uncertainty_changed"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,7 +275,7 @@ class RsopDiff:
     current_value: str | int | list[str] = ""
     baseline_gpo: str = ""
     current_gpo: str = ""
-    change_type: Literal["added", "removed", "modified", "gpo_changed"] = "modified"
+    change_type: RsopChangeType = "modified"
 
 
 def _setting_identity(setting: RegistrySetting | RsopSettingResult) -> tuple[str, str, str]:
@@ -422,6 +433,32 @@ def _gpo_filter_status(
     return "applied", (), tuple(warnings)
 
 
+def _status_certainty(status: RsopGpoStatus) -> int:
+    """Rank a status so two sides can be merged by a total order.
+
+    `applied` > `unevaluable` > `blocked`, and both comparisons are deliberate.
+    Applied on either side keeps the existing meaning of "applied to at least
+    one side" (WI-032 tracks the missing per-side sets). Unevaluable beats
+    blocked because an open question on one side is not settled by a definite
+    answer on the other -- reporting `blocked` there would settle it by
+    omission, which is the whole failure WI-043 exists to prevent.
+
+    Written as a dispatch rather than a dict so `assert_never` can see it: a
+    fourth status has to be given a rank here, and the type checker says so.
+    """
+    if status == "applied":
+        return 2
+    if status == "unevaluable":
+        return 1
+    if status == "blocked":
+        return 0
+    assert_never(status)
+
+
+def _merge_side_status(computer: RsopGpoStatus, user: RsopGpoStatus) -> RsopGpoStatus:
+    return max(computer, user, key=_status_certainty)
+
+
 def _side_enabled(gpo: GPO, side: Literal["computer", "user"]) -> bool:
     if side == "computer":
         return gpo.computer_enabled
@@ -520,6 +557,14 @@ def _resolve_side(
         if status == "blocked":
             continue
 
+        # Exhaustive by construction: a fourth status must not reach the
+        # settings loop by falling through, which is exactly how it would
+        # silently start APPLYING settings. `assert_never` makes that a
+        # type error at the point the status is added, not a behaviour change
+        # discovered later.
+        if status != "applied":
+            assert_never(status)
+
         for setting in gpo.settings:
             if setting.side != side:
                 continue
@@ -615,13 +660,7 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
             # sets). Otherwise an open question outranks a definite block: if
             # one side is unevaluable and the other blocked, the GPO's fate is
             # not settled, and saying "blocked" would settle it by omission.
-            sides = (comp_state[0], user_state[0])
-            if "applied" in sides:
-                status: RsopGpoStatus = "applied"
-            elif "unevaluable" in sides:
-                status = "unevaluable"
-            else:
-                status = "blocked"
+            status = _merge_side_status(comp_state[0], user_state[0])
             all_reasons = set(comp_state[1]) | set(user_state[1])
             all_warnings = set(comp_state[2]) | set(user_state[2])
             all_reasons.update(all_warnings)
@@ -742,10 +781,22 @@ def compare_rsop_results(
         elif baseline_setting is not None and current_setting is not None:
             value_changed = baseline_setting.effective_value != current_setting.effective_value
             gpo_changed = baseline_setting.winning_gpo_guid != current_setting.winning_gpo_guid
+            # WI-043. How CERTAIN a value is, is part of the answer. Two results
+            # can name the same winner with the same value and differ in whether
+            # some GPO above it could have overridden it -- and the earlier
+            # version of this function returned an EMPTY diff for that pair,
+            # quietly deleting the uncertainty on the way out of the module.
+            # A diff is what a caller compares two estates with; a change in
+            # what is knowable is exactly the kind of change it must not hide.
+            uncertainty_changed = set(baseline_setting.unevaluable_gpos) != set(
+                current_setting.unevaluable_gpos
+            )
             if value_changed:
-                change_type: Literal["added", "removed", "modified", "gpo_changed"] = "modified"
+                change_type: RsopChangeType = "modified"
             elif gpo_changed:
                 change_type = "gpo_changed"
+            elif uncertainty_changed:
+                change_type = "uncertainty_changed"
             else:
                 continue
             diffs.append(
@@ -766,8 +817,10 @@ def compare_rsop_results(
 
 
 __all__ = [
+    "RsopChangeType",
     "RsopDiff",
     "RsopGpoResult",
+    "RsopGpoStatus",
     "RsopMode",
     "RsopQuery",
     "RsopResult",

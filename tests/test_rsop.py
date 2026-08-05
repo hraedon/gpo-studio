@@ -1482,3 +1482,60 @@ class TestUserScopeReadDenyIsUnevaluable:
         assert result.gpo_results[0].status == "blocked"
         assert "wmi_filter_false" in result.gpo_results[0].filtering_reasons
         assert result.is_conclusive()
+
+
+class TestUncertaintySurvivesTheDiff:
+    """WI-043: `compare_rsop_results` must not delete uncertainty on the way out.
+
+    A diff is what a caller compares two estates with. Two results can name the
+    same winner with the same value and differ in whether an unevaluable GPO
+    could have overridden it -- and the first version of this function compared
+    only value and winning GPO, so that pair returned an EMPTY diff. Every other
+    part of the module was careful to represent the third state; this was the
+    one exported function that quietly dropped it.
+    """
+
+    def _result(self, unevaluable: tuple[str, ...]) -> RsopResult:
+        return RsopResult(
+            query_id="q",
+            mode="planning",
+            target=RsopTarget(computer_name="C", domain="x"),
+            computer_settings=(
+                RsopSettingResult(
+                    setting_id="s",
+                    side="computer",
+                    hive="HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    effective_value="same",
+                    winning_gpo_guid="g0",
+                    unevaluable_gpos=unevaluable,
+                ),
+            ),
+        )
+
+    def test_a_change_in_certainty_alone_is_a_difference(self) -> None:
+        diffs = compare_rsop_results(self._result(()), self._result(("g1",)))
+        assert [d.change_type for d in diffs] == ["uncertainty_changed"]
+        assert diffs[0].value_name == "V"
+
+    def test_it_is_symmetric(self) -> None:
+        """Gaining certainty is as much a change as losing it."""
+        diffs = compare_rsop_results(self._result(("g1",)), self._result(()))
+        assert [d.change_type for d in diffs] == ["uncertainty_changed"]
+
+    def test_identical_results_still_diff_to_nothing(self) -> None:
+        """The control: without it, a function that flagged everything would pass."""
+        assert compare_rsop_results(self._result(("g1",)), self._result(("g1",))) == ()
+        assert compare_rsop_results(self._result(()), self._result(())) == ()
+
+    def test_a_value_change_still_outranks_it(self) -> None:
+        """A changed value is reported as `modified`, not demoted to uncertainty."""
+        current = replace(
+            self._result(("g1",)),
+            computer_settings=(
+                replace(self._result(("g1",)).computer_settings[0], effective_value="other"),
+            ),
+        )
+        diffs = compare_rsop_results(self._result(()), current)
+        assert [d.change_type for d in diffs] == ["modified"]
