@@ -837,6 +837,20 @@ inside. Three conditions attach:
 
 ## WP-6 — Controlled RSOP and effective-rights oracle (computer scope)
 
+> **Live certification set: eleven runs at `a85736a`, 2026-08-05.** Six WP-6
+> scenarios and five WP-9, every one `pass`, clean tree, `transport: psdirect`,
+> `conclusive: true`. They supersede every earlier RSOP verdict in this plan.
+>
+> Not because the earlier ones were wrong, but because **a certification binds
+> the harness that produced it**, and WI-043 changed what a verdict means: the
+> prediction now carries `unevaluable_gpos` and the finalizers refuse to grade
+> those rows. A verdict written before that describes code that no longer
+> ships. The superseded verdicts stay committed as the historical record — the
+> two WI-040 ones in particular, because the divergence `...045139-3731`
+> observed against a real client is what the item is *about*, and that
+> observation does not depend on the harness check that was later found
+> unfalsifiable. Cite the `a85736a` set for anything load-bearing.
+
 **Status 2026-08-05: partially delivered.** WP-6A reconciled the platform
 registry; WP-6B built the lane — the first external check `rsop.py` has ever
 had — and it has since certified items 1 through 6 of the topology below.

@@ -1,0 +1,82 @@
+{
+  "author_run_id": "rsop-author-20260805194623-6296",
+  "candidate": {
+    "expected.json": "e6cbbff5471d8813882cf17295026d49f6e9b9f10e042ece609f156a7f018a9b",
+    "prediction.json": "c917e347c00b092de77e5bef6524b439041325733963dedc45b7e09542d874a4",
+    "topology.json": "980d5190b0bf77f8cfd42881cf7ce2296ce1a06a77fbfe48e82b0cf38a32e084"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [],
+    "conclusive": true,
+    "observed_applied": [
+      "Studio-RSOP-Control",
+      "Studio-RSOP-WmiTrue"
+    ],
+    "observed_foreign_gpos": [
+      "Default Domain Policy",
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "Control": "present",
+      "Wmi": "true",
+      "WmiTrueOnly": "1"
+    },
+    "predicted_applied": [
+      "Studio-RSOP-Control",
+      "Studio-RSOP-WmiTrue"
+    ],
+    "predicted_winners": {
+      "Control": "present",
+      "Wmi": "true",
+      "WmiTrueOnly": "1"
+    },
+    "unevaluable_gpos": [],
+    "value_findings": []
+  },
+  "control_problems": [],
+  "cse_completed": true,
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "expected_finding": "",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": true,
+  "run_id": "rsop-observe-20260805194627-2633",
+  "scenario_id": "wmi-filtering-error",
+  "schema_version": 1,
+  "scope": "computer",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "a85736aeb3cc32811dd19fb0eb123a7364f7c4ad",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "6c81d8fb931581fa3167db4d437a68fa8eb8d028e4816e46653ec8a63ad29003",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "8b03e2c4a92593e265e84dcc4cf3907e3fa3a53ab6cdaff31877bd88b73532c4",
+      "run-rsop-observe.ps1": "8feeb65bd38c71ddf31df86bade1fe767181e76695faf9fcc38ae3b87d93eec9",
+      "run-rsop-oracle.sh": "74262f77b49b69132fbddd03f65e5c4c41b3773ac1d7257c7727f821005e0c0b"
+    }
+  },
+  "state": "pass",
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "work_package": "WP-6B"
+}

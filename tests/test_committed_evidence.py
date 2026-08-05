@@ -105,6 +105,36 @@ LANE_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json": (
         "finalize_rsop_user_run.py"
     ),
+    # Re-certification 2026-08-05 under the WI-043 result contract. Making
+    # `_gpo_filter_status` side-aware changed what a verdict MEANS -- the
+    # prediction gained `unevaluable_gpos` and the finalizers stopped grading
+    # those rows -- so every earlier verdict describes a harness that no longer
+    # ships. Eleven scenarios at `a85736a`, all `pass`, all conclusive. This set
+    # also re-earns the two WI-040 verdicts, whose `harness_matches_source` was
+    # produced by the self-comparing check fixed in `d1eec72` hours after they
+    # ran; those two are kept below as the historical record of the divergence,
+    # not as live certifications.
+    "wp6-evidence/verdict-rsop-observe-20260805194053-7180.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194245-3734.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194432-5944.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194627-2633.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805194814-2731.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805195001-1590.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260805195149-5629.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805195400-1809.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json": (
+        "finalize_rsop_user_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
