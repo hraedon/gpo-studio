@@ -276,3 +276,101 @@ def test_the_coverage_guard_is_looking_at_real_files() -> None:
         if path.name.startswith(("verdict-", "verification"))
     }
     assert len(committed) >= len(LANE_VERDICTS)
+
+
+#: Phrases that assert a lane's certification cannot be verified from the
+#: repository. Each was true when written; what this guards is that they stayed
+#: in the tree after the lane was re-certified.
+UNVERIFIABLE_CLAIMS = (
+    "evidence binding broken",
+    "re-certification queued",
+    "queued for re-certification",
+    "committed no evidence manifest",
+    "prose record, not a verifiable certification",
+    "cannot be verified from the repository",
+    "no longer independently checkable",
+)
+
+STATUS_DOC_ROOTS = ("docs", "plans")
+
+
+def _certified_runs() -> dict[str, str]:
+    """Lane -> run id, for every lane whose committed manifest is a clean pass.
+
+    `passed` is absent on WP-0's manifest, which records `evidence_state`
+    instead; both shapes are accepted rather than silently skipping WP-0, which
+    is one of the two lanes this drift originally affected.
+    """
+    runs: dict[str, str] = {}
+    for path in EVIDENCE.glob("wp*-evidence/*.json"):
+        if not path.name.startswith(("verification", "manifest")):
+            continue
+        verdict = json.loads(path.read_text(encoding="utf-8"))
+        source = verdict.get("source") or {}
+        state = (verdict.get("capability") or {}).get("evidence_state")
+        if source.get("dirty") is not False:
+            continue
+        if verdict.get("passed") is True or state == "pass":
+            run_id = verdict.get("run_id")
+            if isinstance(run_id, str) and run_id:
+                runs[path.parent.name.removesuffix("-evidence")] = run_id
+    return runs
+
+
+def test_no_status_document_calls_a_certified_lane_unverifiable() -> None:
+    """Status prose must not contradict a committed passing manifest.
+
+    This is the seventh recurrence of status drift here and the first
+    mechanical check on it. `test_domain_layer_status.py` gates the register
+    against *itself*; it cannot see a document that is internally consistent
+    and merely out of date with the evidence. WP-2 was exactly that:
+    re-certified 2026-08-03 with a clean manifest bound to a resolvable commit,
+    while two status documents went on saying its binding was broken and
+    re-certification was queued.
+
+    What this checks is narrow, and the narrowness is the point. It cannot
+    verify that a status is *true*. It catches one specific repeated falsehood:
+    prose calling a lane unverifiable when that lane's manifest is a committed,
+    clean pass.
+
+    The escape hatch is deliberately expensive. An earlier draft let a
+    paragraph off for containing a word like "superseded" or "resolved", and a
+    mutation test walked straight through it -- the stale WP-2 block quote was
+    long enough to contain such a word further down, so the guard passed on the
+    exact text it was written to catch. A vague marker is not evidence. So a
+    paragraph may only speak of a certified lane in the past tense if it names
+    **the run id that superseded the claim**, which cannot be satisfied without
+    going and reading the manifest.
+    """
+    certified = _certified_runs()
+    assert certified, "no lane has a clean manifest; this test would be vacuous"
+
+    stale: list[str] = []
+    for root in STATUS_DOC_ROOTS:
+        for path in sorted((REPO_ROOT / root).rglob("*.md")):
+            for paragraph in path.read_text(encoding="utf-8").split("\n\n"):
+                lowered = paragraph.lower()
+                claim = next((c for c in UNVERIFIABLE_CLAIMS if c in lowered), None)
+                if claim is None:
+                    continue
+                # A paragraph naming several lanes is reported once, against all
+                # of them: which lane such a sentence is *about* is a question
+                # only prose can answer, and guessing would trade this test's
+                # precision for a plausible-looking attribution.
+                unresolved = sorted(
+                    f"{lane} ({run_id})"
+                    for lane, run_id in certified.items()
+                    if lane in lowered and run_id.lower() not in lowered
+                )
+                if unresolved:
+                    stale.append(
+                        f"{path.relative_to(REPO_ROOT)}: {claim!r}, "
+                        f"but these are certified: {', '.join(unresolved)}"
+                    )
+
+    assert not stale, (
+        "These paragraphs call a lane unverifiable when its committed manifest "
+        "is a clean pass:\n  " + "\n  ".join(stale) + "\nReconcile the prose "
+        "with the evidence, or cite the superseding run id in the same "
+        "paragraph to mark the claim as history."
+    )

@@ -71,13 +71,16 @@ Verdicts are committed under `wp9-evidence/`.
 
 In every case the model's prediction — computed on the controller *before*
 anything was applied, and committed as an input artifact — matched Windows
-exactly. `rsop.py` was not modified during any of this: the two corrections
-this session made were both to the harness.
+exactly. `rsop.py` was not modified during **these three scenarios**: the two
+corrections they prompted were both to the harness. (The security-filtering
+scenarios below are a different story, and did change the model — see WI-033.)
 
-**Read it narrowly.** It covers user-side resolution, loopback merge and
-loopback replace, on a real 26200 client, for the topologies above. It says
-nothing about security filtering on user principals, WMI filters, or slow-link
-behaviour on the user side — those scenarios are still blocked or unwritten.
+**Read it narrowly.** These three cover user-side resolution, loopback merge
+and loopback replace, on a real 26200 client, for the topologies above.
+Security filtering on user principals is certified separately and is covered
+under *Security filtering: certified* below. What no user-side scenario covers
+is **WMI filters and slow-link behaviour** — those remain blocked or unwritten,
+exactly as on the computer side.
 
 ### One question answered on the way
 

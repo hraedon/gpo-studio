@@ -365,15 +365,18 @@ v2 format (`Backup.xml`, `{BACKUP_ID}/DomainSysvol/GPO/...` layout); the legacy
 Plan 033 WP-2 certified the native v2 writer on Windows Server 2025 build 26100:
 a fully Studio-generated, registry-both-sides candidate passed `Import-GPO
 -WhatIf`, actual `Import-GPO -CreateIfNeeded`, GroupPolicy registry readback,
-native `Backup-GPO`, side-version reconciliation, and strict cleanup (certified
-run `wp2-native-import-20260726235913-9111`). The import reader handles both the
-native v2 layout and the legacy format for backwards compatibility with pre-WP-2
-Studio archives.
+native `Backup-GPO`, side-version reconciliation, and strict cleanup. The import
+reader handles both the native v2 layout and the legacy format for backwards
+compatibility with pre-WP-2 Studio archives.
 
-**The WP-2 run's evidence binding is broken and the run is queued for
-re-certification** — see `plans/033-windows-external-oracle-validation.md`. This
-row's status rests on the implementation commit `96f3aec` and the prose record,
-not on a verifiable manifest.
+**Re-certified 2026-08-03** on the lab estate as run
+`wp2-native-import-20260803230132-8090`: all eighteen checks pass against a
+clean tree, bound to commit `db775b0` with an `evidence/` tag, and committed as
+`docs/plan-033/wp2-evidence/verification-estate.json`. This row now rests on a
+verifiable manifest like every other lane. The earlier run
+`wp2-native-import-20260726235913-9111` is superseded — its source commit was
+orphaned by squash-merge and could never be retro-tagged, which is what the
+re-certification existed to repair.
 
 - **API:** `POST /api/backups/import`.
 - Multi-GPO backups are rejected.
@@ -522,9 +525,10 @@ Three consequences worth stating plainly:
      loopback replace each certified `pass` against a real 26200 client, with
      the prediction committed before application and Windows' own event 5311
      confirming the loopback mode it used. What remains unverified on the user
-     side is *coverage*, not scope: security filtering on user principals,
-     WMI filters and slow-link behaviour are untested there as they are on the
-     computer side, so reason 2 below now carries both scopes.
+     side is *coverage*, not scope: WMI filters and slow-link behaviour are
+     untested there as they are on the computer side, so reason 2 below now
+     carries both scopes. Security filtering on user principals **is** covered
+     — see reason 2.
   2. **Coverage**, and it is now the qualifier that carries the weight. As of
      2026-08-04 the certified topologies cover LSDOU order, link order, block
      inheritance, enforcement, disabled links and sides (computer side), and

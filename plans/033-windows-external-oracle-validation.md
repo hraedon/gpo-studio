@@ -552,29 +552,28 @@ build 26100**. Studio now emits a distinct deterministic backup ID, native v2
 `{BACKUP_ID}/DomainSysvol/GPO/...` layout. A fully Studio-generated,
 registry-both-sides candidate passed `Import-GPO -WhatIf`, actual
 `Import-GPO -CreateIfNeeded`, GroupPolicy registry readback, native
-`Backup-GPO`, side-version reconciliation, and strict cleanup. The certified
-clean-tree run was `wp2-native-import-20260726235913-9111`; every check in
-the local finalizer passed, with `dirty: false`.
+`Backup-GPO`, side-version reconciliation, and strict cleanup.
 
-> **Evidence binding broken (found 2026-08-03) — re-certification queued.**
-> This run cannot be verified from the repository. Its recorded source commit
-> `c8b4fa8ed37a86ee…` is not a valid object here, and neither is `5e0a6df` from
-> the superseded dirty-tree run: both were orphaned by squash-merge before the
-> issue #22 remedy landed, and unlike the four commits rescued as `evidence/*`
-> tags, WP-2's were already unreachable by the time that remedy ran, so they
-> cannot be retro-tagged. WP-2 also committed **no evidence manifest** — it has
-> no `docs/plan-033/wp2-evidence/` counterpart to `wp1b-evidence/` and
-> `wp3-evidence/`, so its bindings survive only as the hashes quoted below.
+> **Evidence binding repaired 2026-08-03 — re-certified on the lab estate.**
+> The original run `wp2-native-import-20260726235913-9111` could not be
+> verified from the repository: its recorded source commit
+> `c8b4fa8ed37a86ee…` was not a valid object here, and neither was `5e0a6df`
+> from the superseded dirty-tree run. Both were orphaned by squash-merge before
+> the issue #22 remedy landed, and unlike the four commits rescued as
+> `evidence/*` tags, WP-2's were already unreachable by the time that remedy
+> ran, so they could not be retro-tagged. WP-2 had also committed **no evidence
+> manifest**, so its bindings survived only as quoted hashes.
 >
-> Consequence, stated plainly: the `harness_matches_source` claim below is not
-> independently checkable, because the committed tree it compared against is
-> gone. The WP-2 result is a **prose record, not a verifiable certification**.
-> The implementation it describes is on `main` at `96f3aec`; that commit is
-> real, but it is not evidence that the run happened against it.
+> That is repaired, and not by argument — by re-running the lane. The
+> certifying run is now `wp2-native-import-20260803230132-8090`, committed as
+> `docs/plan-033/wp2-evidence/verification-estate.json`: eighteen checks, all
+> pass, `dirty: false`, `transport: psdirect`, bound to commit `db775b0`, which
+> resolves, with a matching `evidence/wp2-native-import-20260803230132-8090`
+> tag. `harness_matches_source` is independently checkable again, because the
+> tree it compared against is present.
 >
-> The capability-matrix rows for GPMC backup import/export continue to rest on
-> this record pending re-certification on the lab estate, where the run will
-> produce a committed manifest and an `evidence/` tag like every other lane.
+> The capability-matrix rows for GPMC backup import/export rest on that
+> manifest. The prose record above is retained as history, not as evidence.
 
 Native GPP emission is deliberately limited to the extension profiles backed
 by genuine GPMC captures: Drive Maps, Local Users and Groups, and Scheduled
@@ -838,13 +837,15 @@ inside. Three conditions attach:
 
 ## WP-6 — Controlled RSOP and effective-rights oracle (computer scope)
 
-**Status 2026-08-04: partially delivered.** WP-6A reconciled the platform
-registry; WP-6B built the lane and certified `lsdou-precedence` over three
-identical passes — the first external check `rsop.py` has ever had. It covers
-LSDOU ordering, same-container link order and non-conflicting inheritance, and
-nothing else: items 2, 5 and 6 of the topology below are untested, their corpus
-scenarios being blocked or user-scope. Findings and the answered open questions
-are in `docs/plan-033/wp6b-results.md`; WI-026 is open.
+**Status 2026-08-05: partially delivered.** WP-6A reconciled the platform
+registry; WP-6B built the lane — the first external check `rsop.py` has ever
+had — and it has since certified items 1 through 6 of the topology below.
+Item 7 (slow-link/safe-mode) and work item 8 (effective rights against real
+ACEs) remain uncovered, as does group nesting for the computer account. The
+authoritative breakdown is the item-by-item table further down; read that
+rather than this paragraph, and keep the two in agreement. Findings and the
+answered open questions are in `docs/plan-033/wp6b-results.md`. WI-026 was
+found by this lane and is fixed.
 
 Do not use whatever 3–5 GPOs happen to exist. Create a deterministic topology
 with intentional conflicts so that every expected winner is known.
@@ -1021,11 +1022,20 @@ certified against the estate's client (`docs/plan-033/wp9-results.md`):
 `user-security-filtering-deny`, which certified an `expected-finding` (WI-033),
 was fixed, and re-ran to `pass` on `rsop-user-observe-20260804150527-3868`. The
 interactive session is established from a checkpoint by script, as work item 1
-required. Outstanding against the acceptance criteria below: separate
-**token-group collection** (work item 3) is not covered, so the capability
-matrix keeps a coverage qualifier even though the scope qualifier is gone. A
-second run from the checkpoint reproducing a result has been demonstrated for
-the lane as a whole, not yet as a scripted acceptance step.
+required.
+
+Work item 2's **separate token-group collection** is covered: the lane collects
+the principal's groups twice and independently — from the session token and
+from the directory's `tokenGroups` — never reusing the computer token, and
+`finalize_rsop_user_run.py` refuses a nesting prediction the session token does
+not corroborate. What that establishes is *direct* group membership; a
+multi-level group-in-group chain is not exercised, and the LDAP half of the
+check currently fails open when the query errors (WI-042).
+
+Outstanding against the acceptance criteria below: a second run from the
+checkpoint reproducing a result has been demonstrated for the lane as a whole,
+not yet as a scripted acceptance step. The capability matrix keeps a coverage
+qualifier for the scenarios named there, not for token collection.
 
 Created 2026-08-03 when WP-6 was ruled computer-scope-only. This work package
 exists so that decision is a deferral with a name attached rather than a quiet

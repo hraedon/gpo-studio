@@ -555,6 +555,53 @@ produced.
 
 ---
 
+## WI-042 — the LDAP half of the token-group gate fails open
+
+**Opened:** 2026-08-05 (independent review of PR #38). **Status:** open.
+**Deliberately not fixed in the same change; see the last paragraph.**
+
+The nesting rows are only a test of the model if the principal really is in the
+group the prediction assumes. WP-9 corroborates that twice and independently:
+from the session token, and from the directory's `tokenGroups`. Both halves are
+recorded in the verdict, and `finalize_rsop_user_run.py` refuses a prediction
+the session token does not support.
+
+The directory half cannot currently refuse anything. In
+`run-rsop-user-observe.ps1`, the whole `tokenGroups` query sits inside a `try`
+whose `catch` returns `@()` — a bind failure, a missing attribute, a permissions
+error and a genuinely empty result all arrive as the same value. On the other
+side, `finalize_rsop_user_run.py` validates the directory list only when it is
+non-empty:
+
+```python
+if ldap and not _holds(ldap):
+    problems.append(...)
+```
+
+So an errored LDAP query produces an empty list, the check skips itself, and
+the verdict still certifies. **A one-sided collection would pass silently, and
+the verdict would not say which side was missing.**
+
+The same function already knows better one level in: when an individual SID
+will not translate it records the raw SID rather than dropping it, with the
+comment *"a silently shorter list is a weaker assertion"*. That is exactly the
+right instinct, and the outer `catch` violates it wholesale — it returns the
+silently shortest list there is.
+
+**No committed certification is affected, and this was checked rather than
+assumed.** All eleven WP-9 verdicts carry a populated `directory` list
+alongside their `session` list, so every nesting claim on the record really was
+corroborated twice. The defect is in what a *future* run could get away with.
+
+Not fixed in the change that found it, for the same reason as WI-026, WI-032
+and WI-033: the gate's meaning changes, so closing it calls for a
+re-certification run rather than an edit. Doing that inside the review that
+found it would leave the lane checked by a harness nobody had run.
+
+**Closes when:** a failed `tokenGroups` query is distinguishable from an empty
+one — an explicit collection-failed marker the finalizer treats as a hard
+refusal, not an absence — and the nesting rows are re-certified against it.
+
 ## Not yet numbered
 
 Open question 1 from `plan-033/rsop-oracle-design.md` — whether `LabMS01` can

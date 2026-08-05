@@ -44,8 +44,12 @@ rather than by the citation. The dangling SHA costs traceability, not assurance.
 
 ## Disposition
 
-- **WP-2** — queued for re-certification on the lab estate, alongside the WP-1B
-  re-point. Will produce a committed manifest and an `evidence/` tag.
+- **WP-2** — **RESOLVED 2026-08-03.** Re-certified on the lab estate as
+  `wp2-native-import-20260803230132-8090`: eighteen checks, all pass,
+  `dirty: false`, bound to `db775b0`, with a committed manifest at
+  `docs/plan-033/wp2-evidence/verification-estate.json` and a matching
+  `evidence/` tag. The dangling citations below are retained as the historical
+  record of what was broken; they are no longer the basis of any live claim.
 - **WP-0** — `environment-spec.md` is being re-frozen for the estate anyway;
   the re-freeze supersedes this binding rather than repairing it.
 - **`1edfca9`** — annotated in place. No re-run is meaningful.
