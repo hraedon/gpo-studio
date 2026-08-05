@@ -45,7 +45,7 @@ model failure.
 ## What is gated, and what is only recorded
 
 The winners are gated. The applied-GPO sets are **recorded and not gated**
-(WI-032): `RsopResult` carries one `is_applied` per GPO meaning "applied on at
+(WI-032): `RsopResult` carries one `status` per GPO meaning "applied on at
 least one side", while `UserResults` lists what applied to the *user*. On a
 topology whose GPOs also scope the computer those are different questions, and
 gating a comparison between them would manufacture findings out of a reporting

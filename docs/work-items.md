@@ -135,7 +135,7 @@ green over it.
 **Opened:** 2026-08-04 (WP-9).
 **Status:** open, deliberately not fixed during the lane that found it.
 
-`RsopGpoResult.is_applied` means "applied on at least one side". Windows
+`RsopGpoResult.status` collapses to "applied on at least one side". Windows
 reports the two sides separately: `ComputerResults` lists what applied to the
 computer and `UserResults` lists what applied to the user, and on a topology
 whose GPOs scope both they are different sets.
@@ -701,9 +701,18 @@ right instinct, and the outer `catch` violates it wholesale — it returns the
 silently shortest list there is.
 
 **No committed certification is affected, and this was checked rather than
-assumed.** All eleven WP-9 verdicts carry a populated `directory` list
-alongside their `session` list, so every nesting claim on the record really was
-corroborated twice. The defect is in what a *future* run could get away with.
+assumed — but the first version of this paragraph overstated it, so state it
+exactly.** Every WP-9 verdict whose scenario *relies on group nesting* —
+`user-security-filtering` and `user-security-filtering-deny` — carries a
+populated `directory` list beside its `session` list, so every nesting claim on
+the record really was corroborated twice. Three early verdicts
+(`...045552-9148` loopback-merge, `...045809-8312` loopback-replace,
+`...050024-4383` user-side-disabled) contain **no `token_groups` block at all**;
+they predate the collection and their scenarios make no nesting claim, so there
+is nothing for this gate to have protected. The claim "all eleven verdicts carry
+a populated directory list" was simply false, and it is the kind of falsehood
+this register exists to prevent. The defect is in what a *future* run could get
+away with.
 
 Not fixed in the change that found it, for the same reason as WI-026, WI-032
 and WI-033: the gate's meaning changes, so closing it calls for a

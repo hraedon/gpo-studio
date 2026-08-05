@@ -30,7 +30,7 @@ The winners are gated: they are what the corpus scenarios assert, and they are
 what an operator would act on.
 
 The applied-GPO sets are RECORDED, not gated (WI-032). ``RsopResult`` carries
-one ``is_applied`` per GPO meaning "applied on at least one side", while
+one ``status`` per GPO meaning "applied on at least one side", while
 ``UserResults`` lists the GPOs that applied to the USER. On a scenario whose
 GPOs also scope the computer those are different questions, and gating on a
 comparison between them would manufacture findings out of a reporting gap in

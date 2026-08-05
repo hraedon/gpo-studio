@@ -65,7 +65,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, assert_never
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
@@ -1335,7 +1335,7 @@ def prediction_document(
     verdict looking exactly like a tested claim.
 
     ``applied_gpos`` IS NOT A PER-SIDE SET, and the verdict says so. The model
-    reports one ``is_applied`` per GPO, meaning "applied on at least one side",
+    reports one ``status`` per GPO, meaning "applied on at least one side",
     so on a user-scope scenario whose GPOs also scope the computer the two are
     not the same question. The finalizer therefore gates on the winners --
     which is what the corpus scenarios actually assert -- and records the
@@ -1345,15 +1345,6 @@ def prediction_document(
         build_query(scenario, domain, site_name, computer_name, user_name)
     )
 
-    applied = sorted(g.gpo_name for g in result.gpo_results if g.status == "applied")
-    denied = sorted(
-        (
-            {"gpo": g.gpo_name, "reasons": sorted(g.filtering_reasons)}
-            for g in result.gpo_results
-            if g.status == "blocked"
-        ),
-        key=lambda row: str(row["gpo"]),
-    )
     # WI-043. A GPO the model declines to predict belongs in NEITHER list. Put
     # it in `denied_gpos` and the finalizer compares an abstention against
     # whatever Windows did and reports a FINDING -- manufacturing a model defect
@@ -1361,14 +1352,28 @@ def prediction_document(
     # failure this lane's controls exist to prevent. Put it in `applied_gpos`
     # and it asserts the opposite. It gets its own list, and the finalizer
     # refuses to grade those rows.
-    unevaluable = sorted(
-        (
-            {"gpo": g.gpo_name, "reasons": sorted(g.filtering_reasons)}
-            for g in result.gpo_results
-            if g.status == "unevaluable"
-        ),
-        key=lambda row: str(row["gpo"]),
-    )
+    #
+    # Partitioned by exhaustive dispatch rather than three filtered
+    # comprehensions: a fourth status would have been silently dropped from all
+    # three lists by the comprehensions, and a GPO missing from the prediction
+    # entirely is the one shape the finalizer cannot notice.
+    applied_names: list[str] = []
+    denied: list[dict[str, Any]] = []
+    unevaluable: list[dict[str, Any]] = []
+    for gpo_result in result.gpo_results:
+        row = {"gpo": gpo_result.gpo_name, "reasons": sorted(gpo_result.filtering_reasons)}
+        if gpo_result.status == "applied":
+            applied_names.append(gpo_result.gpo_name)
+        elif gpo_result.status == "blocked":
+            denied.append(row)
+        elif gpo_result.status == "unevaluable":
+            unevaluable.append(row)
+        else:
+            assert_never(gpo_result.status)
+
+    applied = sorted(applied_names)
+    denied.sort(key=lambda r: str(r["gpo"]))
+    unevaluable.sort(key=lambda r: str(r["gpo"]))
 
     resolved = (
         result.user_settings if scenario.scope == "user" else result.computer_settings
