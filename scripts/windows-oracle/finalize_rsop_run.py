@@ -237,16 +237,29 @@ def _compare(
     """Diff the prediction against Windows. Every difference is a finding."""
     predicted_applied = sorted(prediction.get("applied_gpos") or [])
 
+    # WI-043. Rows the model declined to predict are excluded from the applied
+    # comparison entirely, in BOTH directions. Leaving them in would let an
+    # honest abstention be graded: if Windows applies such a GPO it shows up as
+    # `applied_only_observed` and the lane reports a model defect that does not
+    # exist. They are reported separately and make the run inconclusive, because
+    # a lane cannot certify a region its own model says is unmeasured.
+    unevaluable = sorted(
+        str(row["gpo"]) for row in (prediction.get("unevaluable_gpos") or [])
+    )
+
     # Only GPOs this run created are considered. The estate may carry unrelated
     # policy (the Default Domain Policy always applies), and a lane that counted
     # it would report a disagreement that is really a scoping error.
     observed_applied = sorted(
-        symbolic[name] for name in (observe.get("applied_gpos") or []) if name in symbolic
+        symbolic[name]
+        for name in (observe.get("applied_gpos") or [])
+        if name in symbolic and symbolic[name] not in unevaluable
     )
     observed_foreign = sorted(
         name for name in (observe.get("applied_gpos") or []) if name not in symbolic
     )
 
+    predicted_applied = [n for n in predicted_applied if n not in unevaluable]
     applied_only_predicted = sorted(set(predicted_applied) - set(observed_applied))
     applied_only_observed = sorted(set(observed_applied) - set(predicted_applied))
 
@@ -284,6 +297,7 @@ def _compare(
 
     return {
         "predicted_applied": predicted_applied,
+        "unevaluable_gpos": unevaluable,
         "observed_applied": observed_applied,
         "observed_foreign_gpos": observed_foreign,
         "applied_only_predicted": applied_only_predicted,
@@ -294,6 +308,7 @@ def _compare(
         "agrees": (
             not applied_only_predicted and not applied_only_observed and not value_findings
         ),
+        "conclusive": not unevaluable,
     }
 
 
@@ -393,6 +408,13 @@ def main(argv: list[str] | None = None) -> int:
     if lane_problems:
         state = "lane-failure"
     elif control_problems:
+        state = "inconclusive"
+    elif comparison and not comparison["conclusive"]:
+        # WI-043. The model abstained on at least one GPO, so some of what this
+        # scenario set out to check was never graded. Calling that a `pass`
+        # would certify a region the model itself says is unmeasured -- the
+        # scenario has to be re-scoped, or the region measured and the
+        # abstention removed.
         state = "inconclusive"
     elif comparison and comparison["agrees"]:
         # A scenario that declared a divergence and did not produce one is its

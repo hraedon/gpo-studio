@@ -9,7 +9,7 @@ loopback processing.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from .model import GPO, RegistrySetting, SecurityFilter, ValidationError, ValidationIssue
@@ -26,6 +26,27 @@ LoopbackMode = Literal["disabled", "merge", "replace"]
 #: mapping still means "nobody looked", which is a different fact and keeps its
 #: old behaviour -- the GPO applies and the result warns.
 WmiEvaluation = bool | Literal["unevaluatable"]
+
+#: Whether a GPO reached a target, as a CLOSED set rather than a bool.
+#:
+#: ``"unevaluable"`` is the one this type exists for. A bool has exactly two
+#: answers and the model has three situations: it applies, it is kept off, and
+#: -- for regions no oracle has measured -- nobody knows. WI-043: a deny on Read
+#: is certified for the COMPUTER (WI-040, run
+#: ``rsop-observe-20260805045851-3883``) and is unmeasured for the USER, because
+#: MS16-072 has a user's GPOs retrieved in the computer's security context, so
+#: the denied principal may never be the reading one. Answering that with
+#: ``False`` would be as unfounded as answering it with ``True``; both convert an
+#: open question into policy behaviour, which is what WI-039 and WI-041 each
+#: ruled against in their own way.
+#:
+#: There is deliberately no ``is_applied`` bool anywhere in this module. It was
+#: removed rather than kept as a convenience property: every caller that wrote
+#: ``if result.is_applied`` would have silently read ``unevaluable`` as "not
+#: applied", which is precisely the failure this type prevents. Dispatch on this
+#: with ``assert_never`` and the type checker will find the callers that have not
+#: considered the third case.
+RsopGpoStatus = Literal["applied", "blocked", "unevaluable"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +177,13 @@ class RsopSettingResult:
     overridden_by: tuple[str, ...] = ()
     is_enforced: bool = False
     precedence_order: int = 0
+    #: GUIDs of GPOs that write this same value and could not be evaluated.
+    #:
+    #: Uncertainty about a GPO is uncertainty about every value it writes. If an
+    #: unevaluable GPO sits above this winner, the winner named here is the
+    #: answer *if* that GPO does not apply, and the caller has to be told so
+    #: rather than handed a value that looks settled.
+    unevaluable_gpos: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +192,7 @@ class RsopGpoResult:
 
     gpo_guid: str
     gpo_name: str
-    is_applied: bool
+    status: RsopGpoStatus
     filtering_reasons: tuple[str, ...] = ()
     precedence: int = 0
     link_scope: str = ""
@@ -204,11 +232,24 @@ class RsopResult:
 
     def gpos_applied(self) -> tuple[RsopGpoResult, ...]:
         """Get only GPOs that were applied."""
-        return tuple(g for g in self.gpo_results if g.is_applied)
+        return tuple(g for g in self.gpo_results if g.status == "applied")
 
     def gpos_filtered(self) -> tuple[RsopGpoResult, ...]:
-        """Get only GPOs that were filtered out."""
-        return tuple(g for g in self.gpo_results if not g.is_applied)
+        """Get only GPOs Windows is known to keep off the target.
+
+        This is NOT the complement of :meth:`gpos_applied`. A GPO whose status
+        is ``unevaluable`` is in neither set, because calling it filtered would
+        assert the very thing that is unknown. Use :meth:`gpos_unevaluable`.
+        """
+        return tuple(g for g in self.gpo_results if g.status == "blocked")
+
+    def gpos_unevaluable(self) -> tuple[RsopGpoResult, ...]:
+        """GPOs whose outcome this model cannot honestly predict (WI-043)."""
+        return tuple(g for g in self.gpo_results if g.status == "unevaluable")
+
+    def is_conclusive(self) -> bool:
+        """True when every GPO resolved to a definite answer."""
+        return not self.gpos_unevaluable()
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,15 +306,23 @@ def _gpo_filter_status(
     gpo: GPO,
     entry: PrecedenceEntry,
     target: RsopTarget,
+    side: Literal["computer", "user"],
     wmi_results: dict[str, WmiEvaluation] | None = None,
-) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
-    """Return (is_applied, blocking_reasons, warning_reasons) for a GPO."""
+) -> tuple[RsopGpoStatus, tuple[str, ...], tuple[str, ...]]:
+    """Return (status, blocking_reasons, warning_reasons) for a GPO on one side.
+
+    ``side`` is not decoration. Filtering used to be resolved without it, so
+    every rule here answered for both sides from one evaluation -- which is how
+    the read-deny rule certified on the computer came to be asserted for the
+    user as well, on nothing (WI-043).
+    """
     blocking: list[str] = []
     warnings: list[str] = []
+    unevaluable: list[str] = []
 
     if entry.blocked:
         blocking.append("blocked_by_inheritance")
-        return False, tuple(blocking), tuple(warnings)
+        return "blocked", tuple(blocking), tuple(warnings)
 
     filters = gpo.security_filters
     if filters:
@@ -300,17 +349,22 @@ def _gpo_filter_status(
         # Same argument as WI-039's `wmi_filter_unevaluatable` versus
         # `wmi_filter_false`.
         #
-        # SCOPE BOUNDARY, AND IT IS WIDER THAN THE EVIDENCE (WI-043).
+        # WI-043: THE READ DENY IS CERTIFIED ON THE COMPUTER SIDE ONLY.
+        #
         # `_filter_matches` compares against the union of the computer's and the
-        # user's identities, so `denied_read` fires for a deny naming EITHER
-        # principal. What was measured is the computer, and deliberately so: the
-        # scenario that settled WI-040 was confined to computer scope because
-        # MS16-072 has a user's GPOs retrieved in the COMPUTER's security
-        # context, which makes a read deny on the USER a genuinely open question
-        # -- Windows may never evaluate it against the denied principal at all.
-        # So the branch below currently answers that question "blocks", on no
-        # evidence, in the region its own experiment declined to enter. Do not
-        # read a user-scope read-deny prediction as certified.
+        # user's identities, so a read deny naming either principal matches. On
+        # the computer side that is measured: `rsop-observe-20260805045851-3883`
+        # authored a deny on GenericRead beside an intact Read + Apply allow and
+        # Windows did not apply the GPO.
+        #
+        # On the USER side nothing has been measured, and the reason is not
+        # neglect. MS16-072 has a user's GPOs retrieved in the COMPUTER's
+        # security context, so a deny on the user's read may be evaluated
+        # against a principal that is not the one reading -- and a deny on the
+        # computer's read may block the user's policy as a side effect. Neither
+        # sub-case has an oracle run behind it, so this returns `unevaluable`
+        # rather than picking one. That is WI-039's ruling applied again: an
+        # unevaluatable input is its own outcome, not a flavour of false.
         denied_apply = any(
             filter_.deny
             and filter_.permission == "apply"
@@ -325,8 +379,10 @@ def _gpo_filter_status(
         )
         if denied_apply:
             blocking.append("security_filter_denied")
-        elif denied_read:
+        elif denied_read and side == "computer":
             blocking.append("security_filter_read_denied")
+        elif denied_read:
+            unevaluable.append("security_filter_read_denied_user_scope_unmeasured")
         else:
             has_apply = any(
                 filter_.permission == "apply"
@@ -357,7 +413,13 @@ def _gpo_filter_status(
         elif evaluated is None:
             warnings.append("wmi_filter_unknown")
 
-    return (not blocking), tuple(blocking), tuple(warnings)
+    # A definite block outranks an open question: if Windows keeps the GPO off
+    # for a reason that IS measured, the unmeasured one changes nothing.
+    if blocking:
+        return "blocked", tuple(blocking), tuple(warnings)
+    if unevaluable:
+        return "unevaluable", tuple(unevaluable), tuple(warnings)
+    return "applied", (), tuple(warnings)
 
 
 def _side_enabled(gpo: GPO, side: Literal["computer", "user"]) -> bool:
@@ -405,7 +467,7 @@ def _merge_user_precedence(
 @dataclass(frozen=True, slots=True)
 class _SideResolution:
     settings: tuple[RsopSettingResult, ...]
-    gpo_states: dict[str, tuple[bool, tuple[str, ...], tuple[str, ...]]]
+    gpo_states: dict[str, tuple[RsopGpoStatus, tuple[str, ...], tuple[str, ...]]]
     warnings: tuple[str, ...]
 
 
@@ -418,7 +480,9 @@ def _resolve_side(
     """Resolve settings for one side and collect per-GPO filter state."""
     settings_by_identity: dict[tuple[str, str, str], RsopSettingResult] = {}
     overridden_guids: dict[tuple[str, str, str], list[str]] = {}
-    gpo_states: dict[str, tuple[bool, tuple[str, ...], tuple[str, ...]]] = {}
+    gpo_states: dict[str, tuple[RsopGpoStatus, tuple[str, ...], tuple[str, ...]]] = {}
+    #: setting identity -> GUIDs of unevaluable GPOs that write it.
+    unevaluable_writers: dict[tuple[str, str, str], list[str]] = {}
 
     # Process precedence entries from lowest to highest precedence so that
     # the highest-precedence GPO's settings win conflicts. precedence_order
@@ -429,19 +493,31 @@ def _resolve_side(
         if gpo is None:
             continue
 
-        applies, blocking, warnings = _gpo_filter_status(
-            gpo, entry, query.target, dict(query.wmi_filter_results)
+        status, reasons, warnings = _gpo_filter_status(
+            gpo, entry, query.target, side, dict(query.wmi_filter_results)
         )
-        side_enabled = _side_enabled(gpo, side)
-        if side_enabled and applies:
-            effective_applies = True
-        else:
-            effective_applies = False
-            if applies and not side_enabled:
-                blocking = blocking + (f"{side}_side_disabled",)
-        gpo_states[gpo.guid] = (effective_applies, blocking, warnings)
+        # A disabled side is a definite answer and outranks an open question:
+        # Windows does not process a side it was told not to process, whatever
+        # the filters would have decided.
+        if not _side_enabled(gpo, side):
+            if status != "blocked":
+                reasons = reasons + (f"{side}_side_disabled",)
+            status = "blocked"
+        gpo_states[gpo.guid] = (status, reasons, warnings)
 
-        if not effective_applies:
+        if status == "unevaluable":
+            # Its settings are not applied -- that would assert the GPO reached
+            # the target -- but they are not silently discarded either. Every
+            # value it writes is recorded against the winner below, so a caller
+            # reading that winner is told the answer is conditional.
+            for setting in gpo.settings:
+                if setting.side == side:
+                    unevaluable_writers.setdefault(_setting_identity(setting), []).append(
+                        gpo.guid
+                    )
+            continue
+
+        if status == "blocked":
             continue
 
         for setting in gpo.settings:
@@ -466,8 +542,16 @@ def _resolve_side(
                 precedence_order=precedence_order,
             )
 
+    # Stamp the conditional winners last: a GPO's unevaluability is only known
+    # once every entry has been walked, and it can sit either side of the winner
+    # in precedence order.
+    settled = tuple(
+        replace(setting, unevaluable_gpos=tuple(unevaluable_writers.get(identity, ())))
+        for identity, setting in settings_by_identity.items()
+    )
+
     return _SideResolution(
-        settings=tuple(settings_by_identity.values()),
+        settings=settled,
         gpo_states=gpo_states,
         warnings=precedence.warnings,
     )
@@ -522,11 +606,22 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
                 continue
             seen_order[gpo.guid] = order
 
-            comp_state = computer_resolution.gpo_states.get(gpo.guid, (False, (), ()))
-            user_state = user_resolution.gpo_states.get(gpo.guid, (False, (), ()))
+            blocked: RsopGpoStatus = "blocked"
+            comp_state = computer_resolution.gpo_states.get(gpo.guid, (blocked, (), ()))
+            user_state = user_resolution.gpo_states.get(gpo.guid, (blocked, (), ()))
 
-            # The GPO is applied if it is applied to at least one side.
-            is_applied = comp_state[0] or user_state[0]
+            # Applied on either side wins, preserving the existing meaning of
+            # "applied to at least one side" (WI-032 tracks the missing per-side
+            # sets). Otherwise an open question outranks a definite block: if
+            # one side is unevaluable and the other blocked, the GPO's fate is
+            # not settled, and saying "blocked" would settle it by omission.
+            sides = (comp_state[0], user_state[0])
+            if "applied" in sides:
+                status: RsopGpoStatus = "applied"
+            elif "unevaluable" in sides:
+                status = "unevaluable"
+            else:
+                status = "blocked"
             all_reasons = set(comp_state[1]) | set(user_state[1])
             all_warnings = set(comp_state[2]) | set(user_state[2])
             all_reasons.update(all_warnings)
@@ -535,7 +630,7 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
 
             # Count settings this GPO contributed that were overridden by later GPOs.
             settings_overridden = 0
-            if is_applied:
+            if status == "applied":
                 winning_identities = {_setting_identity(s) for s in all_settings}
                 for setting in gpo.settings:
                     if setting.side not in ("computer", "user"):
@@ -552,7 +647,7 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
             gpo_results[gpo.guid] = RsopGpoResult(
                 gpo_guid=gpo.guid,
                 gpo_name=gpo.name,
-                is_applied=is_applied,
+                status=status,
                 filtering_reasons=tuple(sorted(all_reasons)),
                 precedence=order,
                 link_scope=entry.scope_dn,
@@ -573,6 +668,16 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
     for state in (*computer_resolution.gpo_states.values(), *user_resolution.gpo_states.values()):
         gpo_warnings.update(state[2])
     warnings.extend(sorted(gpo_warnings))
+
+    # An unevaluable GPO is a property of the whole answer, not just its own
+    # row. A caller that reads only `computer_settings`/`user_settings` would
+    # otherwise see a clean result with no sign that part of it is conditional.
+    unevaluable = sorted(g.gpo_guid for g in gpo_results.values() if g.status == "unevaluable")
+    if unevaluable:
+        warnings.append(
+            "rsop_result_is_not_conclusive: no measurement covers the outcome of "
+            f"{', '.join(unevaluable)} (WI-043)"
+        )
 
     return RsopResult(
         query_id=query.query_id,

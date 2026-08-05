@@ -656,3 +656,42 @@ def test_user_altered_local_copy_fails_the_harness_check(
         tmp_path, monkeypatch, run_dir_copy="# not the script that ran\n"
     )
     assert verdict["harness_matches_source"] is False
+
+
+def test_a_model_abstention_is_inconclusive_not_a_pass(lane) -> None:
+    """WI-043: a lane cannot certify a region the model declined to predict.
+
+    `unevaluable_gpos` in the prediction says "no measurement covers this GPO's
+    outcome". Grading those rows either way is wrong: if Windows applies such a
+    GPO, comparing it against an abstention yields `applied_only_observed` and
+    the lane reports a model defect that does not exist -- manufacturing a
+    finding out of the model being honest, which is the failure these controls
+    exist to prevent.
+
+    So the rows are excluded from the comparison and the verdict is
+    `inconclusive`. Not `pass`: some of what the scenario set out to check was
+    never graded, and a pass would say otherwise.
+    """
+    run_dir, candidate = _filtering_lane(lane)
+    prediction = json.loads((candidate / "prediction.json").read_text())
+    prediction["unevaluable_gpos"] = [
+        {
+            "gpo": "Studio-RSOP-UserFilterDenyRead",
+            "reasons": ["security_filter_read_denied_user_scope_unmeasured"],
+        }
+    ]
+    (candidate / "prediction.json").write_text(json.dumps(prediction))
+
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "inconclusive"
+    assert verdict["passed"] is False
+    assert verdict["comparison"]["conclusive"] is False
+    assert verdict["comparison"]["unevaluable_gpos"] == ["Studio-RSOP-UserFilterDenyRead"]
+
+
+def test_the_abstention_gate_is_off_when_nothing_is_unevaluable(lane) -> None:
+    """The control. Without it, the test above would pass on a lane that never certifies."""
+    verdict = _finalize(*_filtering_lane(lane))
+    assert verdict["state"] == "pass"
+    assert verdict["comparison"]["conclusive"] is True
+    assert verdict["comparison"]["unevaluable_gpos"] == []

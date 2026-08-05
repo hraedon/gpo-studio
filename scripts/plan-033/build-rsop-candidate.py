@@ -705,8 +705,10 @@ def _filtering_gpos(include_deny: bool) -> tuple[PlannedGpo, ...]:
                     "Windows will not apply this GPO. WI-033 gave SecurityFilter its "
                     "polarity and the model now says so too; before that fix the model "
                     "was told only about the allow, predicted that it applied, and -- at "
-                    "link order 1 -- that it WON the conflict. Certified as an ordinary "
-                    "agreement by rsop-user-observe-20260804065525-9254."
+                    "link order 1 -- that it WON the conflict. The gap was demonstrated "
+                    "by rsop-user-observe-20260804065525-9254 (expected-finding); the "
+                    "fix was certified as an ordinary agreement by "
+                    "rsop-user-observe-20260804150527-3868."
                 ),
             ),
         )
@@ -1343,12 +1345,27 @@ def prediction_document(
         build_query(scenario, domain, site_name, computer_name, user_name)
     )
 
-    applied = sorted(g.gpo_name for g in result.gpo_results if g.is_applied)
+    applied = sorted(g.gpo_name for g in result.gpo_results if g.status == "applied")
     denied = sorted(
         (
             {"gpo": g.gpo_name, "reasons": sorted(g.filtering_reasons)}
             for g in result.gpo_results
-            if not g.is_applied
+            if g.status == "blocked"
+        ),
+        key=lambda row: str(row["gpo"]),
+    )
+    # WI-043. A GPO the model declines to predict belongs in NEITHER list. Put
+    # it in `denied_gpos` and the finalizer compares an abstention against
+    # whatever Windows did and reports a FINDING -- manufacturing a model defect
+    # out of the model correctly saying "I do not know", which is the exact
+    # failure this lane's controls exist to prevent. Put it in `applied_gpos`
+    # and it asserts the opposite. It gets its own list, and the finalizer
+    # refuses to grade those rows.
+    unevaluable = sorted(
+        (
+            {"gpo": g.gpo_name, "reasons": sorted(g.filtering_reasons)}
+            for g in result.gpo_results
+            if g.status == "unevaluable"
         ),
         key=lambda row: str(row["gpo"]),
     )
@@ -1387,6 +1404,7 @@ def prediction_document(
         },
         "applied_gpos": applied,
         "denied_gpos": denied,
+        "unevaluable_gpos": unevaluable,
         "winners": winners,
         "warnings": sorted(result.warnings),
     }

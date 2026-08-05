@@ -867,7 +867,7 @@ not the same as "WP-6 is done":**
 | 2 | disabled link and disabled GPO side | **certified** (`disabled-block-enforced`) |
 | 3 | block inheritance | **certified** (same) |
 | 4 | enforced links above a block | **certified** (same — and it found WI-031) |
-| 5 | Apply+Read, missing Apply, explicit deny, group nesting | certified for the user account (WP-9) **and for the computer account** (`computer-security-filtering`, 2026-08-04). **Group nesting is user-side only** — a computer's membership lives in its machine token, minted at boot |
+| 5 | Apply+Read, missing Apply, explicit deny, group nesting | certified for the user account (WP-9) **and for the computer account** (`computer-security-filtering`, 2026-08-04). **A deny on READ is a second, independent gate** — certified on the computer 2026-08-05 by `computer-security-filtering-deny-read` (WI-040: measured as a divergence on `rsop-observe-20260805045139-3731`, fixed, re-certified). Its user-scope counterpart is **not** certified and the model now returns `unevaluable` there rather than guessing (WI-043). **Group nesting is user-side only** — a computer's membership lives in its machine token, minted at boot |
 | 6 | WMI true, false, and evaluation-error | **all three certified** — true/false by `wmi-filtering` (which found WI-035), evaluation-error by `wmi-filtering-error` (which found WI-039, the only undeclared finding this lane has produced) |
 | 7 | slow-link / safe-mode | **not covered.** The fields are accepted and never read (WI-036), and the estate cannot classify a link as slow — capping the vNIC does not work, measured |
 
@@ -878,9 +878,12 @@ DACL to verify *its own authoring* — which is how WI-033 was authored correctl
 and those are different claims.
 
 So the certified region is LSDOU, link order, block inheritance, enforcement,
-disabled links and sides, filtering on both principals, and WMI true/false.
+disabled links and sides, filtering on both principals — including a deny on
+Read for the computer — and WMI true/false/unevaluatable.
 What remains: **group nesting for the computer** (its token is minted at boot,
-so a run-created group is not in it), item 7 entirely, and item 8.
+so a run-created group is not in it), **the user-scope read deny** (WI-043 —
+unmeasured, and the model reports it as `unevaluable` rather than answering),
+item 7 entirely, and item 8.
 
 ### Topology
 
