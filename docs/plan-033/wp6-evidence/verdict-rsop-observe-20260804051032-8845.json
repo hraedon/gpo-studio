@@ -1,0 +1,89 @@
+{
+  "author_run_id": "rsop-author-20260804051028-7984",
+  "candidate": {
+    "expected.json": "85c75edaddcd3ea43e96fe579e8278b020ab739e9597a57ca6ca8b9d1106bb3e",
+    "prediction.json": "486ab2bc608b87b43a5996c7fb40f0a7054d7f8f6e78ea67e9a22b809edc370a",
+    "topology.json": "611cf8c137fbb6a795f6033ca55e31bba8e7986b1118d89fab671796030b9f46"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [],
+    "observed_applied": [
+      "Studio-RSOP-ChildA",
+      "Studio-RSOP-ChildB",
+      "Studio-RSOP-Control",
+      "Studio-RSOP-Domain",
+      "Studio-RSOP-Parent",
+      "Studio-RSOP-Site"
+    ],
+    "observed_foreign_gpos": [
+      "Default Domain Policy",
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "ChildBOnly": "1",
+      "Control": "present",
+      "Precedence": "childA",
+      "SiteOnly": "1"
+    },
+    "predicted_applied": [
+      "Studio-RSOP-ChildA",
+      "Studio-RSOP-ChildB",
+      "Studio-RSOP-Control",
+      "Studio-RSOP-Domain",
+      "Studio-RSOP-Parent",
+      "Studio-RSOP-Site"
+    ],
+    "predicted_winners": {
+      "ChildBOnly": "1",
+      "Control": "present",
+      "Precedence": "childA",
+      "SiteOnly": "1"
+    },
+    "value_findings": []
+  },
+  "control_problems": [],
+  "cse_completed": true,
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": true,
+  "run_id": "rsop-observe-20260804051032-8845",
+  "scenario_id": "lsdou-precedence",
+  "schema_version": 1,
+  "scope": "computer",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "1eb1ec3053a2432fd5c93d6808785ad70b16619b",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "92234ec941d4fb804fb29ac2ee6e233c3d48b58b20202f41aab863ab7ceb2f35",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "148ae24f7bc24af9422260ba8ee548e98e233376e237ac788928b6f57a1888bd",
+      "run-rsop-observe.ps1": "8feeb65bd38c71ddf31df86bade1fe767181e76695faf9fcc38ae3b87d93eec9",
+      "run-rsop-oracle.sh": "74262f77b49b69132fbddd03f65e5c4c41b3773ac1d7257c7727f821005e0c0b"
+    }
+  },
+  "state": "pass",
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "work_package": "WP-6B"
+}

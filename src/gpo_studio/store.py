@@ -121,6 +121,11 @@ def _security_filter(data: dict[str, Any]) -> SecurityFilter:
         inheritable=bool(data.get("inheritable", True)),
         target_type=target_type,
         sid=str(data.get("sid", "")),
+        # Absent means allow, which is what every row written before WI-033
+        # meant. Reading it is not optional: without this the field round-trips
+        # to False, so a deny authored in one session came back an ALLOW in the
+        # next -- the polarity silently inverted by persistence alone.
+        deny=bool(data.get("deny", False)),
     )
 
 

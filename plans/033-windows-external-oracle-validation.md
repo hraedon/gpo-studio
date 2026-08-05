@@ -6,7 +6,13 @@ source, including Services after WI-024; daily Exec TaskV2 and OS-filter
 endpoint paths are certified. The WP-3 account/audit/user-rights writer tranche
 is certified, with its broader corpus and areas plus the WP-1B manual GPMC
 edit/save leg remaining. Services is GPMC writer-conformance certified, not
-endpoint-applied.
+endpoint-applied. WP-3's Registry Values and Group Membership sections are
+certified on the estate; WP-6 has certified topology items 1-6 including
+security filtering for both the user and the computer account and all three WMI
+cases; WP-9 has certified the user side and both loopback modes. Six model
+defects were found and closed by those lanes (WI-031, WI-033, WI-035, WI-039,
+WI-040) together with WI-041 on the write path, each fixed only after Windows
+had ruled and each re-certified on the commit that ships the fix.
 The remediation scenario corpus for the Plans 025–032 divergence landed
 2026-07-29 (13 scenarios across gpp-services, security-template,
 rsop-topology, and ilt-os, plus the machine-readable test-platform registry —
@@ -546,29 +552,28 @@ build 26100**. Studio now emits a distinct deterministic backup ID, native v2
 `{BACKUP_ID}/DomainSysvol/GPO/...` layout. A fully Studio-generated,
 registry-both-sides candidate passed `Import-GPO -WhatIf`, actual
 `Import-GPO -CreateIfNeeded`, GroupPolicy registry readback, native
-`Backup-GPO`, side-version reconciliation, and strict cleanup. The certified
-clean-tree run was `wp2-native-import-20260726235913-9111`; every check in
-the local finalizer passed, with `dirty: false`.
+`Backup-GPO`, side-version reconciliation, and strict cleanup.
 
-> **Evidence binding broken (found 2026-08-03) — re-certification queued.**
-> This run cannot be verified from the repository. Its recorded source commit
-> `c8b4fa8ed37a86ee…` is not a valid object here, and neither is `5e0a6df` from
-> the superseded dirty-tree run: both were orphaned by squash-merge before the
-> issue #22 remedy landed, and unlike the four commits rescued as `evidence/*`
-> tags, WP-2's were already unreachable by the time that remedy ran, so they
-> cannot be retro-tagged. WP-2 also committed **no evidence manifest** — it has
-> no `docs/plan-033/wp2-evidence/` counterpart to `wp1b-evidence/` and
-> `wp3-evidence/`, so its bindings survive only as the hashes quoted below.
+> **Evidence binding repaired 2026-08-03 — re-certified on the lab estate.**
+> The original run `wp2-native-import-20260726235913-9111` could not be
+> verified from the repository: its recorded source commit
+> `c8b4fa8ed37a86ee…` was not a valid object here, and neither was `5e0a6df`
+> from the superseded dirty-tree run. Both were orphaned by squash-merge before
+> the issue #22 remedy landed, and unlike the four commits rescued as
+> `evidence/*` tags, WP-2's were already unreachable by the time that remedy
+> ran, so they could not be retro-tagged. WP-2 had also committed **no evidence
+> manifest**, so its bindings survived only as quoted hashes.
 >
-> Consequence, stated plainly: the `harness_matches_source` claim below is not
-> independently checkable, because the committed tree it compared against is
-> gone. The WP-2 result is a **prose record, not a verifiable certification**.
-> The implementation it describes is on `main` at `96f3aec`; that commit is
-> real, but it is not evidence that the run happened against it.
+> That is repaired, and not by argument — by re-running the lane. The
+> certifying run is now `wp2-native-import-20260803230132-8090`, committed as
+> `docs/plan-033/wp2-evidence/verification-estate.json`: eighteen checks, all
+> pass, `dirty: false`, `transport: psdirect`, bound to commit `db775b0`, which
+> resolves, with a matching `evidence/wp2-native-import-20260803230132-8090`
+> tag. `harness_matches_source` is independently checkable again, because the
+> tree it compared against is present.
 >
-> The capability-matrix rows for GPMC backup import/export continue to rest on
-> this record pending re-certification on the lab estate, where the run will
-> produce a committed manifest and an `evidence/` tag like every other lane.
+> The capability-matrix rows for GPMC backup import/export rest on that
+> manifest. The prose record above is retained as history, not as evidence.
 
 Native GPP emission is deliberately limited to the extension profiles backed
 by genuine GPMC captures: Drive Maps, Local Users and Groups, and Scheduled
@@ -665,6 +670,15 @@ detect deployment drift. That provenance defect was corrected before the
 certified run above.
 
 ## WP-3 — Security-template conformance
+
+**Expansion scoped 2026-08-04:** `docs/plan-033/wp3-expansion-design.md`. The
+certified tranche covers three of the module's eleven sections, all of them
+plain key/value or principal-list shapes. The six untouched sections split by
+risk: `Kerberos Policy`, `Registry Values` and `Group Membership` need no new
+comparison machinery, while `Registry Keys`, `File Security` and
+`Service General Setting` carry SDDL, which Windows canonicalises -- so an exact
+comparison would report a Microsoft normalisation as a Studio defect. Two cheap
+measurements are named there that settle the question before any row is written.
 
 Implementation status (2026-07-28): the byte codec and first Studio-origin
 writer tranche are certified against the frozen Windows Server 2025 oracle.
@@ -823,13 +837,15 @@ inside. Three conditions attach:
 
 ## WP-6 — Controlled RSOP and effective-rights oracle (computer scope)
 
-**Status 2026-08-04: partially delivered.** WP-6A reconciled the platform
-registry; WP-6B built the lane and certified `lsdou-precedence` over three
-identical passes — the first external check `rsop.py` has ever had. It covers
-LSDOU ordering, same-container link order and non-conflicting inheritance, and
-nothing else: items 2, 5 and 6 of the topology below are untested, their corpus
-scenarios being blocked or user-scope. Findings and the answered open questions
-are in `docs/plan-033/wp6b-results.md`; WI-026 is open.
+**Status 2026-08-05: partially delivered.** WP-6A reconciled the platform
+registry; WP-6B built the lane — the first external check `rsop.py` has ever
+had — and it has since certified items 1 through 6 of the topology below.
+Item 7 (slow-link/safe-mode) and work item 8 (effective rights against real
+ACEs) remain uncovered, as does group nesting for the computer account. The
+authoritative breakdown is the item-by-item table further down; read that
+rather than this paragraph, and keep the two in agreement. Findings and the
+answered open questions are in `docs/plan-033/wp6b-results.md`. WI-026 was
+found by this lane and is fixed.
 
 Do not use whatever 3–5 GPOs happen to exist. Create a deterministic topology
 with intentional conflicts so that every expected winner is known.
@@ -841,6 +857,30 @@ which is a committed follow-up and not an optional one. Nothing below may be rea
 as certifying user-side resolution, and no capability WP-6 certifies may be
 recorded in `docs/capability-matrix.md` without the words *computer scope*.
 See `docs/plan-033/rsop-oracle-design.md`, which measured the estate first.
+
+**Status 2026-08-04 — partially executed. Item by item, because "WP-6 ran" is
+not the same as "WP-6 is done":**
+
+| # | topology requirement | state |
+|---|---|---|
+| 1 | LSDOU and same-container link order | **certified** (`lsdou-precedence`) |
+| 2 | disabled link and disabled GPO side | **certified** (`disabled-block-enforced`) |
+| 3 | block inheritance | **certified** (same) |
+| 4 | enforced links above a block | **certified** (same — and it found WI-031) |
+| 5 | Apply+Read, missing Apply, explicit deny, group nesting | certified for the user account (WP-9) **and for the computer account** (`computer-security-filtering`, 2026-08-04). **Group nesting is user-side only** — a computer's membership lives in its machine token, minted at boot |
+| 6 | WMI true, false, and evaluation-error | **all three certified** — true/false by `wmi-filtering` (which found WI-035), evaluation-error by `wmi-filtering-error` (which found WI-039, the only undeclared finding this lane has produced) |
+| 7 | slow-link / safe-mode | **not covered.** The fields are accepted and never read (WI-036), and the estate cannot classify a link as slow — capping the vNIC does not work, measured |
+
+Work item 8 (validating effective rights against `Get-Acl`, `Get-GPPermission
+-All` and real `CR`/`RP` ACEs) is **not** covered either. The lane reads the raw
+DACL to verify *its own authoring* — which is how WI-033 was authored correctly
+— but it does not compare Studio's effective-rights model against those ACEs,
+and those are different claims.
+
+So the certified region is LSDOU, link order, block inheritance, enforcement,
+disabled links and sides, filtering on both principals, and WMI true/false.
+What remains: **group nesting for the computer** (its token is minted at boot,
+so a run-created group is not in it), item 7 entirely, and item 8.
 
 ### Topology
 
@@ -974,6 +1014,28 @@ different adapter.
 - Independent review has no unresolved critical/high findings.
 
 ## WP-9 — User-scope RSOP and loopback
+
+**Status: executed 2026-08-04, acceptance partially met.** Five scenarios
+certified against the estate's client (`docs/plan-033/wp9-results.md`):
+`user-side-disabled`, `loopback-merge` and `loopback-replace` as `pass`, plus
+**user-side security filtering** — `user-security-filtering` as `pass` and
+`user-security-filtering-deny`, which certified an `expected-finding` (WI-033),
+was fixed, and re-ran to `pass` on `rsop-user-observe-20260804150527-3868`. The
+interactive session is established from a checkpoint by script, as work item 1
+required.
+
+Work item 2's **separate token-group collection** is covered: the lane collects
+the principal's groups twice and independently — from the session token and
+from the directory's `tokenGroups` — never reusing the computer token, and
+`finalize_rsop_user_run.py` refuses a nesting prediction the session token does
+not corroborate. What that establishes is *direct* group membership; a
+multi-level group-in-group chain is not exercised, and the LDAP half of the
+check currently fails open when the query errors (WI-042).
+
+Outstanding against the acceptance criteria below: a second run from the
+checkpoint reproducing a result has been demonstrated for the lane as a whole,
+not yet as a scripted acceptance step. The capability matrix keeps a coverage
+qualifier for the scenarios named there, not for token collection.
 
 Created 2026-08-03 when WP-6 was ruled computer-scope-only. This work package
 exists so that decision is a deferral with a name attached rather than a quiet

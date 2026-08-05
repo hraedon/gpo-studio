@@ -65,12 +65,26 @@ TargetType = Literal["user", "group", "computer"]
 
 @dataclass(frozen=True, slots=True)
 class SecurityFilter:
+    """One entry of a GPO's security filtering.
+
+    ``deny`` carries the ACE's polarity, and its absence was a real defect:
+    without it a GPO whose DACL held both an allow and a deny for the same
+    principal was modelled as applying, so the model said a GPO would reach a
+    machine that Windows keeps it off. Demonstrated against a real client
+    (WI-033, run ``rsop-user-observe-20260804065525-9254``).
+
+    Defaulting to ``False`` keeps every existing caller meaning what it meant:
+    an entry with no polarity stated is an allow, which is what the readers
+    that predate this field were producing.
+    """
+
     id: str
     principal: str
     permission: Literal["apply", "read"] = "apply"
     inheritable: bool = True
     target_type: TargetType = "group"
     sid: str = ""
+    deny: bool = False
 
 
 @dataclass(frozen=True, slots=True)

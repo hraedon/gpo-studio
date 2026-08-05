@@ -11,6 +11,7 @@ convention shared by :mod:`registry_pol` and :mod:`sddl`.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
@@ -368,6 +369,12 @@ def extract_privilege_rights(template: SecurityTemplate) -> tuple[PrivilegeRight
 # ---------------------------------------------------------------------------
 
 
+#: The `key` a diff carries for a line the parser could not read. It is not a
+#: key in the INF sense -- these sections have none -- and it is spelled to be
+#: obvious in output rather than to look like one.
+_UNPARSED_KEY = "<unparsed line>"
+
+
 @dataclass(frozen=True, slots=True)
 class TemplateDiff:
     section: str
@@ -435,6 +442,56 @@ def diff_templates(
                 )
             )
 
+        # Lines this parser cannot read are still compared, because "cannot
+        # parse it" must not come out as "nothing changed".
+        #
+        # `Registry Keys`, `File Security` and `Service General Setting` carry
+        # bare `"path",mode,"SDDL"` lines rather than `key = value`, so their
+        # entries land in `unknown_lines` and the loop above never sees them.
+        # Before this, two templates differing only in an ACL trustee --
+        # `D:PAR(A;CI;KA;;;BA)` against `D:PAR(A;CI;KA;;;WD)`, Administrators
+        # against **Everyone** -- compared as identical, and a reviewer diffing
+        # them was told nothing had changed.
+        #
+        # Reported as one `removed` and one `added` rather than a `modified`
+        # pair, deliberately. Calling it a modification would claim these two
+        # lines describe the same entry, and identifying the entry means parsing
+        # the path out -- which is exactly what this module cannot do. Saying
+        # "this line went, that line arrived" is the strongest true statement
+        # available. See WI-038.
+        # COUNTED, NOT JUST MEMBERSHIP-TESTED.
+        #
+        # `line not in cur_unknown` cannot see multiplicity, so a section
+        # holding the same ACL line twice and then losing one of them diffed as
+        # UNCHANGED -- an entry disappeared from the template and the diff said
+        # nothing. Duplicate lines are ordinary here: `[Registry Values]` and
+        # the ACL sections repeat identical entries across scopes, which is
+        # exactly where this would bite.
+        base_unknown = Counter(base_sec.unknown_lines) if base_sec is not None else Counter()
+        cur_unknown = Counter(cur_sec.unknown_lines) if cur_sec is not None else Counter()
+        for line, count in sorted((base_unknown - cur_unknown).items()):
+            for _ in range(count):
+                diffs.append(
+                    TemplateDiff(
+                        section=section_name,
+                        key=_UNPARSED_KEY,
+                        baseline_value=line,
+                        current_value=None,
+                        change_type="removed",
+                    )
+                )
+        for line, count in sorted((cur_unknown - base_unknown).items()):
+            for _ in range(count):
+                diffs.append(
+                    TemplateDiff(
+                        section=section_name,
+                        key=_UNPARSED_KEY,
+                        baseline_value=None,
+                        current_value=line,
+                        change_type="added",
+                    )
+                )
+
     return tuple(diffs)
 
 
@@ -450,6 +507,7 @@ def validate_security_template(
 
     Checks:
     - ``[Version]`` section present with a signature.
+    - Sections carrying lines the parser could not read.
     - No empty section names.
     - Password policy consistency (min_length > 0 if complexity enabled).
     - Lockout policy consistency (duration >= reset window).
@@ -495,6 +553,37 @@ def validate_security_template(
                     "warning",
                     "unknown_section",
                     f"Unknown section: {s.name}",
+                    s.name,
+                )
+            )
+
+    # A section carrying lines this parser could not read is reported, because
+    # validation that stays silent about them is the more dangerous half of
+    # WI-038: `validate_security_template` returned NO ISSUES for a template
+    # whose registry, file and service ACLs were arbitrary, simply because it
+    # could not see them.
+    #
+    # A warning rather than an error: the lines are preserved verbatim through a
+    # round trip, so a template carrying them is not malformed -- it is only
+    # partly understood, and the caller deserves to know which part.
+    for s in template.sections:
+        # COMMENTS ARE NOT UNPARSED CONTENT. They land in `unknown_lines`
+        # because that is how they survive a round trip verbatim, which is
+        # right -- but counting them here told an operator their template held
+        # entries this module did not understand when all it held was remarks.
+        # A warning that cries wolf on an ordinary comment is worse than no
+        # warning, because the real ones stop being read.
+        unparsed = [line for line in s.unknown_lines if not line.startswith(";")]
+        if unparsed:
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "unparsed_entries",
+                    (
+                        f"{len(unparsed)} line(s) in section {s.name!r} are preserved "
+                        "verbatim but not understood, so they are not validated and are "
+                        "compared only as whole lines."
+                    ),
                     s.name,
                 )
             )

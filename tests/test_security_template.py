@@ -958,3 +958,131 @@ def test_normalized_format_separates_sections_with_blank_line() -> None:
     )
     formatted = format_security_template(template)
     assert "[Version]\nsignature = \"$CHICAGO$\"\n\n[System Access]" in formatted
+
+
+class TestUnparsedEntriesAreVisible:
+    """WI-038: the sections this parser cannot read must not read as unchanged.
+
+    `Registry Keys`, `File Security` and `Service General Setting` carry bare
+    `"path",mode,"SDDL"` lines rather than `key = value`. They are preserved
+    verbatim, and before this they were invisible to every operation the module
+    offers -- including the one an operator would rely on to spot exactly the
+    change these tests are about.
+    """
+
+    def _template(self, sddl: str) -> str:
+        return (
+            "[Unicode]\n"
+            "Unicode=yes\n"
+            "[Registry Keys]\n"
+            f'"MACHINE\\SOFTWARE\\A",2,"{sddl}"\n'
+            "[Version]\n"
+            'signature="$CHICAGO$"\n'
+        )
+
+    def test_an_acl_trustee_change_is_reported(self) -> None:
+        """Administrators versus Everyone must not compare as identical."""
+        baseline = parse_security_template(self._template("D:PAR(A;CI;KA;;;BA)"))
+        current = parse_security_template(self._template("D:PAR(A;CI;KA;;;WD)"))
+
+        diffs = diff_templates(baseline, current)
+
+        assert diffs, "a changed ACL trustee produced no diff at all"
+        kinds = {d.change_type for d in diffs}
+        assert kinds == {"removed", "added"}
+        assert all(d.section == "Registry Keys" for d in diffs)
+        removed = next(d for d in diffs if d.change_type == "removed")
+        added = next(d for d in diffs if d.change_type == "added")
+        assert removed.baseline_value is not None and ";BA)" in removed.baseline_value
+        assert added.current_value is not None and ";WD)" in added.current_value
+
+    def test_identical_unparsed_lines_produce_no_diff(self) -> None:
+        """The report must be a difference detector, not a noise generator."""
+        text = self._template("D:PAR(A;CI;KA;;;BA)")
+        assert diff_templates(parse_security_template(text), parse_security_template(text)) == ()
+
+    def test_validation_says_the_section_is_not_understood(self) -> None:
+        """Silence here was the more dangerous half: arbitrary ACLs validated clean."""
+        template = parse_security_template(self._template("D:PAR(A;CI;KA;;;WD)"))
+
+        issues = validate_security_template(template)
+
+        unparsed = [i for i in issues if i.code == "unparsed_entries"]
+        assert len(unparsed) == 1
+        assert unparsed[0].severity == "warning"
+        assert unparsed[0].path == "Registry Keys"
+
+    def test_a_fully_understood_template_gains_no_warning(self) -> None:
+        """The warning has to mean something, so it must not fire on everything."""
+        template = parse_security_template(
+            "[Unicode]\nUnicode=yes\n"
+            "[System Access]\nMinimumPasswordLength = 14\n"
+            "[Version]\nsignature=\"$CHICAGO$\"\n"
+        )
+        issues = validate_security_template(template)
+        assert [i for i in issues if i.code == "unparsed_entries"] == []
+
+
+class TestUnparsedLineHandling:
+    """Review findings 5 and 6: what `unknown_lines` says, and what it counts."""
+
+    @staticmethod
+    def _template(section_body: str) -> str:
+        return f"[Unicode]\nUnicode=yes\n[Registry Values]\n{section_body}"
+
+    def test_a_comment_is_not_reported_as_unparsed(self) -> None:
+        """Finding 5. Comments live in `unknown_lines` so they round-trip.
+
+        Counting them told an operator their template held entries this module
+        did not understand, when all it held was remarks.
+        """
+        template = parse_security_template(
+            self._template("; a perfectly ordinary comment\nMACHINE\\Foo=1,1\n")
+        )
+        issues = validate_security_template(template)
+        assert not [i for i in issues if i.code == "unparsed_entries"]
+
+    def test_genuinely_unparsed_content_is_still_reported(self) -> None:
+        """The control. Suppressing the comment must not suppress the warning."""
+        template = parse_security_template(
+            self._template("this line has no equals sign\nMACHINE\\Foo=1,1\n")
+        )
+        issues = validate_security_template(template)
+        assert [i for i in issues if i.code == "unparsed_entries"]
+
+    def test_a_comment_beside_real_unparsed_content_is_not_counted(self) -> None:
+        """The count has to be of the thing warned about, not of both."""
+        template = parse_security_template(
+            self._template("; a comment\nthis line has no equals sign\n")
+        )
+        issue = next(
+            i for i in validate_security_template(template) if i.code == "unparsed_entries"
+        )
+        assert "1 line(s)" in issue.message
+
+    def test_removing_one_of_two_identical_lines_is_a_diff(self) -> None:
+        """Finding 6. Membership cannot see multiplicity.
+
+        A section holding the same line twice and then losing one of them
+        diffed as UNCHANGED -- an entry left the template and the diff said
+        nothing. Duplicates are ordinary in the ACL and registry sections.
+        """
+        baseline = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        current = parse_security_template(self._template("duplicate line\n"))
+        diffs = diff_templates(baseline, current)
+        removed = [d for d in diffs if d.change_type == "removed"]
+        assert len(removed) == 1
+        assert removed[0].baseline_value == "duplicate line"
+
+    def test_identical_duplicates_still_diff_as_unchanged(self) -> None:
+        """The control: without it, the test above passes on a comparator that
+        reports every duplicate as removed."""
+        baseline = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        current = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        assert not diff_templates(baseline, current)
+
+    def test_adding_a_second_copy_is_a_diff(self) -> None:
+        baseline = parse_security_template(self._template("duplicate line\n"))
+        current = parse_security_template(self._template("duplicate line\nduplicate line\n"))
+        added = [d for d in diff_templates(baseline, current) if d.change_type == "added"]
+        assert len(added) == 1

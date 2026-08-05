@@ -352,6 +352,53 @@ def test_gpo_predicted_but_not_applied_is_a_finding(lane) -> None:
     assert verdict["comparison"]["applied_only_predicted"] == ["Studio-RSOP-Site"]
 
 
+def test_declared_divergence_is_an_expected_finding_and_still_not_a_pass(lane) -> None:
+    """The WMI row demonstrates a capability the model does not have.
+
+    `_gpo_filter_status` treats a WMI filter as a warning and applies the GPO
+    anyway, so a filter that evaluates FALSE on the target is predicted to
+    apply. Declaring that in advance separates a demonstrated gap from a
+    surprise -- and must not soften it into a pass, because the model is still
+    telling an operator that settings will arrive when they will not.
+    """
+    run_dir, candidate = lane(
+        observation=_observation(
+            observed_values=[
+                {"value_name": "ChildBOnly", "value": "1"},
+                {"value_name": "Control", "value": "present"},
+                {"value_name": "Precedence", "value": "childA"},
+                {"value_name": "SiteOnly", "value": "1"},
+                {"value_name": "WmiFalseOnly", "value": "1"},
+            ]
+        )
+    )
+    expected = json.loads((candidate / "expected.json").read_text())
+    expected["expect_finding"] = "rsop.py cannot evaluate a WMI filter"
+    (candidate / "expected.json").write_text(json.dumps(expected))
+
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "expected-finding"
+    assert verdict["passed"] is False
+    assert verdict["expected_finding"].startswith("rsop.py")
+    assert [f["value_name"] for f in verdict["comparison"]["value_findings"]] == ["WmiFalseOnly"]
+
+
+def test_declared_divergence_that_does_not_happen_is_not_a_pass(lane) -> None:
+    """A stale declaration must not certify.
+
+    Either the model gained a capability nobody recorded, or the row was never
+    authored. Both need a human, and neither is a pass.
+    """
+    run_dir, candidate = lane()
+    expected = json.loads((candidate / "expected.json").read_text())
+    expected["expect_finding"] = "rsop.py cannot evaluate a WMI filter"
+    (candidate / "expected.json").write_text(json.dumps(expected))
+
+    verdict = _finalize(run_dir, candidate)
+    assert verdict["state"] == "unexpected-agreement"
+    assert verdict["passed"] is False
+
+
 def test_lane_failure_suppresses_the_comparison_entirely(lane) -> None:
     """A run that cannot be trusted must not also publish a verdict about
     Studio -- in either direction. A 'pass' from a broken lane is worse than
@@ -491,3 +538,92 @@ def test_authored_topology_mismatch_is_a_lane_failure(lane) -> None:
     assert verdict["state"] == "lane-failure"
     assert verdict["comparison"] is None
     assert any("does not match intent" in p for p in verdict["lane_problems"])
+
+
+def _minimal_run(tmp_path: Path) -> tuple[Path, Path]:
+    """A run directory complete enough for the finalizer to reach the end."""
+    run_dir = tmp_path / "run"
+    (run_dir / "author").mkdir(parents=True)
+    (run_dir / "observe").mkdir(parents=True)
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (run_dir / "author" / "author-state.json").write_text(
+        json.dumps(_author_state()), encoding="utf-8"
+    )
+    (run_dir / "author" / "cleanup-result.json").write_text(
+        json.dumps(_cleanup_result()), encoding="utf-8"
+    )
+    (run_dir / "observe" / "observation.json").write_text(
+        json.dumps(_observation()), encoding="utf-8"
+    )
+    (candidate / "prediction.json").write_text(json.dumps(_prediction()), encoding="utf-8")
+    (candidate / "expected.json").write_text(json.dumps(_expected()), encoding="utf-8")
+    (candidate / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+    (run_dir / "author" / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+    return run_dir, candidate
+
+
+def _finalize_with_local_file(
+    tmp_path: Path, monkeypatch, *, run_dir_copy: str | None
+) -> dict[str, Any]:
+    """Drive the harness check with one locally-executed script.
+
+    ``run_dir_copy`` is what the lane is pretended to have copied into the run
+    directory: the real bytes, altered bytes, or nothing at all.
+    """
+    run_dir, candidate = _minimal_run(tmp_path)
+    source_rel = "scripts/plan-033/build-rsop-candidate.py"
+
+    monkeypatch.setattr(finalize_rsop_run, "DEPLOYED_FILES", {})
+    monkeypatch.setattr(
+        finalize_rsop_run, "LOCAL_FILES", {"build-rsop-candidate.py": source_rel}
+    )
+    monkeypatch.setattr(finalize_rsop_run, "tag_evidence_commit", lambda *a, **k: "tag")
+
+    def fake_run(args: list[str], **kwargs: Any):
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(finalize_rsop_run.subprocess, "run", fake_run)
+
+    if run_dir_copy is not None:
+        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8")
+
+    finalize_rsop_run.main(
+        [
+            str(run_dir),
+            "--candidate-root",
+            str(candidate),
+            "--no-tag",
+            "--repo-root",
+            str(_REPO_ROOT),
+        ]
+    )
+    return json.loads((run_dir / "rsop-verdict.json").read_text(encoding="utf-8"))
+
+
+def test_harness_check_passes_when_the_local_copy_matches(tmp_path: Path, monkeypatch) -> None:
+    """The control. Without it the two tests below pass on a check that always fails."""
+    real = (_REPO_ROOT / "scripts/plan-033/build-rsop-candidate.py").read_text(encoding="utf-8")
+    verdict = _finalize_with_local_file(tmp_path, monkeypatch, run_dir_copy=real)
+    assert verdict["harness_matches_source"] is True
+
+
+def test_a_missing_local_copy_fails_the_harness_check(tmp_path: Path, monkeypatch) -> None:
+    """WI-042: this could not fail.
+
+    The finalizer compared ``repo_root / source`` against itself for the
+    locally-executed half, so a run that never copied its scripts -- or copied
+    them and had them altered afterwards -- still certified
+    ``harness_matches_source``. The verdict asserted a binding nothing checked.
+    """
+    verdict = _finalize_with_local_file(tmp_path, monkeypatch, run_dir_copy=None)
+    assert verdict["harness_matches_source"] is False
+
+
+def test_an_altered_local_copy_fails_the_harness_check(tmp_path: Path, monkeypatch) -> None:
+    verdict = _finalize_with_local_file(
+        tmp_path, monkeypatch, run_dir_copy="# not the script that ran\n"
+    )
+    assert verdict["harness_matches_source"] is False

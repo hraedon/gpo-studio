@@ -233,6 +233,9 @@ def _links_equal(a: GPOLink, b: GPOLink) -> bool:
 def _security_filters_equal(a: SecurityFilter, b: SecurityFilter) -> bool:
     return (
         a.permission == b.permission
+        # Flipping allow to deny is the largest change a filter can undergo, and
+        # it was the one change this reported as "no change" (WI-041).
+        and a.deny == b.deny
         and a.inheritable == b.inheritable
         and a.target_type == b.target_type
         and a.principal.casefold() == b.principal.casefold()

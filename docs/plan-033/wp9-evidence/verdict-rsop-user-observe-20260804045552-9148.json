@@ -1,0 +1,93 @@
+{
+  "author_run_id": "rsop-author-20260804045548-6549",
+  "candidate": {
+    "expected.json": "1c2ac573521edfa84c4e6da52b5bda309b2d61690528e3f033022fbe3fe2e1c1",
+    "prediction.json": "4359942e7830d1d4ba2eb468ddb327a6a3e0675b95f9b68bd14328083b3eff58",
+    "topology.json": "2c7c7dc2656369eb0721ee67575a5e2d1ec42197444c4497d520dca42ada7695"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [
+      "Studio-RSOP-Loopback"
+    ],
+    "applied_set_difference_is_advisory": true,
+    "observed_applied_user_side": [
+      "Studio-RSOP-CompLocation",
+      "Studio-RSOP-UserControl",
+      "Studio-RSOP-UserLocation"
+    ],
+    "observed_foreign_gpos": [
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "CompOnly": "1",
+      "Control": "present",
+      "Loop": "computerLocation",
+      "UserOnly": "1"
+    },
+    "predicted_applied_either_side": [
+      "Studio-RSOP-CompLocation",
+      "Studio-RSOP-Loopback",
+      "Studio-RSOP-UserControl",
+      "Studio-RSOP-UserLocation"
+    ],
+    "predicted_winners": {
+      "CompOnly": "1",
+      "Control": "present",
+      "Loop": "computerLocation",
+      "UserOnly": "1"
+    },
+    "value_findings": []
+  },
+  "control_problems": [],
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "loopback": {
+    "control_ok": true,
+    "intended": "merge",
+    "observed": "merge"
+  },
+  "passed": true,
+  "principal": "labauto1",
+  "principal_sid": "S-1-5-21-343068944-2904821402-3322616572-1106",
+  "run_id": "rsop-user-observe-20260804045552-9148",
+  "scenario_id": "loopback-merge",
+  "schema_version": 1,
+  "scope": "user",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "e3c8ffd811c3cac92d9ec50d0b3918da5d643f01",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "92234ec941d4fb804fb29ac2ee6e233c3d48b58b20202f41aab863ab7ceb2f35",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "148ae24f7bc24af9422260ba8ee548e98e233376e237ac788928b6f57a1888bd",
+      "run-rsop-user-observe.ps1": "f90d4a98cc047020c415f38cfe030ec8a8b2fc50168ffe4ddc2abb2598fca752",
+      "run-rsop-user-oracle.sh": "399b4d682a088d95e28867fc98545eaa5654f13bfacc6ed0c9a17d9dd74898ef"
+    }
+  },
+  "state": "pass",
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "user_policy_completed": true,
+  "work_package": "WP-9"
+}

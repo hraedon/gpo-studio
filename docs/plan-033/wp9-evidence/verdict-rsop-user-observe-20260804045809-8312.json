@@ -1,0 +1,89 @@
+{
+  "author_run_id": "rsop-author-20260804045805-6369",
+  "candidate": {
+    "expected.json": "2b75848141d305d871613ef52b249e5d7bbd72f1ace9d88e2d34696c9eb2f656",
+    "prediction.json": "e65265eaa70ba8851a5e15759877e94f6941bc7131eca6b00ff2e68bcb51b021",
+    "topology.json": "42ead8e69b2b61f51e7c372f28e447c39b59e17980b71cfde3afd4501deb3531"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [
+      "Studio-RSOP-Loopback"
+    ],
+    "applied_set_difference_is_advisory": true,
+    "observed_applied_user_side": [
+      "Studio-RSOP-CompLocation",
+      "Studio-RSOP-UserControl"
+    ],
+    "observed_foreign_gpos": [
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "CompOnly": "1",
+      "Control": "present",
+      "Loop": "computerLocation"
+    },
+    "predicted_applied_either_side": [
+      "Studio-RSOP-CompLocation",
+      "Studio-RSOP-Loopback",
+      "Studio-RSOP-UserControl"
+    ],
+    "predicted_winners": {
+      "CompOnly": "1",
+      "Control": "present",
+      "Loop": "computerLocation"
+    },
+    "value_findings": []
+  },
+  "control_problems": [],
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "loopback": {
+    "control_ok": true,
+    "intended": "replace",
+    "observed": "replace"
+  },
+  "passed": true,
+  "principal": "labauto1",
+  "principal_sid": "S-1-5-21-343068944-2904821402-3322616572-1106",
+  "run_id": "rsop-user-observe-20260804045809-8312",
+  "scenario_id": "loopback-replace",
+  "schema_version": 1,
+  "scope": "user",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "e3c8ffd811c3cac92d9ec50d0b3918da5d643f01",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "92234ec941d4fb804fb29ac2ee6e233c3d48b58b20202f41aab863ab7ceb2f35",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "148ae24f7bc24af9422260ba8ee548e98e233376e237ac788928b6f57a1888bd",
+      "run-rsop-user-observe.ps1": "f90d4a98cc047020c415f38cfe030ec8a8b2fc50168ffe4ddc2abb2598fca752",
+      "run-rsop-user-oracle.sh": "399b4d682a088d95e28867fc98545eaa5654f13bfacc6ed0c9a17d9dd74898ef"
+    }
+  },
+  "state": "pass",
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "user_policy_completed": true,
+  "work_package": "WP-9"
+}

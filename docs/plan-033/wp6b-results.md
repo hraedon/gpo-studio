@@ -36,6 +36,20 @@ I would have changed correct behaviour to match a wrong expectation.
 
 The sections below are the original write-up of the first certification.
 
+## Re-certified 2026-08-04 on the WP-9 commit
+
+WP-9 changed the authoring half this lane shares -- the OU tree is resolved by
+parent key rather than by position, the user object is moved and restored, and
+values outside the lane's policy key can be authored. A certification binds the
+harness that produced it, so a shared change means the previous verdicts
+describe code that no longer ships.
+
+Both scenarios were re-run against the estate and both `pass` at commit
+`1eb1ec3`: `rsop-observe-20260804051032-8845` (`lsdou-precedence`) and
+`rsop-observe-20260804051228-2926` (`disabled-block-enforced`), verdicts
+committed beside the originals. Identical results to the first certification,
+including the WI-031 fix's `Block=domainEnforced`.
+
 ## The headline: the prediction was right
 
 For the `lsdou-precedence` topology — site, domain, parent OU, child OU, with a
@@ -102,6 +116,27 @@ choice, because a lane that fed the model an object DN would have predicted
 "nothing applies", observed six applied GPOs, and reported a spectacular model
 failure that was really a caller error. Sequencing the fix after the measurement
 was what kept those two things distinguishable.
+
+## WMI filtering: a second capability gap, declared in advance
+
+Certified run `rsop-observe-20260804070708-6831`, state `expected-finding`.
+
+`_gpo_filter_status` recorded a WMI filter as a warning and applied the GPO
+regardless, so the model predicted `Wmi=false` and `WmiFalseOnly=1` from a GPO
+whose filter can never be true. Windows resolved `Wmi=true` and never wrote
+`WmiFalseOnly` — exactly the two divergences the candidate declared before the
+run.
+
+**Fixed and re-certified the same day** (`rsop-observe-20260804151624-6393`,
+`pass`). A caller can now supply how a filter evaluated and precedence honours
+it; an unevaluated filter still applies and still warns. See WI-035.
+
+The true-filter control is what makes it a finding rather than a shrug. A WMI
+filter is authored here as a raw `msWMI-Som` object with a length-prefixed
+`msWMI-Parm2`, and a malformed one fails closed — indistinguishable from the
+false row working. `Wmi=true` and `WmiTrueOnly=1` on the client prove the
+authoring is sound before the absence of `WmiFalseOnly` is allowed to mean
+anything.
 
 ## The open questions, answered
 

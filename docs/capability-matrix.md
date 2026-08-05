@@ -365,15 +365,18 @@ v2 format (`Backup.xml`, `{BACKUP_ID}/DomainSysvol/GPO/...` layout); the legacy
 Plan 033 WP-2 certified the native v2 writer on Windows Server 2025 build 26100:
 a fully Studio-generated, registry-both-sides candidate passed `Import-GPO
 -WhatIf`, actual `Import-GPO -CreateIfNeeded`, GroupPolicy registry readback,
-native `Backup-GPO`, side-version reconciliation, and strict cleanup (certified
-run `wp2-native-import-20260726235913-9111`). The import reader handles both the
-native v2 layout and the legacy format for backwards compatibility with pre-WP-2
-Studio archives.
+native `Backup-GPO`, side-version reconciliation, and strict cleanup. The import
+reader handles both the native v2 layout and the legacy format for backwards
+compatibility with pre-WP-2 Studio archives.
 
-**The WP-2 run's evidence binding is broken and the run is queued for
-re-certification** — see `plans/033-windows-external-oracle-validation.md`. This
-row's status rests on the implementation commit `96f3aec` and the prose record,
-not on a verifiable manifest.
+**Re-certified 2026-08-03** on the lab estate as run
+`wp2-native-import-20260803230132-8090`: all eighteen checks pass against a
+clean tree, bound to commit `db775b0` with an `evidence/` tag, and committed as
+`docs/plan-033/wp2-evidence/verification-estate.json`. This row now rests on a
+verifiable manifest like every other lane. The earlier run
+`wp2-native-import-20260726235913-9111` is superseded — its source commit was
+orphaned by squash-merge and could never be retro-tagged, which is what the
+re-certification existed to repair.
 
 - **API:** `POST /api/backups/import`.
 - Multi-GPO backups are rejected.
@@ -506,7 +509,8 @@ has yet checked.
 
 Three consequences worth stating plainly:
 
-- **`rsop.py` has now been compared against `gpresult` — in one narrow region.**
+- **`rsop.py` has now been compared against `gpresult` — in two narrow regions,
+  one per scope.**
   WP-6B ran on 2026-08-04 and passed three times with identical results:
   for LSDOU ordering, same-container link order and non-conflicting
   inheritance, **on the computer side**, the prediction matched Windows exactly
@@ -516,12 +520,40 @@ Three consequences worth stating plainly:
   It remains **not** an operator-facing capability, for three separate reasons,
   and all three must go before the qualifier does:
 
-  1. **Scope.** WP-6 is computer-scope only by the 2026-08-03 ruling. User-scope
-     resolution and loopback (merge and replace) are unverified until WP-9.
-  2. **Coverage.** Security filtering, WMI filters, block inheritance and
-     enforcement are absent from the certified topology. The corpus scenarios
-     covering them are blocked or user-scope, so a clean WP-6B says nothing
-     about any of them.
+  1. **Scope.** ~~WP-6 is computer-scope only~~ — **closed 2026-08-04 by WP-9**
+     (`docs/plan-033/wp9-results.md`). User-side resolution, loopback merge and
+     loopback replace each certified `pass` against a real 26200 client, with
+     the prediction committed before application and Windows' own event 5311
+     confirming the loopback mode it used. What remains unverified on the user
+     side is *coverage*, not scope: WMI filters and slow-link behaviour are
+     untested there as they are on the computer side, so reason 2 below now
+     carries both scopes. Security filtering on user principals **is** covered
+     — see reason 2.
+  2. **Coverage**, and it is now the qualifier that carries the weight. As of
+     2026-08-04 the certified topologies cover LSDOU order, link order, block
+     inheritance, enforcement, disabled links and sides (computer side), and
+     user-side resolution, loopback merge/replace and security filtering (user
+     side). What they do **not** cover, and what the oracle found instead:
+     - ~~**deny ACEs**~~ — **fixed 2026-08-04** (WI-033). The gap was
+       demonstrated against a real client first, then closed: `SecurityFilter`
+       carries polarity and a deny wins over an allow for the same principal;
+     - ~~**WMI filters**~~ — **fixed 2026-08-04** (WI-035). Demonstrated first,
+       then closed: a caller can supply how a filter evaluated and precedence
+       honours it. An *unevaluated* filter still applies and still warns, so
+       the remaining uncertainty stays visible rather than being guessed away;
+     - **slow link and safe mode** — the fields are accepted and never read
+       (WI-036). Capping the client's vNIC does not produce a slow link either:
+       Group Policy reads the adapter's advertised speed, measured 2026-08-04.
+
+     Those two shared a failure direction — the model saying a GPO applies when
+     it does not, for the two most common ways a GPO is scoped out of a machine
+     — and **both are now closed**, each demonstrated against a real client
+     before being fixed and re-certified afterwards.
+
+     The qualifier stays for what remains: slow link and safe mode are still
+     accepted and never read, an unevaluated WMI filter is still an assumption
+     the caller must supply, and no certified topology covers user-side WMI or
+     slow-link behaviour at all.
   3. **Surfacing is a decision nobody has made.** It is reachable from no API
      endpoint, which is correct for now (WI-030).
 

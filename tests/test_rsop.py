@@ -1072,3 +1072,217 @@ def test_wi031_non_enforced_precedence_is_unchanged() -> None:
     winner = result.get_effective_value("computer", r"Software\X", "Block")
     assert winner is not None
     assert winner.effective_value == "child"
+
+
+class TestDenyFiltering:
+    """WI-033: a deny ACE on Apply Group Policy keeps the GPO off the target.
+
+    Before this, `SecurityFilter` had no polarity, so a DACL holding both an
+    allow and a deny for the same principal was modelled as applying. The model
+    told an operator a machine would receive settings Windows keeps off it --
+    the dangerous direction, and demonstrated against a real 26200 client
+    before being fixed.
+    """
+
+    def _query(self, filters: tuple[SecurityFilter, ...]) -> RsopQuery:
+        dn = "OU=Child,DC=x"
+        gpo = GPO(
+            guid="g1",
+            name="Filtered",
+            security_filters=filters,
+            settings=(
+                RegistrySetting(
+                    id="s",
+                    side="computer",
+                    hive="HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    registry_type="REG_SZ",
+                    value="applied",
+                ),
+            ),
+        )
+        return RsopQuery(
+            query_id="q",
+            target=RsopTarget(
+                computer_name="C",
+                computer_dn=f"CN=C,{dn}",
+                domain="x",
+                group_memberships=("LabGroup",),
+            ),
+            som_nodes=(
+                SomNode(
+                    dn=dn,
+                    name="Child",
+                    scope="ou",
+                    parent_dn="",
+                    links=(SomLink(gpo_guid="g1", scope="ou", scope_dn=dn, order=1),),
+                ),
+            ),
+            gpos=(gpo,),
+        )
+
+    def _applied(self, filters: tuple[SecurityFilter, ...]) -> bool:
+        result = compute_rsop(self._query(filters))
+        return any(g.is_applied for g in result.gpo_results)
+
+    def test_an_allow_alone_applies(self) -> None:
+        """The control: without it, a deny test proves only that nothing applies."""
+        assert self._applied((SecurityFilter(id="a", principal="C", permission="apply"),))
+
+    def test_a_deny_beside_an_allow_wins(self) -> None:
+        """The case that was wrong."""
+        assert not self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="C", permission="apply", deny=True),
+            )
+        )
+
+    def test_a_deny_on_a_group_the_target_belongs_to_wins(self) -> None:
+        """Deny reaches through the token, exactly as allow does."""
+        assert not self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="LabGroup", permission="apply", deny=True),
+            )
+        )
+
+    def test_a_deny_for_someone_else_does_not_block(self) -> None:
+        """Still a filter: a deny naming a principal the target is not must not bite."""
+        assert self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="Stranger", permission="apply", deny=True),
+            )
+        )
+
+    def test_a_deny_on_read_does_not_block_apply(self) -> None:
+        """The right being denied matters; this models Apply Group Policy only."""
+        assert self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="C", permission="read", deny=True),
+            )
+        )
+
+    def test_the_reason_names_the_deny(self) -> None:
+        """`security_filter_mismatch` would say the principal lacked Apply, which is false."""
+        result = compute_rsop(
+            self._query(
+                (
+                    SecurityFilter(id="a", principal="C", permission="apply"),
+                    SecurityFilter(id="d", principal="C", permission="apply", deny=True),
+                )
+            )
+        )
+        reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
+        assert "security_filter_denied" in reasons
+        assert "security_filter_mismatch" not in reasons
+
+
+class TestWmiFilterEvaluation:
+    """WI-035: a WMI filter the caller has evaluated must be honoured.
+
+    Studio does not evaluate WQL and should not -- that is the CSE's job on the
+    live machine. What it can do is honour an answer a caller already has.
+    Before this, a WMI-filtered GPO was predicted to apply whatever its filter
+    would evaluate to, which tells an operator settings will arrive when they
+    will not. Demonstrated against a real 26200 client before being fixed.
+    """
+
+    def _query(self, results: tuple[tuple[str, bool], ...]) -> RsopQuery:
+        dn = "OU=Child,DC=x"
+        gpo = GPO(
+            guid="g1",
+            name="Filtered",
+            wmi_filter=WmiFilter(
+                id="w1", name="never", query="SELECT * FROM Win32_OperatingSystem"
+            ),
+            settings=(
+                RegistrySetting(
+                    id="s",
+                    side="computer",
+                    hive="HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    registry_type="REG_SZ",
+                    value="applied",
+                ),
+            ),
+        )
+        return RsopQuery(
+            query_id="q",
+            target=RsopTarget(computer_name="C", computer_dn=f"CN=C,{dn}", domain="x"),
+            som_nodes=(
+                SomNode(
+                    dn=dn,
+                    name="Child",
+                    scope="ou",
+                    parent_dn="",
+                    links=(SomLink(gpo_guid="g1", scope="ou", scope_dn=dn, order=1),),
+                ),
+            ),
+            gpos=(gpo,),
+            wmi_filter_results=results,
+        )
+
+    def _result(self, results: tuple[tuple[str, bool], ...]):
+        return compute_rsop(self._query(results))
+
+    def test_a_filter_evaluated_false_blocks_the_gpo(self) -> None:
+        """The case that was wrong."""
+        result = self._result((("w1", False),))
+        assert not any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_false" in {r for g in result.gpo_results for r in g.filtering_reasons}
+
+    def test_a_filter_evaluated_true_applies_without_a_warning(self) -> None:
+        """A known-true filter is not a caveat; saying so keeps the warning meaningful."""
+        result = self._result((("w1", True),))
+        assert any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_unknown" not in result.warnings
+
+    def test_an_unevaluated_filter_still_applies_and_still_warns(self) -> None:
+        """Unknown must not become false: an invented absence is harder to notice."""
+        result = self._result(())
+        assert any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_unknown" in result.warnings
+
+    def test_a_result_for_another_filter_does_not_apply_here(self) -> None:
+        """Results are keyed by filter, not merged into one verdict."""
+        result = self._result((("someone-else", False),))
+        assert any(g.is_applied for g in result.gpo_results)
+        assert "wmi_filter_unknown" in result.warnings
+
+    def test_an_unevaluatable_filter_blocks(self) -> None:
+        """WI-039, measured: Windows fails closed on a filter it cannot evaluate.
+
+        A filter naming a class the target does not have cannot be true, and
+        the machine treats that as not-applying rather than as not-filtering.
+        """
+        result = self._result((("w1", "unevaluatable"),))
+        assert not any(g.is_applied for g in result.gpo_results)
+        reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
+        assert "wmi_filter_unevaluatable" in reasons
+
+    def test_unevaluatable_is_not_reported_as_false(self) -> None:
+        """The reason has to distinguish them: they are different facts.
+
+        A filter that evaluated false was evaluated. One that could not be
+        evaluated was not, and an operator reading the reason should be able to
+        tell which happened.
+        """
+        result = self._result((("w1", "unevaluatable"),))
+        reasons = {r for g in result.gpo_results for r in g.filtering_reasons}
+        assert "wmi_filter_false" not in reasons
+
+    def test_unevaluatable_and_absent_stay_different(self) -> None:
+        """The distinction WI-039 exists for.
+
+        "Nobody supplied an answer" and "there is no answer to supply" deserve
+        different predictions. Collapsing them is what the fix undoes.
+        """
+        unevaluatable = self._result((("w1", "unevaluatable"),))
+        absent = self._result(())
+        assert not any(g.is_applied for g in unevaluatable.gpo_results)
+        assert any(g.is_applied for g in absent.gpo_results)

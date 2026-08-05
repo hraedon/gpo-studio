@@ -24,10 +24,93 @@ ORACLE_DIR = REPO_ROOT / "scripts" / "windows-oracle"
 EVIDENCE = REPO_ROOT / "docs" / "plan-033"
 
 #: committed verdict -> the finalizer whose tables define its bound file set.
+#:
+#: The RSOP lanes were absent from this map until 2026-08-04, so their committed
+#: verdicts -- the ones a reviewer reads instead of re-running the lane -- were
+#: the only ones nothing checked. Their finalizers use flat file tables rather
+#: than the transport-keyed shape the older lanes use, and that difference is
+#: what kept them out; `_bound_names` now handles both rather than the map
+#: quietly covering three lanes out of five.
 LANE_VERDICTS = {
     "wp1b-evidence/verification-estate.json": "finalize_wp1b_run.py",
     "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804070708-6831.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804151624-6393.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804152957-1430.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804154241-9337.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804045552-9148.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804045809-8312.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804065146-4224.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804065525-9254.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260804150527-3868.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # WP-6B's first certification and the WI-031 enforcement arc. These were
+    # committed but never mapped, so nothing checked them -- and the four
+    # `finding` verdicts among them could not have been added at all, because
+    # the consistency test had no branch for that state and demanded `passed`.
+    "wp6-evidence/verdict-rsop-observe-20260804010341-7165.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804010551-9363.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804010738-5543.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804012618-5426.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804012803-7606.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804015016-5317.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804015258-1810.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804015447-4913.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804020109-7624.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260804020308-9752.json": "finalize_rsop_run.py",
+    # WI-039: the one undeclared finding this lane has produced.
+    "wp6-evidence/verdict-rsop-observe-20260804153726-7284.json": "finalize_rsop_run.py",
+    # Re-certification 2026-08-05, after the finalizers' harness check was made
+    # falsifiable (review finding 3). A certification binds the harness that
+    # produced it, so changing the finalizer meant every earlier verdict
+    # described code that no longer ships. Ten scenarios, all `pass`.
+    "wp6-evidence/verdict-rsop-observe-20260805064008-9181.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064155-8996.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064351-9402.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064540-1562.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260805064725-4970.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805065415-8622.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805065630-6815.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805065943-6615.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json": (
+        "finalize_rsop_user_run.py"
+    ),
+}
+
+#: Verdicts committed BEFORE the transport was recorded, kept as history.
+#:
+#: They are listed rather than skipped by pattern so that adding to this set is
+#: a deliberate act with a reason, not something a new file drifts into. The
+#: psdirect assertions genuinely cannot apply to them; every other verdict must
+#: be mapped above.
+PRE_TRANSPORT_VERDICTS = {
+    "wp1b-evidence/verification.json",
+    "wp3-evidence/verification.json",
 }
 
 
@@ -37,11 +120,29 @@ def _verdict(relative: str) -> dict[str, Any]:
     )
 
 
-def _bound_names(finalizer: str) -> set[str]:
+def _file_tables(finalizer: str) -> list[dict[str, str]]:
+    """The name -> repository path tables this finalizer binds, in either shape.
+
+    Lanes that once supported two transports key their tables by transport;
+    the RSOP lanes were written after the SSH path was deleted and key them
+    directly. Both are read here so the checks below cover every lane rather
+    than the ones that happen to share a shape.
+    """
     symbols = runpy.run_path(str(ORACLE_DIR / finalizer))
-    deployed = cast(dict[str, dict[str, str]], symbols["TRANSPORT_DEPLOYED_FILES"])
-    local = cast(dict[str, dict[str, str]], symbols["TRANSPORT_LOCAL_FILES"])
-    return set(deployed["psdirect"]) | set(local["psdirect"])
+    tables: list[dict[str, str]] = []
+    for transport_keyed, flat in (
+        ("TRANSPORT_DEPLOYED_FILES", "DEPLOYED_FILES"),
+        ("TRANSPORT_LOCAL_FILES", "LOCAL_FILES"),
+    ):
+        if transport_keyed in symbols:
+            tables.append(cast(dict[str, dict[str, str]], symbols[transport_keyed])["psdirect"])
+        else:
+            tables.append(cast(dict[str, str], symbols[flat]))
+    return tables
+
+
+def _bound_names(finalizer: str) -> set[str]:
+    return {name for table in _file_tables(finalizer) for name in table}
 
 
 @pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
@@ -63,24 +164,66 @@ def test_every_bound_file_still_exists_in_the_tree(
     relative: str, finalizer: str
 ) -> None:
     """A verdict naming a file the repository no longer has cannot be re-checked."""
-    symbols = runpy.run_path(str(ORACLE_DIR / finalizer))
-    for table in ("TRANSPORT_DEPLOYED_FILES", "TRANSPORT_LOCAL_FILES"):
-        for name, source in cast(
-            dict[str, dict[str, str]], symbols[table]
-        )["psdirect"].items():
+    for table in _file_tables(finalizer):
+        for name, source in table.items():
             assert (REPO_ROOT / source).is_file(), f"{name} -> {source}"
 
 
 @pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
-def test_a_passing_verdict_is_internally_consistent(
-    relative: str, finalizer: str
-) -> None:
-    """`passed` must follow from the checks recorded beside it.
+def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> None:
+    """`passed` must follow from the state and the checks recorded beside it.
 
-    A verdict that says `passed` while carrying a false check would mean the
-    file was edited after the fact, or assembled from more than one run.
+    Committed evidence is no longer all passes. A scenario may DECLARE that it
+    expects to diverge -- the deny row and the WMI row exist to demonstrate
+    capabilities the model does not have -- and its verdict is committed as
+    evidence of the gap. Such a verdict must carry `expected-finding`, must not
+    claim `passed`, and must actually contain the divergence: a declared
+    divergence with an empty finding list would be a claim with nothing behind
+    it.
+
+    Everything else must be a pass whose checks agree with it. A verdict that
+    said `passed` while carrying a false check would mean the file was edited
+    after the fact, or assembled from more than one run.
     """
     verdict = _verdict(relative)
+    if verdict.get("state") == "expected-finding":
+        assert verdict["passed"] is False
+        assert verdict["expected_finding"], relative
+        comparison = verdict["comparison"]
+        assert comparison is not None, relative
+        divergences = (
+            comparison["value_findings"]
+            + comparison["applied_only_predicted"]
+            + comparison["applied_only_observed"]
+        )
+        assert divergences, f"{relative} declares a divergence and records none"
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
+    if verdict.get("state") == "finding":
+        # An UNDECLARED divergence: the lane predicted one thing, Windows did
+        # another, and nobody saw it coming. WI-039 is the example and it is the
+        # most valuable evidence this lane has produced -- reading the code
+        # could not have found it.
+        #
+        # There was no branch for this state, so the assertions below demanded
+        # `passed` and any attempt to commit such a verdict into the map failed.
+        # The effect was that the one class of finding worth keeping was the one
+        # class that could not be recorded here.
+        assert verdict["passed"] is False, relative
+        comparison = verdict["comparison"]
+        assert comparison is not None, relative
+        divergences = (
+            comparison["value_findings"]
+            + comparison["applied_only_predicted"]
+            + comparison["applied_only_observed"]
+        )
+        assert divergences, f"{relative} is a finding and records no divergence"
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
     assert verdict["passed"] is True
     if "checks" in verdict:
         failed = sorted(name for name, ok in verdict["checks"].items() if not ok)
@@ -97,3 +240,137 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     manifest = _verdict("wp0-evidence/manifest-estate.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
+
+
+def test_every_committed_verdict_is_covered() -> None:
+    """The map must not be able to omit a verdict, which is how this failed.
+
+    `LANE_VERDICTS` was hand-maintained, so a committed verdict was checked
+    only if somebody remembered to add it. Twelve were not -- including all
+    four `finding` verdicts, the ones carrying the most information. Nothing
+    was wrong with the files; they were simply invisible to every test above.
+
+    So coverage is now derived from the directory rather than asserted by
+    memory. A new verdict is checked by default and can only escape by being
+    named in `PRE_TRANSPORT_VERDICTS`, which is a deliberate act with a reason
+    attached.
+    """
+    committed = {
+        str(path.relative_to(EVIDENCE))
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        if path.name.startswith(("verdict-", "verification"))
+    }
+    unmapped = sorted(committed - set(LANE_VERDICTS) - PRE_TRANSPORT_VERDICTS)
+    assert not unmapped, (
+        "These verdicts are committed but checked by nothing: "
+        f"{unmapped}. Add them to LANE_VERDICTS, or to PRE_TRANSPORT_VERDICTS "
+        "with a reason."
+    )
+
+
+def test_the_coverage_guard_is_looking_at_real_files() -> None:
+    """The control. A glob that matches nothing makes the test above vacuous."""
+    committed = {
+        str(path.relative_to(EVIDENCE))
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        if path.name.startswith(("verdict-", "verification"))
+    }
+    assert len(committed) >= len(LANE_VERDICTS)
+
+
+#: Phrases that assert a lane's certification cannot be verified from the
+#: repository. Each was true when written; what this guards is that they stayed
+#: in the tree after the lane was re-certified.
+UNVERIFIABLE_CLAIMS = (
+    "evidence binding broken",
+    "re-certification queued",
+    "queued for re-certification",
+    "committed no evidence manifest",
+    "prose record, not a verifiable certification",
+    "cannot be verified from the repository",
+    "no longer independently checkable",
+)
+
+STATUS_DOC_ROOTS = ("docs", "plans")
+
+
+def _certified_runs() -> dict[str, str]:
+    """Lane -> run id, for every lane whose committed manifest is a clean pass.
+
+    `passed` is absent on WP-0's manifest, which records `evidence_state`
+    instead; both shapes are accepted rather than silently skipping WP-0, which
+    is one of the two lanes this drift originally affected.
+    """
+    runs: dict[str, str] = {}
+    for path in EVIDENCE.glob("wp*-evidence/*.json"):
+        if not path.name.startswith(("verification", "manifest")):
+            continue
+        verdict = json.loads(path.read_text(encoding="utf-8"))
+        source = verdict.get("source") or {}
+        state = (verdict.get("capability") or {}).get("evidence_state")
+        if source.get("dirty") is not False:
+            continue
+        if verdict.get("passed") is True or state == "pass":
+            run_id = verdict.get("run_id")
+            if isinstance(run_id, str) and run_id:
+                runs[path.parent.name.removesuffix("-evidence")] = run_id
+    return runs
+
+
+def test_no_status_document_calls_a_certified_lane_unverifiable() -> None:
+    """Status prose must not contradict a committed passing manifest.
+
+    This is the seventh recurrence of status drift here and the first
+    mechanical check on it. `test_domain_layer_status.py` gates the register
+    against *itself*; it cannot see a document that is internally consistent
+    and merely out of date with the evidence. WP-2 was exactly that:
+    re-certified 2026-08-03 with a clean manifest bound to a resolvable commit,
+    while two status documents went on saying its binding was broken and
+    re-certification was queued.
+
+    What this checks is narrow, and the narrowness is the point. It cannot
+    verify that a status is *true*. It catches one specific repeated falsehood:
+    prose calling a lane unverifiable when that lane's manifest is a committed,
+    clean pass.
+
+    The escape hatch is deliberately expensive. An earlier draft let a
+    paragraph off for containing a word like "superseded" or "resolved", and a
+    mutation test walked straight through it -- the stale WP-2 block quote was
+    long enough to contain such a word further down, so the guard passed on the
+    exact text it was written to catch. A vague marker is not evidence. So a
+    paragraph may only speak of a certified lane in the past tense if it names
+    **the run id that superseded the claim**, which cannot be satisfied without
+    going and reading the manifest.
+    """
+    certified = _certified_runs()
+    assert certified, "no lane has a clean manifest; this test would be vacuous"
+
+    stale: list[str] = []
+    for root in STATUS_DOC_ROOTS:
+        for path in sorted((REPO_ROOT / root).rglob("*.md")):
+            for paragraph in path.read_text(encoding="utf-8").split("\n\n"):
+                lowered = paragraph.lower()
+                claim = next((c for c in UNVERIFIABLE_CLAIMS if c in lowered), None)
+                if claim is None:
+                    continue
+                # A paragraph naming several lanes is reported once, against all
+                # of them: which lane such a sentence is *about* is a question
+                # only prose can answer, and guessing would trade this test's
+                # precision for a plausible-looking attribution.
+                unresolved = sorted(
+                    f"{lane} ({run_id})"
+                    for lane, run_id in certified.items()
+                    if lane in lowered and run_id.lower() not in lowered
+                )
+                if unresolved:
+                    stale.append(
+                        f"{path.relative_to(REPO_ROOT)}: {claim!r}, "
+                        f"but these are certified: {', '.join(unresolved)}"
+                    )
+
+    assert not stale, (
+        "These paragraphs call a lane unverifiable when its committed manifest "
+        "is a clean pass:\n  " + "\n  ".join(stale) + "\nReconcile the prose "
+        "with the evidence, or cite the superseding run id in the same "
+        "paragraph to mark the claim as history."
+    )

@@ -70,6 +70,14 @@ BOUNDARIES: frozenset[str] = frozenset(
 )
 
 PlatformStatus = Literal["frozen", "pending-qualification"]
+#: Tools get a third value that hosts do not. A tool can turn out not to be
+#: needed -- WP-9 was expected to collect user token groups with ``whoami`` and
+#: does not -- and the registry could previously only say "qualified" or "not
+#: yet". That forced such a row to be either misdescribed or deleted, and
+#: deleting it loses the record that the gate it stood for was closed rather
+#: than quietly dropped. A HOST that no lane uses is removed instead: an
+#: unused machine is not a fact about the evidence.
+ToolStatus = Literal["frozen", "pending-qualification", "not-used"]
 
 _ANCHOR_KINDS: frozenset[str] = frozenset({"native-capture", "spec-doc", "lab-runbook"})
 
@@ -95,7 +103,7 @@ class Tool:
     tool_id: str
     kind: str
     frozen_version: str | None
-    status: PlatformStatus
+    status: ToolStatus
     notes: str
 
 
@@ -272,7 +280,7 @@ def load_platform_registry(path: Path) -> PlatformRegistry:
                 tool_id=_require_str(entry, "tool_id", context),
                 kind=_require_str(entry, "kind", context),
                 frozen_version=frozen_version if isinstance(frozen_version, str) else None,
-                status=_status(entry, context),
+                status=_tool_status(entry, context),
                 notes=str(entry.get("notes", "")),
             )
         )
@@ -314,7 +322,8 @@ def load_platform_registry(path: Path) -> PlatformRegistry:
             raise _err(context, f"duplicate {label} values: {duplicates}")
 
     host_ids = {host.host_id for host in hosts}
-    tool_ids = {tool.tool_id for tool in tools}
+    tools_by_id = {tool.tool_id: tool for tool in tools}
+    tool_ids = set(tools_by_id)
     for lane in lanes:
         for host_id in lane.required_hosts:
             if host_id not in host_ids:
@@ -322,6 +331,16 @@ def load_platform_registry(path: Path) -> PlatformRegistry:
         for tool_id in lane.required_tools:
             if tool_id not in tool_ids:
                 raise _err(context, f"lane {lane.lane_id!r} requires unknown tool {tool_id!r}")
+            # 'not-used' is a claim about the lanes, so a lane naming such a
+            # tool contradicts the registry it is part of. Left unchecked, the
+            # readiness gate would read the row as unqualified and block every
+            # scenario on that lane for a requirement nobody has.
+            if tools_by_id[tool_id].status == "not-used":
+                raise _err(
+                    context,
+                    f"lane {lane.lane_id!r} requires tool {tool_id!r}, which the registry "
+                    "records as not-used; a tool no lane needs cannot be a lane requirement",
+                )
 
     return PlatformRegistry(hosts=tuple(hosts), tools=tuple(tools), lanes=tuple(lanes))
 
@@ -333,6 +352,13 @@ def _status(entry: dict[str, object], context: str) -> PlatformStatus:
     if status == "pending-qualification":
         return "pending-qualification"
     raise _err(context, f"status must be 'frozen' or 'pending-qualification', got {status!r}")
+
+
+def _tool_status(entry: dict[str, object], context: str) -> ToolStatus:
+    status = entry.get("status")
+    if status == "not-used":
+        return "not-used"
+    return _status(entry, context)
 
 
 def _validate_family_payload(

@@ -173,20 +173,56 @@ if ($Phase -eq 'setup') {
     foreach ($ou in $topology.ous) {
         $ouPlan += [ordered]@{
             symbolic_name     = $ou.name
+            key               = "$($ou.key)"
+            parent_key        = "$($ou.parent_key)"
             name              = "$($ou.name)-$stamp"
             block_inheritance = [bool]$ou.block_inheritance
         }
     }
-    # Resolve real DNs top-down: each OU's parent is the previous one's real DN.
-    $realOuDns = @{}
-    $parentDn = $domainDn
+    # Resolve real DNs by PARENT KEY, not by position.
+    #
+    # This used to treat the list as a chain -- each OU parented to the one
+    # before it -- which is true of the computer-scope tree and false of the
+    # split tree the loopback scenarios need, where the user branch hangs off
+    # the root beside the computer branch. A chain would have built the right
+    # OUs in the wrong shape: every object would exist, every link would
+    # succeed, and the estate would apply a topology the prediction does not
+    # describe. That is the failure this lane most needs not to have, because
+    # it surfaces as a finding about Studio.
+    #
+    # The candidate emits parents in dependency order, and this asserts it
+    # rather than assuming it.
+    $realOuDns = @{ 'domain' = $domainDn }
     foreach ($ou in $ouPlan) {
-        $ou.parent_dn = $parentDn
-        $ou.dn = "OU=$($ou.name),$parentDn"
-        $realOuDns[$ou.symbolic_name] = $ou.dn
-        $parentDn = $ou.dn
+        if (-not $realOuDns.ContainsKey($ou.parent_key)) {
+            throw "OU '$($ou.symbolic_name)' names parent '$($ou.parent_key)', which has not been resolved yet. The candidate must emit OUs parents-first."
+        }
+        $ou.parent_dn = $realOuDns[$ou.parent_key]
+        $ou.dn = "OU=$($ou.name),$($ou.parent_dn)"
+        $realOuDns[$ou.key] = $ou.dn
     }
-    $childOuDn = $ouPlan[-1].dn
+
+    # Where the COMPUTER goes. Named by key rather than taken as "the last OU",
+    # which stopped being the same thing once the tree branched.
+    $targetOuKey = "$($topology.target_ou_key)"
+    if (-not $realOuDns.ContainsKey($targetOuKey)) {
+        throw "topology target_ou_key '$targetOuKey' does not name an OU in the tree."
+    }
+    $childOuDn = $realOuDns[$targetOuKey]
+
+    # Where the USER goes, on user-scope scenarios only.
+    $scope = "$($topology.scope)"
+    if (-not $scope) { $scope = 'computer' }
+    $targetUser = "$($topology.endpoint_user)"
+    $userOuDn = ''
+    if ($scope -eq 'user') {
+        if (-not $targetUser) { throw "scope is 'user' but the topology names no endpoint_user." }
+        $userOuKey = "$($topology.user_ou_key)"
+        if (-not $realOuDns.ContainsKey($userOuKey)) {
+            throw "topology user_ou_key '$userOuKey' does not name an OU in the tree."
+        }
+        $userOuDn = $realOuDns[$userOuKey]
+    }
 
     $gpoPlan = @()
     foreach ($gpo in $topology.gpos) {
@@ -216,10 +252,35 @@ if ($Phase -eq 'setup') {
             user_enabled  = [bool]$gpo.user_enabled
             values        = $gpo.values
             user_values   = $gpo.user_values
+            raw_values    = $gpo.raw_values
+            filters       = $gpo.filters
+            wmi_filter    = $gpo.wmi_filter
+            wmi_filter_id = $null
             guid          = $null
             created       = $false
             linked        = $false
+            permission_summary = @()
         }
+    }
+
+    # The nesting case needs a group the principal belongs to. Created here per
+    # run and deleted in cleanup: no pre-existing group is touched, so nothing
+    # about the estate's own membership can leak into the result.
+    $groupName = ''
+    if ("$($topology.group_name)") { $groupName = "$($topology.group_name)-$stamp" }
+
+    # The user object is READ before anything is created, for the same reason
+    # the computer is: cleanup restores it to where the directory says it was,
+    # and a record written after the first mutation is a record of a state that
+    # already changed.
+    $userOriginalDn = $null
+    $userOriginalParent = $null
+    $userSid = $null
+    if ($scope -eq 'user') {
+        $userObject = Get-ADUser -Identity $targetUser -Properties DistinguishedName -Server $dc
+        $userOriginalDn = "$($userObject.DistinguishedName)"
+        $userOriginalParent = ($userOriginalDn -split ',', 2)[1]
+        $userSid = "$($userObject.SID)"
     }
 
     $state = [ordered]@{
@@ -237,6 +298,18 @@ if ($Phase -eq 'setup') {
         original_dn       = $originalDn
         original_parent   = $originalParent
         child_ou_dn       = $childOuDn
+        scope             = $scope
+        loopback_mode     = "$($topology.loopback_mode)"
+        target_user       = $targetUser
+        user_ou_dn        = $userOuDn
+        user_original_dn  = $userOriginalDn
+        user_original_parent = $userOriginalParent
+        user_sid          = $userSid
+        group_name        = $groupName
+        group_dn          = $null
+        group_created     = $false
+        group_sid         = $null
+        user_moved        = $false
         ous               = $ouPlan
         gpos              = $gpoPlan
         computer_moved    = $false
@@ -272,9 +345,34 @@ if ($Phase -eq 'setup') {
             }
         }
 
+        if ($groupName) {
+            New-ADGroup -Name $groupName -GroupScope Global -GroupCategory Security `
+                -Path $childOuDn -Server $dc -ErrorAction Stop
+            $state.group_created = $true
+            $state.group_dn = "CN=$groupName,$childOuDn"
+            Save-State $state
+            if (-not (Wait-ForAdObject -Identity $state.group_dn -Server $dc)) {
+                throw "group not readable on $dc after creation: $($state.group_dn)"
+            }
+            Add-ADGroupMember -Identity $state.group_dn -Members $targetUser -Server $dc -ErrorAction Stop
+            $state.group_sid = "$((Get-ADGroup -Identity $state.group_dn -Server $dc).SID)"
+            Save-State $state
+        }
+
         Move-ADObject -Identity $originalDn -TargetPath $childOuDn -Server $dc -ErrorAction Stop
         $state.computer_moved = $true
         Save-State $state
+
+        # The user goes into its own container on user-scope scenarios. On the
+        # loopback scenarios that container is deliberately NOT the computer's:
+        # merge and replace are both statements about preferring the computer's
+        # location over the user's, so a user and a computer in one OU make
+        # every loopback mode produce the same answer.
+        if ($scope -eq 'user') {
+            Move-ADObject -Identity $state.user_original_dn -TargetPath $userOuDn -Server $dc -ErrorAction Stop
+            $state.user_moved = $true
+            Save-State $state
+        }
 
         foreach ($gpo in $state.gpos) {
             $created = New-GPO -Name $gpo.name -Domain $Domain -Server $dc -ErrorAction Stop
@@ -301,6 +399,17 @@ if ($Phase -eq 'setup') {
                     -ValueName $value.value_name -Type String -Value $value.value `
                     -ErrorAction Stop | Out-Null
             }
+            # Values outside the lane's own policy key, with their own type.
+            # Loopback is the only user so far: 'Configure user Group Policy
+            # loopback processing mode' is an ordinary machine registry policy,
+            # and authoring it natively is what makes the mode real on the
+            # client rather than an assertion in the candidate.
+            foreach ($value in $gpo.raw_values) {
+                Set-GPRegistryValue -Guid $created.Id -Domain $Domain -Server $dc `
+                    -Key "HKLM\$($value.key)" `
+                    -ValueName $value.value_name -Type $value.type -Value $value.value `
+                    -ErrorAction Stop | Out-Null
+            }
             # Side status is set AFTER the values are written: disabling a side
             # first would not prevent the write, but it makes the intent of the
             # sequence unreadable, and the CSE cares only about the final state.
@@ -315,6 +424,114 @@ if ($Phase -eq 'setup') {
                 -ErrorAction Stop | Out-Null
             $gpo.linked = $true
             Save-State $state
+
+            # WMI FILTERING, authored as a raw directory object.
+            #
+            # There is no cmdlet for this. A WMI filter is an msWMI-Som object
+            # under CN=SOM,CN=WMIPolicy,CN=System, and a GPO points at one
+            # through its gPCWQLFilter attribute. Both halves are written here.
+            #
+            # msWMI-Parm2 is a LENGTH-PREFIXED blob, not a query string:
+            #
+            #     <queries>;3;<namespace length>;<query length>;WQL;<ns>;<query>;
+            #
+            # The lengths are load-bearing -- a wrong count yields a filter
+            # Windows treats as unsatisfied, which fails CLOSED and looks
+            # exactly like the false-filter row working. That is why this
+            # scenario carries a filter written to be TRUE as its control.
+            if ($gpo.wmi_filter) {
+                $filterId = "{$([guid]::NewGuid())}"
+                $filterName = "$($gpo.wmi_filter.name)-$stamp"
+                $query = "$($gpo.wmi_filter.query)"
+                $namespace = 'root\CIMv2'
+                $parm2 = "1;3;$($namespace.Length);$($query.Length);WQL;$namespace;$query;"
+                $now = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss') + '.000000-000'
+                $somPath = "CN=SOM,CN=WMIPolicy,CN=System,$domainDn"
+
+                New-ADObject -Name $filterId -Type 'msWMI-Som' -Path $somPath -Server $dc `
+                    -OtherAttributes @{
+                        'msWMI-Name'         = $filterName
+                        'msWMI-Parm1'        = 'Studio RSOP lane, disposable'
+                        'msWMI-Parm2'        = $parm2
+                        'msWMI-ID'           = $filterId
+                        'msWMI-Author'       = "$($env:USERNAME)@$Domain"
+                        'msWMI-ChangeDate'   = $now
+                        'msWMI-CreationDate' = $now
+                    } -ErrorAction Stop
+                $gpo.wmi_filter_id = $filterId
+                Save-State $state
+
+                $gpoDn = "CN={$($created.Id)},CN=Policies,CN=System,$domainDn"
+                Set-ADObject -Identity $gpoDn -Server $dc `
+                    -Replace @{ gPCWQLFilter = "[$Domain;$filterId;0]" } -ErrorAction Stop
+            }
+
+            # SECURITY FILTERING, applied after the link so the GPO exists in
+            # every sense before its DACL is touched.
+            #
+            # MS16-072 is why Authenticated Users keeps READ on every filtered
+            # GPO. Since that update a USER's GPOs are retrieved in the
+            # COMPUTER's security context, so a GPO the computer cannot read
+            # does not reach the user however the user is filtered -- and the
+            # lane would record a filtering result that is really a read
+            # failure. Only Apply is moved.
+            foreach ($planned in $gpo.filters) {
+                $principal = switch ("$($planned.principal)") {
+                    'user' { $state.target_user }
+                    'computer' { $state.target_computer }
+                    'group' { $groupName }
+                    'authenticated-users' { 'Authenticated Users' }
+                    default { throw "unknown filter principal '$($planned.principal)' on $($gpo.name)" }
+                }
+                $principalType = switch ("$($planned.principal)") {
+                    'user' { 'User' }
+                    'computer' { 'Computer' }
+                    default { 'Group' }
+                }
+
+                switch ("$($planned.kind)") {
+                    'read' {
+                        # -Replace, so an existing Read+Apply for the same
+                        # principal is reduced rather than added beside.
+                        Set-GPPermission -Guid $created.Id -Domain $Domain -Server $dc `
+                            -TargetName $principal -TargetType $principalType `
+                            -PermissionLevel GpoRead -Replace -ErrorAction Stop | Out-Null
+                    }
+                    'apply' {
+                        Set-GPPermission -Guid $created.Id -Domain $Domain -Server $dc `
+                            -TargetName $principal -TargetType $principalType `
+                            -PermissionLevel GpoApply -ErrorAction Stop | Out-Null
+                    }
+                    'deny' {
+                        # No cmdlet writes a deny ACE, so this goes onto the
+                        # groupPolicyContainer's DACL directly. The right is
+                        # Apply Group Policy, a CONTROL-ACCESS right
+                        # (ExtendedRight) rather than a property right, which is
+                        # exactly the distinction Plan 033's preconditions
+                        # single out.
+                        $applyRight = [guid]'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
+                        $gpoDn = "CN={$($created.Id)},CN=Policies,CN=System,$domainDn"
+                        $identity = switch ("$($planned.principal)") {
+                            'user' { (Get-ADUser -Identity $principal -Server $dc).SID }
+                            # A computer account's SID comes from the computer
+                            # object, and Get-ADGroup would not find it -- the
+                            # sAMAccountName carries a trailing $ that only
+                            # Get-ADComputer resolves from the bare name.
+                            'computer' { (Get-ADComputer -Identity $principal -Server $dc).SID }
+                            default { (Get-ADGroup -Identity $principal -Server $dc).SID }
+                        }
+                        $acl = Get-Acl -Path "AD:$gpoDn"
+                        $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+                            $identity,
+                            [System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
+                            [System.Security.AccessControl.AccessControlType]::Deny,
+                            $applyRight)
+                        $acl.AddAccessRule($ace)
+                        Set-Acl -Path "AD:$gpoDn" -AclObject $acl
+                    }
+                    default { throw "unknown filter kind '$($planned.kind)' on $($gpo.name)" }
+                }
+            }
 
             # Link order is set AFTER creation, because New-GPLink appends and
             # the resulting order depends on what is already linked to that
@@ -373,6 +590,79 @@ if ($Phase -eq 'setup') {
                 }
             }
         }
+        # Filtering is verified for the same reason link state is: if the DACL
+        # does not say what the topology asked for, the estate is running a
+        # different experiment and the prediction describes the wrong one. A
+        # mismatch here would surface as a FINDING ABOUT STUDIO.
+        #
+        # THE ASSERTION IS ON THE RAW DACL, not on Get-GPPermission, and that
+        # is a measured decision. Once a Deny ace exists for a trustee, the
+        # cmdlet collapses that trustee's entry to `GpoCustom` with
+        # `Denied=False` and stops reporting GpoApply at all -- so a check
+        # written against it fails on precisely the row that carries a deny,
+        # while the DACL underneath is completely correct (measured on the
+        # estate 2026-08-04: three ACEs present, allow and deny both).
+        #
+        # It is also what Plan 033's preconditions ask for: real CR/RP ACEs
+        # rather than a tool's summary of them. Apply Group Policy is a
+        # control-access right, so an allow is an ExtendedRight ace whose
+        # ObjectType is its GUID.
+        $applyRight = 'edacfd8f-ffb3-11d1-b41d-00a0c968f939'
+        foreach ($gpo in $state.gpos) {
+            if (-not $gpo.created) { continue }
+            if (@($gpo.filters).Count -eq 0) { continue }
+            $gpoDn = "CN={$($gpo.guid)},CN=Policies,CN=System,$domainDn"
+            $dacl = @((Get-Acl -Path "AD:$gpoDn").Access)
+            # Kept as evidence, not as a gate: it is what an operator would see,
+            # and its disagreement with the DACL is itself worth recording.
+            $summary = @(Get-GPPermission -Guid $gpo.guid -All -Domain $Domain -Server $dc -ErrorAction Stop |
+                ForEach-Object { "$($_.Trustee.Name)=$($_.Permission)" })
+            $gpo.permission_summary = $summary
+
+            foreach ($planned in $gpo.filters) {
+                $principal = switch ("$($planned.principal)") {
+                    'user' { $state.target_user }
+                    'computer' { $state.target_computer }
+                    'group' { $groupName }
+                    'authenticated-users' { 'Authenticated Users' }
+                }
+                $mine = @($dacl | Where-Object {
+                    "$($_.IdentityReference)" -match [regex]::Escape($principal) -and
+                    "$($_.ObjectType)" -eq $applyRight
+                })
+                $allowApply = @($mine | Where-Object { "$($_.AccessControlType)" -eq 'Allow' })
+                $denyApply = @($mine | Where-Object { "$($_.AccessControlType)" -eq 'Deny' })
+
+                switch ("$($planned.kind)") {
+                    'apply' {
+                        if ($allowApply.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): '$principal' has no Allow ace for Apply Group Policy"
+                        }
+                    }
+                    'read' {
+                        if ($allowApply.Count -gt 0) {
+                            $authoredProblems += "$($gpo.name): '$principal' should hold Read WITHOUT Apply and has an Allow ace for Apply Group Policy"
+                        }
+                    }
+                    'deny' {
+                        if ($denyApply.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): no Deny ace on Apply Group Policy for '$principal'"
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach ($gpo in $state.gpos) {
+            if (-not $gpo.created) { continue }
+            if (-not $gpo.wmi_filter) { continue }
+            $gpoDn = "CN={$($gpo.guid)},CN=Policies,CN=System,$domainDn"
+            $linked = "$((Get-ADObject -Identity $gpoDn -Properties gPCWQLFilter -Server $dc -ErrorAction Stop).gPCWQLFilter)"
+            if ($linked -notmatch [regex]::Escape("$($gpo.wmi_filter_id)")) {
+                $authoredProblems += "$($gpo.name): gPCWQLFilter is '$linked', expected the filter this run created"
+            }
+        }
+
         foreach ($ou in $state.ous) {
             if (-not $ou.created) { continue }
             $inheritance = Get-GPInheritance -Target $ou.dn -Domain $Domain -Server $dc -ErrorAction Stop
@@ -439,6 +729,24 @@ if ($state.computer_moved) {
     }
 }
 
+# The user object comes back next, and for the same reason as the computer: it
+# is a step that stops policy applying, not a tidy-up. It is restored to where
+# the DIRECTORY says it is rather than to where setup wrote it down, because a
+# setup that died between the move and its Save-State leaves an object this
+# script never recorded -- the same failure the computer restore was fixed for.
+if ($state.PSObject.Properties.Name -contains 'user_moved' -and $state.user_moved) {
+    try {
+        $currentUser = Get-ADUser -Identity $state.target_user -Server $dc `
+            -Properties DistinguishedName -ErrorAction Stop
+        if ($currentUser.DistinguishedName -ne $state.user_original_dn) {
+            Move-ADObject -Identity $currentUser.DistinguishedName `
+                -TargetPath $state.user_original_parent -Server $dc -ErrorAction Stop
+        }
+    } catch {
+        $problems += "user restore failed: $($_.Exception.Message)"
+    }
+}
+
 # Links next, and the wide ones first: the site and domain links are the ones
 # with a blast radius beyond the disposable OU tree, so they are the ones worth
 # removing before anything else can go wrong.
@@ -468,6 +776,34 @@ foreach ($gpo in $orderedGpos) {
     }
 }
 
+# WMI filters live under CN=SOM,CN=WMIPolicy and are not inside the disposable
+# OU tree, so nothing else would ever remove them. They go after the GPOs that
+# referenced them: deleting a filter a live GPO still points at leaves a
+# dangling reference that Windows treats as unsatisfied, which would silently
+# change what a concurrent run observes.
+foreach ($gpo in $orderedGpos) {
+    if (-not ($gpo.PSObject.Properties.Name -contains 'wmi_filter_id')) { continue }
+    if (-not $gpo.wmi_filter_id) { continue }
+    $filterDn = "CN=$($gpo.wmi_filter_id),CN=SOM,CN=WMIPolicy,CN=System,$($state.domain_dn)"
+    try {
+        Remove-ADObject -Identity $filterDn -Server $dc -Confirm:$false -ErrorAction Stop
+    } catch {
+        $problems += "WMI filter delete failed for $filterDn : $($_.Exception.Message)"
+    }
+}
+
+# The disposable group goes before the OUs that contain it: an OU with a child
+# object cannot be removed, and -Recursive is deliberately not used anywhere in
+# this teardown -- a recursive delete would hide exactly the leftovers the
+# residual check below exists to find.
+if ($state.PSObject.Properties.Name -contains 'group_created' -and $state.group_created) {
+    try {
+        Remove-ADGroup -Identity $state.group_dn -Server $dc -Confirm:$false -ErrorAction Stop
+    } catch {
+        $problems += "group delete failed for $($state.group_dn): $($_.Exception.Message)"
+    }
+}
+
 # OUs leaf-first: a parent with children cannot be removed.
 $reversed = @($state.ous)
 [array]::Reverse($reversed)
@@ -488,6 +824,10 @@ foreach ($ou in $reversed) {
 $residual = [ordered]@{
     computer_dn      = $null
     computer_restored = $false
+    user_dn          = $null
+    user_restored    = $null
+    surviving_group  = $null
+    surviving_wmi_filters = @()
     surviving_links  = @()
     surviving_gpos   = @()
     surviving_ous    = @()
@@ -502,6 +842,20 @@ try {
     }
 } catch {
     $problems += "could not re-query computer: $($_.Exception.Message)"
+}
+
+if ($state.PSObject.Properties.Name -contains 'user_moved' -and $state.user_moved) {
+    try {
+        $currentUser = Get-ADUser -Identity $state.target_user -Server $dc `
+            -Properties DistinguishedName -ErrorAction Stop
+        $residual.user_dn = "$($currentUser.DistinguishedName)"
+        $residual.user_restored = ($currentUser.DistinguishedName -eq $state.user_original_dn)
+        if (-not $residual.user_restored) {
+            $problems += "user is at $($currentUser.DistinguishedName), expected $($state.user_original_dn)"
+        }
+    } catch {
+        $problems += "could not re-query user: $($_.Exception.Message)"
+    }
 }
 
 foreach ($gpo in $orderedGpos) {
@@ -525,6 +879,23 @@ foreach ($gpo in $orderedGpos) {
     if ($stillPresent) {
         $residual.surviving_gpos += $gpo.name
         $problems += "GPO still present after delete: $($gpo.name)"
+    }
+}
+
+foreach ($gpo in $orderedGpos) {
+    if (-not ($gpo.PSObject.Properties.Name -contains 'wmi_filter_id')) { continue }
+    if (-not $gpo.wmi_filter_id) { continue }
+    $filterDn = "CN=$($gpo.wmi_filter_id),CN=SOM,CN=WMIPolicy,CN=System,$($state.domain_dn)"
+    if (Test-AdObjectExists -Identity $filterDn -Server $dc) {
+        $residual.surviving_wmi_filters += $filterDn
+        $problems += "WMI filter still present after delete: $filterDn"
+    }
+}
+
+if ($state.PSObject.Properties.Name -contains 'group_created' -and $state.group_created) {
+    if (Test-AdObjectExists -Identity $state.group_dn -Server $dc) {
+        $residual.surviving_group = "$($state.group_dn)"
+        $problems += "group still present after delete: $($state.group_dn)"
     }
 }
 

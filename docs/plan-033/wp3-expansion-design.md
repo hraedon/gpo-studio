@@ -1,0 +1,271 @@
+# WP-3 expansion — what the security-template lane does not yet touch
+
+**Status: design note, written 2026-08-04 from the code rather than the plan.**
+
+No lane row has run. It exists so the expansion is sequenced by *risk* rather
+than by section order, because the sections differ enormously in how easy it is
+to tell a Studio defect from a `secedit` normalisation.
+
+The two measurements at the end **were** taken, on the estate, and one of them
+replaced this note's own recommendation. They are left at the end, after the
+reasoning they overturned, because the order is the point: the argument for a
+semantic SDDL comparator was sound and it was still wrong about what blocks the
+work. **Read the measurements before implementing Tranche B.**
+
+## What is certified, and what is not
+
+`security_template.py` knows eleven sections (`KNOWN_SECTIONS`). The certified
+tranche — and every WP-3 run to date, including the estate qualification —
+exercises **three** of them:
+
+| section | certified? | shape |
+|---|---|---|
+| `System Access` | yes | plain `key = value` |
+| `Event Audit` | yes | plain `key = value` |
+| `Privilege Rights` | yes | `right = principal,principal,…` |
+| `Kerberos Policy` | **no** | plain `key = value` |
+| `Registry Values` | **no** | `path = type,data` |
+| `Group Membership` | **no** | `group__Members = principal,…` |
+| `Registry Keys` | **no** | `"path",mode,"SDDL"` |
+| `File Security` | **no** | `"path",mode,"SDDL"` |
+| `Service General Setting` | **no** | `"service",startup,"SDDL"` |
+
+`Unicode` and `Version` are preamble and are already asserted.
+
+So the lane covers the three simplest shapes and none of the hard ones. That is
+worth saying plainly: **WP-3's green record is a statement about key/value
+parsing, not about security descriptors.** `security_template.py` is also the
+one domain layer already proven wrong on the wire (it emitted something that was
+not valid MS-GPSB), and the region that proved it is not the region the lane
+tests.
+
+## The hazard that decides the sequencing
+
+The finalizer compares by exact string match, with exactly one exception:
+
+```python
+if section.casefold() == "privilege rights":
+    # compare principal SETS, not the string
+```
+
+That exception is a tell. It exists because `secedit` reorders principals on
+export, and comparing the string produced a difference that was not a defect.
+
+**Every unexercised section has its own version of that problem, and three of
+them have a much worse one.** `Registry Keys`, `File Security` and
+`Service General Setting` carry **SDDL**. Windows canonicalises security
+descriptors: ACEs are reordered into canonical order, well-known SIDs may be
+written differently, inherited flags are materialised. An exact comparison
+against a `secedit` export will therefore diverge for reasons that have nothing
+to do with Studio — and the lane would report a **finding about Studio for a
+Microsoft normalisation**, which is the precise failure mode this project keeps
+designing against (see the WMI control in `wp6b-results.md`, and the loopback
+control in `wp9-results.md`).
+
+## Proposed sequencing: two tranches, split by that hazard
+
+### Tranche A — sections the existing comparison can already judge
+
+> **Measured 2026-08-04, and the grouping below was wrong.** Only ONE of these
+> three sections belongs here. The round trip was run on the estate's member
+> server; see "What the Tranche A round trip actually returned".
+
+`Kerberos Policy`, `Registry Values`, `Group Membership`.
+
+- `Kerberos Policy` is `System Access` in a different section; it needs a DC
+  template to be meaningful, which the estate has.
+- `Registry Values` is `path = type,data`. The trap is the **type prefix**
+  (`1` = REG_SZ, `4` = REG_DWORD, `7` = REG_MULTI_SZ …) and the quoting of
+  string data. Worth a row per type rather than one row.
+- `Group Membership` needs the same set-comparison `Privilege Rights` has, and
+  the `__Members` / `__Memberof` suffix convention is a parsing surface in its
+  own right.
+
+The claim was that Tranche A needs **no new comparison machinery** beyond
+generalising the principal-set rule from one hard-coded section name to a small
+table. That holds for exactly one of the three.
+
+### Tranche B — sections that need a new comparator first
+
+`Registry Keys`, `File Security`, `Service General Setting`.
+
+> **Superseded twice.** First: the reasoning here — that SDDL canonicalisation
+> is the blocker — does not hold, because a canonical descriptor survives an
+> export byte-for-byte. Then the entry-shape comparator that replaced it turned
+> out to be the right answer to the wrong question: **the module cannot
+> represent these entries at all** (WI-038), so there is nothing for a lane
+> comparator to compare. See "Where this tranche actually stands" below. The
+> control row in point (2) survives unchanged and is still required *if* the
+> sections are ever parsed.
+
+These should **not** be attempted with the current comparison. The reasoning as
+it stood before the measurement was that they need a decision about what "equal"
+means for a security descriptor, plus a control that proves the decision is
+sound:
+
+1. compare parsed descriptors rather than SDDL strings — owner, group, and the
+   ACE list as a *set* of (type, flags, rights, trustee) — so canonical
+   reordering is not a difference;
+2. carry a **control row whose SDDL is already canonical**, so that if even
+   *that* row differs on export, the comparison itself is wrong and the run is
+   inconclusive rather than a finding. This is the direct analogue of the WMI
+   lane's true-filter control and the loopback lane's event 5311;
+3. only then add rows that are expected to differ.
+
+Without (2), a canonicalisation bug in the comparator is indistinguishable from
+a defect in `security_template.py`, and the run that "found" it would be the
+most convincing wrong answer this lane could produce.
+
+## The two measurements — taken 2026-08-04, and one of them changes the plan
+
+Both were cheap, neither needed a lane row, and they were run on the estate's
+member server before anything above was built on.
+
+**1. `secedit /validate` DOES reject a malformed SDDL.** A `Registry Keys` entry
+carrying `D:PAR(A;CI;KA;;;NOT-A-SID)(this is not sddl` fails with exit 1 and
+`"The access control list (ACL) structure is invalid. Error building security
+descriptor for object MACHINE\SOFTWARE\StudioProbe."` So `secedit` is a real
+oracle for descriptor validity, and Studio emitting an invalid one would be
+caught rather than silently accepted. `validate_security_template` still cannot
+catch it itself — that remains true and remains worth fixing — but it is not the
+only guard.
+
+**2. `secedit /export` reproduced a canonical SDDL byte-for-byte.**
+`D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)` came back verbatim. So for an
+already-canonical descriptor, a string comparison of the SDDL is sound, and the
+semantic comparator proposed above is **prudent rather than required** — it is
+still the right thing for descriptors that are not already canonical, but it is
+not what blocks the tranche.
+
+### What actually blocks it, and it was not the SDDL
+
+The exported entry reads:
+
+```
+1="machine\software\studioprobe", 2, "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+```
+
+against an authored entry keyed by the path. Three transformations at once:
+
+- **the key is now an ordinal index** (`1=`), and the path has moved into the
+  value;
+- **the path is lower-cased**;
+- **commas gain trailing spaces**.
+
+The finalizer looks entries up with `template.get_value(section, key)`. For
+these sections there is no such key on the export side, so **every row would be
+reported as missing** — a clean sweep of false findings, and none of them about
+SDDL at all.
+
+So Tranche B's real prerequisite is an **entry-shape comparator**: match by
+parsing the value into (path, mode, descriptor), compare the path
+case-insensitively, and compare the descriptor. That is a different and smaller
+piece of work than the semantic-SDDL comparator this note originally proposed,
+and it is needed for all three Tranche B sections regardless of what the
+descriptors contain.
+
+The canonical-SDDL control row is still worth carrying, for the same reason as
+before: it is what distinguishes a comparator bug from a module defect.
+
+## What the Tranche A round trip actually returned
+
+A template carrying all three sections was validated, imported into a fresh
+database and exported, on the estate's member server. The three sections behave
+three different ways.
+
+**`Registry Values` — ready as it stands.** Values came back byte-identical
+across all four registry types:
+
+```
+machine\software\studioprobe\sz=1,"hello world"
+machine\software\studioprobe\dword=4,1
+machine\software\studioprobe\multi=7,alpha,beta
+machine\software\studioprobe\expand=2,"%SystemRoot%\probe"
+```
+
+The path is lower-cased and the entry order is not preserved, and **neither
+matters**: `SecurityTemplate.get_value` already folds case on both the section
+name and the key, and lookup by key is order-independent. So this section needs
+*nothing* — not even the table generalisation. It is the whole of Tranche A.
+
+**`Group Membership` — needs principal resolution, so it is not Tranche A.**
+Authored names come back as SIDs, on both sides of the entry:
+
+```
+authored   Administrators__Members = Administrator,*S-1-5-32-544
+exported   *S-1-5-32-544__Members  = *S-1-5-32-544,*S-1-5-21-…-500
+```
+
+The group name in the **key** becomes a SID, and so do the member names. A
+comparison therefore needs a name/SID equivalence, and one of those SIDs
+(`…-500`, the built-in Administrator) is **machine-specific**, so the expected
+side cannot be written as a constant. That is real machinery — different from
+Tranche B's, but not zero.
+
+**`Kerberos Policy` — platform-blocked, not difficulty-blocked.** It exported
+**empty**. Kerberos policy is meaningful only on a domain controller, and this
+lane runs on the member server by design. Testing it means running the lane
+somewhere it currently does not run, which is a platform question and not a
+comparator one. It should be dropped from the expansion until that is decided.
+
+### Revised sequencing
+
+1. **`Registry Values`** — ~~build and certify now~~ **DONE 2026-08-04**.
+   Certified by `wp3-security-template-20260804141203-9781` at commit
+   `d827dd6`, 20/20 checks true, `export_differences: []`, on the estate's
+   member server. All four registry types round-tripped through `secedit`
+   intact, and no comparator change was needed — exactly as the round trip
+   predicted. Verdict at `wp3-evidence/verification-estate.json`.
+2. **`Group Membership`** — ~~needs a principal-resolution comparison~~
+   **DONE 2026-08-04**, certified by
+   `wp3-security-template-20260804143907-9761` at commit `968b48a`. It did need
+   that comparison (well-known aliases to constant SIDs, anything
+   machine-relative reduced to its RID, members and the key both compared as
+   principals) — and it *also* needed something this note had not considered:
+   **the lane was asking `secedit` for `/areas securitypolicy user_rights`
+   only**, so a `group_mgmt` section never reached the database and never
+   appeared in the export. The first run reported both rows as "expected X,
+   actual None", which reads exactly like a defect in what Studio wrote.
+   Both area lists now include `group_mgmt`, and the finalizer checks that
+   import and export request the same areas.
+3. **`Registry Keys` / `File Security` / `Service General Setting`** — blocked
+   on WI-038 (the module cannot represent these entries at all), and they will
+   *additionally* need their `secedit` areas added — `regkeys`, `filestore` and
+   `services` respectively. The area point applies to every future section and
+   is the cheaper half to forget.
+4. **`Kerberos Policy`** — needs a platform decision first.
+
+## Where this tranche actually stands (WI-038)
+
+The three SDDL-bearing sections do not use `key = value`. Their entries are bare
+lines, `parse_security_template` cannot parse that shape, and the entries land
+in `InfSection.unknown_lines` with the section's `entries` tuple left **empty**.
+
+The content is *preserved* — `format_security_template` re-emits `unknown_lines`
+and returns `raw_text` verbatim when nothing changed, so a read/write round trip
+is faithful. But every operation the module offers is blind to them:
+`get_value` returns `None`, `validate_security_template` reports no issues, and
+**`diff_templates` returns an empty diff between two templates whose only
+difference is an ACL trustee** — `BA` versus `WD`, Administrators versus
+Everyone.
+
+So the entry-shape comparator described above should **not** be built yet.
+There is no point teaching the lane to compare entries the module cannot
+represent. The choice to make first is:
+
+- **parse them** into `entries`, after which the lane work is ordinary and the
+  entry-shape comparator becomes exactly right; or
+- **declare them `preserve-only`** — a state Plan 033's promotion rule already
+  defines — and add a lane row that tests *preservation* rather than semantics.
+  Much cheaper, and it matches what the code does today.
+
+Either way `KNOWN_SECTIONS` currently overstates the module: it lists these
+three beside sections that are genuinely understood.
+
+## What this note deliberately does not do
+
+It does not estimate the work, and it does not promise a finding. The claim is
+narrower: the sections the lane has never touched are the ones where the module
+has already been wrong once, the comparison it would use is known to produce
+false differences on exactly those sections, and the sequencing above is what
+keeps a false difference from being reported as a defect.

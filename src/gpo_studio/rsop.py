@@ -17,6 +17,15 @@ from .som import PrecedenceEntry, SomNode, SomPrecedence, compute_precedence
 
 RsopMode = Literal["planning", "logging"]
 LoopbackMode = Literal["disabled", "merge", "replace"]
+#: How a WMI filter turned out on a target.
+#:
+#: ``"unevaluatable"`` is not a third flavour of false, and the distinction was
+#: measured rather than reasoned: a filter naming a class the target does not
+#: have cannot be true, and **Windows fails closed on it** (WI-039, run
+#: ``rsop-observe-20260804153726-7284``). A filter simply ABSENT from the
+#: mapping still means "nobody looked", which is a different fact and keeps its
+#: old behaviour -- the GPO applies and the result warns.
+WmiEvaluation = bool | Literal["unevaluatable"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +85,22 @@ class RsopQuery:
     target: RsopTarget = field(default_factory=RsopTarget)
     som_nodes: tuple[SomNode, ...] = field(default_factory=tuple)
     gpos: tuple[GPO, ...] = field(default_factory=tuple)
+    #: How each WMI filter evaluated ON THIS TARGET, keyed by ``WmiFilter.id``.
+    #:
+    #: Studio does not evaluate WQL and should not: that is the CSE's job
+    #: against the live machine. What it can do is honour an answer a caller
+    #: already has -- from a lab observation, an inventory, or an operator who
+    #: knows the machine. Before this existed, a WMI-filtered GPO was predicted
+    #: to apply whatever its filter would evaluate to, which is the failure
+    #: direction that tells an operator settings will arrive when they will not
+    #: (WI-035, demonstrated against a real client).
+    #:
+    #: A filter absent from this mapping stays UNKNOWN and keeps the old
+    #: behaviour -- the GPO applies and the result carries
+    #: ``wmi_filter_unknown``. Guessing "unknown means false" would trade a
+    #: false promise for a false absence, and an absence is the harder error to
+    #: notice.
+    wmi_filter_results: tuple[tuple[str, WmiEvaluation], ...] = ()
     simulate_no_loopback: bool = False
     simulate_slow_link: bool | None = None
     simulate_safe_mode: bool | None = None
@@ -240,6 +265,7 @@ def _gpo_filter_status(
     gpo: GPO,
     entry: PrecedenceEntry,
     target: RsopTarget,
+    wmi_results: dict[str, WmiEvaluation] | None = None,
 ) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
     """Return (is_applied, blocking_reasons, warning_reasons) for a GPO."""
     blocking: list[str] = []
@@ -251,15 +277,52 @@ def _gpo_filter_status(
 
     filters = gpo.security_filters
     if filters:
-        has_apply = any(
-            filter_.permission == "apply" and _filter_matches(filter_, target)
+        # DENY WINS, which is how token evaluation works and is why this is
+        # checked before the allow.
+        #
+        # Without it, a GPO whose DACL holds both an allow and a deny for the
+        # same principal was reported as applying -- the model saying a machine
+        # would receive settings that Windows keeps off it. That failure
+        # direction is the dangerous one for an operator asking "what will this
+        # machine get?", and it was demonstrated against a real client before
+        # being fixed here (WI-033).
+        denied = any(
+            filter_.deny
+            and filter_.permission == "apply"
+            and _filter_matches(filter_, target)
             for filter_ in filters
         )
-        if not has_apply:
-            blocking.append("security_filter_mismatch")
+        if denied:
+            blocking.append("security_filter_denied")
+        else:
+            has_apply = any(
+                filter_.permission == "apply"
+                and not filter_.deny
+                and _filter_matches(filter_, target)
+                for filter_ in filters
+            )
+            if not has_apply:
+                blocking.append("security_filter_mismatch")
 
     if gpo.wmi_filter is not None and gpo.wmi_filter.query:
-        warnings.append("wmi_filter_unknown")
+        # Three states, and the third is why the warning survives.
+        #
+        # A filter the caller has evaluated to FALSE blocks the GPO, which is
+        # what Windows does and what this could not previously express. One
+        # evaluated TRUE applies silently. One nobody has evaluated is still
+        # unknown: the GPO applies and the warning says the prediction rests on
+        # an unevaluated filter, because inventing an answer here would replace
+        # a visible gap with an invisible one.
+        evaluated = (wmi_results or {}).get(gpo.wmi_filter.id)
+        if evaluated is False:
+            blocking.append("wmi_filter_false")
+        elif evaluated == "unevaluatable":
+            # Its own reason, not `wmi_filter_false`: the filter did not
+            # evaluate to false, it could not be evaluated at all, and an
+            # operator reading the reason should be able to tell those apart.
+            blocking.append("wmi_filter_unevaluatable")
+        elif evaluated is None:
+            warnings.append("wmi_filter_unknown")
 
     return (not blocking), tuple(blocking), tuple(warnings)
 
@@ -333,7 +396,9 @@ def _resolve_side(
         if gpo is None:
             continue
 
-        applies, blocking, warnings = _gpo_filter_status(gpo, entry, query.target)
+        applies, blocking, warnings = _gpo_filter_status(
+            gpo, entry, query.target, dict(query.wmi_filter_results)
+        )
         side_enabled = _side_enabled(gpo, side)
         if side_enabled and applies:
             effective_applies = True

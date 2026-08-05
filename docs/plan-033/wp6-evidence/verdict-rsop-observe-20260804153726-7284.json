@@ -1,0 +1,99 @@
+{
+  "author_run_id": "rsop-author-20260804153722-9452",
+  "candidate": {
+    "expected.json": "e6cbbff5471d8813882cf17295026d49f6e9b9f10e042ece609f156a7f018a9b",
+    "prediction.json": "87d164f1f8fb746b7ef2686b489ed56e34d182709100a49ce562cea46d387e4f",
+    "topology.json": "980d5190b0bf77f8cfd42881cf7ce2296ce1a06a77fbfe48e82b0cf38a32e084"
+  },
+  "comparison": {
+    "agrees": false,
+    "applied_only_observed": [],
+    "applied_only_predicted": [
+      "Studio-RSOP-WmiError"
+    ],
+    "observed_applied": [
+      "Studio-RSOP-Control",
+      "Studio-RSOP-WmiTrue"
+    ],
+    "observed_foreign_gpos": [
+      "Default Domain Policy",
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "Control": "present",
+      "Wmi": "true",
+      "WmiTrueOnly": "1"
+    },
+    "predicted_applied": [
+      "Studio-RSOP-Control",
+      "Studio-RSOP-WmiError",
+      "Studio-RSOP-WmiTrue"
+    ],
+    "predicted_winners": {
+      "Control": "present",
+      "Wmi": "error",
+      "WmiErrorOnly": "1",
+      "WmiTrueOnly": "1"
+    },
+    "value_findings": [
+      {
+        "kind": "wrong_value",
+        "observed": "true",
+        "predicted": "error",
+        "predicted_winning_gpo": "Studio-RSOP-WmiError",
+        "value_name": "Wmi"
+      },
+      {
+        "kind": "predicted_but_absent",
+        "observed": null,
+        "predicted": "1",
+        "predicted_winning_gpo": "Studio-RSOP-WmiError",
+        "value_name": "WmiErrorOnly"
+      }
+    ]
+  },
+  "control_problems": [],
+  "cse_completed": true,
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "expected_finding": "",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": false,
+  "run_id": "rsop-observe-20260804153726-7284",
+  "scenario_id": "wmi-filtering-error",
+  "schema_version": 1,
+  "scope": "computer",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "33fd0e7a7e4078592e3e9019cfaa54d1a56bf5fa",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "a196a857f6957b0831df9fa16b6f650446f3eaf495eb897bd9150e131bcc0829",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "59a4158e28235f268689551720169e3e45988e043d2b83f770da5ef7ab06e8e8",
+      "run-rsop-observe.ps1": "8feeb65bd38c71ddf31df86bade1fe767181e76695faf9fcc38ae3b87d93eec9",
+      "run-rsop-oracle.sh": "74262f77b49b69132fbddd03f65e5c4c41b3773ac1d7257c7727f821005e0c0b"
+    }
+  },
+  "state": "finding",
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "work_package": "WP-6B"
+}
