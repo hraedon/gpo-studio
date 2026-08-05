@@ -12,6 +12,7 @@ name promises, and this pins that.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import runpy
 from pathlib import Path
@@ -176,6 +177,100 @@ PRE_TRANSPORT_VERDICTS = {
     "wp3-evidence/verification.json",
 }
 
+#: Verdicts whose harness has MOVED ON, kept as history rather than as claims.
+#:
+#: A certification binds the harness that produced it, so a verdict is a live
+#: claim only while the files it names still hash to what it recorded. When a
+#: harness file changes, every verdict bound to the old content stops being a
+#: certification and becomes a record of something that happened once. Twice now
+#: the RSOP lanes have been fully re-run for exactly this reason -- when the
+#: finalizers' harness check was made falsifiable, and when review round 3
+#: changed `build-rsop-candidate.py` -- and BOTH times the staleness was caught
+#: by a person noticing rather than by a test (WI-045).
+#:
+#: These are kept deliberately. The operator ruled that `...045139-3731` retains
+#: its value because the divergence it observed on a real client does not depend
+#: on the harness check; the same argument covers the rest. History that is
+#: supposed to be stale is why this cannot simply be "every verdict matches the
+#: tree" -- that assertion would fail on day one and get switched off, which is
+#: worse than no gate at all.
+#:
+#: ENUMERATED, never matched by pattern, for the reason `PRE_TRANSPORT_VERDICTS`
+#: gives: retiring a certification should be a deliberate act with a reason, not
+#: something a file drifts into. And it is not an escape hatch --
+#: `test_retired_verdicts_are_genuinely_stale` fails if a verdict listed here
+#: still matches the tree, so a live claim cannot be quietly parked in here to
+#: silence the gate below.
+RETIRED_VERDICTS = {
+    # WP-6B's first certification and the WI-031 enforcement arc, superseded
+    # when `run-rsop-author.ps1` and the candidate builder moved on.
+    "wp6-evidence/verdict-rsop-observe-20260804010341-7165.json",
+    "wp6-evidence/verdict-rsop-observe-20260804010551-9363.json",
+    "wp6-evidence/verdict-rsop-observe-20260804010738-5543.json",
+    "wp6-evidence/verdict-rsop-observe-20260804012618-5426.json",
+    "wp6-evidence/verdict-rsop-observe-20260804012803-7606.json",
+    "wp6-evidence/verdict-rsop-observe-20260804015016-5317.json",
+    "wp6-evidence/verdict-rsop-observe-20260804015258-1810.json",
+    "wp6-evidence/verdict-rsop-observe-20260804015447-4913.json",
+    "wp6-evidence/verdict-rsop-observe-20260804020109-7624.json",
+    "wp6-evidence/verdict-rsop-observe-20260804020308-9752.json",
+    "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json",
+    "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json",
+    "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json",
+    "wp6-evidence/verdict-rsop-observe-20260804070708-6831.json",
+    "wp6-evidence/verdict-rsop-observe-20260804151624-6393.json",
+    "wp6-evidence/verdict-rsop-observe-20260804152957-1430.json",
+    # WI-039, the one undeclared finding this lane has produced, and its fix.
+    "wp6-evidence/verdict-rsop-observe-20260804153726-7284.json",
+    "wp6-evidence/verdict-rsop-observe-20260804154241-9337.json",
+    # WI-040's arc: the `expected-finding` that measured the read-deny gap and
+    # the `pass` that certified the fix. Kept for the divergence they observed
+    # on a real client, which does not depend on the harness binding.
+    "wp6-evidence/verdict-rsop-observe-20260805045139-3731.json",
+    "wp6-evidence/verdict-rsop-observe-20260805045851-3883.json",
+    # Re-certification generation 1, superseded by the WI-043 contract change.
+    "wp6-evidence/verdict-rsop-observe-20260805064008-9181.json",
+    "wp6-evidence/verdict-rsop-observe-20260805064155-8996.json",
+    "wp6-evidence/verdict-rsop-observe-20260805064351-9402.json",
+    "wp6-evidence/verdict-rsop-observe-20260805064540-1562.json",
+    "wp6-evidence/verdict-rsop-observe-20260805064725-4970.json",
+    # Re-certification generation 2 (`a85736a`), superseded hours later by
+    # review round 3's change to `build-rsop-candidate.py`. The prediction
+    # output was byte-identical across that change -- which is worth knowing and
+    # is NOT the standard. A certification binds the harness, not the output.
+    "wp6-evidence/verdict-rsop-observe-20260805194053-7180.json",
+    "wp6-evidence/verdict-rsop-observe-20260805194245-3734.json",
+    "wp6-evidence/verdict-rsop-observe-20260805194432-5944.json",
+    "wp6-evidence/verdict-rsop-observe-20260805194627-2633.json",
+    "wp6-evidence/verdict-rsop-observe-20260805194814-2731.json",
+    "wp6-evidence/verdict-rsop-observe-20260805195001-1590.json",
+    # WP-9's own arc, same three generations.
+    "wp9-evidence/verdict-rsop-user-observe-20260804045552-9148.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260804045809-8312.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260804065146-4224.json",
+    # WI-033: the deny a real client demonstrated the model could not express.
+    "wp9-evidence/verdict-rsop-user-observe-20260804065525-9254.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260804150527-3868.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805065415-8622.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805065630-6815.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805065943-6615.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805195149-5629.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805195400-1809.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json",
+}
+
+#: The verdicts that are still CLAIMS: everything mapped and not retired.
+LIVE_VERDICTS = {
+    relative: finalizer
+    for relative, finalizer in LANE_VERDICTS.items()
+    if relative not in RETIRED_VERDICTS
+}
+
 
 def _verdict(relative: str) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads((EVIDENCE / relative).read_text(encoding="utf-8")))
@@ -293,6 +388,107 @@ def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> No
         assert candidate["state"] == "pass"
     assert verdict["source"]["dirty"] is False
     assert verdict["transport"] == "psdirect"
+
+
+def _recorded_vs_tree(relative: str, finalizer: str) -> list[tuple[str, str, str]]:
+    """(name, recorded, on-disk) for every bound file whose hash has moved.
+
+    Returns the empty list when the verdict still binds the shipping harness.
+    Files the tables do not name are left to
+    `test_source_files_holds_exactly_the_bound_repository_files`, which is the
+    check that owns that failure.
+    """
+    verdict = _verdict(relative)
+    paths = {name: source for table in _file_tables(finalizer) for name, source in table.items()}
+    drifted: list[tuple[str, str, str]] = []
+    for name, recorded in verdict["source"]["files"].items():
+        source = paths.get(name)
+        if source is None:
+            continue
+        actual = hashlib.sha256((REPO_ROOT / source).read_bytes()).hexdigest()
+        if actual != recorded:
+            drifted.append((name, recorded, actual))
+    return drifted
+
+
+@pytest.mark.parametrize("relative,finalizer", sorted(LIVE_VERDICTS.items()))
+def test_a_live_verdict_still_binds_the_harness_that_ships(
+    relative: str, finalizer: str
+) -> None:
+    """A live certification's bound files must still hash to what it recorded.
+
+    This is the check the project has been performing by hand. Twice the RSOP
+    lanes were re-run because a harness file moved underneath their verdicts,
+    and both times the discovery was somebody thinking to look -- while commit
+    messages, the plan and the capability matrix all cite the binding as though
+    something enforced it.
+
+    The tests around this one are careful about everything adjacent and never
+    hash a file: `source.files` KEYS are checked against the lane's tables, each
+    bound path is checked to EXIST, and each verdict is checked against ITSELF.
+    A verdict can satisfy all three while naming content the repository no
+    longer has -- which is exactly the state the re-certifications existed to
+    leave behind.
+    """
+    drifted = _recorded_vs_tree(relative, finalizer)
+    assert not drifted, (
+        f"{relative} is a live certification, but the harness it binds has "
+        "changed: "
+        + "; ".join(
+            f"{name} recorded {rec[:12]}, tree has {act[:12]}" for name, rec, act in drifted
+        )
+        + ". Either re-run the lane so the verdict binds the shipping code, or "
+        "move it to RETIRED_VERDICTS with a reason if it is now history."
+    )
+
+
+def test_retired_verdicts_are_genuinely_stale() -> None:
+    """The control, and the thing that stops `RETIRED_VERDICTS` being a hatch.
+
+    Two properties, and both matter:
+
+    1. **The check above can fail.** A gate nobody has seen fail is a gate
+       nobody should trust -- this project has already been burned by a test
+       whose assertions were satisfied by the file's own contents, and a
+       reviewer then cleared a hazard partly BECAUSE that test "pinned" it. Here
+       the repository itself carries the negative case: 47 verdicts whose
+       harness genuinely moved on. If the hashing logic ever silently stops
+       hashing, this test goes red first.
+
+    2. **A live claim cannot be parked here to silence the gate.** The cheap way
+       out of a failing freshness check is to declare the verdict history. That
+       only works if it really is history, because a retired verdict that still
+       matches the tree fails right here.
+    """
+    not_stale = sorted(
+        relative
+        for relative in RETIRED_VERDICTS
+        if not _recorded_vs_tree(relative, LANE_VERDICTS[relative])
+    )
+    assert not not_stale, (
+        "These verdicts are listed as retired history but still bind the "
+        f"shipping harness exactly: {not_stale}. A verdict that matches the "
+        "tree is a live certification -- remove it from RETIRED_VERDICTS "
+        "rather than retiring a claim that still holds."
+    )
+
+
+def test_the_live_set_is_not_empty_and_covers_every_lane() -> None:
+    """Retiring everything would make the freshness check vacuous silently.
+
+    `LIVE_VERDICTS` is a subtraction, so it degrades quietly: retire enough and
+    the parametrised test above simply stops generating cases, reporting green
+    for a repository whose every claim has expired. Each lane must keep at least
+    one verdict that still binds the code it ships.
+    """
+    assert set(LANE_VERDICTS) >= RETIRED_VERDICTS, (
+        "RETIRED_VERDICTS names verdicts that are not in LANE_VERDICTS: "
+        f"{sorted(RETIRED_VERDICTS - set(LANE_VERDICTS))}"
+    )
+    lanes = {relative.split("/")[0] for relative in LIVE_VERDICTS}
+    assert lanes == {relative.split("/")[0] for relative in LANE_VERDICTS}, (
+        f"Some lane has no live certification left: {sorted(lanes)}"
+    )
 
 
 def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:

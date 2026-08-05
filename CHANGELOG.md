@@ -188,6 +188,23 @@ Current version: `1.0.0`.
 
 ### Fixed
 
+- WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
+  plan and Studio export bundle as available and then refused both downloads
+  with HTTP 422. WI-041's refusal is correct and is unchanged; what was missing
+  was that `artifact_capabilities` derived availability from `validate_gpo`,
+  which has no deny rule. The condition now lives once, in
+  `export.plan_refusal()`, which both the export path and the capability
+  payload consult — so the operator is told up front, with the reason, instead
+  of discovering it by pressing a button. **Surfaced** (API + browser
+  application).
+- WI-045: a committed lane verdict binds its harness files by SHA-256, and no
+  test checked that those hashes still matched the tree. The RSOP verdicts had
+  twice been re-run for exactly this reason, both times caught by a person
+  rather than by CI. Live certifications are now hash-checked against the
+  working tree, with deliberately retained history enumerated in
+  `RETIRED_VERDICTS` and a control that fails if a retired verdict still
+  matches — so the exemption list cannot be used to silence the check. Lab
+  tooling; no operator-facing change.
 - `jsonschema` was declared only as a uv dependency group, so `uv sync`
   installed it locally while CI's `pip install -e '.[dev]'` did not, and the
   Plan 033 WP-1A fixture tests failed on CI with `ModuleNotFoundError`. It is

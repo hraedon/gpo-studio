@@ -85,6 +85,39 @@ def _ps_value(setting: RegistrySetting) -> str:
     return _ps_quote(setting.value)
 
 
+def plan_refusal(gpo: GPO) -> ValidationIssue | None:
+    """Why this GPO can get no PowerShell plan, or ``None`` if it can.
+
+    ONE function so the refusal and the advertisement of it cannot disagree
+    (WI-044). `powershell_plan` raises on whatever this returns, and the API
+    reports the same artifact as unavailable for the same reason -- a caller is
+    told up front what it would otherwise discover by pressing a button and
+    getting a 422.
+
+    The alternative was a second copy of the deny condition in the API's
+    capability block. Two independent statements of "can this be exported" is
+    how they drift apart, and this item exists because they already had:
+    `validate_gpo` has no deny rule, so the capability said `enabled: true`
+    while the download refused.
+    """
+    denied = [sf for sf in gpo.security_filters if sf.deny]
+    if not denied:
+        return None
+    return ValidationIssue(
+        severity="error",
+        code="deny_filter_not_expressible",
+        message=(
+            "Security filter for "
+            f"{', '.join(sorted(sf.principal for sf in denied))} "
+            "is a DENY, which Set-GPPermission cannot express. "
+            "A PowerShell plan cannot be generated for this GPO "
+            "without changing what the deny means. Remove the "
+            "deny, or apply it out of band as a DACL ACE."
+        ),
+        path="security_filters",
+    )
+
+
 def powershell_plan(gpo: GPO) -> str:
     """Generate an idempotent, human-reviewable GroupPolicy module plan."""
     lines = [
@@ -189,25 +222,9 @@ def powershell_plan(gpo: GPO) -> str:
         # carrying a deny does not get a partial plan; it gets no plan and a
         # reason. Same call as the cpassword refusal below, and WI-012's on
         # `explicitValue`: refuse what cannot be expressed rather than guess.
-        denied = [sf for sf in gpo.security_filters if sf.deny]
-        if denied:
-            raise ValidationError(
-                [
-                    ValidationIssue(
-                        severity="error",
-                        code="deny_filter_not_expressible",
-                        message=(
-                            "Security filter for "
-                            f"{', '.join(sorted(sf.principal for sf in denied))} "
-                            "is a DENY, which Set-GPPermission cannot express. "
-                            "A PowerShell plan cannot be generated for this GPO "
-                            "without changing what the deny means. Remove the "
-                            "deny, or apply it out of band as a DACL ACE."
-                        ),
-                        path="security_filters",
-                    )
-                ]
-            )
+        refusal = plan_refusal(gpo)
+        if refusal is not None:
+            raise ValidationError([refusal])
         lines.append("")
         lines.append("# Security filtering — reconcile GpoApply permissions only.")
         lines.append("# GpoEdit, GpoRead, and other management permissions are preserved.")
