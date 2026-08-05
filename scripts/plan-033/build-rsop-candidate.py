@@ -936,6 +936,22 @@ COMPUTER_SECURITY_FILTERING_DENY_READ = Scenario(
     target_ou_key="child",
     control_gpo="Studio-RSOP-Control",
     control_value_name="Control",
+    # Declared, and it buys more than the verdict's name. Without it the
+    # finalizer's `unexpected-agreement` state can never fire -- so if the
+    # GenericRead deny silently failed to land and Windows therefore agreed with
+    # the model, this run would certify an ordinary `pass` on an experiment that
+    # did not happen. The authored-state readback is the other guard against
+    # that, and the two fail in different ways: the readback catches a DACL that
+    # does not say what was asked, this catches an agreement that should have
+    # been impossible.
+    expect_finding=(
+        "WI-040: `_gpo_filter_status` inspects only `permission == 'apply'` rows, "
+        "so a deny on Read is invisible to the model. Studio predicts "
+        "Studio-RSOP-CompFilterDenyRead applies and wins at link order 1 "
+        "(Filter=denyRead, DenyReadOnly=1); Windows is expected to keep it off "
+        "the machine, leaving Filter=allow and DenyReadOnly absent. The model is "
+        "deliberately unchanged until this run rules."
+    ),
     gpos=(
         PlannedGpo(
             name="Studio-RSOP-CompFilterDenyRead",
