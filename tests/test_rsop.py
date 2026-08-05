@@ -1157,31 +1157,49 @@ class TestDenyFiltering:
             )
         )
 
-    def test_a_deny_on_read_is_currently_ignored_UNMEASURED(self) -> None:
-        """WI-040: records what the model does, and does NOT claim Windows agrees.
+    def test_a_deny_on_read_blocks_even_with_apply_allowed(self) -> None:
+        """WI-040, and it got INVERTED by the oracle rather than confirmed.
 
-        The previous name and docstring -- `test_a_deny_on_read_does_not_block_apply`,
-        "the right being denied matters" -- read as a certified design decision
-        sitting among four deny cases that really were measured against Windows.
-        It is not one. `_gpo_filter_status` inspects only `permission == "apply"`
-        rows in every branch it has, so a read deny is not so much handled as
-        unseen, and no oracle run has ever carried one.
+        This assertion used to run the other way, under the name
+        `test_a_deny_on_read_does_not_block_apply` and the docstring "the right
+        being denied matters; this models Apply Group Policy only" -- which read
+        as a certified design decision while sitting among four deny cases that
+        really were measured. It was an assumption in the vocabulary of a
+        certification, and it was wrong.
 
-        Applying a GPO requires BOTH Read and Apply Group Policy, so the
-        expectation is that Windows BLOCKS here and this assertion is backwards.
-        It is left standing on purpose: WP-6B's disabled-link case is what
-        happens when a predicted defect is "fixed" before the oracle rules, and
-        the correct behaviour is changed into a real defect. The scenario
-        `computer-security-filtering-deny-read` exists to settle it.
-
-        When it runs, this test either gets its old name back or gets inverted.
+        Run `rsop-observe-20260805045139-3731` settled it on a real 26200
+        client: a GPO carrying a deny on GenericRead, with its Read + Apply
+        allow INTACT, did not apply. Applying takes both rights.
         """
-        assert self._applied(
+        assert not self._applied(
             (
                 SecurityFilter(id="a", principal="C", permission="apply"),
                 SecurityFilter(id="d", principal="C", permission="read", deny=True),
             )
         )
+
+    def test_a_read_deny_for_someone_else_does_not_block(self) -> None:
+        """The mirror of the Apply case: a read deny must still be matched."""
+        assert self._applied(
+            (
+                SecurityFilter(id="a", principal="C", permission="apply"),
+                SecurityFilter(id="d", principal="Stranger", permission="read", deny=True),
+            )
+        )
+
+    def test_the_reason_names_the_denied_right(self) -> None:
+        """`security_filter_denied` would send an operator to Apply, which IS granted."""
+        result = compute_rsop(
+            self._query(
+                (
+                    SecurityFilter(id="a", principal="C", permission="apply"),
+                    SecurityFilter(id="d", principal="C", permission="read", deny=True),
+                )
+            )
+        )
+        reasons = result.gpo_results[0].filtering_reasons
+        assert "security_filter_read_denied" in reasons
+        assert "security_filter_denied" not in reasons
 
     def test_the_reason_names_the_deny(self) -> None:
         """`security_filter_mismatch` would say the principal lacked Apply, which is false."""

@@ -286,14 +286,35 @@ def _gpo_filter_status(
         # direction is the dangerous one for an operator asking "what will this
         # machine get?", and it was demonstrated against a real client before
         # being fixed here (WI-033).
-        denied = any(
+        # APPLYING A GPO TAKES BOTH RIGHTS, so there are two independent denies
+        # and this used to see only one. Measured, not reasoned: run
+        # `rsop-observe-20260805045139-3731` authored a deny on GenericRead
+        # beside an INTACT Read + Apply allow, and Windows did not apply the GPO
+        # (WI-040). The control row in the same run carried the identical grant
+        # without the read deny and applied, so the absence was the deny working
+        # rather than a DACL write that failed.
+        #
+        # The two are reported separately. An operator reading
+        # `security_filter_denied` would go looking at Apply Group Policy and
+        # find it granted; the right actually denied is the one worth naming.
+        # Same argument as WI-039's `wmi_filter_unevaluatable` versus
+        # `wmi_filter_false`.
+        denied_apply = any(
             filter_.deny
             and filter_.permission == "apply"
             and _filter_matches(filter_, target)
             for filter_ in filters
         )
-        if denied:
+        denied_read = any(
+            filter_.deny
+            and filter_.permission == "read"
+            and _filter_matches(filter_, target)
+            for filter_ in filters
+        )
+        if denied_apply:
             blocking.append("security_filter_denied")
+        elif denied_read:
+            blocking.append("security_filter_read_denied")
         else:
             has_apply = any(
                 filter_.permission == "apply"
