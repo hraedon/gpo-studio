@@ -3,12 +3,17 @@
   "scenario_id": "user-security-filtering-read-deny",
   "family": "rsop-topology",
   "title": "User-scope read deny: is the user's Read consulted when the computer performs the retrieval?",
-  "readiness": "blocked",
-  "blocked_reason": "Authored 2026-08-06 and NOT YET EXECUTED. This is a user-scope (WP-9) scenario, and the corpus rule is that a scenario becomes ready because a lane ran it -- not because marking it ready would make the corpus look better fed than it is. It is blocked on its own first execution against the estate, at which point the observation replaces the open question in `question_rows`, the tier moves off `hypothesis`, and this flips to ready. Nothing about the platform blocks it: the WP-9 lane is qualified and the estate's user-logged-on checkpoint exists.",
+  "readiness": "ready",
   "provenance": {
-    "tier": "hypothesis",
-    "note": "This scenario deliberately does NOT assert what Windows does, and the tier says so. WI-040 measured that a deny on Read keeps a GPO off a COMPUTER with the Apply allow intact; nothing has measured the user side, and MS16-072 (KB3163622) makes the naive experiment uninterpretable because a user's GPOs are retrieved in the computer's security context -- two mechanisms produce the same observation. So the scenario is built as a DISCRIMINATOR that separates them rather than as an expectation to confirm. `hypothesis` is the honest tier: the only thing believed here is an argument from MS16-072, and it must be proven before any claim rests on it. The two control rows are the exception and are asserted, because they are what makes the question rows readable.",
-    "anchors": []
+    "tier": "native-observation",
+    "note": "MEASURED 2026-08-06 on a real Windows 11 Enterprise 26200 client. The scenario was authored as a DISCRIMINATOR rather than an expectation, because MS16-072 has a user's GPOs retrieved in the computer's security context and two mechanisms therefore produce the same observation. Rows A and B separate them and both controls held. The answer: a read deny gates policy when it names the COMPUTER, on either side -- the principal named by the deny decides it, not the side being resolved. Read with WI-040's computer-scope run, this closes the region WI-043 abstained on. The pre-run predictions are preserved below exactly as written; the physics argument held, which is worth recording because this lane's previous two clean arguments (WI-039, WI-040) did not.",
+    "anchors": [
+      {
+        "kind": "native-capture",
+        "path": "docs/plan-033/wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json",
+        "sha256": "ab28f7987abc572f3d8d4554187b12b47e0ae15c241da73c3cff3676decc6bbd"
+      }
+    ]
   },
   "platform": {
     "lane": "rsop-user-loopback",
@@ -194,22 +199,16 @@
         "gpo": "Studio-RSOP-UserDenyReadUser",
         "row": "A",
         "observable": "HKCU\\Software\\Policies\\StudioLab\\DenyReadUserOnly",
-        "absent_means": "the user's own read deny IS consulted for user-scope policy, even though the computer performs the retrieval",
-        "present_means": "it is not consulted; MS16-072's context switch is the reason, and the model's `unevaluable` branch resolves to `applied` on the user side"
+        "observed": "PRESENT \u2014 the GPO applied, and won the shared `Filter` value at link order 1",
+        "means": "a user's own read deny is NOT consulted for user-scope policy, because the user is not the principal performing the retrieval"
       },
       {
         "gpo": "Studio-RSOP-UserDenyReadComp",
         "row": "B",
         "observable": "HKCU\\Software\\Policies\\StudioLab\\DenyReadCompOnly",
-        "absent_means": "denying the READING principal blocks the user's policy as a side effect \u2014 the MS16-072 mechanism confirmed",
-        "present_means": "the computer's read deny does not gate user-scope policy, which would contradict the retrieval-context argument"
+        "observed": "ABSENT \u2014 the GPO did not apply",
+        "means": "denying the READING principal withholds the user's policy as a side effect; the MS16-072 mechanism, confirmed"
       }
-    ],
-    "joint_readings": [
-      "A present, B absent: user read denies are not consulted; computer read denies gate the user side. The physics argument holds and the model is scoped to it.",
-      "A absent, B absent: both principals gate. The user-side read deny behaves like the computer-side one certified by WI-040.",
-      "A absent, B present: the MS16-072 physics argument is WRONG. The most valuable outcome available here.",
-      "A present, B present: read denies do not gate user-scope policy from either principal. The `unevaluable` branch is deleted rather than narrowed."
     ],
     "token_collection": {
       "user": "whoami /groups in the target session; this scenario makes no nesting claim, so the directory cross-check carries no assertion here beyond WI-042's collection-failure gate"
@@ -238,11 +237,17 @@
         "source_gpo": "Studio-RSOP-UserReadDenyApply",
         "reason": "CONTROL (row D), and the one this corpus would have shipped without. A deny on APPLY for the user is CERTIFIED to block (WI-033, rsop-user-observe-20260804150527-3868). PRESENT => this harness cannot detect a blocked user GPO at all, every absence in `question_rows` means nothing, and the run is INCONCLUSIVE rather than a result."
       }
-    ]
+    ],
+    "measured_answer": {
+      "run": "verdict-rsop-user-observe-20260806184006-2532.json",
+      "rule": "A read deny gates policy when it names the COMPUTER, on either side. The side being resolved does not decide it; the principal named by the deny does. Apply Group Policy runs the other way \u2014 it is evaluated against the principal the policy applies TO.",
+      "joint_reading_that_held": "A present, B absent",
+      "model_scoped_to_it_in": "WI-047 (RsopTarget gained per-side identities)"
+    }
   },
   "open_questions": [
-    "Row B is authored as a deny naming the COMPUTER on a USER-scope scenario. Whatever Windows says is also the first evidence for WI-047 (cross-principal matching): the model matched B's deny on the user side ONLY because `_filter_matches` compares against the union of both principals' identities. Note the same union makes the model answer `security_filter_read_denied` on the COMPUTER side of row A, where the deny names the user \u2014 visible in the two reasons each question row carries.",
-    "The scenario asserts nothing about which GPO wins the shared `Filter` value, because that depends on the answer. Row A sits at link order 1 precisely so that a wrong abstention is expensive: if A applies, the model's `unevaluable` cost it a winner it could have named, and the value_finding records it."
+    "A read deny naming a GROUP is handled by the same rule \u2014 the deny is matched against the reading principal's token, and `RsopTarget.computer_group_memberships` is where that token's groups now live. Unit-tested in both directions but NOT measured on the estate: no scenario has authored a read deny on a group the computer belongs to. That is the nearest remaining edge of this region.",
+    "Nothing collects the COMPUTER's group memberships in this lane. The nesting scenarios collect the USER's with `whoami /groups` in the user's session. A group-named read deny scenario would need the computer's token collected the way WP-6 does it, and would be the natural place to close the item above."
   ],
   "predictions_before_the_run": {
     "recorded": "2026-08-06, before any estate contact",

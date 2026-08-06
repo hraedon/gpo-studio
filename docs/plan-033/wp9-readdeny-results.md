@@ -56,7 +56,55 @@ That unifies WI-040's computer-scope result with both user-scope rows instead of
 carrying them as three special cases, and it follows directly from the retrieval
 context rather than being fitted to the data after the fact.
 
-## Why WI-043 still cannot close: WI-047 is now BLOCKING
+## CLOSED 2026-08-06: the model was scoped to this and re-certified
+
+Everything below this section was written between the measurement and the fix,
+and is kept as written. What follows is what happened next.
+
+**WI-047 landed.** `RsopTarget.group_memberships` was replaced by
+`computer_group_memberships` and `user_group_memberships`, `_filter_matches`
+now takes a resolved identity set rather than the target, and read denies
+resolve against the COMPUTER on both sides while Apply resolves against the
+side's own principal. Mutation-proven in both wrong directions: routing read
+denies through the resolving side fails all four measured cases; restoring the
+union fails the two user-named-deny cases.
+
+**All twelve scenarios were re-run and all twelve pass**, at commit `f761552`.
+The certifying run for this region is
+`rsop-user-observe-20260806184006-2532`:
+
+    conclusive        : True
+    unevaluable_gpos  : []
+    predicted winners : AllowOnly=1, Control=present, DenyReadUserOnly=1, Filter=denyReadUser
+    observed  winners : AllowOnly=1, Control=present, DenyReadUserOnly=1, Filter=denyReadUser
+    value_findings    : []
+
+The model now predicts `Filter=denyReadUser` -- row A winning the conflict at
+link order 1 -- and Windows agrees. The full arc is on the record: predict,
+observe, find the model cannot express the answer, fix the type, re-run,
+certify.
+
+**A consequence stated rather than left to be found:** no filtering rule
+produces `unevaluable` any more. The status and its machinery stay, because
+WI-039's ruling has not changed and the next unmeasured region will need them,
+but nothing in production reaches it. A test asserts exactly that and will fail
+the moment a new rule starts abstaining.
+
+### What the original analysis got right and wrong
+
+Right: WI-047 was genuinely blocking, and the flat membership tuple genuinely
+had nowhere to put the answer.
+
+Wrong in scale: this section originally implied the fix would touch every
+producer of an `RsopTarget` and be a large refactor. It was **four non-test
+sites**. The estimate came from recalling the `is_applied` removal, which was a
+different and wider change.
+
+---
+
+## The original analysis, as written before the fix
+
+## Why WI-043 could not close at the time: WI-047 was BLOCKING
 
 The abstention exists to be removed, and this measurement is what removes it —
 but **the model cannot express the measured rule today**, and the obstacle is

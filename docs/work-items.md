@@ -734,7 +734,17 @@ refusal, not an absence — and the nesting rows are re-certified against it.
 
 ## WI-043 — the read-deny branch generalises past its evidence to user scope
 
-**Opened:** 2026-08-05 (independent review of PR #39). **Status:** open.
+**Opened:** 2026-08-05 (independent review of PR #39). **FIXED AND CLOSED 2026-08-06**, by measurement first and then by scoping the
+model to what was measured.
+
+Closure: the region was measured (`rsop-user-observe-20260806165543-8004`), the
+model was scoped to it via WI-047, and the re-run certified it
+(`rsop-user-observe-20260806184006-2532`, `pass`, conclusive, zero value
+findings). The `unevaluable` branch is DELETED rather than narrowed, because
+nothing in the region is unmeasured any more. Full arc in
+[`plan-033/wp9-readdeny-results.md`](plan-033/wp9-readdeny-results.md).
+
+The original entry follows.
 
 WI-040 established, against a real 26200 client, that a deny on Read keeps a
 GPO off a **computer** even with the Apply allow intact. The model now has a
@@ -1105,7 +1115,24 @@ the author had already reviewed it twice by walking his own named hazards.
 ## WI-047 — security filters match against the union of both principals
 
 **Opened:** 2026-08-06 (operator ruling; carried unnumbered since 2026-08-04).
-**Status:** open.
+**FIXED AND CERTIFIED 2026-08-06**, hours later, because WI-043's measurement
+made it blocking rather than opportunistic.
+
+`RsopTarget.group_memberships` is gone, replaced by
+`computer_group_memberships` and `user_group_memberships`. `_filter_matches`
+takes a resolved identity set rather than the target, so a caller cannot omit
+the principal it is asking about. Read denies resolve against the COMPUTER on
+both sides; Apply resolves against the side's own principal.
+
+Mutation-proven in both wrong directions, and guarded by two control rows that
+a `computer_name`-only shortcut would fail: a deny naming a COMPUTER group
+blocks, the same deny naming the same group in the USER's token does not.
+Certified by the full twelve-scenario re-certification, all `pass`.
+
+**Scale correction:** this was estimated at 14+ call sites from memory of the
+`is_applied` removal. It was FOUR non-test sites.
+
+The original entry follows.
 
 Three sessions declined to file this unilaterally and carried it as a prose
 note instead — in `rsop.py`'s comments, in WI-043's body, and in the WI-043
@@ -1164,6 +1191,39 @@ matcher is another rule believed on reasoning — which is the mistake WI-033,
 WI-040 and WI-043 have now made three times, two of them wrong.
 
 ---
+
+## WI-048 — PowerShell Direct collides with itself on back-to-back runs
+
+**Opened:** 2026-08-06 (hit twice during the WI-043/WI-047 re-certification).
+**Status:** open.
+
+Two of twelve batch runs died with:
+
+    ERROR_INTERNAL_ERROR: The WinRM service cannot process the request.
+    A command already exists with the command ID specified by the client.
+
+Once during a `Copy-Item` push (`psdirect.ps1:158`) and once during the evidence
+pull (`psdirect.ps1:345`). Both scenarios passed when re-run with a 90-second
+gap and nothing else changed, so the trigger is elapsed time between sessions
+rather than anything in the scenarios.
+
+**Why this needs a number rather than a note in a runbook.** Every harness edit
+invalidates every verdict bound to it (WI-045), so a twelve-run re-certification
+is now the ROUTINE cost of touching the lane, not an exceptional event. A
+transport that fails roughly one run in six under that pattern will keep
+costing estate passes, and the failure is silent in the worst way: the second
+one had already authored, observed and torn down cleanly, so the estate work was
+done and only the evidence retrieval was lost.
+
+**Not a scenario or model defect**, and worth stating because the verdict is
+absent either way: both runs left the estate clean (`cleanup_problems: []`, no
+surviving OUs, GPOs, links or filters, both accounts restored).
+
+**Closes when:** either `psdirect.ps1` makes a new session robust to a colliding
+command ID (retry on `ERROR_INTERNAL_ERROR`, or a fresh session per invocation),
+or the minimum inter-run gap is enforced in the lane driver rather than left to
+whoever writes the next batch script. A comment in a scratchpad file is not a
+fix; the batch driver that hit this is not even in the repository.
 
 ## Not yet numbered
 
