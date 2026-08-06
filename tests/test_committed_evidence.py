@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import runpy
+import subprocess
 from pathlib import Path
 from typing import Any, cast
 
@@ -492,9 +493,58 @@ def test_the_live_set_is_not_empty_and_covers_every_lane() -> None:
 
 
 def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
+    """WP-0 binds by COMMIT, not by file hashes — so it is checked differently.
+
+    Its manifest carries `source: {commit, dirty}` and no `files` block at all,
+    which is why it is absent from `LANE_VERDICTS` and outside the freshness
+    gate above. Nothing is wrong with that; it is a different binding. But it
+    means the gate must not be read as covering WP-0.
+
+    Until now this test asserted the `pass` and the clean tree and **never
+    checked that the commit resolves**, while its name said it did. That is not
+    a hypothetical gap: the 2026-08-03 evidence-binding audit found FOUR cited
+    commits that no longer resolve, all squash-merge orphans, and issue #22's
+    remedy (auto-tagging passing runs) exists precisely to stop it recurring.
+    A test named for the property, that does not test the property, is how the
+    next reviewer gets talked out of checking by hand.
+
+    SKIPPED ON A SHALLOW CLONE, and that is not a dodge. CI checks out with
+    actions/checkout's default `fetch-depth: 1`, so the object is genuinely
+    absent there and asserting would fail a healthy commit — the failure mode
+    would be noise, and noisy gates get deleted. Where the history is present
+    (any developer clone, and any CI job that deepens its checkout) the
+    property is enforced for real.
+    """
     manifest = _verdict("wp0-evidence/manifest-estate.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
+    assert "files" not in manifest["source"], (
+        "The WP-0 manifest has grown a source.files block. It is not covered by "
+        "the freshness gate — add it to LANE_VERDICTS so its hashes are checked."
+    )
+
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shallow.stdout.strip() != "false":
+        pytest.skip("shallow clone: the manifest's commit is not fetched here")
+
+    commit = manifest["source"]["commit"]
+    resolved = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert resolved.returncode == 0, (
+        f"The WP-0 manifest binds commit {commit}, which this repository can no "
+        "longer resolve — the certification is unverifiable. Squash-merge "
+        "orphaning is the known cause; see docs/evidence-binding-audit-2026-08-03.md."
+    )
 
 
 def test_every_committed_verdict_is_covered() -> None:

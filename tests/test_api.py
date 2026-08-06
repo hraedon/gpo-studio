@@ -3199,3 +3199,58 @@ def test_wi044_a_deny_gpo_advertises_the_refusal_it_will_actually_perform(
             assert refused.status_code == 422, path
             codes = [i["code"] for i in refused.json()["error"]["issues"]]
             assert codes == ["deny_filter_not_expressible"], path
+
+
+def test_wi046_a_gpp_registry_gpo_advertises_the_gpmc_backup_refusal(tmp_path) -> None:
+    """WI-044 fixed an instance; this is the class (WI-046).
+
+    `gpmc_export` was the entry WI-044 cited as the correct template — it
+    already carried a `reason` — and it was advertising `enabled: true` for a
+    GPO whose backup then refused. `gpmc_backup_bundle` covers four GPP
+    families (`Drives`, `Groups`, `ScheduledTasks`, `Services`); `Registry` is
+    not among them, has been authorable since 1.0, and neither `validate_gpo`
+    nor `preserved_files` notices.
+    """
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = client.post("/api/gpos", json={"name": "GPP registry policy"}).json()["gpo"]
+
+        # The control: a GPO with no preferences really can be backed up, so a
+        # blanket `enabled: false` would not satisfy this test.
+        before = client.get(f"/api/gpos/{gpo['guid']}").json()["artifact_capabilities"]
+        assert before["gpmc_export"]["enabled"] is True
+        assert client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup").status_code == 200
+
+        added = client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/registry",
+            json={
+                "expected_revision": gpo["revision"],
+                "actor": "tester",
+                "reason": "author a registry preference",
+                "scope": "computer",
+                "registry": {
+                    "key": "Software\\Demo",
+                    "value": {"name": "V", "value": "x", "registry_type": "REG_SZ"},
+                },
+            },
+        )
+        assert added.status_code == 201
+
+        after = client.get(f"/api/gpos/{gpo['guid']}").json()["artifact_capabilities"]
+        assert after["gpmc_export"]["enabled"] is False
+        assert "unsupported" in after["gpmc_export"]["reason"].lower() or (
+            "has not been verified" in after["gpmc_export"]["reason"]
+        )
+
+        refused = client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup")
+        assert refused.status_code == 422
+        codes = [i["code"] for i in refused.json()["error"]["issues"]]
+        assert codes == ["unsupported_native_gpp_extension"]
+
+        # The Studio bundle and the plan are unaffected: this refusal belongs
+        # to the native backup path alone, and over-reporting it would be the
+        # same defect pointed the other way.
+        assert after["studio_export"]["enabled"] is True
+        assert after["powershell_plan"]["enabled"] is True

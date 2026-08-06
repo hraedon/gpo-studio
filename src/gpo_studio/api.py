@@ -61,6 +61,7 @@ from .export import (
     export_bundle,
     gpmc_backup_bundle,
     native_backup_id,
+    native_backup_refusal,
     plan_refusal,
     powershell_plan,
 )
@@ -1472,6 +1473,12 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # so the same refusal takes the bundle with it.
     plan_blocked = plan_refusal(gpo)
     plan_reason = plan_blocked.message if plan_blocked is not None else ""
+    # WI-046. Same class as WI-044, one capability along: the GMPC backup path
+    # refuses GPP families outside `_GPP_EXTENSION_PROFILES` -- Registry among
+    # them, authorable since 1.0 -- and neither `blocked` nor `preserved_files`
+    # sees it.
+    backup_blocked = native_backup_refusal(gpo)
+    backup_reason = backup_blocked.message if backup_blocked is not None else ""
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validation],
@@ -1484,12 +1491,15 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
                 "reason": plan_reason,
             },
             "gpmc_export": {
-                "enabled": not blocked and preserved_files == 0,
+                "enabled": not blocked and preserved_files == 0 and backup_blocked is None,
                 "format": "zip",
+                # Preserved content is checked first because it is the more
+                # specific answer: such a GPO is refused for a reason the
+                # backup path never reaches.
                 "reason": (
                     "Preserved extension content cannot be emitted as a GPMC backup."
                     if preserved_files
-                    else ""
+                    else backup_reason
                 ),
             },
             "powershell_plan": {

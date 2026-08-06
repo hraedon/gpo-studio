@@ -197,6 +197,14 @@ Current version: `1.0.0`.
   payload consult — so the operator is told up front, with the reason, instead
   of discovering it by pressing a button. **Surfaced** (API + browser
   application).
+- WI-046: the same defect as WI-044, one capability entry along — a GPO
+  carrying a **GPP Registry** preference advertised `gpmc_export` as available
+  and then refused the native backup with `unsupported_native_gpp_extension`.
+  Native backup covers four GPP families and `Registry` is not one of them,
+  while neither `validate_gpo` nor the preserved-content count could see it.
+  `export.native_backup_refusal()` now derives the advertisement by running the
+  refusing code rather than restating its conditions. **Surfaced** (API +
+  browser application).
 - WI-045: a committed lane verdict binds its harness files by SHA-256, and no
   test checked that those hashes still matched the tree. The RSOP verdicts had
   twice been re-run for exactly this reason, both times caught by a person

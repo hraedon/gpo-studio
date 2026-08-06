@@ -886,6 +886,73 @@ Two things worth recording:
 
 ---
 
+## WI-046 — WI-044 fixed the instance; `gpmc_export` was the same bug one entry along
+
+**Opened:** 2026-08-05 (hazard-scoped review of PR #40, hazard H2).
+**FIXED AND CLOSED 2026-08-05**; closure record at the end of this entry.
+
+WI-044 closed the case where a **deny** security filter made the PowerShell
+plan and the Studio bundle refuse while the capability payload advertised them.
+The hazard worth asking afterwards was whether that fixed the *class* or only
+the *instance*: does any other export path refuse something
+`artifact_capabilities` calls available?
+
+One does, and it is the entry WI-044 itself named as "the precedent and the
+template":
+
+```
+GPO carrying a GPP Registry preference
+  validate_gpo errors      : []
+  preserved_files          : 0
+  → gpmc_export.enabled    : true
+  GET /api/gpos/{guid}/gpmc-backup : 422 unsupported_native_gpp_extension
+```
+
+`_native_export_files` covers four GPP families — `Drives`, `Groups`,
+`ScheduledTasks`, `Services` — and refuses anything else. **`Registry` is not
+among them**, is authorable through `POST /api/gpos/{guid}/preferences/registry`,
+and was one of the two families the 1.0 slice shipped. `gpmc_export.enabled` was
+`not blocked and preserved_files == 0`, and neither term can see it.
+`render.mjs` wires the `#gpmc-backup` control to that entry, so the button was
+offered and 422'd — the same operator-facing failure WI-044 described, in the
+capability sitting two lines away from the one it fixed.
+
+**Why the template was not enough.** `gpmc_export` already had the right
+*shape*: it reported a `reason` and disabled itself for preserved extension
+content. Having the shape is not the same as having every condition, and the
+lesson generalises past this entry — WI-044's own remedy was "derive the
+advertisement from the refusal, do not restate the condition", and
+`gpmc_export` was a restatement that had fallen behind its refusal.
+
+**Not every export refusal is a live instance.** `cpassword_detected` is
+reachable in `export_bundle` and `gpmc_backup_bundle` in principle and cannot
+fire in practice: no GPP authoring field emits a `cpassword` attribute, and both
+import paths (`import_export.py`, `backup.py`) reject such content before it can
+reach the store. It stays as defence in depth and is deliberately not
+advertised — advertising an unreachable refusal would disable an artifact that
+in fact works, which is this same defect pointed the other way.
+
+**FIXED AND CLOSED 2026-08-05** by `export.native_backup_refusal()`, the
+companion to `plan_refusal()`. It **runs the real code** rather than restating
+its conditions: `gpmc_backup_bundle` refuses only inside `native_backup_id` and
+`_native_export_files`, so calling both and catching is exact by construction,
+and a refusal added to either is advertised the day it lands rather than the day
+someone remembers to mirror it. Preserved-content is still reported first, being
+the more specific answer.
+
+The test asserts both directions and opens with a control proving an
+unencumbered GPO really can be backed up, so a blanket `enabled: false` would
+not satisfy it. It also asserts `studio_export` and `powershell_plan` stay
+**enabled** for this GPO — over-reporting the refusal would be the same defect
+inverted. Proven non-vacuous by reverting the `_gpo_payload` change.
+
+**Method note.** This was found by asking a *named hazard* — "is the deny case
+the only advertisement/refusal divergence?" — rather than by re-reading the
+diff. Consistent with the 2026-08-03 result where broad-diff review prompts
+produced nothing twice and hazard-scoped ones produced nine findings.
+
+---
+
 ## WI-045 — a certification binds its harness, and no test checks that it still does
 
 **Opened:** 2026-08-05 (review of PR #39 before merge).

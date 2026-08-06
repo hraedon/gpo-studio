@@ -595,6 +595,34 @@ def _build_backup_xml(
     return _xml_to_bytes(root, _GPMC_BACKUP_NS)
 
 
+def native_backup_refusal(gpo: GPO) -> ValidationIssue | None:
+    """Why this GPO can get no GMPC-native backup, or ``None`` if it can.
+
+    The companion to `plan_refusal`, and it exists because WI-044 fixed an
+    INSTANCE rather than the CLASS. `gpmc_export` was the entry WI-044 held up
+    as the correct template — it already reported a `reason` — and it was
+    advertising `enabled: true` for GPOs whose backup then refused with 422.
+    A GPP Registry preference does it: `Registry` is authorable and has been
+    since 1.0, and it is not one of the four families `_GPP_EXTENSION_PROFILES`
+    covers, so `_native_export_files` raises `unsupported_native_gpp_extension`
+    while `validate_gpo` reports nothing and `preserved_files` stays 0.
+
+    RUNS THE REAL CODE rather than restating its conditions.
+    `gpmc_backup_bundle` refuses only inside `native_backup_id` and
+    `_native_export_files`; calling both and catching is therefore exact by
+    construction, and a new refusal added to either is advertised the day it
+    lands instead of the day someone remembers to mirror it. Restating the
+    conditions is precisely how the deny case drifted (WI-044), so the same
+    mistake is not repeated one capability along.
+    """
+    try:
+        native_backup_id(gpo)
+        _native_export_files(gpo)
+    except ValidationError as error:
+        return error.issues[0]
+    return None
+
+
 def gpmc_backup_bundle(gpo: GPO) -> bytes:
     """Return a deterministic native Backup-GPO-compatible ZIP."""
     backup_id = native_backup_id(gpo)
