@@ -1498,7 +1498,20 @@ def build_query(
             # independent ways and the finalizer refuses the run if the group
             # is not in them -- so this is a claim the estate has to
             # corroborate, not one the prediction gets for free.
-            group_memberships=(GROUP_NAME,) if scenario.needs_group else (),
+            # WI-047. THE GROUP BELONGS TO THE PRINCIPAL THE SCENARIO FILTERS
+            # ON, and saying which is now possible. Every nesting scenario in
+            # this corpus puts the disposable group in the USER's token -- the
+            # observation half collects it with `whoami /groups` in the user's
+            # session, which is the user's token and never the computer's (the
+            # WP-6 rule). Declaring it on the computer would have the model
+            # resolve a membership the estate never corroborates.
+            #
+            # The computer's memberships stay EMPTY rather than being guessed.
+            # Nothing collects them for these scenarios, and an invented list
+            # would be an input the estate does not confirm -- the exact thing
+            # the token gate exists to prevent.
+            user_group_memberships=(GROUP_NAME,) if scenario.needs_group else (),
+            computer_group_memberships=(),
             site_name=site_name,
             domain=domain,
         ),
@@ -1589,7 +1602,8 @@ def prediction_document(
         "scope": scenario.scope,
         "loopback_mode": scenario.loopback_mode,
         "expect_finding": scenario.expect_finding,
-        "group_memberships": list(result.target.group_memberships),
+        "user_group_memberships": list(result.target.user_group_memberships),
+        "computer_group_memberships": list(result.target.computer_group_memberships),
         "target": {
             "computer_name": result.target.computer_name,
             "user_name": result.target.user_name,

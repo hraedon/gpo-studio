@@ -70,7 +70,21 @@ class RsopTarget:
     user_dn: str = ""
     site_name: str = ""
     domain: str = ""
-    group_memberships: tuple[str, ...] = ()
+    #: WI-047. PER SIDE, and the flat `group_memberships` it replaced is gone
+    #: rather than kept as a convenience.
+    #:
+    #: A security filter is evaluated against ONE principal's token, and which
+    #: principal that is depends on the right. The old single tuple had nowhere
+    #: to record whether a group belonged to the computer or to the user, so a
+    #: filter naming a computer group could decide the user side and vice versa.
+    #: That was not a matcher bug that could be fixed in the matcher: the type
+    #: had no answer to give it.
+    #:
+    #: Keeping a merged alias would let every existing caller read "both sides"
+    #: while looking correct, which is the same reason WI-043 deleted
+    #: `is_applied` outright instead of leaving a property behind.
+    computer_group_memberships: tuple[str, ...] = ()
+    user_group_memberships: tuple[str, ...] = ()
     loopback_mode: LoopbackMode = "disabled"
     slow_link: bool = False
     safe_mode: bool = False
@@ -286,30 +300,43 @@ def _gpo_by_guid(gpos: Sequence[GPO]) -> dict[str, GPO]:
     return {gpo.guid: gpo for gpo in gpos}
 
 
-def _target_identities(target: RsopTarget) -> set[str]:
-    """Return the principal identifiers that can match security filters."""
+def _principal_identities(target: RsopTarget, principal: Literal["computer", "user"]) -> set[str]:
+    """Return the identifiers in ONE principal's token.
+
+    WI-047. This used to return the union of both principals' identifiers, so
+    every filter was tested against a set that answered for whichever of the two
+    happened to match. Each principal now answers only for itself, and the
+    caller states which one the right in question is evaluated against.
+    """
     ids: set[str] = set()
-    if target.computer_name:
-        ids.add(target.computer_name)
-    if target.user_name:
-        ids.add(target.user_name)
-    if target.computer_dn:
-        ids.add(target.computer_dn)
-    if target.user_dn:
-        ids.add(target.user_dn)
-    ids.update(target.group_memberships)
+    if principal == "computer":
+        if target.computer_name:
+            ids.add(target.computer_name)
+        if target.computer_dn:
+            ids.add(target.computer_dn)
+        ids.update(target.computer_group_memberships)
+    else:
+        if target.user_name:
+            ids.add(target.user_name)
+        if target.user_dn:
+            ids.add(target.user_dn)
+        ids.update(target.user_group_memberships)
     return ids
 
 
-def _filter_matches(filter_: SecurityFilter, target: RsopTarget) -> bool:
-    """Return True when a security filter principal matches the target.
+def _filter_matches(filter_: SecurityFilter, identities: set[str]) -> bool:
+    """Return True when a security filter names one of ``identities``.
 
     SIDs and principals are compared case-insensitively, matching Windows
     semantics where SIDs are case-insensitive.
+
+    Takes the resolved identity set rather than the target, so that a caller
+    cannot forget to say which principal it is asking about -- the omission the
+    previous signature made not merely possible but the default.
     """
-    target_ids = {t.casefold() for t in _target_identities(target)}
-    sid_match = bool(filter_.sid) and filter_.sid.casefold() in target_ids
-    principal_match = bool(filter_.principal) and filter_.principal.casefold() in target_ids
+    folded = {t.casefold() for t in identities}
+    sid_match = bool(filter_.sid) and filter_.sid.casefold() in folded
+    principal_match = bool(filter_.principal) and filter_.principal.casefold() in folded
     return sid_match or principal_match
 
 
@@ -360,45 +387,58 @@ def _gpo_filter_status(
         # Same argument as WI-039's `wmi_filter_unevaluatable` versus
         # `wmi_filter_false`.
         #
-        # WI-043: THE READ DENY IS CERTIFIED ON THE COMPUTER SIDE ONLY.
+        # WI-043/WI-047: THE TWO RIGHTS ARE EVALUATED AGAINST DIFFERENT
+        # PRINCIPALS, AND THAT IS MEASURED RATHER THAN REASONED.
         #
-        # `_filter_matches` compares against the union of the computer's and the
-        # user's identities, so a read deny naming either principal matches. On
-        # the computer side that is measured: `rsop-observe-20260805221707-4871`
-        # authored a deny on GenericRead beside an intact Read + Apply allow and
-        # Windows did not apply the GPO.
+        # Three runs, across both scopes:
         #
-        # On the USER side nothing has been measured, and the reason is not
-        # neglect. MS16-072 has a user's GPOs retrieved in the COMPUTER's
-        # security context, so a deny on the user's read may be evaluated
-        # against a principal that is not the one reading -- and a deny on the
-        # computer's read may block the user's policy as a side effect. Neither
-        # sub-case has an oracle run behind it, so this returns `unevaluable`
-        # rather than picking one. That is WI-039's ruling applied again: an
-        # unevaluatable input is its own outcome, not a flavour of false.
+        #   side=computer, read deny names the COMPUTER -> BLOCKS
+        #                  (rsop-observe-20260805045139-3731, WI-040)
+        #   side=user,     read deny names the COMPUTER -> BLOCKS
+        #                  (rsop-user-observe-20260806165543-8004, row B)
+        #   side=user,     read deny names the USER     -> APPLIES
+        #                  (rsop-user-observe-20260806165543-8004, row A)
+        #
+        # They collapse to one sentence: A READ DENY GATES POLICY WHEN IT NAMES
+        # THE COMPUTER, ON EITHER SIDE, because MS16-072 has the computer
+        # perform the retrieval for both sides. The side being resolved does not
+        # decide it; the principal named by the deny does.
+        #
+        # Apply Group Policy is the other way round -- it is evaluated against
+        # the principal the policy applies TO, which is certified on both sides:
+        # the user-scope deny (WI-033,
+        # rsop-user-observe-20260804150527-3868) and the nesting row that
+        # applies through a GROUP in the user's token.
+        #
+        # Row A is the reason this cannot be written with a single identity set.
+        # Before WI-047 the model matched every filter against the union of both
+        # principals, so row A's user-named deny and row B's computer-named deny
+        # were indistinguishable and both had to abstain. The abstention is gone
+        # because the region was measured, NOT because a rule was guessed.
+        read_identities = _principal_identities(target, "computer")
+        side_identities = _principal_identities(target, side)
+
         denied_apply = any(
             filter_.deny
             and filter_.permission == "apply"
-            and _filter_matches(filter_, target)
+            and _filter_matches(filter_, side_identities)
             for filter_ in filters
         )
         denied_read = any(
             filter_.deny
             and filter_.permission == "read"
-            and _filter_matches(filter_, target)
+            and _filter_matches(filter_, read_identities)
             for filter_ in filters
         )
         if denied_apply:
             blocking.append("security_filter_denied")
-        elif denied_read and side == "computer":
-            blocking.append("security_filter_read_denied")
         elif denied_read:
-            unevaluable.append("security_filter_read_denied_user_scope_unmeasured")
+            blocking.append("security_filter_read_denied")
         else:
             has_apply = any(
                 filter_.permission == "apply"
                 and not filter_.deny
-                and _filter_matches(filter_, target)
+                and _filter_matches(filter_, side_identities)
                 for filter_ in filters
             )
             if not has_apply:
