@@ -1044,6 +1044,43 @@ from a `cp` backup, never `git checkout` — see the 2026-08-05 tooling note.
 not that the verdict is *true*. Nothing here re-runs a lane. A harness that was
 always wrong stays wrong and stays green.
 
+**REOPENED AND RE-CLOSED 2026-08-05 — there was a SECOND hatch, and the author
+missed it while writing that the first one was shut.** Cross-lineage review of
+PR #40 (deepseek, via `opencode run --agent adversarial-reviewer-headless`)
+found that `PRE_TRANSPORT_VERDICTS` had no control of any kind, and that
+`test_every_committed_verdict_is_covered` subtracts it explicitly — so it was a
+*stronger* hatch than the one that had just been carefully guarded.
+
+The sequence, reproduced before the fix was written:
+
+1. edit a harness file so a live verdict's hashes no longer match;
+2. instead of re-running the lane or retiring the verdict, delete it from
+   `LANE_VERDICTS` and add it to `PRE_TRANSPORT_VERDICTS`;
+3. the verdict is now in **no** parametrised check — not the hash gate (over
+   `LIVE_VERDICTS`), not the key/existence/consistency tests (over
+   `LANE_VERDICTS`), not `test_retired_verdicts_are_genuinely_stale` (over
+   `RETIRED_VERDICTS`) — and the coverage guard passes by construction.
+
+Measured, not argued: the mutation that failed eleven live verdicts failed only
+**ten** once one had been moved there.
+
+Closed by `test_pre_transport_verdicts_really_predate_the_transport_field`,
+which asserts the honest property rather than a proxy — these verdicts are
+exempt *because they predate the lane recording a transport*, so a member
+carrying a `transport` key is by definition misfiled. Every live verdict records
+`transport: psdirect`, so parking one there fails immediately. It carries a
+non-empty control, since an empty exemption set would satisfy the assertion
+while proving nothing. Mutation-proven by replaying the reviewer's exact
+sequence.
+
+**The lesson is about the author, not the code.** WI-045 closed the exemption
+that was salient — the one it had just created — and left an older, wider one
+untouched two definitions away, in a docstring that claimed hatches were shut.
+Guarding the exemption you are thinking about is not the same as guarding the
+exemptions. This is also the concrete argument for the cross-lineage gate: the
+finding is on the reviewer's *first* substantive question about this file, and
+the author had already reviewed it twice by walking his own named hazards.
+
 ## Not yet numbered
 
 Open question 1 from `plan-033/rsop-oracle-design.md` — whether `LabMS01` can

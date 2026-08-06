@@ -474,6 +474,46 @@ def test_retired_verdicts_are_genuinely_stale() -> None:
     )
 
 
+def test_pre_transport_verdicts_really_predate_the_transport_field() -> None:
+    """The second escape hatch, closed the same way as the first.
+
+    Found by cross-lineage review of PR #40 (deepseek), on work whose author had
+    just written that `RETIRED_VERDICTS` "is not an escape hatch" — while this
+    one sat unguarded two definitions away. `RETIRED_VERDICTS` got a control
+    because it was the exemption on everyone's mind; `PRE_TRANSPORT_VERDICTS` is
+    older, was only ever about the psdirect assertions, and quietly became a
+    stronger hatch than the one that got guarded.
+
+    The sequence it permitted, reproduced before this test was written: edit a
+    harness file so a live verdict's hashes no longer match, then — instead of
+    re-running the lane or retiring the verdict — delete it from `LANE_VERDICTS`
+    and add it here. It is then in NO parametrised check: not the hash gate
+    (over `LIVE_VERDICTS`), not the key, existence or consistency tests (over
+    `LANE_VERDICTS`), and not the staleness control (over `RETIRED_VERDICTS`).
+    `test_every_committed_verdict_is_covered` subtracts this set explicitly, so
+    the coverage guard passes too. Measured: the mutation that failed eleven
+    live verdicts failed only ten once one had been moved here.
+
+    The membership test is the honest one rather than a proxy: these verdicts
+    are exempt **because they were written before the lane recorded a
+    transport**, so a member carrying a `transport` key is by definition not
+    one. Every live verdict records `transport: psdirect`, so parking one here
+    fails immediately — which is precisely the move this closes.
+    """
+    misfiled = sorted(
+        relative for relative in PRE_TRANSPORT_VERDICTS if "transport" in _verdict(relative)
+    )
+    assert not misfiled, (
+        "These verdicts are exempted as pre-transport but record a transport, "
+        f"so they are not pre-transport at all: {misfiled}. A verdict that names "
+        "its transport belongs in LANE_VERDICTS where its harness binding is "
+        "checked."
+    )
+    # The control: an empty exemption set would satisfy the assertion above
+    # while proving nothing, and this test exists to keep a hatch shut.
+    assert PRE_TRANSPORT_VERDICTS, "the exemption set is empty; delete it rather than keeping it"
+
+
 def test_the_live_set_is_not_empty_and_covers_every_lane() -> None:
     """Retiring everything would make the freshness check vacuous silently.
 
