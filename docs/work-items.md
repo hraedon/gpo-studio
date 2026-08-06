@@ -793,14 +793,35 @@ finalizers exclude those rows from the applied comparison **in both directions**
 — grading an abstention would report a model defect out of the model being
 honest — and a run containing one is `inconclusive`, never `pass`.
 
-**Still open, and this is what remains:** no run has measured the user-scope
-read deny. The model now declines to answer instead of guessing, which is
-honest but is not knowledge.
+**MEASURED 2026-08-06, and the answer changed what closing this costs.** Run
+`rsop-user-observe-20260806165543-8004` (verdict `inconclusive`, as predicted
+before the run) authored the four-row discriminator on a real 26200 client. Row
+A -- a deny on the USER's Read -- **applied**, and won the conflict at link order
+1. Row B -- a deny on the COMPUTER's Read, on the same user-scope topology --
+was **absent**. Both controls held. Full reading in
+[`plan-033/wp9-readdeny-results.md`](plan-033/wp9-readdeny-results.md).
 
-**Closes when:** a user-scope read-deny scenario measures what Windows actually
-does, the model is scoped to that measurement, and the `unevaluable` branch is
-removed or narrowed to whatever is still unmeasured. Cross-principal matching
-(above) is now **WI-047** and closes separately; do not fold it into this item.
+With WI-040's computer-scope result that gives one rule, not three cases: **a
+read deny gates policy when it names the COMPUTER, on either side, because the
+computer is always the principal performing the retrieval.**
+
+**The model cannot express that today, and WI-047 is therefore now BLOCKING
+rather than opportunistic.** Telling row A from row B requires knowing which
+principal a read deny names relative to the computer, and `_filter_matches`
+compares against the union of both principals' identities while
+`RsopTarget.group_memberships` has no side attribution to read a computer-only
+membership from. The measurement is done; the model cannot be scoped to it until
+the target model carries per-side identities.
+
+**Closes when:** WI-047 lands, `_gpo_filter_status` implements the
+reading-principal rule above, the `unevaluable` branch for this region is
+removed, and a re-run certifies it. Do NOT shortcut this by matching read denies
+against `computer_name` alone -- that passes this scenario and is wrong for a
+deny naming a group the computer belongs to, which nothing has measured and the
+flat membership tuple cannot represent.
+
+Cross-principal matching (above) is **WI-047**. It closes separately, but this
+item can no longer close before it.
 
 ---
 
@@ -1118,7 +1139,16 @@ filters on the user, a computer-scope scenario filters on the computer — so th
 union has never been exercised. This was checked rather than assumed. WI-040 did
 not introduce it; it added a second rule that inherits it.
 
-**Evidence to gather opportunistically, per the operator's 2026-08-06 ruling:**
+**PROMOTED TO BLOCKING 2026-08-06 by the run it was going to get free evidence
+from.** Row B measured that a read deny naming the COMPUTER blocks user-scope
+policy while one naming the USER does not
+(`rsop-user-observe-20260806165543-8004`). Implementing that measured rule
+requires distinguishing the two, which is exactly what the union prevents -- so
+WI-043 can no longer close before this item does. The opportunistic framing
+below was correct when written and is kept for the reasoning, but the priority
+has changed.
+
+**Original framing, per the operator's 2026-08-06 ruling:**
 do not stand up a dedicated estate session for this. Row B of the WI-043 tranche
 (deny Read to the **computer** on a **user-scope** scenario) already measures one
 consequence of cross-principal matching for free. Any future lane that is on the

@@ -165,6 +165,13 @@ LANE_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json": (
         "finalize_rsop_user_run.py"
     ),
+    # WI-043's measurement. `inconclusive`, and mapped here anyway: the
+    # freshness gate is about whether a verdict binds the harness that ships,
+    # not about whether the verdict was a pass. An unmapped verdict is the one
+    # shape the coverage guard exists to catch.
+    "wp9-evidence/verdict-rsop-user-observe-20260806165543-8004.json": (
+        "finalize_rsop_user_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
@@ -375,6 +382,41 @@ def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> No
             + comparison["applied_only_observed"]
         )
         assert divergences, f"{relative} is a finding and records no divergence"
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
+    if verdict.get("state") == "inconclusive":
+        # THE EXPERIMENT RAN AND SAYS NOTHING ABOUT THE MODEL, which is a real
+        # outcome and not a failed pass. WI-043's measurement is the case: the
+        # model abstained on the two rows the scenario was built to ask about,
+        # so the finalizer refused to grade them and the run cannot be a pass no
+        # matter what Windows did. The observation is still the point.
+        #
+        # THIS IS THE SECOND TIME THIS FILE HAS HAD THIS GAP. The `finding`
+        # branch above carries a comment about being added because its absence
+        # made the most valuable class of evidence the one class that could not
+        # be recorded here. `inconclusive` was left in exactly that position and
+        # was found the same way -- by a lane producing one and the test
+        # demanding `passed`. A fall-through that asserts the happy path is how
+        # a state machine quietly excludes its own outcomes.
+        assert verdict["passed"] is False, relative
+        comparison = verdict["comparison"]
+        # An inconclusive run has to say WHY it could not conclude, and there
+        # are exactly two legitimate reasons: a control did not hold, or the
+        # model declined to predict something. A verdict claiming neither is
+        # claiming to be inconclusive about nothing.
+        abstained = bool(comparison and comparison.get("unevaluable_gpos"))
+        controls_failed = bool(verdict.get("control_problems"))
+        assert abstained or controls_failed, (
+            f"{relative} is inconclusive but records neither a failed control nor a "
+            "model abstention, so nothing explains why it could not conclude"
+        )
+        if abstained:
+            assert comparison is not None
+            assert comparison["conclusive"] is False, (
+                f"{relative} records an abstention while claiming to be conclusive"
+            )
         assert verdict["source"]["dirty"] is False
         assert verdict["transport"] == "psdirect"
         return
