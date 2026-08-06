@@ -800,7 +800,7 @@ honest but is not knowledge.
 **Closes when:** a user-scope read-deny scenario measures what Windows actually
 does, the model is scoped to that measurement, and the `unevaluable` branch is
 removed or narrowed to whatever is still unmeasured. Cross-principal matching
-(above) wants its own scenario and may want its own item.
+(above) is now **WI-047** and closes separately; do not fold it into this item.
 
 ---
 
@@ -1080,6 +1080,60 @@ Guarding the exemption you are thinking about is not the same as guarding the
 exemptions. This is also the concrete argument for the cross-lineage gate: the
 finding is on the reviewer's *first* substantive question about this file, and
 the author had already reviewed it twice by walking his own named hazards.
+
+## WI-047 — security filters match against the union of both principals
+
+**Opened:** 2026-08-06 (operator ruling; carried unnumbered since 2026-08-04).
+**Status:** open.
+
+Three sessions declined to file this unilaterally and carried it as a prose
+note instead — in `rsop.py`'s comments, in WI-043's body, and in the WI-043
+tranche doc. That is the failure mode this register was created for: WI-025
+survived a month in one paragraph of a design document. It gets a number now,
+on the operator's ruling, so that "nobody filed it" stops being the reason it
+is invisible.
+
+**The defect.** `_target_identities` (`src/gpo_studio/rsop.py:289`) returns one
+flat set containing `computer_name`, `computer_dn`, `user_name`, `user_dn` and
+`group_memberships`. `_filter_matches` tests a filter against that union. So a
+filter naming the **computer** can decide whether a GPO applies on the **user**
+side, and vice versa.
+
+WI-043 gave `_gpo_filter_status` the `side` it is resolving, and the read-deny
+branch now uses it. **Identity matching still does not.** The parameter that
+would fix this is already in the signature and is not consulted three lines
+further down.
+
+**This is a model defect, not only a coverage gap.** `RsopTarget` has a single
+`group_memberships: tuple[str, ...]` with no side attribution
+(`src/gpo_studio/rsop.py:73`). The computer's groups and the user's groups are
+not merely conflated by the matcher — **the type has nowhere to record which is
+which.** So this cannot be closed by narrowing a branch; it needs the target
+model to carry per-side membership, which is a wider change than WI-043's and
+touches every producer of an `RsopTarget`, including the lane finalizers.
+
+**Why no certification is affected.** Every scenario certified to date has the
+filtered principal and the resolving side aligned — a user-scope scenario
+filters on the user, a computer-scope scenario filters on the computer — so the
+union has never been exercised. This was checked rather than assumed. WI-040 did
+not introduce it; it added a second rule that inherits it.
+
+**Evidence to gather opportunistically, per the operator's 2026-08-06 ruling:**
+do not stand up a dedicated estate session for this. Row B of the WI-043 tranche
+(deny Read to the **computer** on a **user-scope** scenario) already measures one
+consequence of cross-principal matching for free. Any future lane that is on the
+estate anyway for another reason should carry a misaligned-principal row where
+the marginal cost is a filter edit. A scenario authored solely for this can wait
+until the corpus says what it needs.
+
+**Closes when:** `RsopTarget` distinguishes the computer's and the user's
+identities and group memberships; `_filter_matches` resolves against the side
+being computed; and at least one measured row shows a misaligned filter being
+ignored rather than honoured. Until the third of those exists, a narrowed
+matcher is another rule believed on reasoning — which is the mistake WI-033,
+WI-040 and WI-043 have now made three times, two of them wrong.
+
+---
 
 ## Not yet numbered
 
