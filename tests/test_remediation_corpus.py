@@ -79,7 +79,8 @@ class TestSchemas:
 class TestCorpus:
     def test_corpus_loads_all_files(self, registry) -> None:  # type: ignore[no-untyped-def]
         scenarios = load_corpus(SCENARIO_DIR, registry)
-        assert len(scenarios) == len(SCENARIO_FILES) == 14
+        # 15 since 2026-08-06 (WI-043's user-scope read-deny discriminator).
+        assert len(scenarios) == len(SCENARIO_FILES) == 15
         assert {scenario.family for scenario in scenarios} == set(FAMILIES)
 
     def test_every_anchor_hash_verifies(self, registry) -> None:  # type: ignore[no-untyped-def]
@@ -133,6 +134,12 @@ class TestCorpus:
             # interactive session and certified it. See wp9-results.md.
             "user-side-disabled": "ready",
             "wmi-loopback-slowlink": "blocked",
+            # WI-043, authored 2026-08-06 and blocked on its OWN first
+            # execution rather than on a platform. The WP-9 lane is qualified
+            # and the estate's user-logged-on checkpoint exists; what is missing
+            # is the run. It flips to ready when the observation lands, which is
+            # the only legitimate way into that state.
+            "user-security-filtering-read-deny": "blocked",
         }
 
     def test_rsop_corpus_scope_split_is_explicit(self, registry) -> None:  # type: ignore[no-untyped-def]
@@ -167,6 +174,19 @@ class TestCorpus:
             if scenario.readiness == "blocked":
                 assert scenario.blocked_reason is not None
                 assert "WP-9" in scenario.blocked_reason or "user-scope" in scenario.blocked_reason
+
+        # WI-043's scenario is blocked for a DIFFERENT reason from every other
+        # blocked row here, and the difference is worth asserting rather than
+        # leaving to a reader. The others wait on a platform; this one waits on
+        # nothing but its own first run. Collapsing the two would let a genuine
+        # platform gap hide behind "not run yet".
+        read_deny = scenarios["user-security-filtering-read-deny"]
+        assert read_deny.readiness == "blocked"
+        assert "NOT YET EXECUTED" in (read_deny.blocked_reason or "")
+        assert read_deny.provenance.tier == "hypothesis", (
+            "an unexecuted open-question scenario must not claim a tier that implies "
+            "someone has measured or documented the answer"
+        )
 
         # The relocated assertion must still exist somewhere. A criterion that
         # is dropped instead of moved is how an unverified claim becomes an

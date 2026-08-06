@@ -1,0 +1,298 @@
+{
+  "schema_version": "1",
+  "scenario_id": "user-security-filtering-read-deny",
+  "family": "rsop-topology",
+  "title": "User-scope read deny: is the user's Read consulted when the computer performs the retrieval?",
+  "readiness": "blocked",
+  "blocked_reason": "Authored 2026-08-06 and NOT YET EXECUTED. This is a user-scope (WP-9) scenario, and the corpus rule is that a scenario becomes ready because a lane ran it -- not because marking it ready would make the corpus look better fed than it is. It is blocked on its own first execution against the estate, at which point the observation replaces the open question in `question_rows`, the tier moves off `hypothesis`, and this flips to ready. Nothing about the platform blocks it: the WP-9 lane is qualified and the estate's user-logged-on checkpoint exists.",
+  "provenance": {
+    "tier": "hypothesis",
+    "note": "This scenario deliberately does NOT assert what Windows does, and the tier says so. WI-040 measured that a deny on Read keeps a GPO off a COMPUTER with the Apply allow intact; nothing has measured the user side, and MS16-072 (KB3163622) makes the naive experiment uninterpretable because a user's GPOs are retrieved in the computer's security context -- two mechanisms produce the same observation. So the scenario is built as a DISCRIMINATOR that separates them rather than as an expectation to confirm. `hypothesis` is the honest tier: the only thing believed here is an argument from MS16-072, and it must be proven before any claim rests on it. The two control rows are the exception and are asserted, because they are what makes the question rows readable.",
+    "anchors": []
+  },
+  "platform": {
+    "lane": "rsop-user-loopback",
+    "boundaries": [
+      "endpoint-resultant-state",
+      "gpo-ad-object-security"
+    ]
+  },
+  "authored_intent": {
+    "topology": {
+      "som": [
+        {
+          "id": "domain",
+          "kind": "domain"
+        },
+        {
+          "id": "ou-studio-readdeny",
+          "kind": "ou",
+          "parent": "domain"
+        }
+      ],
+      "principals": [
+        {
+          "name": "LabUser1",
+          "kind": "user"
+        },
+        {
+          "name": "LabComp1$",
+          "kind": "computer"
+        }
+      ],
+      "gpos": [
+        {
+          "name": "Studio-RSOP-UserDenyReadUser",
+          "row": "A",
+          "filter": [
+            {
+              "principal": "Authenticated Users",
+              "read": "allow"
+            },
+            {
+              "principal": "LabUser1",
+              "read": "allow",
+              "apply": "allow"
+            },
+            {
+              "principal": "LabUser1",
+              "read": "deny"
+            }
+          ],
+          "sets": {
+            "Filter": "denyReadUser",
+            "DenyReadUserOnly": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-UserDenyReadComp",
+          "row": "B",
+          "filter": [
+            {
+              "principal": "Authenticated Users",
+              "read": "allow"
+            },
+            {
+              "principal": "LabUser1",
+              "read": "allow",
+              "apply": "allow"
+            },
+            {
+              "principal": "LabComp1$",
+              "read": "deny"
+            }
+          ],
+          "sets": {
+            "Filter": "denyReadComp",
+            "DenyReadCompOnly": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-UserReadDenyAllow",
+          "row": "C",
+          "filter": [
+            {
+              "principal": "Authenticated Users",
+              "read": "allow"
+            },
+            {
+              "principal": "LabUser1",
+              "read": "allow",
+              "apply": "allow"
+            }
+          ],
+          "sets": {
+            "Filter": "allow",
+            "AllowOnly": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-UserReadDenyApply",
+          "row": "D",
+          "filter": [
+            {
+              "principal": "Authenticated Users",
+              "read": "allow"
+            },
+            {
+              "principal": "LabUser1",
+              "read": "allow",
+              "apply": "allow"
+            },
+            {
+              "principal": "LabUser1",
+              "apply": "deny"
+            }
+          ],
+          "sets": {
+            "Filter": "denyApply",
+            "DenyApplyOnly": "1"
+          }
+        },
+        {
+          "name": "Studio-RSOP-UserReadDenyControl",
+          "row": "control",
+          "filter": [],
+          "sets": {
+            "Control": "present"
+          }
+        }
+      ],
+      "links": [
+        {
+          "som": "ou-studio-readdeny",
+          "gpo": "Studio-RSOP-UserDenyReadUser",
+          "order": 1,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-readdeny",
+          "gpo": "Studio-RSOP-UserDenyReadComp",
+          "order": 2,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-readdeny",
+          "gpo": "Studio-RSOP-UserReadDenyAllow",
+          "order": 3,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-readdeny",
+          "gpo": "Studio-RSOP-UserReadDenyApply",
+          "order": 4,
+          "enabled": true,
+          "enforced": false
+        },
+        {
+          "som": "ou-studio-readdeny",
+          "gpo": "Studio-RSOP-UserReadDenyControl",
+          "order": 5,
+          "enabled": true,
+          "enforced": false
+        }
+      ],
+      "target": {
+        "computer": "LabComp1$ in ou-studio-readdeny",
+        "user": "LabUser1 in ou-studio-readdeny, signed in interactively at the console"
+      }
+    },
+    "operator_meaning": [
+      "Row A: an administrator denies a USER the right to read a GPO. Does that user stop receiving it?",
+      "Row B: an administrator denies a COMPUTER the right to read a GPO. Do the users who sign in there stop receiving its user-side policy?",
+      "Row C: the same grant with no deny at all \u2014 the control that proves an applied user GPO is observable here.",
+      "Row D: a deny on Apply for the user \u2014 the control that proves a blocked user GPO is observable here."
+    ]
+  },
+  "expected_native": {
+    "note": "THE ONLY ASSERTIONS HERE ARE THE CONTROLS, and they are in `winners` because that is what they are. The two QUESTION ROWS assert nothing -- see `question_rows` and `provenance.tier` -- because what Windows does with them is the thing this scenario exists to find out. A scenario that named an expected winner for row A or row B would be testing a guess. The controls are not padding: they are what makes an ABSENT question row distinguishable from a run that never worked, which is the failure shape that has bitten this lane before (the endpoint lane's row J).",
+    "question_rows": [
+      {
+        "gpo": "Studio-RSOP-UserDenyReadUser",
+        "row": "A",
+        "observable": "HKCU\\Software\\Policies\\StudioLab\\DenyReadUserOnly",
+        "absent_means": "the user's own read deny IS consulted for user-scope policy, even though the computer performs the retrieval",
+        "present_means": "it is not consulted; MS16-072's context switch is the reason, and the model's `unevaluable` branch resolves to `applied` on the user side"
+      },
+      {
+        "gpo": "Studio-RSOP-UserDenyReadComp",
+        "row": "B",
+        "observable": "HKCU\\Software\\Policies\\StudioLab\\DenyReadCompOnly",
+        "absent_means": "denying the READING principal blocks the user's policy as a side effect \u2014 the MS16-072 mechanism confirmed",
+        "present_means": "the computer's read deny does not gate user-scope policy, which would contradict the retrieval-context argument"
+      }
+    ],
+    "joint_readings": [
+      "A present, B absent: user read denies are not consulted; computer read denies gate the user side. The physics argument holds and the model is scoped to it.",
+      "A absent, B absent: both principals gate. The user-side read deny behaves like the computer-side one certified by WI-040.",
+      "A absent, B present: the MS16-072 physics argument is WRONG. The most valuable outcome available here.",
+      "A present, B present: read denies do not gate user-scope policy from either principal. The `unevaluable` branch is deleted rather than narrowed."
+    ],
+    "token_collection": {
+      "user": "whoami /groups in the target session; this scenario makes no nesting claim, so the directory cross-check carries no assertion here beyond WI-042's collection-failure gate"
+    },
+    "delegation_readback": "The harness records the raw DACL via Get-Acl. This matters more here than elsewhere: Get-GPPermission cannot express a deny at all (it collapses the trustee to GpoCustom), so the read-deny ACEs on rows A and B are only visible in the raw DACL, and a run that did not record it could not prove the deny was ever written.",
+    "derivations": [
+      "Read is a property right (RP / GenericRead on the groupPolicyContainer); Apply Group Policy is a control-access right (CR, ExtendedRight edacfd8f-ffb3-11d1-b41d-00a0c968f939). Rows A and B deny the former with the latter left intact, which is what makes them distinct from row D.",
+      "Applying a GPO requires BOTH rights, so a read deny is an independent second gate \u2014 measured on the computer side by WI-040 (rsop-observe-20260805045139-3731)."
+    ],
+    "winners": [
+      {
+        "key": "HKCU\\Software\\Policies\\StudioLab\\AllowOnly",
+        "value": "1",
+        "source_gpo": "Studio-RSOP-UserReadDenyAllow",
+        "reason": "CONTROL (row C). The same AU-Read + user-Apply grant as the question rows, differing only in the absence of a read deny. ABSENT => the lane cannot observe an applied user GPO in this topology and the run is a LANE FAILURE, not a finding about either deny."
+      },
+      {
+        "key": "HKCU\\Software\\Policies\\StudioLab\\Control",
+        "value": "present",
+        "source_gpo": "Studio-RSOP-UserReadDenyControl",
+        "reason": "CONTROL. Default Authenticated Users Read+Apply, unfiltered and unconflicted. ABSENT => the user side did not resolve at all and the experiment did not run."
+      },
+      {
+        "key": "HKCU\\Software\\Policies\\StudioLab\\DenyApplyOnly",
+        "value_absent_for": "user scope",
+        "source_gpo": "Studio-RSOP-UserReadDenyApply",
+        "reason": "CONTROL (row D), and the one this corpus would have shipped without. A deny on APPLY for the user is CERTIFIED to block (WI-033, rsop-user-observe-20260804150527-3868). PRESENT => this harness cannot detect a blocked user GPO at all, every absence in `question_rows` means nothing, and the run is INCONCLUSIVE rather than a result."
+      }
+    ]
+  },
+  "open_questions": [
+    "Row B is authored as a deny naming the COMPUTER on a USER-scope scenario. Whatever Windows says is also the first evidence for WI-047 (cross-principal matching): the model matched B's deny on the user side ONLY because `_filter_matches` compares against the union of both principals' identities. Note the same union makes the model answer `security_filter_read_denied` on the COMPUTER side of row A, where the deny names the user \u2014 visible in the two reasons each question row carries.",
+    "The scenario asserts nothing about which GPO wins the shared `Filter` value, because that depends on the answer. Row A sits at link order 1 precisely so that a wrong abstention is expensive: if A applies, the model's `unevaluable` cost it a winner it could have named, and the value_finding records it."
+  ],
+  "predictions_before_the_run": {
+    "recorded": "2026-08-06, before any estate contact",
+    "verdict_expected": "inconclusive",
+    "why_that_verdict": "The model answers `unevaluable` for BOTH question rows, so the finalizer excludes them from grading in both directions and `conclusive` is false. An `inconclusive` verdict is the CORRECT outcome of the first execution and must not be 'fixed' by making the model guess. The run's value is the observation, not the agreement.",
+    "model": {
+      "summary": "The model ABSTAINS on both question rows; this is an admission, not a prediction about Windows.",
+      "computed": {
+        "applied": [
+          "Studio-RSOP-UserReadDenyAllow",
+          "Studio-RSOP-UserReadDenyControl"
+        ],
+        "blocked": [
+          {
+            "gpo": "Studio-RSOP-UserReadDenyApply",
+            "reasons": [
+              "security_filter_denied"
+            ]
+          }
+        ],
+        "unevaluable": [
+          {
+            "gpo": "Studio-RSOP-UserDenyReadUser",
+            "reasons": [
+              "security_filter_read_denied",
+              "security_filter_read_denied_user_scope_unmeasured"
+            ]
+          },
+          {
+            "gpo": "Studio-RSOP-UserDenyReadComp",
+            "reasons": [
+              "security_filter_read_denied",
+              "security_filter_read_denied_user_scope_unmeasured"
+            ]
+          }
+        ],
+        "winners": {
+          "Filter": "allow (Studio-RSOP-UserReadDenyAllow)",
+          "AllowOnly": "1 (Studio-RSOP-UserReadDenyAllow)",
+          "Control": "present (Studio-RSOP-UserReadDenyControl)"
+        },
+        "warnings": [
+          "rsop_result_is_not_conclusive"
+        ]
+      }
+    },
+    "physics": {
+      "summary": "Row A APPLIES (DenyReadUserOnly present) and row B is ABSENT (DenyReadCompOnly absent).",
+      "reasoning": "If the computer reads policy on the user's behalf, a deny on the USER's read has no reader to act on, while a deny on the COMPUTER's read removes the only principal that ever reads. This is an argument from MS16-072, not a measurement, which is why it is written down before the estate is touched rather than after the result is known.",
+      "confidence": "moderate. The argument is clean but the lane has already produced two results that contradicted clean arguments (WI-039, WI-040)."
+    }
+  }
+}
