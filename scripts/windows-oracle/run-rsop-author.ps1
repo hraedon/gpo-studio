@@ -712,8 +712,48 @@ if ($Phase -eq 'setup') {
                         # degenerate into an ordinary missing-Apply block, which
                         # the model already predicts correctly, and the run would
                         # certify agreement on an experiment it did not perform.
-                        if ($allowApply.Count -eq 0) {
+                        #
+                        # SCOPED TO THE PRINCIPAL THE SCENARIO ACTUALLY GRANTED
+                        # APPLY TO, and this was a real defect rather than a
+                        # tidy-up. The check was written for WI-040, whose row
+                        # denies read to the COMPUTER and grants Apply to the
+                        # COMPUTER -- one principal, so "the deny-read principal
+                        # holds an Apply allow" and "the row's Apply allow
+                        # survives" were the same sentence. WI-043's row B
+                        # separates them: it denies read to the COMPUTER while
+                        # the USER holds Apply, which is precisely the shape
+                        # being measured. The unscoped check refused it as a
+                        # broken DACL on the estate 2026-08-06
+                        # (rsop-user-observe-20260806165058-4639).
+                        #
+                        # That is the same failure this lane is here to fix, one
+                        # level up: a rule certified on the computer-scope case
+                        # and then asserted for a case nobody had exercised. It
+                        # failed CLOSED -- a refused run, not a false pass -- and
+                        # the guard it was protecting is not weakened, because
+                        # when a different principal holds Apply the 'apply'
+                        # branch above asserts that principal's allow
+                        # independently on the same pass.
+                        $plannedApplyHere = @(
+                            $gpo.filters | Where-Object {
+                                "$($_.principal)" -eq "$($planned.principal)" -and
+                                "$($_.kind)" -eq 'apply'
+                            }
+                        )
+                        if ($plannedApplyHere.Count -gt 0 -and $allowApply.Count -eq 0) {
                             $authoredProblems += "$($gpo.name): '$principal' lost its Allow ace for Apply Group Policy, so the read deny is not what is being measured"
+                        }
+                        # The degenerate-row guard, which now needs saying out
+                        # loud. Scoping the check above means a deny-read row
+                        # whose GPO grants Apply to NOBODY would slip through
+                        # every branch: nothing would be denied that was ever
+                        # allowed, and "the GPO did not apply" would be true for
+                        # a reason having nothing to do with the read deny. That
+                        # was previously impossible only by accident, because the
+                        # unscoped check happened to catch it.
+                        $anyPlannedApply = @($gpo.filters | Where-Object { "$($_.kind)" -eq 'apply' })
+                        if ($anyPlannedApply.Count -eq 0) {
+                            $authoredProblems += "$($gpo.name): a deny-read row whose GPO grants Apply to no principal measures nothing -- an absent result would be an ordinary filtering miss"
                         }
                     }
                     default {
