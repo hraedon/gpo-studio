@@ -1,5 +1,14 @@
 name: identifier-gate
-on: [push, pull_request]
+# See ci.yml: bare `push` double-fires alongside `pull_request` on any branch
+# with an open PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

@@ -1,5 +1,20 @@
 name: ci
-on: [push, pull_request]
+# Scoped to main rather than bare `push`: with `on: [push, pull_request]`, a
+# push to a branch with an open PR fires BOTH events, running every job twice.
+# At 11 jobs that is 22 concurrent jobs from one push, against an account-wide
+# cap of 20 -- the run then starves itself and jobs sit queued for over an hour
+# without ever being scheduled.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Supersede in-flight runs for the same ref so an amend-and-force-push does not
+# leave the previous run's jobs holding runner slots. Only for pull_request:
+# main-branch runs are the record of what landed and are left to complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
