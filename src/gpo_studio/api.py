@@ -57,7 +57,14 @@ from .delegation import (
 )
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
-from .export import export_bundle, gpmc_backup_bundle, native_backup_id, powershell_plan
+from .export import (
+    export_bundle,
+    gpmc_backup_bundle,
+    native_backup_id,
+    native_backup_refusal,
+    plan_refusal,
+    powershell_plan,
+)
 from .gpp import (
     _GROUP_KNOWN_CHILDREN,
     _GROUP_PROPS_KNOWN_ATTRS,
@@ -1458,23 +1465,48 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     validation = validate_gpo(gpo)
     blocked = any(item.severity == "error" for item in validation)
     preserved_files = sum(len(entry.files) for entry in gpo.cse_metadata)
+    # WI-044. `validate_gpo` has no deny rule, so `blocked` alone said these two
+    # artifacts were available for a GPO whose download then refused with 422.
+    # Asked of the export module rather than restated here, so the refusal and
+    # the advertisement of it cannot drift apart. `studio_export` is listed
+    # because `export_bundle` writes `apply.ps1` by calling `powershell_plan`,
+    # so the same refusal takes the bundle with it.
+    plan_blocked = plan_refusal(gpo)
+    plan_reason = plan_blocked.message if plan_blocked is not None else ""
+    # WI-046. Same class as WI-044, one capability along: the GMPC backup path
+    # refuses GPP families outside `_GPP_EXTENSION_PROFILES` -- Registry among
+    # them, authorable since 1.0 -- and neither `blocked` nor `preserved_files`
+    # sees it.
+    backup_blocked = native_backup_refusal(gpo)
+    backup_reason = backup_blocked.message if backup_blocked is not None else ""
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validation],
         "policy_semantic_sha256": policy_semantic_sha256(gpo),
         "review_model_sha256": review_model_sha256(gpo),
         "artifact_capabilities": {
-            "studio_export": {"enabled": not blocked, "format": "zip"},
-            "gpmc_export": {
-                "enabled": not blocked and preserved_files == 0,
+            "studio_export": {
+                "enabled": not blocked and plan_blocked is None,
                 "format": "zip",
+                "reason": plan_reason,
+            },
+            "gpmc_export": {
+                "enabled": not blocked and preserved_files == 0 and backup_blocked is None,
+                "format": "zip",
+                # Preserved content is checked first because it is the more
+                # specific answer: such a GPO is refused for a reason the
+                # backup path never reaches.
                 "reason": (
                     "Preserved extension content cannot be emitted as a GPMC backup."
                     if preserved_files
-                    else ""
+                    else backup_reason
                 ),
             },
-            "powershell_plan": {"enabled": not blocked, "format": "text"},
+            "powershell_plan": {
+                "enabled": not blocked and plan_blocked is None,
+                "format": "text",
+                "reason": plan_reason,
+            },
             "policy_report": {"enabled": True, "format": "text"},
             "preserved_content": {
                 "present": preserved_files > 0,

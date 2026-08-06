@@ -802,6 +802,285 @@ does, the model is scoped to that measurement, and the `unevaluable` branch is
 removed or narrowed to whatever is still unmeasured. Cross-principal matching
 (above) wants its own scenario and may want its own item.
 
+---
+
+## WI-044 — the capability matrix advertises two artifacts the export path refuses
+
+**Opened:** 2026-08-05 (review of PR #38 before merge).
+**FIXED AND CLOSED 2026-08-05**; closure record at the end of this entry.
+
+WI-041 ruled that a deny a `Set-GPPermission` plan cannot express is **refused,
+not approximated**, and `powershell_plan` now raises
+`deny_filter_not_expressible` for any GPO carrying one. That ruling is right and
+the implementation of it is right. What did not move with it is the payload that
+tells a client whether the artifact is available at all.
+
+`_gpo_payload` derives every `artifact_capabilities` entry from one predicate —
+`blocked = any(item.severity == "error" for item in validate_gpo(gpo))` — and
+`validate_gpo` has no deny rule. So for a GPO whose only unusual feature is a
+deny filter:
+
+| surface | answer |
+|---|---|
+| `artifact_capabilities.powershell_plan.enabled` | `true` |
+| `artifact_capabilities.studio_export.enabled` | `true` |
+| `GET /api/gpos/{guid}/plan.ps1` | **422** `deny_filter_not_expressible` |
+| `GET /api/gpos/{guid}/export.zip` | **422** `deny_filter_not_expressible` |
+
+`export.zip` is caught the same way because `export_bundle` writes `apply.ps1`
+by calling `powershell_plan`.
+
+Measured, not read: constructing such a GPO and calling both
+`validate_gpo` and `powershell_plan` gives `[]` and a raised `ValidationError`
+respectively.
+
+**Why this is worth an item rather than a shrug.** The failure direction is
+safe — the operator gets a refusal carrying a reason, which is exactly what
+WI-041 wanted, and nothing wrong is ever emitted. But the UI builds those
+controls straight from this payload (`static/js/state.mjs` stores
+`artifactCapabilities`; `static/js/render.mjs` keys the `#plan` and `#export`
+buttons off it), so the operator is offered a button that fails when pressed.
+A refusal discovered at download time reads as a broken product; a refusal
+stated up front reads as a considered boundary. Same information, and only one
+of them is trustworthy.
+
+It also breaks a contract this payload already keeps elsewhere. `gpmc_export`
+sitting two lines away is the precedent and the template: when preserved
+extension content makes the artifact impossible it reports `enabled: false`
+**and a `reason` string**, because a capability that is off for a knowable
+reason should say the reason. That is the shape this needs.
+
+**Closes when:** a GPO carrying a deny reports `powershell_plan` and
+`studio_export` as `enabled: false` with a reason naming the deny, the two
+endpoints still refuse (the refusal is the ruling — this item is about
+advertising it, not softening it), and a test asserts the payload and the
+endpoint agree. **Prefer deriving the advertisement from the refusal** rather
+than restating the deny condition in `_gpo_payload`: two independent copies of
+"can this be exported" is how they drift apart, and this item exists because
+they already did.
+
+**Deliberately NOT fixed inside PR #38.** The change alters what the API reports
+as blocked, and #38 was a certified evidence PR under review; adding an
+unmeasured behaviour change to it is the thing this project keeps ruling
+against.
+
+**FIXED AND CLOSED 2026-08-05.** The deny condition moved into
+`export.plan_refusal(gpo) -> ValidationIssue | None`, and both halves now ask it
+rather than restating it: `powershell_plan` raises on whatever it returns, and
+`_gpo_payload` reports `powershell_plan` and `studio_export` as
+`enabled: false` with its message as the `reason`. **The refusal itself is
+unchanged** — this item was about advertising the boundary, not softening it.
+
+Two things worth recording:
+
+* **No frontend change was needed**, which is the evidence that `reason` was the
+  right shape rather than a convenient one. `render.mjs` already read
+  `capability.reason` into the disabled control's tooltip, because
+  `gpmc_export` had established the pattern. The bug was never that the UI
+  lacked a way to say this; it was that the API never said it.
+* The new test asserts the agreement **in both directions** and opens with a
+  control proving the artifacts are advertised as available before the deny is
+  added — without it the test would pass against a payload that reported
+  everything unavailable for everything. Proven non-vacuous by reverting the
+  `_gpo_payload` change and watching it fail.
+
+---
+
+## WI-046 — WI-044 fixed the instance; `gpmc_export` was the same bug one entry along
+
+**Opened:** 2026-08-05 (hazard-scoped review of PR #40, hazard H2).
+**FIXED AND CLOSED 2026-08-05**; closure record at the end of this entry.
+
+WI-044 closed the case where a **deny** security filter made the PowerShell
+plan and the Studio bundle refuse while the capability payload advertised them.
+The hazard worth asking afterwards was whether that fixed the *class* or only
+the *instance*: does any other export path refuse something
+`artifact_capabilities` calls available?
+
+One does, and it is the entry WI-044 itself named as "the precedent and the
+template":
+
+```
+GPO carrying a GPP Registry preference
+  validate_gpo errors      : []
+  preserved_files          : 0
+  → gpmc_export.enabled    : true
+  GET /api/gpos/{guid}/gpmc-backup : 422 unsupported_native_gpp_extension
+```
+
+`_native_export_files` covers four GPP families — `Drives`, `Groups`,
+`ScheduledTasks`, `Services` — and refuses anything else. **`Registry` is not
+among them**, is authorable through `POST /api/gpos/{guid}/preferences/registry`,
+and was one of the two families the 1.0 slice shipped. `gpmc_export.enabled` was
+`not blocked and preserved_files == 0`, and neither term can see it.
+`render.mjs` wires the `#gpmc-backup` control to that entry, so the button was
+offered and 422'd — the same operator-facing failure WI-044 described, in the
+capability sitting two lines away from the one it fixed.
+
+**Why the template was not enough.** `gpmc_export` already had the right
+*shape*: it reported a `reason` and disabled itself for preserved extension
+content. Having the shape is not the same as having every condition, and the
+lesson generalises past this entry — WI-044's own remedy was "derive the
+advertisement from the refusal, do not restate the condition", and
+`gpmc_export` was a restatement that had fallen behind its refusal.
+
+**Not every export refusal is a live instance.** `cpassword_detected` is
+reachable in `export_bundle` and `gpmc_backup_bundle` in principle and cannot
+fire in practice: no GPP authoring field emits a `cpassword` attribute, and both
+import paths (`import_export.py`, `backup.py`) reject such content before it can
+reach the store. It stays as defence in depth and is deliberately not
+advertised — advertising an unreachable refusal would disable an artifact that
+in fact works, which is this same defect pointed the other way.
+
+**FIXED AND CLOSED 2026-08-05** by `export.native_backup_refusal()`, the
+companion to `plan_refusal()`. It **runs the real code** rather than restating
+its conditions: `gpmc_backup_bundle` refuses only inside `native_backup_id` and
+`_native_export_files`, so calling both and catching is exact by construction,
+and a refusal added to either is advertised the day it lands rather than the day
+someone remembers to mirror it. Preserved-content is still reported first, being
+the more specific answer.
+
+The test asserts both directions and opens with a control proving an
+unencumbered GPO really can be backed up, so a blanket `enabled: false` would
+not satisfy it. It also asserts `studio_export` and `powershell_plan` stay
+**enabled** for this GPO — over-reporting the refusal would be the same defect
+inverted. Proven non-vacuous by reverting the `_gpo_payload` change.
+
+**Method note.** This was found by asking a *named hazard* — "is the deny case
+the only advertisement/refusal divergence?" — rather than by re-reading the
+diff. Consistent with the 2026-08-03 result where broad-diff review prompts
+produced nothing twice and hazard-scoped ones produced nine findings.
+
+---
+
+## WI-045 — a certification binds its harness, and no test checks that it still does
+
+**Opened:** 2026-08-05 (review of PR #39 before merge).
+**FIXED AND CLOSED 2026-08-05**; closure record at the end of this entry.
+
+Twice now the RSOP verdicts have been re-run because a harness file they bind by
+hash changed underneath them — once when the finalizers' harness check was made
+falsifiable, once when review round 3 changed `build-rsop-candidate.py`. Both
+times the staleness was caught **by a person noticing**. Nothing in the suite
+would have said so.
+
+`tests/test_committed_evidence.py` is thorough about everything adjacent to this
+and does not do it:
+
+* `test_source_files_holds_exactly_the_bound_repository_files` — checks the
+  `source.files` **keys** match the lane's binding table;
+* `test_every_bound_file_still_exists_in_the_tree` — checks each bound path
+  **exists**;
+* `test_a_verdict_is_internally_consistent` — checks the verdict agrees with
+  **itself**.
+
+None of them hashes a file. A verdict can name every right file, all of which
+exist, and be bound to content the repository no longer has — which is precisely
+the state the last two re-certifications existed to leave.
+
+Demonstrated at `e59803d` with a throwaway script that recomputes sha256 for
+every `source.files` entry: the eleven live verdicts come back **0 stale**, and
+the superseded `a85736a` eleven come back stale in exactly one file,
+`build-rsop-candidate.py`. So the check is ~20 lines, it is decisive, and it
+reproduces by machine the judgement two sessions made by hand.
+
+**The design point that makes this non-trivial, and why it is not just "assert
+all hashes match".** Superseded verdicts are **deliberately retained** — the
+operator ruled that `...045139-3731` keeps its value because the divergence it
+observed on a real client does not depend on the harness check. Retained history
+is *supposed* to be stale. A blanket assertion would fail on day one and be
+switched off, which is worse than no gate.
+
+So the gate needs a designated **live certification set** — the verdicts a
+current claim rests on — with retained history explicitly outside it. That set
+already exists in prose, in `plans/033-...md` ("Live certification set: eleven
+runs at `faad341`") and in the comment blocks of `LANE_VERDICTS`. Prose is what
+this project has watched drift seven times.
+
+**Closes when:** the live set is declared as data rather than prose, every
+verdict in it has each `source.files` hash checked against the tree, retained
+history is excluded by explicit enumeration (so adding to it is a deliberate act
+with a reason, the way `PRE_TRANSPORT_VERDICTS` already works), and the test is
+proved non-vacuous by mutation — it must fail against the superseded set.
+
+**This is the gate everyone already believes exists.** That is what makes it
+urgent rather than tidy: the re-certification discipline is currently a habit
+held by whoever is paying attention, and it is being cited in commit messages as
+though it were enforced. See the vacuous-test lesson from 2026-08-03 — a check
+people trust and that cannot fire is worse than an absent one.
+
+**FIXED AND CLOSED 2026-08-05.**
+
+**The partition turned out to be clean, which is what made the design easy.**
+Hashing every mapped verdict at `e59803d` gave 14 that match the tree and 47
+that do not, with nothing ambiguous in between. The three single-verdict lanes
+(WP-1B, WP-2, WP-3) all match because those finalizers overwrite
+`verification.json`; only the RSOP lanes accumulate, which is why only they
+carry history. So the live set did not have to be declared by anyone's
+judgement — it is what is left after naming the history.
+
+`RETIRED_VERDICTS` enumerates those 47 with a comment per generation, in the
+idiom `PRE_TRANSPORT_VERDICTS` already established, and
+`test_a_live_verdict_still_binds_the_harness_that_ships` hashes every bound file
+of everything else.
+
+**The escape hatch is closed, and that is the part worth reusing.** The cheap
+way out of a failing freshness check is to declare the verdict history, so
+`test_retired_verdicts_are_genuinely_stale` fails if anything listed as retired
+*still matches the tree*. Retiring a live claim is therefore not a way to
+silence the gate. That test doubles as the non-vacuity control: the repository
+carries 47 genuine negative cases, so if the hashing logic ever stops hashing it
+goes red first. A third test refuses an empty live set — `LIVE_VERDICTS` is a
+subtraction and would otherwise degrade to zero parametrised cases silently,
+reporting green for a repository whose every claim had expired.
+
+**Proven by mutation in both directions**, per the 2026-08-03 rule: appending a
+comment to `build-rsop-candidate.py` failed exactly the eleven live RSOP
+verdicts and left WP-1B/WP-2/WP-3 green (they do not bind that file); moving a
+live verdict into `RETIRED_VERDICTS` failed the control. Mutations were reverted
+from a `cp` backup, never `git checkout` — see the 2026-08-05 tooling note.
+
+**What this does NOT do:** it checks that a verdict binds the code that ships,
+not that the verdict is *true*. Nothing here re-runs a lane. A harness that was
+always wrong stays wrong and stays green.
+
+**REOPENED AND RE-CLOSED 2026-08-05 — there was a SECOND hatch, and the author
+missed it while writing that the first one was shut.** Cross-lineage review of
+PR #40 (deepseek, via `opencode run --agent adversarial-reviewer-headless`)
+found that `PRE_TRANSPORT_VERDICTS` had no control of any kind, and that
+`test_every_committed_verdict_is_covered` subtracts it explicitly — so it was a
+*stronger* hatch than the one that had just been carefully guarded.
+
+The sequence, reproduced before the fix was written:
+
+1. edit a harness file so a live verdict's hashes no longer match;
+2. instead of re-running the lane or retiring the verdict, delete it from
+   `LANE_VERDICTS` and add it to `PRE_TRANSPORT_VERDICTS`;
+3. the verdict is now in **no** parametrised check — not the hash gate (over
+   `LIVE_VERDICTS`), not the key/existence/consistency tests (over
+   `LANE_VERDICTS`), not `test_retired_verdicts_are_genuinely_stale` (over
+   `RETIRED_VERDICTS`) — and the coverage guard passes by construction.
+
+Measured, not argued: the mutation that failed eleven live verdicts failed only
+**ten** once one had been moved there.
+
+Closed by `test_pre_transport_verdicts_really_predate_the_transport_field`,
+which asserts the honest property rather than a proxy — these verdicts are
+exempt *because they predate the lane recording a transport*, so a member
+carrying a `transport` key is by definition misfiled. Every live verdict records
+`transport: psdirect`, so parking one there fails immediately. It carries a
+non-empty control, since an empty exemption set would satisfy the assertion
+while proving nothing. Mutation-proven by replaying the reviewer's exact
+sequence.
+
+**The lesson is about the author, not the code.** WI-045 closed the exemption
+that was salient — the one it had just created — and left an older, wider one
+untouched two definitions away, in a docstring that claimed hatches were shut.
+Guarding the exemption you are thinking about is not the same as guarding the
+exemptions. This is also the concrete argument for the cross-lineage gate: the
+finding is on the reviewer's *first* substantive question about this file, and
+the author had already reviewed it twice by walking his own named hazards.
+
 ## Not yet numbered
 
 Open question 1 from `plan-033/rsop-oracle-design.md` — whether `LabMS01` can
