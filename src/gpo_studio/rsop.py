@@ -496,6 +496,43 @@ def _gpo_filter_status(
     return "applied", (), tuple(warnings)
 
 
+def query_reaches_a_reasoned_cell(query: RsopQuery) -> bool:
+    """Does this topology's answer rest on WI-049's unmeasured cells?
+
+    Two off-diagonal cells were flipped from BLOCKS to APPLIES by reasoning
+    rather than by measurement, both in the over-promising direction:
+
+      * a READ deny naming the USER, resolved on the computer side;
+      * an APPLY deny naming the COMPUTER, resolved on the user side.
+
+    A caller reaches them only by supplying a deny that names the principal
+    which is *not* the one being resolved, so this is an exact test rather than
+    a heuristic -- which matters, because a limitation emitted on a guess would
+    be absent precisely when the guess was wrong.
+
+    Public because the API layer must disclose this at the point the answer is
+    read. `docs/capability-matrix.md` is not the payload, and a caller reading
+    JSON is not reading the matrix.
+    """
+    computer = _principal_identities(query.target, "computer")
+    user = _principal_identities(query.target, "user")
+    if not user:
+        # No user in the topology: neither cell is reachable, because both need
+        # a principal on the side that is not being resolved.
+        return False
+    for gpo in query.gpos:
+        for filter_ in gpo.security_filters:
+            if not filter_.deny:
+                continue
+            names_user = _filter_matches(filter_, user)
+            names_computer = _filter_matches(filter_, computer)
+            if filter_.permission == "read" and names_user and not names_computer:
+                return True
+            if filter_.permission == "apply" and names_computer and not names_user:
+                return True
+    return False
+
+
 def _status_certainty(status: RsopGpoStatus) -> int:
     """Rank a status so two sides can be merged by a total order.
 
@@ -891,4 +928,5 @@ __all__ = [
     "RsopTarget",
     "compare_rsop_results",
     "compute_rsop",
+    "query_reaches_a_reasoned_cell",
 ]

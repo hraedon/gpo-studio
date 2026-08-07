@@ -1904,6 +1904,58 @@ def test_api_rsop_compute_omits_the_slow_link_limitation_when_unasked(
     assert "slow_link_and_safe_mode_are_not_evaluated" not in codes
 
 
+def test_api_rsop_compute_discloses_when_the_answer_rests_on_a_reasoned_cell(
+    tmp_path: Path,
+) -> None:
+    """WI-049, in the payload rather than only in the matrix.
+
+    Raised by cross-lineage review of this surface: slow-link -- which is merely
+    ignored and can never make an answer WRONG -- had a limitation, while the
+    two cells that produce a definite answer on reasoning alone had none. That
+    asymmetry was backwards, and the matrix is not the payload.
+
+    A read deny naming the USER is measured on the user side (row A) and
+    REASONED on the computer side, which `compute_rsop` resolves regardless of
+    where the settings live. Since `status` unions both sides (WI-032), the
+    reasoned half genuinely feeds the reported answer.
+    """
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("labuser"))
+    codes = [item["code"] for item in resp.json()["limitations"]]
+    assert "answer_rests_on_a_reasoned_cell" in codes
+
+
+def test_api_rsop_compute_omits_the_reasoned_cell_limitation_when_every_deny_is_measured(
+    tmp_path: Path,
+) -> None:
+    """The control, and the reason the limitation is allowed to be conditional.
+
+    A read deny naming the COMPUTER is row B -- measured on both sides. Nothing
+    here rests on reasoning, so a surface that emitted the limitation
+    unconditionally would be saying "this might be wrong" about a certified
+    answer, and the signal would stop meaning anything.
+    """
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("LABCL01"))
+    codes = [item["code"] for item in resp.json()["limitations"]]
+    assert "answer_rests_on_a_reasoned_cell" not in codes
+
+
+def test_api_rsop_compute_refuses_logging_mode(tmp_path: Path) -> None:
+    """Group Policy Results is a different question, and this engine cannot answer it.
+
+    Raised by cross-lineage review. `mode` accepted `logging` and ignored it, so
+    a caller asking what a machine ACTUALLY received was handed a prediction
+    with nothing saying so. The certified set is planning-only; the field now
+    refuses rather than defaults.
+    """
+    payload = _api_two_tier_payload()
+    payload["mode"] = "logging"
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    assert resp.status_code == 422
+
+
 def test_api_rsop_compute_warns_on_an_unevaluated_wmi_filter(tmp_path: Path) -> None:
     """WI-035. An unevaluated filter still applies, and the assumption is visible."""
     payload = _api_two_tier_payload()

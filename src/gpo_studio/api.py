@@ -128,6 +128,7 @@ from .rsop import (
     RsopTarget,
     compare_rsop_results,
     compute_rsop,
+    query_reaches_a_reasoned_cell,
 )
 from .sddl import SddlError, parse_sddl
 from .settings_browser import (
@@ -1218,7 +1219,13 @@ class RsopTargetData(BaseModel):
 
 class RsopQueryData(BaseModel):
     query_id: str = Field(min_length=1, max_length=255)
-    mode: Literal["planning", "logging"] = "planning"
+    #: Planning only. `logging` -- Group Policy Results, which reports what a
+    #: machine ACTUALLY received -- is a different question that this engine
+    #: cannot answer: it predicts from a topology rather than reading a client.
+    #: Accepting the value and returning a planning answer would hand a caller
+    #: the wrong kind of result with nothing saying so, which is why it is
+    #: refused rather than defaulted. Raised by cross-lineage review of WI-030.
+    mode: Literal["planning"] = "planning"
     target: RsopTargetData = Field(default_factory=RsopTargetData)
     nodes: list[SomNodeData] = Field(default_factory=list, max_length=500)
     gpos: list[RsopGpoData] = Field(default_factory=list, max_length=500)
@@ -3914,13 +3921,32 @@ _RSOP_SLOW_LINK_NOT_EVALUATED = {
 }
 
 
+_RSOP_ANSWER_RESTS_ON_A_REASONED_CELL = {
+    "code": "answer_rests_on_a_reasoned_cell",
+    "message": (
+        "This topology contains a deny naming the principal that is not the one "
+        "being resolved, so part of this answer comes from a rule that was "
+        "reasoned rather than measured. Two cells were flipped from 'blocked' to "
+        "'applied' without an estate row -- a READ deny naming the user on the "
+        "computer side, and an APPLY deny naming the computer on the user side "
+        "-- both in the direction that promises settings which may never arrive. "
+        "WI-049."
+    ),
+}
+
+
 def _rsop_limitations(queries: Sequence[RsopQueryData]) -> list[dict[str, str]]:
     """State what the answer does not say, at the point the answer is read.
 
-    Both limitations are documented in the capability matrix as well. Repeating
-    them in the payload is deliberate: a caller reading JSON is not reading the
-    matrix, and WI-032's collapsed status is exactly the kind of field that
-    looks like a per-side answer to anyone who has not been told otherwise.
+    These are documented in the capability matrix as well. Repeating them in the
+    payload is deliberate: a caller reading JSON is not reading the matrix, and
+    WI-032's collapsed status is exactly the kind of field that looks like a
+    per-side answer to anyone who has not been told otherwise.
+
+    Two of the three are conditional, and the conditions are exact rather than
+    heuristic -- which is the whole reason they are allowed to be conditional.
+    A limitation emitted when something *guessed* the caller was at risk would
+    be absent exactly when the guess was wrong.
     """
     limitations = [dict(_RSOP_STATUS_IS_NOT_PER_SIDE)]
     if any(
@@ -3931,6 +3957,13 @@ def _rsop_limitations(queries: Sequence[RsopQueryData]) -> list[dict[str, str]]:
         for query in queries
     ):
         limitations.append(dict(_RSOP_SLOW_LINK_NOT_EVALUATED))
+    # Raised by cross-lineage review: the matrix and the work-item register both
+    # said WI-049 carefully, and the payload said nothing. Slow-link -- which is
+    # merely ignored and can never make an answer wrong -- had a limitation,
+    # while the cells that produce a definite answer on reasoning alone had
+    # none. That asymmetry was backwards.
+    if any(query_reaches_a_reasoned_cell(_rsop_query_data_to_model(q)) for q in queries):
+        limitations.append(dict(_RSOP_ANSWER_RESTS_ON_A_REASONED_CELL))
     return limitations
 
 

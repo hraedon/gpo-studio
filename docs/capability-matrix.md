@@ -521,6 +521,11 @@ applies when Windows keeps it off.
   gap: a filter that matches through a *group* rather than by name is unit-
   tested in both directions and measured in neither, so the API's per-side
   membership lists carry a rule no estate run has exercised.
+  **The API says this in the payload**, not only here: a topology containing a
+  deny that names the principal which is not the one being resolved raises
+  `limitations[].code == "answer_rests_on_a_reasoned_cell"`. The condition is
+  exact rather than heuristic — a caller reaches these cells only by supplying
+  such a filter — which is what licenses it being conditional at all.
 - **Per-side applied/denied sets (WI-032, open).** `RsopGpoResult.status`
   collapses to "applied on at least one side". Windows reports
   `ComputerResults` and `UserResults` as separate sets and on a topology whose
@@ -536,6 +541,12 @@ applies when Windows keeps it off.
   `slow_link_and_safe_mode_are_not_evaluated` on the response. Capping the
   client's vNIC does not produce a slow link either — Group Policy reads the
   adapter's advertised speed, measured 2026-08-04.
+- **Group Policy Results / logging mode.** Refused, not approximated. `mode`
+  accepts only `planning`; `logging` returns 422. Logging mode reports what a
+  machine *actually* received, which this engine cannot answer — it predicts
+  from a supplied topology rather than reading a client. The field previously
+  accepted `logging` and ignored it, handing back a planning answer with
+  nothing saying so.
 - **WQL evaluation.** Studio does not evaluate WMI queries and should not; that
   is the CSE's job against the live machine. A caller supplies how each filter
   evaluated (WI-035) and precedence honours it, including `"unevaluatable"`,
