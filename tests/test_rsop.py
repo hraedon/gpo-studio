@@ -2062,6 +2062,12 @@ def test_api_rsop_compute_carries_per_side_group_memberships(tmp_path: Path) -> 
     and does not when it is in the USER's. A request model with one merged list
     could not express the difference, which is the defect WI-047 fixed in the
     domain type.
+
+    **This asserts the wire carries the rule, not that the rule is right.**
+    WI-049: no estate run has ever exercised a deny that matches through a group
+    rather than by name, in either direction. The candidate builder always
+    passes `computer_group_memberships=()`. This test would pass identically if
+    the rule turned out to be wrong.
     """
     on_computer = _api_read_deny_payload("LAB\\ReadDenyGroup")
     on_computer["target"]["computer_group_memberships"] = ["LAB\\ReadDenyGroup"]

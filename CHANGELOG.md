@@ -46,7 +46,8 @@ Current version: `1.0.0`.
   enforcement, disabled links and sides, security filtering with denies on both
   Apply and Read, user scope, and loopback merge and replace; they are
   enumerated in `docs/capability-matrix.md`, which also states what is **not**
-  certified. Two limitations are announced in every response rather than left
+  certified — including WI-049's two filter cells, which the surface exposes and
+  which reasoning rather than measurement settled. Two limitations are announced in every response rather than left
   in the docs: `gpo_status_is_not_per_side` (WI-032 — the applied-GPO status
   collapses to "applied on at least one side" and cannot answer the two sides
   separately) and, when the caller sets one of the fields,

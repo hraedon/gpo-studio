@@ -504,14 +504,23 @@ computer side: `lsdou-precedence`, `disabled-block-enforced`, `wmi-filtering`,
 Between them they cover LSDOU ordering, same-container link order, inheritance
 and its blocking, enforcement (which survives a block *and* wins conflicts —
 WI-031 found the second half missing), disabled links and disabled sides,
-security filtering with denies on both Apply and Read, group membership through
-a token, user scope, and loopback merge and replace with Windows' own event 5311
-confirming the mode used. Three defects were found by these runs before they
-were fixed: WI-031, WI-033 and WI-040, all sharing the failure direction that
-matters — the model saying a GPO applies when Windows keeps it off.
+security filtering with denies on both Apply and Read, user scope, and loopback
+merge and replace with Windows' own event 5311 confirming the mode used. Three
+defects were found by these runs before they were fixed: WI-031, WI-033 and
+WI-040, all sharing the failure direction that matters — the model saying a GPO
+applies when Windows keeps it off.
 
 **What is NOT certified, and is not claimed:**
 
+- **Two filter cells were settled by reasoning (WI-049, open).** A read deny
+  naming the user resolved on the computer side, and an Apply deny naming the
+  computer resolved on the user side, both changed from `blocked` to `applied`
+  in the WI-047 edit with no estate row for either. The mechanism argues both
+  new answers are right; WI-033, WI-040 and WI-043 are three occasions on which
+  a good argument about this exact code was wrong. Group membership is the same
+  gap: a filter that matches through a *group* rather than by name is unit-
+  tested in both directions and measured in neither, so the API's per-side
+  membership lists carry a rule no estate run has exercised.
 - **Per-side applied/denied sets (WI-032, open).** `RsopGpoResult.status`
   collapses to "applied on at least one side". Windows reports
   `ComputerResults` and `UserResults` as separate sets and on a topology whose
@@ -543,6 +552,12 @@ matters — the model saying a GPO applies when Windows keeps it off.
 produces `unevaluable` — the last one that did was answered by measurement — but
 the state and its machinery stay, because the next unmeasured region will need
 them and a result containing one reports `is_conclusive() == False`.
+
+**Being reconciled is not being finished.** WI-032, WI-036 and WI-049 are all
+open against a module now reachable by operators, which is the ordinary state
+for a surfaced capability rather than a reason to withdraw it. What surfacing
+changes is that each gap now has a reader, so each is stated where the answer is
+read as well as here.
 
 Open work items for this module are tracked in
 [`docs/work-items.md`](work-items.md).

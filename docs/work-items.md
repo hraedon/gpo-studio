@@ -1305,6 +1305,15 @@ union, and the code comment now labels each cell measured or reasoned. Nothing
 claims these two cells were measured. The tranche's twelve verdicts remain
 valid — none of them asserts anything about these cells.
 
+**2026-08-06 — now reachable by operators (WI-030), and the reader changed.**
+`/api/rsop/*` exposes both cells: a caller can supply a computer-named Apply
+deny and be told the GPO applies on the user side, on reasoning alone. The
+capability matrix names this item in its not-certified list, and the API test
+that exercises per-side group memberships says in its own docstring that it
+would pass identically if the rule were wrong. Neither is a fix. What surfacing
+changes here is the cost of being wrong: the audience for these two cells is no
+longer a test file.
+
 **Closes when:** an estate run measures both cells — a user-named read deny on
 a computer-scope scenario, and a computer-named Apply deny on a user-scope
 scenario — and at least one group-matched deny row is measured rather than
