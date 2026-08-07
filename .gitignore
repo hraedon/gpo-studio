@@ -22,5 +22,13 @@ test-results/
 # never commit the local denylist (identifier gate)
 .identifiers-denylist.local
 
+# Root-level samples/ holds real environment data -- hostnames, SIDs, DNs from
+# whatever estate produced it. `check_committed_identifiers.py` refuses any
+# TRACKED file here and its docstring called the directory "gitignored by
+# convention", which it was not: the convention lived only in that sentence.
+# The gate is the last line of defence and should not be the first.
+# Nested samples/ (tests/samples/) are legitimate fixtures and stay tracked.
+/samples/
+
 # local agent wiring
 .claude/
