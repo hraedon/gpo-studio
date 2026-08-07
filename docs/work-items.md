@@ -1273,6 +1273,87 @@ unit-tested. Per the standing rule, do not stand up a dedicated estate session
 for this: these are filter edits on scenarios a future lane will already be
 running, and the marginal cost of carrying them is close to zero.
 
+## WI-050 — an approval binds a plan's identifier, not its content
+
+**Opened:** 2026-08-07 (Plan 032 shape assessment; row 1 of the
+`publisher-threat-model.md` required-controls table, verified rather than
+inferred).
+**Status:** open.
+
+`_approval_gate` decides whether a plan is approved by comparing
+`approval.plan_id != plan.plan_id` (`publisher.py:471`) and nothing else.
+`plan_id` is `f"plan-{uuid.uuid4().hex[:12]}"` (`publication.py:141-142`) — a
+random identifier with no relationship to what the plan does. **An approval
+therefore attests to a name, not to a set of steps.**
+
+**Demonstrated, not argued.** Construct a plan whose single step is a
+`write_registry_pol`, approve it, then `replace()` its steps with an
+`update_gplink` retargeting `OU=Domain Controllers` under a different artifact
+id, leaving `plan_id` untouched. `approval_gate` returns `passed=True` on the
+swapped plan. Reproduced independently of the assessment that found it.
+
+**Precisely what was reproduced**, because the difference matters: the
+**approval gate passes**. The overall `PublisherDecision` in that reproduction
+was still blocked, by `capability_gate` and then by `interop_gate`, because a
+synthetic plan carries no GPO for the later gates to read. Those gates check GPO
+validity, not approval integrity, and a profile holding both capabilities
+against a real GPO removes them. So the defect is in the approval control
+itself; the other gates are not a mitigation and should not be read as one.
+
+**Blast radius does not catch it either.** `_blast_radius_gate` reads
+`plan.risk_level`, which is a stored field on the plan rather than something
+re-derived from the steps, so a swap that raises the real risk leaves the
+declared risk untouched.
+
+**Closes when:** `PublicationPlan` carries a `payload_digest` computed over its
+content — `canonical.canonical_json_bytes` already exists for exactly this —
+including `risk_level` and excluding `plan_id`; `ApprovalRequest` binds that
+digest; and `_approval_gate` refuses on mismatch. That also closes Plan 032
+WP-3's re-approval requirement and the stale-risk hole above.
+
+## WI-051 — the self-approval check exists, and the gates do not call it
+
+**Opened:** 2026-08-07 (Plan 032 shape assessment; row 2 of the same table).
+**Status:** open.
+
+`approve_request` raises when an approver approves their own request
+(`publisher.py:288`), so the control is written. But `_approval_gate`
+(`publisher.py:450-515`) and `ApprovalRequest.validate()` never compare approver
+to requester, and **`run_publisher_gates` and `evaluate_publication` take no
+principal at all** — `decided_by` is hardcoded `""` (`publisher.py:689`).
+
+The consequence is that separation of duties holds only on the one path that
+constructs an approval through `approve_request`. A directly-constructed
+self-approved request — the shape any persistence layer produces when it
+rehydrates stored state — passes with zero validation issues.
+
+**Corroborated by coverage rather than by reading alone:** `publisher.py` misses
+lines 472, 483, 491 and 499, which are all four of `_approval_gate`'s
+content-binding refusal branches. The gate's refusal paths are untested.
+
+**Closes when:** a principal is threaded into the gates, a
+`separation_of_duties_gate` reuses `hosting.can_self_approve`, `decided_by` is
+populated from that principal, and the four refusal branches are tested.
+
+## WI-052 — `profiles_for_actor` matches an actor against a profile id
+
+**Opened:** 2026-08-07 (Plan 032 shape assessment; not previously suspected).
+**Status:** open.
+
+`PublisherProfileSet.profiles_for_actor` selects profiles with
+`p.profile_id == actor` (`publisher.py:128-132`), and `PublisherProfile` has no
+principal field at all. So `effective_capabilities("alice")` returns `[]`, while
+`effective_capabilities("p1")` returns the seven capabilities of the profile
+whose id happens to be `p1`.
+
+The docstring says "(by profile_id match)", so this is not a typo — it is a
+model that never grew the actor→profile relation it names. **A capability check
+against a real principal returns empty**, which fails closed today and is the
+reason nothing has noticed; it fails closed only because nothing calls it.
+
+**Closes when:** `PublisherProfile` carries a `principals` field and
+`profiles_for_actor` resolves against it.
+
 ## Not yet numbered
 
 Open question 1 from `plan-033/rsop-oracle-design.md` — whether `LabMS01` can
