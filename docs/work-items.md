@@ -734,7 +734,17 @@ refusal, not an absence — and the nesting rows are re-certified against it.
 
 ## WI-043 — the read-deny branch generalises past its evidence to user scope
 
-**Opened:** 2026-08-05 (independent review of PR #39). **Status:** open.
+**Opened:** 2026-08-05 (independent review of PR #39). **FIXED AND CLOSED 2026-08-06**, by measurement first and then by scoping the
+model to what was measured.
+
+Closure: the region was measured (`rsop-user-observe-20260806165543-8004`), the
+model was scoped to it via WI-047, and the re-run certified it
+(`rsop-user-observe-20260806184006-2532`, `pass`, conclusive, zero value
+findings). The `unevaluable` branch is DELETED rather than narrowed, because
+nothing in the region is unmeasured any more. Full arc in
+[`plan-033/wp9-readdeny-results.md`](plan-033/wp9-readdeny-results.md).
+
+The original entry follows.
 
 WI-040 established, against a real 26200 client, that a deny on Read keeps a
 GPO off a **computer** even with the Apply allow intact. The model now has a
@@ -793,14 +803,35 @@ finalizers exclude those rows from the applied comparison **in both directions**
 — grading an abstention would report a model defect out of the model being
 honest — and a run containing one is `inconclusive`, never `pass`.
 
-**Still open, and this is what remains:** no run has measured the user-scope
-read deny. The model now declines to answer instead of guessing, which is
-honest but is not knowledge.
+**MEASURED 2026-08-06, and the answer changed what closing this costs.** Run
+`rsop-user-observe-20260806165543-8004` (verdict `inconclusive`, as predicted
+before the run) authored the four-row discriminator on a real 26200 client. Row
+A -- a deny on the USER's Read -- **applied**, and won the conflict at link order
+1. Row B -- a deny on the COMPUTER's Read, on the same user-scope topology --
+was **absent**. Both controls held. Full reading in
+[`plan-033/wp9-readdeny-results.md`](plan-033/wp9-readdeny-results.md).
 
-**Closes when:** a user-scope read-deny scenario measures what Windows actually
-does, the model is scoped to that measurement, and the `unevaluable` branch is
-removed or narrowed to whatever is still unmeasured. Cross-principal matching
-(above) wants its own scenario and may want its own item.
+With WI-040's computer-scope result that gives one rule, not three cases: **a
+read deny gates policy when it names the COMPUTER, on either side, because the
+computer is always the principal performing the retrieval.**
+
+**The model cannot express that today, and WI-047 is therefore now BLOCKING
+rather than opportunistic.** Telling row A from row B requires knowing which
+principal a read deny names relative to the computer, and `_filter_matches`
+compares against the union of both principals' identities while
+`RsopTarget.group_memberships` has no side attribution to read a computer-only
+membership from. The measurement is done; the model cannot be scoped to it until
+the target model carries per-side identities.
+
+**Closes when:** WI-047 lands, `_gpo_filter_status` implements the
+reading-principal rule above, the `unevaluable` branch for this region is
+removed, and a re-run certifies it. Do NOT shortcut this by matching read denies
+against `computer_name` alone -- that passes this scenario and is wrong for a
+deny naming a group the computer belongs to, which nothing has measured and the
+flat membership tuple cannot represent.
+
+Cross-principal matching (above) is **WI-047**. It closes separately, but this
+item can no longer close before it.
 
 ---
 
@@ -1080,6 +1111,167 @@ Guarding the exemption you are thinking about is not the same as guarding the
 exemptions. This is also the concrete argument for the cross-lineage gate: the
 finding is on the reviewer's *first* substantive question about this file, and
 the author had already reviewed it twice by walking his own named hazards.
+
+## WI-047 — security filters match against the union of both principals
+
+**Opened:** 2026-08-06 (operator ruling; carried unnumbered since 2026-08-04).
+**FIXED AND CERTIFIED 2026-08-06**, hours later, because WI-043's measurement
+made it blocking rather than opportunistic.
+
+`RsopTarget.group_memberships` is gone, replaced by
+`computer_group_memberships` and `user_group_memberships`. `_filter_matches`
+takes a resolved identity set rather than the target, so a caller cannot omit
+the principal it is asking about. Read denies resolve against the COMPUTER on
+both sides; Apply resolves against the side's own principal.
+
+Mutation-proven in both wrong directions, and guarded by two control rows that
+a `computer_name`-only shortcut would fail: a deny naming a COMPUTER group
+blocks, the same deny naming the same group in the USER's token does not.
+Certified by the full twelve-scenario re-certification, all `pass`.
+
+**Scale correction:** this was estimated at 14+ call sites from memory of the
+`is_applied` removal. It was FOUR non-test sites.
+
+The original entry follows.
+
+Three sessions declined to file this unilaterally and carried it as a prose
+note instead — in `rsop.py`'s comments, in WI-043's body, and in the WI-043
+tranche doc. That is the failure mode this register was created for: WI-025
+survived a month in one paragraph of a design document. It gets a number now,
+on the operator's ruling, so that "nobody filed it" stops being the reason it
+is invisible.
+
+**The defect.** `_target_identities` (`src/gpo_studio/rsop.py:289`) returns one
+flat set containing `computer_name`, `computer_dn`, `user_name`, `user_dn` and
+`group_memberships`. `_filter_matches` tests a filter against that union. So a
+filter naming the **computer** can decide whether a GPO applies on the **user**
+side, and vice versa.
+
+WI-043 gave `_gpo_filter_status` the `side` it is resolving, and the read-deny
+branch now uses it. **Identity matching still does not.** The parameter that
+would fix this is already in the signature and is not consulted three lines
+further down.
+
+**This is a model defect, not only a coverage gap.** `RsopTarget` has a single
+`group_memberships: tuple[str, ...]` with no side attribution
+(`src/gpo_studio/rsop.py:73`). The computer's groups and the user's groups are
+not merely conflated by the matcher — **the type has nowhere to record which is
+which.** So this cannot be closed by narrowing a branch; it needs the target
+model to carry per-side membership, which is a wider change than WI-043's and
+touches every producer of an `RsopTarget`, including the lane finalizers.
+
+**Why no certification is affected.** Every scenario certified to date has the
+filtered principal and the resolving side aligned — a user-scope scenario
+filters on the user, a computer-scope scenario filters on the computer — so the
+union has never been exercised. This was checked rather than assumed. WI-040 did
+not introduce it; it added a second rule that inherits it.
+
+**PROMOTED TO BLOCKING 2026-08-06 by the run it was going to get free evidence
+from.** Row B measured that a read deny naming the COMPUTER blocks user-scope
+policy while one naming the USER does not
+(`rsop-user-observe-20260806165543-8004`). Implementing that measured rule
+requires distinguishing the two, which is exactly what the union prevents -- so
+WI-043 can no longer close before this item does. The opportunistic framing
+below was correct when written and is kept for the reasoning, but the priority
+has changed.
+
+**Original framing, per the operator's 2026-08-06 ruling:**
+do not stand up a dedicated estate session for this. Row B of the WI-043 tranche
+(deny Read to the **computer** on a **user-scope** scenario) already measures one
+consequence of cross-principal matching for free. Any future lane that is on the
+estate anyway for another reason should carry a misaligned-principal row where
+the marginal cost is a filter edit. A scenario authored solely for this can wait
+until the corpus says what it needs.
+
+**Closes when:** `RsopTarget` distinguishes the computer's and the user's
+identities and group memberships; `_filter_matches` resolves against the side
+being computed; and at least one measured row shows a misaligned filter being
+ignored rather than honoured. Until the third of those exists, a narrowed
+matcher is another rule believed on reasoning — which is the mistake WI-033,
+WI-040 and WI-043 have now made three times, two of them wrong.
+
+---
+
+## WI-048 — PowerShell Direct collides with itself on back-to-back runs
+
+**Opened:** 2026-08-06 (hit twice during the WI-043/WI-047 re-certification).
+**Status:** open.
+
+Two of twelve batch runs died with:
+
+    ERROR_INTERNAL_ERROR: The WinRM service cannot process the request.
+    A command already exists with the command ID specified by the client.
+
+Once during a `Copy-Item` push (`psdirect.ps1:158`) and once during the evidence
+pull (`psdirect.ps1:345`). Both scenarios passed when re-run with a 90-second
+gap and nothing else changed, so the trigger is elapsed time between sessions
+rather than anything in the scenarios.
+
+**Why this needs a number rather than a note in a runbook.** Every harness edit
+invalidates every verdict bound to it (WI-045), so a twelve-run re-certification
+is now the ROUTINE cost of touching the lane, not an exceptional event. A
+transport that fails roughly one run in six under that pattern will keep
+costing estate passes, and the failure is silent in the worst way: the second
+one had already authored, observed and torn down cleanly, so the estate work was
+done and only the evidence retrieval was lost.
+
+**Not a scenario or model defect**, and worth stating because the verdict is
+absent either way: both runs left the estate clean (`cleanup_problems: []`, no
+surviving OUs, GPOs, links or filters, both accounts restored).
+
+**Closes when:** either `psdirect.ps1` makes a new session robust to a colliding
+command ID (retry on `ERROR_INTERNAL_ERROR`, or a fresh session per invocation),
+or the minimum inter-run gap is enforced in the lane driver rather than left to
+whoever writes the next batch script. A comment in a scratchpad file is not a
+fix; the batch driver that hit this is not even in the repository.
+
+## WI-049 — two off-diagonal filter cells were changed by reasoning, not measurement
+
+**Opened:** 2026-08-07 (cross-lineage review of the WI-043/WI-047 tranche).
+**Status:** open.
+
+The tranche that closed WI-043 and WI-047 rewrote `_gpo_filter_status` to stop
+matching every filter against the union of both principals. Three read cells
+were measured on the estate and are certified. **Two other cells changed
+behaviour in the same edit, and nothing measured either of them.**
+
+|  | before (union) | after | evidence |
+|---|---|---|---|
+| read deny names the USER, side=computer | blocks | **applies** | none |
+| Apply deny names the COMPUTER, side=user | blocks | **applies** | none |
+
+**Both flips are in the over-promising direction** — the model now says a GPO
+applies where it previously said it was blocked. That is the failure direction
+WI-033 was opened for: an operator asking "what will this machine get?" is told
+about settings that may never arrive. It is also the exact shape of the defect
+WI-043 itself was opened about, which is why this is a numbered item rather
+than a note.
+
+**The mechanism argues both new answers are right.** MS16-072 has the computer
+perform the retrieval for both sides, so a user-named ACE cannot gate a
+retrieval the computer performs with its own token; and Apply Group Policy is
+evaluated against the principal the policy applies to, so a computer-named
+Apply deny has nothing to say about the user side. This is a good argument. It
+is not a measurement, and WI-033, WI-040 and WI-043 are three occasions on
+which a good argument about this exact code was wrong.
+
+**A related gap, same cause.** Group membership is unit-tested in both
+directions and measured in neither: the candidate builder always passes
+`computer_group_memberships=()`, so no estate run has ever exercised a deny
+that matches through a group rather than by name.
+
+**Why this did not block the tranche.** The chosen answers are pinned by
+`TestTheUnmeasuredCellsArePinned`, mutation-proven against the pre-WI-047
+union, and the code comment now labels each cell measured or reasoned. Nothing
+claims these two cells were measured. The tranche's twelve verdicts remain
+valid — none of them asserts anything about these cells.
+
+**Closes when:** an estate run measures both cells — a user-named read deny on
+a computer-scope scenario, and a computer-named Apply deny on a user-scope
+scenario — and at least one group-matched deny row is measured rather than
+unit-tested. Per the standing rule, do not stand up a dedicated estate session
+for this: these are filter edits on scenarios a future lane will already be
+running, and the marginal cost of carrying them is close to zero.
 
 ## Not yet numbered
 

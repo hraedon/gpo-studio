@@ -751,6 +751,194 @@ USER_SECURITY_FILTERING_DENY = Scenario(
     gpos=_filtering_gpos(include_deny=True),
 )
 
+#: WI-043. THE MEASUREMENT THAT CLOSES THE ABSTENTION, and the reason it needs
+#: four rows instead of one.
+#:
+#: `_gpo_filter_status` answers `unevaluable` for a read deny on the user side,
+#: with reason `security_filter_read_denied_user_scope_unmeasured`. That value
+#: exists solely because nobody has measured the region -- WI-040 confined
+#: itself to computer scope deliberately, and said why:
+#:
+#:     denying the USER read would be evaluated against a principal that is not
+#:     the one doing the reading, and a null result would be uninterpretable.
+#:
+#: MS16-072 has a user's GPOs retrieved in the COMPUTER's security context. So
+#: "deny the user's Read and see whether the GPO applies" has TWO mechanisms
+#: that produce the SAME observation, and a scenario that cannot separate them
+#: certifies nothing while looking like a run. The rows below separate them.
+#:
+#: THE DISCRIMINATOR. Authenticated Users keeps Read on every row -- the same
+#: discipline `_filtering_gpos` documents -- so the computer's read path is
+#: never the variable:
+#:
+#:   A  deny Read to the USER      absent => the user's read deny IS consulted
+#:                                 for user-scope policy, even though the
+#:                                 computer performs the retrieval
+#:   B  deny Read to the COMPUTER  absent => denying the READING principal
+#:                                 blocks the user's policy as a side effect;
+#:                                 the MS16-072 mechanism, confirmed
+#:   C  plain allow                nothing. ABSENT => lane failure
+#:   D  deny Apply to the USER     nothing. PRESENT => the harness cannot detect
+#:                                 blocking at all; the run is inconclusive
+#:
+#: C and D are not padding, and this lane has been bitten by their absence
+#: before (the endpoint lane's row J). Several rows here are EXPECTED to be
+#: absent, so "absent" has to be distinguishable from "the experiment did not
+#: run". C proves the lane can observe an applied user GPO in this topology; D
+#: proves it can observe a blocked one.
+#:
+#: A and B are independently interpretable and that is the whole design. A
+#: applies + B absent => user read denies are not consulted, computer read
+#: denies gate the user side. Both absent => both principals gate. A absent +
+#: B applies => the MS16-072 physics argument is WRONG, which is the most
+#: valuable outcome available here. None of the four is a null.
+#:
+#: THE PREDICTIONS, RECORDED BEFORE THE RUN. Two of them, separately, because
+#: they are different claims and the lane's most valuable result (WI-039) was
+#: the one nobody saw coming:
+#:
+#:   * THE MODEL says `unevaluable` for BOTH A and B. Not a prediction about
+#:     Windows -- an admission. `_filter_matches` compares against the union of
+#:     the computer's and the user's identities (WI-047), so B's deny naming the
+#:     COMPUTER matches on the USER side too, and both rows land in the same
+#:     abstention. The finalizer excludes them from grading in both directions,
+#:     so THIS RUN IS EXPECTED TO BE `inconclusive`, NOT `pass`. That is
+#:     correct. It must not be "fixed" by making the model guess.
+#:   * THE PHYSICS-DERIVED EXPECTATION, which is what the run actually tests, is
+#:     that A APPLIES and B IS ABSENT: if the computer reads policy on the
+#:     user's behalf, a deny on the user's read has no reader to act on, while a
+#:     deny on the computer's read removes the only principal that ever reads.
+#:     This is an argument, not a measurement, which is exactly why it is
+#:     written down here before the estate is touched.
+#:
+#: OPPORTUNISTIC, per the operator's 2026-08-06 ruling: row B is a deny naming
+#: the COMPUTER on a USER-scope scenario, so it measures one consequence of
+#: WI-047's cross-principal union for the cost of a filter edit. Whatever
+#: Windows says about B is evidence for that item as well as this one.
+#:
+#: NO `expect_finding` DECLARATION, deliberately, and for WMI_FILTERING_ERROR's
+#: reason rather than the deny row's: the answer is not known from the code. A
+#: declaration here would turn the run into a test of a guess.
+USER_SECURITY_FILTERING_READ_DENY = Scenario(
+    scenario_id="user-security-filtering-read-deny",
+    scope="user",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    user_ou_key="child",
+    control_gpo="Studio-RSOP-UserReadDenyControl",
+    control_value_name="Control",
+    # No group. This scenario makes no nesting claim, and `needs_group` costs a
+    # restart to refresh the token -- a variable the discriminator does not
+    # need and should not carry.
+    needs_group=False,
+    gpos=(
+        PlannedGpo(
+            name="Studio-RSOP-UserDenyReadUser",
+            guid="00000000-0000-0000-0000-0000000000da",
+            scope="ou",
+            scope_key="child",
+            order=1,
+            values={},
+            user_values={"Filter": "denyReadUser", "DenyReadUserOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="user", kind="apply"),
+                PlannedFilter(principal_key="user", kind="deny-read"),
+            ),
+            isolates=(
+                "ROW A -- deny Read to the USER, Apply allow intact. At link order 1 so "
+                "the shared Filter value is at stake and not just the unique one: if "
+                "this row applies, the model's abstention cost it a winner it could have "
+                "named. DenyReadUserOnly ABSENT => the user's own read deny is consulted "
+                "for user-scope policy even though the computer performs the retrieval. "
+                "PRESENT => it is not, and MS16-072's context switch is why."
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-UserDenyReadComp",
+            guid="00000000-0000-0000-0000-0000000000db",
+            scope="ou",
+            scope_key="child",
+            order=2,
+            values={},
+            user_values={"Filter": "denyReadComp", "DenyReadCompOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="user", kind="apply"),
+                PlannedFilter(principal_key="computer", kind="deny-read"),
+            ),
+            isolates=(
+                "ROW B -- deny Read to the COMPUTER on a USER-scope row; the shape no "
+                "scenario has ever authored. The Apply allow still names the USER, so "
+                "the only thing withheld is the reading principal's access. "
+                "DenyReadCompOnly ABSENT => denying the reader blocks the user's policy "
+                "as a side effect, which is the MS16-072 mechanism confirmed. Also the "
+                "opportunistic evidence for WI-047: the model matched this deny on the "
+                "user side only because `_filter_matches` unions both principals' "
+                "identities."
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-UserReadDenyAllow",
+            guid="00000000-0000-0000-0000-0000000000dc",
+            scope="ou",
+            scope_key="child",
+            order=3,
+            values={},
+            user_values={"Filter": "allow", "AllowOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="user", kind="apply"),
+            ),
+            isolates=(
+                "ROW C -- CONTROL, and the one that makes A and B readable: the SAME "
+                "AU-Read + user-Apply grant, differing only in the absence of a read "
+                "deny. AllowOnly ABSENT => the lane cannot observe an applied user GPO "
+                "in this topology and the run is a LANE FAILURE, not a finding about "
+                "either deny."
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-UserReadDenyApply",
+            guid="00000000-0000-0000-0000-0000000000dd",
+            scope="ou",
+            scope_key="child",
+            order=4,
+            values={},
+            user_values={"Filter": "denyApply", "DenyApplyOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="user", kind="apply"),
+                PlannedFilter(principal_key="user", kind="deny"),
+            ),
+            isolates=(
+                "ROW D -- CONTROL for the other direction, and the one this corpus "
+                "would have shipped without. A deny on APPLY for the user is CERTIFIED "
+                "to block (WI-033, rsop-user-observe-20260804150527-3868), so "
+                "DenyApplyOnly must be ABSENT. PRESENT => this harness cannot detect a "
+                "blocked user GPO at all, every absence above means nothing, and the "
+                "run is INCONCLUSIVE rather than a result."
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-UserReadDenyControl",
+            guid="00000000-0000-0000-0000-0000000000de",
+            scope="ou",
+            scope_key="child",
+            order=5,
+            values={},
+            user_values={"Control": "present"},
+            isolates=(
+                "CONTROL: default Authenticated Users Read+Apply, unfiltered and "
+                "unconflicted. Absent => the experiment did not run at all. Distinct "
+                "from row C: this one proves the USER SIDE resolved, C proves an "
+                "explicitly filtered grant resolved."
+            ),
+        ),
+    ),
+)
+
+
 # ---------------------------------------------------------------------------
 # WP-6B extension: WMI filtering
 # ---------------------------------------------------------------------------
@@ -1083,6 +1271,7 @@ SCENARIOS: dict[str, Scenario] = {
     LOOPBACK_REPLACE.scenario_id: LOOPBACK_REPLACE,
     USER_SECURITY_FILTERING.scenario_id: USER_SECURITY_FILTERING,
     USER_SECURITY_FILTERING_DENY.scenario_id: USER_SECURITY_FILTERING_DENY,
+    USER_SECURITY_FILTERING_READ_DENY.scenario_id: (USER_SECURITY_FILTERING_READ_DENY),
     WMI_FILTERING.scenario_id: WMI_FILTERING,
     COMPUTER_SECURITY_FILTERING.scenario_id: COMPUTER_SECURITY_FILTERING,
     COMPUTER_SECURITY_FILTERING_DENY_READ.scenario_id: (COMPUTER_SECURITY_FILTERING_DENY_READ),
@@ -1309,7 +1498,20 @@ def build_query(
             # independent ways and the finalizer refuses the run if the group
             # is not in them -- so this is a claim the estate has to
             # corroborate, not one the prediction gets for free.
-            group_memberships=(GROUP_NAME,) if scenario.needs_group else (),
+            # WI-047. THE GROUP BELONGS TO THE PRINCIPAL THE SCENARIO FILTERS
+            # ON, and saying which is now possible. Every nesting scenario in
+            # this corpus puts the disposable group in the USER's token -- the
+            # observation half collects it with `whoami /groups` in the user's
+            # session, which is the user's token and never the computer's (the
+            # WP-6 rule). Declaring it on the computer would have the model
+            # resolve a membership the estate never corroborates.
+            #
+            # The computer's memberships stay EMPTY rather than being guessed.
+            # Nothing collects them for these scenarios, and an invented list
+            # would be an input the estate does not confirm -- the exact thing
+            # the token gate exists to prevent.
+            user_group_memberships=(GROUP_NAME,) if scenario.needs_group else (),
+            computer_group_memberships=(),
             site_name=site_name,
             domain=domain,
         ),
@@ -1400,7 +1602,8 @@ def prediction_document(
         "scope": scenario.scope,
         "loopback_mode": scenario.loopback_mode,
         "expect_finding": scenario.expect_finding,
-        "group_memberships": list(result.target.group_memberships),
+        "user_group_memberships": list(result.target.user_group_memberships),
+        "computer_group_memberships": list(result.target.computer_group_memberships),
         "target": {
             "computer_name": result.target.computer_name,
             "user_name": result.target.user_name,

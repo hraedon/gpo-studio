@@ -115,6 +115,12 @@ $result = [ordered]@{
     refresh_task_results   = @()
     token_groups_session   = @()
     token_groups_ldap      = @()
+    # WI-042. The directory half records HOW its list was arrived at, so the
+    # finalizer can tell a failed query from an empty one. Starts as 'failed'
+    # with a reason naming the un-run state: if the collection block never
+    # executes, the honest record is "not collected", not "collected nothing".
+    token_groups_ldap_status = 'failed'
+    token_groups_ldap_error  = 'the directory collection did not run'
     token_collection_error = $null
     rsop_captured          = $false
     rsop_parse_error       = $null
@@ -299,6 +305,24 @@ function Get-LdapTokenGroups {
         is in the directory and not in the token, and the user must sign in
         again before it applies. That disagreement is real Windows behaviour and
         the lane should be able to see it rather than average over it.
+
+        WI-042. RETURNS A STATUS, NOT A BARE LIST, and that is the whole fix.
+        Every failure path here used to `return @()`: a bind failure, a missing
+        attribute, a permissions error, an object the search could not find, and
+        a genuinely empty result all arrived at the finalizer as the same value.
+        The finalizer then validated the directory list only when it was
+        non-empty, so an ERRORED QUERY SKIPPED ITS OWN CHECK and the verdict
+        certified on a one-sided token collection without saying so.
+
+        The function already knew better one level in -- a SID that will not
+        translate is recorded as a SID rather than dropped, because "a silently
+        shorter list is a weaker assertion". The outer catch violated that
+        wholesale by returning the silently shortest list there is.
+
+        `status` is 'collected' or 'failed'. An empty `groups` under
+        'collected' is a real observation about the directory; anything under
+        'failed' is the absence of an observation, and the finalizer treats it
+        as a hard refusal rather than as an absence.
     #>
     param([string]$Sid)
     try {
@@ -311,7 +335,15 @@ function Get-LdapTokenGroups {
         $searcher = [adsisearcher]"(objectSid=$Sid)"
         $searcher.PropertiesToLoad.Add('distinguishedName') | Out-Null
         $found = $searcher.FindOne()
-        if (-not $found) { return @() }
+        if (-not $found) {
+            # NOT an empty result. The directory did not answer the question,
+            # which is a different thing from answering "no groups".
+            return @{
+                status = 'failed'
+                groups = @()
+                reason = "no directory object matched objectSid=$Sid"
+            }
+        }
         $dn = "$($found.Properties['distinguishedname'][0])"
         $entry = [ADSI]"LDAP://$dn"
         $entry.RefreshCache(@('tokenGroups'))
@@ -326,9 +358,9 @@ function Get-LdapTokenGroups {
                 $names += "$($groupSid.Value)"
             }
         }
-        return @($names)
+        return @{ status = 'collected'; groups = @($names); reason = $null }
     } catch {
-        return @()
+        return @{ status = 'failed'; groups = @(); reason = "$($_.Exception.Message)" }
     }
 }
 
@@ -776,8 +808,14 @@ try {
     # observation was taken from.
     try {
         $result.token_groups_session = @(Get-SessionTokenGroups)
-        $result.token_groups_ldap = @(Get-LdapTokenGroups -Sid $sid)
+        $ldap = Get-LdapTokenGroups -Sid $sid
+        $result.token_groups_ldap = @($ldap.groups)
+        $result.token_groups_ldap_status = "$($ldap.status)"
+        $result.token_groups_ldap_error = $ldap.reason
     } catch {
+        # This catch leaves token_groups_ldap_status at its 'failed' default on
+        # purpose: an exception between the two collections means the directory
+        # half is un-run, and the initializer already says so.
         $result.token_collection_error = "$($_.Exception.Message)"
     }
 

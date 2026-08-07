@@ -443,6 +443,11 @@ def _filtering_lane(lane, **observation_overrides):
         observed_loopback_mode="disabled",
         token_groups_session=["LAB\\Domain Users", "LAB\\StudioRsopGroup-20260804-1"],
         token_groups_ldap=["LAB\\Domain Users", "LAB\\StudioRsopGroup-20260804-1"],
+        # WI-042. A directory list is only corroboration if the harness says it
+        # was actually collected; the default here is the healthy case so the
+        # tests below vary one thing at a time.
+        token_groups_ldap_status="collected",
+        token_groups_ldap_error=None,
         observed_values=[{"value_name": "Control", "value": "present"}],
     )
     observation.update(observation_overrides)
@@ -490,6 +495,83 @@ def test_no_token_collection_at_all_is_a_lane_failure(lane) -> None:
     verdict = _finalize(*_filtering_lane(lane, token_groups_session=[]))
     assert verdict["state"] == "lane-failure"
     assert any("no token groups were collected" in p for p in verdict["lane_problems"])
+
+
+def test_a_failed_directory_query_is_a_lane_failure_not_an_absence(lane) -> None:
+    """WI-042. The defect: a failed query and an empty one were the same value.
+
+    Every failure path in ``Get-LdapTokenGroups`` returned ``@()`` -- a bind
+    failure, a permissions error, a missing attribute, an unfound object -- and
+    the finalizer validated the directory list only when it was non-empty. So an
+    errored query skipped its own check and the run certified a nesting claim
+    corroborated from ONE side while reading as though both had agreed.
+
+    The session half is deliberately healthy here. The point is that the
+    directory half alone refuses.
+    """
+    verdict = _finalize(
+        *_filtering_lane(
+            lane,
+            token_groups_ldap=[],
+            token_groups_ldap_status="failed",
+            token_groups_ldap_error="An operations error occurred.",
+        )
+    )
+    assert verdict["state"] == "lane-failure"
+    assert verdict["comparison"] is None
+    assert any("were not collected" in p for p in verdict["lane_problems"])
+    assert any("An operations error occurred." in p for p in verdict["lane_problems"])
+
+
+def test_an_observe_document_with_no_collection_status_is_refused(lane) -> None:
+    """The absence of a status is itself a refusal, and that is not defensive.
+
+    A document that does not record HOW it collected cannot be distinguished
+    from one whose collection failed. Certifying it would reintroduce exactly
+    the ambiguity WI-042 removed, one level up -- so the gate refuses rather
+    than assuming the healthy case.
+
+    The three pre-collection verdicts carry no ``token_groups`` block and make
+    no nesting claim, so they never reach this function; anything that does
+    reach it without a status came from a harness this gate does not understand.
+    """
+    verdict = _finalize(*_filtering_lane(lane, token_groups_ldap_status=None))
+    assert verdict["state"] == "lane-failure"
+    assert any("status absent" in p for p in verdict["lane_problems"])
+
+
+def test_a_collected_but_empty_directory_list_still_refuses_on_the_membership(lane) -> None:
+    """The control that keeps the fix from being a rename.
+
+    A genuinely empty answer is a real observation, so it reaches the membership
+    check rather than the collection check -- and then fails it, because an
+    empty list does not contain the group. Both paths refuse, and they refuse
+    for DIFFERENT stated reasons. Without this the status check could be
+    swallowing the membership check and nothing would notice.
+    """
+    verdict = _finalize(
+        *_filtering_lane(
+            lane,
+            token_groups_ldap=[],
+            token_groups_ldap_status="collected",
+        )
+    )
+    assert verdict["state"] == "lane-failure"
+    assert any("do not contain" in p for p in verdict["lane_problems"])
+    assert not any("were not collected" in p for p in verdict["lane_problems"])
+
+
+def test_the_directory_collection_status_is_recorded_even_without_a_group(lane) -> None:
+    """A reader must be able to tell an empty list from an uncollected one.
+
+    Recorded on every verdict, including scenarios that make no nesting claim
+    and never gate on it, because the list alone cannot say which it is.
+    """
+    verdict = _finalize(
+        *lane(observation=_observation(token_groups_ldap_status="collected"))
+    )
+    assert verdict["state"] == "pass"
+    assert verdict["token_groups"]["directory_status"] == "collected"
 
 
 def test_token_check_is_skipped_when_no_group_is_involved(lane) -> None:

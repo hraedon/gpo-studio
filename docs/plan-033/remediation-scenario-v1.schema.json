@@ -139,6 +139,43 @@
         "minLength": 1
       },
       "description": "Explicit unknowns. An open question is a healthy corpus state; an unrecorded wrong assumption is not."
+    },
+    "predictions_before_the_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recorded", "model", "physics"],
+      "description": "What was believed BEFORE the estate was touched, for a scenario that asks an open question rather than confirming an expectation. Optional, and only meaningful on a `hypothesis`-tier scenario. It exists because a prediction written after the fact is not a prediction: WI-040's arc (predict, observe, let the divergence be the finding) is the discipline this project keeps having to re-learn, and prose in a commit message is not somewhere a later reader will look. The two halves are separate because they are DIFFERENT CLAIMS -- what Studio's model says, and what the physics argues -- and collapsing them hides the case where the model is right for the wrong reason.",
+      "properties": {
+        "recorded": {
+          "type": "string",
+          "minLength": 1,
+          "description": "When this was written down, and the assertion that it predates estate contact"
+        },
+        "verdict_expected": {
+          "type": "string",
+          "enum": ["pass", "finding", "expected-finding", "inconclusive", "lane-failure"],
+          "description": "The lane verdict expected from the first execution. An `inconclusive` here is a legitimate and expected outcome for an open-question scenario, not a defect to be designed away."
+        },
+        "why_that_verdict": { "type": "string", "minLength": 1 },
+        "model": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["summary"],
+          "description": "What Studio's model answers today. May be an abstention, which is an admission rather than a prediction about Windows.",
+          "properties": { "summary": { "type": "string", "minLength": 1 } }
+        },
+        "physics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["summary", "reasoning", "confidence"],
+          "description": "What the documented mechanism argues Windows will do. An argument, not a measurement -- which is exactly why it is recorded before the run.",
+          "properties": {
+            "summary": { "type": "string", "minLength": 1 },
+            "reasoning": { "type": "string", "minLength": 1 },
+            "confidence": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
     }
   }
 }

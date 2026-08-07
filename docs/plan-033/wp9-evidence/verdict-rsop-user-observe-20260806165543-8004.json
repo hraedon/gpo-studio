@@ -1,0 +1,129 @@
+{
+  "author_run_id": "rsop-author-20260806165538-6022",
+  "candidate": {
+    "expected.json": "eb035ef1ca68271565ed971a93d5bf3857606c23cf7ab37aebbab7c1f682954c",
+    "prediction.json": "569cc0477afd65b3d46180609f509d39377c9aa6870dd5bd95866146ff89244f",
+    "topology.json": "53b61ae07c1140424f18598f2b9f767513936a1f32235cee25a3d0a7ea6c363d"
+  },
+  "comparison": {
+    "agrees": false,
+    "applied_only_observed": [],
+    "applied_only_predicted": [],
+    "applied_set_difference_is_advisory": true,
+    "conclusive": false,
+    "observed_applied_user_side": [
+      "Studio-RSOP-UserReadDenyAllow",
+      "Studio-RSOP-UserReadDenyControl"
+    ],
+    "observed_foreign_gpos": [
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "DenyReadUserOnly": "1",
+      "Filter": "denyReadUser"
+    },
+    "predicted_applied_either_side": [
+      "Studio-RSOP-UserReadDenyAllow",
+      "Studio-RSOP-UserReadDenyControl"
+    ],
+    "predicted_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "Filter": "allow"
+    },
+    "unevaluable_gpos": [
+      "Studio-RSOP-UserDenyReadComp",
+      "Studio-RSOP-UserDenyReadUser"
+    ],
+    "value_findings": [
+      {
+        "kind": "observed_but_unpredicted",
+        "observed": "1",
+        "predicted": null,
+        "predicted_winning_gpo": null,
+        "value_name": "DenyReadUserOnly"
+      },
+      {
+        "kind": "wrong_value",
+        "observed": "denyReadUser",
+        "predicted": "allow",
+        "predicted_winning_gpo": "Studio-RSOP-UserReadDenyAllow",
+        "value_name": "Filter"
+      }
+    ]
+  },
+  "control_problems": [],
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7705"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.7462"
+    }
+  },
+  "expected_finding": "",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "loopback": {
+    "control_ok": true,
+    "intended": "disabled",
+    "observed": "disabled"
+  },
+  "passed": false,
+  "principal": "labauto1",
+  "principal_sid": "S-1-5-21-343068944-2904821402-3322616572-1106",
+  "run_id": "rsop-user-observe-20260806165543-8004",
+  "scenario_id": "user-security-filtering-read-deny",
+  "schema_version": 1,
+  "scope": "user",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "895d1f2f801fd71f975ebbed4ee2061b810fbc2d",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "6b8fee8367e61f65706ad284d91b5a3fa12a29bc20666c846b8c45d083b9d640",
+      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "run-rsop-author.ps1": "90d3b95da383a76b419286695112fd48b21dd85518dddca90cae05dc79e64939",
+      "run-rsop-user-observe.ps1": "eb654b423519b2396ecdb0fa8cc19621116a1c23501599d8ddefe69ed6dffc8c",
+      "run-rsop-user-oracle.sh": "4aa287b4a2368a92bcdf022698a9040efdfa33a440ef87fed1583eeb063594e5"
+    }
+  },
+  "state": "inconclusive",
+  "token_groups": {
+    "directory": [
+      "BUILTIN\\Users",
+      "LAB\\Domain Users"
+    ],
+    "directory_error": null,
+    "directory_status": "collected",
+    "group": "",
+    "session": [
+      "Domain Users",
+      "Everyone",
+      "BUILTIN\\Users",
+      "NT AUTHORITY\\INTERACTIVE",
+      "CONSOLE LOGON",
+      "NT AUTHORITY\\Authenticated Users",
+      "This Organization",
+      "LOCAL",
+      "Authentication authority asserted identity",
+      "Medium Mandatory Level"
+    ]
+  },
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "user_policy_completed": true,
+  "work_package": "WP-9"
+}

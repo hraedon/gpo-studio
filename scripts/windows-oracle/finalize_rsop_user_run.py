@@ -214,7 +214,34 @@ def _token_problems(observe: dict[str, Any], expected: dict[str, Any]) -> list[s
             "after sign-in is in the directory and not in the token, so the nesting "
             "prediction describes a membership the session does not have"
         )
-    if ldap and not _holds(ldap):
+    # WI-042. THE DIRECTORY HALF HAS TO BE ABLE TO REFUSE.
+    #
+    # This check used to read `if ldap and not _holds(ldap)`, which skips itself
+    # on an empty list -- and every failure path in `Get-LdapTokenGroups`
+    # returned an empty list. A bind failure, a permissions error, a missing
+    # attribute and a genuinely empty result were one value, so an ERRORED QUERY
+    # SKIPPED ITS OWN CHECK and the verdict certified a nesting claim
+    # corroborated from one side while reading as though both had agreed.
+    #
+    # The status is now consulted FIRST, and its absence is itself a refusal:
+    # an observation produced by a harness that did not record how it collected
+    # cannot be distinguished from one that failed, so it is not certified. That
+    # is deliberate rather than defensive -- the three pre-collection verdicts
+    # carry no `token_groups` block at all and make no nesting claim, so they
+    # never reach this function, and any FUTURE observe document reaching it
+    # without a status came from a harness this gate does not understand.
+    status = str(observe.get("token_groups_ldap_status") or "")
+    if status != "collected":
+        reason = str(observe.get("token_groups_ldap_error") or "no reason recorded")
+        problems.append(
+            "the directory's tokenGroups were not collected "
+            f"(status {status or 'absent'}: {reason}); the nesting claim would rest on "
+            "the session token alone, and a one-sided corroboration is not the "
+            "two-sided one this verdict would assert"
+        )
+    elif not _holds(ldap):
+        # Reachable only on a genuine, successful, non-matching answer now --
+        # which is the case this line was always meant to catch.
         problems.append(f"the directory's tokenGroups for the principal do not contain {group!r}")
     return problems
 
@@ -481,6 +508,12 @@ def main(argv: list[str] | None = None) -> int:
             "group": expected.get("group_name"),
             "session": observe.get("token_groups_session"),
             "directory": observe.get("token_groups_ldap"),
+            # WI-042. Recorded even on scenarios that make no nesting claim and
+            # never gate on it: a reader must be able to tell an empty
+            # `directory` list that WAS collected from one that was not, and the
+            # list alone cannot say which it is.
+            "directory_status": observe.get("token_groups_ldap_status"),
+            "directory_error": observe.get("token_groups_ldap_error"),
         },
         "lane_problems": lane_problems,
         "control_problems": control_problems,

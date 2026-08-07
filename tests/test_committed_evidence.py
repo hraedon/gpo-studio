@@ -165,6 +165,40 @@ LANE_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json": (
         "finalize_rsop_user_run.py"
     ),
+    # WI-043's measurement, `inconclusive`, mapped here anyway: the freshness
+    # gate is about whether a verdict binds the harness that ships, not about
+    # whether it was a pass. An unmapped verdict is the one shape the coverage
+    # guard exists to catch. Retired below now that WI-047 moved the harness.
+    "wp9-evidence/verdict-rsop-user-observe-20260806165543-8004.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # 2026-08-06 re-certification: all twelve scenarios re-run under the WI-047
+    # model, so what these bind is the reading-principal rule rather than the
+    # abstention it replaced.
+    "wp6-evidence/verdict-rsop-observe-20260806181033-3296.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260806181222-5315.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260806181411-9752.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260806181600-5707.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260806181748-7763.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260806181935-5130.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json": (
+        "finalize_rsop_user_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
@@ -203,6 +237,23 @@ PRE_TRANSPORT_VERDICTS = {
 #: still matches the tree, so a live claim cannot be quietly parked in here to
 #: silence the gate below.
 RETIRED_VERDICTS = {
+    # The 2026-08-05 batch and WI-043's inconclusive measurement, superseded by
+    # the 2026-08-06 re-certification. The measurement is kept rather than
+    # dropped: it is the only record of the model ABSTAINING on a region it now
+    # answers, and the arc from abstention to measured rule is the evidence that
+    # the rule was measured rather than assumed.
+    "wp6-evidence/verdict-rsop-observe-20260805220819-4762.json",
+    "wp6-evidence/verdict-rsop-observe-20260805221004-8571.json",
+    "wp6-evidence/verdict-rsop-observe-20260805221150-4243.json",
+    "wp6-evidence/verdict-rsop-observe-20260805221335-1702.json",
+    "wp6-evidence/verdict-rsop-observe-20260805221522-1983.json",
+    "wp6-evidence/verdict-rsop-observe-20260805221707-4871.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805221856-6415.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805222106-2378.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805222317-3382.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805222624-9750.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806165543-8004.json",
     # WP-6B's first certification and the WI-031 enforcement arc, superseded
     # when `run-rsop-author.ps1` and the candidate builder moved on.
     "wp6-evidence/verdict-rsop-observe-20260804010341-7165.json",
@@ -375,6 +426,41 @@ def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> No
             + comparison["applied_only_observed"]
         )
         assert divergences, f"{relative} is a finding and records no divergence"
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
+    if verdict.get("state") == "inconclusive":
+        # THE EXPERIMENT RAN AND SAYS NOTHING ABOUT THE MODEL, which is a real
+        # outcome and not a failed pass. WI-043's measurement is the case: the
+        # model abstained on the two rows the scenario was built to ask about,
+        # so the finalizer refused to grade them and the run cannot be a pass no
+        # matter what Windows did. The observation is still the point.
+        #
+        # THIS IS THE SECOND TIME THIS FILE HAS HAD THIS GAP. The `finding`
+        # branch above carries a comment about being added because its absence
+        # made the most valuable class of evidence the one class that could not
+        # be recorded here. `inconclusive` was left in exactly that position and
+        # was found the same way -- by a lane producing one and the test
+        # demanding `passed`. A fall-through that asserts the happy path is how
+        # a state machine quietly excludes its own outcomes.
+        assert verdict["passed"] is False, relative
+        comparison = verdict["comparison"]
+        # An inconclusive run has to say WHY it could not conclude, and there
+        # are exactly two legitimate reasons: a control did not hold, or the
+        # model declined to predict something. A verdict claiming neither is
+        # claiming to be inconclusive about nothing.
+        abstained = bool(comparison and comparison.get("unevaluable_gpos"))
+        controls_failed = bool(verdict.get("control_problems"))
+        assert abstained or controls_failed, (
+            f"{relative} is inconclusive but records neither a failed control nor a "
+            "model abstention, so nothing explains why it could not conclude"
+        )
+        if abstained:
+            assert comparison is not None
+            assert comparison["conclusive"] is False, (
+                f"{relative} records an abstention while claiming to be conclusive"
+            )
         assert verdict["source"]["dirty"] is False
         assert verdict["transport"] == "psdirect"
         return

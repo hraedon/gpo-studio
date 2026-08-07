@@ -117,16 +117,22 @@ def _target(
     user_name: str = "",
     user_dn: str = "",
     domain: str = "ad.hraedon.com",
-    group_memberships: tuple[str, ...] = (),
+    computer_group_memberships: tuple[str, ...] = (),
+    user_group_memberships: tuple[str, ...] = (),
     loopback_mode: str = "disabled",
 ) -> RsopTarget:
+    # WI-047. There is deliberately no merged `group_memberships` shortcut here.
+    # A helper that took one and split it would let a test say "the target is in
+    # this group" without saying WHICH principal is, which is the ambiguity the
+    # production type just had removed. Every call site below now states it.
     return RsopTarget(
         computer_name=computer_name,
         computer_dn=computer_dn,
         user_name=user_name,
         user_dn=user_dn,
         domain=domain,
-        group_memberships=group_memberships,
+        computer_group_memberships=computer_group_memberships,
+        user_group_memberships=user_group_memberships,
         loopback_mode=loopback_mode,  # type: ignore[arg-type]
     )
 
@@ -335,7 +341,7 @@ def test_compute_rsop_security_filter_mismatch_filtered() -> None:
     target = _target(
         computer_name="pc01",
         computer_dn="OU=Computers," + _DOMAIN_DN,
-        group_memberships=("S-1-5-21-0000000000-0000000000-0000000000-5678",),
+        computer_group_memberships=("S-1-5-21-0000000000-0000000000-0000000000-5678",),
     )
     query = _query(target=target, som_nodes=nodes, gpos=(gpo,))
     result = compute_rsop(query)
@@ -373,7 +379,7 @@ def test_compute_rsop_security_filter_match_applied() -> None:
     target = _target(
         computer_name="pc01",
         computer_dn="OU=Computers," + _DOMAIN_DN,
-        group_memberships=(group_sid,),
+        computer_group_memberships=(group_sid,),
     )
     query = _query(target=target, som_nodes=nodes, gpos=(gpo,))
     result = compute_rsop(query)
@@ -411,7 +417,7 @@ def test_compute_rsop_security_filter_sid_case_insensitive() -> None:
     target = _target(
         computer_name="pc01",
         computer_dn="OU=Computers," + _DOMAIN_DN,
-        group_memberships=(group_sid.upper(),),  # uppercase SID in target
+        computer_group_memberships=(group_sid.upper(),),  # uppercase SID in target
     )
     query = _query(target=target, som_nodes=nodes, gpos=(gpo,))
     result = compute_rsop(query)
@@ -447,7 +453,7 @@ def test_compute_rsop_principal_case_insensitive() -> None:
     target = _target(
         computer_name="pc01",
         computer_dn="OU=Computers," + _DOMAIN_DN,
-        group_memberships=("domain\\users",),  # different case
+        computer_group_memberships=("domain\\users",),  # different case
     )
     query = _query(target=target, som_nodes=nodes, gpos=(gpo,))
     result = compute_rsop(query)
@@ -1111,7 +1117,7 @@ class TestDenyFiltering:
                 computer_name="C",
                 computer_dn=f"CN=C,{dn}",
                 domain="x",
-                group_memberships=("LabGroup",),
+                computer_group_memberships=("LabGroup",),
             ),
             som_nodes=(
                 SomNode(
@@ -1326,31 +1332,59 @@ class TestWmiFilterEvaluation:
         assert any(g.status == "applied" for g in absent.gpo_results)
 
 
-class TestUserScopeReadDenyIsUnevaluable:
-    """WI-043: the read-deny rule is certified on the computer, not the user.
+class TestReadDenyIsEvaluatedAgainstTheReadingPrincipal:
+    """WI-043, MEASURED 2026-08-06. The abstention is gone because it was closed.
 
-    WI-040 measured a deny on Read against a real 26200 client and the model
-    gained a `security_filter_read_denied` branch. That branch was written
-    without a side, and `_filter_matches` compares against the union of the
-    computer's and the user's identities -- so the certified computer rule was
-    silently answering for the user too.
+    Three runs across both scopes, and they collapse to one rule:
 
-    It is not a gap that can be closed by picking the other answer. MS16-072
-    has a user's GPOs retrieved in the COMPUTER's security context, so a deny on
-    the user's read may never be evaluated against the reading principal at all.
-    Both "blocks" and "does not block" are unfounded, so the model returns
-    neither. Same ruling as WI-039's unevaluatable WMI filter and WI-041's
-    refusal to export an inexpressible deny.
+        side=computer, deny names the COMPUTER -> BLOCKS
+                       (rsop-observe-20260805045139-3731, WI-040)
+        side=user,     deny names the COMPUTER -> BLOCKS
+                       (rsop-user-observe-20260806165543-8004, row B)
+        side=user,     deny names the USER     -> APPLIES
+                       (rsop-user-observe-20260806165543-8004, row A)
+
+    A READ DENY GATES POLICY WHEN IT NAMES THE COMPUTER, ON EITHER SIDE, because
+    MS16-072 has the computer perform the retrieval for both sides. The side
+    being resolved does not decide it; the principal named by the deny does.
+
+    This class previously asserted that the user side was `unevaluable`. That
+    was the honest answer while nobody had looked, and it is the wrong answer
+    now that someone has. The tests were rewritten rather than deleted so the
+    replaced claim stays legible in history.
+
+    Apply Group Policy runs the other way -- it is evaluated against the
+    principal the policy applies TO -- which is why every test here that varies
+    the read deny keeps the apply allow fixed.
     """
 
-    def _query(self, side: Literal["computer", "user"]) -> RsopQuery:
+    def _query(
+        self,
+        side: Literal["computer", "user"],
+        *,
+        deny_names: str = "",
+    ) -> RsopQuery:
+        """A GPO whose apply allow names the resolving side's principal.
+
+        The computer is ALWAYS present, even on a user-scope query. That is not
+        scaffolding: after WI-047 the read deny is resolved against the
+        computer's identities, so a user-scope query with no computer would have
+        nothing for a computer-named deny to match and every row here would
+        pass by accident.
+        """
         dn = "OU=Child,DC=x"
+        principal = "U" if side == "user" else "C"
         gpo = GPO(
             guid="g1",
             name="ReadDenied",
             security_filters=(
-                SecurityFilter(id="a", principal="P", permission="apply"),
-                SecurityFilter(id="d", principal="P", permission="read", deny=True),
+                SecurityFilter(id="a", principal=principal, permission="apply"),
+                SecurityFilter(
+                    id="d",
+                    principal=deny_names or principal,
+                    permission="read",
+                    deny=True,
+                ),
             ),
             settings=(
                 RegistrySetting(
@@ -1364,10 +1398,12 @@ class TestUserScopeReadDenyIsUnevaluable:
                 ),
             ),
         )
-        target = (
-            RsopTarget(user_name="P", user_dn=f"CN=P,{dn}", domain="x")
-            if side == "user"
-            else RsopTarget(computer_name="P", computer_dn=f"CN=P,{dn}", domain="x")
+        target = RsopTarget(
+            computer_name="C",
+            computer_dn=f"CN=C,{dn}",
+            user_name="U" if side == "user" else "",
+            user_dn=f"CN=U,{dn}" if side == "user" else "",
+            domain="x",
         )
         return RsopQuery(
             query_id="q",
@@ -1384,104 +1420,252 @@ class TestUserScopeReadDenyIsUnevaluable:
             gpos=(gpo,),
         )
 
-    def test_the_computer_side_still_blocks(self) -> None:
-        """The control. Without it this suite would pass by never blocking."""
+    def test_the_computer_side_blocks_on_a_computer_named_deny(self) -> None:
+        """WI-040's certified case, unchanged by WI-047."""
         result = compute_rsop(self._query("computer"))
         assert result.gpo_results[0].status == "blocked"
         assert "security_filter_read_denied" in result.gpo_results[0].filtering_reasons
 
-    def test_the_user_side_is_unevaluable(self) -> None:
-        result = compute_rsop(self._query("user"))
-        assert result.gpo_results[0].status == "unevaluable"
-        assert (
-            "security_filter_read_denied_user_scope_unmeasured"
-            in result.gpo_results[0].filtering_reasons
-        )
+    def test_the_user_side_blocks_on_a_COMPUTER_named_deny(self) -> None:
+        """Row B. Denying the reading principal withholds the user's policy."""
+        result = compute_rsop(self._query("user", deny_names="C"))
+        assert result.gpo_results[0].status == "blocked"
+        assert "security_filter_read_denied" in result.gpo_results[0].filtering_reasons
 
-    def test_unevaluable_is_neither_applied_nor_filtered(self) -> None:
-        """The whole point of the third state: it must not collapse into either.
+    def test_the_user_side_APPLIES_on_a_user_named_deny(self) -> None:
+        """Row A, and the assertion this class used to make the opposite of.
 
-        `gpos_filtered()` is deliberately not the complement of
-        `gpos_applied()`. If it were, every existing caller iterating "the ones
-        that did not apply" would quietly re-acquire the wrong answer.
+        The user's own read deny is not consulted, because the user is not the
+        principal performing the retrieval. Measured on a real 26200 client:
+        the GPO applied AND won the conflict at link order 1.
         """
-        result = compute_rsop(self._query("user"))
-        assert result.gpos_applied() == ()
-        assert result.gpos_filtered() == ()
-        assert [g.gpo_guid for g in result.gpos_unevaluable()] == ["g1"]
-
-    def test_the_result_says_it_is_not_conclusive(self) -> None:
-        result = compute_rsop(self._query("user"))
-        assert not result.is_conclusive()
-        assert any("rsop_result_is_not_conclusive" in w for w in result.warnings)
-        assert compute_rsop(self._query("computer")).is_conclusive()
-
-    def test_a_winner_an_unevaluable_gpo_could_override_says_so(self) -> None:
-        """Uncertainty about a GPO is uncertainty about every value it writes.
-
-        The lower-precedence GPO's value is the answer *if* the unevaluable one
-        does not apply. Reporting it bare would hand a caller a settled-looking
-        value whose correctness depends on an open question.
-        """
-        query = self._query("user")
-        loser = GPO(
-            guid="g0",
-            name="Loser",
-            settings=(
-                RegistrySetting(
-                    id="s0",
-                    side="user",
-                    hive="HKCU",
-                    key="Software\\Policies\\StudioLab",
-                    value_name="V",
-                    registry_type="REG_SZ",
-                    value="loser",
-                ),
-            ),
-        )
-        node = query.som_nodes[0]
-        query = replace(
-            query,
-            gpos=(*query.gpos, loser),
-            som_nodes=(
-                replace(
-                    node,
-                    links=(
-                        *node.links,
-                        SomLink(gpo_guid="g0", scope="ou", scope_dn=node.dn, order=2),
-                    ),
-                ),
-            ),
-        )
-        result = compute_rsop(query)
+        result = compute_rsop(self._query("user", deny_names="U"))
+        assert result.gpo_results[0].status == "applied"
+        # NOT `filtering_reasons == ()`. `status` is "applied on at least one
+        # side" (WI-032) and the reasons are unioned across both, so the
+        # computer side's `security_filter_mismatch` -- correct, since the apply
+        # allow names the user -- rides along. The claim under test is narrower
+        # and is the one that matters: the READ DENY is not what decided this.
+        assert "security_filter_read_denied" not in result.gpo_results[0].filtering_reasons
         winner = result.get_effective_value("user", "Software\\Policies\\StudioLab", "V")
         assert winner is not None
-        assert winner.effective_value == "loser"
-        assert winner.unevaluable_gpos == ("g1",)
+        assert winner.effective_value == "applied"
 
-    def test_a_definite_block_outranks_the_open_question(self) -> None:
-        """An unmeasured rule changes nothing when a measured one already blocks.
+    def test_a_deny_on_a_computer_GROUP_blocks_the_user_side(self) -> None:
+        """The generalisation the results doc warned against shortcutting.
 
-        The blocking reason has to come from a DIFFERENT rule than the read
-        deny, or this proves nothing. A deny on Apply short-circuits before the
-        read branch is ever reached, so both reasons are never populated at
-        once and the ordering under test is not exercised -- the first version
-        of this test made exactly that mistake and survived a mutation that
-        inverted the precedence. A WMI filter evaluated FALSE blocks on its own
-        path, so both lists are non-empty here.
+        Matching read denies on `computer_name` alone would pass every test
+        above and be wrong here. Group expansion through the reading principal's
+        token is the same mechanism, and it is only expressible at all because
+        WI-047 gave the target per-side memberships.
+        """
+        query = self._query("user", deny_names="LAB\\ReadDenyGroup")
+        query = replace(
+            query,
+            target=replace(
+                query.target,
+                computer_group_memberships=("LAB\\ReadDenyGroup",),
+            ),
+        )
+        assert compute_rsop(query).gpo_results[0].status == "blocked"
+
+    def test_a_deny_on_a_USER_group_does_not_block_the_user_side(self) -> None:
+        """The control for the row above, and the one that proves the sides are
+        really separated rather than merged under a new name.
+
+        Same group name, same deny, put in the USER's token instead of the
+        computer's. Before WI-047 the union made these two cases identical.
+        """
+        query = self._query("user", deny_names="LAB\\ReadDenyGroup")
+        query = replace(
+            query,
+            target=replace(
+                query.target,
+                user_group_memberships=("LAB\\ReadDenyGroup",),
+            ),
+        )
+        assert compute_rsop(query).gpo_results[0].status == "applied"
+
+    def test_an_apply_deny_is_still_evaluated_against_the_resolving_side(self) -> None:
+        """The two rights must not have been collapsed onto one principal.
+
+        WI-033 certified that a deny on Apply naming the USER blocks the USER
+        side. If WI-047 had routed every filter through the computer, this would
+        now apply -- the failure direction that promises settings which never
+        arrive.
         """
         query = self._query("user")
         gpo = replace(
             query.gpos[0],
-            wmi_filter=WmiFilter(id="w", name="Never", query="SELECT * FROM Win32_OS"),
+            security_filters=(
+                *query.gpos[0].security_filters[:1],
+                SecurityFilter(id="da", principal="U", permission="apply", deny=True),
+            ),
         )
-        query = replace(
-            query, gpos=(gpo,), wmi_filter_results=(("w", False),)
+        result = compute_rsop(replace(query, gpos=(gpo,)))
+        assert result.gpo_results[0].status == "blocked"
+        assert "security_filter_denied" in result.gpo_results[0].filtering_reasons
+
+    def test_a_wmi_false_still_blocks_and_stays_conclusive(self) -> None:
+        """Carried over from the class this replaced.
+
+        It was the control proving a measured block outranks the open question.
+        There is no open question here any more, but the property it really
+        pins -- a WMI filter evaluated FALSE blocks on its own path and does not
+        make the result inconclusive -- is still worth holding.
+        """
+        query = self._query("computer")
+        gpo = replace(
+            query.gpos[0],
+            security_filters=(),
+            wmi_filter=WmiFilter(id="w", name="w", query="SELECT * FROM Win32_Nothing"),
         )
-        result = compute_rsop(query)
+        result = compute_rsop(replace(query, gpos=(gpo,), wmi_filter_results=(("w", False),)))
         assert result.gpo_results[0].status == "blocked"
         assert "wmi_filter_false" in result.gpo_results[0].filtering_reasons
         assert result.is_conclusive()
+
+    def test_no_filtering_rule_produces_unevaluable_any_more(self) -> None:
+        """A fact about the module that a reader should not have to discover.
+
+        `unevaluable` was introduced by WI-039 and is still a member of
+        `RsopGpoStatus`, still partitioned by `assert_never`, still propagated
+        into winners and into the diff. But with WI-043 measured, NO FILTERING
+        RULE PRODUCES IT: the WMI unevaluatable case blocks (Windows fails
+        closed, measured), and the read-deny case is now answered.
+
+        The machinery stays because the next unmeasured region will need it --
+        that was WI-039's ruling and it has not changed. What is gone is an
+        abstention that existed only because nobody had looked. This test says
+        so out loud, and it will fail the moment a new rule starts abstaining,
+        which is exactly when someone should be made to justify it.
+
+        `TestUncertaintySurvivesTheDiff` keeps the machinery itself covered by
+        constructing the state directly, which is now the only way to reach it.
+        """
+        for side in ("computer", "user"):
+            for deny in ("", "C", "U"):
+                result = compute_rsop(self._query(side, deny_names=deny))  # type: ignore[arg-type]
+                assert result.gpos_unevaluable() == (), (
+                    f"side={side} deny={deny!r} abstained; if that is deliberate, this "
+                    "test is the place to say why"
+                )
+                assert result.is_conclusive()
+
+
+class TestTheUnmeasuredCellsArePinned:
+    """The two cells WI-047 changed by reasoning rather than by measurement.
+
+    Raised by cross-lineage review of the tranche. Both are off-diagonal --
+    the deny names the principal that is NOT the one being resolved -- and both
+    were flipped from BLOCKS to APPLIES when `_gpo_filter_status` stopped
+    matching against the union of both principals. Neither has an estate row.
+
+    The direction matters. Applying a GPO that Windows would withhold is the
+    failure that tells an operator about settings which never arrive, which is
+    the same failure direction WI-033 was opened for. The mechanism argues the
+    new answers are right: the computer performs the retrieval with its own
+    token, so a user-named ACE cannot gate it, and Apply is evaluated against
+    the principal the policy applies to, so a computer-named Apply deny has
+    nothing to say about the user side.
+
+    These tests do not make that argument true. They pin the answer the tranche
+    chose, so that if WI-049 measures the estate and Windows disagrees, the
+    change lands as a visible failure here rather than as a quiet edit.
+
+    `_query` is deliberately not reused for the read cell: its computer-scope
+    query carries no user identity at all, so a user-named deny would match
+    nothing and the row would pass for the wrong reason.
+    """
+
+    def _query(
+        self,
+        side: Literal["computer", "user"],
+        *,
+        filters: tuple[SecurityFilter, ...],
+    ) -> RsopQuery:
+        """Both principals always present, so no row here passes vacuously."""
+        dn = "OU=Child,DC=x"
+        gpo = GPO(
+            guid="g1",
+            name="OffDiagonal",
+            security_filters=filters,
+            settings=(
+                RegistrySetting(
+                    id="s",
+                    side=side,
+                    hive="HKCU" if side == "user" else "HKLM",
+                    key="Software\\Policies\\StudioLab",
+                    value_name="V",
+                    registry_type="REG_SZ",
+                    value="applied",
+                ),
+            ),
+        )
+        return RsopQuery(
+            query_id="q",
+            target=RsopTarget(
+                computer_name="C",
+                computer_dn=f"CN=C,{dn}",
+                user_name="U",
+                user_dn=f"CN=U,{dn}",
+                domain="x",
+            ),
+            som_nodes=(
+                SomNode(
+                    dn=dn,
+                    name="Child",
+                    scope="ou",
+                    parent_dn="",
+                    links=(SomLink(gpo_guid="g1", scope="ou", scope_dn=dn, order=1),),
+                ),
+            ),
+            gpos=(gpo,),
+        )
+
+    def test_a_user_named_read_deny_does_not_block_the_computer_side(self) -> None:
+        """The fourth read cell: REASONED, not measured (WI-049).
+
+        The user exists and is named by the deny, so the row is not vacuous.
+        Before WI-047 the union matched it and this blocked.
+        """
+        result = compute_rsop(
+            self._query(
+                "computer",
+                filters=(
+                    SecurityFilter(id="a", principal="C", permission="apply"),
+                    SecurityFilter(id="d", principal="U", permission="read", deny=True),
+                ),
+            )
+        )
+        assert result.gpo_results[0].status == "applied"
+        assert "security_filter_read_denied" not in result.gpo_results[0].filtering_reasons
+
+    def test_a_computer_named_apply_deny_does_not_block_the_user_side(self) -> None:
+        """The off-diagonal Apply cell: REASONED, not measured (WI-049).
+
+        The computer is always present on a user-scope query, so this row was
+        matched by the pre-WI-047 union and blocked.
+
+        The assertion is on the WINNING VALUE, not on `filtering_reasons`.
+        `security_filter_denied` is legitimately in the reasons: the deny names
+        the computer, so it blocks the COMPUTER side, and the reasons are
+        unioned across both (WI-032). The claim under test is narrower and is
+        the one that changed -- the user side still receives the setting.
+        """
+        result = compute_rsop(
+            self._query(
+                "user",
+                filters=(
+                    SecurityFilter(id="a", principal="U", permission="apply"),
+                    SecurityFilter(id="da", principal="C", permission="apply", deny=True),
+                ),
+            )
+        )
+        assert result.gpo_results[0].status == "applied"
+        winner = result.get_effective_value("user", "Software\\Policies\\StudioLab", "V")
+        assert winner is not None
+        assert winner.effective_value == "applied"
 
 
 class TestUncertaintySurvivesTheDiff:

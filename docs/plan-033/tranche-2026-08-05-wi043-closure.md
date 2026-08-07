@@ -126,12 +126,19 @@ would otherwise have quietly broken.
   only when non-empty, so an errored query skips its own check. The function
   already knows better one level in ("a silently shorter list is a weaker
   assertion").
-* **Cross-principal matching** — `_filter_matches` compares against the union of
-  the computer's and the user's identities. Two sessions have now declined to
-  file this unilaterally. **It needs a number or a ruling that it does not get
-  one**; carrying it as an unnumbered note across three sessions is how it
-  becomes invisible. Row B measures one consequence of it, which may be enough
-  to write the item properly.
+* **Cross-principal matching — now WI-047**, filed 2026-08-06 on the operator's
+  ruling. `_filter_matches` compares against the union of the computer's and the
+  user's identities, and `RsopTarget` has no per-side membership for a fix to
+  write into. It is **not** work for this tranche. What this tranche owes it is
+  evidence, not a fix: **row B already measures one consequence of it for free**,
+  since it denies Read to the *computer* on a *user-scope* scenario. Record that
+  observation against WI-047 when the run lands.
+
+  The standing rule the operator set with it: **build evidence opportunistically
+  while the estate is booked for something else.** A misaligned-principal row
+  costs a filter edit when a lane is already running; it costs a session if
+  authored alone. Every future lane should be asked what it can measure cheaply
+  beyond its own question.
 
 ## Explicitly not in this tranche
 

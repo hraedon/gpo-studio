@@ -79,7 +79,8 @@ class TestSchemas:
 class TestCorpus:
     def test_corpus_loads_all_files(self, registry) -> None:  # type: ignore[no-untyped-def]
         scenarios = load_corpus(SCENARIO_DIR, registry)
-        assert len(scenarios) == len(SCENARIO_FILES) == 14
+        # 15 since 2026-08-06 (WI-043's user-scope read-deny discriminator).
+        assert len(scenarios) == len(SCENARIO_FILES) == 15
         assert {scenario.family for scenario in scenarios} == set(FAMILIES)
 
     def test_every_anchor_hash_verifies(self, registry) -> None:  # type: ignore[no-untyped-def]
@@ -133,6 +134,13 @@ class TestCorpus:
             # interactive session and certified it. See wp9-results.md.
             "user-side-disabled": "ready",
             "wmi-loopback-slowlink": "blocked",
+            # WI-043. Authored 2026-08-06 as `blocked`, and READY the same day
+            # by the only legitimate route: it was executed
+            # (`rsop-user-observe-20260806165543-8004`, inconclusive because the
+            # model abstained), the model was scoped to what that measured
+            # (WI-047), and the re-run certified it
+            # (`rsop-user-observe-20260806184006-2532`, pass).
+            "user-security-filtering-read-deny": "ready",
         }
 
     def test_rsop_corpus_scope_split_is_explicit(self, registry) -> None:  # type: ignore[no-untyped-def]
@@ -161,12 +169,28 @@ class TestCorpus:
             "disabled-block-enforced",
             "lsdou-precedence",
             "security-filtering",
+            "user-security-filtering-read-deny",
             "user-side-disabled",
         ]
         for scenario in rsop:
             if scenario.readiness == "blocked":
                 assert scenario.blocked_reason is not None
                 assert "WP-9" in scenario.blocked_reason or "user-scope" in scenario.blocked_reason
+
+        # WI-043's scenario earned `ready` on 2026-08-06 and the ROUTE is what
+        # this asserts, not just the state. It shipped `blocked` with tier
+        # `hypothesis`, was executed, and only then became a native-observation
+        # anchored to the verdict that certified it. A scenario that is `ready`
+        # while still claiming `hypothesis` would be asserting that nobody has
+        # measured the thing it says it proves.
+        read_deny = scenarios["user-security-filtering-read-deny"]
+        assert read_deny.readiness == "ready"
+        assert read_deny.blocked_reason is None
+        assert read_deny.provenance.tier == "native-observation", (
+            "a ready scenario in this family must be anchored to a captured run, not "
+            "to an argument"
+        )
+        assert read_deny.provenance.anchors, "native-observation with no anchor"
 
         # The relocated assertion must still exist somewhere. A criterion that
         # is dropped instead of moved is how an unverified claim becomes an
