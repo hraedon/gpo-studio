@@ -40,6 +40,16 @@
     .bulk-actions-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--green-soft);border:1px solid var(--green);border-radius:8px;padding:10px 12px;margin:12px 0}
     .bulk-actions-bar .bulk-count{font-weight:650;white-space:nowrap}
     .bulk-actions-bar input[name="reason"]{flex:1;min-width:180px;margin:0}
+    dialog.wide{width:min(920px,calc(100vw - 30px))}
+    .rsop-note{color:var(--muted);font-size:12px;margin:0 0 4px}
+    .rsop-results{margin-top:20px}
+    .rsop-results h3{margin-top:20px}
+    .rsop-limitations{background:var(--amber-soft);border:1px solid #f0d6a5;border-radius:8px;padding:12px 14px;color:#74460f}
+    .rsop-limitations ul,.rsop-warnings ul{margin:6px 0 0;padding-left:20px}
+    .rsop-limitations code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+    .rsop-warnings{background:#f7f8f7;border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--muted)}
+    .rsop-inconclusive{background:var(--red-soft);border:1px solid var(--red);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--red)}
+    .rsop-conditional{color:var(--amber);font-size:12px;margin-top:3px}
    </style>
 </head>
 <body>
@@ -51,6 +61,7 @@
       <button class="full" id="import-estate">Import estate</button>
       <button class="full" id="import-gpmc">Import GPMC backup</button>
       <button class="full" id="open-starter-gpos">Starter GPOs</button>
+      <button class="full" id="open-rsop">RSOP prediction</button>
       <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span class="dot"></span> Offline authoring mode</footer>
@@ -389,6 +400,27 @@
       <div class="dialog-head"><div><p class="eyebrow">Starter GPO catalogue</p><h2 id="starter-list-dialog-title">Starter GPOs</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
       <div id="starter-list" class="starter-list"></div>
       <div class="dialog-actions"><button value="cancel">Close</button><button type="button" class="primary" id="create-starter-gpo">＋ Create Starter GPO</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="rsop-dialog" class="wide" aria-labelledby="rsop-dialog-title">
+    <form method="dialog" id="rsop-form">
+      <div class="dialog-head"><div><p class="eyebrow">Resultant Set of Policy</p><h2 id="rsop-dialog-title">Predict effective policy</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
+      <p class="rsop-note">A prediction, not an observation. Certified against a real Windows client for twelve topologies covering LSDOU ordering, link order, inheritance, enforcement, security filtering including denies on Read, user scope and loopback. Slow link and safe mode are not modelled at all, and WMI queries are never evaluated here.</p>
+      <div class="grid two compact">
+        <label>Computer name<input name="computer_name" maxlength="255" placeholder="LABCL01"></label>
+        <label>Computer DN<input name="computer_dn" maxlength="1000" placeholder="CN=LABCL01,OU=Servers,DC=ad,DC=hraedon,DC=com"></label>
+        <label>User name<input name="user_name" maxlength="255" placeholder="labuser"></label>
+        <label>User DN<input name="user_dn" maxlength="1000" placeholder="CN=labuser,OU=Staff,DC=ad,DC=hraedon,DC=com"></label>
+        <label>Domain<input name="domain" required maxlength="255" placeholder="ad.hraedon.com"></label>
+        <label>Loopback<select name="loopback_mode"><option value="disabled">Disabled</option><option value="merge">Merge</option><option value="replace">Replace</option></select></label>
+        <label>Computer group memberships<textarea name="computer_group_memberships" rows="2" placeholder="One principal per line"></textarea><small>A deny on Read is evaluated against the computer, on both sides.</small></label>
+        <label>User group memberships<textarea name="user_group_memberships" rows="2" placeholder="One principal per line"></textarea><small>Apply Group Policy is evaluated against the principal the policy applies to.</small></label>
+      </div>
+      <label>Query id<input name="query_id" maxlength="255" value="ui-query"></label>
+      <label>Topology<textarea name="topology" rows="10" class="mono" placeholder='{"nodes": [], "gpos": []}'>{"nodes": [], "gpos": []}</textarea><small>The SOM tree, the GPOs and any evaluated WMI filter results, as JSON. The workspace holds draft policies rather than an estate, so there is nothing here to draw an OU tree from.</small></label>
+      <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Compute</button></div>
+      <div id="rsop-results" class="rsop-results"></div>
     </form>
   </dialog>
 

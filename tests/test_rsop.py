@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
 import pytest
+from fastapi.testclient import TestClient
 
+from gpo_studio.api import app
 from gpo_studio.model import (
     GPO,
     RegistrySetting,
@@ -21,6 +24,7 @@ from gpo_studio.rsop import (
     compute_rsop,
 )
 from gpo_studio.som import SomLink, SomNode
+from gpo_studio.store import WorkspaceStore
 
 _DOMAIN_DN = "DC=ad,DC=hraedon,DC=com"
 _OU_DN = "OU=Servers," + _DOMAIN_DN
@@ -1723,3 +1727,469 @@ class TestUncertaintySurvivesTheDiff:
         )
         diffs = compare_rsop_results(self._result(()), current)
         assert [d.change_type for d in diffs] == ["modified"]
+
+
+# ---------------------------------------------------------------------------
+# The API surface (WI-030).
+#
+# `rsop.py` was reachable from nothing until 2026-08-06. The three qualifiers
+# that kept it that way are closed: scope by WP-9, coverage by the WI-043
+# tranche's twelve passing scenarios, and the decision to surface it by Ruling 1
+# of `docs/direction-2026-08-06-reconciliation-and-lab-handover.md`.
+#
+# These tests exercise the wire shape. What they do NOT do is certify Windows
+# behaviour -- that is what the twelve verdicts under `docs/plan-033/` are for,
+# and a test passing here says only that the surface carries the semantics those
+# runs certified, not that the semantics are right.
+
+
+def _api_client(tmp_path: Path) -> TestClient:
+    app.state.store = WorkspaceStore(tmp_path / "rsop.db")
+    app.state.owns_store = False
+    return TestClient(app)
+
+
+def _api_link(
+    gpo_guid: str, scope_dn: str, *, scope: str = "ou", order: int = 1
+) -> dict[str, Any]:
+    return {
+        "gpo_guid": gpo_guid,
+        "scope": scope,
+        "scope_dn": scope_dn,
+        "enabled": True,
+        "enforced": False,
+        "order": order,
+    }
+
+
+def _api_node(
+    dn: str,
+    name: str,
+    scope: str,
+    *,
+    parent_dn: str = "",
+    links: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "dn": dn,
+        "name": name,
+        "scope": scope,
+        "parent_dn": parent_dn,
+        "block_inheritance": False,
+        "links": links or [],
+    }
+
+
+def _api_setting(
+    id_: str,
+    side: str,
+    value: str,
+    *,
+    value_name: str = "Val",
+    registry_type: str = "REG_SZ",
+) -> dict[str, Any]:
+    return {
+        "id": id_,
+        "side": side,
+        "hive": "HKLM" if side == "computer" else "HKCU",
+        "key": "Software\\Policies\\StudioLab",
+        "value_name": value_name,
+        "registry_type": registry_type,
+        "value": value,
+    }
+
+
+def _api_two_tier_payload() -> dict[str, Any]:
+    """A domain link and an OU link writing the same computer-side value."""
+    return {
+        "query_id": "q-two-tier",
+        "target": {
+            "computer_name": "LABCL01",
+            "computer_dn": "CN=LABCL01," + _OU_DN,
+            "domain": "ad.hraedon.com",
+        },
+        "nodes": [
+            _api_node(
+                _OU_DN,
+                "Servers",
+                "ou",
+                parent_dn=_DOMAIN_DN,
+                links=[_api_link(_GPO_B, _OU_DN)],
+            ),
+            _api_node(
+                _DOMAIN_DN,
+                "ad",
+                "domain",
+                links=[_api_link(_GPO_A, _DOMAIN_DN, scope="domain")],
+            ),
+        ],
+        "gpos": [
+            {
+                "guid": _GPO_A,
+                "name": "Domain Baseline",
+                "settings": [_api_setting("s-a", "computer", "domain")],
+            },
+            {
+                "guid": _GPO_B,
+                "name": "Servers Override",
+                "settings": [_api_setting("s-b", "computer", "ou")],
+            },
+        ],
+    }
+
+
+def test_api_rsop_compute_resolves_lsdou_precedence(tmp_path: Path) -> None:
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_two_tier_payload())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["query_id"] == "q-two-tier"
+    assert [s["effective_value"] for s in body["computer_settings"]] == ["ou"]
+    winner = body["computer_settings"][0]
+    assert winner["winning_gpo_guid"] == _GPO_B
+    assert winner["overridden_by"] == [_GPO_A]
+    assert body["user_settings"] == []
+    assert body["is_conclusive"] is True
+
+
+def test_api_rsop_compute_reports_every_gpo_it_walked(tmp_path: Path) -> None:
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_two_tier_payload())
+    results = {g["gpo_guid"]: g for g in resp.json()["gpo_results"]}
+    assert results[_GPO_B]["status"] == "applied"
+    assert results[_GPO_B]["precedence"] == 1
+    assert results[_GPO_A]["status"] == "applied"
+    assert results[_GPO_A]["settings_overridden"] == 1
+
+
+def test_api_rsop_compute_always_states_the_per_side_limitation(tmp_path: Path) -> None:
+    """WI-032, stated in the payload rather than only in the docs.
+
+    `gpo_results[].status` is "applied on at least one side" and looks exactly
+    like a per-side answer to a caller who has not been told otherwise. The
+    limitation is unconditional because it holds for every answer this surface
+    will ever give, not for the ones some heuristic decides are at risk.
+    """
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_two_tier_payload())
+    limitations = resp.json()["limitations"]
+    assert "gpo_status_is_not_per_side" in [item["code"] for item in limitations]
+    message = next(
+        item["message"]
+        for item in limitations
+        if item["code"] == "gpo_status_is_not_per_side"
+    )
+    assert "WI-032" in message
+    assert "computer_settings" in message
+
+
+def test_api_rsop_compute_declares_slow_link_is_never_read(tmp_path: Path) -> None:
+    """WI-036. The fields are accepted and no part of the result reflects them."""
+    payload = _api_two_tier_payload()
+    payload["target"]["slow_link"] = True
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    codes = [item["code"] for item in resp.json()["limitations"]]
+    assert "slow_link_and_safe_mode_are_not_evaluated" in codes
+
+
+def test_api_rsop_compute_omits_the_slow_link_limitation_when_unasked(
+    tmp_path: Path,
+) -> None:
+    """The control. Without it a surface that listed every limitation always
+    would pass the test above while saying nothing."""
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_two_tier_payload())
+    codes = [item["code"] for item in resp.json()["limitations"]]
+    assert "slow_link_and_safe_mode_are_not_evaluated" not in codes
+
+
+def test_api_rsop_compute_discloses_when_the_answer_rests_on_a_reasoned_cell(
+    tmp_path: Path,
+) -> None:
+    """WI-049, in the payload rather than only in the matrix.
+
+    Raised by cross-lineage review of this surface: slow-link -- which is merely
+    ignored and can never make an answer WRONG -- had a limitation, while the
+    two cells that produce a definite answer on reasoning alone had none. That
+    asymmetry was backwards, and the matrix is not the payload.
+
+    A read deny naming the USER is measured on the user side (row A) and
+    REASONED on the computer side, which `compute_rsop` resolves regardless of
+    where the settings live. Since `status` unions both sides (WI-032), the
+    reasoned half genuinely feeds the reported answer.
+    """
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("labuser"))
+    codes = [item["code"] for item in resp.json()["limitations"]]
+    assert "answer_rests_on_a_reasoned_cell" in codes
+
+
+def test_api_rsop_compute_omits_the_reasoned_cell_limitation_when_every_deny_is_measured(
+    tmp_path: Path,
+) -> None:
+    """The control, and the reason the limitation is allowed to be conditional.
+
+    A read deny naming the COMPUTER is row B -- measured on both sides. Nothing
+    here rests on reasoning, so a surface that emitted the limitation
+    unconditionally would be saying "this might be wrong" about a certified
+    answer, and the signal would stop meaning anything.
+    """
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("LABCL01"))
+    codes = [item["code"] for item in resp.json()["limitations"]]
+    assert "answer_rests_on_a_reasoned_cell" not in codes
+
+
+def test_api_rsop_compute_refuses_logging_mode(tmp_path: Path) -> None:
+    """Group Policy Results is a different question, and this engine cannot answer it.
+
+    Raised by cross-lineage review. `mode` accepted `logging` and ignored it, so
+    a caller asking what a machine ACTUALLY received was handed a prediction
+    with nothing saying so. The certified set is planning-only; the field now
+    refuses rather than defaults.
+    """
+    payload = _api_two_tier_payload()
+    payload["mode"] = "logging"
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    assert resp.status_code == 422
+
+
+def test_api_rsop_compute_warns_on_an_unevaluated_wmi_filter(tmp_path: Path) -> None:
+    """WI-035. An unevaluated filter still applies, and the assumption is visible."""
+    payload = _api_two_tier_payload()
+    payload["gpos"][1]["wmi_filter"] = {
+        "id": "wmi-1",
+        "name": "Workstations only",
+        "query": "SELECT * FROM Win32_OperatingSystem WHERE ProductType = 1",
+    }
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    body = resp.json()
+    assert "wmi_filter_unknown" in body["warnings"]
+    assert [s["effective_value"] for s in body["computer_settings"]] == ["ou"]
+
+
+def test_api_rsop_compute_honours_a_caller_supplied_wmi_result(tmp_path: Path) -> None:
+    payload = _api_two_tier_payload()
+    payload["gpos"][1]["wmi_filter"] = {
+        "id": "wmi-1",
+        "name": "Workstations only",
+        "query": "SELECT * FROM Win32_OperatingSystem WHERE ProductType = 1",
+    }
+    payload["wmi_filter_results"] = {"wmi-1": False}
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    body = resp.json()
+    assert [s["effective_value"] for s in body["computer_settings"]] == ["domain"]
+    blocked = next(g for g in body["gpo_results"] if g["gpo_guid"] == _GPO_B)
+    assert blocked["status"] == "blocked"
+    assert "wmi_filter_false" in blocked["filtering_reasons"]
+
+
+def test_api_rsop_compute_rejects_a_query_with_no_domain(tmp_path: Path) -> None:
+    """The domain layer's own validation, reaching the caller as a 422."""
+    payload = _api_two_tier_payload()
+    payload["target"]["domain"] = ""
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    assert resp.status_code == 422
+    assert resp.json()["error"]["issues"][0]["code"] == "empty_domain"
+
+
+def test_api_rsop_compute_rejects_loopback_replace_without_a_computer(
+    tmp_path: Path,
+) -> None:
+    payload = _api_two_tier_payload()
+    payload["target"]["computer_name"] = ""
+    payload["target"]["computer_dn"] = ""
+    payload["target"]["user_name"] = "labuser"
+    payload["target"]["loopback_mode"] = "replace"
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    assert resp.status_code == 422
+    codes = [issue["code"] for issue in resp.json()["error"]["issues"]]
+    assert "loopback_replace_without_computer" in codes
+
+
+def test_api_rsop_compute_rejects_an_unknown_loopback_mode(tmp_path: Path) -> None:
+    """Request-shape validation, which speaks before the domain layer does."""
+    payload = _api_two_tier_payload()
+    payload["target"]["loopback_mode"] = "sometimes"
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    assert resp.status_code == 422
+    assert resp.json()["error"]["message"] == "Invalid request"
+
+
+def test_api_rsop_compute_rejects_a_non_canonical_dword(tmp_path: Path) -> None:
+    """The modelling surface inherits the authoring surface's numeric contract.
+
+    A value that `/api/gpos/{guid}/settings` would refuse must not become
+    predictable here, or the two surfaces disagree about what a DWORD is.
+    """
+    payload = _api_two_tier_payload()
+    payload["gpos"][0]["settings"] = [
+        _api_setting("s-a", "computer", "0x1", registry_type="REG_DWORD")
+    ]
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=payload)
+    assert resp.status_code == 422
+
+
+def _api_read_deny_payload(deny_names: str) -> dict[str, Any]:
+    """One user-side GPO whose apply allow names the user and whose read deny
+    names whoever the caller says. WI-043's discriminator, on the wire."""
+    return {
+        "query_id": "q-read-deny",
+        "target": {
+            "computer_name": "LABCL01",
+            "computer_dn": "CN=LABCL01," + _OU_DN,
+            "user_name": "labuser",
+            "user_dn": "CN=labuser," + _OU_DN,
+            "domain": "ad.hraedon.com",
+        },
+        "nodes": [_api_node(_OU_DN, "Servers", "ou", links=[_api_link(_GPO_A, _OU_DN)])],
+        "gpos": [
+            {
+                "guid": _GPO_A,
+                "name": "ReadDenied",
+                "settings": [_api_setting("s-a", "user", "applied")],
+                "security_filters": [
+                    {"id": "f-allow", "principal": "labuser", "permission": "apply"},
+                    {
+                        "id": "f-deny",
+                        "principal": deny_names,
+                        "permission": "read",
+                        "deny": True,
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def test_api_rsop_compute_user_side_blocks_on_a_computer_named_read_deny(
+    tmp_path: Path,
+) -> None:
+    """WI-043 row B, certified by `rsop-user-observe-20260806184006-2532`.
+
+    Denying Read to the COMPUTER withholds the USER's policy, because MS16-072
+    has the computer perform the retrieval for both sides. The surface has to
+    carry this: a read deny is invisible to any reader that inspects Apply, and
+    the failure direction is the model promising settings that never arrive.
+    """
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("LABCL01"))
+    body = resp.json()
+    assert body["user_settings"] == []
+    result = body["gpo_results"][0]
+    assert result["status"] == "blocked"
+    assert "security_filter_read_denied" in result["filtering_reasons"]
+
+
+def test_api_rsop_compute_user_side_applies_on_a_user_named_read_deny(
+    tmp_path: Path,
+) -> None:
+    """WI-043 row A, and the discriminator for the whole rule.
+
+    A surface that routed read denies through the resolving side would block
+    here and pass the test above. Measured on a real 26200 client: the GPO
+    applied and won the conflict at link order 1.
+    """
+    with _api_client(tmp_path) as client:
+        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("labuser"))
+    body = resp.json()
+    assert [s["effective_value"] for s in body["user_settings"]] == ["applied"]
+    result = body["gpo_results"][0]
+    assert result["status"] == "applied"
+    assert "security_filter_read_denied" not in result["filtering_reasons"]
+
+
+def test_api_rsop_compute_carries_per_side_group_memberships(tmp_path: Path) -> None:
+    """WI-047. The two membership lists are not interchangeable on the wire.
+
+    The same group name denied Read blocks when it is in the COMPUTER's token
+    and does not when it is in the USER's. A request model with one merged list
+    could not express the difference, which is the defect WI-047 fixed in the
+    domain type.
+
+    **This asserts the wire carries the rule, not that the rule is right.**
+    WI-049: no estate run has ever exercised a deny that matches through a group
+    rather than by name, in either direction. The candidate builder always
+    passes `computer_group_memberships=()`. This test would pass identically if
+    the rule turned out to be wrong.
+    """
+    on_computer = _api_read_deny_payload("LAB\\ReadDenyGroup")
+    on_computer["target"]["computer_group_memberships"] = ["LAB\\ReadDenyGroup"]
+    on_user = _api_read_deny_payload("LAB\\ReadDenyGroup")
+    on_user["target"]["user_group_memberships"] = ["LAB\\ReadDenyGroup"]
+    with _api_client(tmp_path) as client:
+        blocked = client.post("/api/rsop/compute", json=on_computer).json()
+        applied = client.post("/api/rsop/compute", json=on_user).json()
+    assert blocked["gpo_results"][0]["status"] == "blocked"
+    assert applied["gpo_results"][0]["status"] == "applied"
+
+
+def test_api_rsop_compare_reports_a_changed_winning_value(tmp_path: Path) -> None:
+    baseline = _api_two_tier_payload()
+    current = _api_two_tier_payload()
+    current["query_id"] = "q-current"
+    current["gpos"][1]["settings"] = [_api_setting("s-b", "computer", "ou-revised")]
+    with _api_client(tmp_path) as client:
+        resp = client.post(
+            "/api/rsop/compare", json={"baseline": baseline, "current": current}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [d["change_type"] for d in body["diffs"]] == ["modified"]
+    assert body["diffs"][0]["baseline_value"] == "ou"
+    assert body["diffs"][0]["current_value"] == "ou-revised"
+    assert body["baseline_is_conclusive"] is True
+    assert body["current_is_conclusive"] is True
+
+
+def test_api_rsop_compare_reports_nothing_for_identical_topologies(
+    tmp_path: Path,
+) -> None:
+    """The control for the test above."""
+    with _api_client(tmp_path) as client:
+        resp = client.post(
+            "/api/rsop/compare",
+            json={
+                "baseline": _api_two_tier_payload(),
+                "current": _api_two_tier_payload(),
+            },
+        )
+    assert resp.json()["diffs"] == []
+
+
+def test_api_rsop_compare_states_the_limitations_too(tmp_path: Path) -> None:
+    """A caller that only ever calls `/compare` must still be told (WI-032)."""
+    with _api_client(tmp_path) as client:
+        resp = client.post(
+            "/api/rsop/compare",
+            json={
+                "baseline": _api_two_tier_payload(),
+                "current": _api_two_tier_payload(),
+            },
+        )
+    codes = [item["code"] for item in resp.json()["limitations"]]
+    assert "gpo_status_is_not_per_side" in codes
+
+
+def test_api_rsop_compare_rejects_an_invalid_query_on_either_side(
+    tmp_path: Path,
+) -> None:
+    """Either query failing validation fails the comparison: a diff against a
+    query that never computed would be a comparison with nothing."""
+    current = _api_two_tier_payload()
+    current["target"]["domain"] = ""
+    with _api_client(tmp_path) as client:
+        resp = client.post(
+            "/api/rsop/compare",
+            json={"baseline": _api_two_tier_payload(), "current": current},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["issues"][0]["code"] == "empty_domain"

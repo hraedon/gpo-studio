@@ -8,6 +8,7 @@ import {checkAdmx,initAdmx} from './admx.mjs';
 import {initDiff,loadDiffSelectors} from './diff.mjs';
 import {initBrowser,loadBrowser} from './browser.mjs';
 import {initStarter} from './starter.mjs';
+import {initRsop} from './rsop.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -220,6 +221,7 @@ initAdmx();
 initDiff();
 initBrowser();
 initStarter();
+initRsop();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 loadList().then(()=>setAppStatus("")).catch(error=>{

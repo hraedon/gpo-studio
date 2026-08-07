@@ -33,17 +33,37 @@ Current version: `1.0.0`.
 - Plan 024: full GPP adapter coverage — **surfaced**. `gpp_adapters.py`
   extends the 1.0 Groups/Registry slice across the in-box preference families
   through `gpp.py`, `canonical.py`, and `import_export.py`.
-- Plans 025–032: domain layers — **not surfaced**. Security settings
+- Plan 029: RSOP prediction — **certified in twelve measured regions, then
+  surfaced** (WI-030, 2026-08-06). `POST /api/rsop/compute` predicts the
+  effective policy for a computer/user pair over a topology supplied in the
+  request body; `POST /api/rsop/compare` computes two and reports where the
+  effective settings differ. A thin browser panel ("RSOP prediction" in the
+  rail) covers `compute` only: the target as form fields, the topology as JSON,
+  no builder — the workspace holds draft policies rather than an estate to build
+  a topology from.
+  The twelve certifying scenarios ran against a real Windows 11 26200 client
+  and cover LSDOU ordering, link order, inheritance and its blocking,
+  enforcement, disabled links and sides, security filtering with denies on both
+  Apply and Read, user scope, and loopback merge and replace; they are
+  enumerated in `docs/capability-matrix.md`, which also states what is **not**
+  certified — including WI-049's two filter cells, which the surface exposes and
+  which reasoning rather than measurement settled. Two limitations are announced in every response rather than left
+  in the docs: `gpo_status_is_not_per_side` (WI-032 — the applied-GPO status
+  collapses to "applied on at least one side" and cannot answer the two sides
+  separately) and, when the caller sets one of the fields,
+  `slow_link_and_safe_mode_are_not_evaluated` (WI-036). This is the first
+  post-1.0 layer to complete both halves of the exit condition in
+  `docs/domain-layer-status.md`.
+- Plans 025–028, 030–032: domain layers — **not surfaced**. Security settings
   (`security_template.py`, `object_security.py`, `network_security.py`,
   `policy_families.py`), script and managed-artifact policy
   (`script_policy.py`, `artifact_store.py`), software installation and folder
   redirection (`software_install.py`, `folder_redirection.py`), GPMC lifecycle
-  and interop (`lifecycle.py`, `gpmc_interop.py`), RSOP prediction
-  (`rsop.py`), controlled publication (`publication.py`, `publisher.py`),
-  certification (`certification.py`), and hosted control plane
-  (`hosting.py`) are implemented and unit-tested, but are reachable from no
-  API endpoint, UI module, or export path. They are not operator capabilities
-  and are excluded from the 1.0 contract; see
+  and interop (`lifecycle.py`, `gpmc_interop.py`), controlled publication
+  (`publication.py`, `publisher.py`), certification (`certification.py`), and
+  hosted control plane (`hosting.py`) are implemented and unit-tested, but are
+  reachable from no API endpoint, UI module, or export path. They are not
+  operator capabilities and are excluded from the 1.0 contract; see
   `docs/capability-matrix.md`. The publication modules are pure and emit no
   writes — the web process still never writes to AD or SYSVOL — and
   `hosting.py` does not make a hosted mode available.

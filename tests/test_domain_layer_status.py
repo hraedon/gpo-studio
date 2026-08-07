@@ -32,12 +32,17 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 #: status substring, import reachability) would itself need maintaining, and a
 #: wrong automatic answer is worse than an obviously manual one. Treat this
 #: tuple as part of the ruling, not as test scaffolding.
+#:
+#: **029 was removed on 2026-08-06** and is the only removal so far. It is the
+#: worked example of the exit condition rather than an exception to the rule:
+#: the Plan 033 oracle certified `rsop.py` against a real client across twelve
+#: scenarios, and WI-030 then wired it to `/api/rsop/*`. Both halves, in that
+#: order. A plan leaves this tuple no other way.
 DOMAIN_LAYER_PLANS: tuple[str, ...] = (
     "025",
     "026",
     "027",
     "028",
-    "029",
     "030",
     "031",
     "032",
@@ -88,6 +93,34 @@ def test_domain_layer_plan_still_declares_itself_unsurfaced(number: str) -> None
         f"plan {number} no longer says it is unsurfaced. If that is true, it "
         f"needs matrix promotion and removal from DOMAIN_LAYER_PLANS; if it is "
         f"not true, the status line is lying."
+    )
+
+
+#: Plans that have LEFT `DOMAIN_LAYER_PLANS`, with the route that took them out.
+#:
+#: Removing a plan from that tuple silences every check above it, so the exit
+#: needs a check of its own or the promotion is unverified in exactly the way
+#: the classification exists to prevent. This one is not prose: it asks the
+#: application whether the endpoint is really mounted.
+PROMOTED_DOMAIN_LAYER_PLANS: tuple[tuple[str, str], ...] = (
+    ("029", "/api/rsop/compute"),
+)
+
+
+@pytest.mark.parametrize(("number", "route"), PROMOTED_DOMAIN_LAYER_PLANS)
+def test_a_promoted_plan_is_reachable_and_says_so(number: str, route: str) -> None:
+    """A plan out of the unsurfaced set must have the surface that took it out."""
+    from gpo_studio.api import app
+
+    paths = {getattr(r, "path", "") for r in app.routes}
+    assert route in paths, (
+        f"plan {number} was promoted out of DOMAIN_LAYER_PLANS but {route} is "
+        f"not mounted; either the promotion was premature or the endpoint was "
+        f"removed without restoring the classification"
+    )
+    status = _plan_path(number).read_text(encoding="utf-8").split("Scope:")[0]
+    assert "not surfaced" not in status.lower(), (
+        f"plan {number} is reachable but its status line still says it is not"
     )
 
 
