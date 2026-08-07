@@ -388,33 +388,56 @@ def _gpo_filter_status(
         # `wmi_filter_false`.
         #
         # WI-043/WI-047: THE TWO RIGHTS ARE EVALUATED AGAINST DIFFERENT
-        # PRINCIPALS, AND THAT IS MEASURED RATHER THAN REASONED.
+        # PRINCIPALS. THREE OF THE FOUR READ CELLS ARE MEASURED AND THE FOURTH
+        # IS REASONED; THIS COMMENT SAYS WHICH IS WHICH, BECAUSE THE ORIGINAL
+        # VERSION OF IT DID NOT AND THAT IS WHAT WI-043 WAS OPENED ABOUT.
         #
-        # Three runs, across both scopes:
+        # Read deny, by resolving side and by the principal the deny NAMES:
         #
-        #   side=computer, read deny names the COMPUTER -> BLOCKS
+        #   side=computer, names the COMPUTER -> BLOCKS   MEASURED
         #                  (rsop-observe-20260805045139-3731, WI-040)
-        #   side=user,     read deny names the COMPUTER -> BLOCKS
+        #   side=user,     names the COMPUTER -> BLOCKS   MEASURED
         #                  (rsop-user-observe-20260806165543-8004, row B)
-        #   side=user,     read deny names the USER     -> APPLIES
+        #   side=user,     names the USER     -> APPLIES  MEASURED
         #                  (rsop-user-observe-20260806165543-8004, row A)
+        #   side=computer, names the USER     -> APPLIES  REASONED ONLY
+        #                  (no estate row exists; WI-049)
         #
-        # They collapse to one sentence: A READ DENY GATES POLICY WHEN IT NAMES
-        # THE COMPUTER, ON EITHER SIDE, because MS16-072 has the computer
-        # perform the retrieval for both sides. The side being resolved does not
-        # decide it; the principal named by the deny does.
+        # The three measured cells collapse to one sentence: A READ DENY GATES
+        # POLICY WHEN IT NAMES THE COMPUTER, ON EITHER SIDE, because MS16-072
+        # has the computer perform the retrieval for both sides. The side being
+        # resolved does not decide it; the principal named by the deny does.
+        #
+        # The fourth cell follows from the same mechanism -- a user-named ACE
+        # cannot affect a retrieval the computer performs with its own token --
+        # but NOTHING MEASURED IT. Under the pre-WI-047 union it BLOCKED; this
+        # tranche flips it to APPLIES, which is the over-promising direction,
+        # the one that tells an operator about settings that never arrive.
+        # `TestTheUnmeasuredCellsArePinned` holds the chosen answer so the flip
+        # cannot drift unnoticed, and WI-049 carries the measurement.
+        #
+        # GROUP MEMBERSHIP IS UNIT-TESTED ONLY, in both directions. The
+        # candidate builder always passes `computer_group_memberships=()`, so no
+        # estate run has ever exercised a deny that matches through a group.
         #
         # Apply Group Policy is the other way round -- it is evaluated against
-        # the principal the policy applies TO, which is certified on both sides:
-        # the user-scope deny (WI-033,
-        # rsop-user-observe-20260804150527-3868) and the nesting row that
-        # applies through a GROUP in the user's token.
+        # the principal the policy applies TO. THE DIAGONAL IS CERTIFIED on both
+        # sides: the user-scope deny (WI-033,
+        # rsop-user-observe-20260804150527-3868) and the computer-scope deny row
+        # of `computer-security-filtering`. THE OFF-DIAGONAL IS NOT. Matching
+        # `denied_apply` against `side_identities` alone means a computer-named
+        # Apply deny on the USER side no longer blocks, where the pre-WI-047
+        # union blocked it. That is the same reasoned flip as the fourth read
+        # cell, in the same direction, and it is recorded here rather than
+        # absorbed silently. WI-049 carries it too.
         #
         # Row A is the reason this cannot be written with a single identity set.
         # Before WI-047 the model matched every filter against the union of both
         # principals, so row A's user-named deny and row B's computer-named deny
         # were indistinguishable and both had to abstain. The abstention is gone
-        # because the region was measured, NOT because a rule was guessed.
+        # because the region was measured -- for the three cells above. For the
+        # fourth it is gone because a rule was reasoned, and saying so is the
+        # difference between this comment and the one it replaced.
         read_identities = _principal_identities(target, "computer")
         side_identities = _principal_identities(target, side)
 

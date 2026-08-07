@@ -1225,6 +1225,54 @@ or the minimum inter-run gap is enforced in the lane driver rather than left to
 whoever writes the next batch script. A comment in a scratchpad file is not a
 fix; the batch driver that hit this is not even in the repository.
 
+## WI-049 — two off-diagonal filter cells were changed by reasoning, not measurement
+
+**Opened:** 2026-08-07 (cross-lineage review of the WI-043/WI-047 tranche).
+**Status:** open.
+
+The tranche that closed WI-043 and WI-047 rewrote `_gpo_filter_status` to stop
+matching every filter against the union of both principals. Three read cells
+were measured on the estate and are certified. **Two other cells changed
+behaviour in the same edit, and nothing measured either of them.**
+
+|  | before (union) | after | evidence |
+|---|---|---|---|
+| read deny names the USER, side=computer | blocks | **applies** | none |
+| Apply deny names the COMPUTER, side=user | blocks | **applies** | none |
+
+**Both flips are in the over-promising direction** — the model now says a GPO
+applies where it previously said it was blocked. That is the failure direction
+WI-033 was opened for: an operator asking "what will this machine get?" is told
+about settings that may never arrive. It is also the exact shape of the defect
+WI-043 itself was opened about, which is why this is a numbered item rather
+than a note.
+
+**The mechanism argues both new answers are right.** MS16-072 has the computer
+perform the retrieval for both sides, so a user-named ACE cannot gate a
+retrieval the computer performs with its own token; and Apply Group Policy is
+evaluated against the principal the policy applies to, so a computer-named
+Apply deny has nothing to say about the user side. This is a good argument. It
+is not a measurement, and WI-033, WI-040 and WI-043 are three occasions on
+which a good argument about this exact code was wrong.
+
+**A related gap, same cause.** Group membership is unit-tested in both
+directions and measured in neither: the candidate builder always passes
+`computer_group_memberships=()`, so no estate run has ever exercised a deny
+that matches through a group rather than by name.
+
+**Why this did not block the tranche.** The chosen answers are pinned by
+`TestTheUnmeasuredCellsArePinned`, mutation-proven against the pre-WI-047
+union, and the code comment now labels each cell measured or reasoned. Nothing
+claims these two cells were measured. The tranche's twelve verdicts remain
+valid — none of them asserts anything about these cells.
+
+**Closes when:** an estate run measures both cells — a user-named read deny on
+a computer-scope scenario, and a computer-named Apply deny on a user-scope
+scenario — and at least one group-matched deny row is measured rather than
+unit-tested. Per the standing rule, do not stand up a dedicated estate session
+for this: these are filter edits on scenarios a future lane will already be
+running, and the marginal cost of carrying them is close to zero.
+
 ## Not yet numbered
 
 Open question 1 from `plan-033/rsop-oracle-design.md` — whether `LabMS01` can

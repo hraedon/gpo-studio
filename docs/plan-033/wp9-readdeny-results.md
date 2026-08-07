@@ -66,8 +66,25 @@ and is kept as written. What follows is what happened next.
 now takes a resolved identity set rather than the target, and read denies
 resolve against the COMPUTER on both sides while Apply resolves against the
 side's own principal. Mutation-proven in both wrong directions: routing read
-denies through the resolving side fails all four measured cases; restoring the
-union fails the two user-named-deny cases.
+denies through the resolving side fails the read-deny rows, and restoring the
+union fails the user-named-deny rows.
+
+**What "proven" means here, stated precisely**, because the distinction is the
+one this lane exists to keep. The mutations are proven **against the test
+suite**, and the suite's rows are of two kinds. Three of them are estate
+measurements — WI-040's computer-named deny on the computer side, and rows A
+and B of `rsop-user-observe-20260806165543-8004`. The rest, including **every
+group-membership row**, are unit tests: the candidate builder always passes
+`computer_group_memberships=()`, so no estate run has ever exercised a deny
+that matches through a group. Earlier drafts of this section said "all four
+measured cases", which counted a unit-tested row as a measurement. There are
+**three** measured cases.
+
+Two cells were changed by reasoning rather than by measurement, both
+off-diagonal and both flipped from BLOCKS to APPLIES — a user-named read deny
+on the computer side, and a computer-named Apply deny on the user side. Neither
+has an estate row; both are pinned by `TestTheUnmeasuredCellsArePinned` and
+carried by **WI-049**.
 
 **All twelve scenarios were re-run and all twelve pass**, at commit `f761552`.
 The certifying run for this region is
