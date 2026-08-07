@@ -122,7 +122,7 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 |---|---|
 | Live AD/SYSVOL writes | Publication is an explicit adapter boundary; v0 emits artifacts only. |
 | Full GPMC parity | Many CSEs, report formats, and delegation semantics are not implemented. |
-| RSoP simulation | Not planned for 1.0. |
+| RSoP simulation | Not planned for 1.0, and not in the 1.0 contract. Post-1.0, `rsop.py` is certified in twelve measured regions and reachable at `/api/rsop/compute` and `/api/rsop/compare` — see [Reconciled post-1.0 layers](#reconciled-post-10-layers--certified-and-surfaced) below. |
 | Authentication / multi-user | Identity is claimed (untrusted) from the request body. |
 | Additional GPP CSEs | Drive, Files, Folders, Tasks, Services, Environment, Shortcuts, Printers. |
 | Scripts, software installation, folder redirection | Not implemented. |
@@ -464,6 +464,84 @@ dry-run report.
 
 ---
 
+## Reconciled post-1.0 layers — certified and surfaced
+
+> **Still not part of the 1.0 capability contract.** The 1.0 contract is the
+> matrix above and is unchanged. This section records post-1.0 layers that have
+> completed both halves of the exit condition in
+> [`domain-layer-status.md`](domain-layer-status.md) — an evidence lane
+> certified them against native Windows tooling, *and* they were then wired to a
+> surface an operator can reach.
+
+### `rsop.py` (Plan 029) — twelve certified scenarios, reachable at `/api/rsop/*`
+
+Reconciled 2026-08-06 (WI-030). The first layer to leave the unproven-draft set
+and the worked example for the rest.
+
+**Reachable at** `POST /api/rsop/compute` (predict the effective policy for a
+computer/user pair over a supplied topology) and `POST /api/rsop/compare`
+(compute two predictions and report where the effective settings differ). The
+topology, GPOs, filters and target arrive in the request body, as
+`/api/som/precedence` takes its nodes; nothing is read from the workspace. There
+is **no UI module** — an operator reaches this through the API only.
+
+**Certified** by twelve scenarios, each predicted before the estate was touched
+and compared against a real Windows 11 Enterprise 26200 client, all twelve
+passing at commit `f761552` (`docs/plan-033/wp9-readdeny-results.md`). The
+computer side: `lsdou-precedence`, `disabled-block-enforced`, `wmi-filtering`,
+`wmi-filtering-error`, `computer-security-filtering`,
+`computer-security-filtering-deny-read`. The user side: `user-side-disabled`,
+`loopback-merge`, `loopback-replace`, `user-security-filtering`,
+`user-security-filtering-deny`, `user-security-filtering-read-deny`.
+
+Between them they cover LSDOU ordering, same-container link order, inheritance
+and its blocking, enforcement (which survives a block *and* wins conflicts —
+WI-031 found the second half missing), disabled links and disabled sides,
+security filtering with denies on both Apply and Read, group membership through
+a token, user scope, and loopback merge and replace with Windows' own event 5311
+confirming the mode used. Three defects were found by these runs before they
+were fixed: WI-031, WI-033 and WI-040, all sharing the failure direction that
+matters — the model saying a GPO applies when Windows keeps it off.
+
+**What is NOT certified, and is not claimed:**
+
+- **Per-side applied/denied sets (WI-032, open).** `RsopGpoResult.status`
+  collapses to "applied on at least one side". Windows reports
+  `ComputerResults` and `UserResults` as separate sets and on a topology whose
+  GPOs scope both they differ, so neither the module nor the API can answer
+  "which GPOs applied to the user" separately from "which applied to the
+  computer". The per-side answer that *is* available is `computer_settings` /
+  `user_settings`, which are resolved independently. The API states this in
+  every response — `limitations[].code == "gpo_status_is_not_per_side"` — and
+  in the OpenAPI description of the `status` field.
+- **Slow link and safe mode (WI-036, open).** `slow_link`, `safe_mode`,
+  `simulate_slow_link` and `simulate_safe_mode` are accepted and never read. No
+  certified scenario covers either. Setting one raises
+  `slow_link_and_safe_mode_are_not_evaluated` on the response. Capping the
+  client's vNIC does not produce a slow link either — Group Policy reads the
+  adapter's advertised speed, measured 2026-08-04.
+- **WQL evaluation.** Studio does not evaluate WMI queries and should not; that
+  is the CSE's job against the live machine. A caller supplies how each filter
+  evaluated (WI-035) and precedence honours it, including `"unevaluatable"`,
+  which blocks because Windows fails closed on it (WI-039, measured). A filter
+  the caller says nothing about stays unknown: the GPO applies and the result
+  warns `wmi_filter_unknown` rather than guessing.
+- **Anything outside those twelve topologies.** Local GPO, site links beyond
+  the modelled scope, cross-domain and cross-forest resolution, GPP and
+  non-registry CSEs, and the DC-side Modeling/Results connectors of Plan 029's
+  WP-1 and WP-2 are all unimplemented or unmeasured.
+
+`RsopGpoStatus` is a closed set of `applied | blocked | unevaluable`, and
+`blocked` is not the complement of `applied`. As of WI-047 no filtering rule
+produces `unevaluable` — the last one that did was answered by measurement — but
+the state and its machinery stay, because the next unmeasured region will need
+them and a result containing one reports `is_conclusive() == False`.
+
+Open work items for this module are tracked in
+[`docs/work-items.md`](work-items.md).
+
+---
+
 ## Post-1.0 domain layers — landed but not surfaced
 
 > **This section is not part of the 1.0 capability contract.** Nothing listed
@@ -471,22 +549,22 @@ dry-run report.
 > source of truth for what the code contains, and `src/` now contains
 > substantially more than the 1.0 contract describes.
 
-Plans 023–032 were executed as **domain layers first**: typed, unit-tested
+Plans 025–032 were executed as **domain layers first**: typed, unit-tested
 modules that model a capability without wiring it to a delivery surface. The
 platform (API, browser application, export paths) is being caught up to them
 separately. Until that wiring lands, these modules have exactly one consumer
 each — their own test module.
 
 A landed domain layer is **not** a capability. It carries no operator surface
-and, with the exception noted below, no Windows evidence. None of these may be
-promoted into the matrix above without both platform wiring and Plan 033
-oracle evidence.
+and no Windows evidence. None of these may be promoted into the matrix above
+without both platform wiring and Plan 033 oracle evidence.
 
 They are also **unproven drafts, not assets awaiting wiring** (operator ruling
 2026-07-29). That is a claim about correctness, not just reach: every layer an
 external oracle has examined so far has needed correction, including
 `security_template.py`, whose output was not valid MS-GPSB on the wire at all
-until WP-3 read it with `secedit`. Treat the serialization in this table as a
+until WP-3 read it with `secedit`, and `rsop.py`, which needed three fixes
+before its twelve scenarios passed. Treat the serialization in this table as a
 hypothesis about Windows. The full ruling and its evidence are in
 [`domain-layer-status.md`](domain-layer-status.md).
 
@@ -496,10 +574,12 @@ hypothesis about Windows. The full ruling and its evidence are in
 | 026 | `script_policy.py`, `artifact_store.py` | no | no |
 | 027 | `software_install.py`, `folder_redirection.py` | no | no |
 | 028 | `lifecycle.py`, `gpmc_interop.py` | no | no |
-| 029 | `rsop.py` | no | no |
 | 030 | `publication.py`, `publisher.py` | no | no |
 | 031 | `certification.py` | no | no |
 | 032 | `hosting.py` | no | no |
+
+Plan 029's `rsop.py` was in this table until 2026-08-06 and has left it — the
+only layer that has. It is now [reconciled](#reconciled-post-10-layers--certified-and-surfaced).
 
 Landed **and** surfaced, but still not Windows-verified: `som.py`,
 `delegation.py`, `ad_discovery.py`, `wmi_filter.py` (Plan 023) and
@@ -507,80 +587,8 @@ Landed **and** surfaced, but still not Windows-verified: `som.py`,
 therefore live authoring surfaces whose output no independent Windows oracle
 has yet checked.
 
-Three consequences worth stating plainly:
+Two consequences worth stating plainly:
 
-- **`rsop.py` has now been compared against `gpresult` — in two narrow regions,
-  one per scope.**
-  WP-6B ran on 2026-08-04 and passed three times with identical results:
-  for LSDOU ordering, same-container link order and non-conflicting
-  inheritance, **on the computer side**, the prediction matched Windows exactly
-  (`docs/plan-033/wp6b-results.md`). That is the first external check this
-  module has ever had.
-
-  It remains **not** an operator-facing capability, for three separate reasons,
-  and all three must go before the qualifier does:
-
-  1. **Scope.** ~~WP-6 is computer-scope only~~ — **closed 2026-08-04 by WP-9**
-     (`docs/plan-033/wp9-results.md`). User-side resolution, loopback merge and
-     loopback replace each certified `pass` against a real 26200 client, with
-     the prediction committed before application and Windows' own event 5311
-     confirming the loopback mode it used. What remains unverified on the user
-     side is *coverage*, not scope: WMI filters and slow-link behaviour are
-     untested there as they are on the computer side, so reason 2 below now
-     carries both scopes. Security filtering on user principals **is** covered
-     — see reason 2.
-  2. **Coverage**, and it is now the qualifier that carries the weight. As of
-     2026-08-04 the certified topologies cover LSDOU order, link order, block
-     inheritance, enforcement, disabled links and sides (computer side), and
-     user-side resolution, loopback merge/replace and security filtering (user
-     side). What they do **not** cover, and what the oracle found instead:
-     - ~~**deny ACEs**~~ — **fixed 2026-08-04** (WI-033). The gap was
-       demonstrated against a real client first, then closed: `SecurityFilter`
-       carries polarity and a deny wins over an allow for the same principal;
-     - ~~**WMI filters**~~ — **fixed 2026-08-04** (WI-035). Demonstrated first,
-       then closed: a caller can supply how a filter evaluated and precedence
-       honours it. An *unevaluated* filter still applies and still warns, so
-       the remaining uncertainty stays visible rather than being guessed away;
-     - ~~**a deny on READ**~~ — **fixed 2026-08-05** (WI-040), and it is a
-       *second* gate, not a variant of the first. Applying a GPO takes Read and
-       Apply Group Policy, so a deny on Read keeps a GPO off a target with the
-       Apply allow intact — invisible to a reader that inspects Apply, which is
-       every branch the model had. Demonstrated against a real client
-       (`rsop-observe-20260805045139-3731`), fixed, re-certified
-       (`rsop-observe-20260805221707-4871`). **Computer scope only** — see
-       below;
-     - **slow link and safe mode** — the fields are accepted and never read
-       (WI-036). Capping the client's vNIC does not produce a slow link either:
-       Group Policy reads the adapter's advertised speed, measured 2026-08-04.
-
-     Those three shared a failure direction — the model saying a GPO applies
-     when it does not, for the most common ways a GPO is scoped out of a
-     machine — and **all are now closed**, each demonstrated against a real
-     client before being fixed and re-certified afterwards.
-
-     The qualifier stays for what remains: slow link and safe mode are still
-     accepted and never read, an unevaluated WMI filter is still an assumption
-     the caller must supply, and no certified topology covers user-side WMI or
-     slow-link behaviour at all.
-
-     **One region is now explicitly unanswerable rather than merely uncovered**
-     (WI-043). The read-deny rule is certified on the computer and unmeasured on
-     the user, because MS16-072 has a user's GPOs retrieved in the computer's
-     security context — so the denied principal may not be the reading one, and
-     both possible answers are unfounded. `RsopGpoResult.status` is a closed set
-     of `applied | blocked | unevaluable`, and that case returns `unevaluable`;
-     a result containing one reports `is_conclusive() == False`. This is the
-     same ruling as WI-039 (an unevaluatable WMI filter is not a flavour of
-     false) and WI-041 (an inexpressible deny is refused, not approximated).
-  3. **Surfacing is a decision nobody has made.** It is reachable from no API
-     endpoint, which is correct for now (WI-030).
-
-  WI-026 — an empty result when handed a computer's own DN, the shape a real
-  caller gets from a directory — *was* a fourth reason and is now fixed, with the
-  fix re-certified against Windows rather than only unit-tested.
-
-  Open work items for this module are tracked in
-  [`docs/work-items.md`](work-items.md).
 - **`publication.py` / `publisher.py` do not weaken the charter.** Both are
   pure and side-effect-free; they emit no writes. The web process still never
   writes to AD or SYSVOL.

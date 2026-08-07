@@ -95,7 +95,30 @@ never deleted* — and `disabled-block-enforced` runs green in WP-6B.
 ## WI-030 — `rsop.py` is reachable from no API endpoint
 
 **Opened:** 2026-08-04 (recording a long-standing state, not a new one).
-**Status:** open by design, pending evidence.
+**CLOSED 2026-08-06.** All three qualifiers are gone, in the order
+`domain-layer-status.md` requires: certify, then surface.
+
+1. **Scope** — closed 2026-08-04 by WP-9. User-side resolution, loopback merge
+   and loopback replace each certified against a real 26200 client.
+2. **Coverage** — closed 2026-08-06 by the WI-043 tranche. Twelve scenarios,
+   twelve passes at commit `f761552`, enumerated in
+   [`capability-matrix.md`](capability-matrix.md#rsoppy-plan-029--twelve-certified-scenarios-reachable-at-apirsop).
+3. **A decision that surfacing is wanted** — supplied by Ruling 1 of
+   [`direction-2026-08-06-reconciliation-and-lab-handover.md`](direction-2026-08-06-reconciliation-and-lab-handover.md).
+
+`POST /api/rsop/compute` and `POST /api/rsop/compare` now exist. There is no UI
+module; an operator reaches this through the API only, and that is a stated
+limit rather than an oversight.
+
+**What closing this did not close.** WI-032 is still open and the surface says
+so in every response (`limitations[].code == "gpo_status_is_not_per_side"`), so
+that surfacing a collapsed answer cannot be mistaken for surfacing a per-side
+one. WI-036 is still open and `slow_link` / `safe_mode` remain accepted and
+never read; setting either raises `slow_link_and_safe_mode_are_not_evaluated`.
+The original entry's purpose stands in its new form: "WP-6 passed" was never
+"RSOP is a feature", and "there is an endpoint" is not "RSOP is complete".
+
+The original statement follows.
 
 WP-6B gave the module its first external validation, but only for LSDOU
 ordering, same-container link order and non-conflicting inheritance, on the
@@ -159,6 +182,21 @@ same sequencing WI-026 followed.
 "which applied to the computer" separately, and the WP-9 finalizer promotes the
 applied-set comparison from advisory to gated — with a re-certification run,
 because the verdict's meaning changes.
+
+**2026-08-06 — now visible to operators, and still open.** WI-030 surfaced the
+module, so the collapsed field is no longer read only by tests. It is not
+hidden: `/api/rsop/compute` and `/api/rsop/compare` return
+`limitations[].code == "gpo_status_is_not_per_side"` on **every** response,
+naming the per-side answer that is available (`computer_settings` /
+`user_settings`) alongside the one that is not, and the `status` field's OpenAPI
+description says the same thing at the schema level.
+
+That is a disclosure, not a fix, and it must not be mistaken for one. Both are
+unconditional on purpose: a limitation emitted only when some heuristic judged
+the caller at risk would be absent exactly when the heuristic was wrong. When
+this item closes, the disclosure comes out with the same change that adds the
+per-side sets — a limitation still being announced after it has been fixed is
+the same class of defect as a stale status line.
 
 ## WI-033 — `SecurityFilter` cannot express a deny
 
