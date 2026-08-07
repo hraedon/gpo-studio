@@ -107,9 +107,11 @@ from .model import (
     PrincipalInfo,
     RegistrySetting,
     ResolutionState,
+    SecurityFilter,
     StudioError,
     ValidationError,
     ValidationIssue,
+    WmiFilter,
     WorkspaceError,
 )
 from .numeric import coerce_dword_qword
@@ -121,6 +123,12 @@ from .policy_config import (
 )
 from .registry_pol import RegistryPolError
 from .report import policy_report
+from .rsop import (
+    RsopQuery,
+    RsopTarget,
+    compare_rsop_results,
+    compute_rsop,
+)
 from .sddl import SddlError, parse_sddl
 from .settings_browser import (
     build_category_tree,
@@ -1123,6 +1131,228 @@ class SomPlanLinkOrderResponse(BaseModel):
 
 class SomSetBlockInheritanceResponse(BaseModel):
     nodes: list[SomNodeResponse]
+
+
+# --- RSOP ------------------------------------------------------------------
+#
+# The topology arrives in the request body rather than being read from the
+# workspace, exactly as `/api/som/precedence` takes its nodes. A prediction is
+# a claim about an estate, and the estate is what the caller holds; a workspace
+# GPO is a draft that may not be linked anywhere yet.
+
+
+class RsopSecurityFilterData(BaseModel):
+    """One ACE of a GPO's security filtering, as the caller observed it.
+
+    Carries ``id`` and ``deny``, neither of which `SecurityFilterData` has:
+    the store assigns ids to filters it owns, and this surface is given filters
+    it does not own. ``deny`` is the polarity WI-033 added to the model, and a
+    caller that omits it is stating an allow -- the same default the domain type
+    takes, for the same reason.
+    """
+
+    id: str = Field(min_length=1, max_length=255)
+    principal: str = Field(min_length=1, max_length=255)
+    permission: Literal["apply", "read"] = "apply"
+    inheritable: bool = True
+    target_type: Literal["user", "group", "computer"] = "group"
+    sid: str = Field(default="", max_length=255)
+    deny: bool = False
+
+
+class RsopWmiFilterData(BaseModel):
+    id: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    description: str = Field(default="", max_length=2000)
+    query: str = Field(default="", max_length=4000)
+    language: str = Field(default="WQL", max_length=50)
+
+
+class RsopSettingData(SettingData):
+    """A registry setting with the id the result reports it under.
+
+    Subclasses `SettingData` so the REG_DWORD/REG_QWORD canonicalisation
+    applies here too; a value that the authoring surface would refuse must not
+    become predictable through the modelling one.
+    """
+
+    id: str = Field(min_length=1, max_length=255)
+
+
+class RsopGpoData(BaseModel):
+    guid: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    computer_enabled: bool = True
+    user_enabled: bool = True
+    settings: list[RsopSettingData] = Field(default_factory=list, max_length=2000)
+    security_filters: list[RsopSecurityFilterData] = Field(
+        default_factory=list, max_length=200
+    )
+    wmi_filter: RsopWmiFilterData | None = None
+
+
+class RsopTargetData(BaseModel):
+    """The computer/user pair a prediction is about.
+
+    The two membership tuples are separate because WI-047 measured that they
+    answer different questions: Apply Group Policy is evaluated against the
+    principal the policy applies to, and Read against the computer, which
+    performs the retrieval for both sides. A single merged list would let a
+    filter naming a computer group decide the user side.
+    """
+
+    computer_name: str = Field(default="", max_length=255)
+    computer_dn: str = Field(default="", max_length=1000)
+    user_name: str = Field(default="", max_length=255)
+    user_dn: str = Field(default="", max_length=1000)
+    site_name: str = Field(default="", max_length=255)
+    domain: str = Field(default="", max_length=255)
+    computer_group_memberships: list[str] = Field(default_factory=list, max_length=500)
+    user_group_memberships: list[str] = Field(default_factory=list, max_length=500)
+    loopback_mode: Literal["disabled", "merge", "replace"] = "disabled"
+    #: Accepted and never read (WI-036). Setting either raises the
+    #: `slow_link_and_safe_mode_are_not_evaluated` limitation on the response.
+    slow_link: bool = False
+    safe_mode: bool = False
+
+
+class RsopQueryData(BaseModel):
+    query_id: str = Field(min_length=1, max_length=255)
+    mode: Literal["planning", "logging"] = "planning"
+    target: RsopTargetData = Field(default_factory=RsopTargetData)
+    nodes: list[SomNodeData] = Field(default_factory=list, max_length=500)
+    gpos: list[RsopGpoData] = Field(default_factory=list, max_length=500)
+    #: How each WMI filter evaluated on this target, keyed by filter id. Studio
+    #: does not evaluate WQL; a filter absent from this mapping stays unknown,
+    #: the GPO applies, and the result warns `wmi_filter_unknown` (WI-035).
+    wmi_filter_results: dict[str, bool | Literal["unevaluatable"]] = Field(
+        default_factory=dict
+    )
+    simulate_no_loopback: bool = False
+    simulate_slow_link: bool | None = None
+    simulate_safe_mode: bool | None = None
+
+
+class RsopCompareRequest(BaseModel):
+    baseline: RsopQueryData
+    current: RsopQueryData
+
+
+class RsopTargetResponse(BaseModel):
+    computer_name: str
+    computer_dn: str
+    user_name: str
+    user_dn: str
+    site_name: str
+    domain: str
+    computer_group_memberships: list[str]
+    user_group_memberships: list[str]
+    loopback_mode: str
+    slow_link: bool
+    safe_mode: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RsopSettingResultResponse(BaseModel):
+    setting_id: str
+    side: str
+    hive: str
+    key: str
+    value_name: str
+    effective_value: str | int | list[str]
+    winning_gpo_guid: str
+    winning_gpo_name: str
+    overridden_by: list[str]
+    is_enforced: bool
+    precedence_order: int
+    #: GUIDs of GPOs writing this value whose outcome could not be evaluated.
+    #: Non-empty means the winner named here is the answer *if* those GPOs do
+    #: not apply.
+    unevaluable_gpos: list[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RsopGpoResultResponse(BaseModel):
+    gpo_guid: str
+    gpo_name: str
+    status: Literal["applied", "blocked", "unevaluable"] = Field(
+        description=(
+            "Whether the GPO reached the target ON AT LEAST ONE SIDE. It is not "
+            "a per-side answer and must not be read as one: Windows reports "
+            "ComputerResults and UserResults as separate sets and on a topology "
+            "whose GPOs scope both they differ (WI-032). The per-side answer "
+            "this surface does give is computer_settings / user_settings. "
+            "'blocked' is not the complement of 'applied' -- 'unevaluable' "
+            "means no measurement covers the case."
+        )
+    )
+    filtering_reasons: list[str]
+    precedence: int
+    link_scope: str
+    is_enforced: bool
+    is_blocked: bool
+    settings_applied: int
+    settings_overridden: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RsopLimitation(BaseModel):
+    """Something this answer does not say, stated where the answer is read.
+
+    A limitation is not a warning. `warnings` reports what happened during
+    *this* computation; a limitation holds for every computation this surface
+    will ever perform, and is emitted so that a caller cannot read a collapsed
+    answer as a per-side one without having been told (WI-032).
+    """
+
+    code: str
+    message: str
+
+
+class RsopComputeResponse(BaseModel):
+    query_id: str
+    mode: str
+    target: RsopTargetResponse
+    computer_settings: list[RsopSettingResultResponse]
+    user_settings: list[RsopSettingResultResponse]
+    gpo_results: list[RsopGpoResultResponse]
+    warnings: list[str]
+    computed_at: str
+    #: False when any GPO resolved to `unevaluable`; the result is then a
+    #: prediction conditional on those GPOs not applying.
+    is_conclusive: bool
+    limitations: list[RsopLimitation]
+
+
+class RsopDiffResponse(BaseModel):
+    setting_id: str
+    side: str
+    key: str
+    value_name: str
+    baseline_value: str | int | list[str]
+    current_value: str | int | list[str]
+    baseline_gpo: str
+    current_gpo: str
+    #: `uncertainty_changed` carries no value change: the winner and its value
+    #: are identical and what moved is whether an unevaluable GPO could have
+    #: overridden it.
+    change_type: Literal[
+        "added", "removed", "modified", "gpo_changed", "uncertainty_changed"
+    ]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RsopCompareResponse(BaseModel):
+    diffs: list[RsopDiffResponse]
+    baseline_warnings: list[str]
+    current_warnings: list[str]
+    baseline_is_conclusive: bool
+    current_is_conclusive: bool
+    limitations: list[RsopLimitation]
 
 
 class BackupImportRequest(BaseModel):
@@ -3576,3 +3806,166 @@ def delegation_check_lockout(body: CheckLockoutRequest) -> LockoutRisk:
     return check_lockout_risk(
         current_sd, proposed_sd, frozenset(body.admin_sids)
     )
+
+
+def _rsop_security_filter_data_to_model(data: RsopSecurityFilterData) -> SecurityFilter:
+    return SecurityFilter(
+        id=data.id,
+        principal=data.principal,
+        permission=data.permission,
+        inheritable=data.inheritable,
+        target_type=data.target_type,
+        sid=data.sid,
+        deny=data.deny,
+    )
+
+
+def _rsop_wmi_filter_data_to_model(data: RsopWmiFilterData) -> WmiFilter:
+    return WmiFilter(
+        id=data.id,
+        name=data.name,
+        description=data.description,
+        query=data.query,
+        language=data.language,
+    )
+
+
+def _rsop_setting_data_to_model(data: RsopSettingData) -> RegistrySetting:
+    return RegistrySetting(
+        id=data.id,
+        side=data.side,
+        hive=data.hive,
+        key=data.key,
+        value_name=data.value_name,
+        registry_type=data.registry_type,
+        value=data.value,
+        action=data.action,
+        comment=data.comment,
+    )
+
+
+def _rsop_gpo_data_to_model(data: RsopGpoData) -> GPO:
+    return GPO(
+        guid=data.guid,
+        name=data.name,
+        computer_enabled=data.computer_enabled,
+        user_enabled=data.user_enabled,
+        settings=tuple(_rsop_setting_data_to_model(s) for s in data.settings),
+        security_filters=tuple(
+            _rsop_security_filter_data_to_model(f) for f in data.security_filters
+        ),
+        wmi_filter=(
+            None if data.wmi_filter is None else _rsop_wmi_filter_data_to_model(data.wmi_filter)
+        ),
+    )
+
+
+def _rsop_target_data_to_model(data: RsopTargetData) -> RsopTarget:
+    return RsopTarget(
+        computer_name=data.computer_name,
+        computer_dn=data.computer_dn,
+        user_name=data.user_name,
+        user_dn=data.user_dn,
+        site_name=data.site_name,
+        domain=data.domain,
+        computer_group_memberships=tuple(data.computer_group_memberships),
+        user_group_memberships=tuple(data.user_group_memberships),
+        loopback_mode=data.loopback_mode,
+        slow_link=data.slow_link,
+        safe_mode=data.safe_mode,
+    )
+
+
+def _rsop_query_data_to_model(data: RsopQueryData) -> RsopQuery:
+    return RsopQuery(
+        query_id=data.query_id,
+        mode=data.mode,
+        target=_rsop_target_data_to_model(data.target),
+        som_nodes=tuple(_som_node_data_to_model(n) for n in data.nodes),
+        gpos=tuple(_rsop_gpo_data_to_model(g) for g in data.gpos),
+        wmi_filter_results=tuple(sorted(data.wmi_filter_results.items())),
+        simulate_no_loopback=data.simulate_no_loopback,
+        simulate_slow_link=data.simulate_slow_link,
+        simulate_safe_mode=data.simulate_safe_mode,
+    )
+
+
+#: Holds for every answer this surface will ever give, so it is emitted
+#: unconditionally rather than when some heuristic thinks it matters.
+_RSOP_STATUS_IS_NOT_PER_SIDE = {
+    "code": "gpo_status_is_not_per_side",
+    "message": (
+        "gpo_results[].status collapses to 'applied on at least one side'. "
+        "Windows reports ComputerResults and UserResults as separate sets, and "
+        "on a topology whose GPOs scope both sides they differ, so this surface "
+        "cannot answer 'which GPOs applied to the user' separately from 'which "
+        "applied to the computer'. The per-side answer it does give is "
+        "computer_settings / user_settings. WI-032."
+    ),
+}
+
+_RSOP_SLOW_LINK_NOT_EVALUATED = {
+    "code": "slow_link_and_safe_mode_are_not_evaluated",
+    "message": (
+        "slow_link, safe_mode, simulate_slow_link and simulate_safe_mode are "
+        "accepted and never read. No part of this result reflects them, and no "
+        "certified scenario covers either. WI-036."
+    ),
+}
+
+
+def _rsop_limitations(queries: Sequence[RsopQueryData]) -> list[dict[str, str]]:
+    """State what the answer does not say, at the point the answer is read.
+
+    Both limitations are documented in the capability matrix as well. Repeating
+    them in the payload is deliberate: a caller reading JSON is not reading the
+    matrix, and WI-032's collapsed status is exactly the kind of field that
+    looks like a per-side answer to anyone who has not been told otherwise.
+    """
+    limitations = [dict(_RSOP_STATUS_IS_NOT_PER_SIDE)]
+    if any(
+        query.target.slow_link
+        or query.target.safe_mode
+        or query.simulate_slow_link is not None
+        or query.simulate_safe_mode is not None
+        for query in queries
+    ):
+        limitations.append(dict(_RSOP_SLOW_LINK_NOT_EVALUATED))
+    return limitations
+
+
+@app.post("/api/rsop/compute", response_model=RsopComputeResponse)
+def rsop_compute(body: RsopQueryData) -> dict[str, Any]:
+    """Predict the effective policy for a computer/user pair over a topology.
+
+    A prediction, not an observation: this is what the model says Windows would
+    resolve, and the regions of it that have been measured against a real client
+    are enumerated in `docs/capability-matrix.md`. Read `limitations` and
+    `is_conclusive` before treating any part of the answer as settled.
+    """
+    result = compute_rsop(_rsop_query_data_to_model(body))
+    return {
+        **asdict(result),
+        "is_conclusive": result.is_conclusive(),
+        "limitations": _rsop_limitations([body]),
+    }
+
+
+@app.post("/api/rsop/compare", response_model=RsopCompareResponse)
+def rsop_compare(body: RsopCompareRequest) -> dict[str, Any]:
+    """Compute two predictions and report where their effective settings differ.
+
+    `uncertainty_changed` is a real difference with no value change: the winner
+    and its value are identical and what moved is whether an unevaluable GPO
+    could have overridden it.
+    """
+    baseline = compute_rsop(_rsop_query_data_to_model(body.baseline))
+    current = compute_rsop(_rsop_query_data_to_model(body.current))
+    return {
+        "diffs": [asdict(diff) for diff in compare_rsop_results(baseline, current)],
+        "baseline_warnings": list(baseline.warnings),
+        "current_warnings": list(current.warnings),
+        "baseline_is_conclusive": baseline.is_conclusive(),
+        "current_is_conclusive": current.is_conclusive(),
+        "limitations": _rsop_limitations([body.baseline, body.current]),
+    }
