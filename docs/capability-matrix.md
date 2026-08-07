@@ -482,8 +482,15 @@ and the worked example for the rest.
 computer/user pair over a supplied topology) and `POST /api/rsop/compare`
 (compute two predictions and report where the effective settings differ). The
 topology, GPOs, filters and target arrive in the request body, as
-`/api/som/precedence` takes its nodes; nothing is read from the workspace. There
-is **no UI module** — an operator reaches this through the API only.
+`/api/som/precedence` takes its nodes; nothing is read from the workspace.
+
+**The browser panel is deliberately thin.** "RSOP prediction" in the rail opens
+a dialog that takes the target as form fields and the topology as JSON. There is
+no topology builder and there will not be one until there is an estate model to
+build from: the workspace holds draft policies, not an OU tree, so a builder
+would have to invent the estate it is predicting over. The panel's one real job
+beyond reaching the endpoint is that it renders `limitations` **above** the
+answer. `/api/rsop/compare` has no UI at all.
 
 **Certified** by twelve scenarios, each predicted before the estate was touched
 and compared against a real Windows 11 Enterprise 26200 client, all twelve

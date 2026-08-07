@@ -106,9 +106,10 @@ never deleted* — and `disabled-block-enforced` runs green in WP-6B.
 3. **A decision that surfacing is wanted** — supplied by Ruling 1 of
    [`direction-2026-08-06-reconciliation-and-lab-handover.md`](direction-2026-08-06-reconciliation-and-lab-handover.md).
 
-`POST /api/rsop/compute` and `POST /api/rsop/compare` now exist. There is no UI
-module; an operator reaches this through the API only, and that is a stated
-limit rather than an oversight.
+`POST /api/rsop/compute` and `POST /api/rsop/compare` now exist, with a thin
+browser panel over `compute` only — target as form fields, topology as JSON, no
+builder, because the workspace holds draft policies rather than an estate to
+build a topology from. That is a stated limit rather than an oversight.
 
 **What closing this did not close.** WI-032 is still open and the surface says
 so in every response (`limitations[].code == "gpo_status_is_not_per_side"`), so

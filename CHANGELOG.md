@@ -37,7 +37,10 @@ Current version: `1.0.0`.
   surfaced** (WI-030, 2026-08-06). `POST /api/rsop/compute` predicts the
   effective policy for a computer/user pair over a topology supplied in the
   request body; `POST /api/rsop/compare` computes two and reports where the
-  effective settings differ. No UI module — the API is the only way in.
+  effective settings differ. A thin browser panel ("RSOP prediction" in the
+  rail) covers `compute` only: the target as form fields, the topology as JSON,
+  no builder — the workspace holds draft policies rather than an estate to build
+  a topology from.
   The twelve certifying scenarios ran against a real Windows 11 26200 client
   and cover LSDOU ordering, link order, inheritance and its blocking,
   enforcement, disabled links and sides, security filtering with denies on both
