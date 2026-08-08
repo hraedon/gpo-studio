@@ -9,8 +9,9 @@ function makeBrowser({
   stored = null,
   systemDark = false,
   storageDenied = false,
+  legacyMedia = false,
 } = {}) {
-  const listeners = { media: [], dom: [], click: [] };
+  const listeners = { media: [], dom: [], click: [], storage: [] };
   const toggle = {
     textContent: "",
     attributes: {},
@@ -30,12 +31,21 @@ function makeBrowser({
       return id === "theme-toggle" ? toggle : null;
     },
   };
-  const media = {
-    matches: systemDark,
-    addEventListener(type, handler) {
-      if (type === "change") listeners.media.push(handler);
-    },
-  };
+  // Safari <14 ships only the deprecated addListener form, and a stub that
+  // offers both would never exercise the fallback branch.
+  const media = legacyMedia
+    ? {
+        matches: systemDark,
+        addListener(handler) {
+          listeners.media.push(handler);
+        },
+      }
+    : {
+        matches: systemDark,
+        addEventListener(type, handler) {
+          if (type === "change") listeners.media.push(handler);
+        },
+      };
   const storage = new Map(
     stored === null ? [] : [["gpo-studio-theme", stored]],
   );
@@ -44,6 +54,9 @@ function makeBrowser({
   };
   const windowStub = {
     matchMedia: () => media,
+    addEventListener(type, handler) {
+      if (type === "storage") listeners.storage.push(handler);
+    },
     localStorage: storageDenied
       ? { getItem: denied, setItem: denied }
       : {
@@ -60,6 +73,11 @@ function makeBrowser({
     storage,
     domReady: () => listeners.dom.forEach((handler) => handler()),
     clickToggle: () => listeners.click.forEach((handler) => handler()),
+    // What another tab writing localStorage looks like to this one. The real
+    // event never fires in the tab that made the change.
+    storageEvent(key, newValue) {
+      listeners.storage.forEach((handler) => handler({ key, newValue }));
+    },
     systemChange(dark) {
       media.matches = dark;
       listeners.media.forEach((handler) => handler());
@@ -130,5 +148,48 @@ describe("theme bootstrap", () => {
     browser.clickToggle();
     expect(browser.documentStub.documentElement.dataset.theme).toBe("dark");
     expect(browser.toggle.textContent).toBe("Dark");
+  });
+
+  test("an explicit choice in another tab reaches this one", async () => {
+    const browser = await boot({ systemDark: false });
+    browser.domReady();
+    expect(browser.toggle.textContent).toBe("Auto");
+
+    browser.storageEvent("gpo-studio-theme", "dark");
+
+    expect(browser.documentStub.documentElement.dataset.theme).toBe("dark");
+    // The button must not keep advertising the mode this tab has left.
+    expect(browser.toggle.textContent).toBe("Dark");
+  });
+
+  test("another tab clearing the choice returns this one to auto", async () => {
+    const browser = await boot({ stored: "light", systemDark: true });
+    browser.domReady();
+
+    browser.storageEvent("gpo-studio-theme", null);
+
+    expect(browser.documentStub.documentElement.dataset.theme).toBe("dark");
+    expect(browser.toggle.textContent).toBe("Auto");
+    // Back on auto, this tab must resume following the system.
+    browser.systemChange(false);
+    expect(browser.documentStub.documentElement.dataset.theme).toBe("light");
+  });
+
+  test("an unrelated storage key leaves the theme alone", async () => {
+    const browser = await boot({ stored: "light", systemDark: true });
+    browser.domReady();
+
+    browser.storageEvent("some-other-key", "dark");
+
+    expect(browser.documentStub.documentElement.dataset.theme).toBe("light");
+    expect(browser.toggle.textContent).toBe("Light");
+  });
+
+  test("auto follows the system on engines with only addListener", async () => {
+    const browser = await boot({ systemDark: true, legacyMedia: true });
+
+    expect(browser.documentStub.documentElement.dataset.theme).toBe("dark");
+    browser.systemChange(false);
+    expect(browser.documentStub.documentElement.dataset.theme).toBe("light");
   });
 });

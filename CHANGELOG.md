@@ -153,12 +153,19 @@ Current version: `1.0.0`.
   browser. The bootstrap (`static/js/theme.js`) is a classic head script so
   the resolved theme lands before first paint under the `script-src 'self'`
   CSP. The dark palette is held to the same automated accessibility bar as
-  the light one by a browser test that runs the axe scan under it.
+  the light one by a browser test that runs the axe scan under it. A choice
+  made in one tab reaches the application's other tabs through a `storage`
+  listener rather than leaving them on a stale palette until reload, and
+  engines that ship only the deprecated `MediaQueryList.addListener`
+  (Safari 13 and earlier) still follow the system while the mode is `Auto`.
 - Wide policy tables keep their row actions reachable: the actions cell is
   sticky against the right edge of the scrolling table card, so Edit /
   Comment / Delete no longer disappear behind a horizontal scroll nobody is
-  told about. Placeholders are styled distinctly from values, and secondary
-  buttons gained a quiet hover state.
+  told about. Placeholders are styled distinctly from values — and now at a
+  contrast ratio that clears WCAG AA against the light canvas, which the
+  first colour did not — and secondary buttons gained a quiet hover state.
+  On narrow viewports the rail's footer is shown rather than hidden, so the
+  workspace status it carries is not desktop-only.
 - Plan 033: lane verdicts now check what they claim to check. An adversarial
   review round (three reviewers, hazard-scoped, one cross-lineage) found that
   WP-2 and WP-3 graded themselves against the copy of `expected.json` the guest

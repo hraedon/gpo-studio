@@ -38,15 +38,36 @@
   }
 
   var mode = storedMode();
+  // Set by the toggle wiring below; a mode change from any source (click,
+  // system, another tab) funnels through here so the button never lies.
+  var renderToggle = function () {};
   apply(mode);
-  media.addEventListener("change", function followSystem() {
+
+  function followSystem() {
     if (mode === "auto") apply(mode);
+  }
+  if (typeof media.addEventListener === "function") {
+    media.addEventListener("change", followSystem);
+  } else if (typeof media.addListener === "function") {
+    // Older engines (Safari <14) only ship the deprecated form. Missing it
+    // would not break theming — apply() already ran — but auto would stop
+    // following the system until reload.
+    media.addListener(followSystem);
+  }
+
+  // An explicit choice in one tab reaches the app's other tabs; without this
+  // they keep the stale palette until reload.
+  window.addEventListener("storage", function followOtherTabs(event) {
+    if (event.key !== STORAGE_KEY) return;
+    mode = MODES.includes(event.newValue) ? event.newValue : "auto";
+    apply(mode);
+    renderToggle();
   });
 
   document.addEventListener("DOMContentLoaded", function wireToggle() {
     var toggle = document.getElementById("theme-toggle");
     if (!toggle) return;
-    function render() {
+    renderToggle = function render() {
       toggle.textContent = label(mode);
       toggle.setAttribute(
         "aria-label",
@@ -54,8 +75,8 @@
           (mode === "auto" ? "automatic" : mode) +
           ". Activate to change.",
       );
-    }
-    render();
+    };
+    renderToggle();
     toggle.addEventListener("click", function cycle() {
       mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
       try {
@@ -64,7 +85,7 @@
         // An unpersisted choice still applies for this page's lifetime.
       }
       apply(mode);
-      render();
+      renderToggle();
     });
   });
 })();
