@@ -20,6 +20,20 @@ export default [
     },
   },
   {
+    // theme.js is deliberately a classic script: it must run synchronously
+    // from <head> so the resolved theme lands on <html> before first paint.
+    files: ["src/gpo_studio/static/js/**/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "script",
+      globals: globals.browser,
+    },
+    rules: {
+      "no-empty": "error",
+      "no-unused-vars": "error",
+    },
+  },
+  {
     files: ["tests/**/*.mjs", "*.config.mjs"],
     languageOptions: {
       ecmaVersion: "latest",
