@@ -146,6 +146,19 @@ Current version: `1.0.0`.
 
 ### Changed
 
+- The browser application supports a dark colour theme — **surfaced**. Every
+  colour in `studio.css` now flows through a design token, and a
+  `data-theme` attribute on `<html>` selects the palette: `Auto` follows the
+  operating system, with an explicit Dark/Light override persisted per
+  browser. The bootstrap (`static/js/theme.js`) is a classic head script so
+  the resolved theme lands before first paint under the `script-src 'self'`
+  CSP. The dark palette is held to the same automated accessibility bar as
+  the light one by a browser test that runs the axe scan under it.
+- Wide policy tables keep their row actions reachable: the actions cell is
+  sticky against the right edge of the scrolling table card, so Edit /
+  Comment / Delete no longer disappear behind a horizontal scroll nobody is
+  told about. Placeholders are styled distinctly from values, and secondary
+  buttons gained a quiet hover state.
 - Plan 033: lane verdicts now check what they claim to check. An adversarial
   review round (three reviewers, hazard-scoped, one cross-lineage) found that
   WP-2 and WP-3 graded themselves against the copy of `expected.json` the guest
@@ -208,6 +221,11 @@ Current version: `1.0.0`.
 
 ### Fixed
 
+- The topbar action links (`Policy report`, `Review PowerShell`,
+  `GPMC backup`) rendered in default link blue: `a.button` never received an
+  ink colour, only real `<button>` elements did. Long GPO names also wrapped
+  the topbar inside its fixed 114px height, folding the action labels onto
+  two lines; the bar now grows instead and action labels never wrap.
 - WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
   plan and Studio export bundle as available and then refused both downloads
   with HTTP 422. WI-041's refusal is correct and is unchanged; what was missing
