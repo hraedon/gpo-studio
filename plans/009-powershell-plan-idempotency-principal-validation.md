@@ -1,6 +1,29 @@
 # Plan 009 — PowerShell plan idempotency, principal validation, domain validation
 
-Status: proposed
+Status: implemented — domain layer landed and **surfaced**. The four work
+packages are implemented in `export.py`, `validation.py`, and `api.py`; the
+reviewable plan and publication bundle are exposed through
+`/api/gpos/{guid}/plan.ps1` and `/api/gpos/{guid}/export.zip`, and backup import
+invokes the GPO validation path without substituting a default for a missing
+backup domain. Commit `b724710` added the initial implementation of the four
+work packages and its focused tests. Subsequent follow-up missing-domain
+enforcement work preserves the empty value through import and adds focused API
+evidence that empty and missing domains are rejected; this enforcement
+post-dates `b724710` and is not attributed to that commit. Current coverage
+also includes valid-domain preservation for both backup manifest forms,
+structural PowerShell-plan validation, and capability/refusal wiring.
+
+Windows evidence is scoped, not blanket: Plan 017 WP-5 exercised all 12
+generated plans on Windows Server 2025 build 26100, including GPO creation,
+registry/delete/side-enable behavior, repeated execution, and `Backup-GPO`
+readback (`docs/release-evidence.md`). Plan 033 WP-2 subsequently certified the
+native GPMC v2 backup through `Import-GPO -WhatIf`, actual
+`Import-GPO -CreateIfNeeded`, GroupPolicy registry readback, native `Backup-GPO`,
+side-version reconciliation, and strict cleanup for the raw-registry candidate
+(`plans/033-windows-external-oracle-validation.md`). The specific
+`Get-GPPermission -All` stale-security-filter reconciliation remains unverified
+on live Windows: the earlier security-filter runs stopped at expected failures
+for synthetic principals, so this plan does not claim that gap is certified.
 Scope: close the remaining safety gaps in the publication plan and
 import path before shifting to Milestone 2 feature work
 Depends on: Plan 008 (validation hardening, diff correctness, dead code cleanup)

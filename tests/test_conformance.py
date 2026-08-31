@@ -73,7 +73,7 @@ def _import_backup_to_gpo(backup_dir: Path) -> GPO:
         wmi_filter=wmi_filter,
         gpp_collections=gpp_collections,
         cse_metadata=cse_metadata,
-        domain=backup_gpo.domain or "studio.local",
+        domain=backup_gpo.domain,
         computer_enabled=backup_gpo.computer_enabled,
         user_enabled=backup_gpo.user_enabled,
     )

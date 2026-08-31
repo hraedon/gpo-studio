@@ -815,18 +815,35 @@ def test_scan_hashes_pinned_file_after_parent_swap(
 
 
 _MANIFEST_NATIVE = b"""<?xml version="1.0" encoding="utf-8"?>
-<BackupInstances xmlns="http://www.microsoft.com/GroupPolicy/Types">
-  <BackupInstance>
+<Backups xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest">
+  <BackupInst>
+    <GPOGuid>{11111111-2222-3333-4444-555555555555}</GPOGuid>
+    <GPODomain>example.test</GPODomain>
     <BackupTime>2026-01-01T00:00:00</BackupTime>
     <ID>{AABBCCDD-1122-3344-5566-778899AABBCC}</ID>
-    <GPO>
-      <Identifier>11111111-2222-3333-4444-555555555555</Identifier>
-      <DisplayName>Native Layout Policy</DisplayName>
-      <Domain>example.test</Domain>
-      <MachineExtensionGuids>{35378EAC-683F-11D2-A89A-00C04FBBCFA2}</MachineExtensionGuids>
-    </GPO>
-  </BackupInstance>
-</BackupInstances>"""
+    <GPODisplayName>Native Layout Policy</GPODisplayName>
+  </BackupInst>
+</Backups>"""
+
+
+_NATIVE_MANIFEST_WITHOUT_DOMAIN = b"""<?xml version="1.0" encoding="utf-8"?>
+<Backups xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest">
+  <BackupInst>
+    <GPOGuid>{11111111-2222-3333-4444-555555555555}</GPOGuid>
+    <BackupTime>2026-01-01T00:00:00</BackupTime>
+    <ID>{AABBCCDD-1122-3344-5566-778899AABBCC}</ID>
+    <GPODisplayName>Native Layout Policy</GPODisplayName>
+  </BackupInst>
+</Backups>"""
+
+_NATIVE_BKUP_INFO = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInst xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest">
+  <GPOGuid>{11111111-2222-3333-4444-555555555555}</GPOGuid>
+  <GPODomain>source.example.test</GPODomain>
+  <BackupTime>2026-01-01T00:00:00</BackupTime>
+  <ID>{AABBCCDD-1122-3344-5566-778899AABBCC}</ID>
+  <GPODisplayName>Native Layout Policy</GPODisplayName>
+</BackupInst>"""
 
 
 def test_read_backup_native_layout(tmp_path: Path) -> None:
@@ -843,6 +860,138 @@ def test_read_backup_native_layout(tmp_path: Path) -> None:
     gpo = result.gpos[0]
     assert gpo.content_root == content
     assert gpo.content_root.is_dir()
+
+
+def test_read_backup_native_layout_uses_nested_bkup_info_domain(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_id = "{AABBCCDD-1122-3344-5566-778899AABBCC}"
+    native_dir = backup_dir / backup_id
+    content = native_dir / "DomainSysvol" / "GPO"
+    content.joinpath("Machine").mkdir(parents=True)
+    (content / "Machine" / "registry.pol").write_bytes(b"\x50\x52\x65\x67\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_NATIVE_MANIFEST_WITHOUT_DOMAIN)
+    (native_dir / "bkupInfo.xml").write_bytes(_NATIVE_BKUP_INFO)
+
+    result = read_backup(backup_dir)
+
+    assert result.gpos[0].domain == "source.example.test"
+    assert result.gpos[0].content_root == content
+    # Backup.xml is optional metadata; its absence must not create an identity.
+    assert result.gpos[0].guid == "11111111-2222-3333-4444-555555555555"
+    assert result.gpos[0].computer_enabled is True
+    assert result.gpos[0].user_enabled is True
+
+
+def test_read_backup_native_layout_uses_root_bkup_info_fallback(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_id = "{AABBCCDD-1122-3344-5566-778899AABBCC}"
+    native_dir = backup_dir / backup_id
+    content = native_dir / "DomainSysvol" / "GPO"
+    content.joinpath("Machine").mkdir(parents=True)
+    (content / "Machine" / "registry.pol").write_bytes(b"\x50\x52\x65\x67\x01\x00\x00\x00")
+    (backup_dir / "manifest.xml").write_bytes(_NATIVE_MANIFEST_WITHOUT_DOMAIN)
+    (backup_dir / "bkupInfo.xml").write_bytes(_NATIVE_BKUP_INFO)
+
+    result = read_backup(backup_dir)
+
+    assert result.gpos[0].domain == "source.example.test"
+    assert result.gpos[0].content_root == content
+
+
+@pytest.mark.parametrize(
+    "backup_id",
+    [
+        "/tmp/escape",
+        "../escape",
+        "not-a-guid",
+    ],
+    ids=["absolute-id", "traversal-id", "non-guid-id"],
+)
+def test_read_backup_rejects_invalid_native_backup_id(
+    tmp_path: Path, backup_id: str
+) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(
+        _NATIVE_MANIFEST_WITHOUT_DOMAIN.replace(
+            b"{AABBCCDD-1122-3344-5566-778899AABBCC}", backup_id.encode()
+        )
+    )
+
+    with pytest.raises(BackupError, match="Invalid native backup ID"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_rejects_nested_bkup_info_id_mismatch(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_id = "{AABBCCDD-1122-3344-5566-778899AABBCC}"
+    native_dir = backup_dir / backup_id
+    native_dir.mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_NATIVE_MANIFEST_WITHOUT_DOMAIN)
+    (native_dir / "bkupInfo.xml").write_bytes(
+        _NATIVE_BKUP_INFO.replace(
+            backup_id.encode(), b"{11223344-5566-7788-99AA-BBCCDDEEFF00}"
+        )
+    )
+
+    with pytest.raises(BackupError, match="does not match manifest"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_rejects_nested_bkup_info_gpo_guid_mismatch(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_id = "{AABBCCDD-1122-3344-5566-778899AABBCC}"
+    native_dir = backup_dir / backup_id
+    native_dir.mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_NATIVE_MANIFEST_WITHOUT_DOMAIN)
+    (native_dir / "bkupInfo.xml").write_bytes(
+        _NATIVE_BKUP_INFO.replace(
+            b"{11111111-2222-3333-4444-555555555555}",
+            b"{99999999-2222-3333-4444-555555555555}",
+        )
+    )
+
+    with pytest.raises(BackupError, match="GPOGuid.*manifest GPO identity"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_rejects_root_bkup_info_gpo_guid_mismatch(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_id = "{AABBCCDD-1122-3344-5566-778899AABBCC}"
+    (backup_dir / backup_id / "DomainSysvol" / "GPO").mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_NATIVE_MANIFEST_WITHOUT_DOMAIN)
+    (backup_dir / "bkupInfo.xml").write_bytes(
+        _NATIVE_BKUP_INFO.replace(
+            b"{11111111-2222-3333-4444-555555555555}",
+            b"{99999999-2222-3333-4444-555555555555}",
+        )
+    )
+
+    with pytest.raises(BackupError, match="GPOGuid.*manifest GPO identity"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_rejects_dangling_native_backup_xml_symlink(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_id = "{AABBCCDD-1122-3344-5566-778899AABBCC}"
+    native_dir = backup_dir / backup_id
+    (native_dir / "DomainSysvol" / "GPO").mkdir(parents=True)
+    (backup_dir / "manifest.xml").write_bytes(_MANIFEST_NATIVE)
+    (native_dir / "Backup.xml").symlink_to(tmp_path / "missing-backup.xml")
+
+    with pytest.raises(BackupError, match="Symlinks are not allowed"):
+        read_backup(backup_dir)
+
+
+def test_read_backup_rejects_native_layout_without_manifest(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_id = "{AABBCCDD-1122-3344-5566-778899AABBCC}"
+    native_dir = backup_dir / backup_id
+    native_dir.mkdir(parents=True)
+    (native_dir / "bkupInfo.xml").write_bytes(_NATIVE_BKUP_INFO)
+
+    with pytest.raises(BackupError, match="Missing manifest.xml"):
+        read_backup(backup_dir)
 
 
 def test_read_backup_legacy_layout(tmp_path: Path) -> None:

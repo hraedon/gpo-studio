@@ -34,6 +34,10 @@ _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 _GUID_RE = re.compile(
     r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
 )
+_NATIVE_BACKUP_ID_RE = re.compile(
+    r"^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$"
+)
 
 
 class BackupError(StudioError):
@@ -91,6 +95,7 @@ class GpmcBackup:
     backup_id: str
     backup_type: str = ""
     gpos: tuple[BackupGpo, ...] = field(default_factory=tuple)
+    is_native: bool = False
 
 
 @dataclass
@@ -223,6 +228,13 @@ def _parse_extension_guids(text: str | None) -> list[str]:
     return guids
 
 
+def _validate_native_backup_id(backup_id: str) -> str:
+    """Validate the braced GUID used by native GPMC exports."""
+    if not _NATIVE_BACKUP_ID_RE.fullmatch(backup_id):
+        raise BackupError(f"Invalid native backup ID: {backup_id!r}")
+    return backup_id
+
+
 def parse_bkup_info(data: bytes) -> GpmcBackup:
     """Parse bkupInfo.xml from a GPMC backup directory."""
     root = _safe_parse(data)
@@ -233,6 +245,7 @@ def parse_bkup_info(data: bytes) -> GpmcBackup:
             backup_time=native.backup_time,
             backup_id=native.backup_id,
             backup_type="GPO",
+            is_native=True,
             gpos=native.gpos,
         )
 
@@ -311,8 +324,14 @@ def _parse_native_manifest(root: ET.Element) -> GpmcBackup:
     if not gpos:
         raise BackupError("No GPO entries found in manifest")
 
+    _validate_native_backup_id(backup_id)
+
     return GpmcBackup(
-        backup_time=backup_time, backup_id=backup_id, backup_type="", gpos=tuple(gpos)
+        backup_time=backup_time,
+        backup_id=backup_id,
+        backup_type="",
+        is_native=True,
+        gpos=tuple(gpos),
     )
 
 
@@ -484,14 +503,20 @@ def _parse_native_backup_options(data: bytes, expected_guid: str) -> tuple[bool,
     return not bool(options & 2), not bool(options & 1)
 
 
-def _resolve_content_root(backup_dir: Path, backup_id: str, gpo_guid: str) -> Path | None:
+def _resolve_content_root(
+    backup_dir: Path, backup_id: str, gpo_guid: str, *, is_native: bool
+) -> Path | None:
     """Detect native GPMC or legacy Studio layout and return the content root.
 
     Native GPMC layout: {backup_dir}/{BACKUP_ID}/DomainSysvol/GPO
     Legacy Studio layout: {backup_dir}/{GPO_GUID}
     """
-    native_path = backup_dir / backup_id / "DomainSysvol" / "GPO" if backup_id else None
-    legacy_path = backup_dir / gpo_guid
+    native_path = (
+        _safe_path(backup_dir, f"{backup_id}/DomainSysvol/GPO")
+        if is_native and backup_id
+        else None
+    )
+    legacy_path = _safe_path(backup_dir, gpo_guid)
 
     native_exists = native_path is not None and native_path.is_dir()
     legacy_exists = legacy_path.is_dir()
@@ -533,15 +558,44 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
             f"exceeding limit of {_MAX_BACKUP_GPO_COUNT}"
         )
 
-    bkup_info_path = backup_dir / "bkupInfo.xml"
+    manifest_backup_id = (
+        _validate_native_backup_id(backup.backup_id) if backup.is_native else None
+    )
+    native_bkup_info_path = (
+        _safe_path(backup_dir, f"{manifest_backup_id}/bkupInfo.xml")
+        if manifest_backup_id is not None
+        else None
+    )
+    bkup_info_path = native_bkup_info_path
+    if bkup_info_path is None or not bkup_info_path.exists():
+        bkup_info_path = backup_dir / "bkupInfo.xml"
     if is_link_or_junction(bkup_info_path):
         raise BackupError(f"Symlinks are not allowed: {bkup_info_path}")
+    bkup_gpo: BackupGpo | None
     if bkup_info_path.exists():
         bkup_data = read_file_bytes(bkup_info_path)
         budget.add_file(len(bkup_data))
         bkup = parse_bkup_info(bkup_data)
+        if manifest_backup_id is not None:
+            nested_backup_id = _validate_native_backup_id(bkup.backup_id)
+            if nested_backup_id.casefold() != manifest_backup_id.casefold():
+                raise BackupError(
+                    f"Nested bkupInfo.xml ID {bkup.backup_id!r} does not match "
+                    f"manifest backup ID {backup.backup_id!r}"
+                )
+            manifest_gpo_guids = {gpo.guid.casefold() for gpo in backup.gpos}
+            for bkup_gpo in bkup.gpos:
+                if bkup_gpo.guid.casefold() not in manifest_gpo_guids:
+                    raise BackupError(
+                        f"Native bkupInfo.xml GPOGuid {bkup_gpo.guid!r} does not "
+                        "match a manifest GPO identity"
+                    )
         backup_time = bkup.backup_time or backup.backup_time
-        backup_id = bkup.backup_id or backup.backup_id
+        backup_id = (
+            backup.backup_id
+            if manifest_backup_id is not None
+            else bkup.backup_id or backup.backup_id
+        )
         backup_type = bkup.backup_type or backup.backup_type
         bkup_gpo = bkup.gpos[0] if bkup.gpos else None
     else:
@@ -561,7 +615,9 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
             display_name = bkup_gpo.display_name or display_name
             domain = bkup_gpo.domain or domain
 
-        content_root = _resolve_content_root(backup_dir, backup_id, gpo.guid)
+        content_root = _resolve_content_root(
+            backup_dir, backup_id, gpo.guid, is_native=backup.is_native
+        )
 
         if content_root is None:
             enriched_gpos.append(
@@ -590,9 +646,9 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         )
         computer_enabled = True
         user_enabled = True
+        if is_link_or_junction(backup_xml_path):
+            raise BackupError(f"Symlinks are not allowed: {backup_xml_path}")
         if backup_xml_path.exists():
-            if is_link_or_junction(backup_xml_path):
-                raise BackupError(f"Symlinks are not allowed: {backup_xml_path}")
             backup_xml = read_file_bytes(backup_xml_path)
             budget.add_file(len(backup_xml))
             computer_enabled, user_enabled = _parse_native_backup_options(
@@ -618,6 +674,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         backup_time=backup_time,
         backup_id=backup_id,
         backup_type=backup_type,
+        is_native=backup.is_native,
         gpos=tuple(enriched_gpos),
     )
 

@@ -4,6 +4,7 @@ import io
 import zipfile
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from gpo_studio.api import app
@@ -316,6 +317,28 @@ _MANIFEST_XML = b"""<?xml version="1.0" encoding="utf-8"?>
   </BackupInstance>
 </BackupInstances>"""
 
+_NATIVE_MANIFEST_XML = b"""<?xml version="1.0" encoding="utf-8"?>
+<Backups xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
+         xmlns:mfst="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
+         mfst:version="1.0">
+  <BackupInst>
+    <GPOGuid>{11111111-2222-3333-4444-555555555555}</GPOGuid>
+    <GPODomain>example.test</GPODomain>
+    <BackupTime>1980-01-01T00:00:00</BackupTime>
+    <ID>{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}</ID>
+    <GPODisplayName>Native Imported Policy</GPODisplayName>
+  </BackupInst>
+</Backups>"""
+
+_NATIVE_BKUP_INFO_XML = b"""<?xml version="1.0" encoding="utf-8"?>
+<BackupInst xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest">
+  <GPOGuid>{11111111-2222-3333-4444-555555555555}</GPOGuid>
+  <GPODomain>example.test</GPODomain>
+  <BackupTime>1980-01-01T00:00:00</BackupTime>
+  <ID>{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}</ID>
+  <GPODisplayName>Native Imported Policy</GPODisplayName>
+</BackupInst>"""
+
 
 def test_backup_import(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
@@ -346,9 +369,116 @@ def test_backup_import(tmp_path, monkeypatch) -> None:
         gpo = resp.json()["gpo"]
         assert gpo["name"] == "Imported Policy"
         assert gpo["source_guid"] == "11111111-2222-3333-4444-555555555555"
+        assert gpo["domain"] == "example.test"
+        assert gpo["domain"] != "studio.local"
         assert len(gpo["settings"]) == 1
         assert gpo["settings"][0]["key"] == r"Software\Policies\Test"
         assert gpo["settings"][0]["value"] == "1"
+
+
+@pytest.mark.parametrize(
+    "domain_element",
+    ["<Domain></Domain>", ""],
+    ids=["empty-domain", "missing-domain"],
+)
+def test_backup_import_rejects_empty_or_missing_domain(
+    tmp_path: Path, monkeypatch, domain_element: str
+) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "backup"
+    _create_minimal_backup(backup_dir)
+    manifest = _MANIFEST_XML.replace(
+        b"<Domain>example.test</Domain>", domain_element.encode()
+    )
+    (backup_dir / "manifest.xml").write_bytes(manifest)
+
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/backups/import",
+            json={"path": str(backup_dir), "actor": "tester", "reason": "test"},
+        )
+
+    assert response.status_code == 422
+    issues = response.json()["error"]["issues"]
+    assert issues == [
+        {
+            "severity": "error",
+            "code": "empty_domain",
+            "message": "Domain is required.",
+            "path": "domain",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "domain_element",
+    ["<GPODomain></GPODomain>", ""],
+    ids=["empty-domain", "missing-domain"],
+)
+def test_native_backup_import_rejects_empty_or_missing_domain(
+    tmp_path: Path, monkeypatch, domain_element: str
+) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "native-backup"
+    backup_dir.mkdir()
+    replacement = domain_element.encode()
+    (backup_dir / "manifest.xml").write_bytes(
+        _NATIVE_MANIFEST_XML.replace(
+            b"<GPODomain>example.test</GPODomain>", replacement
+        )
+    )
+    (backup_dir / "bkupInfo.xml").write_bytes(
+        _NATIVE_BKUP_INFO_XML.replace(
+            b"<GPODomain>example.test</GPODomain>", replacement
+        )
+    )
+
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/backups/import",
+            json={"path": str(backup_dir), "actor": "tester", "reason": "test"},
+        )
+
+    assert response.status_code == 422
+    issues = response.json()["error"]["issues"]
+    assert issues == [
+        {
+            "severity": "error",
+            "code": "empty_domain",
+            "message": "Domain is required.",
+            "path": "domain",
+        }
+    ]
+
+
+def test_native_backup_import_preserves_domain(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(tmp_path))
+    backup_dir = tmp_path / "native-backup"
+    backup_dir.mkdir()
+    (backup_dir / "manifest.xml").write_bytes(_NATIVE_MANIFEST_XML)
+    (backup_dir / "bkupInfo.xml").write_bytes(_NATIVE_BKUP_INFO_XML)
+
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/backups/import",
+            json={"path": str(backup_dir), "actor": "tester", "reason": "test"},
+        )
+
+        assert response.status_code == 201
+        gpo = response.json()["gpo"]
+        assert gpo["domain"] == "example.test"
+        assert gpo["domain"] != "studio.local"
+        stored = client.get(f"/api/gpos/{gpo['guid']}").json()["gpo"]
+        assert stored["domain"] == "example.test"
 
 
 def test_backup_import_nonexistent_dir(tmp_path) -> None:

@@ -3137,7 +3137,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
                 guid="import-preview",
                 name=backup_gpo.display_name or "Imported GPO",
                 security_filters=security_filters,
-                domain=backup_gpo.domain or "studio.local",
+                domain=backup_gpo.domain,
             )
             migrated_gpo = apply_migration(temp_gpo_for_migration, table)
             security_filters = migrated_gpo.security_filters
@@ -3162,7 +3162,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         settings=all_settings,
         security_filters=security_filters,
         wmi_filter=wmi_filter,
-        domain=backup_gpo.domain or "studio.local",
+        domain=backup_gpo.domain,
         gpp_collections=gpp_collections,
         computer_enabled=backup_gpo.computer_enabled,
         user_enabled=backup_gpo.user_enabled,
@@ -3180,7 +3180,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         settings=all_settings,
         source_guid=backup_gpo.guid,
         cse_metadata=cse_metadata,
-        domain=backup_gpo.domain or "studio.local",
+        domain=backup_gpo.domain,
         security_filters=security_filters,
         wmi_filter=wmi_filter,
         gpp_collections=gpp_collections,
