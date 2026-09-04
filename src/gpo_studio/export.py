@@ -6,8 +6,9 @@ import io
 import json
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, replace
-from typing import assert_never
+from typing import Protocol, assert_never
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from .canonical import (
@@ -19,6 +20,7 @@ from .canonical import (
 from .gpp import contains_cpassword, serialize_gpp
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
+from .script_policy import PowerShellScriptEntry, ScriptEntry, ScriptPolicy
 from .validation import validate_gpo
 
 _GPMC_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
@@ -51,6 +53,15 @@ _GPP_EXTENSION_PROFILES: dict[str, tuple[str, str]] = {
         "{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}",
     ),
 }
+
+# Scripts CSE pair, measured on the wire (windows-console-driver claim-registry
+# R2 re-run, 2026-09-03): the authoring transaction registered exactly
+# ``[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]``
+# in ``gPCMachineExtensionNames``, so both halves below are captured, not
+# recalled. scripts.ini (legacy) and psscripts.ini (PowerShell) are the payload
+# files of this one extension.
+_SCRIPTS_CSE_GUID = "{42B5FAAE-6536-11D2-AE5A-0000F87571E3}"
+_SCRIPTS_TOOL_GUID = "{40B6664F-4972-11D1-A7CA-0000F87571E3}"
 
 _DOMAIN_NEUTRAL_SECURITY_DESCRIPTOR = (
     "01 00 04 80 14 00 00 00 24 00 00 00 00 00 00 00 34 00 00 00 "
@@ -353,6 +364,184 @@ def _gpmc_preg_bytes(settings: list[RegistrySetting]) -> bytes:
     return serialize(records)
 
 
+# ---------------------------------------------------------------------------
+# Native scripts.ini / psscripts.ini (Scripts CSE payload)
+#
+# The byte contract below is the banked R2 measurement (Windows Server 2025
+# GPMC, 2026-09-03; artifacts in tests/fixtures/native-scripts-gpmc/), not a
+# guess from the docs: GPMC writes both files as UTF-16LE with a BOM (FF FE),
+# a leading blank line, and CRLF terminators on every line including the last.
+# ---------------------------------------------------------------------------
+
+_SCRIPT_SIDES: tuple[str, ...] = ("computer", "user")
+
+
+def _native_ini_bytes(sections: list[tuple[str, list[tuple[str, str]]]]) -> bytes:
+    """Encode INI *sections* into the measured native scripts-file byte shape.
+
+    Why each element is load-bearing:
+
+    * The BOM matters. The Scripts CSE sniffs encoding from the FF FE prefix;
+      a UTF-8 or ANSI file decodes to mojibake and every entry is silently
+      ignored — the inert failure the R10 import probe exists to catch.
+    * The leading blank line is in the capture (byte 3..4 are 0D 00), as is a
+      CRLF after the final entry, so both are reproduced exactly.
+    * Only non-empty sections are emitted; the captures carry a ``[Startup]``
+      section alone, never stubs for unconfigured triggers.
+    """
+    parts = ["\r\n"]
+    for name, pairs in sections:
+        if not pairs:
+            continue
+        parts.append(f"[{name}]\r\n")
+        parts.extend(f"{key}={value}\r\n" for key, value in pairs)
+    return b"\xff\xfe" + "".join(parts).encode("utf-16-le")
+
+
+class _IniScriptEntry(Protocol):
+    """The two attributes either entry type contributes to the INI shape."""
+
+    @property
+    def original_name(self) -> str: ...
+
+    @property
+    def parameters(self) -> str: ...
+
+
+def _script_ini_pairs(entries: Sequence[_IniScriptEntry]) -> list[tuple[str, str]]:
+    """Split-style ``NCmdLine``/``NParameters`` pairs, in tuple order.
+
+    A zero-value parameter is written as an explicit empty key, never omitted:
+    the R2 capture retains ``1Parameters=`` (nothing after the ``=``) for the
+    parameterless second script, and the parser reads position off these
+    numbered keys, so dropping the key would renumber every later entry.
+    """
+    pairs: list[tuple[str, str]] = []
+    for idx, entry in enumerate(entries):
+        pairs.append((f"{idx}CmdLine", entry.original_name))
+        pairs.append((f"{idx}Parameters", entry.parameters))
+    return pairs
+
+
+def _native_scripts_refusal(
+    scope: str, policy: ScriptPolicy
+) -> ValidationIssue | None:
+    """Why *policy* has no native scripts-file encoding, or ``None``.
+
+    REFUSED, NOT APPROXIMATED — the same call as the cpassword and
+    ``explicitValue`` refusals above. The R2 captures pin the native entry
+    shape to ``NCmdLine``/``NParameters`` plus the one ``[ScriptsConfig]``
+    ordering key; the model's per-script PowerShell switches and the logon/
+    logoff sync flags appear nowhere on the wire (the claim registry records
+    their absence explicitly), so there is no measured encoding to emit and
+    none is invented here.
+    """
+    path = f"scripts/{scope}"
+    if policy.run_logon_scripts_sync or policy.run_logoff_scripts_sync:
+        return ValidationIssue(
+            severity="error",
+            code="inexpressible_native_script_state",
+            message=(
+                "RunLogonScriptsSync/RunLogoffScriptsSync have no native "
+                "scripts-file encoding (measured WS2025 GPMC: neither key "
+                "exists on the wire). Use the Studio publication bundle "
+                "instead."
+            ),
+            path=path,
+        )
+    for entry in (*policy.startup, *policy.shutdown, *policy.logon, *policy.logoff):
+        if entry.execution != "synchronous":
+            return ValidationIssue(
+                severity="error",
+                code="inexpressible_native_script_state",
+                message=(
+                    f"Script {entry.script_id} is asynchronous, which the "
+                    "measured native scripts.ini shape (NCmdLine/NParameters "
+                    "only) cannot express. Use the Studio publication bundle "
+                    "instead."
+                ),
+                path=f"{path}/{entry.script_id}",
+            )
+    for ps_entry in (
+        *policy.powershell_startup,
+        *policy.powershell_shutdown,
+        *policy.powershell_logon,
+        *policy.powershell_logoff,
+    ):
+        if (
+            ps_entry.execution != "synchronous"
+            or ps_entry.no_profile
+            or not ps_entry.non_interactive
+        ):
+            return ValidationIssue(
+                severity="error",
+                code="inexpressible_native_script_state",
+                message=(
+                    f"PowerShell script {ps_entry.script_id} sets no_profile, "
+                    "non_interactive=False, or asynchronous execution; the "
+                    "measured native psscripts.ini entry shape "
+                    "(NCmdLine/NParameters only) cannot express it. Use the "
+                    "Studio publication bundle instead."
+                ),
+                path=f"powershell_{path}/{ps_entry.script_id}",
+            )
+    return None
+
+
+def _legacy_scripts_sections(
+    policy: ScriptPolicy,
+) -> list[tuple[str, list[tuple[str, str]]]]:
+    legacy: dict[str, tuple[ScriptEntry, ...]] = {
+        "Startup": policy.startup,
+        "Shutdown": policy.shutdown,
+        "Logon": policy.logon,
+        "Logoff": policy.logoff,
+    }
+    return [
+        (name, _script_ini_pairs(entries)) for name, entries in legacy.items() if entries
+    ]
+
+
+def _powershell_scripts_sections(
+    policy: ScriptPolicy,
+) -> list[tuple[str, list[tuple[str, str]]]]:
+    powershell: dict[str, tuple[PowerShellScriptEntry, ...]] = {
+        "Startup": policy.powershell_startup,
+        "Shutdown": policy.powershell_shutdown,
+        "Logon": policy.powershell_logon,
+        "Logoff": policy.powershell_logoff,
+    }
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+    has_entries = any(powershell.values())
+    if has_entries:
+        # Ordering is encoded as [ScriptsConfig] StartExecutePSFirst=true/false
+        # (measured), placed before the trigger sections exactly as captured.
+        # NotConfigured writes no section at all: the R2 engine re-run captured
+        # a 140-byte psscripts.ini with no [ScriptsConfig] until the ordering
+        # dropdown was explicitly set, so the default stays absent rather than
+        # inventing a value for an unmeasured state.
+        if policy.powershell_order == "run_windows_powershell_scripts_first":
+            sections.append(("ScriptsConfig", [("StartExecutePSFirst", "true")]))
+        elif policy.powershell_order == "run_windows_powershell_scripts_last":
+            sections.append(("ScriptsConfig", [("StartExecutePSFirst", "false")]))
+    sections.extend(
+        (name, _script_ini_pairs(entries)) for name, entries in powershell.items() if entries
+    )
+    return sections
+
+
+def _native_scripts_files(
+    scope: str, policy: ScriptPolicy, files: dict[str, bytes]
+) -> None:
+    side_dir = "Machine" if scope == "computer" else "User"
+    legacy_sections = _legacy_scripts_sections(policy)
+    if legacy_sections:
+        files[f"{side_dir}/Scripts/scripts.ini"] = _native_ini_bytes(legacy_sections)
+    ps_sections = _powershell_scripts_sections(policy)
+    if ps_sections:
+        files[f"{side_dir}/Scripts/psscripts.ini"] = _native_ini_bytes(ps_sections)
+
+
 def _xml_to_bytes(root: ET.Element, namespace: str) -> bytes:
     ET.register_namespace("", namespace)
     result = ET.tostring(root, encoding="utf-8", xml_declaration=True)
@@ -419,6 +608,7 @@ def _build_bkup_info_xml(gpo: GPO, backup_id: str | None = None) -> bytes:
 
 def _native_export_files(
     gpo: GPO,
+    scripts: Mapping[str, ScriptPolicy] | None = None,
 ) -> tuple[dict[str, bytes], dict[str, set[str]]]:
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
@@ -428,6 +618,16 @@ def _native_export_files(
         files["Machine/registry.pol"] = _gpmc_preg_bytes(computer)
     if user:
         files["User/registry.pol"] = _gpmc_preg_bytes(user)
+
+    script_policies = scripts or {}
+    for scope in _SCRIPT_SIDES:
+        policy = script_policies.get(scope)
+        if policy is None:
+            continue
+        refusal = _native_scripts_refusal(scope, policy)
+        if refusal is not None:
+            raise ValidationError([refusal])
+        _native_scripts_files(scope, policy, files)
 
     unsupported: set[str] = set()
     for col in gpo.gpp_collections:
@@ -466,7 +666,11 @@ def _native_export_files(
 
 
 def _extension_guids(
-    *, side: str, has_registry: bool, gpp_profiles: set[str]
+    *,
+    side: str,
+    has_registry: bool,
+    gpp_profiles: set[str],
+    has_scripts: bool = False,
 ) -> str:
     groups: list[str] = []
     if has_registry:
@@ -474,6 +678,12 @@ def _extension_guids(
             _REGISTRY_MACHINE_TOOL_GUID if side == "Machine" else _REGISTRY_USER_TOOL_GUID
         )
         groups.append(f"[{_REGISTRY_CSE_GUID}{tool}]")
+    if has_scripts:
+        # The pair GPMC itself registered when authoring scripts (claim-registry
+        # R2 re-run): one group, CSE GUID then tool GUID, same bracket shape as
+        # the other profiles. Relative order against the registry/GPP groups was
+        # not captured in any single transaction; this order is deterministic.
+        groups.append(f"[{_SCRIPTS_CSE_GUID}{_SCRIPTS_TOOL_GUID}]")
     if gpp_profiles:
         pairs = [_GPP_EXTENSION_PROFILES[name] for name in sorted(gpp_profiles)]
         groups.append("[" + _ZERO_GUID + "".join(tool for _, tool in pairs) + "]")
@@ -526,6 +736,8 @@ def _build_backup_xml(
     options = (0 if gpo.user_enabled else 1) | (0 if gpo.computer_enabled else 2)
     machine_files = any(path.startswith("Machine/") for path in files)
     user_files = any(path.startswith("User/") for path in files)
+    machine_scripts = any(path.startswith("Machine/Scripts/") for path in files)
+    user_scripts = any(path.startswith("User/Scripts/") for path in files)
     core_values = (
         ("ID", _braced_guid(gpo.guid, field="GPO ID")),
         ("Domain", gpo.domain),
@@ -540,6 +752,7 @@ def _build_backup_xml(
                 side="Machine",
                 has_registry="Machine/registry.pol" in files,
                 gpp_profiles=profiles["Machine"],
+                has_scripts=machine_scripts,
             ),
         ),
         (
@@ -548,6 +761,7 @@ def _build_backup_xml(
                 side="User",
                 has_registry="User/registry.pol" in files,
                 gpp_profiles=profiles["User"],
+                has_scripts=user_scripts,
             ),
         ),
         ("WMIFilter", ""),
@@ -592,10 +806,45 @@ def _build_backup_xml(
             _append_file_reference(gpp_ext, gpo, path, is_dir=True)
         for path in gpp_paths:
             _append_file_reference(gpp_ext, gpo, path)
+
+    scripts_paths = sorted(path for path in files if "/Scripts/" in path)
+    if scripts_paths:
+        scripts_ext = ET.SubElement(
+            obj,
+            f"{{{_GPMC_BACKUP_NS}}}GroupPolicyExtension",
+            {
+                _backup_attr("ID"): _SCRIPTS_CSE_GUID,
+                _backup_attr("DescName"): "Scripts",
+            },
+        )
+        directories = {
+            "/".join(path.split("/")[:-1]) for path in scripts_paths
+        }
+        # GPMC lays the trigger subdirectories down alongside the INIs — the R2
+        # SYSVOL tree shows Machine/Scripts, Machine/Scripts/Startup and
+        # Machine/Scripts/Shutdown with the two INIs — so the backup references
+        # them for every side that carries a scripts file, even where Studio
+        # ships no payload inside. User sides get the logon/logoff analogues by
+        # the same convention (unmeasured; the R2 capture was machine-side
+        # only).
+        trigger_names = {"Machine": ("Startup", "Shutdown"), "User": ("Logon", "Logoff")}
+        for side_dir in sorted({path.split("/", 1)[0] for path in scripts_paths}):
+            side_scripts = f"{side_dir}/Scripts"
+            directories.update(
+                f"{side_scripts}/{trigger}" for trigger in trigger_names[side_dir]
+            )
+        for path in sorted(directories):
+            _append_file_reference(scripts_ext, gpo, path, is_dir=True)
+        for path in scripts_paths:
+            _append_file_reference(scripts_ext, gpo, path)
     return _xml_to_bytes(root, _GPMC_BACKUP_NS)
 
 
-def native_backup_refusal(gpo: GPO) -> ValidationIssue | None:
+def native_backup_refusal(
+    gpo: GPO,
+    *,
+    scripts: Mapping[str, ScriptPolicy] | None = None,
+) -> ValidationIssue | None:
     """Why this GPO can get no GMPC-native backup, or ``None`` if it can.
 
     The companion to `plan_refusal`, and it exists because WI-044 fixed an
@@ -617,16 +866,29 @@ def native_backup_refusal(gpo: GPO) -> ValidationIssue | None:
     """
     try:
         native_backup_id(gpo)
-        _native_export_files(gpo)
+        _native_export_files(gpo, scripts)
     except ValidationError as error:
         return error.issues[0]
     return None
 
 
-def gpmc_backup_bundle(gpo: GPO) -> bytes:
-    """Return a deterministic native Backup-GPO-compatible ZIP."""
+def gpmc_backup_bundle(
+    gpo: GPO,
+    *,
+    scripts: Mapping[str, ScriptPolicy] | None = None,
+) -> bytes:
+    """Return a deterministic native Backup-GPO-compatible ZIP.
+
+    *scripts* maps ``"computer"``/``"user"`` to that side's `ScriptPolicy`;
+    each side with configured entries contributes ``Scripts/scripts.ini``
+    (legacy) and/or ``Scripts/psscripts.ini`` (PowerShell) in the measured
+    native byte shape, and registers the measured Scripts CSE pair in
+    ``MachineExtensionGuids``/``UserExtensionGuids``. States with no measured
+    native encoding are refused, not approximated — see
+    `_native_scripts_refusal`.
+    """
     backup_id = native_backup_id(gpo)
-    files, profiles = _native_export_files(gpo)
+    files, profiles = _native_export_files(gpo, scripts)
     prefix = f"{backup_id}/DomainSysvol/GPO"
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:

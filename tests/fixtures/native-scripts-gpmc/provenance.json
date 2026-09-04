@@ -1,0 +1,25 @@
+{
+  "source": "windows-console-driver/docs/r2-pilot-capture (GPMC on Windows Server 2025, captured 2026-09-03)",
+  "oracle": "PowerShell Direct SYSVOL byte read, independent of the actuation path; recorded in the windows-console-driver claim-registry R2 rows and runs/r2-record.json",
+  "files": {
+    "scripts.ini.txt": {
+      "native_path_in_backup": "DomainSysvol/GPO/Machine/Scripts/scripts.ini",
+      "measured_total_bytes": 234,
+      "measured_bom": "utf-16le (FF FE), width 2",
+      "measured_cr_count": 6,
+      "measured_lf_count": 6
+    },
+    "psscripts.ini.txt": {
+      "native_path_in_backup": "DomainSysvol/GPO/Machine/Scripts/psscripts.ini",
+      "measured_total_bytes": 226,
+      "measured_bom": "utf-16le (FF FE), width 2",
+      "measured_cr_count": 6,
+      "measured_lf_count": 6
+    }
+  },
+  "transcript_format": "ASCII rendering of the captured UTF-16LE files: a two-line measurement header (first 4 bytes, CR/LF counts, total byte size), then the decoded content verbatim except that each CRLF was transcribed as LF. The leading blank line after the header belongs to the native content, as do CRLF terminators on every line including the last.",
+  "native_byte_reconstruction": "b'\\xff\\xfe' + transcript_content.replace('\\n', '\\r\\n').encode('utf-16-le'); tests re-verify the reconstructed length against the header's banked byte count",
+  "related_measurement": "The r2-record.json engine re-run captured psscripts.ini at 140 bytes / 4 CRLF pairs BEFORE the ordering dropdown was set: no [ScriptsConfig] section exists until 'Run Windows PowerShell scripts first/last' is explicitly chosen. The same record shows GPMC registering the Scripts extension pair {42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3} in gPCMachineExtensionNames and laying down Machine/Scripts, Machine/Scripts/Startup and Machine/Scripts/Shutdown directories.",
+  "sanitisation": "Verified before copying: the captures contain only synthetic zz-studio-* placeholder names and literal strings 'alpha beta' / '-Mode Alpha'. No domain, host, account, e-mail, SID, IP, or user-path identifiers.",
+  "copied_into_repo": "2026-09-03"
+}
