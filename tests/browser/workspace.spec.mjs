@@ -247,3 +247,40 @@ test("has no serious or critical automated accessibility violations", async ({
     ),
   ).toEqual([]);
 });
+
+test("the dark theme toggles, persists, and passes the same accessibility bar", async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await seedPolicy(request, testInfo);
+  await page.goto("/");
+  await page.locator(".gpo-item", { hasText: seeded.name }).click();
+
+  // Auto → Dark. The resolved theme lands on <html data-theme> so the
+  // stylesheet needs no media query, and the choice survives a reload.
+  const toggle = page.locator("#theme-toggle");
+  await expect(toggle).toHaveText("Auto");
+  await toggle.click();
+  await expect(toggle).toHaveText("Dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  // The dark palette is held to the bar the light one already meets.
+  await page.locator(".gpo-item", { hasText: seeded.name }).click();
+  for (const tab of ["Overview", "Policy settings", "Security"]) {
+    await page.getByRole("tab", { name: new RegExp(tab) }).click();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(
+      results.violations.filter(({ impact }) =>
+        ["serious", "critical"].includes(impact),
+      ),
+    ).toEqual([]);
+  }
+
+  // Dark → Light → Auto completes the cycle and resolves from the system.
+  await toggle.click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await toggle.click();
+  await expect(toggle).toHaveText("Auto");
+});
