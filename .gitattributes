@@ -1,0 +1,2 @@
+# Byte-exact evidence fixtures: no EOL normalization (UTF-16LE payload)
+tests/fixtures/migration-tables/*.migtable -text
