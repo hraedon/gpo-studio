@@ -8,19 +8,28 @@ core codec independent from FastAPI, matching :mod:`policy_families` and
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal, assert_never
 
 from .model import ValidationIssue
 from .sddl import SddlError, SecurityDescriptor, format_sddl, parse_sddl
-from .security_template import SecurityTemplate
+from .security_template import InfSection, SecurityTemplate
 
 # ---------------------------------------------------------------------------
 # Type aliases and constants
 # ---------------------------------------------------------------------------
 
 StartupMode = Literal["automatic", "manual", "disabled"]
-PropagationMode = Literal["propagate", "replace", "none"]
+
+# Propagation of inheritable ACLs, as encoded in the code field of a native
+# ``GptTmpl.inf`` ACL row.  Measured on Windows Server 2025 (GPMC/GPME
+# authoring, per-key byte reads; "R4"): 0 = propagate, 1 = do not allow
+# replace, 2 = replace.  The wire has exactly these three codes, so the mode
+# set is exactly these three names; a former "none" variant was an artifact of
+# misreading code 0 and had no measured wire code, so it was removed rather
+# than left to lie on write.
+PropagationMode = Literal["propagate", "do_not_allow_replace", "replace"]
 RiskLevel = Literal["low", "medium", "high", "critical"]
 BlastRadiusCategory = Literal["service", "registry_key", "file", "restricted_group"]
 
@@ -117,22 +126,25 @@ def _startup_mode_to_code(mode: StartupMode) -> int:
 
 
 def _propagation_from_code(code: int) -> PropagationMode:
+    """Map a row's propagation code to its mode (measured: 0/1/2, see above)."""
     match code:
         case 0:
-            return "none"
-        case 1:
             return "propagate"
+        case 1:
+            return "do_not_allow_replace"
         case 2:
             return "replace"
         case _:
+            # Unknown codes are read as the native default rather than
+            # inventing a mode with no wire meaning.
             return "propagate"
 
 
 def _propagation_to_code(mode: PropagationMode) -> int:
     match mode:
-        case "none":
-            return 0
         case "propagate":
+            return 0
+        case "do_not_allow_replace":
             return 1
         case "replace":
             return 2
@@ -166,6 +178,35 @@ def _format_object_value(code: int, sddl: str) -> str:
     if sddl:
         return f'{code},"{sddl}"'
     return str(code)
+
+
+# Native ``GptTmpl.inf`` ACL rows are bare quoted-CSV lines -- ``"KEY",code,
+# "SDDL"`` (measured, R4) -- which the INF parser preserves in
+# ``unknown_lines`` rather than ``entries``, because they carry no ``=``.
+# Paths and SDDL strings cannot contain double quotes, so this simple pattern
+# is total over the real shape.
+_OBJECT_ROW_RE = re.compile(r'^"([^"]*)"\s*,\s*(\d+)\s*,\s*"([^"]*)"$')
+
+
+def _object_section_rows(section: InfSection) -> tuple[tuple[str, str], ...]:
+    """Collect ``(path, 'code,"SDDL"')`` pairs from a row-shaped section.
+
+    Reads the native quoted-CSV rows out of ``unknown_lines`` first, then any
+    legacy ``key = value`` entries (the shape this codec used to emit, which
+    ``secedit /validate`` rejects but old inputs may still carry).  Comments
+    are skipped; an unparseable non-comment line is left to the template-level
+    ``unparsed_entries`` warning rather than silently dropped here.
+    """
+    rows: list[tuple[str, str]] = []
+    for line in section.unknown_lines:
+        if line.startswith(";"):
+            continue
+        match = _OBJECT_ROW_RE.match(line)
+        if match is not None:
+            path, code, sddl = match.groups()
+            rows.append((path, f'{code},"{sddl}"'))
+    rows.extend(section.entries)
+    return tuple(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +408,7 @@ class SystemServicesFamily:
         if section is None:
             return SystemServicesFamily()
         services: list[ServiceSecurity] = []
-        for name, value in section.entries:
+        for name, value in _object_section_rows(section):
             code, raw_sddl = _parse_object_value(value)
             startup = _startup_code_to_mode(code) if code is not None else None
             sd = _try_parse_sddl(raw_sddl)
@@ -449,7 +490,7 @@ class RegistrySecurityFamily:
         if section is None:
             return RegistrySecurityFamily()
         keys: list[RegistryKeySecurity] = []
-        for key_path, value in section.entries:
+        for key_path, value in _object_section_rows(section):
             path = _strip_quotes(key_path)
             code, raw_sddl = _parse_object_value(value)
             propagation = (
@@ -535,7 +576,7 @@ class FileSystemSecurityFamily:
         if section is None:
             return FileSystemSecurityFamily()
         files: list[FileSecurity] = []
-        for file_path, value in section.entries:
+        for file_path, value in _object_section_rows(section):
             path = _strip_quotes(file_path)
             code, raw_sddl = _parse_object_value(value)
             propagation = (

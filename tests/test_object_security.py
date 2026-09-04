@@ -15,6 +15,11 @@ from gpo_studio.object_security import (
     assess_blast_radius,
 )
 from gpo_studio.security_template import (
+    InfSection,
+    SecurityTemplate,
+    decode_security_template,
+    encode_security_template,
+    format_security_template,
     parse_security_template,
 )
 
@@ -157,6 +162,20 @@ svc_unknown = 7,""
     assert family.get_service("svc_unknown").startup_mode is None
 
 
+def test_service_general_setting_native_rows_are_read() -> None:
+    # Row shape inferred for this section too; only [Registry Keys] is
+    # per-key measured (R4).
+    text = f"""\
+[Service General Setting]
+"Spooler",2,"{_SDDL_ADMIN}"
+"""
+    family = SystemServicesFamily.from_template(parse_security_template(text))
+    spooler = family.get_service("Spooler")
+    assert spooler is not None
+    assert spooler.startup_mode == "automatic"
+    assert spooler.raw_sddl == _SDDL_ADMIN
+
+
 def test_system_services_round_trip() -> None:
     text = f"""\
 [Service General Setting]
@@ -224,26 +243,69 @@ MACHINE\\Software\\Test = 0,"{_SDDL_SYSTEM_ADMIN}"
 
     key0 = family.keys[0]
     assert key0.key_path == r"MACHINE\Software\Policies"
-    assert key0.propagation == "propagate"
+    assert key0.propagation == "do_not_allow_replace"
     assert key0.security_descriptor is not None
 
     key1 = family.keys[1]
     assert key1.key_path == r"MACHINE\Software\Test"
-    assert key1.propagation == "none"
+    assert key1.propagation == "propagate"
 
 
-def test_registry_security_propagation_codes() -> None:
+def test_registry_security_native_rows_are_read() -> None:
+    """Native ``[Registry Keys]`` rows are bare quoted-CSV lines, not ``=``.
+
+    Measured on Windows Server 2025: native GptTmpl.inf carries
+    ``"KEY",code,"SDDL"`` and the ``key = value`` shape appears nowhere (R4).
+    These rows carry no ``=`` so the template parser preserves them in
+    ``unknown_lines``; the family reader must find them there.
+    """
     text = f"""\
 [Registry Keys]
-KeyNone = 0,"{_SDDL_ADMIN}"
-KeyProp = 1,"{_SDDL_ADMIN}"
-KeyReplace = 2,"{_SDDL_ADMIN}"
+"MACHINE\\Software\\Alpha",0,"{_SDDL_ADMIN}"
+"MACHINE\\Software\\Bravo",2,"{_SDDL_ADMIN}"
 """
     template = parse_security_template(text)
     family = RegistrySecurityFamily.from_template(template)
-    assert family.keys[0].propagation == "none"
-    assert family.keys[1].propagation == "propagate"
+    assert len(family.keys) == 2
+    assert family.keys[0].key_path == r"MACHINE\Software\Alpha"
+    assert family.keys[0].propagation == "propagate"
+    assert family.keys[0].raw_sddl == _SDDL_ADMIN
+    assert family.keys[1].propagation == "replace"
+
+
+def test_registry_security_measured_propagation_codes() -> None:
+    """The wire codes, as measured per authored key on Server 2025 (R4):
+    0 = propagate, 1 = do-not-allow-replace, 2 = replace."""
+    text = f"""\
+[Registry Keys]
+"Key0",0,"{_SDDL_ADMIN}"
+"Key1",1,"{_SDDL_ADMIN}"
+"Key2",2,"{_SDDL_ADMIN}"
+"""
+    template = parse_security_template(text)
+    family = RegistrySecurityFamily.from_template(template)
+    assert family.keys[0].propagation == "propagate"
+    assert family.keys[1].propagation == "do_not_allow_replace"
     assert family.keys[2].propagation == "replace"
+
+    # The writer side is the inverse mapping: each mode serializes back to its
+    # measured code.
+    entries = family.to_template_entries()
+    values = list(entries["Registry Keys"].values())
+    assert values == [
+        f'0,"{_SDDL_ADMIN}"',
+        f'1,"{_SDDL_ADMIN}"',
+        f'2,"{_SDDL_ADMIN}"',
+    ]
+
+
+def test_registry_security_unknown_propagation_code_defaults_to_propagate() -> None:
+    text = f"""\
+[Registry Keys]
+"Key7",7,"{_SDDL_ADMIN}"
+"""
+    family = RegistrySecurityFamily.from_template(parse_security_template(text))
+    assert family.keys[0].propagation == "propagate"
 
 
 def test_registry_security_replace_on_system_warning() -> None:
@@ -318,6 +380,59 @@ def test_registry_security_round_trip() -> None:
         assert orig.raw_sddl == rebuilt.raw_sddl
 
 
+def test_registry_security_writer_emits_native_quoted_csv_rows() -> None:
+    """The writer path emits the row shape secedit accepts (R9).
+
+    ``secedit /validate`` (Server 2025) rejects ``key = value`` rows in
+    ``[Registry Keys]`` ("must have 3 fields each line") and accepts the
+    native bare quoted-CSV row ``"KEY",code,"SDDL"``.  Row emission lives in
+    ``format_security_template``; the ``[Version]`` preamble secedit requires
+    before it parses rows at all is the template-level caller's job -- the
+    family emits only its own section.
+    """
+    family = RegistrySecurityFamily(
+        keys=(
+            RegistryKeySecurity(
+                key_path=r"MACHINE\SOFTWARE\StudioLab\Audit",
+                raw_sddl="D:PAR(A;OICI;FA;;;BA)",
+                propagation="replace",
+            ),
+        )
+    )
+    text = _entries_to_text(family.to_template_entries())
+
+    expected_row = '"MACHINE\\SOFTWARE\\StudioLab\\Audit",2,"D:PAR(A;OICI;FA;;;BA)"'
+    assert f"[Registry Keys]\n{expected_row}" in text
+    body = text.split("[Registry Keys]\n", 1)[1]
+    assert "=" not in body, "emitted [Registry Keys] rows must be bare CSV, not key=value"
+
+    # Completed with the caller-owned preamble, this is exactly the shape the
+    # secedit-validated native candidate carries.
+    candidate = (
+        "[Unicode]\n"
+        "Unicode=yes\n"
+        "\n"
+        "[Version]\n"
+        'signature="$CHICAGO$"\n'
+        "Revision=1\n"
+        "\n"
+        + text
+    )
+    assert expected_row in candidate
+
+    # And the emitted shape reads back into the family.
+    rebuilt = RegistrySecurityFamily.from_template(parse_security_template(candidate))
+    assert len(rebuilt.keys) == 1
+    assert rebuilt.keys[0].key_path == r"MACHINE\SOFTWARE\StudioLab\Audit"
+    assert rebuilt.keys[0].propagation == "replace"
+    assert rebuilt.keys[0].raw_sddl == "D:PAR(A;OICI;FA;;;BA)"
+
+    # The template writer owns the wire encoding (UTF-16LE BOM + CRLF).
+    encoded = encode_security_template(candidate)
+    assert encoded.startswith(b"\xff\xfe")
+    assert decode_security_template(encoded) == candidate.replace("\n", "\r\n")
+
+
 # ---------------------------------------------------------------------------
 # File Security
 # ---------------------------------------------------------------------------
@@ -335,12 +450,26 @@ def test_file_security_from_template() -> None:
 
     f0 = family.files[0]
     assert f0.file_path == r"%SystemRoot%\System32\test.dll"
-    assert f0.propagation == "propagate"
+    assert f0.propagation == "do_not_allow_replace"
     assert f0.security_descriptor is not None
 
     f1 = family.files[1]
     assert f1.file_path == r"C:\Data\file.txt"
-    assert f1.propagation == "none"
+    assert f1.propagation == "propagate"
+
+
+def test_file_security_native_rows_are_read() -> None:
+    # [File Security] shares the quoted-CSV row family.  Its row shape is
+    # inferred -- same writer path and same secedit three-field arity as
+    # [Registry Keys] -- not per-key measured like [Registry Keys] (R4).
+    text = f"""\
+[File Security]
+"%SystemRoot%\\System32\\a.dll",2,"{_SDDL_ADMIN}"
+"""
+    family = FileSystemSecurityFamily.from_template(parse_security_template(text))
+    assert family.files[0].file_path == r"%SystemRoot%\System32\a.dll"
+    assert family.files[0].propagation == "replace"
+    assert family.files[0].raw_sddl == _SDDL_ADMIN
 
 
 def test_file_security_path_traversal_error() -> None:
@@ -666,12 +795,16 @@ wuauserv = 4,"{_SDDL_ADMIN}"
 
 
 def _entries_to_text(entries: dict[str, dict[str, str]]) -> str:
-    """Build INF text from a ``{section: {key: value}}`` mapping."""
-    parts: list[str] = []
-    for section, section_entries in entries.items():
-        if parts:
-            parts.append("")
-        parts.append(f"[{section}]")
-        for k, v in section_entries.items():
-            parts.append(f"{k} = {v}")
-    return "\n".join(parts)
+    """Serialize family entries through the real INF writer path.
+
+    Row-shaped sections (``[Registry Keys]``, ``[File Security]``,
+    ``[Service General Setting]``) come out as bare quoted-CSV rows -- the
+    native shape ``secedit`` accepts (R9) -- and the rest as ``key = value``.
+    """
+    template = SecurityTemplate(
+        sections=tuple(
+            InfSection(name=section, entries=tuple(section_entries.items()))
+            for section, section_entries in entries.items()
+        )
+    )
+    return format_security_template(template)
