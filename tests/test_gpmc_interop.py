@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from gpo_studio.export import EMITTED_EXTENSION_GUIDS
 from gpo_studio.gpmc_interop import (
+    _KNOWN_CSE_GUIDS,
     InteropIssue,
     check_backup_importable,
     check_gpmc_interop,
 )
-from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter
+from gpo_studio.model import (
+    GPO,
+    CseMetadataEntry,
+    GPOLink,
+    RegistrySetting,
+    SecurityFilter,
+)
 
 
 def _clean_gpo(**kwargs: object) -> GPO:
@@ -117,3 +125,45 @@ def test_check_backup_importable_invalid_guid_is_error() -> None:
 def test_interop_issue_defaults() -> None:
     issue = InteropIssue(check="test", level="pass", message="ok")
     assert issue.component == ""
+
+
+def test_known_cse_guids_are_exactly_the_export_emission_vocabulary() -> None:
+    # Work-order R6 (2026-09-02): the two hand-written "GPP Groups" / "GPP
+    # Registry" entries are GPP XML clsids that appear in no extension list
+    # anywhere (0/26 production GPOs, 0/17 GPMC-authored lab backups), so the
+    # known set is now Studio's own emission vocabulary, not a hand list.
+    assert _KNOWN_CSE_GUIDS == EMITTED_EXTENSION_GUIDS
+    assert "{3125E937-EB16-4b4c-9934-544FC6D24D26}" not in _KNOWN_CSE_GUIDS
+    assert "{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}" not in _KNOWN_CSE_GUIDS
+
+
+def test_gpp_extension_metadata_does_not_trip_unknown_cse_guid() -> None:
+    # A GPMC-authored GPP backup parses every token of the extension lists,
+    # tool halves and the zero-GUID included, into cse_metadata. None of them
+    # may report the GPO unimportable.
+    metadata = tuple(
+        CseMetadataEntry(guid=guid, side="machine")
+        for guid in sorted(EMITTED_EXTENSION_GUIDS)
+    )
+    report = check_gpmc_interop(_clean_gpo(cse_metadata=metadata))
+    assert not any(i.check == "unknown_cse_guid" for i in report.issues)
+    assert report.is_gpmc_importable is True
+
+
+def test_xml_clsid_in_cse_metadata_is_still_unknown() -> None:
+    # The disproved GPP clsids belong to the XML vocabulary, not to extension
+    # lists; if one ever appears in cse_metadata it is genuinely unknown and
+    # keeps the conservative error.
+    gpo = _clean_gpo(
+        cse_metadata=(
+            CseMetadataEntry(
+                guid="{3125E937-EB16-4b4c-9934-544FC6D24D26}",
+                side="machine",
+            ),
+        ),
+    )
+    report = check_gpmc_interop(gpo)
+    assert any(
+        i.level == "error" and i.check == "unknown_cse_guid" for i in report.issues
+    )
+    assert report.is_gpmc_importable is False

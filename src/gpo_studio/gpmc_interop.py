@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .backup import _GUID_RE as _BACKUP_GUID_RE
+from .export import EMITTED_EXTENSION_GUIDS
 from .model import GPO
 from .validation import validate_gpo
 from .wmi_filter import lint_wql
@@ -35,13 +36,22 @@ class GpmcInteropReport:
 # GPMC imports backup directories; a single GPO normally stays under these.
 _GPMC_SETTINGS_WARNING_THRESHOLD = 10000
 
-# CSE GUIDs that Studio understands and can emit. Unknown CSEs are preserved in
-# cse_metadata but block ready transition because GPMC may not round-trip them.
-_KNOWN_CSE_GUIDS = frozenset({
-    "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}",  # Registry
-    "{3125E937-EB16-4b4c-9934-544FC6D24D26}",  # GPP Groups
-    "{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}",  # GPP Registry
-})
+# CSE GUIDs Studio understands and can emit: exactly the extension-GUID
+# vocabulary ``export`` writes into ``MachineExtensionGuids`` /
+# ``UserExtensionGuids``, both halves of every pair. Unknown CSEs are
+# preserved in cse_metadata but block ready transition because GPMC may not
+# round-trip them.
+#
+# The two hand-written entries this set carried before 2026-09-05 --
+# ``{3125E937-EB16-4b4c-9934-544FC6D24D26}`` ("GPP Groups") and
+# ``{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}`` ("GPP Registry") -- are GPP XML
+# root-element clsids (the ``gpp`` vocabulary), not client-side extension
+# GUIDs, and appear in no extension list at all: the work-order R6 census
+# found neither GUID across 26 production GPOs, and neither appears in the 17
+# GPMC-authored lab backups. Because they were the only GPP entries, every
+# imported GPMC-authored GPP backup tripped ``unknown_cse_guid`` and was
+# reported unimportable.
+_KNOWN_CSE_GUIDS = EMITTED_EXTENSION_GUIDS
 
 
 _GPO_GUID_RE = re.compile(

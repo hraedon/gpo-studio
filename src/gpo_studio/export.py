@@ -63,6 +63,23 @@ _GPP_EXTENSION_PROFILES: dict[str, tuple[str, str]] = {
 _SCRIPTS_CSE_GUID = "{42B5FAAE-6536-11D2-AE5A-0000F87571E3}"
 _SCRIPTS_TOOL_GUID = "{40B6664F-4972-11D1-A7CA-0000F87571E3}"
 
+# Every GUID the native backup export can write into ``MachineExtensionGuids``
+# / ``UserExtensionGuids``: both halves of every pair, plus the zero-GUID
+# prefix of the GPP aggregation group. Backup import keeps every ``{...}``
+# token (``backup._parse_extension_guids``), so tool halves and the zero-GUID
+# reach ``cse_metadata`` verbatim; ``gpmc_interop``'s known-CSE check must
+# therefore accept exactly this set -- a Studio export re-imported by Studio
+# must never flag its own extension lists as unknown.
+EMITTED_EXTENSION_GUIDS = frozenset({
+    _REGISTRY_CSE_GUID,
+    _REGISTRY_MACHINE_TOOL_GUID,
+    _REGISTRY_USER_TOOL_GUID,
+    _SCRIPTS_CSE_GUID,
+    _SCRIPTS_TOOL_GUID,
+    _ZERO_GUID,
+    *(guid for pair in _GPP_EXTENSION_PROFILES.values() for guid in pair),
+})
+
 _DOMAIN_NEUTRAL_SECURITY_DESCRIPTOR = (
     "01 00 04 80 14 00 00 00 24 00 00 00 00 00 00 00 34 00 00 00 "
     "01 02 00 00 00 00 00 05 20 00 00 00 20 02 00 00 01 02 00 00 "
