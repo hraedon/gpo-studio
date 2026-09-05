@@ -130,11 +130,6 @@ class PowerShellPublicationScript:
     estimated_duration_seconds: int = 0
 
 
-# Known CSE GUIDs for extension lists.
-_REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
-_GPP_GROUPS_CSE_GUID = "{3125E937-EB16-4b4c-9934-544FC6D24D26}"
-_GPP_REGISTRY_CSE_GUID = "{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}"
-
 # GPMC settings count threshold for medium risk.
 _REGISTRY_SETTINGS_MEDIUM_RISK_THRESHOLD = 100
 
