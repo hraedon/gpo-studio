@@ -1558,22 +1558,51 @@ WP-3's re-approval requirement and the stale-risk hole above.
 ## WI-051 — the self-approval check exists, and the gates do not call it
 
 **Opened:** 2026-08-07 (Plan 032 shape assessment; row 2 of the same table).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-06.
 
-`approve_request` raises when an approver approves their own request
-(`publisher.py:288`), so the control is written. But `_approval_gate`
-(`publisher.py:450-515`) and `ApprovalRequest.validate()` never compare approver
-to requester, and **`run_publisher_gates` and `evaluate_publication` take no
-principal at all** — `decided_by` is hardcoded `""` (`publisher.py:689`).
+The principal is threaded through the gates now: `run_publisher_gates` and
+`evaluate_publication` take a **required keyword-only** `actor` — required, so
+a decision cannot be computed without a principal and quietly attest to
+nobody — and `PublisherDecision.decided_by` is populated from it instead of
+the hardcoded `""`.
 
-The consequence is that separation of duties holds only on the one path that
-constructs an approval through `approve_request`. A directly-constructed
-self-approved request — the shape any persistence layer produces when it
-rehydrates stored state — passes with zero validation issues.
+A `separation_of_duties_gate` runs whenever the profile requires approval, and
+re-derives the separation from the request's own fields rather than trusting
+how the request was built: every name in `approvers` (plus `approved_by`) is
+compared to `requested_by` through `hosting.can_self_approve`, so a
+directly-constructed self-approved request — the rehydrated shape
+`approve_request`'s refusal never sees — fails the gate even though the
+approval gate passes it on content binding. The gate also refuses when the
+publishing actor is among the approvers, and when no principal was supplied.
+The requester publishing under someone else's approval — the normal flow —
+passes, and has a test saying so. `ApprovalRequest.validate()` now carries the
+same comparison as an `error`-level issue, so the rehydrated shape fails
+structural validation too and not only at gate time.
 
-**Corroborated by coverage rather than by reading alone:** `publisher.py` misses
-lines 472, 483, 491 and 499, which are all four of `_approval_gate`'s
-content-binding refusal branches. The gate's refusal paths are untested.
+The refusal branches are tested, not just the pass path: a request for a
+different plan, a rejected request, an expired request, and insufficient
+approvals (WI-051's original four uncovered branches) sit alongside the two
+content-binding branches WI-050 already covered and the no-request branch the
+gates test already exercised. The WI-051 reproduction — a self-approved
+rehydration that binds the plan's content, so the approval gate passes it and
+only separation of duties sees what it is — is
+`test_separation_of_duties_refuses_a_self_approved_request`.
+
+What this does NOT claim: the actor is still whatever string the caller passes;
+binding it to a real authenticated identity is the hosting layer's job, and
+nothing here changes WI-050's content binding, which is untouched.
+
+Original finding, kept for the record: `approve_request` raises when an
+approver approves their own request (`publisher.py:288`), so the control is
+written. But `_approval_gate` and `ApprovalRequest.validate()` never compare
+approver to requester, and **`run_publisher_gates` and
+`evaluate_publication` take no principal at all** — `decided_by` is hardcoded
+`""`. Separation of duties therefore held only on the one path that constructs
+an approval through `approve_request`; a directly-constructed self-approved
+request passed with zero validation issues. Corroborated by coverage rather
+than by reading alone: `publisher.py` missed lines 472, 483, 491 and 499, all
+four of `_approval_gate`'s content-binding refusal branches — the gate's
+refusal paths were untested.
 
 **Closes when:** a principal is threaded into the gates, a
 `separation_of_duties_gate` reuses `hosting.can_self_approve`, `decided_by` is
@@ -1582,18 +1611,35 @@ populated from that principal, and the four refusal branches are tested.
 ## WI-052 — `profiles_for_actor` matches an actor against a profile id
 
 **Opened:** 2026-08-07 (Plan 032 shape assessment; not previously suspected).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-06.
 
-`PublisherProfileSet.profiles_for_actor` selects profiles with
-`p.profile_id == actor` (`publisher.py:128-132`), and `PublisherProfile` has no
-principal field at all. So `effective_capabilities("alice")` returns `[]`, while
-`effective_capabilities("p1")` returns the seven capabilities of the profile
-whose id happens to be `p1`.
+`PublisherProfile` carries a `principals` field now, and
+`profiles_for_actor` resolves against it — active profiles whose `principals`
+contain the actor. Matching by `profile_id` is gone, not deprecated: a profile
+identifier is a name for the profile, not an actor, and the WI's reproduction
+is a regression test (`test_profiles_for_actor_resolves_principals_not_profile_ids`)
+that pins both directions — actor `"p1"` receives nothing from the profile
+whose id is `p1`, and the profile's real principal receives its capabilities.
 
-The docstring says "(by profile_id match)", so this is not a typo — it is a
-model that never grew the actor→profile relation it names. **A capability check
-against a real principal returns empty**, which fails closed today and is the
-reason nothing has noticed; it fails closed only because nothing calls it.
+A profile with empty `principals` matches nobody, which fails closed the way
+the old defect accidentally did — but deliberately now, with a
+`no_principals_bound` warning from `validate()` so the configuration that
+grants nothing is visible instead of silent, and an `error` for an empty
+principal string. Nothing else was quietly widened: `get_profile` still looks
+up by id, which is what it is for.
+
+Nothing calls this from the API surface yet, which is both why the defect
+survived and why the fix can break no caller today; the relation exists before
+the surface that needs it, rather than after.
+
+Original finding, kept for the record: `profiles_for_actor` selected profiles
+with `p.profile_id == actor`, and `PublisherProfile` had no principal field at
+all. So `effective_capabilities("alice")` returned `[]`, while
+`effective_capabilities("p1")` returned the seven capabilities of the profile
+whose id happened to be `p1`. The docstring said "(by profile_id match)", so
+this was not a typo — it was a model that never grew the actor→profile
+relation it names. **A capability check against a real principal returned
+empty**, which failed closed only because nothing called it.
 
 **Closes when:** `PublisherProfile` carries a `principals` field and
 `profiles_for_actor` resolves against it.

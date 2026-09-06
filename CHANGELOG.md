@@ -265,6 +265,24 @@ Current version: `1.0.0`.
   escape by being named unusually. A control fails if the pattern ever stops
   matching the endpoint certification again. Lab tooling; no operator-facing
   change.
+- WI-051: the publisher's separation-of-duties control existed only on the
+  path that constructs an approval through `approve_request` — the gates took
+  no principal at all, `decided_by` was hardcoded empty, and a
+  directly-constructed self-approved request (the shape persistence produces
+  when it rehydrates state) passed with zero validation issues. The gates now
+  take a required `actor`, populate `decided_by` from it, and run a
+  `separation_of_duties_gate` that re-derives the requester/approver
+  comparison through `hosting.can_self_approve` and refuses a self-approved
+  request, a publishing actor who approved it, or a missing principal.
+  `ApprovalRequest.validate()` carries the same check structurally, and
+  `_approval_gate`'s four previously untested refusal branches are tested.
+  Domain layer; no operator-facing change.
+- WI-052: `profiles_for_actor` matched an actor against a profile *id* —
+  `effective_capabilities("p1")` returned profile `p1`'s capabilities for
+  nobody, while a real principal got nothing. `PublisherProfile` now carries a
+  `principals` field and `profiles_for_actor` resolves against it; a profile
+  granted to nobody matches nobody, with a validation warning so the
+  configuration is visible. Domain layer; no operator-facing change.
 
 - WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
   plan and Studio export bundle as available and then refused both downloads
