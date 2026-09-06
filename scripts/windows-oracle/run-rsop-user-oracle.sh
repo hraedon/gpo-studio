@@ -218,7 +218,20 @@ fi
 # A token is minted at logon and never updated, so a group this run created
 # after the guest signed in is in the directory and not in the principal's
 # token. Only scenarios that need a group pay the restart.
-NEEDS_GROUP=$(python3 -c "import json,sys; print(json.load(open('$CANDIDATE_DIR/expected.json')).get('group_name') or '')" 2>/dev/null || true)
+# Whether this scenario needs a group decides whether the principal's session
+# is re-established, so failing to READ that answer must be fatal. It was
+# `2>/dev/null || true`, which turned an unreadable candidate into "no group
+# needed": the restart was then skipped silently and the run failed ten minutes
+# later with a token missing a membership nobody had refreshed. The lane's own
+# diagnosis was accurate and its cause was invisible.
+#
+# Measured on a Windows controller 2026-09-05. MSYS translates a POSIX path
+# passed as ARGV -- which is why the candidate builder above works -- but not
+# one embedded in a `-c` code string, so this read threw FileNotFoundError and
+# the swallow hid it. On a Linux controller neither needs translating, which is
+# why it has never shown. Passing the path as argv fixes the translation and
+# keeping the failure loud fixes the class.
+NEEDS_GROUP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("group_name") or "")'     "$CANDIDATE_DIR/expected.json")
 if [[ -n "$NEEDS_GROUP" ]]; then
     echo "--- re-establishing the interactive session (group '$NEEDS_GROUP') ---"
     endpoint -Action exec -TimeoutSeconds 300 -Command \
