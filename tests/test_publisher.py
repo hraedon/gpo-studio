@@ -163,14 +163,16 @@ def test_profile_set_get_profile() -> None:
 
 def test_profile_set_effective_capabilities_union() -> None:
     pa = PublisherProfile(
-        profile_id="alice",
+        profile_id="p-authoring",
         name="A",
         capabilities=frozenset({"read_gpo", "write_registry_pol"}),
+        principals=("alice",),
     )
     pb = PublisherProfile(
-        profile_id="alice",
+        profile_id="p-linking",
         name="B",
         capabilities=frozenset({"read_gpo", "write_gplink"}),
+        principals=("alice",),
     )
     ps = PublisherProfileSet(profiles=(pa, pb))
     caps = ps.effective_capabilities("alice")
@@ -181,9 +183,10 @@ def test_profile_set_effective_capabilities_union() -> None:
 
 def test_profile_set_effective_capabilities_scope_filtered() -> None:
     pa = PublisherProfile(
-        profile_id="alice",
+        profile_id="p-server-admin",
         name="A",
         capabilities=frozenset({"write_gplink"}),
+        principals=("alice",),
         scope_dns=("OU=Servers,DC=example,DC=test",),
     )
     ps = PublisherProfileSet(profiles=(pa,))
@@ -195,6 +198,78 @@ def test_profile_set_effective_capabilities_scope_filtered() -> None:
         "alice", "OU=Other,DC=example,DC=test"
     )
     assert "write_gplink" not in out_of_scope
+
+
+def test_profiles_for_actor_resolves_principals_not_profile_ids() -> None:
+    """WI-052's defect as a regression: a profile id is not an actor.
+
+    ``profiles_for_actor`` matched ``profile_id == actor``, so a capability
+    check against the real principal ``alice`` returned nothing while the
+    literal string ``"p1"`` — nobody — received the profile's capabilities
+    wholesale. Matching is against ``principals`` now, and a profile granted
+    to nobody grants nobody anything.
+    """
+    p1 = PublisherProfile(
+        profile_id="p1",
+        name="Publisher",
+        capabilities=frozenset({"read_gpo", "write_registry_pol"}),
+    )
+    ps = PublisherProfileSet(profiles=(p1,))
+    assert ps.profiles_for_actor("p1") == ()
+    assert ps.effective_capabilities("p1") == frozenset()
+
+    granted = PublisherProfile(
+        profile_id="p1",
+        name="Publisher",
+        capabilities=frozenset({"read_gpo", "write_registry_pol"}),
+        principals=("carol",),
+    )
+    ps2 = PublisherProfileSet(profiles=(granted,))
+    assert ps2.profiles_for_actor("p1") == ()
+    assert ps2.profiles_for_actor("carol") == (granted,)
+    assert "write_registry_pol" in ps2.effective_capabilities("carol")
+
+
+def test_profiles_for_actor_skips_inactive_profiles() -> None:
+    active = PublisherProfile(
+        profile_id="p1",
+        name="Active",
+        capabilities=frozenset({"read_gpo"}),
+        principals=("carol",),
+    )
+    inactive = PublisherProfile(
+        profile_id="p2",
+        name="Inactive",
+        capabilities=frozenset({"delete_gpo"}),
+        principals=("carol",),
+        is_active=False,
+    )
+    ps = PublisherProfileSet(profiles=(active, inactive))
+    assert ps.profiles_for_actor("carol") == (active,)
+
+
+def test_publisher_profile_no_principals_warns() -> None:
+    profile = PublisherProfile(
+        profile_id="p1",
+        name="P",
+        capabilities=frozenset({"read_gpo"}),
+    )
+    issues = profile.validate()
+    assert any(
+        i.code == "no_principals_bound" and i.severity == "warning"
+        for i in issues
+    )
+
+
+def test_publisher_profile_empty_principal_error() -> None:
+    profile = PublisherProfile(
+        profile_id="p1",
+        name="P",
+        capabilities=frozenset({"read_gpo"}),
+        principals=("carol", ""),
+    )
+    issues = profile.validate()
+    assert any(i.code == "empty_principal" and i.severity == "error" for i in issues)
 
 
 # ---------------------------------------------------------------------------
@@ -442,8 +517,8 @@ def test_approve_request_tracks_approvers() -> None:
 def test_run_publisher_gates_all_pass() -> None:
     plan = generate_publication_plan(_gpo_with_registry())
     profile = _full_profile()
-    gates = run_publisher_gates(plan, profile)
-    assert len(gates) == 7
+    gates = run_publisher_gates(plan, profile, actor="alice")
+    assert len(gates) == 8
     failed = [g for g in gates if not g.passed]
     assert failed == [], [g.detail for g in failed]
 
@@ -453,7 +528,7 @@ def test_run_publisher_gates_capability_fails() -> None:
     profile = _full_profile(
         capabilities=frozenset({"read_gpo", "write_gpt_ini"}),
     )
-    gates = run_publisher_gates(plan, profile)
+    gates = run_publisher_gates(plan, profile, actor="alice")
     cap_gate = next(g for g in gates if g.gate_id == "capability_gate")
     assert not cap_gate.passed
     assert "write_registry_pol" in cap_gate.detail
@@ -462,7 +537,7 @@ def test_run_publisher_gates_capability_fails() -> None:
 def test_run_publisher_gates_approval_fails() -> None:
     plan = generate_publication_plan(_gpo_with_registry())
     profile = _full_profile(requires_approval=True)
-    gates = run_publisher_gates(plan, profile, approval=None)
+    gates = run_publisher_gates(plan, profile, approval=None, actor="alice")
     approval_gate = next(g for g in gates if g.gate_id == "approval_gate")
     assert not approval_gate.passed
 
@@ -472,7 +547,7 @@ def test_run_publisher_gates_approval_passes_with_sufficient_approval() -> None:
     profile = _full_profile(requires_approval=True)
     req = create_approval_request(plan, requested_by="alice", required_approvers=1)
     approved = approve_request(req, "bob")
-    gates = run_publisher_gates(plan, profile, approval=approved)
+    gates = run_publisher_gates(plan, profile, approval=approved, actor="alice")
     approval_gate = next(g for g in gates if g.gate_id == "approval_gate")
     assert approval_gate.passed
 
@@ -489,7 +564,7 @@ def test_run_publisher_gates_scope_fails() -> None:
     profile = _full_profile(
         scope_dns=("OU=Servers,DC=example,DC=test",),
     )
-    gates = run_publisher_gates(plan, profile)
+    gates = run_publisher_gates(plan, profile, actor="alice")
     scope_gate = next(g for g in gates if g.gate_id == "scope_gate")
     assert not scope_gate.passed
 
@@ -506,7 +581,7 @@ def test_run_publisher_gates_scope_passes_when_in_scope() -> None:
     profile = _full_profile(
         scope_dns=("OU=Servers,DC=example,DC=test",),
     )
-    gates = run_publisher_gates(plan, profile)
+    gates = run_publisher_gates(plan, profile, actor="alice")
     scope_gate = next(g for g in gates if g.gate_id == "scope_gate")
     assert scope_gate.passed
 
@@ -522,9 +597,155 @@ def test_run_publisher_gates_blast_radius_fails() -> None:
     plan = generate_publication_plan(gpo)
     assert plan.risk_level == "high"
     profile = _full_profile(max_blast_radius="single_gpo")
-    gates = run_publisher_gates(plan, profile)
+    gates = run_publisher_gates(plan, profile, actor="alice")
     radius_gate = next(g for g in gates if g.gate_id == "blast_radius_gate")
     assert not radius_gate.passed
+
+
+# ---------------------------------------------------------------------------
+# separation_of_duties_gate and the actor threading (WI-051)
+# ---------------------------------------------------------------------------
+
+
+def _approved_request(plan: object) -> object:
+    """An approval produced by the legitimate path: alice asks, bob grants."""
+    req = create_approval_request(plan, requested_by="alice", required_approvers=1)
+    return approve_request(req, "bob")
+
+
+def test_separation_of_duties_refuses_the_actor_who_approved() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    approved = _approved_request(plan)
+    gates = run_publisher_gates(plan, profile, approval=approved, actor="bob")
+    sod_gate = next(g for g in gates if g.gate_id == "separation_of_duties_gate")
+    assert not sod_gate.passed
+    assert "bob" in sod_gate.detail
+
+
+def test_separation_of_duties_refuses_a_self_approved_request() -> None:
+    """WI-051's reproduction as a regression.
+
+    ``approve_request`` refuses self-approval, but nothing stopped a
+    directly-constructed request — the shape any persistence layer produces
+    when it rehydrates stored state — from carrying one. The request below is
+    structurally well-formed and binds the plan's content, so the approval
+    gate passes it; only the separation-of-duties gate sees what it is.
+    """
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    self_approved = ApprovalRequest(
+        request_id="apr-selfapproved",
+        plan_id=plan.plan_id,
+        gpo_guid=plan.gpo_guid,
+        gpo_name=plan.gpo_name,
+        requested_by="alice",
+        requested_at="2026-09-06T00:00:00+00:00",
+        state="approved",
+        approved_by="alice",
+        approved_at="2026-09-06T00:00:00+00:00",
+        current_approvals=1,
+        plan_payload_digest=plan.payload_digest,
+    )
+    issues = self_approved.validate()
+    assert any(
+        i.code == "self_approved_request" and i.severity == "error"
+        for i in issues
+    ), [f"{i.severity}:{i.code}" for i in issues]
+    gates = run_publisher_gates(
+        plan, profile, approval=self_approved, actor="carol"
+    )
+    approval_gate = next(g for g in gates if g.gate_id == "approval_gate")
+    assert approval_gate.passed, approval_gate.detail
+    sod_gate = next(g for g in gates if g.gate_id == "separation_of_duties_gate")
+    assert not sod_gate.passed
+    assert "self-approval" in sod_gate.detail
+    decision = evaluate_publication(
+        plan, profile, approval=self_approved, actor="carol"
+    )
+    assert decision.approved is False
+    assert any(
+        g.gate_id == "separation_of_duties_gate" for g in decision.blocking_gates
+    )
+
+
+def test_separation_of_duties_requires_a_principal() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    approved = _approved_request(plan)
+    gates = run_publisher_gates(plan, profile, approval=approved, actor="  ")
+    sod_gate = next(g for g in gates if g.gate_id == "separation_of_duties_gate")
+    assert not sod_gate.passed
+    assert "No principal supplied" in sod_gate.detail
+
+
+def test_separation_of_duties_allows_the_normal_flow() -> None:
+    """Alice requests, bob approves, alice publishes — the shape that must pass."""
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    approved = _approved_request(plan)
+    gates = run_publisher_gates(plan, profile, approval=approved, actor="alice")
+    sod_gate = next(g for g in gates if g.gate_id == "separation_of_duties_gate")
+    assert sod_gate.passed, sod_gate.detail
+
+
+def test_separation_of_duties_passes_without_required_approval() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=False)
+    gates = run_publisher_gates(plan, profile, approval=None, actor="alice")
+    sod_gate = next(g for g in gates if g.gate_id == "separation_of_duties_gate")
+    assert sod_gate.passed
+
+
+# ---------------------------------------------------------------------------
+# _approval_gate's refusal branches (WI-051's coverage debt)
+# ---------------------------------------------------------------------------
+
+
+def test_approval_gate_refuses_a_request_for_a_different_plan() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    other = generate_publication_plan(_gpo_with_registry())
+    assert other.plan_id != plan.plan_id
+    profile = _full_profile(requires_approval=True)
+    approved = _approved_request(other)
+    gates = run_publisher_gates(plan, profile, approval=approved, actor="alice")
+    approval_gate = next(g for g in gates if g.gate_id == "approval_gate")
+    assert not approval_gate.passed
+    assert "does not match" in approval_gate.detail
+
+
+def test_approval_gate_refuses_a_rejected_request() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    req = create_approval_request(plan, requested_by="alice")
+    rejected = reject_request(req, "bob", "Too risky")
+    gates = run_publisher_gates(plan, profile, approval=rejected, actor="alice")
+    approval_gate = next(g for g in gates if g.gate_id == "approval_gate")
+    assert not approval_gate.passed
+    assert "rejected" in approval_gate.detail
+
+
+def test_approval_gate_refuses_an_expired_request() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    req = create_approval_request(plan, requested_by="alice")
+    expired = replace(req, state="expired")
+    gates = run_publisher_gates(plan, profile, approval=expired, actor="alice")
+    approval_gate = next(g for g in gates if g.gate_id == "approval_gate")
+    assert not approval_gate.passed
+    assert "expired" in approval_gate.detail
+
+
+def test_approval_gate_refuses_insufficient_approvals() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    req = create_approval_request(plan, requested_by="alice", required_approvers=2)
+    once = approve_request(req, "bob")
+    assert once.state == "pending"
+    gates = run_publisher_gates(plan, profile, approval=once, actor="alice")
+    approval_gate = next(g for g in gates if g.gate_id == "approval_gate")
+    assert not approval_gate.passed
+    assert "1/2" in approval_gate.detail
 
 
 # ---------------------------------------------------------------------------
@@ -535,13 +756,14 @@ def test_run_publisher_gates_blast_radius_fails() -> None:
 def test_evaluate_publication_approved() -> None:
     plan = generate_publication_plan(_gpo_with_registry())
     profile = _full_profile()
-    decision = evaluate_publication(plan, profile)
+    decision = evaluate_publication(plan, profile, actor="alice")
     assert isinstance(decision, PublisherDecision)
     assert decision.approved is True
     assert decision.blocking_gates == ()
     assert decision.plan_id == plan.plan_id
     assert decision.decision_at != ""
-    assert len(decision.gates) == 7
+    assert decision.decided_by == "alice"
+    assert len(decision.gates) == 8
 
 
 def test_evaluate_publication_denied() -> None:
@@ -549,7 +771,7 @@ def test_evaluate_publication_denied() -> None:
     profile = _full_profile(
         capabilities=frozenset({"read_gpo", "write_gpt_ini"}),
     )
-    decision = evaluate_publication(plan, profile)
+    decision = evaluate_publication(plan, profile, actor="alice")
     assert decision.approved is False
     assert len(decision.blocking_gates) >= 1
     assert any(g.gate_id == "capability_gate" for g in decision.blocking_gates)
@@ -611,7 +833,7 @@ def test_audit_trail_entries_for_plan() -> None:
 
 
 def _approval_gate_verdict(plan, profile, approval):  # type: ignore[no-untyped-def]
-    gates = run_publisher_gates(plan, profile, approval=approval)
+    gates = run_publisher_gates(plan, profile, approval=approval, actor="carol")
     return next(g for g in gates if g.gate_id == "approval_gate")
 
 
