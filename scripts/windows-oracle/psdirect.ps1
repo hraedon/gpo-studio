@@ -143,7 +143,91 @@ function Join-WindowsPath {
     return ($Parent.TrimEnd('\')) + '\' + ($Child.TrimStart('\'))
 }
 
-$session = New-PSSession -ComputerName $LabHost -Credential $hostCredential -Authentication Negotiate
+# WI-048. Two of twelve batch runs died with
+#
+#     ERROR_INTERNAL_ERROR: The WinRM service cannot process the request.
+#     A command already exists with the command ID specified by the client.
+#
+# once on the push copy and once on the evidence pull. Both passed when re-run
+# with a 90-second gap and nothing else changed, so the trigger is elapsed time
+# between sessions rather than anything in the scenario: the collision is a
+# property of the WinRM CONNECTION, not of the work. That is why a retry has to
+# bring a FRESH session instead of re-issuing on the poisoned one.
+#
+# windows-console-driver measured the sibling case against this same estate and
+# landed on the same shape -- a reused host session is ~50% reliable on nested
+# opens where a fresh one is 6/6 (`tools/session_repl.ps1`).
+#
+# WHICH LEGS MAY BE RETRIED, and why the list is short. A retry re-issues work,
+# so it is only correct where re-issuing is a no-op:
+#
+#   * the host session OPEN            -- nothing has run yet;
+#   * the push copy controller -> host -- an idempotent write into a staging
+#                                         leaf unique to this invocation;
+#   * the pull copy host -> controller -- read-only with respect to the estate.
+#
+# The guest-work invocation is deliberately NOT in that list and must never be
+# added to it. It authors policy; re-issuing it could author twice, and a
+# transport that silently double-applies is worse than one that fails loudly.
+function Test-TransientWinRmCollision {
+    param($ErrorRecord)
+    $text = "$($ErrorRecord.Exception.Message)"
+    return ($text -match 'ERROR_INTERNAL_ERROR') -or
+           ($text -match 'command already exists with the command ID')
+}
+
+function New-HostSession {
+    param(
+        [Parameter(Mandatory = $true)] [string] $ComputerName,
+        [Parameter(Mandatory = $true)] [System.Management.Automation.PSCredential] $Credential,
+        [int] $Attempts = 4
+    )
+    $last = $null
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try {
+            return New-PSSession -ComputerName $ComputerName -Credential $Credential `
+                -Authentication Negotiate
+        } catch {
+            $last = $_
+            if (-not (Test-TransientWinRmCollision $_)) { throw }
+            Start-Sleep -Seconds (2 * $i)
+        }
+    }
+    throw $last
+}
+
+function Invoke-HostLeg {
+    # Run one retry-SAFE leg over the host session, replacing the session when a
+    # command-ID collision has poisoned it. `$Body` receives the live session, so
+    # it always writes through the current one rather than a captured handle.
+    param(
+        [Parameter(Mandatory = $true)] [scriptblock] $Body,
+        [Parameter(Mandatory = $true)] [string] $What,
+        [int] $Attempts = 4
+    )
+    $last = $null
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try { return (& $Body $script:session) }
+        catch {
+            $last = $_
+            if (-not (Test-TransientWinRmCollision $_)) { throw }
+            Write-Warning ("{0}: transient WinRM collision on attempt {1}/{2}; " -f $What, $i, $Attempts +
+                           "reopening the host session and retrying.")
+            try { Remove-PSSession $script:session -ErrorAction SilentlyContinue }
+            catch {
+                # Best-effort teardown of a session already known to be broken.
+                # Its disposal failing tells us nothing we can act on, and
+                # throwing here would mask the collision we are retrying past.
+                Write-Verbose "Discarding the poisoned host session failed: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds (2 * $i)
+            $script:session = New-HostSession -ComputerName $LabHost -Credential $hostCredential
+        }
+    }
+    throw $last
+}
+
+$session = New-HostSession -ComputerName $LabHost -Credential $hostCredential
 try {
     if ($Action -eq 'push') {
         $stagePath = Join-WindowsPath $HostStagingRoot $stamp
@@ -155,8 +239,11 @@ try {
         # filesystem, which is why this leg cannot be folded into the block
         # that runs on the host.
         $leaf = Split-Path -Path $LocalPath -Leaf
-        Copy-Item -LiteralPath $LocalPath -Destination (Join-WindowsPath $stagePath $leaf) `
-            -ToSession $session -Recurse -Force
+        Invoke-HostLeg -What 'push copy to host staging' -Body {
+            param($s)
+            Copy-Item -LiteralPath $LocalPath -Destination (Join-WindowsPath $stagePath $leaf) `
+                -ToSession $s -Recurse -Force
+        }
     }
 
     $result = Invoke-Command -Session $session `
@@ -184,6 +271,27 @@ try {
         # Invoke-Command has no operation timeout on the VMName parameter set.
         # Every guest call is bounded, or a wedged guest hangs the lane instead
         # of failing it.
+        function New-GuestSession {
+            # Nested PowerShell Direct opens fail transiently from the Hyper-V
+            # WMI layer ("Object reference not set"), independently of anything
+            # the guest is doing; windows-console-driver measured roughly 1 in 4
+            # against this estate and retries the same way.
+            #
+            # Retrying the OPEN is safe by construction: no guest work has run
+            # yet, so a second attempt cannot repeat an effect. Nothing below
+            # this line may be folded into the retry for that reason.
+            param($Vm, $Cred, [int] $Attempts = 4)
+            $last = $null
+            for ($i = 1; $i -le $Attempts; $i++) {
+                try { return New-PSSession -VMName $Vm -Credential $Cred }
+                catch {
+                    $last = $_
+                    Start-Sleep -Seconds $i
+                }
+            }
+            throw $last
+        }
+
         function Invoke-Guest {
             param($Body, $ArgumentList = @(), $TimeoutSeconds)
             $job = $null
@@ -218,7 +326,7 @@ try {
                 }
             }
             'push' {
-                $guestSession = New-PSSession -VMName $guest -Credential $cred
+                $guestSession = New-GuestSession -Vm $guest -Cred $cred
                 try {
                     # Create the destination's parent in the guest first:
                     # Copy-Item -ToSession will not invent intermediate
@@ -301,7 +409,7 @@ try {
                     $guestZip, $expectedCount = "$packed".Split('|')
                     New-Item -ItemType Directory -Force -Path $stagePath | Out-Null
                     $hostZip = Join-Path $stagePath 'pull.zip'
-                    $guestSession = New-PSSession -VMName $guest -Credential $cred
+                    $guestSession = New-GuestSession -Vm $guest -Cred $cred
                     try {
                         Copy-Item -LiteralPath $guestZip -Destination $hostZip `
                             -FromSession $guestSession -Force
@@ -342,8 +450,11 @@ try {
             # An empty source is a legitimate outcome, not a failure: the caller
             # asked for a directory that exists and holds nothing.
             if ($source) {
-                Copy-Item -LiteralPath $source -Destination $localArchive `
-                    -FromSession $session -Force
+                Invoke-HostLeg -What 'evidence pull to controller' -Body {
+                    param($s)
+                    Copy-Item -LiteralPath $source -Destination $localArchive `
+                        -FromSession $s -Force
+                }
 
                 # Count what arrived against what the guest packed. Evidence
                 # that goes missing in transit must fail the pull, not the lane
