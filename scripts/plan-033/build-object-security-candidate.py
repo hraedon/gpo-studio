@@ -19,8 +19,8 @@ Values are synthetic throughout; nothing here touches a directory or SYSVOL.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from gpo_studio.object_security import (
     FileSecurity,
