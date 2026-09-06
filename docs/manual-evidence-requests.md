@@ -1,7 +1,24 @@
 # Manual evidence requests — work order for the operator
 
-Status: active, written 2026-08-06 against `main` at `80c23b5`. Nothing in this
-document has been executed; no estate host was contacted while writing it.
+Status: **executed 2026-09-05** (written 2026-08-06 against `main` at
+`80c23b5`). Ten of the eleven requests are complete: R1–R5, R9 and R10 ran
+through the transactional console driver on the lab estate (windows 2–5,
+banked in the windows-console-driver claim registry), R6 and R8 ran
+read-only from the admin workstation, and R11 ran against the live domain
+on 2026-09-05 with the operator's explicit go-ahead (one unlinked GPO,
+removed same sitting, strict re-query zero). R7 — the only request that
+must run **on a domain controller** — awaits the operator's
+skip-vs-admin-proxy decision.
+
+Highlights of what the captures changed: `migration.py` parsed a namespace
+GPMC does not use (silent no-op, fixed); `object_security.py`'s propagation
+codes were wrong on all three (fixed, `secedit /validate`-verified);
+`publication.py`'s flat `+1` would corrupt the packed `gpt.ini` version
+field (fixed to per-half bumps); the scripts writers were rebuilt to the
+measured wire format and are now round-trip certified — Windows re-emits
+Studio's `scripts.ini`, `psscripts.ini` and `registry.pol` byte-identically
+after import, in both the lab and production. See
+`docs/plans-025-032-oracle-survey.md` §5 for the module-by-module record.
 
 ## What this is
 

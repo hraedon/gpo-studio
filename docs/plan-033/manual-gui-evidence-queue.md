@@ -4,6 +4,12 @@ Status: active 2026-07-30. This is the consolidated operator queue for work
 that cannot be completed through the automated Linux-to-Windows harness. A
 checked box means evidence was captured, not merely that the UI was opened.
 
+Access-path note (2026-09-05): the "RDP to `mvmcitest01`" path named below is
+retired. Lab captures now go through the transactional console driver
+(windows-console-driver, estate windows 2–5); live-domain reads ran from the
+admin workstation; the R11 live import ran over WinRM to the DC. See
+`../manual-evidence-requests.md` for the execution record.
+
 ## Safety rules
 
 - Use only the isolated lab and an unlinked disposable GPO.
