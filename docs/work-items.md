@@ -1601,43 +1601,34 @@ reason nothing has noticed; it fails closed only because nothing calls it.
 ## WI-053 — the endpoint lane's certification is covered by no test
 
 **Opened:** 2026-09-06 (found while landing WI-025's endpoint half).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-06.
 
-`test_every_committed_verdict_is_covered` derives its coverage from the
-directory rather than from memory, which is what made it worth writing —
-`LANE_VERDICTS` was hand-maintained and twelve verdicts had been invisible to
-every check. It globs `wp*-evidence/*.json` and keeps names starting `verdict-`
-or `verification`.
+Closed in two halves the same day. The **instance**: the WI-025 endpoint
+re-certification was promoted under a covered name —
+`wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json`, in the
+directory its work package names — and mapped in `LANE_VERDICTS`, so the lane's
+certification now has its `source.files` checked against the finalizer's
+tables, is checked for internal consistency, and is inside the freshness gate
+that WI-037's change proved it needed.
 
-The endpoint lane's only committed certification is
-`wp1b-evidence/endpoint-result-phase4-estate.json` — a genuine finalizer verdict,
-`work_package: WP-6-endpoint`, `passed: true`, run
-`endpoint-observe-20260803142424-3050`. It matches neither prefix, so:
+The **hole**: the coverage guard's universe was still only the names matching
+its prefixes, so mapping the instance left the escape open one filename along.
+The widening the item asks for makes every JSON in a `wp*-evidence/` directory
+accountable: verdict-named files to the existing gates, everything else to
+`NON_VERDICT_EVIDENCE_FILES`, where each entry carries its reason, an entry
+whose file is gone fails, and renaming a verdict to something unusual lands it
+in the unaccounted bucket instead of out of every gate. The control the item
+names is `test_the_widened_guard_still_sees_the_endpoint_verdict` — it fails if
+the pattern is narrowed, the prefixes are changed, or the endpoint verdict is
+renamed, so the original escape cannot be re-created silently. The superseded
+2026-08-03 certification is named in the new set rather than deleted, which is
+where its history now lives.
 
-* the coverage guard does not see it;
-* it is in no `LANE_VERDICTS` entry, so nothing checks its `source.files`
-  against the endpoint finalizer's tables, and nothing checks it is internally
-  consistent;
-* **the freshness gate has never checked it.** WI-037 changed
-  `run-endpoint-oracle.sh` and `run-endpoint-observe.ps1`, both bound by that
-  verdict, and every RSOP verdict went red while this one stayed silent.
-
-The guard is not wrong — it is derived, and a derivation is only as wide as the
-pattern it derives from. A verdict that escapes by being named unusually is the
+The guard is not wrong — it is derived, and a derivation is only as wide as
+the pattern it derives from. A verdict that escapes by being named unusually is the
 same failure the guard was built to end, one level along, which is the WI-046
 shape: WI-044 fixed the instance and `gpmc_export` was the same bug one entry
 further on.
-
-Filing it separately rather than folding it into WI-025 because it is a defect
-in the *guard*, not in the endpoint lane, and because mapping the verdict today
-would just add a second known-red assertion to a batch that already has twelve.
-
-**Closes when:** the endpoint lane's certification lives in a directory and under
-a name the coverage guard matches, is present in `LANE_VERDICTS`, and the guard
-is widened so a verdict cannot escape by filename again — plus a control that
-fails if the widened pattern stops matching it. The endpoint re-certification
-that WI-025 owes is the natural moment; see
-[`tranche-2026-09-06-batch2-runbook.md`](plan-033/tranche-2026-09-06-batch2-runbook.md).
 
 ## WI-054 — a deny matched through a COMPUTER's group is still unmeasured
 
