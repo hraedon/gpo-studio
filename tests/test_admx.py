@@ -316,7 +316,7 @@ def test_load_catalogue_skips_bad_file_loads_good(tmp_path) -> None:
     assert "bad.admx" in cat.load_errors[0]
 
 
-def test_find_adml_sibling_case_insensitive(tmp_path) -> None:
+def test_find_adml_sibling_case_insensitive(tmp_path, case_sensitive_fs) -> None:
     (tmp_path / "policy.admx").write_bytes(b"<x/>")
     (tmp_path / "Policy.adml").write_bytes(b"<x/>")
     result = find_adml(tmp_path / "policy.admx")
@@ -324,7 +324,7 @@ def test_find_adml_sibling_case_insensitive(tmp_path) -> None:
     assert result.name == "Policy.adml"
 
 
-def test_find_adml_locale_dir_case_insensitive(tmp_path) -> None:
+def test_find_adml_locale_dir_case_insensitive(tmp_path, case_sensitive_fs) -> None:
     (tmp_path / "policy.admx").write_bytes(b"<x/>")
     (tmp_path / "EN-US").mkdir()
     (tmp_path / "EN-US" / "Policy.adml").write_bytes(b"<x/>")

@@ -541,7 +541,7 @@ class TestSanitizationIntegrity:
         tracked = {entry["relative_path"] for entry in record["files"]}
         exempt = {"semantic-manifest.json", "sanitization-record.json"}
         all_files = {
-            str(p.relative_to(FIXTURE_ROOT))
+            p.relative_to(FIXTURE_ROOT).as_posix()
             for p in FIXTURE_ROOT.rglob("*")
             if p.is_file() and p.name not in exempt
         }
@@ -592,7 +592,9 @@ class TestDiscoveryRegistry:
         assert len(collections[0].drives) == 1
         assert collections[0].drives[0].letter == "Z"
 
-    def test_case_insensitive_ambiguity_rejected(self, tmp_path: Path) -> None:
+    def test_case_insensitive_ambiguity_rejected(
+        self, tmp_path: Path, case_sensitive_fs: None
+    ) -> None:
         from gpo_studio.backup import BackupError
         from gpo_studio.import_export import _resolve_case_insensitive
 

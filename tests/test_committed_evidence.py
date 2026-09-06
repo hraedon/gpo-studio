@@ -687,7 +687,7 @@ def test_every_committed_verdict_is_covered() -> None:
     attached.
     """
     committed = {
-        str(path.relative_to(EVIDENCE))
+        path.relative_to(EVIDENCE).as_posix()
         for path in EVIDENCE.glob("wp*-evidence/*.json")
         if path.name.startswith(("verdict-", "verification"))
     }
@@ -702,7 +702,7 @@ def test_every_committed_verdict_is_covered() -> None:
 def test_the_coverage_guard_is_looking_at_real_files() -> None:
     """The control. A glob that matches nothing makes the test above vacuous."""
     committed = {
-        str(path.relative_to(EVIDENCE))
+        path.relative_to(EVIDENCE).as_posix()
         for path in EVIDENCE.glob("wp*-evidence/*.json")
         if path.name.startswith(("verdict-", "verification"))
     }

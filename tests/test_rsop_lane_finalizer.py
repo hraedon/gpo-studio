@@ -588,7 +588,7 @@ def _finalize_with_local_file(
     monkeypatch.setattr(finalize_rsop_run.subprocess, "run", fake_run)
 
     if run_dir_copy is not None:
-        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8")
+        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8", newline="")
 
     finalize_rsop_run.main(
         [
