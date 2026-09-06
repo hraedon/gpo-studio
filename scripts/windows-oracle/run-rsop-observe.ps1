@@ -82,6 +82,12 @@ $result = [ordered]@{
     observed_values       = @()
     control_present       = $false
     lane_problems         = @()
+    token_group           = ''
+    token_groups_session  = @()
+    token_groups_ldap     = @()
+    token_groups_ldap_status = 'not-collected'
+    token_groups_ldap_error  = $null
+    token_collection_error   = $null
     environment           = [ordered]@{
         caption            = (Get-CimInstance Win32_OperatingSystem).Caption
         build              = (Get-CimInstance Win32_OperatingSystem).BuildNumber
@@ -212,6 +218,88 @@ function Get-ComputerGpoNames {
     return @{ applied = @($applied); denied = @($denied) }
 }
 
+function Get-ComputerTokenGroupsFromGpresult {
+    <#
+        The COMPUTER's groups AS GROUP POLICY RESOLVED THEM.
+
+        WI-054. The computer-scope analogue of the user lane's session-token
+        collection. `gpresult /r /scope:computer` runs in this process, but the
+        section it prints under COMPUTER SETTINGS reports the groups Group
+        Policy evaluated the machine's filtering against -- which is the
+        machine token's view, minted at BOOT. That timing is the experiment:
+        a group added after this boot is in the directory and NOT in this
+        list, and no lighter refresh exists for a machine token than
+        restarting the computer, which is exactly what the lane driver did
+        for the scenario that needs it.
+
+        Parsed positionally, like the user lane's: the section is a header, a
+        rule of dashes, one indented name per line. An empty parse is a real
+        observation the finalizer refuses, not silence to read as "no groups".
+    #>
+    param([string]$GpresultText)
+    $groups = @()
+    $inSection = $false
+    foreach ($line in ($GpresultText -split "`r?`n")) {
+        if ($line -match 'security groups') { $inSection = $true; continue }
+        if (-not $inSection) { continue }
+        if ($line -match '^\s*-{3,}\s*$') { continue }
+        if ($line.Trim() -eq '') { continue }
+        if ($line -notmatch '^\s') { break }
+        $groups += $line.Trim()
+    }
+    return @($groups)
+}
+
+function Get-ComputerTokenGroupsFromDirectory {
+    <#
+        The same question asked of the directory instead of the token.
+
+        `tokenGroups` on the COMPUTER ACCOUNT object, expanded transitively by
+        the DC -- the directory's current answer, independent of when the
+        machine last booted. Two independent collections, because they CAN
+        disagree in a way that matters: a group authored after this boot is in
+        the directory and not in the token, and the reboot the lane paid is
+        what is supposed to make them agree.
+
+        WI-042's rule carried over from the user lane: returns a STATUS, not a
+        bare list. Every failure path records why under 'failed', and the
+        finalizer treats a failed collection as a hard refusal rather than as
+        an absence -- a one-sided corroboration must never silently certify.
+    #>
+    try {
+        # The machine account's sAMAccountName is the computer name with a
+        # trailing '$'. TWO STEPS, as in the user lane, because tokenGroups
+        # cannot be retrieved by a search: find the DN, then a BASE-scope read.
+        $searcher = [adsisearcher]"(sAMAccountName=$($env:COMPUTERNAME)`$)"
+        $searcher.PropertiesToLoad.Add('distinguishedName') | Out-Null
+        $found = $searcher.FindOne()
+        if (-not $found) {
+            return @{
+                status = 'failed'
+                groups = @()
+                reason = "no directory object matched sAMAccountName=$($env:COMPUTERNAME)`$"
+            }
+        }
+        $dn = "$($found.Properties['distinguishedname'][0])"
+        $entry = [ADSI]"LDAP://$dn"
+        $entry.RefreshCache(@('tokenGroups'))
+        $names = @()
+        foreach ($raw in $entry.Properties['tokenGroups']) {
+            $groupSid = New-Object System.Security.Principal.SecurityIdentifier($raw, 0)
+            try {
+                $names += "$($groupSid.Translate([System.Security.Principal.NTAccount]).Value)"
+            } catch {
+                # A SID that will not translate is recorded as a SID rather
+                # than dropped: a silently shorter list is a weaker assertion.
+                $names += "$($groupSid.Value)"
+            }
+        }
+        return @{ status = 'collected'; groups = @($names); reason = $null }
+    } catch {
+        return @{ status = 'failed'; groups = @(); reason = "$($_.Exception.Message)" }
+    }
+}
+
 try {
     # Start from a known state, and record it rather than assuming it.
     #
@@ -291,8 +379,24 @@ try {
     # different code path through the same data; if the two disagree about
     # which GPOs applied, neither is trustworthy and the finalizer should not
     # be handed a verdict at all.
-    & gpresult.exe /r /scope:computer 2>&1 |
-        Out-File (Join-Path $commandDir 'gpresult-r.stdout.txt')
+    $gpresultRText = & gpresult.exe /r /scope:computer 2>&1 | Out-String
+    $gpresultRText | Out-File (Join-Path $commandDir 'gpresult-r.stdout.txt')
+
+    # WI-054. Corroborate the computer's group membership two independent ways,
+    # ALWAYS, for every scenario: a run that makes no membership claim simply
+    # has no group to match, and the finalizer gates on the claim rather than
+    # on the collection. The token view comes from the gpresult capture just
+    # taken; the directory view comes from the machine account's tokenGroups.
+    # Collected unconditionally so a collection failure is visible even on
+    # scenarios that do not need the group -- the same honesty the user lane
+    # records with.
+    $result.token_group             = "$($expected.group_name)"
+    $result.token_groups_session    = @(Get-ComputerTokenGroupsFromGpresult -GpresultText $gpresultRText)
+    $ldapGroups                     = Get-ComputerTokenGroupsFromDirectory
+    $result.token_groups_ldap       = @($ldapGroups.groups)
+    $result.token_groups_ldap_status = "$($ldapGroups.status)"
+    $result.token_groups_ldap_error = $ldapGroups.reason
+    $result.token_collection_error  = $null
 
     Get-WinEvent -FilterHashtable @{
         LogName   = 'Microsoft-Windows-GroupPolicy/Operational'

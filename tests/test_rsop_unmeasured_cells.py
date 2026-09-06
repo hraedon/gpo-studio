@@ -1,24 +1,18 @@
-"""WI-049: the corpus must actually carry the cells the register says it will.
+"""The corpus must actually carry the rows the register says it will.
 
-Three regions of `_gpo_filter_status` are answered by argument rather than by
-measurement, all in the over-promising direction -- the model says a GPO applies
-where it previously said it was blocked:
+Opened for WI-049, whose three cells were answered by argument rather than by
+measurement; all three are MEASURED as of the 2026-09-06 batch (the verdicts are
+committed beside the closure), and WI-054 added the last cell the same rule
+applies to -- a deny matched through a group in the CLIENT'S machine token.
 
-* a READ deny naming the USER, resolved on the computer side;
-* an APPLY deny naming the COMPUTER, resolved on the user side;
-* any deny that matches THROUGH A GROUP rather than by name, which is
-  unit-tested in both directions and measured in neither.
-
-`TestTheUnmeasuredCellsArePinned` in `test_rsop.py` pins the *answers* so a
-silent flip is visible. This file pins something different and easier to lose:
-that the estate corpus contains a row for each, on a scenario the lanes already
-run, so the next batch measures them without anybody remembering to.
-
-That is the failure this project keeps having. WI-025 was minted in a design
-paragraph and rediscovered a month later; a plan header said `proposed` while
-implemented; the capability matrix said `failed` while supported. Every one was
-a document that nothing checked. The register states a closing condition for
-WI-049 -- these are the parts of it a test can hold.
+These tests now do regression work, and the reason they exist is unchanged and
+still worth stating: they pin that the estate corpus contains a row for each
+measured region, on a scenario the lanes actually run, so a corpus edit cannot
+silently drop a measurement the register says was taken. That is the failure
+this project keeps having. WI-025 was minted in a design paragraph and
+rediscovered a month later; a plan header said `proposed` while implemented; the
+capability matrix said `failed` while supported. Every one was a document that
+nothing checked.
 """
 
 from __future__ import annotations
@@ -27,8 +21,6 @@ import importlib.util
 import sys
 from pathlib import Path
 from typing import Any, cast
-
-from gpo_studio.rsop import query_reaches_a_reasoned_cell
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _MODULE_PATH = _REPO_ROOT / "scripts" / "plan-033" / "build-rsop-candidate.py"
@@ -153,44 +145,72 @@ def test_a_scenario_that_names_the_user_declares_it() -> None:
         assert scenario.names_user == names_user_in_a_filter, scenario_id
 
 
-def test_every_scenario_that_reaches_a_reasoned_cell_says_so_in_its_prediction() -> None:
-    """The prediction records the model's own disclosure, so a verdict carries it.
+def test_the_computer_group_deny_is_carried_by_a_computer_scope_scenario() -> None:
+    """WI-054's row: a deny matched through a group in the CLIENT'S machine token.
 
-    `query_reaches_a_reasoned_cell` is what the API uses to tell a caller its
-    answer rests on an unmeasured region. Writing the same answer into the
-    prediction means the committed verdict states it in the run's own words --
-    which is what makes a run citable when the item is closed, rather than a
-    scenario name somebody has to recognise.
+    The model says BLOCKED, resolving the membership it was told about through
+    `computer_group_memberships`. Whether Windows agrees about a machine token
+    is what the estate run measures -- and the run only counts because the
+    client was rebooted after the group was authored, which is why this
+    scenario is the one that pays for the reboot.
     """
-    reaching = set()
+    prediction = _predict("computer-security-filtering-group-deny")
+
+    # The membership rides on the COMPUTER side and on nothing else -- the
+    # mirror image of the user-scope nesting row.
+    assert prediction["computer_group_memberships"] == [build_rsop_candidate.GROUP_NAME]
+    assert prediction["user_group_memberships"] == []
+
+    # Blocked THROUGH the token, not by name: the group is the only identity
+    # the deny names, exactly as in the user-scope control below.
+    assert _row(prediction, "Studio-RSOP-CompFilterDenyGroup") == "blocked"
+    # And the control that says the DACL write and the membership did not
+    # simply block everything the run authored.
+    assert _row(prediction, "Studio-RSOP-CompFilterAllow") == "applied"
+    assert _winner(prediction, "Filter") == "Studio-RSOP-CompFilterAllow"
+
+
+def test_the_computer_group_deny_is_not_matched_by_name() -> None:
+    """The control for the row above, same reasoning as the user-scope one."""
+    scenario = _scenario("computer-security-filtering-group-deny")
+    row = next(
+        gpo for gpo in scenario.gpos if gpo.name == "Studio-RSOP-CompFilterDenyGroup"
+    )
+    denies = [f for f in row.filters if f.kind == "deny"]
+    assert [f.principal_key for f in denies] == ["group"]
+    assert any(f.principal_key == "computer" and f.kind == "apply" for f in row.filters)
+
+
+def test_every_group_scenario_declares_which_principal_joins_it() -> None:
+    """`group_principal` must agree with the memberships the prediction carries.
+
+    The flag decides which account the authoring half adds to the disposable
+    group AND which side's token the observation half corroborates, so a
+    scenario that needs a group without declaring the principal would author a
+    member nobody told the model about -- and one that declares it without
+    needing the group would pay a re-session or a reboot for nothing. Both
+    directions are checked over the whole corpus.
+    """
     for scenario_id, scenario in build_rsop_candidate.SCENARIOS.items():
-        user = USER if (scenario.scope == "user" or scenario.names_user) else ""
-        query = build_rsop_candidate.build_query(scenario, DOMAIN, SITE, COMPUTER, user)
-        expected = query_reaches_a_reasoned_cell(query)
+        if not scenario.needs_group:
+            assert scenario.group_principal == "user" or scenario.group_principal, (
+                scenario_id
+            )
+            continue
+        assert scenario.group_principal in ("user", "computer"), scenario_id
         prediction = cast(
             dict[str, Any],
             build_rsop_candidate.prediction_document(
-                scenario, DOMAIN, SITE, COMPUTER, user
+                scenario, DOMAIN, SITE, COMPUTER, USER
             ),
         )
-        assert prediction["reaches_reasoned_cell"] is expected, scenario_id
-        if expected:
-            reaching.add(scenario_id)
-
-    # Not a tautology: the corpus must contain both kinds, or the field records
-    # a constant and the disclosure means nothing.
-    #
-    # `user-security-filtering-read-deny` is in the set and is not one of the
-    # two rows this item adds. Its row A denies READ to the user, and the
-    # predicate is a property of the QUERY rather than of one side: the same
-    # topology answered on the computer side reaches the reasoned cell, even
-    # though the user side's answer is measured (row A of
-    # rsop-user-observe-20260806165543-8004). Flagging it is honest -- an
-    # exception carved out per scenario would be the model deciding which of its
-    # own answers to disclose.
-    assert reaching == {
-        "computer-security-filtering-deny-read",
-        "user-security-filtering-deny",
-        "user-security-filtering-read-deny",
-    }, sorted(reaching)
-    assert len(reaching) < len(build_rsop_candidate.SCENARIOS)
+        if scenario.group_principal == "computer":
+            assert prediction["computer_group_memberships"] == [
+                build_rsop_candidate.GROUP_NAME
+            ], scenario_id
+            assert prediction["user_group_memberships"] == [], scenario_id
+        else:
+            assert prediction["user_group_memberships"] == [
+                build_rsop_candidate.GROUP_NAME
+            ], scenario_id
+            assert prediction["computer_group_memberships"] == [], scenario_id

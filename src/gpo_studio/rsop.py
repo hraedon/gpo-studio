@@ -504,51 +504,6 @@ def _gpo_filter_status(
     return "applied", (), tuple(warnings)
 
 
-def query_reaches_a_reasoned_cell(query: RsopQuery) -> bool:
-    """Does this topology reach the two cells WI-049 was opened about?
-
-    **BOTH CELLS ARE MEASURED AS OF 2026-09-06 AND THIS NO LONGER DISCLOSES A
-    LIMITATION.** It was written when they were not:
-
-      * a READ deny naming the USER, resolved on the computer side --
-        `rsop-observe-20260906184434-8187`;
-      * an APPLY deny naming the COMPUTER, resolved on the user side --
-        `rsop-user-observe-20260906185345-9222`.
-
-    Both estate runs agreed with the model, so the API limitation this fed was
-    removed rather than left asserting that a measured answer is reasoned.
-
-    IT SURVIVES FOR ONE REASON, and it is an economic one rather than a design
-    one: `build-rsop-candidate.py` calls it to stamp `reaches_reasoned_cell`
-    into every prediction, that builder is bound BY HASH by twelve live
-    verdicts, and deleting the call would retire all twelve and buy nothing.
-    WI-054 removes both at the next change that re-certifies these lanes
-    anyway -- the same batching rule WI-037 was deferred under.
-
-    A caller reaches these shapes only by supplying a deny that names the
-    principal which is *not* the one being resolved, so the test is exact rather
-    than heuristic. That mattered when it gated a disclosure; it is now merely a
-    classification of which scenarios exercised the region.
-    """
-    computer = _principal_identities(query.target, "computer")
-    user = _principal_identities(query.target, "user")
-    if not user:
-        # No user in the topology: neither cell is reachable, because both need
-        # a principal on the side that is not being resolved.
-        return False
-    for gpo in query.gpos:
-        for filter_ in gpo.security_filters:
-            if not filter_.deny:
-                continue
-            names_user = _filter_matches(filter_, user)
-            names_computer = _filter_matches(filter_, computer)
-            if filter_.permission == "read" and names_user and not names_computer:
-                return True
-            if filter_.permission == "apply" and names_computer and not names_user:
-                return True
-    return False
-
-
 def _status_certainty(status: RsopGpoStatus) -> int:
     """Rank a status so two sides can be merged by a total order.
 
@@ -944,5 +899,4 @@ __all__ = [
     "RsopTarget",
     "compare_rsop_results",
     "compute_rsop",
-    "query_reaches_a_reasoned_cell",
 ]

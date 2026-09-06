@@ -190,6 +190,74 @@ def _lane_validity(
     return problems
 
 
+def _token_problems(observe: dict[str, Any], expected: dict[str, Any]) -> list[str]:
+    """Reasons the prediction's computer-group-membership input is not corroborated.
+
+    WI-054. The computer-side mirror of the user lane's gate. The group-deny
+    row is only a test of the model if the client's machine account really is
+    in the group the model was told about -- the candidate states that
+    membership as an input, and the estate has to confirm it from the MACHINE
+    TOKEN and from the directory, or the prediction rests on a fiction.
+
+    The token half is the sharp one, and for a reason particular to machines:
+    a machine token is minted at BOOT, so a group authored after this boot is
+    in the directory and NOT in the token. That is exactly the failure the
+    lane's reboot exists to prevent -- and if the reboot did not happen or did
+    not take, this gate is what turns "the client never refreshed its token"
+    into a lane problem instead of a phantom model finding.
+
+    A lane problem rather than a finding: nothing here is a claim about
+    ``rsop.py``.
+    """
+    group = str(expected.get("group_name") or "")
+    if not group:
+        return []
+
+    problems: list[str] = []
+    if observe.get("token_collection_error"):
+        problems.append(f"token collection failed: {observe['token_collection_error']}")
+
+    # Names arrive as DOMAIN\Name from both sources; the stamped group name is
+    # matched as a suffix so neither the domain prefix nor the run stamp has to
+    # be reconstructed here.
+    def _holds(rows: Any) -> bool:
+        return any(str(row).split("\\")[-1].startswith(group) for row in (rows or []))
+
+    session = observe.get("token_groups_session") or []
+    ldap = observe.get("token_groups_ldap") or []
+    if not session:
+        problems.append(
+            "no token groups were collected from the computer's gpresult; the "
+            "group-deny row's input is unverified"
+        )
+    elif not _holds(session):
+        problems.append(
+            f"the machine token does not contain {group!r}; a group authored after "
+            "boot is in the directory and not in the token, and a machine token is "
+            "refreshed only by restarting the computer -- so either the run never "
+            "rebooted the client or the membership was never authored"
+        )
+    # WI-042's rule, carried over: the directory half must be able to refuse.
+    # The status is consulted FIRST, and its absence is itself a refusal -- an
+    # observation that does not record how it collected cannot be
+    # distinguished from one that failed, and a one-sided corroboration is not
+    # the two-sided one this verdict would assert.
+    status = str(observe.get("token_groups_ldap_status") or "")
+    if status != "collected":
+        reason = str(observe.get("token_groups_ldap_error") or "no reason recorded")
+        problems.append(
+            "the directory's tokenGroups for the computer were not collected "
+            f"(status {status or 'absent'}: {reason}); the membership claim would rest "
+            "on the machine token alone, and a one-sided corroboration is not the "
+            "two-sided one this verdict would assert"
+        )
+    elif not _holds(ldap):
+        problems.append(
+            f"the directory's tokenGroups for the computer account do not contain {group!r}"
+        )
+    return problems
+
+
 def _client_environment_problems(observe: dict[str, Any]) -> list[str]:
     """Environment-spec rule 6: a lane that applies policy to a client says so."""
     environment = observe.get("environment") or {}
@@ -391,6 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         author, cleanup, observe, harness_ok, dirty, topology_delivered_intact
     )
     lane_problems += _client_environment_problems(observe)
+    lane_problems += _token_problems(observe, expected)
     control_problems = _control_problems(observe, expected) if not lane_problems else []
     comparison = (
         _compare(prediction, observe, symbolic)
@@ -442,6 +511,17 @@ def main(argv: list[str] | None = None) -> int:
         "comparison": comparison,
         "settle_attempts": observe.get("settle_attempts"),
         "cse_completed": observe.get("cse_completed"),
+        "token_groups": {
+            "group": expected.get("group_name"),
+            "member": expected.get("group_member"),
+            "machine_token": observe.get("token_groups_session"),
+            "directory": observe.get("token_groups_ldap"),
+            # Recorded even on scenarios that make no membership claim: a
+            # reader must be able to tell an empty directory list that WAS
+            # collected from one that was not.
+            "directory_status": observe.get("token_groups_ldap_status"),
+            "directory_error": observe.get("token_groups_ldap_error"),
+        },
         "environment": {
             "client": observe.get("environment"),
             "server": author.get("environment"),

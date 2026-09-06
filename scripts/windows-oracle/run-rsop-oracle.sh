@@ -225,6 +225,46 @@ if [[ -z "$AUTHOR_WORK_DIR" ]]; then
     exit 1
 fi
 
+# WI-054. A group the CLIENT'S COMPUTER ACCOUNT is in rides in the machine
+# token, and a machine token is minted at BOOT -- there is no lighter refresh,
+# the way the user lane pays a re-session for the same reason about the user's
+# token. So a scenario whose group_member is 'computer' reboots the client
+# between authoring and observation. Everything the reboot must find is already
+# in the directory by now: the group exists, the computer is a member, the
+# policy is linked. The observation half corroborates the membership from both
+# the token and the directory, and the finalizer refuses the run if they
+# disagree -- so the reboot cannot quietly become part of the answer.
+#
+# Gated on the CANDIDATE, not on a flag the shell was handed: the candidate is
+# the one artifact the prediction and the estate both bind, so it is the thing
+# that decides whether this run pays for a reboot.
+GROUP_MEMBER="$(uv run python - "$CANDIDATE_DIR/expected.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle).get("group_member") or "")
+PYEOF
+)"
+if [[ "$GROUP_MEMBER" == "computer" ]]; then
+    echo "--- client reboot: the machine token must carry the group the run just authored ---"
+    # The restart kills the PSDirect session out from under this exec, so the
+    # transport reports failure for a command that succeeded. That is expected
+    # and swallowed; what is NOT swallowed is the client failing to come back.
+    endpoint -Action exec -TimeoutSeconds 120 -Command "Restart-Computer -Force" || true
+    CLIENT_READY=0
+    for attempt in $(seq 1 40); do
+        sleep 15
+        if endpoint -Action exec -TimeoutSeconds 60 -Command '"client is accepting PowerShell Direct"' >/dev/null 2>&1; then
+            CLIENT_READY=1
+            echo "client back after reboot (attempt $attempt)"
+            break
+        fi
+    done
+    if [[ "$CLIENT_READY" != "1" ]]; then
+        echo "ERROR: client did not accept a PowerShell Direct session within 10 minutes of the reboot" >&2
+        exit 1
+    fi
+fi
+
 # ---------------------------------------------------------------- observe ---
 # Deliberately not `set -e`-fatal: the observation half can fail legitimately,
 # and its failure must not skip the evidence pull or pre-empt the trap's
