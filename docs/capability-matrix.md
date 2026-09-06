@@ -526,6 +526,10 @@ applies when Windows keeps it off.
   `limitations[].code == "answer_rests_on_a_reasoned_cell"`. The condition is
   exact rather than heuristic — a caller reaches these cells only by supplying
   such a filter — which is what licenses it being conditional at all.
+  As of 2026-09-06 the estate corpus carries a row for each of the three,
+  including the group-matched deny, and the predictions record
+  `reaches_reasoned_cell`. **That is a queued experiment, not a certification**;
+  this entry moves only when a run measures them.
 - **Per-side applied/denied sets (WI-032, open).** `RsopGpoResult.status`
   collapses to "applied on at least one side". Windows reports
   `ComputerResults` and `UserResults` as separate sets and on a topology whose

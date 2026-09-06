@@ -146,6 +146,17 @@ Current version: `1.0.0`.
 
 ### Changed
 
+- WI-049 (corpus half): the Plan 033 RSOP corpus now carries a row for each of
+  the three filtering regions the model answers by reasoning rather than by
+  measurement — a read deny naming the user resolved on the computer side, an
+  Apply deny naming the computer resolved on the user side, and a deny that
+  matches through a group rather than by name. They are filter edits on two
+  scenarios the lanes already run, not a session of their own, and each takes
+  the top link order so a wrong answer costs the predicted *winner* rather than
+  one absent value. `prediction.json` also records `reaches_reasoned_cell` from
+  the model's own disclosure predicate, so a verdict states in the run's own
+  words that its experiment reached an unmeasured region. **Nothing is measured
+  yet**; the answers remain pinned rather than proven.
 - Plan 033: lane verdicts now check what they claim to check. An adversarial
   review round (three reviewers, hazard-scoped, one cross-lineage) found that
   WP-2 and WP-3 graded themselves against the copy of `expected.json` the guest
@@ -207,6 +218,27 @@ Current version: `1.0.0`.
   instead of defaulting to a file set that no longer exists.
 
 ### Fixed
+
+- WI-037: a lane's staging step removed every directory under the guest's
+  output root, so the next run deleted exactly the evidence a human needed to
+  explain why the last one failed. The three shared-root drivers now retain the
+  newest five run directories and sweep the guest's `scripts` directory, which
+  staging owns. Preserving run directories makes the "newest output directory"
+  fallback unsafe in a new way — it would pull the *previous* run's observation
+  and the finalizer would grade it as this one's — so the fallback now requires
+  an observation-bearing directory created since a guest-side clock reading
+  taken immediately before the observation, and refuses anything but exactly one
+  match. The endpoint lane's `verify` phase was writing to a fixed path for the
+  same reason and is per-invocation now. Lab tooling; no operator-facing change.
+  **The affected lanes have not yet been re-certified**, so the item stays open:
+  see [`docs/plan-033/tranche-2026-09-06-batch2-runbook.md`](docs/plan-033/tranche-2026-09-06-batch2-runbook.md).
+- WI-025 (code half): the WP-1B and endpoint lane verdicts named the candidate
+  artifacts they were graded against and hashed none of them, asserting a
+  comparison nobody could re-check. Both finalizers now record SHA-256 for every
+  file under `--candidate-root`, and refuse a run whose candidate root is
+  missing a required artifact rather than recording a shorter block that still
+  looks complete. WP-6B's implementation is the model. The item stays open until
+  one re-certification run per lane carries the block.
 
 - WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
   plan and Studio export bundle as available and then refused both downloads
