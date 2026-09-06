@@ -95,7 +95,7 @@ wsiservice,3,"D:AI(A;CI;CC;;;BA)"
 
 [Kerberos Policy]
 MaxTicketAge = 10
-MaxServiceTicketAge = 600
+MaxServiceAge = 600
 """
 
 _SID_ADMINS = "*S-1-5-32-544"

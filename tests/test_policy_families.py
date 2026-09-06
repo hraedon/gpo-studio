@@ -167,7 +167,9 @@ ResetLockoutCount = 30
 [Kerberos Policy]
 MaxTicketAge = 10
 MaxRenewAge = 7
+MaxServiceAge = 480
 MaxClockSkew = 5
+TicketValidateClient = 0
 EnforceLogonRestrictions = 1
 EnforceUserLogonRestrictions = 0
 """
@@ -187,7 +189,9 @@ EnforceUserLogonRestrictions = 0
 
     assert family.kerberos.max_ticket_age_hours == 10
     assert family.kerberos.max_renewal_age_days == 7
+    assert family.kerberos.max_service_age_minutes == 480
     assert family.kerberos.max_clock_skew_minutes == 5
+    assert family.kerberos.ticket_validate_client is False
     assert family.kerberos.enforce_logon_restrictions is True
     assert family.kerberos.enforce_user_logon_restrictions is False
 
@@ -200,6 +204,39 @@ EnforceUserLogonRestrictions = 0
     )
     reparsed = AccountPolicyFamily.from_template(rebuilt)
     assert reparsed == family
+
+
+def test_kerberos_defaults_match_measured_dc_export() -> None:
+    # Work-order R7 (2026-09-05): the measured effective [Kerberos Policy]
+    # from a real domain controller. MaxTicketAge (hours) and MaxServiceAge
+    # (minutes) are the two documented defaults for the SAME 10-hour
+    # duration, which pins the mixed units. The model's defaults are the
+    # measured effective values.
+    measured = parse_security_template(
+        """[Kerberos Policy]
+MaxTicketAge = 10
+MaxRenewAge = 7
+MaxServiceAge = 600
+MaxClockSkew = 5
+TicketValidateClient = 1
+"""
+    )
+    family = AccountPolicyFamily.from_template(measured)
+    assert family.kerberos == KerberosPolicy()
+
+    emitted = family.kerberos.to_template_entries()["Kerberos Policy"]
+    assert list(emitted)[:5] == [
+        "MaxTicketAge",
+        "MaxRenewAge",
+        "MaxServiceAge",
+        "MaxClockSkew",
+        "TicketValidateClient",
+    ]
+    assert emitted["MaxTicketAge"] == "10"
+    assert emitted["MaxRenewAge"] == "7"
+    assert emitted["MaxServiceAge"] == "600"
+    assert emitted["MaxClockSkew"] == "5"
+    assert emitted["TicketValidateClient"] == "1"
 
 
 # ---------------------------------------------------------------------------
