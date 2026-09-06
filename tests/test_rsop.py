@@ -1557,29 +1557,38 @@ class TestReadDenyIsEvaluatedAgainstTheReadingPrincipal:
                 assert result.is_conclusive()
 
 
-class TestTheUnmeasuredCellsArePinned:
-    """The two cells WI-047 changed by reasoning rather than by measurement.
+class TestTheOffDiagonalCellsAreMeasured:
+    """The two off-diagonal cells, MEASURED ON THE ESTATE 2026-09-06 (WI-049).
 
-    Raised by cross-lineage review of the tranche. Both are off-diagonal --
-    the deny names the principal that is NOT the one being resolved -- and both
-    were flipped from BLOCKS to APPLIES when `_gpo_filter_status` stopped
-    matching against the union of both principals. Neither has an estate row.
+    This class was `TestTheUnmeasuredCellsArePinned` and its docstring said the
+    answers below were chosen by reasoning, with no estate row for either, so
+    that a later measurement disagreeing would land as a visible failure here
+    rather than as a quiet edit. The measurement happened and it agreed, so the
+    same assertions now record a certified rule instead of a pinned guess.
 
-    The direction matters. Applying a GPO that Windows would withhold is the
-    failure that tells an operator about settings which never arrive, which is
-    the same failure direction WI-033 was opened for. The mechanism argues the
-    new answers are right: the computer performs the retrieval with its own
-    token, so a user-named ACE cannot gate it, and Apply is evaluated against
-    the principal the policy applies to, so a computer-named Apply deny has
-    nothing to say about the user side.
+    Both are off-diagonal -- the deny names the principal that is NOT the one
+    being resolved -- and both were flipped from BLOCKS to APPLIES when
+    `_gpo_filter_status` stopped matching against the union of both principals
+    (WI-047). The direction is why it mattered: applying a GPO that Windows
+    would withhold tells an operator about settings which never arrive, the same
+    failure direction WI-033 was opened for.
 
-    These tests do not make that argument true. They pin the answer the tranche
-    chose, so that if WI-049 measures the estate and Windows disagrees, the
-    change lands as a visible failure here rather than as a quiet edit.
+    The runs, and what each observed on a real client:
+
+      * `rsop-observe-20260906184434-8187` -- a Deny GenericRead ACE naming the
+        interactive user, beside an intact computer Read + Apply grant. The GPO
+        APPLIED on the computer side and won its conflict, while a
+        computer-named read deny in the same topology stayed blocked and the
+        plain-allow control applied.
+      * `rsop-user-observe-20260906185345-9222` -- a Deny on Apply Group Policy
+        naming the computer account, resolved on the user side. The GPO APPLIED
+        and won, while the user-named Apply deny in the same topology blocked.
 
     `_query` is deliberately not reused for the read cell: its computer-scope
     query carries no user identity at all, so a user-named deny would match
-    nothing and the row would pass for the wrong reason.
+    nothing and the row would pass for the wrong reason. That was true when
+    these were guesses and it is still true now -- a test that passes vacuously
+    certifies nothing whether or not an estate agrees with it.
     """
 
     def _query(
@@ -1628,10 +1637,13 @@ class TestTheUnmeasuredCellsArePinned:
         )
 
     def test_a_user_named_read_deny_does_not_block_the_computer_side(self) -> None:
-        """The fourth read cell: REASONED, not measured (WI-049).
+        """The fourth read cell, MEASURED: rsop-observe-20260906184434-8187.
 
         The user exists and is named by the deny, so the row is not vacuous.
-        Before WI-047 the union matched it and this blocked.
+        Before WI-047 the union matched it and this blocked; the estate says the
+        GPO applies, which is what MS16-072 predicts -- the computer performs
+        the retrieval with its own token, so a user-named ACE has no reader to
+        act on.
         """
         result = compute_rsop(
             self._query(
@@ -1646,7 +1658,8 @@ class TestTheUnmeasuredCellsArePinned:
         assert "security_filter_read_denied" not in result.gpo_results[0].filtering_reasons
 
     def test_a_computer_named_apply_deny_does_not_block_the_user_side(self) -> None:
-        """The off-diagonal Apply cell: REASONED, not measured (WI-049).
+        """The off-diagonal Apply cell, MEASURED:
+        rsop-user-observe-20260906185345-9222.
 
         The computer is always present on a user-scope query, so this row was
         matched by the pre-WI-047 union and blocked.
@@ -1904,41 +1917,35 @@ def test_api_rsop_compute_omits_the_slow_link_limitation_when_unasked(
     assert "slow_link_and_safe_mode_are_not_evaluated" not in codes
 
 
-def test_api_rsop_compute_discloses_when_the_answer_rests_on_a_reasoned_cell(
+def test_api_rsop_compute_no_longer_calls_a_measured_cell_reasoned(
     tmp_path: Path,
 ) -> None:
-    """WI-049, in the payload rather than only in the matrix.
+    """WI-049 CLOSED BY MEASUREMENT 2026-09-06, so the disclosure is gone.
 
-    Raised by cross-lineage review of this surface: slow-link -- which is merely
-    ignored and can never make an answer WRONG -- had a limitation, while the
-    two cells that produce a definite answer on reasoning alone had none. That
-    asymmetry was backwards, and the matrix is not the payload.
+    This test used to assert the opposite. The payload disclosed
+    `answer_rests_on_a_reasoned_cell` for a topology carrying a deny that names
+    the principal which is not the one being resolved, because two such cells
+    had been flipped from `blocked` to `applied` by argument and no estate row
+    covered either.
 
-    A read deny naming the USER is measured on the user side (row A) and
-    REASONED on the computer side, which `compute_rsop` resolves regardless of
-    where the settings live. Since `status` unions both sides (WI-032), the
-    reasoned half genuinely feeds the reported answer.
+    Both now have one, and both agreed with the model:
+    `rsop-observe-20260906184434-8187` for the user-named READ deny on the
+    computer side, and `rsop-user-observe-20260906185345-9222` for the
+    computer-named APPLY deny on the user side.
+
+    Inverted rather than deleted, and that is the point of keeping it. A caller
+    who saw that code and changed a decision because of it is entitled to have
+    it disappear when the region stops being unmeasured -- and if someone
+    re-adds the limitation without a reason, this fails and asks why a certified
+    answer is being described as a guess.
     """
     with _api_client(tmp_path) as client:
-        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("labuser"))
-    codes = [item["code"] for item in resp.json()["limitations"]]
-    assert "answer_rests_on_a_reasoned_cell" in codes
-
-
-def test_api_rsop_compute_omits_the_reasoned_cell_limitation_when_every_deny_is_measured(
-    tmp_path: Path,
-) -> None:
-    """The control, and the reason the limitation is allowed to be conditional.
-
-    A read deny naming the COMPUTER is row B -- measured on both sides. Nothing
-    here rests on reasoning, so a surface that emitted the limitation
-    unconditionally would be saying "this might be wrong" about a certified
-    answer, and the signal would stop meaning anything.
-    """
-    with _api_client(tmp_path) as client:
-        resp = client.post("/api/rsop/compute", json=_api_read_deny_payload("LABCL01"))
-    codes = [item["code"] for item in resp.json()["limitations"]]
-    assert "answer_rests_on_a_reasoned_cell" not in codes
+        for principal in ("labuser", "LABCL01"):
+            resp = client.post(
+                "/api/rsop/compute", json=_api_read_deny_payload(principal)
+            )
+            codes = [item["code"] for item in resp.json()["limitations"]]
+            assert "answer_rests_on_a_reasoned_cell" not in codes, principal
 
 
 def test_api_rsop_compute_refuses_logging_mode(tmp_path: Path) -> None:

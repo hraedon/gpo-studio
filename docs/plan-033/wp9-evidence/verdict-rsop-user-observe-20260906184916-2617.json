@@ -1,0 +1,113 @@
+{
+  "author_run_id": "rsop-author-20260906184911-8084",
+  "candidate": {
+    "expected.json": "30100e56d1cb07d06a2f5f3a46dcad66c5e302804f95509ea451b756fd695f9d",
+    "prediction.json": "67bbca4a945ea9a2192d67b1e8b1b0739c5b9ed6667dfacf3c85f1f90a3c11f5",
+    "topology.json": "71d1ccb60b279319ddf1ea3763b4454a8f085d36c49447392ef9eed8b50f59b6"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [
+      "Studio-RSOP-Loopback"
+    ],
+    "applied_set_difference_is_advisory": true,
+    "conclusive": true,
+    "observed_applied_user_side": [
+      "Studio-RSOP-CompLocation",
+      "Studio-RSOP-UserControl"
+    ],
+    "observed_foreign_gpos": [
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "CompOnly": "1",
+      "Control": "present",
+      "Loop": "computerLocation"
+    },
+    "predicted_applied_either_side": [
+      "Studio-RSOP-CompLocation",
+      "Studio-RSOP-Loopback",
+      "Studio-RSOP-UserControl"
+    ],
+    "predicted_winners": {
+      "CompOnly": "1",
+      "Control": "present",
+      "Loop": "computerLocation"
+    },
+    "unevaluable_gpos": [],
+    "value_findings": []
+  },
+  "control_problems": [],
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.9168"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.33296"
+    }
+  },
+  "expected_finding": "",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "loopback": {
+    "control_ok": true,
+    "intended": "replace",
+    "observed": "replace"
+  },
+  "passed": true,
+  "principal": "labauto1",
+  "principal_sid": "S-1-5-21-343068944-2904821402-3322616572-1106",
+  "run_id": "rsop-user-observe-20260906184916-2617",
+  "scenario_id": "loopback-replace",
+  "schema_version": 1,
+  "scope": "user",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "9f6d775f6ba0e87762bf38d3225989bc2fc6add2",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "b02c22aa2480c1dff88f1768c066377399903520e992b0d5588cab8b9cdd7510",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "run-rsop-author.ps1": "90d3b95da383a76b419286695112fd48b21dd85518dddca90cae05dc79e64939",
+      "run-rsop-user-observe.ps1": "eb654b423519b2396ecdb0fa8cc19621116a1c23501599d8ddefe69ed6dffc8c",
+      "run-rsop-user-oracle.sh": "435860efe51acf872e6d6d7f3610dda925cee85357c384953b1586323d66fd9f"
+    }
+  },
+  "state": "pass",
+  "token_groups": {
+    "directory": [
+      "BUILTIN\\Users",
+      "LAB\\Domain Users"
+    ],
+    "directory_error": null,
+    "directory_status": "collected",
+    "group": "",
+    "session": [
+      "Domain Users",
+      "Everyone",
+      "BUILTIN\\Users",
+      "NT AUTHORITY\\INTERACTIVE",
+      "CONSOLE LOGON",
+      "NT AUTHORITY\\Authenticated Users",
+      "This Organization",
+      "LOCAL",
+      "Authentication authority asserted identity",
+      "Medium Mandatory Level"
+    ]
+  },
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "user_policy_completed": true,
+  "work_package": "WP-9"
+}

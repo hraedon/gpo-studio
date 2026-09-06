@@ -1,5 +1,27 @@
 # Tranche: WI-049, WI-025 and WI-037 — the estate session that closes them
 
+> **EXECUTED 2026-09-06. All three items are closed.** Fifteen runs against the
+> estate, fourteen of them live: WP-1B (7/7), the endpoint lane, six WP-6
+> scenarios and six WP-9 scenarios, every one `pass` from a clean tree, with a
+> zero-residual estate re-query afterwards. WI-049's three unmeasured rows were
+> measured and **all three agreed with the model**.
+>
+> Two things went differently from the plan below, both recorded rather than
+> tidied away:
+>
+> * the endpoint lane ran **twice**. The first run passed and was discarded
+>   because it exposed a defect in WI-037's own change — `$(verify_endpoint)`
+>   runs the phase in a subshell, so its idempotency flag never reached the
+>   driver's shell and the EXIT trap repeated the entire post-teardown
+>   verification. Fixed in `38eedc6`, which is why the endpoint verdict binds a
+>   different commit from the rest of the batch.
+> * the estate-hygiene check at the end of this document was **wrong** as first
+>   written, and is corrected in place below.
+>
+> The rest of this document is the plan as written beforehand. It is left
+> unedited apart from that correction, because what it predicted and what
+> happened is the useful comparison.
+
 **Scoped 2026-09-06, after the WI-048 re-certification batch landed.** The three
 items are batched because they share one estate session and because two of them
 touch the same hash-bound files: fixing WI-037 moves the lane drivers, which

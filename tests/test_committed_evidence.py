@@ -223,6 +223,54 @@ LANE_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json": (
         "finalize_rsop_user_run.py"
     ),
+    # 2026-09-06 batch two. WI-037 moved every RSOP lane driver and WI-049 moved
+    # the candidate builder, so the twelve verdicts above stopped being
+    # certifications the moment those files changed; these re-earn them. Twelve
+    # scenarios, all `pass`, all conclusive, from a clean tree at `9f6d775`.
+    #
+    # Three of them carry measurements this project did not have before:
+    # `...184434-8187` is WI-049's fourth read cell (a read deny naming the USER
+    # on a computer-scope scenario -- it APPLIED, as the model reasoned), and
+    # `...185345-9222` carries both the off-diagonal Apply cell and the first
+    # group-matched deny any estate run has exercised.
+    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # The endpoint lane, mapped for the FIRST time (WI-053). Its certification
+    # had been sitting at `wp1b-evidence/endpoint-result-phase4-estate.json`,
+    # whose name matches neither prefix the coverage guard globs for, so nothing
+    # checked its `source.files`, nothing checked it was internally consistent,
+    # and the freshness gate never saw it -- WI-037 changed two files it binds
+    # and every RSOP verdict went red while that one stayed silent. This run
+    # carries a name the guard matches, and is the lane's first verdict to bind
+    # its candidate (WI-025). Committed at `38eedc6`, one commit later than the
+    # rest of the batch, because the first attempt found a real defect in the
+    # WI-037 change: `$(verify_endpoint)` ran the phase in a subshell, so the
+    # EXIT trap ran the whole post-teardown verification a second time.
+    "wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json": (
+        "finalize_endpoint_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
@@ -261,6 +309,24 @@ PRE_TRANSPORT_VERDICTS = {
 #: still matches the tree, so a live claim cannot be quietly parked in here to
 #: silence the gate below.
 RETIRED_VERDICTS = {
+    # The 2026-09-05 batch, superseded by batch two on 2026-09-06. WI-037 moved
+    # all three shared-root lane drivers and WI-049 moved the candidate builder,
+    # both of which every RSOP verdict binds by hash. The gate reported exactly
+    # twelve broken bindings the moment the code landed and before a single lane
+    # had been re-run -- the second consecutive tranche where it did the noticing
+    # rather than a person.
+    "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json",
     # The 2026-08-06 RSOP batch, superseded by the 2026-09-05 re-certification.
     # WI-048 changed `psdirect.ps1`, which every lane transports through, and the
     # WP-9 lane's session-restart gate stopped failing silently in the same
