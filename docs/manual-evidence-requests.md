@@ -1,14 +1,13 @@
 # Manual evidence requests — work order for the operator
 
-Status: **executed 2026-09-05** (written 2026-08-06 against `main` at
-`80c23b5`). Ten of the eleven requests are complete: R1–R5, R9 and R10 ran
-through the transactional console driver on the lab estate (windows 2–5,
-banked in the windows-console-driver claim registry), R6 and R8 ran
-read-only from the admin workstation, and R11 ran against the live domain
-on 2026-09-05 with the operator's explicit go-ahead (one unlinked GPO,
-removed same sitting, strict re-query zero). R7 — the only request that
-must run **on a domain controller** — awaits the operator's
-skip-vs-admin-proxy decision.
+Status: **fully executed 2026-09-05** (written 2026-08-06 against `main` at
+`80c23b5`). All eleven requests are complete. R1–R5, R9 and R10 ran through
+the transactional console driver on the lab estate (windows 2–5, banked in
+the windows-console-driver claim registry); R6 and R8 ran read-only from the
+admin workstation; R11 ran against the live domain with the operator's
+go-ahead (one unlinked GPO, removed same sitting, strict re-query zero); R7
+ran on the domain controller the same day via `secedit /export`, sliced
+on-box and the full export deleted.
 
 Highlights of what the captures changed: `migration.py` parsed a namespace
 GPMC does not use (silent no-op, fixed); `object_security.py`'s propagation
