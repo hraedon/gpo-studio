@@ -79,7 +79,6 @@ from gpo_studio.rsop import (  # noqa: E402
     RsopQuery,
     RsopTarget,
     compute_rsop,
-    query_reaches_a_reasoned_cell,
 )
 from gpo_studio.som import SomLink, SomNode  # noqa: E402
 
@@ -237,6 +236,16 @@ class Scenario:
     #: The lane creates a disposable group and puts the principal in it, so
     #: nesting can be tested without touching any pre-existing group.
     needs_group: bool = False
+    #: WHO the disposable group is created for: the user principal (the
+    #: user-scope nesting rows) or the client's own computer account (WI-054).
+    #: The two are not symmetric and the difference is the experiment: a group
+    #: the user is in rides in the user's token, minted at sign-in, so the lane
+    #: pays a re-session; a group the computer is in rides in the machine
+    #: token, minted at BOOT, so the lane pays a client reboot. The authoring
+    #: half reads this to decide which account joins the group, and the
+    #: observation half corroborates the membership against the matching
+    #: principal's own token.
+    group_principal: str = "user"  # user | computer
     #: A COMPUTER-scope scenario that names the USER in a security filter.
     #:
     #: WI-049. One of the two unmeasured cells is a read deny naming the user,
@@ -1350,6 +1359,102 @@ COMPUTER_SECURITY_FILTERING_DENY_READ = Scenario(
     ),
 )
 
+#: WI-054, OPENED 2026-09-06: the half of WI-049 its closing condition did not
+#: cover. WI-049 measured a group-matched deny on the USER side -- the lane
+#: creates a disposable group, puts the principal in it, restarts the session
+#: so the token carries it, and the observation half corroborates the
+#: membership two independent ways. The equivalent on the COMPUTER side had
+#: never run: every scenario passed `computer_group_memberships=()`, so no
+#: estate row ever exercised the branch that reads it.
+#:
+#: WHY IT COSTS A REBOOT, and why this is the scenario that pays it. A group
+#: the user is in rides in the user's token, minted at sign-in -- hence the
+#: user lane's re-session. A group the computer is in rides in the MACHINE
+#: token, minted at boot, and there is no lighter mechanism to refresh one:
+#: the equivalent of signing in again is restarting the computer. The lane
+#: driver reboots the CLIENT between authoring and observation for exactly and
+#: only this scenario (gated on the candidate's `group_member`), and the
+#: observation half corroborates the membership against the machine token and
+#: the directory independently -- the same two-source corroboration the user
+#: lane runs, with the finalizer refusing the run if the group is in neither
+#: or if either collection failed outright.
+#:
+#: THE FAILURE DIRECTION IS THE ONE THAT MATTERS. If the model resolves a
+#: computer group membership Windows does not, it reports a GPO blocked that
+#: actually applies -- or, with a deny, applies one Windows withholds. The API
+#: accepts `computer_group_memberships` from callers today, so the branch is
+#: reachable rather than theoretical.
+#:
+#: THE ROW TAKES LINK ORDER 1, same trade as WI-049's rows: the allow row
+#: below carries the regression assertions and the control that says the DACL
+#: write and the membership both worked -- if the deny row and the allow row
+#: are BOTH blocked, the membership gate fired on everything and the run
+#: measured a broken authoring rather than a model answer.
+COMPUTER_SECURITY_FILTERING_GROUP_DENY = Scenario(
+    scenario_id="computer-security-filtering-group-deny",
+    ous=PLAIN_OUS,
+    target_ou_key="child",
+    control_gpo="Studio-RSOP-Control",
+    control_value_name="Control",
+    needs_group=True,
+    group_principal="computer",
+    gpos=(
+        PlannedGpo(
+            name="Studio-RSOP-CompFilterDenyGroup",
+            guid="00000000-0000-0000-0000-00000000cf09",
+            scope="ou",
+            scope_key="child",
+            order=1,
+            values={"Filter": "denyGroup", "DenyGroupOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="computer", kind="apply"),
+                PlannedFilter(principal_key="group", kind="deny"),
+            ),
+            isolates=(
+                "WI-054: an APPLY deny matched THROUGH A GROUP the client's "
+                "computer account belongs to, resolved on the COMPUTER side. The "
+                "group is the only identity the deny names, so a block can only "
+                "have come through the membership -- and the machine token only "
+                "carries the group because the run rebooted the client after "
+                "authoring it in. The model says BLOCKED, the same answer it "
+                "gives for a user-side group deny; whether Windows agrees about "
+                "a machine token is what this row measures. ABSENT-applied => "
+                "the model over-withholds on the computer side; PRESENT where "
+                "the model said applied => it over-promises. Either divergence "
+                "is a finding, not a lane failure."
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-CompFilterAllow",
+            guid="00000000-0000-0000-0000-00000000cf10",
+            scope="ou",
+            scope_key="child",
+            order=2,
+            values={"Filter": "allow", "AllowOnly": "1"},
+            filters=(
+                PlannedFilter(principal_key="authenticated-users", kind="read"),
+                PlannedFilter(principal_key="computer", kind="apply"),
+            ),
+            isolates=(
+                "CONTROL for the row above: no group filter at all, so the group "
+                "gate cannot touch it. Applied, and winner of Filter once the "
+                "deny row is out -- which is what separates a working deny from "
+                "a DACL or membership that blocked everything the run authored."
+            ),
+        ),
+        PlannedGpo(
+            name="Studio-RSOP-Control",
+            guid="00000000-0000-0000-0000-00000000cf11",
+            scope="ou",
+            scope_key="child",
+            order=3,
+            values={"Control": "present"},
+            isolates="CONTROL: default filtering, unconflicted. Absent => nothing applied.",
+        ),
+    ),
+)
+
 #: WP-6 topology item 6's third case, and the one nobody has measured: a WMI
 #: filter that cannot be EVALUATED, as distinct from one that evaluates false.
 #:
@@ -1433,6 +1538,9 @@ SCENARIOS: dict[str, Scenario] = {
     WMI_FILTERING.scenario_id: WMI_FILTERING,
     COMPUTER_SECURITY_FILTERING.scenario_id: COMPUTER_SECURITY_FILTERING,
     COMPUTER_SECURITY_FILTERING_DENY_READ.scenario_id: (COMPUTER_SECURITY_FILTERING_DENY_READ),
+    COMPUTER_SECURITY_FILTERING_GROUP_DENY.scenario_id: (
+        COMPUTER_SECURITY_FILTERING_GROUP_DENY
+    ),
     WMI_FILTERING_ERROR.scenario_id: WMI_FILTERING_ERROR,
 }
 
@@ -1657,19 +1765,30 @@ def build_query(
             # is not in them -- so this is a claim the estate has to
             # corroborate, not one the prediction gets for free.
             # WI-047. THE GROUP BELONGS TO THE PRINCIPAL THE SCENARIO FILTERS
-            # ON, and saying which is now possible. Every nesting scenario in
-            # this corpus puts the disposable group in the USER's token -- the
-            # observation half collects it with `whoami /groups` in the user's
-            # session, which is the user's token and never the computer's (the
-            # WP-6 rule). Declaring it on the computer would have the model
-            # resolve a membership the estate never corroborates.
+            # ON, and saying which is now possible. The user-scope nesting rows
+            # put the disposable group in the USER's token -- collected with
+            # `gpresult /r` in the user's session, which is the user's token and
+            # never the computer's (the WP-6 rule). WI-054's row puts it in the
+            # CLIENT'S machine token instead: `group_principal` says which, and
+            # the lane pays the matching price -- a re-session for the user, a
+            # client reboot for the computer -- because a token is minted at
+            # whatever event creates its principal's session, and no lighter
+            # refresh exists for either.
             #
-            # The computer's memberships stay EMPTY rather than being guessed.
-            # Nothing collects them for these scenarios, and an invented list
-            # would be an input the estate does not confirm -- the exact thing
-            # the token gate exists to prevent.
-            user_group_memberships=(GROUP_NAME,) if scenario.needs_group else (),
-            computer_group_memberships=(),
+            # The other side's memberships stay EMPTY rather than being guessed.
+            # Nothing collects them, and an invented list would be an input the
+            # estate does not confirm -- the exact thing the token gate exists
+            # to prevent.
+            user_group_memberships=(
+                (GROUP_NAME,)
+                if scenario.needs_group and scenario.group_principal == "user"
+                else ()
+            ),
+            computer_group_memberships=(
+                (GROUP_NAME,)
+                if scenario.needs_group and scenario.group_principal == "computer"
+                else ()
+            ),
             site_name=site_name,
             domain=domain,
         ),
@@ -1703,16 +1822,6 @@ def prediction_document(
     """
     query = build_query(scenario, domain, site_name, computer_name, user_name)
     result = compute_rsop(query)
-
-    # WI-049, recorded rather than remembered. `query_reaches_a_reasoned_cell`
-    # is the model's own exact test for whether an answer rests on one of the
-    # two cells that were flipped by argument instead of by measurement, and the
-    # API already discloses it to callers. Writing it into the prediction means
-    # the verdict a reviewer reads states, in the run's own words, that this
-    # experiment reaches a reasoned region -- which is what makes the run
-    # citable when the item is closed, instead of a scenario name somebody has
-    # to recognise.
-    reaches_reasoned_cell = query_reaches_a_reasoned_cell(query)
 
     # WI-043. A GPO the model declines to predict belongs in NEITHER list. Put
     # it in `denied_gpos` and the finalizer compares an abstention against
@@ -1769,7 +1878,6 @@ def prediction_document(
         "scope": scenario.scope,
         "loopback_mode": scenario.loopback_mode,
         "expect_finding": scenario.expect_finding,
-        "reaches_reasoned_cell": reaches_reasoned_cell,
         "user_group_memberships": list(result.target.user_group_memberships),
         "computer_group_memberships": list(result.target.computer_group_memberships),
         "target": {
@@ -1828,6 +1936,7 @@ def topology_document(
         "user_ou_dn": dns[scenario.user_ou_key] if scenario.user_ou_key else "",
         "user_ou_key": scenario.user_ou_key,
         "group_name": GROUP_NAME if scenario.needs_group else "",
+        "group_member": scenario.group_principal if scenario.needs_group else "",
         "gpos": [
             {
                 "name": planned.name,
@@ -1953,6 +2062,7 @@ def main() -> int:
         "policy_key": POLICY_KEY,
         "endpoint_user": args.user_name,
         "group_name": GROUP_NAME if scenario.needs_group else "",
+        "group_member": scenario.group_principal if scenario.needs_group else "",
         "expect_finding": scenario.expect_finding,
         "rows": [
             {"gpo": planned.name, "isolates": planned.isolates} for planned in scenario.gpos
