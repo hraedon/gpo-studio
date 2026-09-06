@@ -171,6 +171,12 @@ class ApprovalRequest:
     required_approvers: int = 1  # number of approvals needed
     current_approvals: int = 0
     approvers: tuple[str, ...] = ()  # actors who have already approved
+    #: SHA-256 of the plan's operative content at the moment approval was
+    #: requested (`PublicationPlan.payload_digest`). Empty means the request
+    #: predates content binding, or was constructed without a plan to bind to;
+    #: `_approval_gate` refuses either way, because an approval that binds
+    #: nothing cannot attest to anything (WI-050).
+    plan_payload_digest: str = ""
 
     def is_sufficiently_approved(self) -> bool:
         """Check if enough approvals have been collected."""
@@ -256,6 +262,7 @@ def create_approval_request(
         expires_at=expires.isoformat(timespec="seconds"),
         required_approvers=required_approvers,
         current_approvals=0,
+        plan_payload_digest=plan.payload_digest,
     )
 
 
@@ -477,6 +484,29 @@ def _approval_gate(
             detail=(
                 f"Approval plan_id {approval.plan_id!r} does not match "
                 f"plan {plan.plan_id!r}"
+            ),
+        )
+    if not approval.plan_payload_digest:
+        return PublisherGate(
+            gate_id="approval_gate",
+            name="Approval Gate",
+            check="Plan has sufficient approvals",
+            passed=False,
+            detail=(
+                "Approval does not bind the plan's content "
+                "(no plan_payload_digest); it cannot attest to these steps"
+            ),
+        )
+    if approval.plan_payload_digest != plan.payload_digest:
+        return PublisherGate(
+            gate_id="approval_gate",
+            name="Approval Gate",
+            check="Plan has sufficient approvals",
+            passed=False,
+            detail=(
+                f"Plan content changed since approval: approved "
+                f"{approval.plan_payload_digest[:12]}, plan is "
+                f"{plan.payload_digest[:12]}"
             ),
         )
     if approval.state == "rejected":

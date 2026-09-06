@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from .artifact_store import ArtifactStore, detect_secrets
+from .canonical import canonical_json_bytes
 from .gpmc_interop import InteropIssue
 from .gpp import serialize_gpp
 from .model import GPO, RegistrySetting, ValidationIssue
@@ -54,6 +55,23 @@ class PublicationStep:
     version_half: GptVersionHalf | None = None
 
 
+def _step_payload(step: PublicationStep) -> dict[str, object]:
+    """The part of a step that determines its effect, for `payload_digest`.
+
+    `status` is excluded: it moves from pending to completed as the plan runs,
+    and a digest that changed under execution could not bind an approval taken
+    before it.
+    """
+    return {
+        "step_id": step.step_id,
+        "operation": step.operation,
+        "target": step.target,
+        "detail": step.detail,
+        "artifact_ids": list(step.artifact_ids),
+        "version_half": step.version_half,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class PublicationPlan:
     plan_id: str
@@ -68,6 +86,37 @@ class PublicationPlan:
     rollback_plan: tuple[PublicationStep, ...] = field(default_factory=tuple)
     requires_enhanced_approval: bool = False
     risk_level: Literal["low", "medium", "high", "critical"] = "low"
+
+    @property
+    def payload_digest(self) -> str:
+        """SHA-256 over what this plan DOES, so an approval can bind to it.
+
+        `plan_id` is a random `uuid4` prefix with no relationship to the plan's
+        content, so an approval that names one attests to a name (WI-050). This
+        digest covers the operative shape instead: the GPO addressed, every step
+        in order, the rollback steps, and the two fields that decide how much
+        scrutiny the plan gets -- `risk_level` and `requires_enhanced_approval`.
+        Escalating a plan's risk after approval is itself a content change.
+
+        Deliberately EXCLUDED, because they move while a plan is worked and
+        would make the digest unstable exactly when it is being checked:
+        `plan_id`, `state`, `approved_by`, `approved_at`, `published_at`, and
+        each step's `status`. What remains is fixed for a given set of actions.
+
+        Computed rather than stored: a stored digest is one more field that can
+        be set to whatever the constructor is handed, which is the defect this
+        closes rather than a fix for it.
+        """
+        payload = {
+            "gpo_guid": self.gpo_guid,
+            "gpo_name": self.gpo_name,
+            "target": self.target,
+            "risk_level": self.risk_level,
+            "requires_enhanced_approval": self.requires_enhanced_approval,
+            "steps": [_step_payload(step) for step in self.steps],
+            "rollback_plan": [_step_payload(step) for step in self.rollback_plan],
+        }
+        return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
     def validate(self) -> tuple[ValidationIssue, ...]:
         """Validate publication plan structural rules."""
