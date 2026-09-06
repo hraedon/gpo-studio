@@ -255,6 +255,16 @@ Current version: `1.0.0`.
   `wp1b-writer-20260906183513-1195` (7/7, fifteen candidate hashes) and
   `endpoint-observe-20260906185837-7523`, both committed with their blocks
   populated.
+- WI-053: the endpoint lane's only committed certification escaped every
+  evidence gate since 2026-08-03 because its filename matched neither prefix
+  the coverage guard globs for — WI-037 changed two files it binds and every
+  RSOP verdict went red while it stayed silent. The re-certification is
+  promoted under a covered name and mapped in `LANE_VERDICTS`, and the guard is
+  widened so every JSON in an evidence directory is either verdict-named or
+  named with a reason in `NON_VERDICT_EVIDENCE_FILES` — a verdict can no longer
+  escape by being named unusually. A control fails if the pattern ever stops
+  matching the endpoint certification again. Lab tooling; no operator-facing
+  change.
 
 - WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
   plan and Studio export bundle as available and then refused both downloads

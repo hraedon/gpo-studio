@@ -443,6 +443,63 @@ RETIRED_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json",
 }
 
+#: JSON files living in a `wp*-evidence/` directory whose names match neither
+#: verdict prefix. WI-053: `endpoint-result-phase4-estate.json` spent five weeks
+#: as a lane's only committed certification while matching neither prefix the
+#: coverage guard globs for, and mapping the new endpoint verdict under a
+#: covered name fixed that instance without fixing the hole -- the derivation
+#: was still only as wide as its pattern. So the universe is now every JSON in
+#: an evidence directory: a file is either verdict-named (and therefore mapped,
+#: retired, or deliberately pre-transport) or named HERE, with its reason.
+#: A verdict can no longer escape by being named unusually -- it would land in
+#: the unaccounted bucket and the widened test below would fail. Adding to this
+#: dict is a deliberate act with a reason attached, and
+#: `test_the_widened_guard_still_sees_the_endpoint_verdict` fails if the
+#: verdict pattern is ever narrowed back to something the endpoint
+#: certification falls out of.
+NON_VERDICT_EVIDENCE_FILES: dict[str, str] = {
+    # WP-0's oracle manifest: a record of fixture comparisons (the lane has no
+    # pass/fail verdict shape). Read by `_certified_runs` under its manifest
+    # prefix, which is why it is named rather than verdict-named.
+    "wp0-evidence/manifest-estate.json": (
+        "WP-0's oracle manifest -- fixture-comparison record, not a verdict"
+    ),
+    # The endpoint lane's pre-estate phases (mvmdc03 / MVMCITEST01), kept as
+    # raw run records. None was ever a certification; the lane's first
+    # estate-era certification was phase 4's, below.
+    "wp1b-evidence/endpoint-result.json": (
+        "raw phase-1 endpoint run record (pre-estate transport)"
+    ),
+    "wp1b-evidence/endpoint-result-phase2.json": (
+        "raw phase-2 endpoint run record (pre-estate transport)"
+    ),
+    "wp1b-evidence/endpoint-result-phase3.json": (
+        "raw phase-3 endpoint run record (pre-estate transport)"
+    ),
+    # THE file WI-053 is about: the endpoint lane's only certification from
+    # 2026-08-03 until 2026-09-06, invisible to every gate because its name
+    # matched neither prefix. Superseded by
+    # `wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json` (the
+    # WI-025 re-certification, the lane's first hash-bound candidate verdict).
+    # Kept as the record of the 2026-08-03 run, now named so its name can
+    # never again be the reason nothing checked it.
+    "wp1b-evidence/endpoint-result-phase4-estate.json": (
+        "superseded phase-4 certification -- replaced by the mapped "
+        "verdict-endpoint-observe-20260906185837-7523"
+    ),
+    # The observation half of the same 2026-08-03 run: the guest-side gpupdate
+    # observation that backs the verdict above. Raw evidence, not a claim.
+    "wp1b-evidence/endpoint-observe-phase4-estate.json": (
+        "phase-4 guest observation half, backing the superseded certification"
+    ),
+    # A trimmed RSOP XML document from the 2026-08-04 site/OU runs, kept as
+    # raw observation material for the scope-of-management findings. Not a
+    # pass/fail record.
+    "wp6-evidence/rsop-document-excerpt.json": (
+        "trimmed RSOP XML document excerpt, raw observation material"
+    ),
+}
+
 #: The verdicts that are still CLAIMS: everything mapped and not retired.
 LIVE_VERDICTS = {
     relative: finalizer
@@ -834,6 +891,80 @@ def test_the_coverage_guard_is_looking_at_real_files() -> None:
         if path.name.startswith(("verdict-", "verification"))
     }
     assert len(committed) >= len(LANE_VERDICTS)
+
+
+def test_every_evidence_file_is_accounted_for() -> None:
+    """The widening WI-053 owes: a verdict cannot escape by filename again.
+
+    `test_every_committed_verdict_is_covered` derives coverage from the
+    directory, but only for names matching the verdict prefixes -- which is
+    exactly how `endpoint-result-phase4-estate.json` spent five weeks as the
+    endpoint lane's only certification while no gate saw it. The derivation was
+    only as wide as its pattern, so mapping that one instance left the hole
+    open one file along.
+
+    So the universe here is every JSON in an evidence directory, not just the
+    verdict-named ones. Verdict-named files are checked by the test above; every
+    other file must be named in `NON_VERDICT_EVIDENCE_FILES` with its reason.
+    Renaming a verdict to something unusual no longer removes it from every
+    gate -- it lands here as unaccounted, and this fails, and the person
+    holding the new name has to say what the file is.
+    """
+    on_disk = {
+        path.relative_to(EVIDENCE).as_posix()
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+    }
+    verdict_named = {
+        relative
+        for relative in on_disk
+        if Path(relative).name.startswith(("verdict-", "verification"))
+    }
+    unaccounted = sorted(on_disk - verdict_named - set(NON_VERDICT_EVIDENCE_FILES))
+    assert not unaccounted, (
+        "These evidence files match neither verdict prefix nor "
+        "NON_VERDICT_EVIDENCE_FILES: "
+        f"{unaccounted}. If one is a verdict, give it a covered name and map "
+        "it in LANE_VERDICTS; otherwise name it in NON_VERDICT_EVIDENCE_FILES "
+        "with the reason it is not a claim."
+    )
+    vanished = sorted(set(NON_VERDICT_EVIDENCE_FILES) - on_disk)
+    assert not vanished, (
+        "NON_VERDICT_EVIDENCE_FILES names files that are no longer committed: "
+        f"{vanished}. Remove the entry -- a named exemption should not outlive "
+        "the file it exempted."
+    )
+
+
+def test_the_widened_guard_still_sees_the_endpoint_verdict() -> None:
+    """The control WI-053 names: the widening must not quietly un-see its case.
+
+    WI-053's defect was one specific verdict -- the endpoint lane's
+    certification -- escaping every gate through its filename. This pins that
+    the same verdict is still matched by the widened guard's pattern and still
+    mapped, so a future tidy-up that narrows the glob, changes the prefixes, or
+    renames the file fails here instead of silently re-creating the original
+    hole.
+    """
+    endpoint_verdict = (
+        "wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json"
+    )
+    assert (EVIDENCE / endpoint_verdict).is_file(), (
+        "The endpoint lane's re-certification is gone from the tree. If it was "
+        "renamed, the new name must still match the verdict prefixes and be "
+        "remapped in LANE_VERDICTS -- and this test updated to the new name "
+        "deliberately."
+    )
+    matched = {
+        path.relative_to(EVIDENCE).as_posix()
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        if path.name.startswith(("verdict-", "verification"))
+    }
+    assert endpoint_verdict in matched, (
+        "The coverage guard's pattern no longer matches the endpoint "
+        "certification -- the exact escape WI-053 closed. Widen the pattern "
+        "rather than re-creating the hole."
+    )
+    assert endpoint_verdict in LANE_VERDICTS
 
 
 #: Phrases that assert a lane's certification cannot be verified from the
