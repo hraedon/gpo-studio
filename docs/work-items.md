@@ -1679,38 +1679,62 @@ further on.
 ## WI-054 — a deny matched through a COMPUTER's group is still unmeasured
 
 **Opened:** 2026-09-06 (the half of WI-049 its closing condition did not cover).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-06, the same day — the corpus row, the reboot
+mechanism and the measurement all landed in one session.
 
-WI-049 measured a group-matched deny on the USER side
-(`rsop-user-observe-20260906185345-9222`): the lane creates a disposable group,
-puts the principal in it, restarts the session so the token carries it, and the
-observation half corroborates the membership two independent ways. The
-equivalent on the computer side has never run. `build-rsop-candidate.py` passes
+**The measurement.** `computer-security-filtering-group-deny` authors an APPLY
+deny whose only identity is a disposable group the CLIENT'S computer account
+joins; the lane driver reboots the client between authoring and observation so
+the machine token carries it; the observation half corroborates the membership
+two independent ways (the machine token's view via `gpresult /r
+/scope:computer`, the directory's via `tokenGroups` on the computer account);
+and the computer finalizer now carries the user lane's token gate, refusing the
+run if the group is in neither source or either collection failed outright.
+Run `rsop-observe-20260906221638-4687`: **`pass`** — the model said BLOCKED,
+resolving the membership through `computer_group_memberships`, and Windows
+agreed. The group-matched deny gates on the COMPUTER side exactly as WI-049
+measured it doing on the user side. The twelve other runs from the same tree
+are the lanes' re-certification, which the change owed them (the dead
+predicate went in the same change, as the deferral recorded below promised).
+
+**What the first run found, because the second could then work.** The
+mandated reboot makes BOOT-TIME policy processing a second applier standing
+between authoring and observation: the client started with the run's policy
+already linked, the startup CSE wrote this run's own values, and the
+observation's residual guard correctly refused to attribute an observation
+taken from a policy key that was not empty (`verdict-rsop-observe-20260906221248-7683`,
+kept retired). The fix records those values under `boot_applied_values` —
+where they are evidence that the machine processed the run's policy from its
+post-reboot token — clears the lane's own key, and observes from the empty
+state the guard expects. Gated on the candidate's `group_member`, so no other
+scenario's residual check changes meaning.
+
+**The dead predicate and field went in the same change**, as the deferral
+below recorded: `query_reaches_a_reasoned_cell` and
+`reaches_reasoned_cell` disclosed nothing once WI-049's cells were measured,
+and this was the change that re-certified the lanes binding them anyway. The
+predicate-pinning test was replaced by corpus pins for the new row and a
+consistency test that every group scenario declares WHICH principal joins the
+group — because that declaration decides which account the authoring half
+adds and whose token the observation corroborates. A scenario-level
+`group_principal` now carries it, and the lane pays the matching price: a
+re-session for the user's token, a client reboot for the machine's.
+
+Original finding, kept for the record: WI-049 measured a group-matched deny on
+the USER side — the lane creates a disposable group, puts the principal in it,
+restarts the session so the token carries it, and the observation half
+corroborates the membership two independent ways. The equivalent on the
+computer side had never run. `build-rsop-candidate.py` passed
 `computer_group_memberships=()` on every scenario, so `_principal_identities`
-resolves an empty set for the computer and no estate row has ever exercised the
-branch that reads it.
-
-**Why it was left out rather than forgotten.** A computer's group membership
-lives in its machine token, minted at boot, so a group the run creates is in the
-directory and not in the token — the same trap the user lane hit, where it cost
-a re-session restart. On the computer side the equivalent is a client REBOOT,
-which no scenario currently pays for. `build-rsop-candidate.py` has said so
-since the computer filtering scenario was written: "nesting for the computer is
-left as its own question rather than smuggled in half-tested."
-
-The failure direction is the one that matters. If the model resolves a computer
-group membership Windows does not, it reports a GPO blocked that actually
-applies — or, with a deny, applies one Windows withholds. The API accepts
-`computer_group_memberships` from callers today, so this is reachable rather
-than theoretical.
-
-**Also carried here, and cheaper:** `query_reaches_a_reasoned_cell` and the
-`reaches_reasoned_cell` field it stamps into every prediction outlived their
-purpose when WI-049 closed. They survive only because `build-rsop-candidate.py`
-is bound by hash by twelve live verdicts and deleting the call would retire all
-twelve for no gain. Remove both here, since closing this item re-certifies those
-lanes anyway — the same batching rule WI-037 was deferred under, and this time
-the deferral is recorded in a numbered item rather than in a code comment.
+resolved an empty set for the computer and no estate row had ever exercised
+the branch that reads it. The failure direction was the one that mattered: a
+model that resolves a computer group membership Windows does not reports a GPO
+blocked that actually applies — or, with a deny, applies one Windows
+withholds. The API accepted `computer_group_memberships` from callers
+throughout, so the branch was reachable rather than theoretical. The reboot
+cost was known and recorded: a machine token is minted at boot, so no lighter
+refresh exists — the same trap the user lane hit, at the other end of the
+session lifetime.
 
 **Closes when:** a computer-scope scenario authors a deny naming a group the
 CLIENT is a member of, the run restarts the client so the machine token carries

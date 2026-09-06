@@ -271,6 +271,70 @@ LANE_VERDICTS = {
     "wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json": (
         "finalize_endpoint_run.py"
     ),
+    #
+    # The WI-054 batch, 2026-09-06 (late). The machine-token group-deny row ran
+    # FIRST, from the same tree as the twelve re-certifications below it: the
+    # run restarted the client so the machine token carried the group it had
+    # just authored, the membership was corroborated from the token and from
+    # the directory independently, and Windows agreed with the model -- the
+    # group-matched deny blocks on the COMPUTER side exactly as it does on the
+    # user side. `...221638-4687` is that measurement. The other six wp6 and
+    # six wp9 entries are the lanes' re-certification under the WI-054 change,
+    # which retired the twelve 18xxx verdicts below in RETIRED_VERDICTS --
+    # `build-rsop-candidate.py` (the dead predicate left in it), the authoring
+    # and observation halves, the computer finalizer and both lane drivers all
+    # moved in this change.
+    "wp6-evidence/verdict-rsop-observe-20260906221638-4687.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906221931-1695.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223143-4837.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223251-8863.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223400-9371.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223508-6654.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223619-5576.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222041-8299.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222219-6252.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222352-5950.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222601-2732.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222818-6584.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222959-7716.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # The group-deny scenario's FIRST run, which the lane refused: the client
+    # rebooted with the run's policy already linked, the startup CSE applied
+    # that policy at boot, and the residual guard correctly declined to
+    # attribute an observation taken from a policy key that was not empty. It
+    # found a real interaction -- the reboot makes boot-time processing a
+    # second applier -- and the fix (boot_applied_values: record, clear,
+    # observe from empty) is why the tree moved one commit past the twelve
+    # re-certifications' source. Kept retired, not deleted: it is the record
+    # of WHY the observe half gained that gate.
+    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json": (
+        "finalize_rsop_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
@@ -441,6 +505,32 @@ RETIRED_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json",
     "wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json",
     "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json",
+    # The 2026-09-06 batch-two verdicts, superseded the same day by WI-054.
+    # The machine-token group-deny change moved the candidate builder (the dead
+    # `reaches_reasoned_cell` predicate left it), the authoring half (which
+    # account joins the disposable group), the computer observation half (token
+    # corroboration), the computer finalizer (its token gate) and both lane
+    # drivers (the reboot), and every verdict bound to the pre-change hashes
+    # stopped being a certification the moment the code landed. Re-run in full
+    # the same evening; see the WI-054 batch entries in LANE_VERDICTS.
+    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json",
+    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json",
+    # The group-deny scenario's first run: a LANE-FAILURE by design, binding
+    # the tree BEFORE the boot-applier fix. It is the record of the run that
+    # found the interaction (boot-time policy processing filling the policy key
+    # between authoring and observation), and it stays stale by construction --
+    # the fix changed the observe half and the finalizer it binds.
+    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json",
 }
 
 #: JSON files living in a `wp*-evidence/` directory whose names match neither
@@ -645,6 +735,32 @@ def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> No
             assert comparison["conclusive"] is False, (
                 f"{relative} records an abstention while claiming to be conclusive"
             )
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
+    if verdict.get("state") == "lane-failure":
+        # THE HARNESS FAILED, not the model -- and the third time this file
+        # grew a branch, it is worth saying what keeps the pattern from
+        # recurring: every outcome the finalizer can emit needs a branch here,
+        # because a fall-through that asserts the happy path makes each newly
+        # discovered outcome the one class of evidence that cannot be
+        # committed. `lane-failure` arrived the same way `finding` and
+        # `inconclusive` did -- a run produced it and this test demanded
+        # `passed`. WI-054's first group-deny run is the case: the client
+        # rebooted with the run's policy already linked, the residual guard
+        # refused the attribution, and the record is kept as the reason the
+        # observe half gained its boot-applied gate.
+        assert verdict["passed"] is False, relative
+        # A lane failure with no stated reason claims nothing and proves
+        # nothing; the problems list is the whole content of the record.
+        assert verdict["lane_problems"], (
+            f"{relative} is a lane failure and records no lane problem"
+        )
+        # The comparison is suppressed on a lane failure -- grading the model
+        # on an unattributable observation is the defect the state exists to
+        # prevent.
+        assert verdict["comparison"] is None, relative
         assert verdict["source"]["dirty"] is False
         assert verdict["transport"] == "psdirect"
         return

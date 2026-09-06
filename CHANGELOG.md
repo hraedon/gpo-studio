@@ -283,6 +283,23 @@ Current version: `1.0.0`.
   `principals` field and `profiles_for_actor` resolves against it; a profile
   granted to nobody matches nobody, with a validation warning so the
   configuration is visible. Domain layer; no operator-facing change.
+- WI-054: the corpus's nesting rows all put the disposable group in the USER's
+  token, so the model's answer about a membership in a CLIENT'S machine token
+  was unit-tested and estate-untouched while the API accepted that input from
+  callers. A new computer-scope scenario authors an APPLY deny whose only
+  identity is a group the client's computer account joins; the lane reboots the
+  client so the machine token carries it (a machine token is minted at boot,
+  and there is no lighter refresh); the observation half corroborates the
+  membership from the machine token and from the directory independently; and
+  the computer finalizer gained the user lane's token gate. Measured the same
+  day: the model said blocked, Windows agreed
+  (`rsop-observe-20260906221638-4687`), and the twelve other runs from the
+  same tree re-certified the lanes the change retired. The first run found
+  that the reboot makes boot-time policy processing a second applier, which
+  the observe half now records as `boot_applied_values` instead of mis-reading
+  as unattributable residue. The dead `reaches_reasoned_cell` disclosure left
+  in the builder by WI-049's closure went out in the same change. Lab tooling;
+  no operator-facing change.
 
 - WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
   plan and Studio export bundle as available and then refused both downloads
