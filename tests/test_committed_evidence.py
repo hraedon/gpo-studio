@@ -932,3 +932,152 @@ def test_no_status_document_calls_a_certified_lane_unverifiable() -> None:
         "with the evidence, or cite the superseding run id in the same "
         "paragraph to mark the claim as history."
     )
+
+
+#: Verdict commits that are KNOWN not to resolve, with the reason.
+#:
+#: Enumerated rather than tolerated by pattern, for the reason
+#: `RETIRED_VERDICTS` gives: an exemption should be a deliberate act with a
+#: reason attached, not something a file drifts into. And it is not a hatch --
+#: `test_the_orphaned_commit_exemption_is_still_orphaned` fails if one of these
+#: starts resolving again.
+ORPHANED_VERDICT_COMMITS = {
+    # Run `wp3-security-template-20260727220623-7682`, cited by
+    # `wp3-evidence/verification.json`. A squash-merge orphan predating the
+    # issue #22 auto-tagging remedy, so it cannot be retro-tagged: the commit
+    # was already unreachable when that remedy landed. Found 2026-09-06 and
+    # recorded in `docs/evidence-binding-audit-2026-08-03.md`, which had missed
+    # it because that audit scanned prose for hex adjacent to the word
+    # "commit" and never looked inside the verdict JSON.
+    #
+    # Nothing rests on it: WP-3 has a live certification in
+    # `verification-estate.json`.
+    "fdb46004c2f838f5b5eb6a693ebdf7f99d4ee71a",
+}
+
+
+def _history_is_complete() -> bool:
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    return shallow.stdout.strip() == "false"
+
+
+def _verdict_commits() -> dict[str, list[str]]:
+    """commit -> the verdict files that bind it, over every committed verdict."""
+    bound: dict[str, list[str]] = {}
+    for path in sorted(EVIDENCE.glob("wp*-evidence/*.json")):
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        commit = (document.get("source") or {}).get("commit")
+        if isinstance(commit, str) and commit:
+            bound.setdefault(commit, []).append(path.relative_to(EVIDENCE).as_posix())
+    return bound
+
+
+def _resolves(commit: str) -> bool:
+    return subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO_ROOT, capture_output=True, check=False,
+    ).returncode == 0
+
+
+def _preserved_by_a_ref(commit: str) -> bool:
+    """Is this commit reachable from a branch or a tag?
+
+    Resolution alone is weaker than it looks on a developer clone: an orphaned
+    object survives in the object database until it is garbage collected, so
+    `cat-file -e` can succeed for a commit no ref reaches. Reachability is the
+    property that actually makes a certification re-derivable by someone else.
+    """
+    for command in (["git", "branch", "-a", "--contains", commit],
+                    ["git", "tag", "--contains", commit]):
+        found = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True,
+                               check=False)
+        if found.returncode == 0 and found.stdout.strip():
+            return True
+    return False
+
+
+def test_every_verdict_binds_a_commit_this_repository_still_has() -> None:
+    """The check the 2026-08-03 evidence-binding audit should have been.
+
+    That audit extracted hex tokens adjacent to the word "commit" from
+    `docs/**/*.md` and `plans/**/*.md`. A verdict is JSON and its binding lives
+    in `source.commit`, so the files whose entire purpose is to bind a result to
+    a tree were the one place it never scanned -- which is how a fifth orphan
+    sat unnoticed for five weeks while the audit above it read as complete.
+
+    A verdict naming an unreachable commit is not wrong about what happened. It
+    is no longer INDEPENDENTLY CHECKABLE: every one of these runs asserts some
+    form of "the harness that executed matched the committed source tree", and
+    that assertion cannot be re-derived once the tree is gone.
+
+    SKIPPED ON A SHALLOW CLONE, for the reason
+    `test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit` gives: CI checks
+    out at `fetch-depth: 1`, where every commit here is legitimately absent and
+    asserting would fail a healthy repository. Measured rather than assumed --
+    the first manual pass of this check ran against a shallow clone and reported
+    38 orphans, of which 37 were the clone.
+    """
+    if not _history_is_complete():
+        pytest.skip("shallow clone: no verdict's commit is fetched here")
+
+    bound = _verdict_commits()
+    assert bound, "no committed verdict names a source commit; this test is vacuous"
+
+    broken = sorted(
+        (commit, files)
+        for commit, files in bound.items()
+        if commit not in ORPHANED_VERDICT_COMMITS
+        and not (_resolves(commit) and _preserved_by_a_ref(commit))
+    )
+    assert not broken, (
+        "These verdicts bind a commit this repository cannot reach, so their "
+        "harness-matched-the-source claim can no longer be re-derived:\n  "
+        + "\n  ".join(f"{commit[:12]} <- {', '.join(files)}" for commit, files in broken)
+        + "\nSquash-merge orphaning is the known cause. If the commit is "
+        "genuinely gone, record it in ORPHANED_VERDICT_COMMITS with a reason "
+        "and add it to docs/evidence-binding-audit-2026-08-03.md. If it is not, "
+        "push the evidence tag that preserves it -- a tag protects nothing "
+        "until it is on the remote."
+    )
+
+
+def test_the_orphaned_commit_exemption_is_still_orphaned() -> None:
+    """The control, and what stops the exemption above becoming a hatch.
+
+    The cheap way out of the check above is to declare a commit orphaned. That
+    only works if it really is: a listed commit that resolves again fails here,
+    the same way `test_retired_verdicts_are_genuinely_stale` guards
+    `RETIRED_VERDICTS`.
+    """
+    if not _history_is_complete():
+        pytest.skip("shallow clone: nothing resolves here, so this proves nothing")
+
+    assert ORPHANED_VERDICT_COMMITS, (
+        "the exemption set is empty; delete it rather than keeping an unused hatch"
+    )
+    recovered = sorted(c for c in ORPHANED_VERDICT_COMMITS if _resolves(c))
+    assert not recovered, (
+        f"These commits are listed as orphaned but resolve: {recovered}. Remove "
+        "them from ORPHANED_VERDICT_COMMITS rather than exempting a binding that "
+        "is intact."
+    )
+
+
+def test_every_orphaned_commit_is_actually_bound_by_a_verdict() -> None:
+    """The second control: the exemption cannot outlive the verdict it excuses.
+
+    If the verdict citing an orphaned commit is deleted or re-certified, the
+    entry here becomes a permanent excuse for nothing, and the next reader has
+    to work out whether it still means anything.
+    """
+    stale = sorted(ORPHANED_VERDICT_COMMITS - set(_verdict_commits()))
+    assert not stale, (
+        f"These commits are exempted but no committed verdict binds them: {stale}. "
+        "Remove the entry -- the verdict it excused is gone."
+    )
