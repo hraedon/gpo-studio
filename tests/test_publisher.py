@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from gpo_studio.model import GPO, GPOLink, RegistrySetting, ValidationError
-from gpo_studio.publication import generate_publication_plan
+from gpo_studio.publication import PublicationStep, generate_publication_plan
 from gpo_studio.publisher import (
     ApprovalRequest,
     PublicationAuditEntry,
@@ -601,3 +603,92 @@ def test_audit_trail_entries_for_plan() -> None:
     plan2 = trail.entries_for_plan("plan-2")
     assert plan2 == (e2,)
     assert trail.entries_for_plan("plan-3") == ()
+
+
+# ---------------------------------------------------------------------------
+# WI-050: an approval binds the plan's content, not just its identifier
+# ---------------------------------------------------------------------------
+
+
+def _approval_gate_verdict(plan, profile, approval):  # type: ignore[no-untyped-def]
+    gates = run_publisher_gates(plan, profile, approval=approval)
+    return next(g for g in gates if g.gate_id == "approval_gate")
+
+
+def test_payload_digest_ignores_plan_id() -> None:
+    """`plan_id` is a random uuid4 prefix; binding to it is what WI-050 is about."""
+    plan = generate_publication_plan(_gpo_with_registry())
+    assert plan.payload_digest == replace(plan, plan_id="plan-somethingelse").payload_digest
+
+
+def test_payload_digest_ignores_step_status() -> None:
+    """A digest that moved as steps ran could not bind an approval taken before."""
+    plan = generate_publication_plan(_gpo_with_registry())
+    ran = replace(plan, steps=tuple(replace(s, status="completed") for s in plan.steps))
+    assert plan.payload_digest == ran.payload_digest
+
+
+def test_payload_digest_changes_when_an_operation_changes() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    swapped = replace(
+        plan, steps=(replace(plan.steps[0], operation="update_gplink"),) + plan.steps[1:]
+    )
+    assert plan.payload_digest != swapped.payload_digest
+
+
+def test_payload_digest_changes_when_risk_level_is_escalated() -> None:
+    """Risk decides how much scrutiny a plan gets, so escalating it is a content change."""
+    plan = generate_publication_plan(_gpo_with_registry())
+    assert plan.payload_digest != replace(plan, risk_level="critical").payload_digest
+
+
+def test_approval_does_not_carry_to_a_swapped_payload() -> None:
+    """The WI-050 reproduction, as a regression test.
+
+    Approve a plan whose one step writes a `registry.pol`, then swap the steps
+    for an `update_gplink` retargeting the Domain Controllers OU, leaving
+    `plan_id` untouched. Before the digest binding this returned passed=True.
+    """
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    approved = approve_request(create_approval_request(plan, requested_by="alice"), "bob")
+    assert _approval_gate_verdict(plan, profile, approved).passed
+
+    swapped = replace(
+        plan,
+        steps=(
+            PublicationStep(
+                step_id="s1",
+                operation="update_gplink",
+                target="both",
+                status="pending",
+                detail="OU=Domain Controllers,DC=ad,DC=example,DC=test",
+            ),
+        ),
+        risk_level="critical",
+    )
+    verdict = _approval_gate_verdict(swapped, profile, approved)
+    assert not verdict.passed
+    assert "content changed since approval" in verdict.detail
+
+
+def test_approval_without_a_content_binding_is_refused() -> None:
+    """Fail closed: an approval that binds nothing cannot attest to anything.
+
+    This is the shape a persistence layer produces when it rehydrates a request
+    stored before the digest existed.
+    """
+    plan = generate_publication_plan(_gpo_with_registry())
+    profile = _full_profile(requires_approval=True)
+    approved = approve_request(create_approval_request(plan, requested_by="alice"), "bob")
+    unbound = replace(approved, plan_payload_digest="")
+    verdict = _approval_gate_verdict(plan, profile, unbound)
+    assert not verdict.passed
+    assert "does not bind the plan's content" in verdict.detail
+
+
+def test_create_approval_request_binds_the_plan_it_was_given() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    assert create_approval_request(plan, requested_by="alice").plan_payload_digest == (
+        plan.payload_digest
+    )

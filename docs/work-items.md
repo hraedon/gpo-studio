@@ -1258,6 +1258,22 @@ done and only the evidence retrieval was lost.
 absent either way: both runs left the estate clean (`cleanup_problems: []`, no
 surviving OUs, GPOs, links or filters, both accounts restored).
 
+**What fixing it costs, measured 2026-09-05.** `psdirect.ps1` is named in the
+`source.files` of **all fifteen** live verdicts -- every lane transports through
+it -- so any edit invalidates the entire live certification set at once. It is
+the single largest point of invalidation in the corpus; `build-rsop-candidate.py`
+is next at twelve. Combined with WI-045, the transport fix cannot land without a
+fifteen-run re-certification, and the transport bug is itself what makes a
+fifteen-run batch unreliable. The dependency is circular.
+
+The practical consequence is an ORDERING, not a blocker: harness changes should
+be batched. WI-048, WI-049's two off-diagonal cells and its group-matched row,
+WI-025's candidate hashes, and WI-037's staging fix all touch bound harness
+files and all require re-certification. Landing them together costs one
+re-certification pass; landing them one at a time costs four. Nothing here
+argues for loosening the binding -- the verdict genuinely was produced by those
+bytes, and a transport-only exemption would be a claim nobody can check.
+
 **Closes when:** either `psdirect.ps1` makes a new session robust to a colliding
 command ID (retry on `ERROR_INTERNAL_ERROR`, or a fresh session per invocation),
 or the minimum inter-run gap is enforced in the lane driver rather than left to
@@ -1326,7 +1342,31 @@ running, and the marginal cost of carrying them is close to zero.
 **Opened:** 2026-08-07 (Plan 032 shape assessment; row 1 of the
 `publisher-threat-model.md` required-controls table, verified rather than
 inferred).
-**Status:** open.
+**CLOSED** 2026-09-05.
+
+**Closed by** `PublicationPlan.payload_digest`, a SHA-256 over
+`canonical_json_bytes` of the plan's operative content: the GPO addressed, every
+step in order, the rollback steps, `risk_level` and `requires_enhanced_approval`.
+`plan_id` is excluded, as are the lifecycle fields that move while a plan is
+worked (`state`, `approved_by`, `approved_at`, `published_at`, and each step's
+`status`) -- a digest that changed under execution could not bind an approval
+taken before it. It is a computed property rather than a stored field, because a
+stored digest is one more value the constructor can be handed, which is the
+defect restated rather than fixed.
+
+`ApprovalRequest.plan_payload_digest` carries it, `create_approval_request`
+populates it from the plan, and `_approval_gate` refuses on mismatch **and on
+absence** -- an approval that binds nothing cannot attest to anything, which is
+the shape a persistence layer produces when it rehydrates a request stored
+before the binding existed.
+
+The reproduction below is now a regression test
+(`test_approval_does_not_carry_to_a_swapped_payload`), along with the digest's
+four invariants and the two new refusal branches. Note what this does NOT close:
+WI-051's separation-of-duties gap is untouched, and the four pre-existing
+refusal branches it names remain uncovered.
+
+**Status when opened:** open.
 
 `_approval_gate` decides whether a plan is approved by comparing
 `approval.plan_id != plan.plan_id` (`publisher.py:471`) and nothing else.
