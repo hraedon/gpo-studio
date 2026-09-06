@@ -21,7 +21,11 @@ whose closing condition is not stated cannot be closed, only forgotten.
 ## WI-025 — candidate artifacts are not hash-bound in the WP-1B and endpoint lanes
 
 **Opened:** 2026-07 (`plan-033/rsop-oracle-design.md`).
-**Status:** open for WP-1B and the endpoint lane. **Closed for WP-6B**
+**FIXED AND CLOSED** 2026-09-06. Both remaining lanes record candidate hashes
+and both were re-certified under the change:
+`wp1b-writer-20260906183513-1195` (7/7, fifteen candidate hashes — the index
+plus `candidate.zip` and `expected.json` for each of the seven candidates) and
+`endpoint-observe-20260906185837-7523` (`pass`, two). **Closed for WP-6B**
 (2026-08-04) — that lane's verdict records SHA-256 for `topology.json`,
 `prediction.json` and `expected.json`, and additionally proves the guest built
 the topology the prediction describes by comparing the pulled copy byte for
@@ -35,6 +39,29 @@ it records no candidate hashes either.
 **Closes when:** `finalize_endpoint_run.py` and `finalize_wp1b_run.py` record
 candidate hashes, and one re-certification run per lane is produced under the
 change. WP-6B's implementation is the model.
+
+**2026-09-06 — the code half is landed; the runs are not.** Both finalizers now
+record a `candidate` block: SHA-256 of *every* file under `--candidate-root`,
+keyed by relative path. Everything rather than a named list, because the
+omission worth catching is a consumed file the verdict never mentions; a named
+required set (`candidates.json`, and per candidate `candidate.zip` +
+`expected.json`) is then refused **at the door** rather than recorded as a
+shorter block, and `tests/test_candidate_binding.py` removes each required file
+in turn to prove the refusal can fire. That test also pins the required set
+against what the builders actually write, because a required-set that drifts
+from its builder becomes a check on a file nobody produces.
+
+Neither finalizer is in any lane's bound file set, so landing the code retired
+nothing; the two runs above are what closed it. Both were made the same day, on
+the estate, from a clean tree, and both verdicts are committed with their
+`candidate` blocks populated.
+
+**One thing the endpoint half surfaced.** Its first run at `9f6d775` passed and
+was discarded, because reading the verify phase's output through
+`$(verify_endpoint)` ran it in a subshell and the EXIT trap then repeated the
+whole post-teardown verification. That is WI-037's change, not this one's, and
+it is recorded there — but it is why this item's endpoint run is bound to
+`38eedc6` while everything else in the batch is bound to `9f6d775`.
 
 ## WI-028 — `SearchedSOM` accumulates SOMs for deleted containers
 
@@ -417,8 +444,11 @@ them is not.
 
 ## WI-037 — a run's staging destroys the previous run's evidence on the guest
 
-**Opened:** 2026-08-04 (WP-9). **Status:** open. **Deliberately not fixed in the same change; see
-the last paragraph.**
+**Opened:** 2026-08-04 (WP-9). **FIXED AND CLOSED** 2026-09-06 — the fix landed,
+the affected lanes were re-certified (fourteen runs), and the retention was
+confirmed on the guests rather than inferred. The paragraph below about *not*
+fixing it in the same change is the original text, kept because the batching
+decision it describes is what this change finally executed.
 
 Every lane driver's `PREPARE` step removes all directories under the guest's
 output root before it stages anything. That made sense when a failed run left
@@ -467,6 +497,57 @@ harness by name and hashes what it deploys) but it is an estate-hygiene one,
 and the same change should decide whether staging owns that directory or
 whether a `scripts/` sweep belongs somewhere else. Diagnostics written during a
 session should be treated as lab debris and removed with everything else.
+
+**2026-09-06 — the code half is landed; the re-certification is not.** All three
+shared-root drivers now keep the newest `KEEP_RUN_DIRS=5` run directories rather
+than deleting every one, and sweep `C:\gpo-studio\scripts` — staging owns that
+directory, which is the decision the paragraph above asked for. The fallback
+requires an observation-bearing directory **created since a guest-side clock
+reading taken immediately before the observation**, and refuses anything but
+exactly one match, which is the rule `run-wp1b-oracle.sh` already states:
+"newest" is a guess and "the only one" is a fact.
+
+**Preserving the directories created a second hazard, and it is fixed in the
+same change rather than left for later.** Once old run directories survive, a
+"newest directory" fallback pulls the *previous* run's observation and the
+finalizer grades it as this one's — an unattributable failure turned into a
+confidently mis-attributed pass, which is worse than the defect being fixed.
+Same cause, same change: the endpoint lane's `verify` phase wrote to the fixed
+path `<out>\verify`, unambiguous only because staging deleted the root first, and
+the finalizer reads a present, clean verify result as proof the endpoint is
+durably clean. It is per-invocation now, and the driver pulls the path the phase
+reports rather than a name it already knows.
+`tests/test_lane_staging.py` pins all of it, including a refusal of the exact
+`Get-ChildItem -Directory | Remove-Item -Recurse` shape that caused the item.
+
+**Re-certified and confirmed on the estate, 2026-09-06.** Twelve RSOP verdicts
+went stale the moment the drivers changed — exactly as
+`test_a_live_verdict_still_binds_the_harness_that_ships` reported, before a
+single lane had been re-run — and fourteen runs re-earned them. The retention
+was then checked on the guests rather than inferred: after a two-scenario
+sequence `LabCL01` held eight run directories, including the PREVIOUS run's
+observation, which the old `PREPARE` would have deleted.
+
+**The check also demonstrated why the fallback needed both constraints.** Of
+those eight directories only two carried an `observation.json`, so "newest"
+would have selected a preflight or a re-session verify — and the two that did
+carry one came from DIFFERENT RUNS, so "newest observation-bearing" would have
+been ambiguous across runs. Only the creation-time bound makes it exactly one.
+That was written down as a hazard when the fix was designed; the estate turned
+it into an observation.
+
+**The fix's own defect, found by running it.** The first endpoint run reported
+two `VERIFY_DIR` values 24 seconds apart, the second after the finalizer had
+written its verdict: reading the phase's output through `$(verify_endpoint)`
+runs it in a SUBSHELL, so the `VERIFY_DONE` flag never reached the driver's
+shell and the EXIT trap repeated the entire post-teardown verification. The
+verdict was sound — the driver pulls the first invocation's path — but the lane
+did a redundant teardown pass on the client every run. Fixed by redirection in
+`38eedc6`, pinned by
+`test_the_verify_phase_is_not_captured_through_a_subshell`, and the endpoint
+lane re-run against the corrected driver. Worth recording that a test could not
+have found it: nothing in the shell's text is wrong, and only running it twice
+in one process shows the flag never arrived.
 
 ## WI-038 — three security-template sections are preserve-only, and `diff_templates` cannot see them
 
@@ -1283,7 +1364,11 @@ fix; the batch driver that hit this is not even in the repository.
 ## WI-049 — two off-diagonal filter cells were changed by reasoning, not measurement
 
 **Opened:** 2026-08-07 (cross-lineage review of the WI-043/WI-047 tranche).
-**Status:** open.
+**CLOSED** 2026-09-06, by measurement rather than by a fix — the model's answers
+were right. Both cells and a group-matched deny were measured on the estate and
+**all three agreed**. The runs are `rsop-observe-20260906184434-8187` and
+`rsop-user-observe-20260906185345-9222`; what each observed is below, under
+*The measurement*.
 
 The tranche that closed WI-043 and WI-047 rewrote `_gpo_filter_status` to stop
 matching every filter against the union of both principals. Three read cells
@@ -1336,6 +1421,77 @@ scenario — and at least one group-matched deny row is measured rather than
 unit-tested. Per the standing rule, do not stand up a dedicated estate session
 for this: these are filter edits on scenarios a future lane will already be
 running, and the marginal cost of carrying them is close to zero.
+
+**2026-09-06 — the rows are authored; nothing is measured yet.** Three rows on
+two scenarios the lanes already run, per the instruction above:
+
+| row | scenario | model predicts | cell |
+|---|---|---|---|
+| `Studio-RSOP-CompFilterDenyReadUser` | `computer-security-filtering-deny-read` | applies, wins `Filter` | read deny names the USER, side=computer |
+| `Studio-RSOP-FilterDenyApplyComp` | `user-security-filtering-deny` | applies, wins `Filter` | Apply deny names the COMPUTER, side=user |
+| `Studio-RSOP-FilterDenyGroup` | `user-security-filtering-deny` | blocked | a deny matched THROUGH a group |
+
+Each takes the top link order, so a wrong answer costs the **winner** rather
+than one absent unique value. The certified rows they displaced keep their
+unique-value assertions, which is the whole of their regression job; the trade
+is written into both scenarios rather than left to be noticed.
+
+The group row is measured on the USER side, where the lane already creates a
+disposable group, puts the principal in it, and pays the re-session restart that
+gets it into the token. **The COMPUTER's group memberships remain unmeasured
+and are still passed as empty** — a computer's membership is minted in its
+machine token at boot, so measuring it needs a client restart that no scenario
+currently pays for. Saying so here rather than letting the closing condition's
+"at least one group-matched deny" read as though it covered both.
+
+Two supporting changes. `prediction.json` records `reaches_reasoned_cell` from
+the model's own `query_reaches_a_reasoned_cell`, so the verdicts these runs
+produce state in the run's own words that the experiment reached a reasoned
+region — a run citable by field rather than by a scenario name somebody has to
+recognise. And a computer-scope scenario can now declare `names_user`, because
+measuring the read cell needs a computer-scope run that knows a real user to
+deny; the builder refuses in both directions, and
+`test_a_scenario_that_names_the_user_declares_it` checks the declaration against
+the filters rather than trusting it.
+
+`tests/test_rsop_unmeasured_cells.py` holds the part of the closing condition a
+test can hold: that the corpus carries a row for each cell, on a scenario the
+lanes already run.
+
+## The measurement
+
+**2026-09-06, on the estate, all three rows, all agreeing with the model.**
+
+| row | run | observed |
+|---|---|---|
+| read deny names the USER, side=computer | `rsop-observe-20260906184434-8187` | **applied**, won `Filter=denyReadUser` |
+| Apply deny names the COMPUTER, side=user | `rsop-user-observe-20260906185345-9222` | **applied**, won `Filter=denyApplyComp` |
+| Apply deny matched through a GROUP | `rsop-user-observe-20260906185345-9222` | **blocked**, `DenyGroupOnly` absent |
+
+Both verdicts are `pass`, `conclusive: true`, `agrees: true`, from a clean tree.
+The discriminators held in every direction that mattered: on the computer-scope
+run the computer-named read deny in the same topology stayed blocked (WI-040's
+certified row, so the DACL writes worked) and the plain-allow control applied,
+so an absence would have meant something. On the user-scope run the
+group-matched **allow** row delivered `NestedOnly=1` — the group was
+demonstrably in the principal's token — which is what makes the group-matched
+deny's absence the deny working rather than a membership that never landed.
+
+**The argument was right, and it did not have to be.** WI-033, WI-040 and
+WI-043 are three occasions on which a good argument about this exact code was
+wrong, which is why this was a numbered item rather than a note. Recording the
+outcome as a confirmation rather than as a vindication: what changed is that
+these cells now rest on an estate row instead of on MS16-072 read carefully.
+
+**What this closed downstream.** `_gpo_filter_status`'s comment now names a run
+for all four read cells and for both Apply cells. `TestTheUnmeasuredCellsArePinned`
+became `TestTheOffDiagonalCellsAreMeasured` — the same assertions, no longer a
+pinned guess. And the API's `answer_rests_on_a_reasoned_cell` limitation was
+**removed**: a payload telling a caller that a measured answer is unmeasured is
+the same defect as a matrix that says `failed` while supported.
+
+**What this did NOT close:** a deny matched through a COMPUTER's group. See
+WI-054 — the item that gap now has, rather than a paragraph inside a closed one.
 
 ## WI-050 — an approval binds a plan's identifier, not its content
 
@@ -1441,6 +1597,89 @@ reason nothing has noticed; it fails closed only because nothing calls it.
 
 **Closes when:** `PublisherProfile` carries a `principals` field and
 `profiles_for_actor` resolves against it.
+
+## WI-053 — the endpoint lane's certification is covered by no test
+
+**Opened:** 2026-09-06 (found while landing WI-025's endpoint half).
+**Status:** open.
+
+`test_every_committed_verdict_is_covered` derives its coverage from the
+directory rather than from memory, which is what made it worth writing —
+`LANE_VERDICTS` was hand-maintained and twelve verdicts had been invisible to
+every check. It globs `wp*-evidence/*.json` and keeps names starting `verdict-`
+or `verification`.
+
+The endpoint lane's only committed certification is
+`wp1b-evidence/endpoint-result-phase4-estate.json` — a genuine finalizer verdict,
+`work_package: WP-6-endpoint`, `passed: true`, run
+`endpoint-observe-20260803142424-3050`. It matches neither prefix, so:
+
+* the coverage guard does not see it;
+* it is in no `LANE_VERDICTS` entry, so nothing checks its `source.files`
+  against the endpoint finalizer's tables, and nothing checks it is internally
+  consistent;
+* **the freshness gate has never checked it.** WI-037 changed
+  `run-endpoint-oracle.sh` and `run-endpoint-observe.ps1`, both bound by that
+  verdict, and every RSOP verdict went red while this one stayed silent.
+
+The guard is not wrong — it is derived, and a derivation is only as wide as the
+pattern it derives from. A verdict that escapes by being named unusually is the
+same failure the guard was built to end, one level along, which is the WI-046
+shape: WI-044 fixed the instance and `gpmc_export` was the same bug one entry
+further on.
+
+Filing it separately rather than folding it into WI-025 because it is a defect
+in the *guard*, not in the endpoint lane, and because mapping the verdict today
+would just add a second known-red assertion to a batch that already has twelve.
+
+**Closes when:** the endpoint lane's certification lives in a directory and under
+a name the coverage guard matches, is present in `LANE_VERDICTS`, and the guard
+is widened so a verdict cannot escape by filename again — plus a control that
+fails if the widened pattern stops matching it. The endpoint re-certification
+that WI-025 owes is the natural moment; see
+[`tranche-2026-09-06-batch2-runbook.md`](plan-033/tranche-2026-09-06-batch2-runbook.md).
+
+## WI-054 — a deny matched through a COMPUTER's group is still unmeasured
+
+**Opened:** 2026-09-06 (the half of WI-049 its closing condition did not cover).
+**Status:** open.
+
+WI-049 measured a group-matched deny on the USER side
+(`rsop-user-observe-20260906185345-9222`): the lane creates a disposable group,
+puts the principal in it, restarts the session so the token carries it, and the
+observation half corroborates the membership two independent ways. The
+equivalent on the computer side has never run. `build-rsop-candidate.py` passes
+`computer_group_memberships=()` on every scenario, so `_principal_identities`
+resolves an empty set for the computer and no estate row has ever exercised the
+branch that reads it.
+
+**Why it was left out rather than forgotten.** A computer's group membership
+lives in its machine token, minted at boot, so a group the run creates is in the
+directory and not in the token — the same trap the user lane hit, where it cost
+a re-session restart. On the computer side the equivalent is a client REBOOT,
+which no scenario currently pays for. `build-rsop-candidate.py` has said so
+since the computer filtering scenario was written: "nesting for the computer is
+left as its own question rather than smuggled in half-tested."
+
+The failure direction is the one that matters. If the model resolves a computer
+group membership Windows does not, it reports a GPO blocked that actually
+applies — or, with a deny, applies one Windows withholds. The API accepts
+`computer_group_memberships` from callers today, so this is reachable rather
+than theoretical.
+
+**Also carried here, and cheaper:** `query_reaches_a_reasoned_cell` and the
+`reaches_reasoned_cell` field it stamps into every prediction outlived their
+purpose when WI-049 closed. They survive only because `build-rsop-candidate.py`
+is bound by hash by twelve live verdicts and deleting the call would retire all
+twelve for no gain. Remove both here, since closing this item re-certifies those
+lanes anyway — the same batching rule WI-037 was deferred under, and this time
+the deferral is recorded in a numbered item rather than in a code comment.
+
+**Closes when:** a computer-scope scenario authors a deny naming a group the
+CLIENT is a member of, the run restarts the client so the machine token carries
+it, the observation half corroborates the membership independently of the
+prediction, and the estate says whether the GPO applies. The dead predicate and
+field go in the same change.
 
 ## Not yet numbered
 

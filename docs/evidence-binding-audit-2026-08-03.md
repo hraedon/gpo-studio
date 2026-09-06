@@ -54,6 +54,42 @@ rather than by the citation. The dangling SHA costs traceability, not assurance.
   the re-freeze supersedes this binding rather than repairing it.
 - **`1edfca9`** — annotated in place. No re-run is meaningful.
 
+## Addendum 2026-09-06 — a fifth orphan, and why this audit missed it
+
+**`fdb46004c2f838f5b5eb6a693ebdf7f99d4ee71a`**, cited by
+`docs/plan-033/wp3-evidence/verification.json` as the `source.commit` of
+`wp3-security-template-20260727220623-7682` (`passed: true`). It does not
+resolve, locally or on the remote, and cannot be retro-tagged for the same
+reason as the four above.
+
+**The method is why it was missed, and that is the part worth keeping.** This
+audit extracted hex tokens adjacent to the word "commit" from `docs/**/*.md` and
+`plans/**/*.md`. Verdicts are JSON, and a verdict's binding lives in
+`source.commit` inside that JSON — so the files whose entire purpose is to bind
+a result to a tree were the one place never scanned. Found on 2026-09-06 by
+resolving `source.commit` for all 103 committed verdicts, which is the check
+this audit should have been.
+
+**It also corrects a conclusion drawn above.** The asymmetry section says WP-1B
+and WP-3 "survived this because they commit evidence manifests… and carry
+`evidence/*` tags". WP-3 did not entirely survive it: its pre-transport verdict
+binds an unreachable commit. Committing a manifest makes a certification
+*durable*; it does not make it *checkable* unless the commit it names still
+exists. The tag is what does that, and this run predates the tagging remedy.
+
+**Disposition — recorded, not repaired.** Nothing rests on it: WP-3 has a live
+certification at `wp3-evidence/verification-estate.json`, and this verdict sits
+in `PRE_TRANSPORT_VERDICTS`, exempt from the freshness gate by design. Its
+`passed: true` remains a true account of a run that happened; it is simply no
+longer re-derivable, which is what every entry in this document means.
+
+**Caveat for anyone re-running the check:** a shallow clone reports *every*
+citation as unresolvable. CI checks out at `fetch-depth: 1`, so this check is
+only meaningful against complete history — the same reason
+`test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit` skips rather than
+fails there. The first pass of this re-check reported 38 orphans and all but one
+was the shallow clone.
+
 ## Preventing recurrence
 
 `finalize_oracle_run.py` already auto-tags passing runs (issue #22). The gap it
@@ -61,3 +97,10 @@ does not close is a lane that certifies without committing a manifest at all,
 which is how WP-0 and WP-2 became unverifiable. Any lane claiming certification
 should commit its manifest under `docs/plan-033/<wp>-evidence/`, the way WP-1B
 and WP-3 do.
+
+The second gap, from the addendum above: **an evidence tag is only protection
+once it is pushed.** On 2026-09-06 the previous batch's nineteen `evidence/*`
+tags were still local-only, and they point at *intermediate* commits of a branch
+awaiting merge — one squash-merge away from orphaning nineteen verdicts in
+exactly the manner catalogued here. Pushing the tags is part of producing the
+evidence, not a follow-up chore.

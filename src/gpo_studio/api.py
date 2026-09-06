@@ -128,7 +128,6 @@ from .rsop import (
     RsopTarget,
     compare_rsop_results,
     compute_rsop,
-    query_reaches_a_reasoned_cell,
 )
 from .sddl import SddlError, parse_sddl
 from .settings_browser import (
@@ -3921,18 +3920,18 @@ _RSOP_SLOW_LINK_NOT_EVALUATED = {
 }
 
 
-_RSOP_ANSWER_RESTS_ON_A_REASONED_CELL = {
-    "code": "answer_rests_on_a_reasoned_cell",
-    "message": (
-        "This topology contains a deny naming the principal that is not the one "
-        "being resolved, so part of this answer comes from a rule that was "
-        "reasoned rather than measured. Two cells were flipped from 'blocked' to "
-        "'applied' without an estate row -- a READ deny naming the user on the "
-        "computer side, and an APPLY deny naming the computer on the user side "
-        "-- both in the direction that promises settings which may never arrive. "
-        "WI-049."
-    ),
-}
+# WI-049, MEASURED AND REMOVED 2026-09-06. This limitation used to say that a
+# topology containing a deny naming the principal that is not the one being
+# resolved got part of its answer from a rule nobody had measured. Both cells
+# now have an estate row and both confirmed the model -- a user-named READ deny
+# on the computer side (`rsop-observe-20260906184434-8187`) and a computer-named
+# APPLY deny on the user side (`rsop-user-observe-20260906185345-9222`).
+#
+# Deleted rather than reworded, because a limitation telling a caller that a
+# measured answer is unmeasured is the same class of defect as a matrix that
+# says `failed` while supported: the document a caller READS disagreeing with
+# the one that records reality. `docs/capability-matrix.md` moved in the same
+# change, and the two must not be allowed to drift apart again.
 
 
 def _rsop_limitations(queries: Sequence[RsopQueryData]) -> list[dict[str, str]]:
@@ -3957,13 +3956,6 @@ def _rsop_limitations(queries: Sequence[RsopQueryData]) -> list[dict[str, str]]:
         for query in queries
     ):
         limitations.append(dict(_RSOP_SLOW_LINK_NOT_EVALUATED))
-    # Raised by cross-lineage review: the matrix and the work-item register both
-    # said WI-049 carefully, and the payload said nothing. Slow-link -- which is
-    # merely ignored and can never make an answer wrong -- had a limitation,
-    # while the cells that produce a definite answer on reasoning alone had
-    # none. That asymmetry was backwards.
-    if any(query_reaches_a_reasoned_cell(_rsop_query_data_to_model(q)) for q in queries):
-        limitations.append(dict(_RSOP_ANSWER_RESTS_ON_A_REASONED_CELL))
     return limitations
 
 

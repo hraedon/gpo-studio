@@ -116,7 +116,17 @@ if ($Phase -eq 'verify') {
     $verify.residual_tasks = $residual
     $verify.tasks_removed = ($residual.Count -eq 0)
 
-    $verifyDir = Join-Path $OutputDir 'verify'
+    # WI-037. PER-INVOCATION, like every other run directory this lane writes.
+    # It used to be the fixed path `<out>\verify`, which was unambiguous only
+    # because staging deleted the whole output root before each run. Now that
+    # the previous runs' directories are preserved, a fixed name would let a run
+    # whose own verification never executed pull the LAST run's
+    # verify-result.json -- and the finalizer reads a present, clean verify
+    # result as proof the endpoint is durably clean, so a lane failure would
+    # certify as a pass. The driver pulls the path this reports rather than a
+    # name it already knows.
+    $verifyId = "endpoint-verify-$(Get-Date -Format 'yyyyMMddHHmmss')-$(Get-Random -Minimum 1000 -Maximum 9999)"
+    $verifyDir = Join-Path $OutputDir $verifyId
     New-Item -ItemType Directory -Force -Path $verifyDir | Out-Null
     $verify | ConvertTo-Json -Depth 20 |
         Set-Content -Path (Join-Path $verifyDir 'verify-result.json') -Encoding UTF8

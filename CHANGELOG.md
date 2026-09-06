@@ -146,6 +146,27 @@ Current version: `1.0.0`.
 
 ### Changed
 
+- WI-049 (corpus half): the Plan 033 RSOP corpus now carries a row for each of
+  the three filtering regions the model answers by reasoning rather than by
+  measurement — a read deny naming the user resolved on the computer side, an
+  Apply deny naming the computer resolved on the user side, and a deny that
+  matches through a group rather than by name. They are filter edits on two
+  scenarios the lanes already run, not a session of their own, and each takes
+  the top link order so a wrong answer costs the predicted *winner* rather than
+  one absent value.
+
+  **Measured on the estate 2026-09-06, and all three agreed with the model** —
+  `rsop-observe-20260906184434-8187` and
+  `rsop-user-observe-20260906185345-9222`. A user-named read deny left the GPO
+  applying on the computer side, a computer-named Apply deny left it applying on
+  the user side, and a group-matched deny blocked. The API's
+  `answer_rests_on_a_reasoned_cell` limitation is **removed** with them: it
+  existed only while those cells were unmeasured, and a payload calling a
+  measured answer reasoned is the same defect as a matrix that says `failed`
+  while supported. **Operator-visible**: a caller who was reading that code will
+  stop seeing it. What remains unmeasured is a deny matched through a
+  *computer's* group, which now has its own item (WI-054) rather than a
+  paragraph inside a closed one.
 - Plan 033: lane verdicts now check what they claim to check. An adversarial
   review round (three reviewers, hazard-scoped, one cross-lineage) found that
   WP-2 and WP-3 graded themselves against the copy of `expected.json` the guest
@@ -207,6 +228,33 @@ Current version: `1.0.0`.
   instead of defaulting to a file set that no longer exists.
 
 ### Fixed
+
+- WI-037: a lane's staging step removed every directory under the guest's
+  output root, so the next run deleted exactly the evidence a human needed to
+  explain why the last one failed. The three shared-root drivers now retain the
+  newest five run directories and sweep the guest's `scripts` directory, which
+  staging owns. Preserving run directories makes the "newest output directory"
+  fallback unsafe in a new way — it would pull the *previous* run's observation
+  and the finalizer would grade it as this one's — so the fallback now requires
+  an observation-bearing directory created since a guest-side clock reading
+  taken immediately before the observation, and refuses anything but exactly one
+  match. The endpoint lane's `verify` phase was writing to a fixed path for the
+  same reason and is per-invocation now. Lab tooling; no operator-facing change.
+  **Closed**: fourteen runs re-certified the affected lanes on 2026-09-06, and
+  the retention was confirmed on the guests rather than inferred — the previous
+  run's observation survived where the old staging would have deleted it. The
+  first run also found a defect in the fix itself: `$(verify_endpoint)` ran the
+  phase in a subshell, so its idempotency flag never reached the driver's shell
+  and the EXIT trap repeated the whole post-teardown verification.
+- WI-025 (code half): the WP-1B and endpoint lane verdicts named the candidate
+  artifacts they were graded against and hashed none of them, asserting a
+  comparison nobody could re-check. Both finalizers now record SHA-256 for every
+  file under `--candidate-root`, and refuse a run whose candidate root is
+  missing a required artifact rather than recording a shorter block that still
+  looks complete. WP-6B's implementation is the model. **Closed** by
+  `wp1b-writer-20260906183513-1195` (7/7, fifteen candidate hashes) and
+  `endpoint-observe-20260906185837-7523`, both committed with their blocks
+  populated.
 
 - WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
   plan and Studio export bundle as available and then refused both downloads

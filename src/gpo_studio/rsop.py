@@ -388,9 +388,9 @@ def _gpo_filter_status(
         # `wmi_filter_false`.
         #
         # WI-043/WI-047: THE TWO RIGHTS ARE EVALUATED AGAINST DIFFERENT
-        # PRINCIPALS. THREE OF THE FOUR READ CELLS ARE MEASURED AND THE FOURTH
-        # IS REASONED; THIS COMMENT SAYS WHICH IS WHICH, BECAUSE THE ORIGINAL
-        # VERSION OF IT DID NOT AND THAT IS WHAT WI-043 WAS OPENED ABOUT.
+        # PRINCIPALS. ALL FOUR READ CELLS ARE NOW MEASURED; THIS COMMENT SAYS
+        # WHICH RUN MEASURED EACH, BECAUSE THE ORIGINAL VERSION OF IT DID NOT
+        # AND THAT IS WHAT WI-043 WAS OPENED ABOUT.
         #
         # Read deny, by resolving side and by the principal the deny NAMES:
         #
@@ -400,44 +400,52 @@ def _gpo_filter_status(
         #                  (rsop-user-observe-20260806165543-8004, row B)
         #   side=user,     names the USER     -> APPLIES  MEASURED
         #                  (rsop-user-observe-20260806165543-8004, row A)
-        #   side=computer, names the USER     -> APPLIES  REASONED ONLY
-        #                  (no estate row exists; WI-049)
+        #   side=computer, names the USER     -> APPLIES  MEASURED 2026-09-06
+        #                  (rsop-observe-20260906184434-8187, WI-049)
         #
-        # The three measured cells collapse to one sentence: A READ DENY GATES
-        # POLICY WHEN IT NAMES THE COMPUTER, ON EITHER SIDE, because MS16-072
-        # has the computer perform the retrieval for both sides. The side being
-        # resolved does not decide it; the principal named by the deny does.
+        # THE FIRST THREE collapse to one sentence: A READ DENY GATES POLICY
+        # WHEN IT NAMES THE COMPUTER, ON EITHER SIDE, because MS16-072 has the
+        # computer perform the retrieval for both sides. The side being resolved
+        # does not decide it; the principal named by the deny does.
         #
-        # The fourth cell follows from the same mechanism -- a user-named ACE
-        # cannot affect a retrieval the computer performs with its own token --
-        # but NOTHING MEASURED IT. Under the pre-WI-047 union it BLOCKED; this
-        # tranche flips it to APPLIES, which is the over-promising direction,
-        # the one that tells an operator about settings that never arrive.
-        # `TestTheUnmeasuredCellsArePinned` holds the chosen answer so the flip
-        # cannot drift unnoticed, and WI-049 carries the measurement.
+        # THE FOURTH follows from the same mechanism -- a user-named ACE cannot
+        # affect a retrieval the computer performs with its own token -- and
+        # until 2026-09-06 NOTHING HAD MEASURED IT. Under the pre-WI-047 union
+        # it BLOCKED; WI-047 flipped it to APPLIES on the argument alone, which
+        # is the over-promising direction. The estate now agrees: a Deny
+        # GenericRead ACE naming the interactive user, beside an intact computer
+        # Read + Apply grant, left the GPO APPLYING on the computer side and
+        # winning its conflict, while the computer-named read deny in the same
+        # topology stayed blocked and the plain-allow control applied. The
+        # argument was right. It is worth saying that it did not have to be:
+        # WI-033, WI-040 and WI-043 are three occasions on which a good argument
+        # about this exact code was wrong.
         #
-        # GROUP MEMBERSHIP IS UNIT-TESTED ONLY, in both directions. The
-        # candidate builder always passes `computer_group_memberships=()`, so no
-        # estate run has ever exercised a deny that matches through a group.
+        # GROUP MEMBERSHIP: THE USER SIDE IS MEASURED, THE COMPUTER SIDE IS NOT.
+        # `rsop-user-observe-20260906185345-9222` carries a deny naming a group
+        # in the principal's token beside a group-matched ALLOW in the same
+        # topology -- the allow's value arrived and the deny's did not, so the
+        # deny was matched through the membership rather than through a token
+        # that never had the group. The candidate builder still passes
+        # `computer_group_memberships=()` and no run has exercised a deny
+        # matched through a COMPUTER's group: a machine token is minted at boot,
+        # so that needs a client restart no scenario pays for. WI-054.
         #
         # Apply Group Policy is the other way round -- it is evaluated against
         # the principal the policy applies TO. THE DIAGONAL IS CERTIFIED on both
         # sides: the user-scope deny (WI-033,
         # rsop-user-observe-20260804150527-3868) and the computer-scope deny row
-        # of `computer-security-filtering`. THE OFF-DIAGONAL IS NOT. Matching
+        # of `computer-security-filtering`. THE OFF-DIAGONAL IS NOW CERTIFIED
+        # TOO (rsop-user-observe-20260906185345-9222, WI-049): matching
         # `denied_apply` against `side_identities` alone means a computer-named
-        # Apply deny on the USER side no longer blocks, where the pre-WI-047
-        # union blocked it. That is the same reasoned flip as the fourth read
-        # cell, in the same direction, and it is recorded here rather than
-        # absorbed silently. WI-049 carries it too.
+        # Apply deny on the USER side does not block, where the pre-WI-047 union
+        # blocked it, and the estate confirms the GPO applies and wins.
         #
         # Row A is the reason this cannot be written with a single identity set.
         # Before WI-047 the model matched every filter against the union of both
         # principals, so row A's user-named deny and row B's computer-named deny
         # were indistinguishable and both had to abstain. The abstention is gone
-        # because the region was measured -- for the three cells above. For the
-        # fourth it is gone because a rule was reasoned, and saying so is the
-        # difference between this comment and the one it replaced.
+        # because the region was measured -- every cell of it, as of 2026-09-06.
         read_identities = _principal_identities(target, "computer")
         side_identities = _principal_identities(target, side)
 
@@ -497,22 +505,30 @@ def _gpo_filter_status(
 
 
 def query_reaches_a_reasoned_cell(query: RsopQuery) -> bool:
-    """Does this topology's answer rest on WI-049's unmeasured cells?
+    """Does this topology reach the two cells WI-049 was opened about?
 
-    Two off-diagonal cells were flipped from BLOCKS to APPLIES by reasoning
-    rather than by measurement, both in the over-promising direction:
+    **BOTH CELLS ARE MEASURED AS OF 2026-09-06 AND THIS NO LONGER DISCLOSES A
+    LIMITATION.** It was written when they were not:
 
-      * a READ deny naming the USER, resolved on the computer side;
-      * an APPLY deny naming the COMPUTER, resolved on the user side.
+      * a READ deny naming the USER, resolved on the computer side --
+        `rsop-observe-20260906184434-8187`;
+      * an APPLY deny naming the COMPUTER, resolved on the user side --
+        `rsop-user-observe-20260906185345-9222`.
 
-    A caller reaches them only by supplying a deny that names the principal
-    which is *not* the one being resolved, so this is an exact test rather than
-    a heuristic -- which matters, because a limitation emitted on a guess would
-    be absent precisely when the guess was wrong.
+    Both estate runs agreed with the model, so the API limitation this fed was
+    removed rather than left asserting that a measured answer is reasoned.
 
-    Public because the API layer must disclose this at the point the answer is
-    read. `docs/capability-matrix.md` is not the payload, and a caller reading
-    JSON is not reading the matrix.
+    IT SURVIVES FOR ONE REASON, and it is an economic one rather than a design
+    one: `build-rsop-candidate.py` calls it to stamp `reaches_reasoned_cell`
+    into every prediction, that builder is bound BY HASH by twelve live
+    verdicts, and deleting the call would retire all twelve and buy nothing.
+    WI-054 removes both at the next change that re-certifies these lanes
+    anyway -- the same batching rule WI-037 was deferred under.
+
+    A caller reaches these shapes only by supplying a deny that names the
+    principal which is *not* the one being resolved, so the test is exact rather
+    than heuristic. That mattered when it gated a disclosure; it is now merely a
+    classification of which scenarios exercised the region.
     """
     computer = _principal_identities(query.target, "computer")
     user = _principal_identities(query.target, "user")

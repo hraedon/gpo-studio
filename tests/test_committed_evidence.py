@@ -223,6 +223,54 @@ LANE_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json": (
         "finalize_rsop_user_run.py"
     ),
+    # 2026-09-06 batch two. WI-037 moved every RSOP lane driver and WI-049 moved
+    # the candidate builder, so the twelve verdicts above stopped being
+    # certifications the moment those files changed; these re-earn them. Twelve
+    # scenarios, all `pass`, all conclusive, from a clean tree at `9f6d775`.
+    #
+    # Three of them carry measurements this project did not have before:
+    # `...184434-8187` is WI-049's fourth read cell (a read deny naming the USER
+    # on a computer-scope scenario -- it APPLIED, as the model reasoned), and
+    # `...185345-9222` carries both the off-diagonal Apply cell and the first
+    # group-matched deny any estate run has exercised.
+    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # The endpoint lane, mapped for the FIRST time (WI-053). Its certification
+    # had been sitting at `wp1b-evidence/endpoint-result-phase4-estate.json`,
+    # whose name matches neither prefix the coverage guard globs for, so nothing
+    # checked its `source.files`, nothing checked it was internally consistent,
+    # and the freshness gate never saw it -- WI-037 changed two files it binds
+    # and every RSOP verdict went red while that one stayed silent. This run
+    # carries a name the guard matches, and is the lane's first verdict to bind
+    # its candidate (WI-025). Committed at `38eedc6`, one commit later than the
+    # rest of the batch, because the first attempt found a real defect in the
+    # WI-037 change: `$(verify_endpoint)` ran the phase in a subshell, so the
+    # EXIT trap ran the whole post-teardown verification a second time.
+    "wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json": (
+        "finalize_endpoint_run.py"
+    ),
 }
 
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
@@ -231,6 +279,18 @@ LANE_VERDICTS = {
 #: a deliberate act with a reason, not something a new file drifts into. The
 #: psdirect assertions genuinely cannot apply to them; every other verdict must
 #: be mapped above.
+#: `wp3-evidence/verification.json` ALSO BINDS AN UNREACHABLE COMMIT
+#: (`fdb46004`, run `wp3-security-template-20260727220623-7682`) -- a fifth
+#: squash-merge orphan, found 2026-09-06 and recorded in
+#: `docs/evidence-binding-audit-2026-08-03.md`. The 2026-08-03 audit missed it
+#: because it scanned prose for hex next to the word "commit" and never looked
+#: inside the verdict JSON, where a binding actually lives.
+#:
+#: Nothing rests on it -- WP-3 has a live certification in
+#: `verification-estate.json` -- and it cannot be repaired, because the commit
+#: is gone. It is noted here rather than in the audit alone so that the next
+#: person to widen this exemption knows one of its two members is unverifiable
+#: in a second, separate way.
 PRE_TRANSPORT_VERDICTS = {
     "wp1b-evidence/verification.json",
     "wp3-evidence/verification.json",
@@ -261,6 +321,24 @@ PRE_TRANSPORT_VERDICTS = {
 #: still matches the tree, so a live claim cannot be quietly parked in here to
 #: silence the gate below.
 RETIRED_VERDICTS = {
+    # The 2026-09-05 batch, superseded by batch two on 2026-09-06. WI-037 moved
+    # all three shared-root lane drivers and WI-049 moved the candidate builder,
+    # both of which every RSOP verdict binds by hash. The gate reported exactly
+    # twelve broken bindings the moment the code landed and before a single lane
+    # had been re-run -- the second consecutive tranche where it did the noticing
+    # rather than a person.
+    "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json",
     # The 2026-08-06 RSOP batch, superseded by the 2026-09-05 re-certification.
     # WI-048 changed `psdirect.ps1`, which every lane transports through, and the
     # WP-9 lane's session-restart gate stopped failing silently in the same
@@ -853,4 +931,153 @@ def test_no_status_document_calls_a_certified_lane_unverifiable() -> None:
         "is a clean pass:\n  " + "\n  ".join(stale) + "\nReconcile the prose "
         "with the evidence, or cite the superseding run id in the same "
         "paragraph to mark the claim as history."
+    )
+
+
+#: Verdict commits that are KNOWN not to resolve, with the reason.
+#:
+#: Enumerated rather than tolerated by pattern, for the reason
+#: `RETIRED_VERDICTS` gives: an exemption should be a deliberate act with a
+#: reason attached, not something a file drifts into. And it is not a hatch --
+#: `test_the_orphaned_commit_exemption_is_still_orphaned` fails if one of these
+#: starts resolving again.
+ORPHANED_VERDICT_COMMITS = {
+    # Run `wp3-security-template-20260727220623-7682`, cited by
+    # `wp3-evidence/verification.json`. A squash-merge orphan predating the
+    # issue #22 auto-tagging remedy, so it cannot be retro-tagged: the commit
+    # was already unreachable when that remedy landed. Found 2026-09-06 and
+    # recorded in `docs/evidence-binding-audit-2026-08-03.md`, which had missed
+    # it because that audit scanned prose for hex adjacent to the word
+    # "commit" and never looked inside the verdict JSON.
+    #
+    # Nothing rests on it: WP-3 has a live certification in
+    # `verification-estate.json`.
+    "fdb46004c2f838f5b5eb6a693ebdf7f99d4ee71a",
+}
+
+
+def _history_is_complete() -> bool:
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    return shallow.stdout.strip() == "false"
+
+
+def _verdict_commits() -> dict[str, list[str]]:
+    """commit -> the verdict files that bind it, over every committed verdict."""
+    bound: dict[str, list[str]] = {}
+    for path in sorted(EVIDENCE.glob("wp*-evidence/*.json")):
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        commit = (document.get("source") or {}).get("commit")
+        if isinstance(commit, str) and commit:
+            bound.setdefault(commit, []).append(path.relative_to(EVIDENCE).as_posix())
+    return bound
+
+
+def _resolves(commit: str) -> bool:
+    return subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO_ROOT, capture_output=True, check=False,
+    ).returncode == 0
+
+
+def _preserved_by_a_ref(commit: str) -> bool:
+    """Is this commit reachable from a branch or a tag?
+
+    Resolution alone is weaker than it looks on a developer clone: an orphaned
+    object survives in the object database until it is garbage collected, so
+    `cat-file -e` can succeed for a commit no ref reaches. Reachability is the
+    property that actually makes a certification re-derivable by someone else.
+    """
+    for command in (["git", "branch", "-a", "--contains", commit],
+                    ["git", "tag", "--contains", commit]):
+        found = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True,
+                               check=False)
+        if found.returncode == 0 and found.stdout.strip():
+            return True
+    return False
+
+
+def test_every_verdict_binds_a_commit_this_repository_still_has() -> None:
+    """The check the 2026-08-03 evidence-binding audit should have been.
+
+    That audit extracted hex tokens adjacent to the word "commit" from
+    `docs/**/*.md` and `plans/**/*.md`. A verdict is JSON and its binding lives
+    in `source.commit`, so the files whose entire purpose is to bind a result to
+    a tree were the one place it never scanned -- which is how a fifth orphan
+    sat unnoticed for five weeks while the audit above it read as complete.
+
+    A verdict naming an unreachable commit is not wrong about what happened. It
+    is no longer INDEPENDENTLY CHECKABLE: every one of these runs asserts some
+    form of "the harness that executed matched the committed source tree", and
+    that assertion cannot be re-derived once the tree is gone.
+
+    SKIPPED ON A SHALLOW CLONE, for the reason
+    `test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit` gives: CI checks
+    out at `fetch-depth: 1`, where every commit here is legitimately absent and
+    asserting would fail a healthy repository. Measured rather than assumed --
+    the first manual pass of this check ran against a shallow clone and reported
+    38 orphans, of which 37 were the clone.
+    """
+    if not _history_is_complete():
+        pytest.skip("shallow clone: no verdict's commit is fetched here")
+
+    bound = _verdict_commits()
+    assert bound, "no committed verdict names a source commit; this test is vacuous"
+
+    broken = sorted(
+        (commit, files)
+        for commit, files in bound.items()
+        if commit not in ORPHANED_VERDICT_COMMITS
+        and not (_resolves(commit) and _preserved_by_a_ref(commit))
+    )
+    assert not broken, (
+        "These verdicts bind a commit this repository cannot reach, so their "
+        "harness-matched-the-source claim can no longer be re-derived:\n  "
+        + "\n  ".join(f"{commit[:12]} <- {', '.join(files)}" for commit, files in broken)
+        + "\nSquash-merge orphaning is the known cause. If the commit is "
+        "genuinely gone, record it in ORPHANED_VERDICT_COMMITS with a reason "
+        "and add it to docs/evidence-binding-audit-2026-08-03.md. If it is not, "
+        "push the evidence tag that preserves it -- a tag protects nothing "
+        "until it is on the remote."
+    )
+
+
+def test_the_orphaned_commit_exemption_is_still_orphaned() -> None:
+    """The control, and what stops the exemption above becoming a hatch.
+
+    The cheap way out of the check above is to declare a commit orphaned. That
+    only works if it really is: a listed commit that resolves again fails here,
+    the same way `test_retired_verdicts_are_genuinely_stale` guards
+    `RETIRED_VERDICTS`.
+    """
+    if not _history_is_complete():
+        pytest.skip("shallow clone: nothing resolves here, so this proves nothing")
+
+    assert ORPHANED_VERDICT_COMMITS, (
+        "the exemption set is empty; delete it rather than keeping an unused hatch"
+    )
+    recovered = sorted(c for c in ORPHANED_VERDICT_COMMITS if _resolves(c))
+    assert not recovered, (
+        f"These commits are listed as orphaned but resolve: {recovered}. Remove "
+        "them from ORPHANED_VERDICT_COMMITS rather than exempting a binding that "
+        "is intact."
+    )
+
+
+def test_every_orphaned_commit_is_actually_bound_by_a_verdict() -> None:
+    """The second control: the exemption cannot outlive the verdict it excuses.
+
+    If the verdict citing an orphaned commit is deleted or re-certified, the
+    entry here becomes a permanent excuse for nothing, and the next reader has
+    to work out whether it still means anything.
+    """
+    stale = sorted(ORPHANED_VERDICT_COMMITS - set(_verdict_commits()))
+    assert not stale, (
+        f"These commits are exempted but no committed verdict binds them: {stale}. "
+        "Remove the entry -- the verdict it excused is gone."
     )
