@@ -167,3 +167,32 @@ def test_the_endpoint_verify_directory_is_per_invocation() -> None:
         "phase reported"
     )
     assert "s/^VERIFY_DIR=//p" in driver
+
+
+def test_the_verify_phase_is_not_captured_through_a_subshell() -> None:
+    """`$(verify_endpoint)` defeats the idempotency flag the EXIT trap relies on.
+
+    The phase is idempotent through `VERIFY_DONE`, which the trap checks so a
+    successful explicit call is not repeated on the way out. Command
+    substitution runs the function in a SUBSHELL, so the assignment never
+    reaches this shell and the trap runs the whole verify phase again.
+
+    Measured, not reasoned: reading the reported path was added for WI-037 and
+    the first estate run under it reported two `VERIFY_DIR` values seconds
+    apart, the second after the finalizer had already written its verdict. The
+    evidence stayed correct -- the driver pulls the first invocation's path --
+    but the lane performed a redundant teardown pass on the client every run.
+
+    Written against the call site rather than the whole file because the ban is
+    narrow: substitutions elsewhere in these drivers are fine, and one that
+    captures a function setting a done-flag is not.
+    """
+    driver = _body("run-endpoint-oracle.sh")
+    assert "$(verify_endpoint)" not in driver, (
+        "verify_endpoint is captured in a command substitution, so VERIFY_DONE "
+        "is set in a subshell and the EXIT trap will run the phase a second time"
+    )
+    assert 'verify_endpoint > "$LOCAL_DIR/verify-phase.out"' in driver, (
+        "the verify phase's output must be captured by redirection, which keeps "
+        "the call in this shell"
+    )

@@ -289,11 +289,19 @@ author -Action pull -RemotePath "$GUEST_SCRIPTS\\run-endpoint-author.ps1" \
 # what the phase reported rather than assumed. Under the old fixed `<out>\verify`
 # a run whose verification never executed would have pulled the previous run's
 # result -- which the finalizer reads as proof the endpoint is durably clean.
+#
+# CAPTURED THROUGH A FILE, NOT A COMMAND SUBSTITUTION, and that is not a style
+# choice. `verify_endpoint` is idempotent through a VERIFY_DONE flag that the
+# EXIT trap also honours. `$(verify_endpoint)` runs it in a SUBSHELL, so the
+# flag never reaches this shell and the trap runs the entire verify phase a
+# second time -- measured on the estate 2026-09-06, where a passing run reported
+# two VERIFY_DIR values seconds apart, the second one after the finalizer had
+# already written its verdict. A redirection keeps the function in this shell.
 mkdir -p "$LOCAL_DIR/verify"
 VERIFY_STATUS=0
-VERIFY_OUT=$(verify_endpoint) || VERIFY_STATUS=$?
-printf '%s\n' "$VERIFY_OUT"
-VERIFY_WORK_DIR=$(printf '%s' "$VERIFY_OUT" | tr -d '\r' | sed -n 's/^VERIFY_DIR=//p' | head -1)
+verify_endpoint > "$LOCAL_DIR/verify-phase.out" 2>&1 || VERIFY_STATUS=$?
+cat "$LOCAL_DIR/verify-phase.out"
+VERIFY_WORK_DIR=$(tr -d '\r' < "$LOCAL_DIR/verify-phase.out" | sed -n 's/^VERIFY_DIR=//p' | head -1)
 if [[ -n "$VERIFY_WORK_DIR" ]]; then
     endpoint -Action pull -RemotePath "$VERIFY_WORK_DIR" -LocalPath "$LOCAL_DIR/verify" >/dev/null || true
 fi

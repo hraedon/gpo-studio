@@ -216,6 +216,14 @@ promoted, give it a covered name and map it, and close WI-053 with it.
 ## Estate hygiene afterwards
 
 The re-query the last batch ran, unchanged: zero `zz-*` / `*Studio*` GPOs, zero
-`StudioRsop*` OUs, zero `StudioRsopGroup*` groups. Additionally, and new to this
-tranche, confirm `C:\gpo-studio\out` holds at most `KEEP_RUN_DIRS` directories
-per guest and `C:\gpo-studio\scripts` holds only staged files.
+`StudioRsop*` OUs, zero `StudioRsopGroup*` groups.
+
+New to this tranche, and stated correctly here after the first pass got it
+wrong: `C:\gpo-studio\out` is **not** capped at `KEEP_RUN_DIRS` when a run
+finishes. `PREPARE` trims to that count at STAGING time and the run then mints
+its own directories — up to five on the user lane, which has a preflight, a
+re-session, a re-session verify, an observation and a post-teardown mode. Eight
+directories on the client after a two-scenario sequence is the expected steady
+state, not a leak. What to confirm is the property the item is about: that the
+PREVIOUS run's observation is still present, and that `C:\gpo-studio\scripts`
+holds only staged files.
