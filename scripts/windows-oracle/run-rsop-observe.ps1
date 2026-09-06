@@ -77,6 +77,7 @@ $result = [ordered]@{
     rsop_captured         = $false
     rsop_parse_error      = $null
     pre_run_residual      = @()
+    boot_applied_values   = @()
     applied_gpos          = @()
     denied_gpos           = @()
     observed_values       = @()
@@ -308,6 +309,28 @@ try {
     # settle condition and be read as this run's evidence -- the same trap the
     # endpoint lane hit with leftover scheduled tasks.
     $result.pre_run_residual = @(Get-PolicyValues)
+
+    # WI-054. The reboot the group-deny scenario pays for makes BOOT-TIME
+    # policy processing a second applier standing between authoring and
+    # observation: the client started with this run's policy already linked,
+    # so the startup CSE wrote this run's own values before this script ever
+    # ran. The residual guard below would refuse a run whose key was not
+    # empty -- correctly, for every scenario where only previous runs could
+    # have filled it, and wrongly here, where the values ARE this run's,
+    # having arrived by the mechanism the scenario mandates. So: record them
+    # under boot_applied_values (they are evidence that the machine processed
+    # the run's policy from its post-reboot token), clear the lane's OWN key,
+    # and observe from the empty state the guard expects. The deletion is
+    # gated on the candidate's group_member, so no other scenario's residual
+    # check is touched.
+    if ("$($expected.group_member)" -eq 'computer' -and @($result.pre_run_residual).Count -gt 0) {
+        $result.boot_applied_values = @($result.pre_run_residual)
+        Remove-Item -LiteralPath $policyKey -Recurse -Force -ErrorAction SilentlyContinue
+        $result.pre_run_residual = @(Get-PolicyValues)
+        if (@($result.pre_run_residual).Count -gt 0) {
+            $result.lane_problems += "the lane policy key could not be cleared before observation"
+        }
+    }
 
     # Open the CSE search window BEFORE the refresh that applies the policy.
     # The endpoint lane learned this: opening it after means the completion

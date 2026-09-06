@@ -511,6 +511,12 @@ def main(argv: list[str] | None = None) -> int:
         "comparison": comparison,
         "settle_attempts": observe.get("settle_attempts"),
         "cse_completed": observe.get("cse_completed"),
+        # WI-054. Values the BOOT-time CSE wrote from this run's own policy
+        # before the observation ran, recorded when the scenario's mandated
+        # reboot made boot processing an applier. Recorded rather than folded
+        # into pre_run_residual, so the residual guard keeps its exact meaning
+        # for every scenario.
+        "boot_applied_values": observe.get("boot_applied_values"),
         "token_groups": {
             "group": expected.get("group_name"),
             "member": expected.get("group_member"),
