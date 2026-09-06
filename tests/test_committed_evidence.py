@@ -279,6 +279,18 @@ LANE_VERDICTS = {
 #: a deliberate act with a reason, not something a new file drifts into. The
 #: psdirect assertions genuinely cannot apply to them; every other verdict must
 #: be mapped above.
+#: `wp3-evidence/verification.json` ALSO BINDS AN UNREACHABLE COMMIT
+#: (`fdb46004`, run `wp3-security-template-20260727220623-7682`) -- a fifth
+#: squash-merge orphan, found 2026-09-06 and recorded in
+#: `docs/evidence-binding-audit-2026-08-03.md`. The 2026-08-03 audit missed it
+#: because it scanned prose for hex next to the word "commit" and never looked
+#: inside the verdict JSON, where a binding actually lives.
+#:
+#: Nothing rests on it -- WP-3 has a live certification in
+#: `verification-estate.json` -- and it cannot be repaired, because the commit
+#: is gone. It is noted here rather than in the audit alone so that the next
+#: person to widen this exemption knows one of its two members is unverifiable
+#: in a second, separate way.
 PRE_TRANSPORT_VERDICTS = {
     "wp1b-evidence/verification.json",
     "wp3-evidence/verification.json",
