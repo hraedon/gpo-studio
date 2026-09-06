@@ -176,27 +176,51 @@ LANE_VERDICTS = {
     # model, so what these bind is the reading-principal rule rather than the
     # abstention it replaced.
     "wp6-evidence/verdict-rsop-observe-20260806181033-3296.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181222-5315.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181411-9752.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181600-5707.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181748-7763.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181935-5130.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json": "finalize_rsop_run.py",
     "wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json": (
         "finalize_rsop_user_run.py"
     ),
     "wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json": (
         "finalize_rsop_user_run.py"
     ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json": (
+        "finalize_rsop_user_run.py"
+    ),
     "wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json": (
         "finalize_rsop_user_run.py"
     ),
     "wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json": (
         "finalize_rsop_user_run.py"
     ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json": (
+        "finalize_rsop_user_run.py"
+    ),
     "wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json": (
         "finalize_rsop_user_run.py"
     ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json": (
+        "finalize_rsop_user_run.py"
+    ),
     "wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json": (
         "finalize_rsop_user_run.py"
     ),
 }
@@ -237,6 +261,31 @@ PRE_TRANSPORT_VERDICTS = {
 #: still matches the tree, so a live claim cannot be quietly parked in here to
 #: silence the gate below.
 RETIRED_VERDICTS = {
+    # The 2026-08-06 RSOP batch, superseded by the 2026-09-05 re-certification.
+    # WI-048 changed `psdirect.ps1`, which every lane transports through, and the
+    # WP-9 lane's session-restart gate stopped failing silently in the same
+    # tranche. Kept rather than deleted: `...184006-2532` is an anchor target in
+    # the remediation corpus, and the batch records what these lanes measured
+    # under the previous harness.
+    #
+    # Worth stating because it is this gate's whole point. The note below records
+    # that the RSOP lanes have twice been fully re-run for exactly this reason,
+    # and that BOTH times the staleness was caught by a person noticing rather
+    # than by a test. This is the third occasion, and it was caught by
+    # `test_a_live_verdict_still_binds_the_harness_that_ships` reporting fifteen
+    # broken bindings before a single lane had been re-run.
+    "wp6-evidence/verdict-rsop-observe-20260806181033-3296.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181222-5315.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181411-9752.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181600-5707.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181748-7763.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181935-5130.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json",
     # The 2026-08-05 batch and WI-043's inconclusive measurement, superseded by
     # the 2026-08-06 re-certification. The measurement is kept rather than
     # dropped: it is the only record of the model ABSTAINING on a region it now
