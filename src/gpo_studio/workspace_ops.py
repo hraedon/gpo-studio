@@ -34,22 +34,24 @@ from .schema import MIN_READ_VERSION, SCHEMA_VERSION, SchemaError, get_schema_ve
 
 _logger = logging.getLogger("gpo_studio.workspace_ops")
 
-_IS_WINDOWS = sys.platform == "win32"
 _MAX_BACKUP_METADATA_BYTES = 64 * 1024
 _MAX_FOREIGN_KEY_DIAGNOSTICS = 100
-if _IS_WINDOWS:
+# Inline comparison, not an intermediate constant: mypy narrows sys.platform
+# only on the literal, and narrowing is what keeps the POSIX branch out of the
+# Windows analysis and vice versa.
+if sys.platform == "win32":
     import msvcrt
 
     def _try_lock(fd: int) -> bool:
         try:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
             return True
         except OSError:
             return False
 
     def _unlock(fd: int) -> None:
         with contextlib.suppress(OSError):
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 else:
     import fcntl
 
@@ -203,7 +205,7 @@ def _publish_no_replace(staging: Path, target: Path) -> None:
     """Atomically publish *staging* without replacing an existing target."""
     if staging.parent != target.parent:
         raise WorkspaceError("Staging and target must share an output directory")
-    if _IS_WINDOWS:
+    if sys.platform == "win32":
         try:
             os.link(staging, target)
         except FileExistsError:
@@ -382,7 +384,7 @@ def try_acquire_workspace_lock(db_path: str | Path) -> int | None:
             ) from None
         return None
     try:
-        if _IS_WINDOWS and os.fstat(fd).st_size == 0:
+        if sys.platform == "win32" and os.fstat(fd).st_size == 0:
             os.write(fd, b"\0")
             os.lseek(fd, 0, os.SEEK_SET)
         if not _try_lock(fd):
@@ -492,7 +494,7 @@ def backup_workspace(
     try:
         source_identity = _fd_identity(source_fd)
         source_sha = _sha256_of_fd(source_fd)
-        if _IS_WINDOWS:
+        if sys.platform == "win32":
             # The safe Windows reader intentionally denies later write opens.
             # Record its identity, then let SQLite pin the same path itself.
             os.close(source_fd)
@@ -501,7 +503,7 @@ def backup_workspace(
         stage_path, stage_fd = _create_private_staging_file(dest.parent, "backup")
 
         src_conn = sqlite3.connect(str(source), timeout=30)
-        if _IS_WINDOWS:
+        if sys.platform == "win32":
             try:
                 current = source.stat(follow_symlinks=False)
             except OSError:
