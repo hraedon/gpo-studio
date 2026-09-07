@@ -45,3 +45,50 @@ def case_sensitive_fs() -> None:
             "case-folding volume, where the OS resolves the name before the "
             "code under test can"
         )
+
+
+_SYMLINK_PRIVILEGE: bool | None = None
+
+
+def _symlink_privilege_available() -> bool:
+    """True when this process can create a symlink at all.
+
+    Windows gates ``os.symlink`` behind SeCreateSymbolicLinkPrivilege (or
+    Developer Mode); an account without it raises
+    ``OSError: [WinError 1314] A required privilege is not held by the
+    client`` on every attempt, and the symlink-rejection tests cannot
+    plant the link they exist to refuse. Detect the capability rather
+    than the platform, because a Windows runner that holds the privilege
+    should still run them.
+    """
+    global _SYMLINK_PRIVILEGE
+    if _SYMLINK_PRIVILEGE is not None:
+        return _SYMLINK_PRIVILEGE
+    with tempfile.TemporaryDirectory() as raw:
+        target = Path(raw) / "wcd-symlink-probe-target"
+        target.write_bytes(b"")
+        link = Path(raw) / "wcd-symlink-probe-link"
+        try:
+            link.symlink_to(target)
+            _SYMLINK_PRIVILEGE = True
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 1314:
+                raise
+            _SYMLINK_PRIVILEGE = False
+    return _SYMLINK_PRIVILEGE
+
+
+@pytest.fixture
+def symlink_privilege() -> None:
+    """Skip a test that must plant a symlink to do its job.
+
+    Probes once per session; the probe result is cached so 30-odd tests
+    do not each pay for a temp directory.
+    """
+    if not _symlink_privilege_available():
+        pytest.skip(
+            "needs SeCreateSymbolicLinkPrivilege: os.symlink raises "
+            "[WinError 1314] A required privilege is not held by the "
+            "client on this account, so the symlink these tests plant "
+            "cannot be created"
+        )

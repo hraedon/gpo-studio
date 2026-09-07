@@ -56,7 +56,7 @@ def test_regular_file_descriptor_closes(tmp_path: Path) -> None:
         os.fstat(fd)
 
 
-def test_open_regular_file_rejects_symlink(tmp_path: Path) -> None:
+def test_open_regular_file_rejects_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     target = tmp_path / "target.txt"
     target.write_text("data")
     link = tmp_path / "link.txt"
@@ -65,7 +65,7 @@ def test_open_regular_file_rejects_symlink(tmp_path: Path) -> None:
         open_regular_file(link)
 
 
-def test_open_regular_file_rejects_symlink_in_path(tmp_path: Path) -> None:
+def test_open_regular_file_rejects_symlink_in_path(tmp_path: Path, symlink_privilege: None) -> None:
     target_dir = tmp_path / "target"
     target_dir.mkdir()
     (target_dir / "file.txt").write_text("data")
@@ -98,7 +98,7 @@ def test_open_directory_basic(tmp_path: Path) -> None:
         os.close(fd)
 
 
-def test_open_directory_rejects_symlink(tmp_path: Path) -> None:
+def test_open_directory_rejects_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     target = tmp_path / "target"
     target.mkdir()
     link = tmp_path / "link"
@@ -147,7 +147,7 @@ def test_iter_directory_opens_children_relative_to_parent(tmp_path: Path) -> Non
             os.fstat(yielded_fd)
 
 
-def test_iter_directory_rejects_symlink_entry(tmp_path: Path) -> None:
+def test_iter_directory_rejects_symlink_entry(tmp_path: Path, symlink_privilege: None) -> None:
     root = tmp_path / "root"
     root.mkdir()
     target = tmp_path / "target.txt"
@@ -162,7 +162,7 @@ def test_iter_directory_rejects_symlink_entry(tmp_path: Path) -> None:
         os.close(root_fd)
 
 
-def test_is_link_or_junction_symlink(tmp_path: Path) -> None:
+def test_is_link_or_junction_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     target = tmp_path / "target"
     target.mkdir()
     link = tmp_path / "link"
@@ -221,7 +221,9 @@ def test_open_or_create_regular_file_exclusive_rejects_existing(tmp_path: Path) 
     assert path.read_text() == "existing"
 
 
-def test_open_or_create_regular_file_rejects_symlink(tmp_path: Path) -> None:
+def test_open_or_create_regular_file_rejects_symlink(
+    tmp_path: Path, symlink_privilege: None
+) -> None:
     referent = tmp_path / "referent"
     referent.write_bytes(b"")
     link = tmp_path / "created.lock"
@@ -232,7 +234,9 @@ def test_open_or_create_regular_file_rejects_symlink(tmp_path: Path) -> None:
     assert referent.read_bytes() == b""
 
 
-def test_open_or_create_regular_file_rejects_symlink_parent(tmp_path: Path) -> None:
+def test_open_or_create_regular_file_rejects_symlink_parent(
+    tmp_path: Path, symlink_privilege: None
+) -> None:
     referent = tmp_path / "referent"
     referent.mkdir()
     link = tmp_path / "linked-parent"
@@ -322,7 +326,7 @@ def test_open_or_create_regular_file_rejects_junction_parent(tmp_path: Path) -> 
 
 
 @windows_only
-def test_parent_swap_race_regular_file(tmp_path: Path) -> None:
+def test_parent_swap_race_regular_file(tmp_path: Path, symlink_privilege: None) -> None:
     """Concurrent parent-swap must never result in reading the wrong file."""
     real_dir = tmp_path / "real"
     real_dir.mkdir()
@@ -383,7 +387,7 @@ def test_parent_swap_race_regular_file(tmp_path: Path) -> None:
 
 
 @windows_only
-def test_parent_swap_race_directory(tmp_path: Path) -> None:
+def test_parent_swap_race_directory(tmp_path: Path, symlink_privilege: None) -> None:
     """Concurrent parent-swap must never result in opening the wrong dir."""
     real_dir = tmp_path / "real"
     real_dir.mkdir()
