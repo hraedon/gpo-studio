@@ -40,6 +40,26 @@ _MAX_TEMPLATE_SIZE = 4 * 1024 * 1024
 _MAX_SECTIONS = 10_000
 _MAX_SECTION_ENTRIES = 100_000
 
+#: Sections whose wire shape is bare quoted-CSV rows -- ``"KEY",code,"SDDL"`` --
+#: rather than ``key = value``.  Measured on native Windows Server 2025
+#: ``GptTmpl.inf``: every ``[Registry Keys]`` entry is a three-field
+#: quoted-CSV line and the ``key = value`` shape appears nowhere (R4);
+#: ``secedit /validate`` rejects ``key = value`` rows there ("must have 3
+#: fields each line") and accepts the quoted-CSV shape (R9).  ``Registry
+#: Keys`` is the only per-key measured member; ``File Security`` and ``Service
+#: General Setting`` share this writer path and the same three-field arity
+#: error, so their row shape is inferred, not measured.  These sections'
+#: entries are serialized as ``"key",value``; they still PARSE into
+#: ``unknown_lines`` (verbatim preservation, whole-line diffs), which is what
+#: the reader of native templates must therefore also read.
+_ROW_SECTIONS: frozenset[str] = frozenset(
+    {
+        "registry keys",
+        "file security",
+        "service general setting",
+    }
+)
+
 
 class SecurityTemplateError(ValueError):
     """Malformed or unsupported INF security template content."""
@@ -238,7 +258,9 @@ def format_security_template(template: SecurityTemplate) -> str:
     If ``raw_text`` is set and the sections still match a re-parse of that
     text (i.e. no modifications were made), the original text is returned
     for a lossless round-trip.  Otherwise the template is reconstructed from
-    its sections in a normalized ``Key = Value`` form.
+    its sections in a normalized ``Key = Value`` form -- except for the
+    row-shaped sections (:data:`_ROW_SECTIONS`), whose entries are emitted
+    as bare quoted-CSV lines, the shape the Windows parser requires.
     """
     if template.raw_text:
         reparsed = parse_security_template(template.raw_text)
@@ -249,10 +271,14 @@ def format_security_template(template: SecurityTemplate) -> str:
     for i, section in enumerate(template.sections):
         if i > 0:
             parts.append("")
+        row_section = section.name.casefold() in _ROW_SECTIONS
         if section.name:
             parts.append(f"[{section.name}]")
         for key, value in section.entries:
-            parts.append(f"{key} = {value}")
+            if row_section:
+                parts.append(f'"{key}",{value}')
+            else:
+                parts.append(f"{key} = {value}")
         for line in section.unknown_lines:
             parts.append(line)
     return "\n".join(parts)

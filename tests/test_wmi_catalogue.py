@@ -122,7 +122,7 @@ def test_load_catalogue_filter_not_object(tmp_path: Path) -> None:
         load_wmi_catalogue(catalogue_path)
 
 
-def test_load_catalogue_rejects_symlink(tmp_path: Path) -> None:
+def test_load_catalogue_rejects_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     real_file = tmp_path / "real.json"
     real_file.write_text(json.dumps({"filters": []}))
     symlink_file = tmp_path / "link.json"
@@ -286,7 +286,9 @@ def test_api_wmi_filters_empty_when_no_env(tmp_path: Path, monkeypatch) -> None:
         assert resp.json()["count"] == 0
 
 
-def test_catalogue_rejects_symlinked_parent_directory(tmp_path: Path) -> None:
+def test_catalogue_rejects_symlinked_parent_directory(
+    tmp_path: Path, symlink_privilege: None
+) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "wmi.json").write_text(json.dumps({"filters": []}))

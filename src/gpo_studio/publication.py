@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from .artifact_store import ArtifactStore, detect_secrets
+from .canonical import canonical_json_bytes
 from .gpmc_interop import InteropIssue
 from .gpp import serialize_gpp
 from .model import GPO, RegistrySetting, ValidationIssue
@@ -35,6 +36,10 @@ PublicationState = Literal[
 
 PublicationTarget = Literal["ad", "sysvol", "both"]
 
+# Which half of the packed GPT.INI Version= field a publication increments.
+# The field is user * 65536 + machine and its halves move independently.
+GptVersionHalf = Literal["machine", "user", "both"]
+
 
 @dataclass(frozen=True, slots=True)
 class PublicationStep:
@@ -44,6 +49,27 @@ class PublicationStep:
     status: Literal["pending", "running", "completed", "failed", "skipped"]
     detail: str = ""
     artifact_ids: tuple[str, ...] = ()  # artifacts involved in this step
+    # update_gpt_ini only: which half of the packed Version= field this plan
+    # publishes. The halves move independently (see _unpack_gpt_version), so
+    # the half must be recorded explicitly rather than guessed at run time.
+    version_half: GptVersionHalf | None = None
+
+
+def _step_payload(step: PublicationStep) -> dict[str, object]:
+    """The part of a step that determines its effect, for `payload_digest`.
+
+    `status` is excluded: it moves from pending to completed as the plan runs,
+    and a digest that changed under execution could not bind an approval taken
+    before it.
+    """
+    return {
+        "step_id": step.step_id,
+        "operation": step.operation,
+        "target": step.target,
+        "detail": step.detail,
+        "artifact_ids": list(step.artifact_ids),
+        "version_half": step.version_half,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +86,37 @@ class PublicationPlan:
     rollback_plan: tuple[PublicationStep, ...] = field(default_factory=tuple)
     requires_enhanced_approval: bool = False
     risk_level: Literal["low", "medium", "high", "critical"] = "low"
+
+    @property
+    def payload_digest(self) -> str:
+        """SHA-256 over what this plan DOES, so an approval can bind to it.
+
+        `plan_id` is a random `uuid4` prefix with no relationship to the plan's
+        content, so an approval that names one attests to a name (WI-050). This
+        digest covers the operative shape instead: the GPO addressed, every step
+        in order, the rollback steps, and the two fields that decide how much
+        scrutiny the plan gets -- `risk_level` and `requires_enhanced_approval`.
+        Escalating a plan's risk after approval is itself a content change.
+
+        Deliberately EXCLUDED, because they move while a plan is worked and
+        would make the digest unstable exactly when it is being checked:
+        `plan_id`, `state`, `approved_by`, `approved_at`, `published_at`, and
+        each step's `status`. What remains is fixed for a given set of actions.
+
+        Computed rather than stored: a stored digest is one more field that can
+        be set to whatever the constructor is handed, which is the defect this
+        closes rather than a fix for it.
+        """
+        payload = {
+            "gpo_guid": self.gpo_guid,
+            "gpo_name": self.gpo_name,
+            "target": self.target,
+            "risk_level": self.risk_level,
+            "requires_enhanced_approval": self.requires_enhanced_approval,
+            "steps": [_step_payload(step) for step in self.steps],
+            "rollback_plan": [_step_payload(step) for step in self.rollback_plan],
+        }
+        return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
     def validate(self) -> tuple[ValidationIssue, ...]:
         """Validate publication plan structural rules."""
@@ -122,11 +179,6 @@ class PowerShellPublicationScript:
     estimated_duration_seconds: int = 0
 
 
-# Known CSE GUIDs for extension lists.
-_REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
-_GPP_GROUPS_CSE_GUID = "{3125E937-EB16-4b4c-9934-544FC6D24D26}"
-_GPP_REGISTRY_CSE_GUID = "{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}"
-
 # GPMC settings count threshold for medium risk.
 _REGISTRY_SETTINGS_MEDIUM_RISK_THRESHOLD = 100
 
@@ -177,6 +229,60 @@ def _not_implemented_warning(operation: str) -> str:
         f'Write-Warning "NOT IMPLEMENTED: {operation} '
         "\u2014 requires manual execution\""
     )
+
+
+def _unpack_gpt_version(packed: int) -> tuple[int, int]:
+    """Split a packed GPT.INI ``Version=`` into its (machine, user) halves.
+
+    Windows maintains the version as one packed 32-bit field,
+    ``user * 65536 + machine``: the machine counter is the low 16-bit half and
+    the user counter the high 16-bit half, and the halves move independently.
+    Measured on Windows Server 2025 (2026-09-03): a machine-side-only edit
+    moved the value 0 -> 1; a user-side-only edit moved it 0 -> 65536 with the
+    machine half untouched. A GPO published by Windows itself showed
+    ``Version=0x0002000A``: user 2, machine 10.
+    """
+    return packed % 65536, packed // 65536
+
+
+def _pack_gpt_version(machine: int, user: int) -> int:
+    """Pack independent 16-bit version halves into a GPT.INI ``Version=``."""
+    return (user % 65536) * 65536 + (machine % 65536)
+
+
+def _bump_gpt_version(packed: int, half: Literal["machine", "user"]) -> int:
+    """Increment one half of a packed version and leave the other half alone.
+
+    A wrapping half does not carry into its neighbour. Windows' own carry
+    behaviour on wrap is unverified; the invariant this module commits to is
+    that an increment never moves the half it does not target.
+    """
+    machine, user = _unpack_gpt_version(packed)
+    if half == "machine":
+        machine = (machine + 1) % 65536
+    else:
+        user = (user + 1) % 65536
+    return _pack_gpt_version(machine, user)
+
+
+def _gpt_version_half(
+    has_machine_content: bool, has_user_content: bool
+) -> GptVersionHalf | None:
+    """Pick the GPT.INI half that a plan's SYSVOL content implies."""
+    if has_machine_content and has_user_content:
+        return "both"
+    if has_machine_content:
+        return "machine"
+    if has_user_content:
+        return "user"
+    return None
+
+
+_GPT_VERSION_HALF_LABELS: dict[GptVersionHalf, str] = {
+    "machine": "machine half",
+    "user": "user half",
+    "both": "machine and user halves",
+}
 
 
 def _assess_risk(gpo: GPO) -> Literal["low", "medium", "high", "critical"]:
@@ -231,14 +337,32 @@ def generate_publication_plan(
     # SYSVOL-targeted steps: only created when publishing to SYSVOL. When
     # target="ad" none of these are emitted.
     if _is_sysvol_target(target):
-        # Update GPT.INI version counter.
+        # Update GPT.INI version counter. The version is a packed 32-bit field
+        # whose halves move independently, so the step records which half this
+        # plan publishes; incrementing the whole value would move the machine
+        # half even for user-side-only content.
+        has_machine_content = bool(computer_settings) or any(
+            c.scope == "computer" for c in gpo.gpp_collections
+        )
+        has_user_content = bool(user_settings) or any(
+            c.scope == "user" for c in gpo.gpp_collections
+        )
+        version_half = _gpt_version_half(has_machine_content, has_user_content)
+        if version_half is None:
+            detail = "No GPT.INI version increment (no machine or user SYSVOL content)"
+        else:
+            detail = (
+                "Increment GPT.INI version counter "
+                f"({_GPT_VERSION_HALF_LABELS[version_half]})"
+            )
         steps.append(
             PublicationStep(
                 step_id="update-gpt-ini",
                 operation="update_gpt_ini",
                 target="sysvol",
                 status="pending",
-                detail="Increment GPT.INI version counter",
+                detail=detail,
+                version_half=version_half,
             )
         )
         rollback.append(
@@ -399,6 +523,126 @@ def generate_publication_plan(
     )
 
 
+def _gpt_ini_step_lines(version_half: GptVersionHalf | None) -> list[str]:
+    """PowerShell lines for the ``update_gpt_ini`` step (Windows PowerShell 5.1).
+
+    The packed version is read, unpacked, and only the half named by
+    ``version_half`` is incremented in place, so a user-side publication can
+    never move the machine counter (and vice versa) no matter how the value
+    has moved since the plan was generated.
+
+    Idempotence marker (``gpt.ini.studio-marker``) is per half: ``machine=<n>``
+    and/or ``user=<n>`` lines record the half value this script last left on
+    SYSVOL. A half sitting at its marker value is already applied and the
+    script changes nothing; a half not at its marker value is incremented from
+    the value read at run time. The untouched half is never rewritten, so
+    independent movers between runs (GPMC authoring, or a different plan) are
+    detected as "already applied" versus "needs the bump" without being
+    clobbered.
+    """
+    if version_half is None:
+        return [
+            "# No machine or user SYSVOL content in this plan; the GPT.INI",
+            "# version is not incremented (nothing for clients to reprocess).",
+            (
+                'Write-PlanLog "GPT.INI version not incremented: no machine or '
+                'user content in this plan."'
+            ),
+            "",
+        ]
+    halves = ("machine", "user") if version_half == "both" else (version_half,)
+    halves_ps = ", ".join(f"'{h}'" for h in halves)
+    return [
+        "# Increment GPT.INI version counter "
+        f"({_GPT_VERSION_HALF_LABELS[version_half]}); idempotent per half.",
+        (
+            "$gptIniPath = Join-Path $env:SystemRoot "
+            '"SYSVOL\\domain\\Policies\\$($GpoGuid)\\gpt.ini"'
+        ),
+        (
+            "$gptMarkerPath = Join-Path $env:SystemRoot "
+            '"SYSVOL\\domain\\Policies\\$($GpoGuid)\\gpt.ini.studio-marker"'
+        ),
+        f"$publishHalves = @({halves_ps})",
+        "if (Test-Path $gptIniPath) {",
+        "    $gptContent = Get-Content $gptIniPath -Raw",
+        "    $versionMatch = [regex]::Match($gptContent, 'Version=(\\d+)')",
+        "    if (-not $versionMatch.Success) {",
+        (
+            "        throw \"GPT.INI at $gptIniPath has no Version= line; "
+            'refusing to guess the packed version."'
+        ),
+        "    }",
+        "    $currentVersion = [int64]$versionMatch.Groups[1].Value",
+        "    # Packed 32-bit field: machine is the low 16-bit half, user the",
+        "    # high 16-bit half (measured: user-only edit 0 -> 65536;",
+        "    # Version=0x0002000A is user 2, machine 10). Only the published",
+        "    # half moves, in place, from the value read at run time.",
+        "    $halfValues = @{",
+        "        machine = [int]($currentVersion % 65536)",
+        "        user    = [int][math]::Truncate($currentVersion / 65536)",
+        "    }",
+        "    $markerHalfValues = @{}",
+        "    if (Test-Path $gptMarkerPath) {",
+        "        foreach ($markerLine in (Get-Content $gptMarkerPath)) {",
+        "            if ($markerLine -match '^\\s*(machine|user)\\s*=\\s*(\\d+)\\s*$') {",
+        "                $markerHalfValues[$Matches[1]] = [int]$Matches[2]",
+        "            }",
+        "        }",
+        "    }",
+        "    $changedHalves = @()",
+        "    foreach ($half in $publishHalves) {",
+        "        $markerHasHalf = $markerHalfValues.ContainsKey($half)",
+        (
+            "        $halfAtMarkerValue = "
+            "$markerHasHalf -and $halfValues[$half] -eq $markerHalfValues[$half]"
+        ),
+        "        if ($halfAtMarkerValue) {",
+        (
+            '            Write-PlanLog "GPT.INI $half half already at '
+            '$($halfValues[$half]); no change."'
+        ),
+        "        } else {",
+        "            $changedHalves += $half",
+        "        }",
+        "    }",
+        "    if ($changedHalves.Count -gt 0) {",
+        "        foreach ($half in $changedHalves) {",
+        "            $halfValues[$half] = ($halfValues[$half] + 1) % 65536",
+        "        }",
+        "        $newVersion = $halfValues['user'] * 65536 + $halfValues['machine']",
+        (
+            "        if ($PSCmdlet.ShouldProcess($gptIniPath, "
+            "'Update GPT.INI version')) {"
+        ),
+        (
+            "            $gpt = $gptContent -replace 'Version=\\d+', "
+            '"Version=$newVersion"'
+        ),
+        "            if (-not ($gpt -match '(?m)^Version=')) {",
+        '                $gpt = "Version=$newVersion`r`n" + $gpt',
+        "            }",
+        "            Set-Content -Path $gptIniPath -Value $gpt -Encoding ASCII",
+        "            foreach ($half in $changedHalves) {",
+        "                $markerHalfValues[$half] = $halfValues[$half]",
+        "            }",
+        "            $markerLines = @()",
+        "            foreach ($half in @('machine', 'user')) {",
+        "                if ($markerHalfValues.ContainsKey($half)) {",
+        '                    $markerLines += "$half=$($markerHalfValues[$half])"',
+        "                }",
+        "            }",
+        (
+            "            Set-Content -Path $gptMarkerPath -Value $markerLines "
+            "-Encoding ASCII"
+        ),
+        "        }",
+        "    }",
+        "}",
+        "",
+    ]
+
+
 def generate_publication_script(plan: PublicationPlan) -> PowerShellPublicationScript:
     """Generate an administrator-review PowerShell script for ``plan``.
 
@@ -478,47 +722,9 @@ def generate_publication_script(plan: PublicationPlan) -> PowerShellPublicationS
     for step in plan.steps:
         match step.operation:
             case "update_gpt_ini":
-                lines.extend([
-                    "# Increment GPT.INI version counter (idempotent).",
-                    (
-                        "$gptIniPath = Join-Path $env:SystemRoot "
-                        '"SYSVOL\\domain\\Policies\\$($GpoGuid)\\gpt.ini"'
-                    ),
-                    (
-                        "$gptMarkerPath = Join-Path $env:SystemRoot "
-                        '"SYSVOL\\domain\\Policies\\$($GpoGuid)\\gpt.ini.studio-marker"'
-                    ),
-                    "if (Test-Path $gptIniPath) {",
-                    (
-                        "    $currentVersion = (Get-Content $gptIniPath | "
-                        "Select-String 'Version=(\\d+)').Matches[0].Groups[1].Value"
-                    ),
-                    "    if (Test-Path $gptMarkerPath) {",
-                    "        $expectedVersion = (Get-Content $gptMarkerPath -Raw).Trim()",
-                    "    } else {",
-                    "        $expectedVersion = [int]$currentVersion + 1",
-                    "    }",
-                    "    if ($currentVersion -ne $expectedVersion) {",
-                    "        $gpt = Get-Content $gptIniPath -Raw",
-                    (
-                        "        $gpt = $gpt -replace 'Version=\\d+', "
-                        "\"Version=$expectedVersion\""
-                    ),
-                    (
-                        "        if ($gpt -notmatch '^Version=') { $gpt = "
-                        "\"Version=$expectedVersion`r`n\" + $gpt }"
-                    ),
-                    "        if ($PSCmdlet.ShouldProcess($gptIniPath, 'Update GPT.INI')) {",
-                    "            Set-Content -Path $gptIniPath -Value $gpt -Encoding ASCII",
-                    (
-                        "            Set-Content -Path $gptMarkerPath -Value "
-                        "$expectedVersion -Encoding ASCII"
-                    ),
-                    "        }",
-                    "    }",
-                    "}",
-                    "",
-                ])
+                # Half-aware increment; see _gpt_ini_step_lines for the marker
+                # semantics and the evidence behind the packing.
+                lines.extend(_gpt_ini_step_lines(step.version_half))
             case "write_registry_pol":
                 side = "Machine" if "machine" in step.step_id else "User"
                 lines.extend([

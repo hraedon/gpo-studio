@@ -21,7 +21,11 @@ whose closing condition is not stated cannot be closed, only forgotten.
 ## WI-025 — candidate artifacts are not hash-bound in the WP-1B and endpoint lanes
 
 **Opened:** 2026-07 (`plan-033/rsop-oracle-design.md`).
-**Status:** open for WP-1B and the endpoint lane. **Closed for WP-6B**
+**FIXED AND CLOSED** 2026-09-06. Both remaining lanes record candidate hashes
+and both were re-certified under the change:
+`wp1b-writer-20260906183513-1195` (7/7, fifteen candidate hashes — the index
+plus `candidate.zip` and `expected.json` for each of the seven candidates) and
+`endpoint-observe-20260906185837-7523` (`pass`, two). **Closed for WP-6B**
 (2026-08-04) — that lane's verdict records SHA-256 for `topology.json`,
 `prediction.json` and `expected.json`, and additionally proves the guest built
 the topology the prediction describes by comparing the pulled copy byte for
@@ -35,6 +39,29 @@ it records no candidate hashes either.
 **Closes when:** `finalize_endpoint_run.py` and `finalize_wp1b_run.py` record
 candidate hashes, and one re-certification run per lane is produced under the
 change. WP-6B's implementation is the model.
+
+**2026-09-06 — the code half is landed; the runs are not.** Both finalizers now
+record a `candidate` block: SHA-256 of *every* file under `--candidate-root`,
+keyed by relative path. Everything rather than a named list, because the
+omission worth catching is a consumed file the verdict never mentions; a named
+required set (`candidates.json`, and per candidate `candidate.zip` +
+`expected.json`) is then refused **at the door** rather than recorded as a
+shorter block, and `tests/test_candidate_binding.py` removes each required file
+in turn to prove the refusal can fire. That test also pins the required set
+against what the builders actually write, because a required-set that drifts
+from its builder becomes a check on a file nobody produces.
+
+Neither finalizer is in any lane's bound file set, so landing the code retired
+nothing; the two runs above are what closed it. Both were made the same day, on
+the estate, from a clean tree, and both verdicts are committed with their
+`candidate` blocks populated.
+
+**One thing the endpoint half surfaced.** Its first run at `9f6d775` passed and
+was discarded, because reading the verify phase's output through
+`$(verify_endpoint)` ran it in a subshell and the EXIT trap then repeated the
+whole post-teardown verification. That is WI-037's change, not this one's, and
+it is recorded there — but it is why this item's endpoint run is bound to
+`38eedc6` while everything else in the batch is bound to `9f6d775`.
 
 ## WI-028 — `SearchedSOM` accumulates SOMs for deleted containers
 
@@ -417,8 +444,11 @@ them is not.
 
 ## WI-037 — a run's staging destroys the previous run's evidence on the guest
 
-**Opened:** 2026-08-04 (WP-9). **Status:** open. **Deliberately not fixed in the same change; see
-the last paragraph.**
+**Opened:** 2026-08-04 (WP-9). **FIXED AND CLOSED** 2026-09-06 — the fix landed,
+the affected lanes were re-certified (fourteen runs), and the retention was
+confirmed on the guests rather than inferred. The paragraph below about *not*
+fixing it in the same change is the original text, kept because the batching
+decision it describes is what this change finally executed.
 
 Every lane driver's `PREPARE` step removes all directories under the guest's
 output root before it stages anything. That made sense when a failed run left
@@ -467,6 +497,57 @@ harness by name and hashes what it deploys) but it is an estate-hygiene one,
 and the same change should decide whether staging owns that directory or
 whether a `scripts/` sweep belongs somewhere else. Diagnostics written during a
 session should be treated as lab debris and removed with everything else.
+
+**2026-09-06 — the code half is landed; the re-certification is not.** All three
+shared-root drivers now keep the newest `KEEP_RUN_DIRS=5` run directories rather
+than deleting every one, and sweep `C:\gpo-studio\scripts` — staging owns that
+directory, which is the decision the paragraph above asked for. The fallback
+requires an observation-bearing directory **created since a guest-side clock
+reading taken immediately before the observation**, and refuses anything but
+exactly one match, which is the rule `run-wp1b-oracle.sh` already states:
+"newest" is a guess and "the only one" is a fact.
+
+**Preserving the directories created a second hazard, and it is fixed in the
+same change rather than left for later.** Once old run directories survive, a
+"newest directory" fallback pulls the *previous* run's observation and the
+finalizer grades it as this one's — an unattributable failure turned into a
+confidently mis-attributed pass, which is worse than the defect being fixed.
+Same cause, same change: the endpoint lane's `verify` phase wrote to the fixed
+path `<out>\verify`, unambiguous only because staging deleted the root first, and
+the finalizer reads a present, clean verify result as proof the endpoint is
+durably clean. It is per-invocation now, and the driver pulls the path the phase
+reports rather than a name it already knows.
+`tests/test_lane_staging.py` pins all of it, including a refusal of the exact
+`Get-ChildItem -Directory | Remove-Item -Recurse` shape that caused the item.
+
+**Re-certified and confirmed on the estate, 2026-09-06.** Twelve RSOP verdicts
+went stale the moment the drivers changed — exactly as
+`test_a_live_verdict_still_binds_the_harness_that_ships` reported, before a
+single lane had been re-run — and fourteen runs re-earned them. The retention
+was then checked on the guests rather than inferred: after a two-scenario
+sequence `LabCL01` held eight run directories, including the PREVIOUS run's
+observation, which the old `PREPARE` would have deleted.
+
+**The check also demonstrated why the fallback needed both constraints.** Of
+those eight directories only two carried an `observation.json`, so "newest"
+would have selected a preflight or a re-session verify — and the two that did
+carry one came from DIFFERENT RUNS, so "newest observation-bearing" would have
+been ambiguous across runs. Only the creation-time bound makes it exactly one.
+That was written down as a hazard when the fix was designed; the estate turned
+it into an observation.
+
+**The fix's own defect, found by running it.** The first endpoint run reported
+two `VERIFY_DIR` values 24 seconds apart, the second after the finalizer had
+written its verdict: reading the phase's output through `$(verify_endpoint)`
+runs it in a SUBSHELL, so the `VERIFY_DONE` flag never reached the driver's
+shell and the EXIT trap repeated the entire post-teardown verification. The
+verdict was sound — the driver pulls the first invocation's path — but the lane
+did a redundant teardown pass on the client every run. Fixed by redirection in
+`38eedc6`, pinned by
+`test_the_verify_phase_is_not_captured_through_a_subshell`, and the endpoint
+lane re-run against the corrected driver. Worth recording that a test could not
+have found it: nothing in the shell's text is wrong, and only running it twice
+in one process shows the flag never arrived.
 
 ## WI-038 — three security-template sections are preserve-only, and `diff_templates` cannot see them
 
@@ -1258,6 +1339,22 @@ done and only the evidence retrieval was lost.
 absent either way: both runs left the estate clean (`cleanup_problems: []`, no
 surviving OUs, GPOs, links or filters, both accounts restored).
 
+**What fixing it costs, measured 2026-09-05.** `psdirect.ps1` is named in the
+`source.files` of **all fifteen** live verdicts -- every lane transports through
+it -- so any edit invalidates the entire live certification set at once. It is
+the single largest point of invalidation in the corpus; `build-rsop-candidate.py`
+is next at twelve. Combined with WI-045, the transport fix cannot land without a
+fifteen-run re-certification, and the transport bug is itself what makes a
+fifteen-run batch unreliable. The dependency is circular.
+
+The practical consequence is an ORDERING, not a blocker: harness changes should
+be batched. WI-048, WI-049's two off-diagonal cells and its group-matched row,
+WI-025's candidate hashes, and WI-037's staging fix all touch bound harness
+files and all require re-certification. Landing them together costs one
+re-certification pass; landing them one at a time costs four. Nothing here
+argues for loosening the binding -- the verdict genuinely was produced by those
+bytes, and a transport-only exemption would be a claim nobody can check.
+
 **Closes when:** either `psdirect.ps1` makes a new session robust to a colliding
 command ID (retry on `ERROR_INTERNAL_ERROR`, or a fresh session per invocation),
 or the minimum inter-run gap is enforced in the lane driver rather than left to
@@ -1267,7 +1364,11 @@ fix; the batch driver that hit this is not even in the repository.
 ## WI-049 — two off-diagonal filter cells were changed by reasoning, not measurement
 
 **Opened:** 2026-08-07 (cross-lineage review of the WI-043/WI-047 tranche).
-**Status:** open.
+**CLOSED** 2026-09-06, by measurement rather than by a fix — the model's answers
+were right. Both cells and a group-matched deny were measured on the estate and
+**all three agreed**. The runs are `rsop-observe-20260906184434-8187` and
+`rsop-user-observe-20260906185345-9222`; what each observed is below, under
+*The measurement*.
 
 The tranche that closed WI-043 and WI-047 rewrote `_gpo_filter_status` to stop
 matching every filter against the union of both principals. Three read cells
@@ -1321,12 +1422,107 @@ unit-tested. Per the standing rule, do not stand up a dedicated estate session
 for this: these are filter edits on scenarios a future lane will already be
 running, and the marginal cost of carrying them is close to zero.
 
+**2026-09-06 — the rows are authored; nothing is measured yet.** Three rows on
+two scenarios the lanes already run, per the instruction above:
+
+| row | scenario | model predicts | cell |
+|---|---|---|---|
+| `Studio-RSOP-CompFilterDenyReadUser` | `computer-security-filtering-deny-read` | applies, wins `Filter` | read deny names the USER, side=computer |
+| `Studio-RSOP-FilterDenyApplyComp` | `user-security-filtering-deny` | applies, wins `Filter` | Apply deny names the COMPUTER, side=user |
+| `Studio-RSOP-FilterDenyGroup` | `user-security-filtering-deny` | blocked | a deny matched THROUGH a group |
+
+Each takes the top link order, so a wrong answer costs the **winner** rather
+than one absent unique value. The certified rows they displaced keep their
+unique-value assertions, which is the whole of their regression job; the trade
+is written into both scenarios rather than left to be noticed.
+
+The group row is measured on the USER side, where the lane already creates a
+disposable group, puts the principal in it, and pays the re-session restart that
+gets it into the token. **The COMPUTER's group memberships remain unmeasured
+and are still passed as empty** — a computer's membership is minted in its
+machine token at boot, so measuring it needs a client restart that no scenario
+currently pays for. Saying so here rather than letting the closing condition's
+"at least one group-matched deny" read as though it covered both.
+
+Two supporting changes. `prediction.json` records `reaches_reasoned_cell` from
+the model's own `query_reaches_a_reasoned_cell`, so the verdicts these runs
+produce state in the run's own words that the experiment reached a reasoned
+region — a run citable by field rather than by a scenario name somebody has to
+recognise. And a computer-scope scenario can now declare `names_user`, because
+measuring the read cell needs a computer-scope run that knows a real user to
+deny; the builder refuses in both directions, and
+`test_a_scenario_that_names_the_user_declares_it` checks the declaration against
+the filters rather than trusting it.
+
+`tests/test_rsop_unmeasured_cells.py` holds the part of the closing condition a
+test can hold: that the corpus carries a row for each cell, on a scenario the
+lanes already run.
+
+## The measurement
+
+**2026-09-06, on the estate, all three rows, all agreeing with the model.**
+
+| row | run | observed |
+|---|---|---|
+| read deny names the USER, side=computer | `rsop-observe-20260906184434-8187` | **applied**, won `Filter=denyReadUser` |
+| Apply deny names the COMPUTER, side=user | `rsop-user-observe-20260906185345-9222` | **applied**, won `Filter=denyApplyComp` |
+| Apply deny matched through a GROUP | `rsop-user-observe-20260906185345-9222` | **blocked**, `DenyGroupOnly` absent |
+
+Both verdicts are `pass`, `conclusive: true`, `agrees: true`, from a clean tree.
+The discriminators held in every direction that mattered: on the computer-scope
+run the computer-named read deny in the same topology stayed blocked (WI-040's
+certified row, so the DACL writes worked) and the plain-allow control applied,
+so an absence would have meant something. On the user-scope run the
+group-matched **allow** row delivered `NestedOnly=1` — the group was
+demonstrably in the principal's token — which is what makes the group-matched
+deny's absence the deny working rather than a membership that never landed.
+
+**The argument was right, and it did not have to be.** WI-033, WI-040 and
+WI-043 are three occasions on which a good argument about this exact code was
+wrong, which is why this was a numbered item rather than a note. Recording the
+outcome as a confirmation rather than as a vindication: what changed is that
+these cells now rest on an estate row instead of on MS16-072 read carefully.
+
+**What this closed downstream.** `_gpo_filter_status`'s comment now names a run
+for all four read cells and for both Apply cells. `TestTheUnmeasuredCellsArePinned`
+became `TestTheOffDiagonalCellsAreMeasured` — the same assertions, no longer a
+pinned guess. And the API's `answer_rests_on_a_reasoned_cell` limitation was
+**removed**: a payload telling a caller that a measured answer is unmeasured is
+the same defect as a matrix that says `failed` while supported.
+
+**What this did NOT close:** a deny matched through a COMPUTER's group. See
+WI-054 — the item that gap now has, rather than a paragraph inside a closed one.
+
 ## WI-050 — an approval binds a plan's identifier, not its content
 
 **Opened:** 2026-08-07 (Plan 032 shape assessment; row 1 of the
 `publisher-threat-model.md` required-controls table, verified rather than
 inferred).
-**Status:** open.
+**CLOSED** 2026-09-05.
+
+**Closed by** `PublicationPlan.payload_digest`, a SHA-256 over
+`canonical_json_bytes` of the plan's operative content: the GPO addressed, every
+step in order, the rollback steps, `risk_level` and `requires_enhanced_approval`.
+`plan_id` is excluded, as are the lifecycle fields that move while a plan is
+worked (`state`, `approved_by`, `approved_at`, `published_at`, and each step's
+`status`) -- a digest that changed under execution could not bind an approval
+taken before it. It is a computed property rather than a stored field, because a
+stored digest is one more value the constructor can be handed, which is the
+defect restated rather than fixed.
+
+`ApprovalRequest.plan_payload_digest` carries it, `create_approval_request`
+populates it from the plan, and `_approval_gate` refuses on mismatch **and on
+absence** -- an approval that binds nothing cannot attest to anything, which is
+the shape a persistence layer produces when it rehydrates a request stored
+before the binding existed.
+
+The reproduction below is now a regression test
+(`test_approval_does_not_carry_to_a_swapped_payload`), along with the digest's
+four invariants and the two new refusal branches. Note what this does NOT close:
+WI-051's separation-of-duties gap is untouched, and the four pre-existing
+refusal branches it names remain uncovered.
+
+**Status when opened:** open.
 
 `_approval_gate` decides whether a plan is approved by comparing
 `approval.plan_id != plan.plan_id` (`publisher.py:471`) and nothing else.
@@ -1362,22 +1558,51 @@ WP-3's re-approval requirement and the stale-risk hole above.
 ## WI-051 — the self-approval check exists, and the gates do not call it
 
 **Opened:** 2026-08-07 (Plan 032 shape assessment; row 2 of the same table).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-06.
 
-`approve_request` raises when an approver approves their own request
-(`publisher.py:288`), so the control is written. But `_approval_gate`
-(`publisher.py:450-515`) and `ApprovalRequest.validate()` never compare approver
-to requester, and **`run_publisher_gates` and `evaluate_publication` take no
-principal at all** — `decided_by` is hardcoded `""` (`publisher.py:689`).
+The principal is threaded through the gates now: `run_publisher_gates` and
+`evaluate_publication` take a **required keyword-only** `actor` — required, so
+a decision cannot be computed without a principal and quietly attest to
+nobody — and `PublisherDecision.decided_by` is populated from it instead of
+the hardcoded `""`.
 
-The consequence is that separation of duties holds only on the one path that
-constructs an approval through `approve_request`. A directly-constructed
-self-approved request — the shape any persistence layer produces when it
-rehydrates stored state — passes with zero validation issues.
+A `separation_of_duties_gate` runs whenever the profile requires approval, and
+re-derives the separation from the request's own fields rather than trusting
+how the request was built: every name in `approvers` (plus `approved_by`) is
+compared to `requested_by` through `hosting.can_self_approve`, so a
+directly-constructed self-approved request — the rehydrated shape
+`approve_request`'s refusal never sees — fails the gate even though the
+approval gate passes it on content binding. The gate also refuses when the
+publishing actor is among the approvers, and when no principal was supplied.
+The requester publishing under someone else's approval — the normal flow —
+passes, and has a test saying so. `ApprovalRequest.validate()` now carries the
+same comparison as an `error`-level issue, so the rehydrated shape fails
+structural validation too and not only at gate time.
 
-**Corroborated by coverage rather than by reading alone:** `publisher.py` misses
-lines 472, 483, 491 and 499, which are all four of `_approval_gate`'s
-content-binding refusal branches. The gate's refusal paths are untested.
+The refusal branches are tested, not just the pass path: a request for a
+different plan, a rejected request, an expired request, and insufficient
+approvals (WI-051's original four uncovered branches) sit alongside the two
+content-binding branches WI-050 already covered and the no-request branch the
+gates test already exercised. The WI-051 reproduction — a self-approved
+rehydration that binds the plan's content, so the approval gate passes it and
+only separation of duties sees what it is — is
+`test_separation_of_duties_refuses_a_self_approved_request`.
+
+What this does NOT claim: the actor is still whatever string the caller passes;
+binding it to a real authenticated identity is the hosting layer's job, and
+nothing here changes WI-050's content binding, which is untouched.
+
+Original finding, kept for the record: `approve_request` raises when an
+approver approves their own request (`publisher.py:288`), so the control is
+written. But `_approval_gate` and `ApprovalRequest.validate()` never compare
+approver to requester, and **`run_publisher_gates` and
+`evaluate_publication` take no principal at all** — `decided_by` is hardcoded
+`""`. Separation of duties therefore held only on the one path that constructs
+an approval through `approve_request`; a directly-constructed self-approved
+request passed with zero validation issues. Corroborated by coverage rather
+than by reading alone: `publisher.py` missed lines 472, 483, 491 and 499, all
+four of `_approval_gate`'s content-binding refusal branches — the gate's
+refusal paths were untested.
 
 **Closes when:** a principal is threaded into the gates, a
 `separation_of_duties_gate` reuses `hosting.can_self_approve`, `decided_by` is
@@ -1386,21 +1611,136 @@ populated from that principal, and the four refusal branches are tested.
 ## WI-052 — `profiles_for_actor` matches an actor against a profile id
 
 **Opened:** 2026-08-07 (Plan 032 shape assessment; not previously suspected).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-06.
 
-`PublisherProfileSet.profiles_for_actor` selects profiles with
-`p.profile_id == actor` (`publisher.py:128-132`), and `PublisherProfile` has no
-principal field at all. So `effective_capabilities("alice")` returns `[]`, while
-`effective_capabilities("p1")` returns the seven capabilities of the profile
-whose id happens to be `p1`.
+`PublisherProfile` carries a `principals` field now, and
+`profiles_for_actor` resolves against it — active profiles whose `principals`
+contain the actor. Matching by `profile_id` is gone, not deprecated: a profile
+identifier is a name for the profile, not an actor, and the WI's reproduction
+is a regression test (`test_profiles_for_actor_resolves_principals_not_profile_ids`)
+that pins both directions — actor `"p1"` receives nothing from the profile
+whose id is `p1`, and the profile's real principal receives its capabilities.
 
-The docstring says "(by profile_id match)", so this is not a typo — it is a
-model that never grew the actor→profile relation it names. **A capability check
-against a real principal returns empty**, which fails closed today and is the
-reason nothing has noticed; it fails closed only because nothing calls it.
+A profile with empty `principals` matches nobody, which fails closed the way
+the old defect accidentally did — but deliberately now, with a
+`no_principals_bound` warning from `validate()` so the configuration that
+grants nothing is visible instead of silent, and an `error` for an empty
+principal string. Nothing else was quietly widened: `get_profile` still looks
+up by id, which is what it is for.
+
+Nothing calls this from the API surface yet, which is both why the defect
+survived and why the fix can break no caller today; the relation exists before
+the surface that needs it, rather than after.
+
+Original finding, kept for the record: `profiles_for_actor` selected profiles
+with `p.profile_id == actor`, and `PublisherProfile` had no principal field at
+all. So `effective_capabilities("alice")` returned `[]`, while
+`effective_capabilities("p1")` returned the seven capabilities of the profile
+whose id happened to be `p1`. The docstring said "(by profile_id match)", so
+this was not a typo — it was a model that never grew the actor→profile
+relation it names. **A capability check against a real principal returned
+empty**, which failed closed only because nothing called it.
 
 **Closes when:** `PublisherProfile` carries a `principals` field and
 `profiles_for_actor` resolves against it.
+
+## WI-053 — the endpoint lane's certification is covered by no test
+
+**Opened:** 2026-09-06 (found while landing WI-025's endpoint half).
+**FIXED AND CLOSED** 2026-09-06.
+
+Closed in two halves the same day. The **instance**: the WI-025 endpoint
+re-certification was promoted under a covered name —
+`wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json`, in the
+directory its work package names — and mapped in `LANE_VERDICTS`, so the lane's
+certification now has its `source.files` checked against the finalizer's
+tables, is checked for internal consistency, and is inside the freshness gate
+that WI-037's change proved it needed.
+
+The **hole**: the coverage guard's universe was still only the names matching
+its prefixes, so mapping the instance left the escape open one filename along.
+The widening the item asks for makes every JSON in a `wp*-evidence/` directory
+accountable: verdict-named files to the existing gates, everything else to
+`NON_VERDICT_EVIDENCE_FILES`, where each entry carries its reason, an entry
+whose file is gone fails, and renaming a verdict to something unusual lands it
+in the unaccounted bucket instead of out of every gate. The control the item
+names is `test_the_widened_guard_still_sees_the_endpoint_verdict` — it fails if
+the pattern is narrowed, the prefixes are changed, or the endpoint verdict is
+renamed, so the original escape cannot be re-created silently. The superseded
+2026-08-03 certification is named in the new set rather than deleted, which is
+where its history now lives.
+
+The guard is not wrong — it is derived, and a derivation is only as wide as
+the pattern it derives from. A verdict that escapes by being named unusually is the
+same failure the guard was built to end, one level along, which is the WI-046
+shape: WI-044 fixed the instance and `gpmc_export` was the same bug one entry
+further on.
+
+## WI-054 — a deny matched through a COMPUTER's group is still unmeasured
+
+**Opened:** 2026-09-06 (the half of WI-049 its closing condition did not cover).
+**FIXED AND CLOSED** 2026-09-06, the same day — the corpus row, the reboot
+mechanism and the measurement all landed in one session.
+
+**The measurement.** `computer-security-filtering-group-deny` authors an APPLY
+deny whose only identity is a disposable group the CLIENT'S computer account
+joins; the lane driver reboots the client between authoring and observation so
+the machine token carries it; the observation half corroborates the membership
+two independent ways (the machine token's view via `gpresult /r
+/scope:computer`, the directory's via `tokenGroups` on the computer account);
+and the computer finalizer now carries the user lane's token gate, refusing the
+run if the group is in neither source or either collection failed outright.
+Run `rsop-observe-20260906221638-4687`: **`pass`** — the model said BLOCKED,
+resolving the membership through `computer_group_memberships`, and Windows
+agreed. The group-matched deny gates on the COMPUTER side exactly as WI-049
+measured it doing on the user side. The twelve other runs from the same tree
+are the lanes' re-certification, which the change owed them (the dead
+predicate went in the same change, as the deferral recorded below promised).
+
+**What the first run found, because the second could then work.** The
+mandated reboot makes BOOT-TIME policy processing a second applier standing
+between authoring and observation: the client started with the run's policy
+already linked, the startup CSE wrote this run's own values, and the
+observation's residual guard correctly refused to attribute an observation
+taken from a policy key that was not empty (`verdict-rsop-observe-20260906221248-7683`,
+kept retired). The fix records those values under `boot_applied_values` —
+where they are evidence that the machine processed the run's policy from its
+post-reboot token — clears the lane's own key, and observes from the empty
+state the guard expects. Gated on the candidate's `group_member`, so no other
+scenario's residual check changes meaning.
+
+**The dead predicate and field went in the same change**, as the deferral
+below recorded: `query_reaches_a_reasoned_cell` and
+`reaches_reasoned_cell` disclosed nothing once WI-049's cells were measured,
+and this was the change that re-certified the lanes binding them anyway. The
+predicate-pinning test was replaced by corpus pins for the new row and a
+consistency test that every group scenario declares WHICH principal joins the
+group — because that declaration decides which account the authoring half
+adds and whose token the observation corroborates. A scenario-level
+`group_principal` now carries it, and the lane pays the matching price: a
+re-session for the user's token, a client reboot for the machine's.
+
+Original finding, kept for the record: WI-049 measured a group-matched deny on
+the USER side — the lane creates a disposable group, puts the principal in it,
+restarts the session so the token carries it, and the observation half
+corroborates the membership two independent ways. The equivalent on the
+computer side had never run. `build-rsop-candidate.py` passed
+`computer_group_memberships=()` on every scenario, so `_principal_identities`
+resolved an empty set for the computer and no estate row had ever exercised
+the branch that reads it. The failure direction was the one that mattered: a
+model that resolves a computer group membership Windows does not reports a GPO
+blocked that actually applies — or, with a deny, applies one Windows
+withholds. The API accepted `computer_group_memberships` from callers
+throughout, so the branch was reachable rather than theoretical. The reboot
+cost was known and recorded: a machine token is minted at boot, so no lighter
+refresh exists — the same trap the user lane hit, at the other end of the
+session lifetime.
+
+**Closes when:** a computer-scope scenario authors a deny naming a group the
+CLIENT is a member of, the run restarts the client so the machine token carries
+it, the observation half corroborates the membership independently of the
+prediction, and the estate says whether the GPO applies. The dead predicate and
+field go in the same change.
 
 ## Not yet numbered
 

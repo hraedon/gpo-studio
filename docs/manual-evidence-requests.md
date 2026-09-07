@@ -1,7 +1,36 @@
 # Manual evidence requests — work order for the operator
 
-Status: active, written 2026-08-06 against `main` at `80c23b5`. Nothing in this
-document has been executed; no estate host was contacted while writing it.
+Status: **fully executed 2026-09-05** (written 2026-08-06 against `main` at
+`80c23b5`). All eleven requests are complete, by four different routes — worth
+stating precisely, because the route bounds what each result is worth:
+
+- **R1–R5** ran as full transactions through the console driver on the lab
+  estate: capability envelope evaluated, verdict `verified`, strict-absence
+  cleanup, banked as records in the windows-console-driver claim registry
+  (estate windows 2–4). These are the only requests carrying the complete
+  transactional guarantee.
+- **R10** ran controller-side over PSDirect in the same estate (window 5) but
+  **pilot-style, with no capability envelope and no transaction id** — its
+  record says so. The byte-identical re-emission result stands on the
+  comparison, not on the transaction machinery.
+- **R9** did not use the console driver at all. Its oracle is `secedit
+  /validate` on LabMS01; the claim is Windows' own parser accepting one
+  candidate shape and rejecting the other.
+- **R6 and R8** ran read-only from the admin workstation. **R11** ran against
+  the live domain with the operator's go-ahead (one unlinked GPO, removed same
+  sitting, strict re-query zero) and **R7** on the domain controller the same
+  day via `secedit /export`, sliced on-box and the full export deleted. These
+  four are operator-run captures over WinRM, not driver transactions.
+
+Highlights of what the captures changed: `migration.py` parsed a namespace
+GPMC does not use (silent no-op, fixed); `object_security.py`'s propagation
+codes were wrong on all three (fixed, `secedit /validate`-verified);
+`publication.py`'s flat `+1` would corrupt the packed `gpt.ini` version
+field (fixed to per-half bumps); the scripts writers were rebuilt to the
+measured wire format and are now round-trip certified — Windows re-emits
+Studio's `scripts.ini`, `psscripts.ini` and `registry.pol` byte-identically
+after import, in both the lab and production. See
+`docs/plans-025-032-oracle-survey.md` §5 for the module-by-module record.
 
 ## What this is
 

@@ -99,8 +99,66 @@ TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
 }
 
 
+#: Per-candidate artifacts the verdict rests on, relative to the candidate's own
+#: directory under ``--candidate-root``.  ``expected.json`` is what every check
+#: below grades against; ``candidate.zip`` is what the guest imported.  A verdict
+#: that hashes neither asserts a comparison nobody can re-check (WI-025).
+REQUIRED_CANDIDATE_FILES: tuple[str, ...] = ("candidate.zip", "expected.json")
+
+#: The index the builder writes beside the candidate directories.  Required at
+#: the root because it is what says the candidate set is the one the builder
+#: produced rather than a subset that happened to survive a partial copy.
+REQUIRED_CANDIDATE_ROOT_FILES: tuple[str, ...] = ("candidates.json",)
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _candidate_hashes(candidate_root: Path) -> dict[str, str]:
+    """SHA-256 of EVERY file under the candidate root, by relative path.
+
+    WI-025. This lane's verdict named seven candidates and hashed none of the
+    artifacts it graded them against: ``expected.json`` supplied every expected
+    setting, backup id and summary, and ``candidate.zip`` was the bundle the
+    guest actually imported. Both were re-derivable only by rebuilding them and
+    hoping the builder was deterministic.
+
+    Everything under the root is hashed rather than a fixed list, because the
+    omission worth catching is a consumed file the verdict never mentions. The
+    REQUIRED_* tables then say which files must exist, so a partial candidate
+    root fails the run instead of producing a shorter block that still looks
+    complete. WP-6B's `finalize_rsop_run.py` is the model for the shape.
+    """
+    return {
+        path.relative_to(candidate_root).as_posix(): _sha256(path)
+        for path in sorted(candidate_root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _candidate_problems(
+    candidate_root: Path, hashes: dict[str, str], candidate_ids: list[str]
+) -> list[str]:
+    """Candidate artifacts the verdict must bind and the root does not have.
+
+    Driven by the ids the RUN reports rather than by the builder's own index, so
+    a guest that imported a candidate this root cannot account for is a problem
+    rather than an absence nobody looks for.
+    """
+    problems = [
+        f"candidate root {candidate_root} has no {name}"
+        for name in REQUIRED_CANDIDATE_ROOT_FILES
+        if name not in hashes
+    ]
+    problems += [
+        f"candidate root {candidate_root} has no {candidate_id}/{name}: the "
+        "verdict would grade that candidate against an artifact it cannot bind"
+        for candidate_id in candidate_ids
+        for name in REQUIRED_CANDIDATE_FILES
+        if f"{candidate_id}/{name}" not in hashes
+    ]
+    return problems
 
 
 def _setting_projection(setting: dict[str, Any]) -> tuple[object, ...]:
@@ -278,6 +336,20 @@ def main() -> int:
     repo_root = args.repo_root.resolve()
 
     run_result = json.loads((run_dir / "run-result.json").read_text(encoding="utf-8-sig"))
+
+    # WI-025. Bind the candidate set before anything is graded against it.
+    candidate_hashes = _candidate_hashes(candidate_root)
+    candidate_problems = _candidate_problems(
+        candidate_root,
+        candidate_hashes,
+        [str(result["candidate_id"]) for result in run_result["candidates"]],
+    )
+
+    if candidate_problems:
+        for problem in candidate_problems:
+            print(f"finalize refused: {problem}", file=sys.stderr)
+        return 1
+
     candidates = [
         _finalize_candidate(
             run_dir / result["candidate_id"], candidate_root / result["candidate_id"], result
@@ -346,6 +418,10 @@ def main() -> int:
         "environment_violations": environment_violations,
         "candidates": candidates,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        # The INPUT side of every comparison above, hashed. `artifacts` records
+        # what the run produced; this records what it was graded against, which
+        # was the verdict's one unhashed input (WI-025).
+        "candidate": candidate_hashes,
         "artifacts": {
             str(path.relative_to(run_dir)): _sha256(path)
             for path in sorted(run_dir.rglob("*"))

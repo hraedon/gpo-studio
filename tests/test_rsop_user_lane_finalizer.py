@@ -699,7 +699,7 @@ def _finalize_user_with_local_file(
     (candidate / "expected.json").write_text(json.dumps(_expected()), encoding="utf-8")
 
     if run_dir_copy is not None:
-        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8")
+        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8", newline="")
 
     finalize_user.main(
         [

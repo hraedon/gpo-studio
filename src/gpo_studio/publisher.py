@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Literal, assert_never
 
+from .hosting import AuthenticatedIdentity, can_self_approve
 from .model import ValidationError, ValidationIssue
 from .publication import PublicationPlan, validate_publication_plan
 
@@ -47,6 +48,11 @@ class PublisherProfile:
     profile_id: str
     name: str
     capabilities: frozenset[PublisherCapability]
+    #: The actors this profile is granted TO. A profile whose principals are
+    #: empty matches no actor at all — a capability check against a real
+    #: principal must never succeed because the principal happens to equal a
+    #: profile's identifier (WI-052).
+    principals: tuple[str, ...] = ()
     scope_dns: tuple[str, ...] = ()  # DNs this profile applies to (empty = domain-wide)
     requires_approval: bool = True  # whether operations need explicit approval
     max_blast_radius: Literal["single_gpo", "ou", "domain", "forest"] = "single_gpo"
@@ -100,6 +106,26 @@ class PublisherProfile:
                     "capabilities",
                 )
             )
+        if not self.principals:
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "no_principals_bound",
+                    "Profile grants no principals; profiles_for_actor matches "
+                    "no actor while it is empty.",
+                    "principals",
+                )
+            )
+        for principal in self.principals:
+            if not principal.strip():
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "empty_principal",
+                        "principals entries must not be empty.",
+                        "principals",
+                    )
+                )
         if self.max_blast_radius == "forest" and "write_security_descriptor" in self.capabilities:
             issues.append(
                 ValidationIssue(
@@ -126,9 +152,15 @@ class PublisherProfileSet:
         return None
 
     def profiles_for_actor(self, actor: str) -> tuple[PublisherProfile, ...]:
-        """Get all active profiles that apply to an actor (by profile_id match)."""
+        """Get all active profiles granted to an actor (by principals membership).
+
+        Matching is against ``principals``, never against ``profile_id``: a
+        profile identifier is a name for the profile, not an actor, and a
+        capability check against a real principal must not succeed because the
+        principal happens to equal some profile's id (WI-052).
+        """
         return tuple(
-            p for p in self.profiles if p.is_active and p.profile_id == actor
+            p for p in self.profiles if p.is_active and actor in p.principals
         )
 
     def effective_capabilities(
@@ -171,6 +203,12 @@ class ApprovalRequest:
     required_approvers: int = 1  # number of approvals needed
     current_approvals: int = 0
     approvers: tuple[str, ...] = ()  # actors who have already approved
+    #: SHA-256 of the plan's operative content at the moment approval was
+    #: requested (`PublicationPlan.payload_digest`). Empty means the request
+    #: predates content binding, or was constructed without a plan to bind to;
+    #: `_approval_gate` refuses either way, because an approval that binds
+    #: nothing cannot attest to anything (WI-050).
+    plan_payload_digest: str = ""
 
     def is_sufficiently_approved(self) -> bool:
         """Check if enough approvals have been collected."""
@@ -215,6 +253,23 @@ class ApprovalRequest:
                     "rejection_reason",
                 )
             )
+        # A request rehydrated from persistence can carry a self-approval that
+        # `approve_request` would have refused at construction time; the
+        # structural check lives here so the rehydrated shape cannot pass with
+        # zero validation issues (WI-051).
+        if self.requested_by and (
+            self.requested_by == self.approved_by
+            or self.requested_by in self.approvers
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "self_approved_request",
+                    "The requester appears among the approvers; "
+                    "self-approval is not allowed.",
+                    "approvers",
+                )
+            )
         if self.expires_at and _is_expired(self.expires_at):
             issues.append(
                 ValidationIssue(
@@ -256,6 +311,7 @@ def create_approval_request(
         expires_at=expires.isoformat(timespec="seconds"),
         required_approvers=required_approvers,
         current_approvals=0,
+        plan_payload_digest=plan.payload_digest,
     )
 
 
@@ -396,21 +452,30 @@ def run_publisher_gates(
     plan: PublicationPlan,
     profile: PublisherProfile,
     approval: ApprovalRequest | None = None,
+    *,
+    actor: str,
 ) -> tuple[PublisherGate, ...]:
-    """Run all pre-publication gates.
+    """Run all pre-publication gates on behalf of the principal ``actor``.
+
+    ``actor`` is the principal attempting the publication, and is required:
+    a decision computed without one cannot attest to who it was for, and
+    separation of duties cannot be evaluated against nobody (WI-051).
 
     Gates:
     1. capability_gate: actor has required capabilities for all plan steps
     2. approval_gate: plan has sufficient approvals (if profile.requires_approval)
-    3. scope_gate: plan target is within profile's allowed scope
-    4. blast_radius_gate: plan risk_level is within profile's max_blast_radius
-    5. time_gate: current hour is within profile's allowed_hours (if specified)
-    6. interop_gate: GPO passes GPMC interop check
-    7. rsop_gate: RSOP computation succeeds without critical warnings
+    3. separation_of_duties_gate: the actor did not approve the request, and
+       the request carries no self-approval (if profile.requires_approval)
+    4. scope_gate: plan target is within profile's allowed scope
+    5. blast_radius_gate: plan risk_level is within profile's max_blast_radius
+    6. time_gate: current hour is within profile's allowed_hours (if specified)
+    7. interop_gate: GPO passes GPMC interop check
+    8. rsop_gate: RSOP computation succeeds without critical warnings
     """
     gates: list[PublisherGate] = [
         _capability_gate(plan, profile),
         _approval_gate(plan, profile, approval),
+        _separation_of_duties_gate(profile, approval, actor),
         _scope_gate(plan, profile),
         _blast_radius_gate(plan, profile),
         _time_gate(profile),
@@ -479,6 +544,29 @@ def _approval_gate(
                 f"plan {plan.plan_id!r}"
             ),
         )
+    if not approval.plan_payload_digest:
+        return PublisherGate(
+            gate_id="approval_gate",
+            name="Approval Gate",
+            check="Plan has sufficient approvals",
+            passed=False,
+            detail=(
+                "Approval does not bind the plan's content "
+                "(no plan_payload_digest); it cannot attest to these steps"
+            ),
+        )
+    if approval.plan_payload_digest != plan.payload_digest:
+        return PublisherGate(
+            gate_id="approval_gate",
+            name="Approval Gate",
+            check="Plan has sufficient approvals",
+            passed=False,
+            detail=(
+                f"Plan content changed since approval: approved "
+                f"{approval.plan_payload_digest[:12]}, plan is "
+                f"{plan.payload_digest[:12]}"
+            ),
+        )
     if approval.state == "rejected":
         return PublisherGate(
             gate_id="approval_gate",
@@ -512,6 +600,91 @@ def _approval_gate(
         check="Plan has sufficient approvals",
         passed=True,
         detail="Sufficient approvals collected",
+    )
+
+
+def _separation_of_duties_gate(
+    profile: PublisherProfile,
+    approval: ApprovalRequest | None,
+    actor: str,
+) -> PublisherGate:
+    """The publishing actor is not among the approvers, and nobody self-approved.
+
+    ``approve_request`` refuses self-approval at construction time, but a
+    directly-constructed request — the shape any persistence layer produces
+    when it rehydrates stored state — bypasses that refusal entirely, so the
+    gate re-derives the comparison from the request's own fields, reusing
+    ``hosting.can_self_approve`` for the requester/approver relation (WI-051).
+    The requester publishing with someone else's approval is the normal flow
+    and passes; the requester approving their own request, or the actor
+    approving the publication they are about to run, does not.
+    """
+    if not profile.requires_approval:
+        return PublisherGate(
+            gate_id="separation_of_duties_gate",
+            name="Separation of Duties Gate",
+            check="The publishing actor did not approve this publication",
+            passed=True,
+            detail="Profile does not require approval",
+        )
+    if approval is None:
+        # No approvers exist to conflict with the actor; the approval gate
+        # already blocks this path, and saying so beats manufacturing a
+        # refusal for a request that is not there.
+        return PublisherGate(
+            gate_id="separation_of_duties_gate",
+            name="Separation of Duties Gate",
+            check="The publishing actor did not approve this publication",
+            passed=True,
+            detail="No approval request; the approval gate blocks this path",
+        )
+    if not actor.strip():
+        return PublisherGate(
+            gate_id="separation_of_duties_gate",
+            name="Separation of Duties Gate",
+            check="The publishing actor did not approve this publication",
+            passed=False,
+            detail=(
+                "No principal supplied for the publishing actor; a decision "
+                "cannot attest to separation of duties without one"
+            ),
+        )
+    approvers = {a for a in (*approval.approvers, approval.approved_by) if a.strip()}
+    for approver in sorted(approvers):
+        if not can_self_approve(
+            AuthenticatedIdentity(subject=approver), approval.requested_by
+        ):
+            return PublisherGate(
+                gate_id="separation_of_duties_gate",
+                name="Separation of Duties Gate",
+                check="The publishing actor did not approve this publication",
+                passed=False,
+                detail=(
+                    f"Request carries a self-approval: {approver!r} both "
+                    f"requested and approved it"
+                ),
+            )
+    if actor in approvers:
+        return PublisherGate(
+            gate_id="separation_of_duties_gate",
+            name="Separation of Duties Gate",
+            check="The publishing actor did not approve this publication",
+            passed=False,
+            detail=(
+                f"The publishing actor {actor!r} approved this request; the "
+                "actor who approved a publication cannot be the one who "
+                "runs it"
+            ),
+        )
+    return PublisherGate(
+        gate_id="separation_of_duties_gate",
+        name="Separation of Duties Gate",
+        check="The publishing actor did not approve this publication",
+        passed=True,
+        detail=(
+            "No overlap between the publishing actor, the approvers, and "
+            "the requester"
+        ),
     )
 
 
@@ -672,13 +845,16 @@ def evaluate_publication(
     plan: PublicationPlan,
     profile: PublisherProfile,
     approval: ApprovalRequest | None = None,
+    *,
+    actor: str,
 ) -> PublisherDecision:
-    """Evaluate whether a publication plan can proceed.
+    """Evaluate whether a publication plan can proceed for principal ``actor``.
 
     Returns a decision with all gate results. ``approved=True`` only if ALL
-    gates pass.
+    gates pass. ``decided_by`` records the principal the decision was computed
+    for; it was hardcoded empty before WI-051 threaded the actor through.
     """
-    gates = run_publisher_gates(plan, profile, approval)
+    gates = run_publisher_gates(plan, profile, approval, actor=actor)
     blocking = tuple(g for g in gates if not g.passed)
     return PublisherDecision(
         plan_id=plan.plan_id,
@@ -686,7 +862,7 @@ def evaluate_publication(
         gates=gates,
         blocking_gates=blocking,
         decision_at=_now(),
-        decided_by="",
+        decided_by=actor,
     )
 
 

@@ -510,22 +510,31 @@ defects were found by these runs before they were fixed: WI-031, WI-033 and
 WI-040, all sharing the failure direction that matters — the model saying a GPO
 applies when Windows keeps it off.
 
+**Re-certified 2026-09-06 (batch two), and three cells added.** All twelve
+scenarios were re-run after WI-037 changed every lane driver, and three rows
+that had never been measured were carried on two of them: a read deny naming the
+USER resolved on the computer side, an Apply deny naming the COMPUTER resolved
+on the user side — WI-049's two off-diagonal cells, both flipped from `blocked`
+to `applied` by argument in the WI-047 edit — and a deny matched through a group
+in the principal's token. **All three agreed with the model.** The runs are
+`rsop-observe-20260906184434-8187` and `rsop-user-observe-20260906185345-9222`.
+The API's `answer_rests_on_a_reasoned_cell` limitation was removed with them: it
+existed only while those cells were unmeasured, and a payload that calls a
+measured answer reasoned is the same defect as this matrix saying `failed` while
+supported.
+
 **What is NOT certified, and is not claimed:**
 
-- **Two filter cells were settled by reasoning (WI-049, open).** A read deny
-  naming the user resolved on the computer side, and an Apply deny naming the
-  computer resolved on the user side, both changed from `blocked` to `applied`
-  in the WI-047 edit with no estate row for either. The mechanism argues both
-  new answers are right; WI-033, WI-040 and WI-043 are three occasions on which
-  a good argument about this exact code was wrong. Group membership is the same
-  gap: a filter that matches through a *group* rather than by name is unit-
-  tested in both directions and measured in neither, so the API's per-side
-  membership lists carry a rule no estate run has exercised.
-  **The API says this in the payload**, not only here: a topology containing a
-  deny that names the principal which is not the one being resolved raises
-  `limitations[].code == "answer_rests_on_a_reasoned_cell"`. The condition is
-  exact rather than heuristic — a caller reaches these cells only by supplying
-  such a filter — which is what licenses it being conditional at all.
+- **A deny matched through a COMPUTER's group (WI-054, open).** A filter that
+  matches through a *group* rather than by name is now measured on the user side
+  (`rsop-user-observe-20260906185345-9222`) and still measured nowhere on the
+  computer side: `build-rsop-candidate.py` passes
+  `computer_group_memberships=()` on every scenario, because a machine token is
+  minted at boot and exercising it needs a client reboot no scenario pays for.
+  The API accepts that list from callers, so the rule it resolves is reachable
+  and unmeasured. The failure direction is the usual one — a membership the
+  model resolves and Windows does not means a GPO reported applied that never
+  arrives, or, with a deny, one reported blocked that does.
 - **Per-side applied/denied sets (WI-032, open).** `RsopGpoResult.status`
   collapses to "applied on at least one side". Windows reports
   `ComputerResults` and `UserResults` as separate sets and on a topology whose
@@ -564,7 +573,7 @@ produces `unevaluable` — the last one that did was answered by measurement —
 the state and its machinery stay, because the next unmeasured region will need
 them and a result containing one reports `is_conclusive() == False`.
 
-**Being reconciled is not being finished.** WI-032, WI-036 and WI-049 are all
+**Being reconciled is not being finished.** WI-032, WI-036 and WI-054 are all
 open against a module now reachable by operators, which is the ordinary state
 for a surfaced capability rather than a reason to withdraw it. What surfacing
 changes is that each gap now has a reader, so each is stated where the answer is

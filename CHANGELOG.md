@@ -146,6 +146,27 @@ Current version: `1.0.0`.
 
 ### Changed
 
+- WI-049 (corpus half): the Plan 033 RSOP corpus now carries a row for each of
+  the three filtering regions the model answers by reasoning rather than by
+  measurement — a read deny naming the user resolved on the computer side, an
+  Apply deny naming the computer resolved on the user side, and a deny that
+  matches through a group rather than by name. They are filter edits on two
+  scenarios the lanes already run, not a session of their own, and each takes
+  the top link order so a wrong answer costs the predicted *winner* rather than
+  one absent value.
+
+  **Measured on the estate 2026-09-06, and all three agreed with the model** —
+  `rsop-observe-20260906184434-8187` and
+  `rsop-user-observe-20260906185345-9222`. A user-named read deny left the GPO
+  applying on the computer side, a computer-named Apply deny left it applying on
+  the user side, and a group-matched deny blocked. The API's
+  `answer_rests_on_a_reasoned_cell` limitation is **removed** with them: it
+  existed only while those cells were unmeasured, and a payload calling a
+  measured answer reasoned is the same defect as a matrix that says `failed`
+  while supported. **Operator-visible**: a caller who was reading that code will
+  stop seeing it. What remains unmeasured is a deny matched through a
+  *computer's* group, which now has its own item (WI-054) rather than a
+  paragraph inside a closed one.
 - The browser application supports a dark colour theme — **surfaced**. Every
   colour in `studio.css` now flows through a design token, and a
   `data-theme` attribute on `<html>` selects the palette: `Auto` follows the
@@ -227,6 +248,78 @@ Current version: `1.0.0`.
   instead of defaulting to a file set that no longer exists.
 
 ### Fixed
+
+- WI-037: a lane's staging step removed every directory under the guest's
+  output root, so the next run deleted exactly the evidence a human needed to
+  explain why the last one failed. The three shared-root drivers now retain the
+  newest five run directories and sweep the guest's `scripts` directory, which
+  staging owns. Preserving run directories makes the "newest output directory"
+  fallback unsafe in a new way — it would pull the *previous* run's observation
+  and the finalizer would grade it as this one's — so the fallback now requires
+  an observation-bearing directory created since a guest-side clock reading
+  taken immediately before the observation, and refuses anything but exactly one
+  match. The endpoint lane's `verify` phase was writing to a fixed path for the
+  same reason and is per-invocation now. Lab tooling; no operator-facing change.
+  **Closed**: fourteen runs re-certified the affected lanes on 2026-09-06, and
+  the retention was confirmed on the guests rather than inferred — the previous
+  run's observation survived where the old staging would have deleted it. The
+  first run also found a defect in the fix itself: `$(verify_endpoint)` ran the
+  phase in a subshell, so its idempotency flag never reached the driver's shell
+  and the EXIT trap repeated the whole post-teardown verification.
+- WI-025 (code half): the WP-1B and endpoint lane verdicts named the candidate
+  artifacts they were graded against and hashed none of them, asserting a
+  comparison nobody could re-check. Both finalizers now record SHA-256 for every
+  file under `--candidate-root`, and refuse a run whose candidate root is
+  missing a required artifact rather than recording a shorter block that still
+  looks complete. WP-6B's implementation is the model. **Closed** by
+  `wp1b-writer-20260906183513-1195` (7/7, fifteen candidate hashes) and
+  `endpoint-observe-20260906185837-7523`, both committed with their blocks
+  populated.
+- WI-053: the endpoint lane's only committed certification escaped every
+  evidence gate since 2026-08-03 because its filename matched neither prefix
+  the coverage guard globs for — WI-037 changed two files it binds and every
+  RSOP verdict went red while it stayed silent. The re-certification is
+  promoted under a covered name and mapped in `LANE_VERDICTS`, and the guard is
+  widened so every JSON in an evidence directory is either verdict-named or
+  named with a reason in `NON_VERDICT_EVIDENCE_FILES` — a verdict can no longer
+  escape by being named unusually. A control fails if the pattern ever stops
+  matching the endpoint certification again. Lab tooling; no operator-facing
+  change.
+- WI-051: the publisher's separation-of-duties control existed only on the
+  path that constructs an approval through `approve_request` — the gates took
+  no principal at all, `decided_by` was hardcoded empty, and a
+  directly-constructed self-approved request (the shape persistence produces
+  when it rehydrates state) passed with zero validation issues. The gates now
+  take a required `actor`, populate `decided_by` from it, and run a
+  `separation_of_duties_gate` that re-derives the requester/approver
+  comparison through `hosting.can_self_approve` and refuses a self-approved
+  request, a publishing actor who approved it, or a missing principal.
+  `ApprovalRequest.validate()` carries the same check structurally, and
+  `_approval_gate`'s four previously untested refusal branches are tested.
+  Domain layer; no operator-facing change.
+- WI-052: `profiles_for_actor` matched an actor against a profile *id* —
+  `effective_capabilities("p1")` returned profile `p1`'s capabilities for
+  nobody, while a real principal got nothing. `PublisherProfile` now carries a
+  `principals` field and `profiles_for_actor` resolves against it; a profile
+  granted to nobody matches nobody, with a validation warning so the
+  configuration is visible. Domain layer; no operator-facing change.
+- WI-054: the corpus's nesting rows all put the disposable group in the USER's
+  token, so the model's answer about a membership in a CLIENT'S machine token
+  was unit-tested and estate-untouched while the API accepted that input from
+  callers. A new computer-scope scenario authors an APPLY deny whose only
+  identity is a group the client's computer account joins; the lane reboots the
+  client so the machine token carries it (a machine token is minted at boot,
+  and there is no lighter refresh); the observation half corroborates the
+  membership from the machine token and from the directory independently; and
+  the computer finalizer gained the user lane's token gate. Measured the same
+  day: the model said blocked, Windows agreed
+  (`rsop-observe-20260906221638-4687`), and the twelve other runs from the
+  same tree re-certified the lanes the change retired. The first run found
+  that the reboot makes boot-time policy processing a second applier, which
+  the observe half now records as `boot_applied_values` instead of mis-reading
+  as unattributable residue. The dead `reaches_reasoned_cell` disclosure left
+  in the builder by WI-049's closure went out in the same change. Lab tooling;
+  no operator-facing change.
 
 - The topbar action links (`Policy report`, `Review PowerShell`,
   `GPMC backup`) rendered in default link blue: `a.button` never received an

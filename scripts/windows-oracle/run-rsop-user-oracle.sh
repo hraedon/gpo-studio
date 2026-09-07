@@ -130,9 +130,29 @@ uv run python "$REPO_ROOT/scripts/plan-033/build-rsop-candidate.py" "$CANDIDATE_
     --domain "$DOMAIN" --computer-name "$GPO_STUDIO_LAB_ENDPOINT_GUEST" \
     --user-name "$GPO_STUDIO_RSOP_USER"
 
-# The preflight record is removed with everything else: it is a per-run
-# artifact, and a stale one would describe a world two runs old.
-PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -LiteralPath '$GUEST_STATE' -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '$GUEST_SCRIPTS\\preflight-residual.json' -Force -ErrorAction SilentlyContinue"
+# WI-037. STAGING NO LONGER DESTROYS THE PREVIOUS RUN'S EVIDENCE.
+#
+# This used to remove every directory under the output root. That was harmless
+# when a failed run left nothing worth keeping, and stopped being harmless once
+# a failure began leaving its observation, its `commands/` transcripts and its
+# `resession-verify.json` on the guest: the next run then deleted exactly the
+# evidence a human needed to explain why the last one failed. It cost real time
+# twice in one session -- an aborted `loopback-merge` whose directory was wiped
+# before anyone read it, and a `resession-verify` that exited without writing
+# its JSON. Run directories are per-invocation and uniquely named, so keeping
+# them overwrites nothing; the count is bounded so a long session does not
+# accumulate without limit.
+KEEP_RUN_DIRS=5
+
+# The scripts directory is STAGED, and this settles that staging owns it. Every
+# file in it is pushed by name immediately below and hashed by the finalizer, so
+# sweeping it costs nothing -- and it closes WI-037's other half: diagnostics
+# pushed there by hand used to stay until somebody swept them up, and six
+# accumulated across one session. The sweep subsumes the named removals that
+# used to be spelled out here, INCLUDING the preflight record: that is a per-run
+# artifact written into the scripts directory, and a stale one would describe a
+# world two runs old.
+PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_SCRIPTS' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTimeUtc -Descending | Select-Object -Skip $KEEP_RUN_DIRS | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue"
 
 # ------------------------------------------------------------------ stage ---
 author -Action exec -Command "$PREPARE" >/dev/null
@@ -218,7 +238,20 @@ fi
 # A token is minted at logon and never updated, so a group this run created
 # after the guest signed in is in the directory and not in the principal's
 # token. Only scenarios that need a group pay the restart.
-NEEDS_GROUP=$(python3 -c "import json,sys; print(json.load(open('$CANDIDATE_DIR/expected.json')).get('group_name') or '')" 2>/dev/null || true)
+# Whether this scenario needs a group decides whether the principal's session
+# is re-established, so failing to READ that answer must be fatal. It was
+# `2>/dev/null || true`, which turned an unreadable candidate into "no group
+# needed": the restart was then skipped silently and the run failed ten minutes
+# later with a token missing a membership nobody had refreshed. The lane's own
+# diagnosis was accurate and its cause was invisible.
+#
+# Measured on a Windows controller 2026-09-05. MSYS translates a POSIX path
+# passed as ARGV -- which is why the candidate builder above works -- but not
+# one embedded in a `-c` code string, so this read threw FileNotFoundError and
+# the swallow hid it. On a Linux controller neither needs translating, which is
+# why it has never shown. Passing the path as argv fixes the translation and
+# keeping the failure loud fixes the class.
+NEEDS_GROUP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("group_name") or "")'     "$CANDIDATE_DIR/expected.json")
 if [[ -n "$NEEDS_GROUP" ]]; then
     echo "--- re-establishing the interactive session (group '$NEEDS_GROUP') ---"
     endpoint -Action exec -TimeoutSeconds 300 -Command \
@@ -246,6 +279,14 @@ fi
 # Deliberately not `set -e`-fatal: the observation half can fail legitimately,
 # and its failure must not skip the evidence pull or pre-empt the trap's
 # cleanup with a bare exit.
+#
+# WI-037. The fallback's clock, read from the GUEST so no controller/guest skew
+# can widen or narrow the window, and taken immediately before the observation
+# so that the only run directory created after it is the one this exec makes.
+# It matters more on this lane than on any other: preflight, re-session and
+# re-session-verify have each already minted a directory by this point.
+OBSERVE_SINCE=$(endpoint -Action exec -Command "(Get-Date).ToUniversalTime().ToString('o')" \
+    | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 OBSERVE_STATUS=0
 OBSERVE_OUT=$(endpoint -Action exec -TimeoutSeconds 3000 -Command \
     "$(run_guest_script "'$GUEST_SCRIPTS\\run-rsop-user-observe.ps1' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT'")") || OBSERVE_STATUS=$?
@@ -255,8 +296,22 @@ OBSERVE_WORK_DIR=$(printf '%s' "$OBSERVE_OUT" | tr -d '\r' | sed -n 's/^WORK_DIR
 if [[ -z "$OBSERVE_WORK_DIR" ]]; then
     # The script writes its result before exiting, so evidence usually exists
     # even when it threw.
+    #
+    # WI-037. TWO CONSTRAINTS, and neither is optional now that staging keeps
+    # the previous runs' directories. The directory must CARRY AN OBSERVATION --
+    # every mode of this script mints its own run directory, so "newest" can
+    # select the preflight or the re-session verify, which is the edge WI-037
+    # recorded -- and it must have been CREATED BY THIS RUN, or the fallback
+    # would pull the LAST run's observation and the finalizer would grade it as
+    # this one's. The second constraint did not exist before, because staging
+    # had deleted everything older; preserving the evidence is what makes it
+    # necessary.
+    #
+    # Exactly one, not the newest of several: "newest" is a guess and "the only
+    # one" is a fact, which is the rule run-wp1b-oracle.sh already states. A
+    # count of 0 or 2 is a harness fault worth seeing rather than resolving.
     OBSERVE_WORK_DIR=$(endpoint -Action exec -Command \
-        "(Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName" \
+        "\$since = [datetime]::Parse('$OBSERVE_SINCE', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind); \$found = @(Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Where-Object { \$_.CreationTimeUtc -ge \$since -and (Test-Path -LiteralPath (Join-Path \$_.FullName 'observation.json')) }); if (\$found.Count -ne 1) { throw ('expected exactly one observation-bearing run directory created since $OBSERVE_SINCE under $GUEST_OUT, found ' + \$found.Count) }; \$found[0].FullName" \
         | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//') || true
 fi
 

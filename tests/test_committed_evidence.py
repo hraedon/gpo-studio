@@ -176,28 +176,164 @@ LANE_VERDICTS = {
     # model, so what these bind is the reading-principal rule rather than the
     # abstention it replaced.
     "wp6-evidence/verdict-rsop-observe-20260806181033-3296.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181222-5315.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181411-9752.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181600-5707.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181748-7763.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260806181935-5130.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json": "finalize_rsop_run.py",
     "wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json": (
         "finalize_rsop_user_run.py"
     ),
     "wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json": (
         "finalize_rsop_user_run.py"
     ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json": (
+        "finalize_rsop_user_run.py"
+    ),
     "wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json": (
         "finalize_rsop_user_run.py"
     ),
     "wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json": (
         "finalize_rsop_user_run.py"
     ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json": (
+        "finalize_rsop_user_run.py"
+    ),
     "wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json": (
         "finalize_rsop_user_run.py"
     ),
     "wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json": (
         "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # 2026-09-06 batch two. WI-037 moved every RSOP lane driver and WI-049 moved
+    # the candidate builder, so the twelve verdicts above stopped being
+    # certifications the moment those files changed; these re-earn them. Twelve
+    # scenarios, all `pass`, all conclusive, from a clean tree at `9f6d775`.
+    #
+    # Three of them carry measurements this project did not have before:
+    # `...184434-8187` is WI-049's fourth read cell (a read deny naming the USER
+    # on a computer-scope scenario -- it APPLIED, as the model reasoned), and
+    # `...185345-9222` carries both the off-diagonal Apply cell and the first
+    # group-matched deny any estate run has exercised.
+    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json": "finalize_rsop_run.py",
+    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json": "finalize_rsop_run.py",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # The endpoint lane, mapped for the FIRST time (WI-053). Its certification
+    # had been sitting at `wp1b-evidence/endpoint-result-phase4-estate.json`,
+    # whose name matches neither prefix the coverage guard globs for, so nothing
+    # checked its `source.files`, nothing checked it was internally consistent,
+    # and the freshness gate never saw it -- WI-037 changed two files it binds
+    # and every RSOP verdict went red while that one stayed silent. This run
+    # carries a name the guard matches, and is the lane's first verdict to bind
+    # its candidate (WI-025). Committed at `38eedc6`, one commit later than the
+    # rest of the batch, because the first attempt found a real defect in the
+    # WI-037 change: `$(verify_endpoint)` ran the phase in a subshell, so the
+    # EXIT trap ran the whole post-teardown verification a second time.
+    "wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json": (
+        "finalize_endpoint_run.py"
+    ),
+    #
+    # The WI-054 batch, 2026-09-06 (late). The machine-token group-deny row ran
+    # FIRST, from the same tree as the twelve re-certifications below it: the
+    # run restarted the client so the machine token carried the group it had
+    # just authored, the membership was corroborated from the token and from
+    # the directory independently, and Windows agreed with the model -- the
+    # group-matched deny blocks on the COMPUTER side exactly as it does on the
+    # user side. `...221638-4687` is that measurement. The other six wp6 and
+    # six wp9 entries are the lanes' re-certification under the WI-054 change,
+    # which retired the twelve 18xxx verdicts below in RETIRED_VERDICTS --
+    # `build-rsop-candidate.py` (the dead predicate left in it), the authoring
+    # and observation halves, the computer finalizer and both lane drivers all
+    # moved in this change.
+    "wp6-evidence/verdict-rsop-observe-20260906221638-4687.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906221931-1695.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223143-4837.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223251-8863.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223400-9371.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223508-6654.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260906223619-5576.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222041-8299.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222219-6252.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222352-5950.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222601-2732.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222818-6584.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260906222959-7716.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    # The group-deny scenario's FIRST run, which the lane refused: the client
+    # rebooted with the run's policy already linked, the startup CSE applied
+    # that policy at boot, and the residual guard correctly declined to
+    # attribute an observation taken from a policy key that was not empty. It
+    # found a real interaction -- the reboot makes boot-time processing a
+    # second applier -- and the fix (boot_applied_values: record, clear,
+    # observe from empty) is why the tree moved one commit past the twelve
+    # re-certifications' source. Kept retired, not deleted: it is the record
+    # of WHY the observe half gained that gate.
+    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json": (
+        "finalize_rsop_run.py"
     ),
 }
 
@@ -207,6 +343,18 @@ LANE_VERDICTS = {
 #: a deliberate act with a reason, not something a new file drifts into. The
 #: psdirect assertions genuinely cannot apply to them; every other verdict must
 #: be mapped above.
+#: `wp3-evidence/verification.json` ALSO BINDS AN UNREACHABLE COMMIT
+#: (`fdb46004`, run `wp3-security-template-20260727220623-7682`) -- a fifth
+#: squash-merge orphan, found 2026-09-06 and recorded in
+#: `docs/evidence-binding-audit-2026-08-03.md`. The 2026-08-03 audit missed it
+#: because it scanned prose for hex next to the word "commit" and never looked
+#: inside the verdict JSON, where a binding actually lives.
+#:
+#: Nothing rests on it -- WP-3 has a live certification in
+#: `verification-estate.json` -- and it cannot be repaired, because the commit
+#: is gone. It is noted here rather than in the audit alone so that the next
+#: person to widen this exemption knows one of its two members is unverifiable
+#: in a second, separate way.
 PRE_TRANSPORT_VERDICTS = {
     "wp1b-evidence/verification.json",
     "wp3-evidence/verification.json",
@@ -237,6 +385,49 @@ PRE_TRANSPORT_VERDICTS = {
 #: still matches the tree, so a live claim cannot be quietly parked in here to
 #: silence the gate below.
 RETIRED_VERDICTS = {
+    # The 2026-09-05 batch, superseded by batch two on 2026-09-06. WI-037 moved
+    # all three shared-root lane drivers and WI-049 moved the candidate builder,
+    # both of which every RSOP verdict binds by hash. The gate reported exactly
+    # twelve broken bindings the moment the code landed and before a single lane
+    # had been re-run -- the second consecutive tranche where it did the noticing
+    # rather than a person.
+    "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json",
+    "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json",
+    # The 2026-08-06 RSOP batch, superseded by the 2026-09-05 re-certification.
+    # WI-048 changed `psdirect.ps1`, which every lane transports through, and the
+    # WP-9 lane's session-restart gate stopped failing silently in the same
+    # tranche. Kept rather than deleted: `...184006-2532` is an anchor target in
+    # the remediation corpus, and the batch records what these lanes measured
+    # under the previous harness.
+    #
+    # Worth stating because it is this gate's whole point. The note below records
+    # that the RSOP lanes have twice been fully re-run for exactly this reason,
+    # and that BOTH times the staleness was caught by a person noticing rather
+    # than by a test. This is the third occasion, and it was caught by
+    # `test_a_live_verdict_still_binds_the_harness_that_ships` reporting fifteen
+    # broken bindings before a single lane had been re-run.
+    "wp6-evidence/verdict-rsop-observe-20260806181033-3296.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181222-5315.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181411-9752.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181600-5707.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181748-7763.json",
+    "wp6-evidence/verdict-rsop-observe-20260806181935-5130.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json",
     # The 2026-08-05 batch and WI-043's inconclusive measurement, superseded by
     # the 2026-08-06 re-certification. The measurement is kept rather than
     # dropped: it is the only record of the model ABSTAINING on a region it now
@@ -314,6 +505,89 @@ RETIRED_VERDICTS = {
     "wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json",
     "wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json",
     "wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json",
+    # The 2026-09-06 batch-two verdicts, superseded the same day by WI-054.
+    # The machine-token group-deny change moved the candidate builder (the dead
+    # `reaches_reasoned_cell` predicate left it), the authoring half (which
+    # account joins the disposable group), the computer observation half (token
+    # corroboration), the computer finalizer (its token gate) and both lane
+    # drivers (the reboot), and every verdict bound to the pre-change hashes
+    # stopped being a certification the moment the code landed. Re-run in full
+    # the same evening; see the WI-054 batch entries in LANE_VERDICTS.
+    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json",
+    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json",
+    # The group-deny scenario's first run: a LANE-FAILURE by design, binding
+    # the tree BEFORE the boot-applier fix. It is the record of the run that
+    # found the interaction (boot-time policy processing filling the policy key
+    # between authoring and observation), and it stays stale by construction --
+    # the fix changed the observe half and the finalizer it binds.
+    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json",
+}
+
+#: JSON files living in a `wp*-evidence/` directory whose names match neither
+#: verdict prefix. WI-053: `endpoint-result-phase4-estate.json` spent five weeks
+#: as a lane's only committed certification while matching neither prefix the
+#: coverage guard globs for, and mapping the new endpoint verdict under a
+#: covered name fixed that instance without fixing the hole -- the derivation
+#: was still only as wide as its pattern. So the universe is now every JSON in
+#: an evidence directory: a file is either verdict-named (and therefore mapped,
+#: retired, or deliberately pre-transport) or named HERE, with its reason.
+#: A verdict can no longer escape by being named unusually -- it would land in
+#: the unaccounted bucket and the widened test below would fail. Adding to this
+#: dict is a deliberate act with a reason attached, and
+#: `test_the_widened_guard_still_sees_the_endpoint_verdict` fails if the
+#: verdict pattern is ever narrowed back to something the endpoint
+#: certification falls out of.
+NON_VERDICT_EVIDENCE_FILES: dict[str, str] = {
+    # WP-0's oracle manifest: a record of fixture comparisons (the lane has no
+    # pass/fail verdict shape). Read by `_certified_runs` under its manifest
+    # prefix, which is why it is named rather than verdict-named.
+    "wp0-evidence/manifest-estate.json": (
+        "WP-0's oracle manifest -- fixture-comparison record, not a verdict"
+    ),
+    # The endpoint lane's pre-estate phases (mvmdc03 / MVMCITEST01), kept as
+    # raw run records. None was ever a certification; the lane's first
+    # estate-era certification was phase 4's, below.
+    "wp1b-evidence/endpoint-result.json": (
+        "raw phase-1 endpoint run record (pre-estate transport)"
+    ),
+    "wp1b-evidence/endpoint-result-phase2.json": (
+        "raw phase-2 endpoint run record (pre-estate transport)"
+    ),
+    "wp1b-evidence/endpoint-result-phase3.json": (
+        "raw phase-3 endpoint run record (pre-estate transport)"
+    ),
+    # THE file WI-053 is about: the endpoint lane's only certification from
+    # 2026-08-03 until 2026-09-06, invisible to every gate because its name
+    # matched neither prefix. Superseded by
+    # `wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json` (the
+    # WI-025 re-certification, the lane's first hash-bound candidate verdict).
+    # Kept as the record of the 2026-08-03 run, now named so its name can
+    # never again be the reason nothing checked it.
+    "wp1b-evidence/endpoint-result-phase4-estate.json": (
+        "superseded phase-4 certification -- replaced by the mapped "
+        "verdict-endpoint-observe-20260906185837-7523"
+    ),
+    # The observation half of the same 2026-08-03 run: the guest-side gpupdate
+    # observation that backs the verdict above. Raw evidence, not a claim.
+    "wp1b-evidence/endpoint-observe-phase4-estate.json": (
+        "phase-4 guest observation half, backing the superseded certification"
+    ),
+    # A trimmed RSOP XML document from the 2026-08-04 site/OU runs, kept as
+    # raw observation material for the scope-of-management findings. Not a
+    # pass/fail record.
+    "wp6-evidence/rsop-document-excerpt.json": (
+        "trimmed RSOP XML document excerpt, raw observation material"
+    ),
 }
 
 #: The verdicts that are still CLAIMS: everything mapped and not retired.
@@ -461,6 +735,32 @@ def test_a_verdict_is_internally_consistent(relative: str, finalizer: str) -> No
             assert comparison["conclusive"] is False, (
                 f"{relative} records an abstention while claiming to be conclusive"
             )
+        assert verdict["source"]["dirty"] is False
+        assert verdict["transport"] == "psdirect"
+        return
+
+    if verdict.get("state") == "lane-failure":
+        # THE HARNESS FAILED, not the model -- and the third time this file
+        # grew a branch, it is worth saying what keeps the pattern from
+        # recurring: every outcome the finalizer can emit needs a branch here,
+        # because a fall-through that asserts the happy path makes each newly
+        # discovered outcome the one class of evidence that cannot be
+        # committed. `lane-failure` arrived the same way `finding` and
+        # `inconclusive` did -- a run produced it and this test demanded
+        # `passed`. WI-054's first group-deny run is the case: the client
+        # rebooted with the run's policy already linked, the residual guard
+        # refused the attribution, and the record is kept as the reason the
+        # observe half gained its boot-applied gate.
+        assert verdict["passed"] is False, relative
+        # A lane failure with no stated reason claims nothing and proves
+        # nothing; the problems list is the whole content of the record.
+        assert verdict["lane_problems"], (
+            f"{relative} is a lane failure and records no lane problem"
+        )
+        # The comparison is suppressed on a lane failure -- grading the model
+        # on an unattributable observation is the defect the state exists to
+        # prevent.
+        assert verdict["comparison"] is None, relative
         assert verdict["source"]["dirty"] is False
         assert verdict["transport"] == "psdirect"
         return
@@ -687,7 +987,7 @@ def test_every_committed_verdict_is_covered() -> None:
     attached.
     """
     committed = {
-        str(path.relative_to(EVIDENCE))
+        path.relative_to(EVIDENCE).as_posix()
         for path in EVIDENCE.glob("wp*-evidence/*.json")
         if path.name.startswith(("verdict-", "verification"))
     }
@@ -702,11 +1002,85 @@ def test_every_committed_verdict_is_covered() -> None:
 def test_the_coverage_guard_is_looking_at_real_files() -> None:
     """The control. A glob that matches nothing makes the test above vacuous."""
     committed = {
-        str(path.relative_to(EVIDENCE))
+        path.relative_to(EVIDENCE).as_posix()
         for path in EVIDENCE.glob("wp*-evidence/*.json")
         if path.name.startswith(("verdict-", "verification"))
     }
     assert len(committed) >= len(LANE_VERDICTS)
+
+
+def test_every_evidence_file_is_accounted_for() -> None:
+    """The widening WI-053 owes: a verdict cannot escape by filename again.
+
+    `test_every_committed_verdict_is_covered` derives coverage from the
+    directory, but only for names matching the verdict prefixes -- which is
+    exactly how `endpoint-result-phase4-estate.json` spent five weeks as the
+    endpoint lane's only certification while no gate saw it. The derivation was
+    only as wide as its pattern, so mapping that one instance left the hole
+    open one file along.
+
+    So the universe here is every JSON in an evidence directory, not just the
+    verdict-named ones. Verdict-named files are checked by the test above; every
+    other file must be named in `NON_VERDICT_EVIDENCE_FILES` with its reason.
+    Renaming a verdict to something unusual no longer removes it from every
+    gate -- it lands here as unaccounted, and this fails, and the person
+    holding the new name has to say what the file is.
+    """
+    on_disk = {
+        path.relative_to(EVIDENCE).as_posix()
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+    }
+    verdict_named = {
+        relative
+        for relative in on_disk
+        if Path(relative).name.startswith(("verdict-", "verification"))
+    }
+    unaccounted = sorted(on_disk - verdict_named - set(NON_VERDICT_EVIDENCE_FILES))
+    assert not unaccounted, (
+        "These evidence files match neither verdict prefix nor "
+        "NON_VERDICT_EVIDENCE_FILES: "
+        f"{unaccounted}. If one is a verdict, give it a covered name and map "
+        "it in LANE_VERDICTS; otherwise name it in NON_VERDICT_EVIDENCE_FILES "
+        "with the reason it is not a claim."
+    )
+    vanished = sorted(set(NON_VERDICT_EVIDENCE_FILES) - on_disk)
+    assert not vanished, (
+        "NON_VERDICT_EVIDENCE_FILES names files that are no longer committed: "
+        f"{vanished}. Remove the entry -- a named exemption should not outlive "
+        "the file it exempted."
+    )
+
+
+def test_the_widened_guard_still_sees_the_endpoint_verdict() -> None:
+    """The control WI-053 names: the widening must not quietly un-see its case.
+
+    WI-053's defect was one specific verdict -- the endpoint lane's
+    certification -- escaping every gate through its filename. This pins that
+    the same verdict is still matched by the widened guard's pattern and still
+    mapped, so a future tidy-up that narrows the glob, changes the prefixes, or
+    renames the file fails here instead of silently re-creating the original
+    hole.
+    """
+    endpoint_verdict = (
+        "wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json"
+    )
+    assert (EVIDENCE / endpoint_verdict).is_file(), (
+        "The endpoint lane's re-certification is gone from the tree. If it was "
+        "renamed, the new name must still match the verdict prefixes and be "
+        "remapped in LANE_VERDICTS -- and this test updated to the new name "
+        "deliberately."
+    )
+    matched = {
+        path.relative_to(EVIDENCE).as_posix()
+        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        if path.name.startswith(("verdict-", "verification"))
+    }
+    assert endpoint_verdict in matched, (
+        "The coverage guard's pattern no longer matches the endpoint "
+        "certification -- the exact escape WI-053 closed. Widen the pattern "
+        "rather than re-creating the hole."
+    )
+    assert endpoint_verdict in LANE_VERDICTS
 
 
 #: Phrases that assert a lane's certification cannot be verified from the
@@ -804,4 +1178,153 @@ def test_no_status_document_calls_a_certified_lane_unverifiable() -> None:
         "is a clean pass:\n  " + "\n  ".join(stale) + "\nReconcile the prose "
         "with the evidence, or cite the superseding run id in the same "
         "paragraph to mark the claim as history."
+    )
+
+
+#: Verdict commits that are KNOWN not to resolve, with the reason.
+#:
+#: Enumerated rather than tolerated by pattern, for the reason
+#: `RETIRED_VERDICTS` gives: an exemption should be a deliberate act with a
+#: reason attached, not something a file drifts into. And it is not a hatch --
+#: `test_the_orphaned_commit_exemption_is_still_orphaned` fails if one of these
+#: starts resolving again.
+ORPHANED_VERDICT_COMMITS = {
+    # Run `wp3-security-template-20260727220623-7682`, cited by
+    # `wp3-evidence/verification.json`. A squash-merge orphan predating the
+    # issue #22 auto-tagging remedy, so it cannot be retro-tagged: the commit
+    # was already unreachable when that remedy landed. Found 2026-09-06 and
+    # recorded in `docs/evidence-binding-audit-2026-08-03.md`, which had missed
+    # it because that audit scanned prose for hex adjacent to the word
+    # "commit" and never looked inside the verdict JSON.
+    #
+    # Nothing rests on it: WP-3 has a live certification in
+    # `verification-estate.json`.
+    "fdb46004c2f838f5b5eb6a693ebdf7f99d4ee71a",
+}
+
+
+def _history_is_complete() -> bool:
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    return shallow.stdout.strip() == "false"
+
+
+def _verdict_commits() -> dict[str, list[str]]:
+    """commit -> the verdict files that bind it, over every committed verdict."""
+    bound: dict[str, list[str]] = {}
+    for path in sorted(EVIDENCE.glob("wp*-evidence/*.json")):
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        commit = (document.get("source") or {}).get("commit")
+        if isinstance(commit, str) and commit:
+            bound.setdefault(commit, []).append(path.relative_to(EVIDENCE).as_posix())
+    return bound
+
+
+def _resolves(commit: str) -> bool:
+    return subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO_ROOT, capture_output=True, check=False,
+    ).returncode == 0
+
+
+def _preserved_by_a_ref(commit: str) -> bool:
+    """Is this commit reachable from a branch or a tag?
+
+    Resolution alone is weaker than it looks on a developer clone: an orphaned
+    object survives in the object database until it is garbage collected, so
+    `cat-file -e` can succeed for a commit no ref reaches. Reachability is the
+    property that actually makes a certification re-derivable by someone else.
+    """
+    for command in (["git", "branch", "-a", "--contains", commit],
+                    ["git", "tag", "--contains", commit]):
+        found = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True,
+                               check=False)
+        if found.returncode == 0 and found.stdout.strip():
+            return True
+    return False
+
+
+def test_every_verdict_binds_a_commit_this_repository_still_has() -> None:
+    """The check the 2026-08-03 evidence-binding audit should have been.
+
+    That audit extracted hex tokens adjacent to the word "commit" from
+    `docs/**/*.md` and `plans/**/*.md`. A verdict is JSON and its binding lives
+    in `source.commit`, so the files whose entire purpose is to bind a result to
+    a tree were the one place it never scanned -- which is how a fifth orphan
+    sat unnoticed for five weeks while the audit above it read as complete.
+
+    A verdict naming an unreachable commit is not wrong about what happened. It
+    is no longer INDEPENDENTLY CHECKABLE: every one of these runs asserts some
+    form of "the harness that executed matched the committed source tree", and
+    that assertion cannot be re-derived once the tree is gone.
+
+    SKIPPED ON A SHALLOW CLONE, for the reason
+    `test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit` gives: CI checks
+    out at `fetch-depth: 1`, where every commit here is legitimately absent and
+    asserting would fail a healthy repository. Measured rather than assumed --
+    the first manual pass of this check ran against a shallow clone and reported
+    38 orphans, of which 37 were the clone.
+    """
+    if not _history_is_complete():
+        pytest.skip("shallow clone: no verdict's commit is fetched here")
+
+    bound = _verdict_commits()
+    assert bound, "no committed verdict names a source commit; this test is vacuous"
+
+    broken = sorted(
+        (commit, files)
+        for commit, files in bound.items()
+        if commit not in ORPHANED_VERDICT_COMMITS
+        and not (_resolves(commit) and _preserved_by_a_ref(commit))
+    )
+    assert not broken, (
+        "These verdicts bind a commit this repository cannot reach, so their "
+        "harness-matched-the-source claim can no longer be re-derived:\n  "
+        + "\n  ".join(f"{commit[:12]} <- {', '.join(files)}" for commit, files in broken)
+        + "\nSquash-merge orphaning is the known cause. If the commit is "
+        "genuinely gone, record it in ORPHANED_VERDICT_COMMITS with a reason "
+        "and add it to docs/evidence-binding-audit-2026-08-03.md. If it is not, "
+        "push the evidence tag that preserves it -- a tag protects nothing "
+        "until it is on the remote."
+    )
+
+
+def test_the_orphaned_commit_exemption_is_still_orphaned() -> None:
+    """The control, and what stops the exemption above becoming a hatch.
+
+    The cheap way out of the check above is to declare a commit orphaned. That
+    only works if it really is: a listed commit that resolves again fails here,
+    the same way `test_retired_verdicts_are_genuinely_stale` guards
+    `RETIRED_VERDICTS`.
+    """
+    if not _history_is_complete():
+        pytest.skip("shallow clone: nothing resolves here, so this proves nothing")
+
+    assert ORPHANED_VERDICT_COMMITS, (
+        "the exemption set is empty; delete it rather than keeping an unused hatch"
+    )
+    recovered = sorted(c for c in ORPHANED_VERDICT_COMMITS if _resolves(c))
+    assert not recovered, (
+        f"These commits are listed as orphaned but resolve: {recovered}. Remove "
+        "them from ORPHANED_VERDICT_COMMITS rather than exempting a binding that "
+        "is intact."
+    )
+
+
+def test_every_orphaned_commit_is_actually_bound_by_a_verdict() -> None:
+    """The second control: the exemption cannot outlive the verdict it excuses.
+
+    If the verdict citing an orphaned commit is deleted or re-certified, the
+    entry here becomes a permanent excuse for nothing, and the next reader has
+    to work out whether it still means anything.
+    """
+    stale = sorted(ORPHANED_VERDICT_COMMITS - set(_verdict_commits()))
+    assert not stale, (
+        f"These commits are exempted but no committed verdict binds them: {stale}. "
+        "Remove the entry -- the verdict it excused is gone."
     )

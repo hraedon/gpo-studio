@@ -30,9 +30,17 @@
 #     GPO_STUDIO_LAB_HOST=<hyper-v host> \
 #     GPO_STUDIO_LAB_AUTHOR_GUEST=<member server> \
 #     GPO_STUDIO_LAB_ENDPOINT_GUEST=<client> \
+#     GPO_STUDIO_RSOP_USER=<principal>  # only for scenarios that name a user \
 #         ACB_VAULT_ENV=~/.claude/evidence-lab.env \
 #         acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \
 #             bash scripts/windows-oracle/run-rsop-oracle.sh
+#
+# GPO_STUDIO_RSOP_USER IS PER SCENARIO, and both directions are refused loudly
+# by the candidate builder before the estate is touched: a scenario that names
+# the user in a filter and is not given one, and a scenario that is given one
+# and asserts nothing about it. This lane resolves the COMPUTER side, so the
+# principal is never logged on here -- it exists only to be named in a DACL, for
+# WI-049's fourth read cell. The scenario table says which scenarios need it.
 
 set -euo pipefail
 
@@ -107,11 +115,45 @@ echo "DOMAIN=$DOMAIN"
 SCENARIO="${GPO_STUDIO_RSOP_SCENARIO:-lsdou-precedence}"
 echo "SCENARIO=$SCENARIO"
 
+# Passed only when set, because the builder refuses it on a scenario that
+# asserts nothing about the user -- which is the guard, not an inconvenience.
+CANDIDATE_USER_ARGS=()
+if [[ -n "${GPO_STUDIO_RSOP_USER:-}" ]]; then
+    # The same shape check the user lane makes, for the same reason: the name
+    # reaches the guest inside the topology and is resolved there with
+    # Get-ADUser, so anything but a plain sAMAccountName is either a typo or an
+    # attempt to be clever, and both should stop here.
+    if [[ ! "$GPO_STUDIO_RSOP_USER" =~ ^[A-Za-z][A-Za-z0-9._-]{1,19}$ ]]; then
+        echo "ERROR: principal '$GPO_STUDIO_RSOP_USER' is not a plain sAMAccountName." >&2
+        exit 2
+    fi
+    CANDIDATE_USER_ARGS=(--user-name "$GPO_STUDIO_RSOP_USER")
+fi
+
 uv run python "$REPO_ROOT/scripts/plan-033/build-rsop-candidate.py" "$CANDIDATE_DIR" \
     --scenario "$SCENARIO" \
-    --domain "$DOMAIN" --computer-name "$GPO_STUDIO_LAB_ENDPOINT_GUEST"
+    --domain "$DOMAIN" --computer-name "$GPO_STUDIO_LAB_ENDPOINT_GUEST" \
+    "${CANDIDATE_USER_ARGS[@]+"${CANDIDATE_USER_ARGS[@]}"}"
 
-PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -LiteralPath '$GUEST_STATE' -Force -ErrorAction SilentlyContinue"
+# WI-037. STAGING NO LONGER DESTROYS THE PREVIOUS RUN'S EVIDENCE.
+#
+# This used to remove every directory under the output root. That was harmless
+# when a failed run left nothing worth keeping, and stopped being harmless once
+# a failure began leaving its observation, its `commands/` transcripts and its
+# verify JSON on the guest: the next run then deleted exactly the evidence a
+# human needed to explain why the last one failed, and it cost real time twice
+# in one session. Run directories are per-invocation and uniquely named, so
+# keeping them overwrites nothing; the count is bounded so a long session does
+# not accumulate without limit.
+KEEP_RUN_DIRS=5
+
+# The scripts directory is STAGED, and this settles that staging owns it. Every
+# file in it is pushed by name immediately below and hashed by the finalizer, so
+# sweeping it costs nothing -- and it closes WI-037's other half: diagnostics
+# pushed there by hand used to stay until somebody swept them up, and six
+# accumulated across one session. The sweep subsumes the named removals that
+# used to be spelled out here.
+PREPARE="New-Item -ItemType Directory -Force -Path '$GUEST_SCRIPTS','$GUEST_OUT' | Out-Null; Get-ChildItem '$GUEST_SCRIPTS' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue; Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Sort-Object CreationTimeUtc -Descending | Select-Object -Skip $KEEP_RUN_DIRS | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue"
 
 # ------------------------------------------------------------------ stage ---
 author -Action exec -Command "$PREPARE" >/dev/null
@@ -183,10 +225,56 @@ if [[ -z "$AUTHOR_WORK_DIR" ]]; then
     exit 1
 fi
 
+# WI-054. A group the CLIENT'S COMPUTER ACCOUNT is in rides in the machine
+# token, and a machine token is minted at BOOT -- there is no lighter refresh,
+# the way the user lane pays a re-session for the same reason about the user's
+# token. So a scenario whose group_member is 'computer' reboots the client
+# between authoring and observation. Everything the reboot must find is already
+# in the directory by now: the group exists, the computer is a member, the
+# policy is linked. The observation half corroborates the membership from both
+# the token and the directory, and the finalizer refuses the run if they
+# disagree -- so the reboot cannot quietly become part of the answer.
+#
+# Gated on the CANDIDATE, not on a flag the shell was handed: the candidate is
+# the one artifact the prediction and the estate both bind, so it is the thing
+# that decides whether this run pays for a reboot.
+GROUP_MEMBER="$(uv run python - "$CANDIDATE_DIR/expected.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle).get("group_member") or "")
+PYEOF
+)"
+if [[ "$GROUP_MEMBER" == "computer" ]]; then
+    echo "--- client reboot: the machine token must carry the group the run just authored ---"
+    # The restart kills the PSDirect session out from under this exec, so the
+    # transport reports failure for a command that succeeded. That is expected
+    # and swallowed; what is NOT swallowed is the client failing to come back.
+    endpoint -Action exec -TimeoutSeconds 120 -Command "Restart-Computer -Force" || true
+    CLIENT_READY=0
+    for attempt in $(seq 1 40); do
+        sleep 15
+        if endpoint -Action exec -TimeoutSeconds 60 -Command '"client is accepting PowerShell Direct"' >/dev/null 2>&1; then
+            CLIENT_READY=1
+            echo "client back after reboot (attempt $attempt)"
+            break
+        fi
+    done
+    if [[ "$CLIENT_READY" != "1" ]]; then
+        echo "ERROR: client did not accept a PowerShell Direct session within 10 minutes of the reboot" >&2
+        exit 1
+    fi
+fi
+
 # ---------------------------------------------------------------- observe ---
 # Deliberately not `set -e`-fatal: the observation half can fail legitimately,
 # and its failure must not skip the evidence pull or pre-empt the trap's
 # cleanup with a bare exit.
+#
+# WI-037. The fallback's clock, read from the GUEST so no controller/guest skew
+# can widen or narrow the window, and taken immediately before the observation
+# so that the only run directory created after it is the one this exec makes.
+OBSERVE_SINCE=$(endpoint -Action exec -Command "(Get-Date).ToUniversalTime().ToString('o')" \
+    | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 OBSERVE_STATUS=0
 OBSERVE_OUT=$(endpoint -Action exec -TimeoutSeconds 3000 -Command \
     "$(run_guest_script "'$GUEST_SCRIPTS\\run-rsop-observe.ps1' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT'")") || OBSERVE_STATUS=$?
@@ -196,8 +284,21 @@ OBSERVE_WORK_DIR=$(printf '%s' "$OBSERVE_OUT" | tr -d '\r' | sed -n 's/^WORK_DIR
 if [[ -z "$OBSERVE_WORK_DIR" ]]; then
     # The script writes its result before exiting, so evidence usually exists
     # even when it threw.
+    #
+    # WI-037. TWO CONSTRAINTS, and neither is optional now that staging keeps
+    # the previous runs' directories. The directory must CARRY AN OBSERVATION --
+    # each mode of an observation script mints its own run directory, so
+    # "newest" can select a preflight or a re-session verify -- and it must have
+    # been CREATED BY THIS RUN, or the fallback would pull the LAST run's
+    # observation and the finalizer would grade it as this one's. The second
+    # constraint did not exist before, because staging had deleted everything
+    # older; preserving the evidence is what makes it necessary.
+    #
+    # Exactly one, not the newest of several: "newest" is a guess and "the only
+    # one" is a fact, which is the rule run-wp1b-oracle.sh already states. A
+    # count of 0 or 2 is a harness fault worth seeing rather than resolving.
     OBSERVE_WORK_DIR=$(endpoint -Action exec -Command \
-        "(Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName" \
+        "\$since = [datetime]::Parse('$OBSERVE_SINCE', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind); \$found = @(Get-ChildItem '$GUEST_OUT' -Directory -ErrorAction SilentlyContinue | Where-Object { \$_.CreationTimeUtc -ge \$since -and (Test-Path -LiteralPath (Join-Path \$_.FullName 'observation.json')) }); if (\$found.Count -ne 1) { throw ('expected exactly one observation-bearing run directory created since $OBSERVE_SINCE under $GUEST_OUT, found ' + \$found.Count) }; \$found[0].FullName" \
         | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//') || true
 fi
 

@@ -588,7 +588,7 @@ def _finalize_with_local_file(
     monkeypatch.setattr(finalize_rsop_run.subprocess, "run", fake_run)
 
     if run_dir_copy is not None:
-        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8")
+        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8", newline="")
 
     finalize_rsop_run.main(
         [
@@ -703,3 +703,92 @@ def test_an_unpredicted_gpo_that_was_not_abstained_is_still_a_finding(lane) -> N
 
     assert verdict["comparison"]["applied_only_observed"] == ["Studio-RSOP-Site"]
     assert verdict["state"] == "finding"
+
+
+# ---------------------------------------------------------------------------
+# WI-054: the computer's group-membership corroboration gate
+# ---------------------------------------------------------------------------
+
+
+def _token_observe(**overrides: Any) -> dict[str, Any]:
+    observe: dict[str, Any] = {
+        "token_group": "StudioRsopGroup",
+        "token_groups_session": [
+            "LAB\Domain Computers",
+            "LAB\StudioRsopGroup-20260907000000-1234",
+        ],
+        "token_groups_ldap": [
+            "LAB\Domain Computers",
+            "LAB\StudioRsopGroup-20260907000000-1234",
+        ],
+        "token_groups_ldap_status": "collected",
+        "token_groups_ldap_error": None,
+        "token_collection_error": None,
+    }
+    observe.update(overrides)
+    return observe
+
+
+def _token_expected(group: str = "StudioRsopGroup") -> dict[str, Any]:
+    return {"group_name": group, "group_member": "computer"}
+
+
+def test_corroborated_membership_gates_nothing() -> None:
+    """The group in BOTH the machine token and the directory: no objection."""
+    assert finalize_rsop_run._token_problems(_token_observe(), _token_expected()) == []
+
+
+def test_no_group_claim_gates_nothing() -> None:
+    """Scenarios without a membership row must not be gated on a group they never use."""
+    assert finalize_rsop_run._token_problems(_token_observe(), {"group_name": ""}) == []
+
+
+def test_a_group_absent_from_the_machine_token_is_a_lane_problem() -> None:
+    """The reboot is the experiment's price; this is what its absence costs.
+
+    A machine token is minted at boot, so a group authored after boot is in the
+    directory and NOT in the token. If the run never rebooted the client -- or
+    the membership was never authored -- this is the refusal that says so,
+    instead of a phantom model finding about a membership the machine never
+    carried.
+    """
+    problems = finalize_rsop_run._token_problems(
+        _token_observe(token_groups_session=["LAB\Domain Computers"]),
+        _token_expected(),
+    )
+    assert any("machine token does not contain" in p for p in problems)
+
+
+def test_an_uncollected_directory_half_refuses_as_one_sided() -> None:
+    """WI-042's rule, carried to the computer lane: a failed collection is a refusal."""
+    problems = finalize_rsop_run._token_problems(
+        _token_observe(token_groups_ldap_status="failed", token_groups_ldap_error="bind refused"),
+        _token_expected(),
+    )
+    assert any("were not collected" in p for p in problems)
+
+
+def test_a_collected_but_empty_directory_list_refuses_on_the_membership() -> None:
+    """A genuinely empty answer reaches the membership check and fails it."""
+    problems = finalize_rsop_run._token_problems(
+        _token_observe(token_groups_ldap=[]),
+        _token_expected(),
+    )
+    assert any("do not contain" in p for p in problems)
+    assert not any("were not collected" in p for p in problems)
+
+
+def test_an_empty_session_collection_refuses_as_unverified() -> None:
+    problems = finalize_rsop_run._token_problems(
+        _token_observe(token_groups_session=[]),
+        _token_expected(),
+    )
+    assert any("unverified" in p for p in problems)
+
+
+def test_a_recorded_collection_error_is_a_lane_problem() -> None:
+    problems = finalize_rsop_run._token_problems(
+        _token_observe(token_collection_error="gpresult produced nothing"),
+        _token_expected(),
+    )
+    assert any("token collection failed" in p for p in problems)

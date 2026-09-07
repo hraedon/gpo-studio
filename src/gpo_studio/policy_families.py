@@ -276,9 +276,17 @@ class LockoutPolicy:
 
 @dataclass(frozen=True, slots=True)
 class KerberosPolicy:
+    # Units measured on a real DC 2026-09-05 (work-order R7): MaxTicketAge is
+    # HOURS and MaxServiceAge is MINUTES -- the default effective policy
+    # carries 10 and 600 for the same 10-hour duration. MaxRenewAge is days,
+    # MaxClockSkew minutes. The default effective section is exactly
+    # MaxTicketAge=10, MaxRenewAge=7, MaxServiceAge=600, MaxClockSkew=5,
+    # TicketValidateClient=1 (a default-exported key earlier models missed).
     max_ticket_age_hours: int = 10
     max_renewal_age_days: int = 7
+    max_service_age_minutes: int = 600
     max_clock_skew_minutes: int = 5
+    ticket_validate_client: bool = True
     enforce_logon_restrictions: bool = True
     enforce_user_logon_restrictions: bool = False
 
@@ -314,8 +322,15 @@ class KerberosPolicy:
             max_renewal_age_days=_default_int(
                 _parse_int(section.get("MaxRenewAge") if section else None), 7
             ),
+            max_service_age_minutes=_default_int(
+                _parse_int(section.get("MaxServiceAge") if section else None), 600
+            ),
             max_clock_skew_minutes=_default_int(
                 _parse_int(section.get("MaxClockSkew") if section else None), 5
+            ),
+            ticket_validate_client=_default_bool(
+                _parse_bool(section.get("TicketValidateClient") if section else None),
+                True,
             ),
             enforce_logon_restrictions=_default_bool(
                 _parse_bool(section.get("EnforceLogonRestrictions") if section else None),
@@ -334,7 +349,11 @@ class KerberosPolicy:
             "Kerberos Policy": {
                 "MaxTicketAge": _int_str(self.max_ticket_age_hours),
                 "MaxRenewAge": _int_str(self.max_renewal_age_days),
+                "MaxServiceAge": _int_str(self.max_service_age_minutes),
                 "MaxClockSkew": _int_str(self.max_clock_skew_minutes),
+                "TicketValidateClient": _bool_to_int_str(
+                    self.ticket_validate_client
+                ),
                 "EnforceLogonRestrictions": _bool_to_int_str(
                     self.enforce_logon_restrictions
                 ),

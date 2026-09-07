@@ -1,0 +1,22 @@
+# Byte-exact evidence fixtures: no EOL normalization (UTF-16LE payload)
+tests/fixtures/migration-tables/*.migtable -text
+
+# Hash-bound evidence and harness sources.
+#
+# `remediation_corpus.anchor_violations` and
+# `test_committed_evidence.test_a_live_verdict_still_binds_the_harness_that_ships`
+# both digest `Path.read_bytes()`. The recorded hashes are therefore hashes of
+# the blob, which is LF. Without these rules a Windows checkout smudges each
+# file to CRLF and every binding fails -- not because the evidence moved, but
+# because the checkout did. The guarantee has to hold on the platform the
+# estate is driven from, so pin the bytes rather than the platform.
+docs/plan-033/**/*.json -text
+docs/plan-033/**/*.md   -text
+tests/fixtures/native-gpp-gpmc/** -text
+scripts/plan-033/build-*.py -text
+scripts/windows-oracle/**   -text
+
+# Raw census artifacts, verbatim byte copies: every SHA-256 is banked in
+# tests/fixtures/live-domain-census/provenance.json, so the blobs must not
+# be EOL-normalized on any checkout (they are CRLF on disk).
+tests/fixtures/live-domain-census/** -text

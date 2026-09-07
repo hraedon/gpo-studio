@@ -82,8 +82,55 @@ CONTROL_UNFILTERED = "GPOStudio-EP2-A-nofilter"
 CONTROL_NATIVE_EXCLUDING = "GPOStudio-EP2-E-native-control"
 
 
+#: The candidate artifacts this lane's verdict rests on, relative to
+#: ``--candidate-root``.  ``expected.json`` is what the finalizer grades against
+#: and ``candidate.zip`` is what the guest imported, so a verdict that names
+#: neither hash asserts a comparison nobody can re-check (WI-025).  Named rather
+#: than discovered so that a candidate root missing one of them is a lane
+#: failure instead of a shorter hash block.
+REQUIRED_CANDIDATE_FILES: tuple[str, ...] = ("candidate.zip", "expected.json")
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _candidate_hashes(candidate_root: Path) -> dict[str, str]:
+    """SHA-256 of EVERY file under the candidate root, by relative path.
+
+    WI-025. The endpoint lane always took ``--candidate-root``, so it never had
+    the guest-supplied-expectation defect WP-6B was fixed for -- but it recorded
+    no candidate hashes either, and a verdict that names the artifact it
+    compared against without hashing it is a comparison nobody can re-check.
+
+    Everything under the root is hashed rather than a fixed list, because the
+    omission this closes is precisely the one nobody notices: a file the lane
+    consumes and the verdict does not mention. ``REQUIRED_CANDIDATE_FILES`` then
+    says which of them must be THERE, so an incomplete root fails the lane
+    rather than producing a smaller block that still looks complete.
+    """
+    return {
+        path.relative_to(candidate_root).as_posix(): _sha256(path)
+        for path in sorted(candidate_root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _candidate_problems(candidate_root: Path, hashes: dict[str, str]) -> list[str]:
+    """Required candidate artifacts the root does not have.
+
+    A REFUSAL rather than a recorded problem, because there is nothing to grade
+    without them: `expected.json` supplies every expectation the comparison
+    uses. Checked before that file is read, so the check can actually fail --
+    reading it first would make this branch unreachable, which is the shape of
+    guard this project has been bitten by before.
+    """
+    return [
+        f"candidate root {candidate_root} has no {name}: the verdict would bind "
+        "an artifact set that is missing the file it graded against"
+        for name in REQUIRED_CANDIDATE_FILES
+        if name not in hashes
+    ]
 
 
 def _load(path: Path) -> Any:
@@ -361,6 +408,15 @@ def main(argv: list[str] | None = None) -> int:
     observe = _load(observe_path)
     verify_path = _find_one(run_dir / "verify", "verify-result.json")
     verify = _load(verify_path) if verify_path is not None else None
+
+    # WI-025. Bind the candidate BEFORE anything is graded against it, and
+    # before `expected.json` is read -- see `_candidate_problems`.
+    candidate_hashes = _candidate_hashes(args.candidate_root)
+    candidate_problems = _candidate_problems(args.candidate_root, candidate_hashes)
+    if candidate_problems:
+        for problem in candidate_problems:
+            print(f"finalize refused: {problem}", file=sys.stderr)
+        return 1
     expected = _load(args.candidate_root / "expected.json")
 
     source_hashes: dict[str, str] = {}
@@ -443,6 +499,10 @@ def main(argv: list[str] | None = None) -> int:
         "unexpected_rows": unexpected,
         "harness_matches_source": harness_ok,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        # The INPUT side of the comparison, hashed. `artifacts` below covers
+        # what the run produced; without this block the thing it was graded
+        # against was the one unhashed input in the verdict (WI-025).
+        "candidate": candidate_hashes,
         "artifacts": {
             str(path.relative_to(run_dir)): _sha256(path)
             for path in sorted(run_dir.rglob("*"))

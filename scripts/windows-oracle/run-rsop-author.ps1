@@ -309,6 +309,8 @@ if ($Phase -eq 'setup') {
         group_dn          = $null
         group_created     = $false
         group_sid         = $null
+        group_member      = "$($topology.group_member)"
+        group_member_sid  = $null
         user_moved        = $false
         ous               = $ouPlan
         gpos              = $gpoPlan
@@ -346,15 +348,32 @@ if ($Phase -eq 'setup') {
         }
 
         if ($groupName) {
+            # WI-054. WHO joins the disposable group is the scenario's business:
+            # the user-scope nesting rows put the user in it, and the computer
+            # group-deny row puts the CLIENT'S COMPUTER ACCOUNT in it -- the
+            # whole point of that row is a deny matched through a membership the
+            # machine token carries, so the member is the machine and nothing
+            # else. `group_member` comes from the candidate, which derives it
+            # from the scenario, so a lane cannot quietly add a different
+            # principal than the prediction was told about.
             New-ADGroup -Name $groupName -GroupScope Global -GroupCategory Security `
                 -Path $childOuDn -Server $dc -ErrorAction Stop
             $state.group_created = $true
             $state.group_dn = "CN=$groupName,$childOuDn"
+            $state.group_member = "$($topology.group_member)"
             Save-State $state
             if (-not (Wait-ForAdObject -Identity $state.group_dn -Server $dc)) {
                 throw "group not readable on $dc after creation: $($state.group_dn)"
             }
-            Add-ADGroupMember -Identity $state.group_dn -Members $targetUser -Server $dc -ErrorAction Stop
+            if ("$($topology.group_member)" -eq 'computer') {
+                if (-not $TargetComputer) { throw "group_member is 'computer' but no -TargetComputer was given." }
+                $computerMember = Get-ADComputer -Identity $TargetComputer -Server $dc -ErrorAction Stop
+                Add-ADGroupMember -Identity $state.group_dn -Members $computerMember -Server $dc -ErrorAction Stop
+                $state.group_member_sid = "$($computerMember.SID)"
+            } else {
+                Add-ADGroupMember -Identity $state.group_dn -Members $targetUser -Server $dc -ErrorAction Stop
+                $state.group_member_sid = $state.user_sid
+            }
             $state.group_sid = "$((Get-ADGroup -Identity $state.group_dn -Server $dc).SID)"
             Save-State $state
         }

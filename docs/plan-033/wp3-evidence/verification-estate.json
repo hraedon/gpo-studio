@@ -2,20 +2,20 @@
   "artifacts": {
     "build-wp3-candidate.py": "7949c34a6db1481ee3d90b868d244fba76aaf85cb132969f58d48e128b197163",
     "candidate.inf": "12be63fa3cd12f93ad559a21adc487fc3fd370158eabede0b22f117f01a75e7d",
-    "commands/export.log": "6f9bceb9b02603076e8d1a4069b6235c278de1afb18f86b597d1806748bed531",
-    "commands/export.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/export.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/import.log": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
-    "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/import.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/validate.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/validate.stdout.txt": "7700b3b960bd89aa751a2367d9f3d6a5fa06651ddcecbfb01f40abba5a3735df",
-    "deployed/run-wp3-security-template.ps1": "674bd680ab3005ee2e76cbd43c38980506ca49842275b1fdc7420b8b87f12bc2",
-    "expected.json": "dd7e167c3f9445135fe1879662f75baf455ebff29b90b4bd4d1fb78b2b424f0a",
+    "commands\\export.log": "5f73b186d211978050bbe4a58147308e8279e8c67d06716bc92de083755adbce",
+    "commands\\export.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands\\export.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands\\import.log": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "commands\\import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands\\import.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands\\validate.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands\\validate.stdout.txt": "819acb50b294b516b7c16c4e5fc406e69067294225dbd5335e902c98289cda8f",
+    "deployed\\run-wp3-security-template.ps1": "674bd680ab3005ee2e76cbd43c38980506ca49842275b1fdc7420b8b87f12bc2",
+    "expected.json": "bfb3bdce8ef582128e71dff19beefea59afdc6c4913da22ba527f297a788333c",
     "exported.inf": "1450aa7fd43a1f424a9f39d2833b59dd58069b9ac69d3fb5fbd1df362f1b3905",
     "finalize_wp3_run.py": "a686238dfd8c78e84ab47255b1b42e77fd0900084fcafe303ddfbd7248db24d4",
-    "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
-    "result.json": "cc0cb5d583475253424246457de8d53878954f933b449ea5c984fd76c7971a14",
+    "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+    "result.json": "1a8bf4756734a341b95ee97b078e5467d654b7c28324231d674823ed6165e814",
     "run-wp3-oracle.sh": "a9a2b18d2ec11e1a669d9a32e9275da9155e9ef3983158a929def8d4d7d1a871"
   },
   "candidate_delivery": {
@@ -24,7 +24,7 @@
       "guest_copy_matches": true
     },
     "expected.json": {
-      "controller_sha256": "dd7e167c3f9445135fe1879662f75baf455ebff29b90b4bd4d1fb78b2b424f0a",
+      "controller_sha256": "bfb3bdce8ef582128e71dff19beefea59afdc6c4913da22ba527f297a788333c",
       "guest_copy_matches": true
     }
   },
@@ -58,7 +58,7 @@
     "lgpo_sha256": "missing",
     "locale": "en-US",
     "powershell_edition": "Desktop",
-    "powershell_version": "5.1.26100.7462",
+    "powershell_version": "5.1.26100.33296",
     "server_build": "26100",
     "server_caption": "Microsoft Windows Server 2025 Standard"
   },
@@ -66,15 +66,15 @@
   "export_differences": [],
   "harness_error": null,
   "passed": true,
-  "run_id": "wp3-security-template-20260804143907-9761",
+  "run_id": "wp3-security-template-20260906044813-4753",
   "schema_version": 1,
   "source": {
-    "commit": "968b48a7dbdcc76274db213690f4ed56e4da7366",
+    "commit": "dac387dad6047f01610c962942f22a48730cdc21",
     "dirty": false,
     "files": {
       "build-wp3-candidate.py": "7949c34a6db1481ee3d90b868d244fba76aaf85cb132969f58d48e128b197163",
       "finalize_wp3_run.py": "a686238dfd8c78e84ab47255b1b42e77fd0900084fcafe303ddfbd7248db24d4",
-      "psdirect.ps1": "8848d351b58ac36439ab3b700bf395396a22bfb21059e63c6cd695189439fd63",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
       "run-wp3-oracle.sh": "a9a2b18d2ec11e1a669d9a32e9275da9155e9ef3983158a929def8d4d7d1a871",
       "run-wp3-security-template.ps1": "674bd680ab3005ee2e76cbd43c38980506ca49842275b1fdc7420b8b87f12bc2"
     }
