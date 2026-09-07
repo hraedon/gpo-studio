@@ -4,6 +4,7 @@ import os
 import stat
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,24 @@ _IS_WINDOWS = sys.platform == "win32"
 windows_only = pytest.mark.skipif(
     not _IS_WINDOWS, reason="Windows-specific reparse-point test"
 )
+
+# The parent-swap race tests below assert two different things, and only one of
+# them is about `safe_io`. `evil_reads == 0` is the SAFETY property -- the thing
+# under test -- and it is checked over every attempt. `successful_opens > 0` is
+# a LIVENESS guard that keeps the safety assertion from passing vacuously
+# because the reader never got a window at all.
+#
+# Liveness was a coin flip against a fixed 200 attempts: the swap thread runs
+# flat out, so on a loaded runner the parent can be renamed away for the whole
+# budget and a correct implementation fails the test. Observed on GitHub's
+# windows-latest in 2 of 5 `test-windows` jobs, which is not survivable once
+# that job is enforcing. So: the swap loop pauses between swaps, and the reader
+# keeps going past the fixed budget until it gets its window or a wall-clock
+# deadline expires. Safety is still checked on every attempt; only the liveness
+# guard gained the wait.
+_SWAP_PAUSE_SECONDS = 0.002
+_RACE_MIN_ATTEMPTS = 200
+_RACE_DEADLINE_SECONDS = 20.0
 
 
 def test_open_regular_file_basic(tmp_path: Path) -> None:
@@ -361,13 +380,19 @@ def test_parent_swap_race_regular_file(tmp_path: Path, symlink_privilege: None) 
                 os.rename(backup, real_dir)
             except OSError:
                 pass
+            time.sleep(_SWAP_PAUSE_SECONDS)
 
     t = threading.Thread(target=swap_loop, daemon=True)
     t.start()
     try:
         evil_reads = 0
         successful_opens = 0
-        for _ in range(200):
+        attempts = 0
+        deadline = time.monotonic() + _RACE_DEADLINE_SECONDS
+        while attempts < _RACE_MIN_ATTEMPTS or (
+            successful_opens == 0 and time.monotonic() < deadline
+        ):
+            attempts += 1
             try:
                 fd = open_regular_file(target)
                 content = os.read(fd, 4)
@@ -425,15 +450,23 @@ def test_parent_swap_race_directory(tmp_path: Path, symlink_privilege: None) -> 
                 os.rename(backup, real_dir)
             except OSError:
                 pass
-            import time
-            time.sleep(0.002)
+            # Breathing room. Without it the swap thread holds the parent
+            # renamed away for nearly the whole run and the reader below never
+            # gets a window, which fails the liveness assertion rather than the
+            # safety one.
+            time.sleep(_SWAP_PAUSE_SECONDS)
 
     t = threading.Thread(target=swap_loop, daemon=True)
     t.start()
     try:
         evil_opens = 0
         successful_opens = 0
-        for _ in range(200):
+        attempts = 0
+        deadline = time.monotonic() + _RACE_DEADLINE_SECONDS
+        while attempts < _RACE_MIN_ATTEMPTS or (
+            successful_opens == 0 and time.monotonic() < deadline
+        ):
+            attempts += 1
             try:
                 fd = open_directory(target)
                 st = os.fstat(fd)
