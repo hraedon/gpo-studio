@@ -79,3 +79,26 @@ def test_every_item_says_whether_it_is_open() -> None:
         "The register answers 'what is still open?' and cannot do that for an "
         "item that does not say."
     )
+
+
+#: A line of the "Open right now" index: ``- [WI-042](#anchor) — title``.
+_INDEX_ENTRY = re.compile(r"^- \[(WI-\d+)\]\(#", re.MULTILINE)
+
+
+def test_the_open_index_matches_the_register() -> None:
+    """The first screen must answer "what is open?" without reading 1900 lines.
+
+    The register keeps every closed item's body -- deliberately, because how an
+    item hid is usually the instructive part -- and grew past the point where a
+    reader could tell open from closed by scrolling. An index fixes that only
+    while it is accurate, and an index that drifts is this file's own subject
+    matter one level up.
+    """
+    text = REGISTER.read_text(encoding="utf-8")
+    listed = set(_INDEX_ENTRY.findall(text))
+    actually_open = {number for number, body in _items() if not _CLOSED.search(body)}
+    assert listed == actually_open, (
+        f"the 'Open right now' index lists {sorted(listed)} but the register's "
+        f"own status lines say {sorted(actually_open)} are open"
+    )
+

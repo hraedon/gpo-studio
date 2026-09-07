@@ -6,9 +6,17 @@ checked box means evidence was captured, not merely that the UI was opened.
 
 Access-path note (2026-09-05): the "RDP to `mvmcitest01`" path named below is
 retired. Lab captures now go through the transactional console driver
-(windows-console-driver, estate windows 2–5); live-domain reads ran from the
-admin workstation; the R11 live import ran over WinRM to the DC. See
-`../manual-evidence-requests.md` for the execution record.
+(windows-console-driver, estate windows 2–6); live-domain reads ran from the
+admin workstation; the R11 live import ran over WinRM to the DC.
+
+Results note (2026-09-06): this document stays the **checkbox tracker and the
+statement of staging/cleanup discipline**. It is deliberately not the results
+register — that is the binding table in
+[`../manual-evidence-requests.md`](../manual-evidence-requests.md#where-each-result-lives),
+which names a record and a fixture per request, and
+[`../plans-025-032-oracle-survey.md`](../plans-025-032-oracle-survey.md) §5.0,
+which says what each result settled per module. Two documents restating the
+same results is how they come to disagree; this one points instead.
 
 ## Safety rules
 

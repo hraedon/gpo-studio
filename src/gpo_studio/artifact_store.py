@@ -251,6 +251,28 @@ class ArtifactStore:
         self._connection.row_factory = sqlite3.Row
         self._ensure_schema()
 
+    def close(self) -> None:
+        """Release the SQLite connection.
+
+        Idempotent, so a caller that closes twice -- or closes after an
+        exception in ``__exit__`` -- is not punished for it.
+
+        This exists because the store holds an OS file handle and nothing
+        released it. On POSIX that is invisible; on Windows an open handle
+        makes the database file undeletable, so any caller working inside a
+        temporary directory fails on cleanup rather than on anything it tested.
+        """
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None  # type: ignore[assignment]
+
+    def __enter__(self) -> ArtifactStore:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def _ensure_schema(self) -> None:
         with self._lock:
             self._connection.execute("PRAGMA journal_mode = WAL")

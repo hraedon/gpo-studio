@@ -1,8 +1,10 @@
 # Manual evidence requests — work order for the operator
 
-Status: **fully executed 2026-09-05** (written 2026-08-06 against `main` at
-`80c23b5`). All eleven requests are complete, by four different routes — worth
-stating precisely, because the route bounds what each result is worth:
+Status: **fully executed 2026-09-05; evidence bound to this repository
+2026-09-06** (written 2026-08-06 against `main` at `80c23b5`).
+
+All eleven requests are complete, by four different routes — worth stating
+precisely, because the route bounds what each result is worth:
 
 - **R1–R5** ran as full transactions through the console driver on the lab
   estate: capability envelope evaluated, verdict `verified`, strict-absence
@@ -22,15 +24,44 @@ stating precisely, because the route bounds what each result is worth:
   day via `secedit /export`, sliced on-box and the full export deleted. These
   four are operator-run captures over WinRM, not driver transactions.
 
-Highlights of what the captures changed: `migration.py` parsed a namespace
-GPMC does not use (silent no-op, fixed); `object_security.py`'s propagation
-codes were wrong on all three (fixed, `secedit /validate`-verified);
-`publication.py`'s flat `+1` would corrupt the packed `gpt.ini` version
-field (fixed to per-half bumps); the scripts writers were rebuilt to the
-measured wire format and are now round-trip certified — Windows re-emits
-Studio's `scripts.ini`, `psscripts.ini` and `registry.pol` byte-identically
-after import, in both the lab and production. See
-`docs/plans-025-032-oracle-survey.md` §5 for the module-by-module record.
+## Where each result lives
+
+This table is the binding this document lacked for its first month. Every claim
+below is traceable to a named artifact in a named repository; a row with no
+citation is a result nobody can check.
+
+Records under `docs/estate-window-*/records/` and rows in `docs/claim-registry.md`
+are in the **`windows-console-driver`** repository (`../windows-console-driver/`).
+Fixture paths are in this one.
+
+| # | Record / claim | Fixture here | Code change | What it settled |
+|---|---|---|---|---|
+| R1 | `estate-window-2/records/r1-migtable.json`, `-4/r1-v1-record.json`, `-6/r1-v2-record.json` | `tests/fixtures/migration-tables/r1-studio.migtable` | `936394d` | GPMC's `.migtable` namespace and `Mapping → Type/Source/Destination` shape. `migration.py` parsed neither — a GPMC table produced an **empty table, silently**, on a live API endpoint |
+| R2 | `-2/r2-record.json`, `-3/r2-psorder-window3-record.json`, `-4/r2-v2-record.json` | `tests/fixtures/native-scripts-gpmc/` | `4221432`, `38e3e9f` | `scripts.ini`/`psscripts.ini` are UTF-16LE BOM + CRLF; ordering is `[ScriptsConfig] StartExecutePSFirst`; no `[Policy]` section exists |
+| R3 | `-3/r3-window3-record.json` | `tests/fixtures/native-folder-redirection-gpmc/` (D5) | none yet | Folder Redirection writes an empty `fdeploy.ini` marker plus the real policy in **`fdeploy1.ini`** — `version=100`, `Flags=1021`. `folder_redirection.py` addresses neither file. **Scope question for Plan 034, not a patch** |
+| R4 | `-4/r4-v2b-record.json` (qualification artifact) | `tests/fixtures/native-security-template-gpmc/` (D4) | `d7caf44` | Propagation codes are **propagate=0, do-not-allow-replace=1, replace=2** — `object_security.py` was wrong on all three. Native `[Registry Keys]` rows are bare quoted-CSV; `key = value` appears nowhere. `security_template.py` parses **0 of 3** native rows (3 `unknown_lines`) |
+| R5 | `-2/r5m-record.json`, `-2/r5u-record.json`, `-4/r5{m,u}-v2-record.json` | — (facts only) | `725d085` | `gpt.ini`/`versionNumber` is the packed field `user·65536 + machine`. `publication.py`'s flat `+1` would corrupt it on a user-side change |
+| R6 | claim-registry R6 row | `tests/fixtures/live-domain-census/r06-cse-census/` (D6) | `0a6664e`, `b8fa1f4` | The two GPP XML `clsid`s in `_KNOWN_CSE_GUIDS` appear in **no extension list of any of the 26 production GPOs**. They were never CSE GUIDs |
+| R7 | claim-registry R7 row | — (five-key slice only; full export deleted on-box) | `055e5f5` | `[Kerberos Policy]` key names and the mixed units — `MaxTicketAge` hours vs `MaxServiceAge` minutes. `policy_families.py`'s three unit mappings were **correct**; two keys were unmodelled |
+| R8 | claim-registry R8 row | `tests/fixtures/live-domain-census/r08-gpo-anatomy/` (D6) | none needed | What a published GPO consists of. `gpo2`'s packed `Version=131082` (user 2, machine 10) is **live production corroboration of R5** from an independent directory |
+| R9 | claim-registry R9 row | — (builder is `scripts/plan-033/build-object-security-candidate.py`) | `d7caf44` | `secedit /validate` **rejects** `object_security.py`'s `key = value` shape and **accepts** the native quoted-CSV shape. Windows' own parser is the oracle |
+| R10 | `-5/records/r10-record.json` | reuses `native-scripts-gpmc/` | `4221432` | Windows **accepts** a Studio-written scripts bundle: `Import-GPO` consumed it, `Backup-GPO` re-emitted both INIs **byte-identical** |
+| R11 | claim-registry R11 row | — (raw re-backup deleted untranscribed) | none needed | A **production** directory accepts Studio's output as the lab does: extension lists preserved verbatim, packed `versionNumber=65537`, both `registry.pol` files re-emitted byte-identical |
+
+### Raw artifacts, and where they are
+
+The captures live outside both git worktrees, on `mvmcc03` under
+`/home/itadmin/gpo-studio-evidence/inbox/`: `r01-migtable/`,
+`r03-folderredir/`, `r06-cse-census/`, `r08-gpo-anatomy/`,
+`r10-scripts-roundtrip/`. R1, R3 and R10's raw were moved there on 2026-09-06
+because they existed only in `windows-console-driver/runs/`, which is
+`.gitignore`d — including the two R10 screenshots that a **committed** record
+hash-binds. A committed record that binds a hash for a file nobody has a
+durable copy of is a citation that cannot be checked.
+
+R7's full `secedit` export and R11's re-backup were deleted by design; only
+their semantic slices left the estate. Those two rows stand on the claim
+registry alone, and that is the correct ceiling for them.
 
 ## What this is
 
@@ -1579,25 +1610,56 @@ costs one question to resolve; guessing would have cost a sitting.
 
 ## After the artifacts land
 
-The agent's side, recorded so the loop is closed rather than implied:
+The agent's side, recorded so the loop is closed rather than implied. **Executed
+2026-09-06** — the status of each step is stated rather than assumed, because
+five of the eleven requests sat for a month with their captures unbanked while
+this document's header said they were complete.
 
-1. Retrieve from `/home/itadmin/gpo-studio-evidence/inbox/<request-id>/`.
-2. Inspect raw, **outside the repository**, and record raw SHA-256 per file.
-3. Sanitise with `scripts/plan-033/sanitize-gpp-fixtures.py` plus a manual pass
-   for anything the live domain contributed, producing a
-   `sanitization-record.json` in the shape
-   `tests/fixtures/native-gpp-gpmc/sanitization-record.json` already uses.
-4. Curate into a fixture under `tests/fixtures/`, hash-bound, and run the
-   identifier gate over the tree **before** the commit, not after.
-5. Update
-   [`plan-033/manual-gui-evidence-queue.md`](plan-033/manual-gui-evidence-queue.md)
-   with the result and the questions it settled — and, on the first live-domain
-   request, replace that document's retired `mvmcitest01` access path and add the
-   live-domain safety rules from the top of this document.
-6. Record each answered question against the module it bears on, per
-   [`plans-025-032-oracle-survey.md`](plans-025-032-oracle-survey.md) §5.
+1. ~~Retrieve from `/home/itadmin/gpo-studio-evidence/inbox/<request-id>/`.~~
+   **Done.** R6 and R8 came from `mvmcc03`; R1–R5, R9 and R10 came from the
+   windows-console-driver records, where the transactional route had already
+   banked them.
+2. ~~Inspect raw, **outside the repository**, and record raw SHA-256 per file.~~
+   **Done.** Hashes are in each fixture's `provenance.json`.
+3. **Sanitisation: not needed as feared, and the reason matters.** R6 and R8
+   were sanitised *by construction* at capture time, exactly as the design
+   above intended — the census CSV holds extension-list GUIDs, the attribute
+   CSVs hold names and `True`/`False` but never values, and the SYSVOL CSVs
+   hold relative paths and byte counts. Nothing reached `mvmcc03` that needed
+   redacting. **The hazard described above was real and the mitigation was
+   query shape, not the sanitiser.**
+4. ~~Curate into a fixture under `tests/fixtures/`, hash-bound.~~ **Done** for
+   R1, R2, R3, R4, R6 and R8. R5, R7, R9, R10 and R11 have no committable
+   artifact — their results are facts, and they live in the claim registry.
+5. ~~Update the manual queue.~~ **Done** — access path retired, and the queue
+   now points at the binding table rather than restating it.
+6. ~~Record each answered question against the module it bears on.~~ **Done** —
+   [`plans-025-032-oracle-survey.md`](plans-025-032-oracle-survey.md) §5.0.
 
 A capture is certified **against the capture**, not against the authoring
-gesture. Nothing here becomes a re-runnable lane — that is the cost of the manual
-queue, and it is why these requests were enumerated before you were booked rather
-than discovered one at a time.
+gesture. Nothing here became a re-runnable lane — that is the cost of the manual
+queue, and it is why the capability matrix records these results as
+`capture-backed` rather than as verification. See
+[`capability-matrix.md`](capability-matrix.md#the-capture-backed-value-and-what-it-denies).
+
+## What the closing loop got wrong, kept as the lesson
+
+Steps 4–6 above were written in August and executed on 2026-09-06 — a month
+after the header of this document began saying "fully executed". For that month
+the sentence *"See `plans-025-032-oracle-survey.md` §5 for the module-by-module
+record"* pointed at a table that contained predictions and no results, and the
+survey's own opening line still read "Nothing was executed against Windows."
+
+The work-order route was not at fault: windows-console-driver banked every lab
+result properly, in claim-registry rows and transaction records, on the day it
+ran. What failed is that **no document in this repository cited them**, so from
+inside gpo-studio the evidence was indistinguishable from missing. R6 and R8
+were the genuine gap — captured, transferred, and then referenced by nothing in
+either repository until they were found by listing the inbox.
+
+This is the same defect AGENTS.md records five earlier instances of, in its
+sixth costume: the registry that gates work disagreed with the registry that
+records reality. It is now mechanically checked —
+`tests/test_evidence_registry_consistency.py` fails the build for an uncited
+`capture-backed` cell, a dangling fixture citation, or a module promoted to
+Windows-verified `yes`. That is the part of this section worth keeping.
