@@ -1,0 +1,4 @@
+first 4 bytes: FF FE 0D 00
+CR count: 2  LF count: 2  size: 20 bytes
+
+     

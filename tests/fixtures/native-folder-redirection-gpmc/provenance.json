@@ -1,0 +1,31 @@
+{
+  "source": "windows-console-driver R3 (GPMC on Windows Server 2025, capability gpmc.author_folder_redirection, transaction 150db7fe-c64c-4d93-80d7-32bacb290760, 2026-09-04). Raw bytes preserved durably at windows-console-driver/docs/estate-window-3/captures/ (r3-fdeploy.ini, r3-fdeploy1.ini), copied from the gitignored runs/ tree on 2026-09-06 and hash-verified at copy time.",
+  "oracle": "The r3-window3-record.json envelope (windows-console-driver/docs/estate-window-3/records/r3-window3-record.json), produced by the fdeploy_marker + fdeploy collectors over PSDirect-transported SYSVOL bytes, controller-side and independent of the actuation path and of gpo_studio.folder_redirection. The envelope banks the encoding facts, section list, entry list, and values for both files.",
+  "files": {
+    "fdeploy.ini.txt": {
+      "native_path_in_backup": "User/Documents & Settings/fdeploy.ini",
+      "measured_total_bytes": 20,
+      "measured_bom": "utf-16le (FF FE), width 2",
+      "measured_cr_count": 2,
+      "measured_lf_count": 2,
+      "measured_crlf_only": true,
+      "raw_sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+      "role": "empty marker GPMC lays down beside the policy; 0 sections, 0 entries"
+    },
+    "fdeploy1.ini.txt": {
+      "native_path_in_backup": "User/Documents & Settings/fdeploy1.ini",
+      "measured_total_bytes": 458,
+      "measured_bom": "utf-16le (FF FE), width 2",
+      "measured_cr_count": 9,
+      "measured_lf_count": 9,
+      "measured_crlf_only": true,
+      "raw_sha256": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+      "role": "the semantic policy: 3 sections, 4 entries, version=100, Flags=1021"
+    }
+  },
+  "transcript_format": "ASCII rendering of the captured UTF-16LE files: a two-line measurement header (first 4 bytes, CR/LF counts, total byte size), then the decoded content verbatim except that each CRLF was transcribed as LF. Both files begin with the same two-line native preamble -- an empty line, then a line of five spaces -- before [version]; that preamble is native content, not transcript framing (the marker file consists of nothing else). Every content line is banked verbatim in the record's fdeploy.sections/entries facts; unlike the GptTmpl.inf fixture, nothing here is reconstructed by choice.",
+  "native_byte_reconstruction": "b'\\xff\\xfe' + transcript_content.replace('\\n', '\\r\\n').encode('utf-16-le'); the test additionally asserts the SHA-256 of the reconstructed bytes equals raw_sha256 above, binding the transcript to the raw captures preserved in windows-console-driver/docs/estate-window-3/captures/",
+  "related_measurement": "The same R3 transaction measured the version halves: user 0->1, packed AD/SYSVOL version 0->65536 (claim-registry row R3, 2026-09-04). Plan-034 note: gpo_studio.folder_redirection models redirection as User Shell Folders registry policy and neither reads nor writes fdeploy artifacts; whether the module should address fdeploy1.ini -- the artifact GPMC actually wrote -- is a scope decision for Plan 034, deliberately not made here. This fixture exists so that decision has native ground truth.",
+  "sanitisation": "The redirection target was authored with synthetic placeholders for the transaction: server zz-studio-fileserver, share zzredir, and the %USERNAME% environment variable. s-1-1-0 is the well-known Everyone SID and {FDD39AD0-238F-46AF-ADB4-6C85480369C7} is the well-known Folder Redirection CSE GUID. No domain, host, account, SID-of-estate-principal, or real path identifiers.",
+  "copied_into_repo": "2026-09-06"
+}
