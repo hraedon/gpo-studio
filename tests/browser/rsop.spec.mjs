@@ -77,9 +77,14 @@ test("predicts effective policy and shows what the answer does not say", async (
   // it overrode.
   await expect(results).toContainText("Servers Override");
   await expect(results).toContainText("Domain Baseline");
-  // WI-032 travels with the answer, not only with the docs.
-  await expect(results).toContainText("gpo_status_is_not_per_side");
-  await expect(results).toContainText("applied on at least one side");
+  // WI-032 closed: the panel shows both sides instead of explaining that it
+  // cannot. The negative assertion is the one that matters -- a stale
+  // disclaimer left in the UI is how the last copy of a fixed limitation
+  // survives, and this is where it was caught.
+  await expect(results).not.toContainText("applied on at least one side");
+  await expect(results).not.toContainText("gpo_status_is_not_per_side");
+  await expect(results.locator("th", { hasText: "Computer" })).toBeVisible();
+  await expect(results.locator("th", { hasText: "User" })).toBeVisible();
 });
 
 test("refuses a topology it cannot read rather than guessing", async ({

@@ -107,12 +107,18 @@ export function renderGpoResults(gpoResults) {
           : result.status === "unevaluable"
             ? "warn"
             : "";
-      return `<tr><td>${result.precedence}</td><td>${escapeHtml(result.gpo_name)}</td><td><span class="pill ${pill}">${escapeHtml(result.status)}</span></td><td>${result.filtering_reasons?.length ? escapeHtml(result.filtering_reasons.join(", ")) : "—"}</td><td class="mono truncate" title="${escapeHtml(result.link_scope)}">${escapeHtml(result.link_scope)}</td></tr>`;
+      const sidePill = (value) =>
+        value === "applied" ? "ok" : value === "unevaluable" ? "warn" : "";
+      const side = (value) =>
+        `<td><span class="pill ${sidePill(value)}">${escapeHtml(value ?? "—")}</span></td>`;
+      return `<tr><td>${result.precedence}</td><td>${escapeHtml(result.gpo_name)}</td><td><span class="pill ${pill}">${escapeHtml(result.status)}</span></td>${side(result.computer_status)}${side(result.user_status)}<td>${result.filtering_reasons?.length ? escapeHtml(result.filtering_reasons.join(", ")) : "—"}</td><td class="mono truncate" title="${escapeHtml(result.link_scope)}">${escapeHtml(result.link_scope)}</td></tr>`;
     })
     .join("");
-  // The heading says "at least one side" because the column does. Naming it
-  // "Applied to" here would undo in the UI what the API is careful about.
-  return `<h3>GPOs</h3><p class="rsop-note">Status is "applied on at least one side" — not a per-side answer (WI-032).</p><div class="table-card"><table><thead><tr><th>Order</th><th>GPO</th><th>Status</th><th>Reasons</th><th>Linked at</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  // Both sides are shown because both are now answered (WI-032, closed
+  // 2026-09-07). This note used to say the status was not a per-side answer;
+  // leaving that in place after the per-side columns arrived would make the UI
+  // the last thing still saying so.
+  return `<h3>GPOs</h3><p class="rsop-note">"Status" is the merge of the two sides. "Computer" and "User" are the per-side answers: <code>out_of_scope</code> means that side never searched the GPO, <code>no_settings_for_side</code> that it did and the GPO carries nothing for it — neither is a decision against the GPO.</p><div class="table-card"><table><thead><tr><th>Order</th><th>GPO</th><th>Status</th><th>Computer</th><th>User</th><th>Reasons</th><th>Linked at</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 export function renderRsopResult(body) {
