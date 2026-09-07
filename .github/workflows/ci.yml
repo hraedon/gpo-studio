@@ -53,10 +53,15 @@ jobs:
     # routed through an `_IS_WINDOWS` intermediate that mypy cannot narrow),
     # the 32 symlink failures (D3 -- they now skip on the privilege rather than
     # the platform), the 2 ArtifactStore handle leaks that made a temporary
-    # directory undeletable, and the parent-swap race tests' liveness guard,
-    # which was a coin flip on a loaded runner and failed 2 of the first 5 jobs
-    # -- a green local win32 run did not see it, and only the job's own history
-    # did. Windows is where this project's operator, release
+    # directory undeletable, the parent-swap race tests' liveness guard (a coin
+    # flip on a loaded runner: 2 of the first 5 jobs), and the coverage gate's
+    # `/`-spelled floors, which matched nothing against win32's `\`-keyed
+    # coverage.json -- so all eleven per-module floors had never once been
+    # enforced here. Neither of the last two was reachable from a green local
+    # win32 pytest run: one needed the job's own history, the other sat behind
+    # a step that had always failed first.
+    #
+    # Windows is where this project's operator, release
     # target and evidence harness live, and a class of defect is invisible
     # without it: `486874f` had to repair EOL smudging that broke six evidence
     # anchors and sixteen harness bindings, which no Linux job could observe.
