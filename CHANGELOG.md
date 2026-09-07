@@ -37,6 +37,12 @@ Current version: `1.0.0`.
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.
+- Publication planning has two recorded gaps, both measured against Windows
+  rather than reasoned: no step registers the CSE extension lists a client
+  reads to decide what to invoke (WI-057), and none publishes a GPO's comment
+  (WI-058). The planner remains unsurfaced and review-only, so neither is
+  reachable by an operator. The file half of the same measurement was complete,
+  and the GPT.INI half-increment behaved as the plan declared.
 
 > Post-1.0 development has added considerably more to `src/` than it has added
 > to the operator-facing product. Entries below distinguish **surfaced**

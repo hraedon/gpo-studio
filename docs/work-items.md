@@ -25,8 +25,10 @@ Regenerated whenever this file changes; `test_the_open_index_matches_the_registe
 - [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
 - [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
 - [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
+- [WI-057](#wi-057--a-publication-plan-writes-every-file-and-registers-no-extension) — a publication plan writes every file and registers no extension
+- [WI-058](#wi-058--a-gpos-description-has-no-publication-step) — a GPO's description has no publication step
 
-**5 open.** Everything else in this file is closed.
+**7 open.** Everything else in this file is closed.
 
 ---
 
@@ -1957,6 +1959,126 @@ deleted (removing the enforcement test with it) or that its types are the
 starting point for a portfolio model built on `oracle_evidence.py`'s four
 states and the boundary matrix's ownership rules. A third outcome — leaving it
 open a second time — is a valid answer only if it says why.
+
+---
+
+## WI-057 — a publication plan writes every file and registers no extension
+
+**Opened:** 2026-09-07 (Plan 034 WP-1 publication probe, on the estate).
+**Status:** open.
+
+The publication planner names every byte-bearing SYSVOL file Windows produces
+for a GPO, and **no step that makes any of them run.**
+
+**Measured on LabMS01** (role 3, build 26100, PowerShell 5.1.26100, GroupPolicy
+1.0.0.0). One synthetic GPO carrying machine and user registry settings, a
+computer-side Services preference and a user-side Drives preference was exported
+through `gpmc_backup_bundle`, imported with `Import-GPO` into a disposable GPO,
+and its SYSVOL tree and directory object read back:
+
+```
+plan step                                    SYSVOL file Windows produced
+update_gpt_ini (version_half=both)        -> gpt.ini                                    (26 b)
+write_registry_pol  Machine/Registry.pol  -> Machine/registry.pol                      (118 b)
+write_registry_pol  User/Registry.pol     -> User/registry.pol                         (114 b)
+copy_gpp_xml  Machine/.../Services.xml    -> Machine/Preferences/Services/Services.xml (342 b)
+copy_gpp_xml  User/.../Drives.xml         -> User/Preferences/Drives/Drives.xml        (350 b)
+                                          -- nothing else --
+```
+
+The file half is **complete**: every file Windows wrote is named by a step, and
+every step naming a file has one. That is the half Plan 028's "no setting may
+disappear for lack of a renderer" gate is usually read as asking about, and it
+passes.
+
+The directory object is where the plan stops short. After the same import:
+
+```
+gPCMachineExtensionNames = [{35378EAC-...}{D02B1F72-...}]
+                           [{00000000-0000-0000-0000-000000000000}{CC5746A9-...}]
+                           [{91FBB303-...}{CC5746A9-...}]
+gPCUserExtensionNames    = [{35378EAC-...}{D02B1F73-...}]
+                           [{00000000-0000-0000-0000-000000000000}{2EA1A81B-...}]
+                           [{5794DAFD-...}{2EA1A81B-...}]
+```
+
+`publication.py` emits no step that writes either attribute — grep it for
+`gPCMachineExtensionNames`, `gPCUserExtensionNames` or `ExtensionGuids` and
+there is nothing. `b8fa1f4` dropped three CSE-GUID constants from the module as
+dead, and its message says the plan steps were "unchanged", so this was never a
+regression: the planner has never had such a step.
+
+**Why this matters more than a missing file would.** A client reads these
+attributes to decide which client-side extensions to invoke. A GPO whose
+SYSVOL content is byte-perfect and whose extension lists are empty is one that
+**applies nothing** — and it fails silently, because every file a reviewer
+would think to check is present and correct. This is the same shape as WI-026,
+where thirteen tests passed a container DN the model tolerated and the shape
+every real caller supplies returned "no policy applies".
+
+Two details the measurement settles, both of which a hand-written fix would
+get wrong. The lists carry **three** pairs per side, not one: the Registry CSE
+pair, the real GPP pair, and a `{00000000-0000-0000-0000-000000000000}`
+tool-only pair carrying the snap-in half. And the pairs are per side —
+`{D02B1F72-...}` machine against `{D02B1F73-...}` user — so the two attributes
+are not copies of each other. `export.py`'s `_GPP_EXTENSION_PROFILES` already
+holds the real pairs; the null-GUID pair and the Registry pair are not in the
+tree in any form a publication step could reach today.
+
+**Not release-blocking, and worth saying why.** `publication.py` is unsurfaced,
+generates a review-only script, and refuses every unverified operation, so no
+operator can execute one of these plans today. It becomes blocking the moment
+publication acquires a delivery surface, for the same reason WI-055 does:
+Studio would hand an administrator a plan that reads as complete.
+
+**Closes when:** either (a) the planner emits a typed step per side that names
+the extension-list value it would write, with the vocabulary sourced from the
+one place that already holds it rather than restated, and a test pins the
+three-pair shape and the machine/user asymmetry measured here; or (b) a ruling
+records that extension-list registration is deliberately out of the planner's
+scope and names what is expected to perform it, with `generate_publication_plan`
+refusing a SYSVOL-targeted plan that would leave the lists unwritten — the shape
+`unsupported_cse_content` already uses.
+
+**The probe is not a lane.** This is one capture, run twice with a control, not
+a re-runnable qualification, and Plan 034's rule is that a capture becomes a
+lane before it becomes a surface. The lane that would re-run it is WP-1's
+`publication` item, still unbuilt.
+
+---
+
+## WI-058 — a GPO's description has no publication step
+
+**Opened:** 2026-09-07 (Plan 034 WP-1 publication probe; found while
+attributing an unexpected file, not while looking for it).
+**Status:** open.
+
+`GPO.description` is in the model, is round-tripped by export/import, and no
+publication step writes it. A published GPO would silently lose its comment.
+
+**How it surfaced, and why the first reading was wrong.** The probe's SYSVOL
+walk returned a `GPO.cmt` (78 b) that no plan step named, which looked like a
+second completeness gap of WI-057's kind. It was not: the probe's own
+`New-GPO -Comment` had created it. A control run differing in exactly that one
+argument produced **no `GPO.cmt`** and an otherwise identical tree and
+extension list. The file is comment-driven, not import-driven.
+
+That control is what turns this into a real item rather than a
+misattribution. `GPO.cmt` is where a GPO's comment lives in SYSVOL; Studio
+carries the same text in `GPO.description`; and `generate_publication_plan`
+emits no step for it at any target.
+
+**Severity is genuinely low, and it should not be inflated.** A lost comment
+changes no policy outcome — nothing reads `GPO.cmt` to decide what applies.
+It is filed because it is a *known* silent omission in a planner whose stated
+job is to account for what publication would write, and because the register
+exists so that small known gaps stop being rediscovered.
+
+**Closes when:** either the planner emits a step naming `GPO.cmt` when
+`gpo.description` is non-empty, with a test pinning that an empty description
+emits none; or a ruling records the comment as deliberately not published, in
+`docs/live-publication.md` and in the planner's docstring, so its absence
+reads as a decision rather than an oversight.
 
 ---
 
