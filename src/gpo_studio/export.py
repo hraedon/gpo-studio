@@ -6,8 +6,8 @@ import io
 import json
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Mapping, Sequence
-from dataclasses import asdict, replace
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import asdict, dataclass, replace
 from typing import Protocol, assert_never
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
@@ -623,6 +623,73 @@ def _build_bkup_info_xml(gpo: GPO, backup_id: str | None = None) -> bytes:
     return _xml_to_bytes(_backup_inst(gpo, backup_id or native_backup_id(gpo)), _GPMC_NS)
 
 
+def _gpp_family_files(gpo: GPO) -> Iterator[tuple[str, str, str, bytes]]:
+    """Yield ``(side_dir, family, filename, content)`` for every GPP file.
+
+    One place derives an extension family from a serialized GPP path, so the
+    native exporter and the publication planner cannot come to different
+    conclusions about which extension a given file belongs to. That divergence
+    is exactly what WI-057 measured: the exporter knew the Services pair and
+    the planner had no idea the attribute existed.
+    """
+    for col in gpo.gpp_collections:
+        side_dir = "Machine" if col.scope == "computer" else "User"
+        for filename, content in serialize_gpp(col).items():
+            normalized = filename.replace("\\", "/")
+            yield side_dir, normalized.split("/", 1)[0], normalized, content
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionRegistration:
+    """The ``gPC*ExtensionNames`` values a GPO's SYSVOL content requires.
+
+    Windows reads these two attributes to decide which client-side extensions
+    to invoke. SYSVOL content whose extension list is unwritten is inert, and
+    inert in the worst way -- every file a reviewer would check is present and
+    correct. `unverified_families` names GPP families whose extension metadata
+    has never been captured, for which no honest value can be produced.
+    """
+
+    machine: str
+    user: str
+    unverified_families: tuple[str, ...]
+
+
+def extension_registration(
+    gpo: GPO,
+    *,
+    scripts: Mapping[str, ScriptPolicy] | None = None,
+) -> ExtensionRegistration:
+    """Return the extension-list values publishing *gpo* would have to write.
+
+    Computed from the same vocabulary the native backup writes, rather than
+    restated, so the two cannot drift. Unlike `_native_export_files` this
+    reports unverified families instead of raising: a planner needs to describe
+    a refusal, and raising would deny the caller the plan that explains why.
+    """
+    script_policies = scripts or {}
+    profiles: dict[str, set[str]] = {"Machine": set(), "User": set()}
+    unverified: set[str] = set()
+    for side_dir, family, _filename, _content in _gpp_family_files(gpo):
+        if family in _GPP_EXTENSION_PROFILES:
+            profiles[side_dir].add(family)
+        else:
+            unverified.add(family)
+    values: dict[str, str] = {}
+    for side, scope in (("Machine", "computer"), ("User", "user")):
+        values[side] = _extension_guids(
+            side=side,
+            has_registry=any(item.side == scope for item in gpo.settings),
+            gpp_profiles=profiles[side],
+            has_scripts=script_policies.get(scope) is not None,
+        )
+    return ExtensionRegistration(
+        machine=values["Machine"],
+        user=values["User"],
+        unverified_families=tuple(sorted(unverified)),
+    )
+
+
 def _native_export_files(
     gpo: GPO,
     scripts: Mapping[str, ScriptPolicy] | None = None,
@@ -647,24 +714,21 @@ def _native_export_files(
         _native_scripts_files(scope, policy, files)
 
     unsupported: set[str] = set()
-    for col in gpo.gpp_collections:
-        side_dir = "Machine" if col.scope == "computer" else "User"
-        for filename, content in serialize_gpp(col).items():
-            if contains_cpassword(content):
-                raise ValidationError([
-                    ValidationIssue(
-                        severity="error",
-                        code="cpassword_detected",
-                        message=f"GPP file {filename} contains a cpassword attribute.",
-                        path=f"gpp_collections/{filename}",
-                    )
-                ])
-            family = filename.replace("\\", "/").split("/", 1)[0]
-            if family not in _GPP_EXTENSION_PROFILES:
-                unsupported.add(family)
-                continue
-            profiles[side_dir].add(family)
-            files[f"{side_dir}/Preferences/{filename.replace('\\', '/')}"] = content
+    for side_dir, family, filename, content in _gpp_family_files(gpo):
+        if contains_cpassword(content):
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="cpassword_detected",
+                    message=f"GPP file {filename} contains a cpassword attribute.",
+                    path=f"gpp_collections/{filename}",
+                )
+            ])
+        if family not in _GPP_EXTENSION_PROFILES:
+            unsupported.add(family)
+            continue
+        profiles[side_dir].add(family)
+        files[f"{side_dir}/Preferences/{filename}"] = content
 
     if unsupported:
         names = ", ".join(sorted(unsupported))

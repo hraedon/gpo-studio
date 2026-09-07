@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
 import tempfile
+import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from gpo_studio.artifact_store import ArtifactStore
+from gpo_studio.export import extension_registration, gpmc_backup_bundle
+from gpo_studio.gpp import GppCollection, GppDrive, GppEnvironment, GppService
 from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter
 from gpo_studio.publication import (
     PublicationPlan,
@@ -864,3 +869,184 @@ def test_gpt_ini_step_powershell_behavior(tmp_path: os.PathLike[str]) -> None:
         for scenario in _GPT_PS_SCENARIOS
     }
     assert actual == expected
+
+
+# ---------------------------------------------------------------------------
+# Extension-list registration (WI-057) and the GPO comment (WI-058)
+#
+# Both were found by the Plan 034 publication probe on LabMS01: the plan named
+# every byte-bearing SYSVOL file Windows produced and nothing that would make
+# any of them run. The assertions below are the measurement, not a design.
+# ---------------------------------------------------------------------------
+
+
+def _gpo_with_registry_and_verified_gpp() -> GPO:
+    """The probe's GPO: both registry sides, plus one verified family per side."""
+    return GPO(
+        guid="31415926-5358-9793-2384-626433832795",
+        name="zz-studio-evidence-pub-completeness",
+        domain="synthetic.test",
+        settings=(
+            RegistrySetting(
+                id="m1",
+                side="computer",
+                hive="HKLM",
+                key=r"SOFTWARE\Policies\SyntheticApp",
+                value_name="MachineFlag",
+                registry_type="REG_DWORD",
+                value=1,
+            ),
+            RegistrySetting(
+                id="u1",
+                side="user",
+                hive="HKCU",
+                key=r"SOFTWARE\Policies\SyntheticApp",
+                value_name="UserFlag",
+                registry_type="REG_SZ",
+                value="on",
+            ),
+        ),
+        gpp_collections=(
+            GppCollection(
+                scope="computer",
+                services=(
+                    GppService(service_name="SyntheticSvc", startup_type="automatic"),
+                ),
+            ),
+            GppCollection(
+                scope="user",
+                drives=(
+                    GppDrive(
+                        letter="S", path=r"\\synthetic.test\share", label="Synthetic"
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def test_plan_registers_the_extension_lists_windows_writes() -> None:
+    """The exact values measured on LabMS01 after importing this GPO's backup.
+
+    Three groups per side, not one, and the machine and user lists differ in
+    their registry tool half -- ``{D02B1F72-...}`` against ``{D02B1F73-...}``.
+    A fix that emitted one pair, or copied one side to the other, would satisfy
+    a weaker assertion and still produce a GPO that applies nothing.
+    """
+    plan = generate_publication_plan(
+        _gpo_with_registry_and_verified_gpp(), target="both"
+    )
+    details = {
+        step.step_id: step.detail
+        for step in plan.steps
+        if step.operation == "update_extension_lists"
+    }
+    assert set(details) == {"register-machine-extensions", "register-user-extensions"}
+    assert details["register-machine-extensions"] == (
+        "Set gPCMachineExtensionNames to "
+        "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]"
+        "[{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]"
+        "[{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]"
+    )
+    assert details["register-user-extensions"] == (
+        "Set gPCUserExtensionNames to "
+        "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}]"
+        "[{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]"
+        "[{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]"
+    )
+
+
+def test_the_planner_and_the_exporter_cannot_disagree_about_extensions() -> None:
+    """The planner's value must be the one the native backup actually writes.
+
+    WI-057 was a divergence between two modules' beliefs about the same
+    attribute, so the regression that matters is not the literal string above
+    but that these two keep agreeing when the vocabulary changes.
+    """
+    gpo = _gpo_with_registry_and_verified_gpp()
+    registration = extension_registration(gpo)
+    with zipfile.ZipFile(io.BytesIO(gpmc_backup_bundle(gpo))) as archive:
+        backup_xml = next(
+            archive.read(name)
+            for name in archive.namelist()
+            if name.endswith("Backup.xml")
+        ).decode("utf-8")
+    assert registration.machine in backup_xml
+    assert registration.user in backup_xml
+
+
+def test_a_sysvol_only_plan_refuses_content_no_extension_would_process() -> None:
+    """SYSVOL-only cannot reach a directory attribute, so it must not pretend to."""
+    plan = generate_publication_plan(
+        _gpo_with_registry_and_verified_gpp(), target="sysvol"
+    )
+    unreachable = [
+        s.step_id for s in plan.steps if s.operation == "extension_lists_unreachable"
+    ]
+    assert unreachable == [
+        "unreachable-machine-extensions",
+        "unreachable-user-extensions",
+    ]
+    issues = validate_publication_plan(plan)
+    assert any(issue.check == "extension_lists_unreachable" for issue in issues)
+    assert any(
+        issue.level == "error" and issue.check == "extension_lists_unreachable"
+        for issue in issues
+    )
+
+
+def test_an_unverified_gpp_family_refuses_rather_than_guessing_a_value() -> None:
+    """No captured metadata means no honest extension list, so the plan refuses.
+
+    EnvironmentVariables is a real GPP family Studio serializes and whose
+    extension pair has never been measured; guessing one is how a GPO ends up
+    registering an extension that does not exist.
+    """
+    gpo = GPO(
+        guid="11111111-2222-3333-4444-555555555555",
+        name="Unverified Family",
+        domain="synthetic.test",
+        gpp_collections=(
+            GppCollection(
+                scope="user",
+                environment=(
+                    GppEnvironment(name="SYNTHETIC_HOME", value=r"C:\synthetic"),
+                ),
+            ),
+        ),
+    )
+    plan = generate_publication_plan(gpo, target="both")
+    refusals = [
+        s for s in plan.steps if s.operation == "unsupported_extension_registration"
+    ]
+    assert len(refusals) == 1
+    assert "EnvironmentVariables" in refusals[0].detail
+    assert not any(s.operation == "update_extension_lists" for s in plan.steps)
+    issues = validate_publication_plan(plan)
+    assert any(
+        issue.check == "unsupported_extension_registration" for issue in issues
+    )
+
+
+def test_a_described_gpo_publishes_its_comment_and_an_undescribed_one_does_not() -> None:
+    """GPO.cmt exists only when the GPO has a comment -- measured with a control.
+
+    The probe's first reading was that an unnamed GPO.cmt was a second
+    completeness gap; a control run differing only in ``New-GPO -Comment``
+    produced no such file. The pair below is that control, kept so the
+    condition cannot quietly widen to "always emit".
+    """
+    described = GPO(
+        guid="11111111-2222-3333-4444-555555555555",
+        name="Described",
+        domain="synthetic.test",
+        description="Synthetic review note.",
+        settings=_gpo_with_registry().settings,
+    )
+    plan = generate_publication_plan(described, target="both")
+    comment_steps = [s for s in plan.steps if s.operation == "write_gpo_comment"]
+    assert [s.detail for s in comment_steps] == ["Write GPO.cmt"]
+
+    undescribed = replace(described, description="")
+    plan = generate_publication_plan(undescribed, target="both")
+    assert not [s for s in plan.steps if s.operation == "write_gpo_comment"]
