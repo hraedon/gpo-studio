@@ -2,9 +2,17 @@
 
 Plan 034 WP-1 extends Plan 033 WP-1B with a Windows-verified R10 Scripts
 metadata lane on a clean member
-server. Run `scripts-r10-20260907081826-5183` passed all 21 checks from source
-commit `f6b06af1bfcc4150b7bdea35b6ecdd660c1d0bc5`; the source checkout was clean.
-The immutable evidence tag is `evidence/scripts-r10-20260907081826-5183`.
+server. Run `scripts-r10-20260907182809-4583` passed all 21 checks from source
+commit `f8a2bbde0113...`; the source checkout was clean.
+The immutable evidence tag is `evidence/scripts-r10-20260907182809-4583`.
+
+This is a re-certification. The banked pack was
+`scripts-r10-20260907081826-5183` at `f6b06af`, also 21/21, and it was re-run
+rather than re-hashed because `export.py` — one of its fourteen bound source
+files — changed when the publication planner learned to register extension
+lists (WI-057). The lane, its candidate and its assertions are identical; only
+the bound tree moved. The superseded run remains valid for the commit it names
+and its tag is not deleted.
 The [verification record](wp1b-evidence/scripts-metadata/verification.json)
 contains the authoritative verdict, source/artifact hashes, environment, and
 raw-artifact index.
@@ -45,7 +53,7 @@ The raw evidence pack is under
 `candidate.zip`, `report.xml`, `result.json`, `verification.json`, the input
 and rebackup trees, command streams, and builder stdout. The 14 bound source
 files are omitted from this bank; recover their exact bytes
-with `git show f6b06af1bfcc4150b7bdea35b6ecdd660c1d0bc5:<repository-path>` and
+with `git show f8a2bbde0113:<repository-path>` and
 verify its SHA-256 against `verification.json`.
 
 ## Boundary

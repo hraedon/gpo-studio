@@ -29,6 +29,7 @@ PublisherCapability = Literal[
     "write_security_descriptor",
     "write_gplink",
     "write_wmi_filter",
+    "write_extension_lists",
     "write_gpt_ini",
     "delete_gpo",
     "backup_gpo",
@@ -431,7 +432,16 @@ _STEP_CAPABILITY_MAP: dict[str, PublisherCapability] = {
     "update_nt_security_descriptor": "write_security_descriptor",
     "associate_wmi_filter": "write_wmi_filter",
     "update_gplink": "write_gplink",
+    "update_extension_lists": "write_extension_lists",
+    "write_gpo_comment": "write_sysvol_files",
 }
+
+# Deliberately absent above: the refusal operations a plan carries when it
+# cannot be published (`unsupported_cse_content`,
+# `unsupported_extension_registration`, `extension_lists_unreachable`). An
+# unmapped operation fails the capability gate, which is the outcome those
+# steps exist to force -- mapping them would make a refusal publishable by
+# granting a capability.
 
 # Every publication implicitly requires reading the GPO first.
 _BASE_CAPABILITY: PublisherCapability = "read_gpo"

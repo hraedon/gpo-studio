@@ -19,6 +19,7 @@ from typing import Literal
 
 from .artifact_store import ArtifactStore, detect_secrets
 from .canonical import canonical_json_bytes
+from .export import extension_registration
 from .gpmc_interop import InteropIssue
 from .gpp import serialize_gpp
 from .model import GPO, RegistrySetting, ValidationIssue
@@ -464,6 +465,98 @@ def generate_publication_plan(
                         status="pending",
                         detail=f"Remove {side_dir}/Preferences/{filename}",
                         artifact_ids=step.artifact_ids,
+                    )
+                )
+
+    # The GPO's comment lives in SYSVOL as GPO.cmt. `powershell_plan` has always
+    # passed it to New-GPO -Comment; the typed step list never named the file,
+    # so a plan read as an inventory of what publication writes was short by one
+    # (WI-058). Measured: a GPO created with a comment has GPO.cmt, one created
+    # without it has no such file, so the step is emitted on the same condition.
+    if gpo.description and _is_sysvol_target(target):
+        steps.append(
+            PublicationStep(
+                step_id="write-gpo-comment",
+                operation="write_gpo_comment",
+                target="sysvol",
+                status="pending",
+                detail="Write GPO.cmt",
+            )
+        )
+        rollback.append(
+            PublicationStep(
+                step_id="rollback-write-gpo-comment",
+                operation="restore_gpo_comment",
+                target="sysvol",
+                status="pending",
+                detail="Restore GPO.cmt from backup",
+            )
+        )
+
+    # Register the client-side extensions the SYSVOL content needs, without
+    # which every file above is inert (WI-057). The values come from export.py's
+    # measured vocabulary rather than being restated here; the attributes are on
+    # the directory object, which is why these steps target AD even though what
+    # makes them necessary was written to SYSVOL.
+    registration = extension_registration(gpo)
+    if registration.unverified_families:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-extension-registration",
+                operation="unsupported_extension_registration",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: extension metadata has never been "
+                    "captured for "
+                    f"{', '.join(registration.unverified_families)}, so the "
+                    "extension list this content requires cannot be stated"
+                ),
+            )
+        )
+    else:
+        for side, value in (
+            ("machine", registration.machine),
+            ("user", registration.user),
+        ):
+            if not value:
+                continue
+            attribute = (
+                "gPCMachineExtensionNames" if side == "machine" else "gPCUserExtensionNames"
+            )
+            if _is_ad_target(target):
+                steps.append(
+                    PublicationStep(
+                        step_id=f"register-{side}-extensions",
+                        operation="update_extension_lists",
+                        target="ad",
+                        status="pending",
+                        detail=f"Set {attribute} to {value}",
+                    )
+                )
+                rollback.append(
+                    PublicationStep(
+                        step_id=f"rollback-register-{side}-extensions",
+                        operation="restore_extension_lists",
+                        target="ad",
+                        status="pending",
+                        detail=f"Restore {attribute} from backup",
+                    )
+                )
+            else:
+                # SYSVOL-only, with content that no extension will process
+                # because the attribute lives somewhere this plan does not go.
+                steps.append(
+                    PublicationStep(
+                        step_id=f"unreachable-{side}-extensions",
+                        operation="extension_lists_unreachable",
+                        target=target,
+                        status="pending",
+                        detail=(
+                            f"Publication refused: {attribute} must be set to "
+                            f"{value} for this content to apply, and a "
+                            "SYSVOL-only plan cannot write a directory attribute"
+                        ),
                     )
                 )
 
@@ -914,6 +1007,34 @@ def validate_publication_plan(
                 message=(
                     "Plan contains preserved CSE metadata or files that the publication "
                     "planner cannot reproduce; publishing it would create a partial GPO."
+                ),
+                component="plan",
+            )
+        )
+
+    if any(step.operation == "unsupported_extension_registration" for step in plan.steps):
+        issues.append(
+            InteropIssue(
+                level="error",
+                check="unsupported_extension_registration",
+                message=(
+                    "Plan carries GPP content whose extension metadata has never been "
+                    "captured, so the extension list it requires cannot be stated; "
+                    "publishing it would create a GPO that applies nothing."
+                ),
+                component="plan",
+            )
+        )
+
+    if any(step.operation == "extension_lists_unreachable" for step in plan.steps):
+        issues.append(
+            InteropIssue(
+                level="error",
+                check="extension_lists_unreachable",
+                message=(
+                    "Plan writes SYSVOL content that no client-side extension would "
+                    "process, because the extension-list attributes live on the "
+                    "directory object and this plan targets SYSVOL only."
                 ),
                 component="plan",
             )

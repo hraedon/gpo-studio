@@ -13,7 +13,7 @@ descriptors and environment-variable paths remain open questions.
 
 **2026-09-07 script-policy update:** `script-policy/scripts-metadata` is now
 ready and anchored to the clean R10 Import-GPO/report/Backup-GPO run
-(`scripts-r10-20260907081826-5183`, 21/21 checks). The evidence proves Scripts
+(`scripts-r10-20260907182809-4583`, 21/21 checks). The evidence proves Scripts
 metadata interoperability; payload execution and endpoint processing remain
 outside scope.
 

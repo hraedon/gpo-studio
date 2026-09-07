@@ -1,6 +1,6 @@
-wrote C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907011816-9546\studio-scripts-backup.zip (2647 bytes)
+wrote C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907112801-11161\studio-scripts-backup.zip (2647 bytes)
 backup id: {49227F28-6122-5999-8CEB-923CB9BF3001}
-archive: C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907011816-9546\studio-scripts-backup.zip (2647 bytes)
+archive: C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907112801-11161\studio-scripts-backup.zip (2647 bytes)
 archive sha256: cd650643ed6449d1052c9bd26a08197fe1d9ac2d814eeede5ef177fcf0993f12
 members (5):
   manifest.xml  620 bytes  sha256:cfe788f05d6f16dd125b735905022020b50129199f3d402f9fbe5f730857c2b7

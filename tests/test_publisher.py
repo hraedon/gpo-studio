@@ -52,6 +52,7 @@ def _full_profile(**overrides: object) -> PublisherProfile:
             "write_sysvol_files",
             "write_security_descriptor",
             "write_wmi_filter",
+            "write_extension_lists",
             "write_gplink",
         }),
         "requires_approval": False,

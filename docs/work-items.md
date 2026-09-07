@@ -25,10 +25,9 @@ Regenerated whenever this file changes; `test_the_open_index_matches_the_registe
 - [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
 - [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
 - [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
-- [WI-057](#wi-057--a-publication-plan-writes-every-file-and-registers-no-extension) — a publication plan writes every file and registers no extension
-- [WI-058](#wi-058--a-gpos-description-has-no-publication-step) — a GPO's description has no publication step
+- [WI-059](#wi-059--a-windows-controller-can-mint-a-verdict-ci-will-reject) — a Windows controller can mint a verdict CI will reject
 
-**7 open.** Everything else in this file is closed.
+**6 open.** Everything else in this file is closed.
 
 ---
 
@@ -1965,7 +1964,35 @@ open a second time — is a valid answer only if it says why.
 ## WI-057 — a publication plan writes every file and registers no extension
 
 **Opened:** 2026-09-07 (Plan 034 WP-1 publication probe, on the estate).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-07 under closing condition (a), in `d15d8a6`.
+
+The planner now emits one `update_extension_lists` step per side naming the
+exact attribute value, and `test_plan_registers_the_extension_lists_windows_writes`
+pins both details this entry warned a hand-written fix would get wrong: three
+groups per side, and the machine/user asymmetry in the registry tool half.
+
+The vocabulary is sourced, not restated. `export.py` gained
+`extension_registration`, which reads the same `_GPP_EXTENSION_PROFILES` and
+`_extension_guids` the native backup writes, and `_gpp_family_files` is now the
+single place a family is derived from a serialized GPP path — the divergence
+between two modules' beliefs about one attribute was the defect itself, so
+`test_the_planner_and_the_exporter_cannot_disagree_about_extensions` asserts
+the planner's value is the one the backup actually contains. That test outlives
+the literal GUIDs; the string assertion does not.
+
+Two cases produce no honest value and refuse rather than guess, in the shape
+condition (b) named: a GPP family whose extension metadata has never been
+captured (`unsupported_extension_registration`), and a SYSVOL-only target,
+which cannot reach a directory attribute at all
+(`extension_lists_unreachable`). Both raise a `validate_publication_plan`
+error, and both operations are deliberately left out of the publisher's
+capability map so they fail the capability gate — mapping them would have made
+a refusal publishable by granting a capability.
+
+Changing `export.py` invalidated the Scripts metadata verdict that binds it,
+exactly as `test_a_live_verdict_still_binds_the_harness_that_ships` is built to
+catch. The lane was re-run rather than the verdict edited:
+`scripts-r10-20260907182809-4583`, 21/21, clean tree, bound to `f8a2bbd`.
 
 The publication planner names every byte-bearing SYSVOL file Windows produces
 for a GPO, and **no step that makes any of them run.**
@@ -2051,7 +2078,14 @@ lane before it becomes a surface. The lane that would re-run it is WP-1's
 
 **Opened:** 2026-09-07 (Plan 034 WP-1 publication probe; found while
 attributing an unexpected file, not while looking for it).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-07, in `d15d8a6`.
+
+The planner emits a `write_gpo_comment` step naming `GPO.cmt` when
+`gpo.description` is non-empty. The emit condition is the control run's rather
+than a guess, and
+`test_a_described_gpo_publishes_its_comment_and_an_undescribed_one_does_not`
+keeps both halves of that control — an undescribed GPO must emit no step — so
+the condition cannot quietly widen to "always emit".
 
 `GPO.description` is in the model, is round-tripped by export/import, and no
 publication step writes it. A published GPO would silently lose its comment.
@@ -2079,6 +2113,51 @@ exists so that small known gaps stop being rediscovered.
 emits none; or a ruling records the comment as deliberately not published, in
 `docs/live-publication.md` and in the planner's docstring, so its absence
 reads as a decision rather than an oversight.
+
+---
+
+## WI-059 — a Windows controller can mint a verdict CI will reject
+
+**Opened:** 2026-09-07 (while closing WI-057; it cost two lane runs the same
+afternoon).
+**Status:** open.
+
+The finalizers hash **working-tree bytes** for the source files a verdict
+binds. CI hashes what Git checked out. On a Windows controller those can
+differ, and when they do the lane passes locally and its banked verdict fails
+in CI — after the estate work is already spent.
+
+**How it happened, twice.** `.gitattributes` pins every bound source file to
+`text eol=lf` precisely so working tree and committed bytes agree. That holds
+until something rewrites a file with platform newlines: Python's
+`Path.write_text` translates `
+` to `
+` on Windows by default, so an
+ordinary scripted edit to `export.py` left CRLF in the working tree against an
+LF index. `git status` said clean — it compares normalized content — and the
+lane recorded `61ad9fa8445f` where CI computes `23bfe3e46da2`. The previous
+occurrence was the transcript-anchor half of the same problem, fixed in
+`2b14563` by pinning attributes; that fix made the invariant hold and did not
+make a violation of it visible.
+
+**Why the attributes are not the whole answer.** They make the *checkout*
+correct, which is necessary and not sufficient — nothing checks the working
+tree still matches after an edit. The failure is silent at exactly the moment
+it is cheapest to catch and expensive everywhere after: the estate session is
+over, the tag is cut, the pack is banked, and the first thing that disagrees
+is a CI job.
+
+**Closes when:** each finalizer refuses to mint a verdict whose bound files'
+working-tree bytes differ from their committed bytes — `git show :<path>` is
+the comparison and it needs no network — with the refusal naming the drifted
+files, and one lane run produced under the change. A test that mutates a bound
+file's line endings and proves the refusal fires belongs with it, since a
+guard that cannot be shown to fire is the same class of thing this item is
+about.
+
+**Batching note.** This edits every finalizer, so it invalidates every verdict
+bound to one. It is therefore a WI-048 batch item: worth doing in the same
+session as the next harness change, not on its own.
 
 ---
 

@@ -37,12 +37,15 @@ Current version: `1.0.0`.
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.
-- Publication planning has two recorded gaps, both measured against Windows
-  rather than reasoned: no step registers the CSE extension lists a client
-  reads to decide what to invoke (WI-057), and none publishes a GPO's comment
-  (WI-058). The planner remains unsurfaced and review-only, so neither is
-  reachable by an operator. The file half of the same measurement was complete,
-  and the GPT.INI half-increment behaved as the plan declared.
+- Publication plans now register the client-side extensions their SYSVOL
+  content requires, and publish a GPO's comment. Both gaps were measured
+  against Windows rather than reasoned (WI-057, WI-058): without the extension
+  lists a plan produced a GPO whose files were all correct and which applied
+  nothing. The values come from the exporter's measured vocabulary rather than
+  being restated, and content that cannot be honestly registered — an
+  unverified GPP family, or a SYSVOL-only target that cannot reach a directory
+  attribute — is refused rather than guessed. The planner remains unsurfaced
+  and review-only, and the fix itself is not yet Windows-verified.
 
 > Post-1.0 development has added considerably more to `src/` than it has added
 > to the operator-facing product. Entries below distinguish **surfaced**
