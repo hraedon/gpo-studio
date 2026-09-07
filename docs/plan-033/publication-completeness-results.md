@@ -6,6 +6,15 @@ clean disposable member server from source commit `362699c3437a`; the source
 checkout was clean. The immutable evidence tag is
 `evidence/publication-completeness-20260907193221-2759`.
 
+**Re-run independently on 2026-09-07** at the merged commit `5037147`, as
+`publication-completeness-20260907211717-2520`: 21/21 again, same comparison,
+against a freshly created GPO with a different identity. That second run is not
+banked — the run above remains the certification of record — but it is tagged,
+and it is the reason this is described as a lane rather than a capture. Plan
+034's rule is that a capture becomes a lane before it becomes a surface, and
+the difference between the two is precisely whether a second person can get the
+same answer without the first one present.
+
 ## What this lane asks, and why nothing else asked it
 
 Every other lane in this plan asks a round-trip question: Windows consumes
