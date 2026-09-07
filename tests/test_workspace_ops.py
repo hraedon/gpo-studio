@@ -558,7 +558,9 @@ class TestRestoreSelfRestore:
         with pytest.raises(WorkspaceError, match="same path"):
             restore_workspace(backup_path, backup_path)
 
-    def test_restore_rejects_resolved_same_path(self, tmp_path: Path) -> None:
+    def test_restore_rejects_resolved_same_path(
+        self, tmp_path: Path, symlink_privilege: None
+    ) -> None:
         source = _create_workspace_with_data(tmp_path)
         backup_path = tmp_path / "backup.db"
         backup_workspace(source, backup_path)
@@ -593,7 +595,9 @@ class TestRestoreLockWindow:
         assert second_fd is not None
         release_workspace_lock(second_fd)
 
-    def test_workspace_lock_rejects_preplanted_symlink(self, tmp_path: Path) -> None:
+    def test_workspace_lock_rejects_preplanted_symlink(
+        self, tmp_path: Path, symlink_privilege: None
+    ) -> None:
         target_path = tmp_path / "workspace.db"
         referent = tmp_path / "referent"
         referent.write_bytes(b"")
@@ -1224,7 +1228,7 @@ class TestBackupRestoreValidation:
 
 
 class TestSymlinkRejection:
-    def test_backup_rejects_symlink_source(self, tmp_path: Path) -> None:
+    def test_backup_rejects_symlink_source(self, tmp_path: Path, symlink_privilege: None) -> None:
         if os.path.islink(tmp_path / "link.db"):
             pytest.skip("Cannot create symlink")
         source = _create_workspace_with_data(tmp_path)
@@ -1233,7 +1237,7 @@ class TestSymlinkRejection:
         with pytest.raises(WorkspaceError, match="not found"):
             backup_workspace(link, tmp_path / "backup.db")
 
-    def test_backup_rejects_symlink_dest(self, tmp_path: Path) -> None:
+    def test_backup_rejects_symlink_dest(self, tmp_path: Path, symlink_privilege: None) -> None:
         source = _create_workspace_with_data(tmp_path)
         dest = tmp_path / "backup.db"
         os.symlink(tmp_path / "elsewhere.db", dest)
@@ -1269,7 +1273,7 @@ class TestSymlinkRejection:
         assert not backup_path.exists()
         assert not list(tmp_path.glob(".gpo-studio-*.tmp"))
 
-    def test_restore_rejects_symlink_backup(self, tmp_path: Path) -> None:
+    def test_restore_rejects_symlink_backup(self, tmp_path: Path, symlink_privilege: None) -> None:
         source = _create_workspace_with_data(tmp_path)
         backup_path = tmp_path / "backup.db"
         backup_workspace(source, backup_path)
@@ -1278,7 +1282,9 @@ class TestSymlinkRejection:
         with pytest.raises(WorkspaceError, match="not found"):
             restore_workspace(link, tmp_path / "target.db")
 
-    def test_restore_rejects_symlink_metadata(self, tmp_path: Path) -> None:
+    def test_restore_rejects_symlink_metadata(
+        self, tmp_path: Path, symlink_privilege: None
+    ) -> None:
         source = _create_workspace_with_data(tmp_path)
         backup_path = tmp_path / "backup.db"
         backup_workspace(source, backup_path)
@@ -1329,7 +1335,7 @@ class TestSymlinkRejection:
             restored.close()
 
     def test_restore_does_not_follow_predictable_temp_symlink(
-        self, tmp_path: Path
+        self, tmp_path: Path, symlink_privilege: None
     ) -> None:
         source = _create_workspace_with_data(tmp_path)
         backup_path = tmp_path / "backup.db"
@@ -1387,7 +1393,7 @@ class TestAtomicNoReplace:
         assert not list(tmp_path.glob(".gpo-studio-*.tmp"))
 
     def test_backup_ignores_predictable_metadata_temp_symlink(
-        self, tmp_path: Path
+        self, tmp_path: Path, symlink_privilege: None
     ) -> None:
         source = _create_workspace_with_data(tmp_path)
         backup_path = tmp_path / "backup.db"

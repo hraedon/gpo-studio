@@ -232,7 +232,7 @@ def test_parse_migration_table_sid_text(tmp_path: Path) -> None:
     assert entry.target_name == ""
 
 
-def test_parse_migration_table_rejects_symlink(tmp_path: Path) -> None:
+def test_parse_migration_table_rejects_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     import os
 
     real = tmp_path / "real.xml"

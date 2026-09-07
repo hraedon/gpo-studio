@@ -1037,7 +1037,9 @@ def test_backup_import_relative_traversal_rejected(
     assert "passwd" not in issue["message"]
 
 
-def test_import_backup_rejects_symlinked_manifest(tmp_path: Path, monkeypatch) -> None:
+def test_import_backup_rejects_symlinked_manifest(
+    tmp_path: Path, monkeypatch, symlink_privilege: None
+) -> None:
     inbox_dir = tmp_path / "inbox"
     inbox_dir.mkdir()
     monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox_dir))

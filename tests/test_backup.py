@@ -290,7 +290,7 @@ def test_read_backup_registry_attributed_to_registry_cse(tmp_path: Path) -> None
     }
 
 
-def test_read_backup_rejects_symlinked_manifest(tmp_path: Path) -> None:
+def test_read_backup_rejects_symlinked_manifest(tmp_path: Path, symlink_privilege: None) -> None:
     backup_dir = tmp_path / "backup"
     gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
     machine_dir = gpo_dir / "Machine"
@@ -307,7 +307,9 @@ def test_read_backup_rejects_symlinked_manifest(tmp_path: Path) -> None:
         read_backup(backup_dir)
 
 
-def test_read_backup_rejects_symlinked_gpo_directory(tmp_path: Path) -> None:
+def test_read_backup_rejects_symlinked_gpo_directory(
+    tmp_path: Path, symlink_privilege: None
+) -> None:
     """A symlinked GPO (GUID) directory must not let a backup escape the inbox.
 
     The per-side scan only checks ``(gpo_dir / "Machine").is_symlink()``, so a
@@ -326,7 +328,7 @@ def test_read_backup_rejects_symlinked_gpo_directory(tmp_path: Path) -> None:
         read_backup(backup_dir)
 
 
-def test_read_backup_rejects_symlinked_bkupinfo(tmp_path: Path) -> None:
+def test_read_backup_rejects_symlinked_bkupinfo(tmp_path: Path, symlink_privilege: None) -> None:
     backup_dir = tmp_path / "backup"
     gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
     machine_dir = gpo_dir / "Machine"
@@ -342,7 +344,7 @@ def test_read_backup_rejects_symlinked_bkupinfo(tmp_path: Path) -> None:
         read_backup(backup_dir)
 
 
-def test_scan_side_rejects_symlinked_file(tmp_path: Path) -> None:
+def test_scan_side_rejects_symlinked_file(tmp_path: Path, symlink_privilege: None) -> None:
     from gpo_studio.backup import _scan_side
 
     side_dir = tmp_path / "Machine"
@@ -355,7 +357,7 @@ def test_scan_side_rejects_symlinked_file(tmp_path: Path) -> None:
         _scan_side(side_dir, (), _BackupBudget())
 
 
-def test_scan_side_rejects_symlinked_subdirectory(tmp_path: Path) -> None:
+def test_scan_side_rejects_symlinked_subdirectory(tmp_path: Path, symlink_privilege: None) -> None:
     from gpo_studio.backup import _scan_side
 
     side_dir = tmp_path / "Machine"
@@ -369,7 +371,7 @@ def test_scan_side_rejects_symlinked_subdirectory(tmp_path: Path) -> None:
         _scan_side(side_dir, (), _BackupBudget())
 
 
-def test_safe_path_rejects_symlink_within_base(tmp_path: Path) -> None:
+def test_safe_path_rejects_symlink_within_base(tmp_path: Path, symlink_privilege: None) -> None:
     from gpo_studio.backup import _safe_path
 
     base = tmp_path / "base"
@@ -382,7 +384,9 @@ def test_safe_path_rejects_symlink_within_base(tmp_path: Path) -> None:
         _safe_path(base, "link.txt")
 
 
-def test_safe_path_rejects_symlink_pointing_outside(tmp_path: Path) -> None:
+def test_safe_path_rejects_symlink_pointing_outside(
+    tmp_path: Path, symlink_privilege: None
+) -> None:
     from gpo_studio.backup import _safe_path
 
     base = tmp_path / "base"
@@ -395,7 +399,7 @@ def test_safe_path_rejects_symlink_pointing_outside(tmp_path: Path) -> None:
         _safe_path(base, "link.txt")
 
 
-def test_hash_file_rejects_symlink(tmp_path: Path) -> None:
+def test_hash_file_rejects_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     from gpo_studio.backup import _hash_file
 
     real_file = tmp_path / "real.txt"
@@ -407,7 +411,7 @@ def test_hash_file_rejects_symlink(tmp_path: Path) -> None:
         _hash_file(link)
 
 
-def test_read_cse_content_rejects_symlink(tmp_path: Path) -> None:
+def test_read_cse_content_rejects_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     backup_dir = tmp_path / "backup"
     gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
     machine_dir = gpo_dir / "Machine"
@@ -571,7 +575,7 @@ def test_parse_manifest_wmi_filter_description() -> None:
     assert wmi.description == "Important filter"
 
 
-def test_safe_path_rejects_intermediate_symlink(tmp_path: Path) -> None:
+def test_safe_path_rejects_intermediate_symlink(tmp_path: Path, symlink_privilege: None) -> None:
     from gpo_studio.backup import _safe_path
 
     base = tmp_path / "base"
@@ -585,7 +589,7 @@ def test_safe_path_rejects_intermediate_symlink(tmp_path: Path) -> None:
         _safe_path(base, "link_dir/file.txt")
 
 
-def test_read_backup_rejects_symlinked_backup_dir(tmp_path: Path) -> None:
+def test_read_backup_rejects_symlinked_backup_dir(tmp_path: Path, symlink_privilege: None) -> None:
     backup_dir = tmp_path / "backup"
     gpo_dir = backup_dir / "11111111-2222-3333-4444-555555555555"
     machine_dir = gpo_dir / "Machine"
