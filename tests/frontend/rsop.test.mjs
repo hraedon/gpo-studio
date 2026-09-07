@@ -135,20 +135,41 @@ describe("renderSideSettings", () => {
 });
 
 describe("renderGpoResults", () => {
-  test("says on the table that the status is not per side", () => {
-    // The API's whole point about WI-032 is undone if the UI labels the column
-    // "Applied to". The disclaimer travels with the table.
+  test("shows both sides rather than claiming it cannot (WI-032)", () => {
+    // The table used to carry a disclaimer that the status was not a per-side
+    // answer. It is one now, and the UI was the last thing still saying
+    // otherwise -- caught by the browser suite, not by this one.
     const html = renderGpoResults([
       {
         precedence: 1,
         gpo_name: "Servers Override",
         status: "applied",
+        computer_status: "applied",
+        user_status: "no_settings_for_side",
         filtering_reasons: [],
         link_scope: "OU=Servers,DC=ad,DC=hraedon,DC=com",
       },
     ]);
-    expect(html).toContain("applied on at least one side");
-    expect(html).toContain("WI-032");
+    expect(html).not.toContain("applied on at least one side");
+    expect(html).toContain(">Computer<");
+    expect(html).toContain(">User<");
+    expect(html).toContain("no_settings_for_side");
+  });
+
+  test("renders a missing per-side value without inventing one", () => {
+    // An older cached response has no per-side fields. Showing an em dash is
+    // honest; showing "applied" because the merged status said so is not.
+    const html = renderGpoResults([
+      {
+        precedence: 1,
+        gpo_name: "Legacy Row",
+        status: "applied",
+        filtering_reasons: [],
+        link_scope: "OU=Servers,DC=ad,DC=hraedon,DC=com",
+      },
+    ]);
+    expect(html).toContain("—");
+    expect(html).not.toContain("undefined");
   });
 
   test("shows the blocking reasons a GPO carries", () => {

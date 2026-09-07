@@ -37,6 +37,22 @@ Current version: `1.0.0`.
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.
+- RSOP prediction answers the two sides separately (WI-032). Each GPO row
+  carries `computer_status` and `user_status`, and a result answers
+  `computer_applied_gpos` / `user_applied_gpos`. Promoting the WP-9 lane's
+  applied-set comparison from advisory to gated found a real over-report on its
+  first run — the model reported a GPO applied to a side it carried nothing
+  for, which Windows omits — corrected and re-certified across thirteen RSOP
+  runs.
+- `slow_link`, `safe_mode`, `simulate_slow_link` and `simulate_safe_mode` are
+  removed from the RSOP model and API (WI-036). They were accepted and never
+  read; the request models now refuse unknown keys, so a caller sending one
+  gets a 422 rather than a prediction that silently ignored it.
+- `object_security.validate()` deliberately does not judge ACL content, now
+  recorded as a ruling rather than left as silence (WI-055), and
+  `certification.py` is deleted as superseded (WI-056). The RSOP surface's
+  `limitations` array is consequently empty: all three limitations it carried
+  have been closed by fixing what they disclosed.
 - Plan 034: publication-plan completeness now has a repeatable Windows lane,
   which passed 21/21 on the clean member server. It compares the plan's own
   account of what it would write against the SYSVOL tree and extension-list

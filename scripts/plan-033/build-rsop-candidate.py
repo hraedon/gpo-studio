@@ -1813,12 +1813,19 @@ def prediction_document(
     because a predicted winner the lane does not observe would sit in the
     verdict looking exactly like a tested claim.
 
-    ``applied_gpos`` IS NOT A PER-SIDE SET, and the verdict says so. The model
-    reports one ``status`` per GPO, meaning "applied on at least one side",
-    so on a user-scope scenario whose GPOs also scope the computer the two are
-    not the same question. The finalizer therefore gates on the winners --
-    which is what the corpus scenarios actually assert -- and records the
-    applied sets as observation rather than as a check. See WI-032.
+    ``applied_gpos`` IS THE PER-SIDE SET for the scenario's own scope, since
+    WI-032 closed on 2026-09-07. It used to mean "applied on at least one
+    side" -- the only answer the model could give -- which is a different
+    question from the one ``UserResults`` answers, and the finalizer therefore
+    recorded the comparison instead of gating it. ``RsopGpoResult`` now carries
+    ``computer_status`` and ``user_status``, so the prediction is partitioned on
+    the side being observed and the comparison is a real check.
+
+    ``out_of_scope_gpos`` is the fourth partition and is not a claim that
+    Windows blocked anything: it means this side never searched the GPO. Those
+    rows are predicted *not applied* on this side, so Windows listing one is a
+    genuine finding -- unlike ``unevaluable_gpos``, which is the model
+    abstaining and is excluded from grading in both directions (WI-043).
     """
     query = build_query(scenario, domain, site_name, computer_name, user_name)
     result = compute_rsop(query)
@@ -1838,20 +1845,37 @@ def prediction_document(
     applied_names: list[str] = []
     denied: list[dict[str, Any]] = []
     unevaluable: list[dict[str, Any]] = []
+    out_of_scope: list[dict[str, Any]] = []
     for gpo_result in result.gpo_results:
         row = {"gpo": gpo_result.gpo_name, "reasons": sorted(gpo_result.filtering_reasons)}
-        if gpo_result.status == "applied":
+        # The side the lane will observe, not the merge of both (WI-032).
+        side_status = (
+            gpo_result.user_status
+            if scenario.scope == "user"
+            else gpo_result.computer_status
+        )
+        if side_status == "applied":
             applied_names.append(gpo_result.gpo_name)
-        elif gpo_result.status == "blocked":
+        elif side_status == "blocked":
             denied.append(row)
-        elif gpo_result.status == "unevaluable":
+        elif side_status == "unevaluable":
             unevaluable.append(row)
+        elif side_status == "out_of_scope":
+            out_of_scope.append(row)
+        elif side_status == "no_settings_for_side":
+            # Not applied on this side, and not blocked either: Windows simply
+            # does not list a GPO that carries nothing for the side. Shares the
+            # out-of-scope bucket because the lane's question is the same --
+            # this GPO must not appear in the side's results -- and the reason
+            # rides along in the row.
+            out_of_scope.append({**row, "reason": "no_settings_for_side"})
         else:
-            assert_never(gpo_result.status)
+            assert_never(side_status)
 
     applied = sorted(applied_names)
     denied.sort(key=lambda r: str(r["gpo"]))
     unevaluable.sort(key=lambda r: str(r["gpo"]))
+    out_of_scope.sort(key=lambda r: str(r["gpo"]))
 
     resolved = (
         result.user_settings if scenario.scope == "user" else result.computer_settings
@@ -1889,6 +1913,7 @@ def prediction_document(
         "applied_gpos": applied,
         "denied_gpos": denied,
         "unevaluable_gpos": unevaluable,
+        "out_of_scope_gpos": out_of_scope,
         "winners": winners,
         "warnings": sorted(result.warnings),
     }

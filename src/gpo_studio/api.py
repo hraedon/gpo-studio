@@ -1210,10 +1210,12 @@ class RsopTargetData(BaseModel):
     computer_group_memberships: list[str] = Field(default_factory=list, max_length=500)
     user_group_memberships: list[str] = Field(default_factory=list, max_length=500)
     loopback_mode: Literal["disabled", "merge", "replace"] = "disabled"
-    #: Accepted and never read (WI-036). Setting either raises the
-    #: `slow_link_and_safe_mode_are_not_evaluated` limitation on the response.
-    slow_link: bool = False
-    safe_mode: bool = False
+
+    #: Unknown fields are refused rather than ignored. `slow_link` and
+    #: `safe_mode` used to live here, accepted and read nowhere (WI-036);
+    #: deleting them without this would have left them accepted and read
+    #: nowhere AND invisible, which is the same defect with less to see.
+    model_config = ConfigDict(extra="forbid")
 
 
 class RsopQueryData(BaseModel):
@@ -1235,8 +1237,11 @@ class RsopQueryData(BaseModel):
         default_factory=dict
     )
     simulate_no_loopback: bool = False
-    simulate_slow_link: bool | None = None
-    simulate_safe_mode: bool | None = None
+
+    #: See `RsopTargetData`: `simulate_slow_link` and `simulate_safe_mode` were
+    #: removed with the fields they simulated, and unknown keys are refused so
+    #: their removal is visible to a caller still sending them.
+    model_config = ConfigDict(extra="forbid")
 
 
 class RsopCompareRequest(BaseModel):
@@ -1254,8 +1259,6 @@ class RsopTargetResponse(BaseModel):
     computer_group_memberships: list[str]
     user_group_memberships: list[str]
     loopback_mode: str
-    slow_link: bool
-    safe_mode: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1285,14 +1288,29 @@ class RsopGpoResultResponse(BaseModel):
     gpo_name: str
     status: Literal["applied", "blocked", "unevaluable"] = Field(
         description=(
-            "Whether the GPO reached the target ON AT LEAST ONE SIDE. It is not "
-            "a per-side answer and must not be read as one: Windows reports "
-            "ComputerResults and UserResults as separate sets and on a topology "
-            "whose GPOs scope both they differ (WI-032). The per-side answer "
-            "this surface does give is computer_settings / user_settings. "
-            "'blocked' is not the complement of 'applied' -- 'unevaluable' "
-            "means no measurement covers the case."
+            "Whether the GPO reached the target ON AT LEAST ONE SIDE -- the "
+            "merge of computer_status and user_status, kept because it is the "
+            "question a reader of a single row usually has. For the per-side "
+            "answer read those two fields, or computer_applied_gpos / "
+            "user_applied_gpos on the result. 'blocked' is not the complement "
+            "of 'applied' -- 'unevaluable' means no measurement covers the case."
         )
+    )
+    computer_status: Literal[
+        "applied", "blocked", "unevaluable", "out_of_scope", "no_settings_for_side"
+    ] = Field(
+        description=(
+            "What happened to this GPO on the COMPUTER side. 'out_of_scope' "
+            "means this side never searched it -- it is not linked anywhere the "
+            "computer looked -- which is different from 'blocked', where the "
+            "side searched it and decided against it. Windows makes the same "
+            "distinction by simply omitting the GPO from ComputerResults."
+        )
+    )
+    user_status: Literal[
+        "applied", "blocked", "unevaluable", "out_of_scope", "no_settings_for_side"
+    ] = Field(
+        description="What happened to this GPO on the USER side. See computer_status."
     )
     filtering_reasons: list[str]
     precedence: int
@@ -3877,8 +3895,6 @@ def _rsop_target_data_to_model(data: RsopTargetData) -> RsopTarget:
         computer_group_memberships=tuple(data.computer_group_memberships),
         user_group_memberships=tuple(data.user_group_memberships),
         loopback_mode=data.loopback_mode,
-        slow_link=data.slow_link,
-        safe_mode=data.safe_mode,
     )
 
 
@@ -3891,33 +3907,30 @@ def _rsop_query_data_to_model(data: RsopQueryData) -> RsopQuery:
         gpos=tuple(_rsop_gpo_data_to_model(g) for g in data.gpos),
         wmi_filter_results=tuple(sorted(data.wmi_filter_results.items())),
         simulate_no_loopback=data.simulate_no_loopback,
-        simulate_slow_link=data.simulate_slow_link,
-        simulate_safe_mode=data.simulate_safe_mode,
     )
 
 
-#: Holds for every answer this surface will ever give, so it is emitted
-#: unconditionally rather than when some heuristic thinks it matters.
-_RSOP_STATUS_IS_NOT_PER_SIDE = {
-    "code": "gpo_status_is_not_per_side",
-    "message": (
-        "gpo_results[].status collapses to 'applied on at least one side'. "
-        "Windows reports ComputerResults and UserResults as separate sets, and "
-        "on a topology whose GPOs scope both sides they differ, so this surface "
-        "cannot answer 'which GPOs applied to the user' separately from 'which "
-        "applied to the computer'. The per-side answer it does give is "
-        "computer_settings / user_settings. WI-032."
-    ),
-}
+# WI-032, REMOVED 2026-09-07 along with the gap it described. The limitation
+# used to say that gpo_results[].status collapsed to "applied on at least one
+# side" and that this surface could not answer the two sides separately. It can:
+# computer_status / user_status per row, and computer_applied_gpos /
+# user_applied_gpos on the result.
+#
+# Deleted rather than reworded, because WI-032's own entry required it -- "a
+# limitation still being announced after it has been fixed is the same class of
+# defect as a stale status line" -- and because that is what was done for
+# WI-049 and WI-036 above and below.
 
-_RSOP_SLOW_LINK_NOT_EVALUATED = {
-    "code": "slow_link_and_safe_mode_are_not_evaluated",
-    "message": (
-        "slow_link, safe_mode, simulate_slow_link and simulate_safe_mode are "
-        "accepted and never read. No part of this result reflects them, and no "
-        "certified scenario covers either. WI-036."
-    ),
-}
+# WI-036, REMOVED 2026-09-07 along with the fields it described. The limitation
+# used to say that slow_link, safe_mode, simulate_slow_link and
+# simulate_safe_mode were accepted and never read. They are now not accepted:
+# the fields are gone from the request shape and both models refuse unknown
+# keys, so a caller who still sends one gets a 422 naming it rather than a
+# prediction that silently ignored it.
+#
+# Deleted rather than reworded, for the reason WI-049's block below gives and
+# WI-032's entry states outright: a limitation still announced after it has
+# been addressed is the same class of defect as a stale status line.
 
 
 # WI-049, MEASURED AND REMOVED 2026-09-06. This limitation used to say that a
@@ -3937,26 +3950,26 @@ _RSOP_SLOW_LINK_NOT_EVALUATED = {
 def _rsop_limitations(queries: Sequence[RsopQueryData]) -> list[dict[str, str]]:
     """State what the answer does not say, at the point the answer is read.
 
-    These are documented in the capability matrix as well. Repeating them in the
-    payload is deliberate: a caller reading JSON is not reading the matrix, and
-    WI-032's collapsed status is exactly the kind of field that looks like a
-    per-side answer to anyone who has not been told otherwise.
+    **Currently empty, and that is a result rather than an oversight.** This
+    surface carried three limitations and all three were closed by fixing what
+    they disclosed: WI-049's unmeasured filter cells were measured on the
+    estate, WI-036's ignored fields were removed from the request shape, and
+    WI-032's collapsed status became a real per-side answer. Each was deleted in
+    the change that closed it, because a limitation still announced afterwards
+    is the same class of defect as a stale status line.
 
-    Two of the three are conditional, and the conditions are exact rather than
-    heuristic -- which is the whole reason they are allowed to be conditional.
-    A limitation emitted when something *guessed* the caller was at risk would
+    The function stays, and so does the `limitations` array in the response. A
+    caller reading JSON is not reading the capability matrix, and the next
+    honest limitation should have somewhere to go that callers already parse --
+    rediscovering that need is how it ends up documented only in the matrix.
+
+    A limitation added here must hold for *every* answer this surface gives, or
+    else be conditional on an exact property of the query rather than on a
+    heuristic: one emitted when something *guessed* the caller was at risk would
     be absent exactly when the guess was wrong.
     """
-    limitations = [dict(_RSOP_STATUS_IS_NOT_PER_SIDE)]
-    if any(
-        query.target.slow_link
-        or query.target.safe_mode
-        or query.simulate_slow_link is not None
-        or query.simulate_safe_mode is not None
-        for query in queries
-    ):
-        limitations.append(dict(_RSOP_SLOW_LINK_NOT_EVALUATED))
-    return limitations
+    del queries  # No current limitation depends on the query; see above.
+    return []
 
 
 @app.post("/api/rsop/compute", response_model=RsopComputeResponse)

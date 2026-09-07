@@ -4,6 +4,25 @@ Each family exposes a frozen dataclass with ``from_template`` extraction,
 ``to_template_entries`` serialization, and ``validate`` checks.  This keeps the
 core codec independent from FastAPI, matching :mod:`policy_families` and
 :mod:`security_template`.
+
+**`validate` does not judge ACL content, and its silence is not approval.**
+Ruled 2026-09-07 under WI-056's sibling WI-055, after measurement: a
+``[Registry Keys]`` or ``[File Security]`` row granting ``WD`` (Everyone) ``KA``
+(full control) parses to typed trustee and rights fields and returns no issue at
+all. That is deliberate, for two reasons.
+
+A grant to Everyone is not universally a defect -- it is normal on parts of
+``HKLM\\SOFTWARE`` and on print queues -- so a warning would fire on correct
+configurations, which is how operators learn to ignore warnings. And it is not
+an oracle question: no Windows tool will say whether an ACL is *advisable*, and
+``secedit /validate`` already accepts these rows (Plan 033 R9). Studio has been
+wrong before about rules it reasoned out rather than measured, so it asserts
+nothing here rather than asserting something unmeasured.
+
+What ``validate`` does check is shape and one hazard: an empty path, an
+unparseable descriptor, and replace-propagation on a system hive. It is a
+structural check, and a caller must not read a clean result as a judgement that
+the access granted is appropriate.
 """
 
 from __future__ import annotations
@@ -456,6 +475,12 @@ class RegistrySecurityFamily:
     keys: tuple[RegistryKeySecurity, ...] = field(default_factory=tuple)
 
     def validate(self) -> tuple[ValidationIssue, ...]:
+        """Structural checks only; ACL content is deliberately not judged.
+
+        See the module docstring (WI-055). An ACE granting Everyone full control
+        parses into typed fields here and produces no issue, by ruling rather
+        than by omission.
+        """
         issues: list[ValidationIssue] = []
         for key in self.keys:
             if not key.key_path.strip():
@@ -536,6 +561,12 @@ class FileSystemSecurityFamily:
     files: tuple[FileSecurity, ...] = field(default_factory=tuple)
 
     def validate(self) -> tuple[ValidationIssue, ...]:
+        """Structural checks only; ACL content is deliberately not judged.
+
+        See the module docstring (WI-055). An ACE granting Everyone full control
+        parses into typed fields here and produces no issue, by ruling rather
+        than by omission.
+        """
         issues: list[ValidationIssue] = []
         for f in self.files:
             if not f.file_path.strip():

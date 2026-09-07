@@ -39,6 +39,51 @@ LANE_VERDICTS = {
     "wp1b-evidence/publication-completeness/verification.json": (
         "finalize_publication_run.py"
     ),
+    # The 2026-09-07 batch. WI-032 gave the model per-side applied sets and
+    # promoted the WP-9 comparison to gated, which moved the candidate
+    # builder and the user finalizer -- both bound by every RSOP verdict.
+    # The gate found a model over-report on its first run (a GPO carrying
+    # nothing for a side was reported applied to it) and these runs are
+    # after that correction.
+    "wp6-evidence/verdict-rsop-observe-20260907221946-2994.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260907222055-1770.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260907222206-6220.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260907222315-2698.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260907222431-1389.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260907222610-4330.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp6-evidence/verdict-rsop-observe-20260907222726-4256.json": (
+        "finalize_rsop_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260907220844-4855.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260907221020-2710.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260907221153-8426.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260907221411-3148.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260907221626-5555.json": (
+        "finalize_rsop_user_run.py"
+    ),
+    "wp9-evidence/verdict-rsop-user-observe-20260907221808-9398.json": (
+        "finalize_rsop_user_run.py"
+    ),
     "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
     "wp3-evidence/policy-families/dc/verification.json": "finalize_wp3_run.py",
@@ -404,24 +449,56 @@ PRE_TRANSPORT_VERDICTS = {
 #: still matches the tree, so a live claim cannot be quietly parked in here to
 #: silence the gate below.
 RETIRED_VERDICTS = {
-    # The 2026-09-05 batch, superseded by batch two on 2026-09-06. WI-037 moved
-    # all three shared-root lane drivers and WI-049 moved the candidate builder,
-    # both of which every RSOP verdict binds by hash. The gate reported exactly
-    # twelve broken bindings the moment the code landed and before a single lane
-    # had been re-run -- the second consecutive tranche where it did the noticing
-    # rather than a person.
+    # The 2026-09-06 batch, superseded by the 2026-09-07 WI-032 batch. The
+    # candidate builder now predicts the side being observed rather than
+    # "applied on at least one side", and the WP-9 finalizer gates on the
+    # comparison it used to only record, so these verdicts bind a harness
+    # that asks a different question. They remain valid for the commits
+    # they name.
     "wp6-evidence/verdict-rsop-observe-20260906045316-1301.json",
     "wp6-evidence/verdict-rsop-observe-20260906045428-3847.json",
     "wp6-evidence/verdict-rsop-observe-20260906045536-1696.json",
     "wp6-evidence/verdict-rsop-observe-20260906045643-6646.json",
     "wp6-evidence/verdict-rsop-observe-20260906045750-7576.json",
     "wp6-evidence/verdict-rsop-observe-20260906045858-7209.json",
+    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json",
+    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json",
+    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json",
+    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json",
+    "wp6-evidence/verdict-rsop-observe-20260906221638-4687.json",
+    "wp6-evidence/verdict-rsop-observe-20260906221931-1695.json",
+    "wp6-evidence/verdict-rsop-observe-20260906223143-4837.json",
+    "wp6-evidence/verdict-rsop-observe-20260906223251-8863.json",
+    "wp6-evidence/verdict-rsop-observe-20260906223400-9371.json",
+    "wp6-evidence/verdict-rsop-observe-20260906223508-6654.json",
+    "wp6-evidence/verdict-rsop-observe-20260906223619-5576.json",
     "wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json",
     "wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json",
     "wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json",
     "wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json",
     "wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json",
     "wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906222041-8299.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906222219-6252.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906222352-5950.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906222601-2732.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906222818-6584.json",
+    "wp9-evidence/verdict-rsop-user-observe-20260906222959-7716.json",
+    # The 2026-09-05 batch, superseded by batch two on 2026-09-06. WI-037 moved
+    # all three shared-root lane drivers and WI-049 moved the candidate builder,
+    # both of which every RSOP verdict binds by hash. The gate reported exactly
+    # twelve broken bindings the moment the code landed and before a single lane
+    # had been re-run -- the second consecutive tranche where it did the noticing
+    # rather than a person.
     # The 2026-08-06 RSOP batch, superseded by the 2026-09-05 re-certification.
     # WI-048 changed `psdirect.ps1`, which every lane transports through, and the
     # WP-9 lane's session-restart gate stopped failing silently in the same
@@ -532,24 +609,11 @@ RETIRED_VERDICTS = {
     # drivers (the reboot), and every verdict bound to the pre-change hashes
     # stopped being a certification the moment the code landed. Re-run in full
     # the same evening; see the WI-054 batch entries in LANE_VERDICTS.
-    "wp6-evidence/verdict-rsop-observe-20260906183835-6175.json",
-    "wp6-evidence/verdict-rsop-observe-20260906183948-3890.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184057-2689.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184205-5172.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184313-1876.json",
-    "wp6-evidence/verdict-rsop-observe-20260906184434-8187.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json",
-    "wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json",
     # The group-deny scenario's first run: a LANE-FAILURE by design, binding
     # the tree BEFORE the boot-applier fix. It is the record of the run that
     # found the interaction (boot-time policy processing filling the policy key
     # between authoring and observation), and it stays stale by construction --
     # the fix changed the observe half and the finalizer it binds.
-    "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json",
     "wp3-evidence/verification-estate.json",
 }
 
