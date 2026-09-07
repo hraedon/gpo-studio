@@ -4,7 +4,7 @@
   "files": {
     "gpttmpl.inf.txt": {
       "native_path_in_backup": "DomainSysvol/GPO/Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf",
-      "measured_total_bytes": 924,
+      "reconstructed_total_bytes": 924,
       "measured_bom": "utf-16le (FF FE), width 2",
       "measured_cr_count": 9,
       "measured_lf_count": 9,

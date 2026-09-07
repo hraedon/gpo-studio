@@ -1,7 +1,15 @@
 # Oracle survey — the Plans 025–032 domain layers
 
 Written 2026-08-06 against `main` at `b421996`, read-only. Nothing was executed
-against Windows and no estate host was contacted.
+against Windows and no estate host was contacted **when this was written**.
+
+> **Superseded in part, 2026-09-06.** Eleven of the discriminators below have
+> since been executed — see §5.0 and
+> [`manual-evidence-requests.md`](manual-evidence-requests.md), whose table
+> binds each result to a record. The classifications and the reasoning are
+> unchanged and still govern the modules no oracle has read. What is no longer
+> true is the sentence above and the running order in §6, five of whose seven
+> items are done. **Read §5.0 before §5.**
 
 ## What this document is
 
@@ -1570,6 +1578,58 @@ report. **Unverified as a Windows question**, but comparing against
 run.
 
 **Cost: small** — a report differ over an existing lane's artifacts.
+
+---
+
+## 5.0 What the eleven requests settled — the module-by-module record
+
+Added 2026-09-06. §5 below is the **prediction**: what oracle would settle each
+module, written before any of it ran. This section is the **outcome**. Both are
+kept, because comparing them is the useful thing — a survey whose predictions
+are silently overwritten by its results teaches nothing about how good the
+predictions were.
+
+Every row cites a record. The full binding, with fixture paths and the commits
+that carry each fix, is the table in
+[`manual-evidence-requests.md`](manual-evidence-requests.md#where-each-result-lives).
+
+**Nine of seventeen modules have now had oracle contact. Five needed
+correction, one was confirmed correct, and one had its scope invalidated
+rather than its code.**
+
+| Module | Request | Prediction held? | Outcome |
+|---|---|---|---|
+| `migration.py` | R1 | **yes** | The suspected wrong namespace and element shape were both real, and the failure was silent exactly as predicted: a GPMC-authored table parsed to an empty table on a live API endpoint. Fixed `936394d` |
+| `object_security.py` | R4, R9 | **yes** | The wire is a bare quoted-CSV row, not `path = 2,"SDDL"`. Windows' own parser rejects the module's shape and accepts the native one. Propagation codes were wrong on **all three** values. Fixed `d7caf44` |
+| `publication.py` | R5, R8 | **yes** | `update_gpt_ini`'s flat `+1` on a packed 32-bit field would corrupt it. Corroborated twice — lab (R5) and a production directory (R8, `Version=131082` = user 2 · 65536 + machine 10). Fixed `725d085`; the dead CSE-GUID block dropped in `b8fa1f4` |
+| `gpmc_interop.py` | R6 | **yes** | `_KNOWN_CSE_GUIDS` held GPP XML `clsid` values. Neither appears in any extension list across **26 production GPOs**. Fixed `0a6664e` |
+| `script_policy.py` | R2, R10 | **yes** | UTF-16LE BOM + CRLF, `[ScriptsConfig]` rather than `[Policy]` — the WP-3 finding's exact shape, as predicted. Writers rebuilt (`4221432`) and now **round-trip certified**: Windows re-emits Studio's INIs byte-identically |
+| `policy_families.py` | R7 | **no — the module was right** | The three existing unit mappings (hours/days/minutes) were **correct as written**. The real gap was two unmodelled keys, added in `055e5f5`. The first prediction in this survey to be wrong in the module's favour |
+| `folder_redirection.py` | R3 | **yes, and worse than predicted** | Confirmed the module addresses the wrong artifact: the policy lives in `fdeploy1.ini`, with an empty `fdeploy.ini` as a marker. The survey said this "changes Plan 027's *scope* rather than fixing a line" and that is exactly what it does. **No code change — this is an input to Plan 034, not a patch** |
+| `security_template.py` | R4 | **partly** | The read direction ran for the first time. Native `[Registry Keys]` rows parse to **0 entries and 3 `unknown_lines`** — the module cannot read the native shape of that section at all. Preserve-only round-trips it losslessly, which is what makes WI-038 a real choice rather than a bug report |
+| `publisher.py` | — | n/a | Not an oracle question. Its two reproduced defects were closed by review: WI-050, WI-051, WI-052 |
+
+### What this does not cover
+
+Eight modules have still had **no oracle contact of any kind**, and nothing
+above licenses an inference about them: `network_security.py`,
+`artifact_store.py`, `software_install.py`, `lifecycle.py`,
+`certification.py`, `hosting.py`, `backup.py`, `report.py`. §3 and §4 remain
+the live scoping for all eight, and `network_security.py`'s NetSecurity probe
+(§6 item 6, two commands) is still the cheapest unrun measurement in the
+document.
+
+### What the outcome says about the method
+
+Eight of nine predictions fired. That is a high hit rate, and the honest
+reading is not that the survey is clairvoyant but that **the failure modes were
+already visible in the code to anyone willing to look at the wire format
+instead of the tests** — which is the argument `domain-layer-status.md` makes.
+The one miss (`policy_families.py`) is the useful data point in the other
+direction: a module can look wrong from the source and be right, so a
+discriminator is still worth running rather than reasoning through. WI-049
+made the same point from the opposite side, when three cells changed by
+reasoning were measured and all three agreed.
 
 ---
 
