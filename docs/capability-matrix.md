@@ -650,7 +650,7 @@ claim and a middle value would weaken a shipped contract.
 | Plan | Module(s) | Surfaced | Windows-verified |
 |---|---|---|---|
 | 025 | `security_template.py` | no | **capture-backed (R4)** — encoding, BOM, section shape and the quoted-CSV row form of one native GPMC template. The same capture shows it parses **0 of 3** `[Registry Keys]` rows (3 `unknown_lines`); see WI-038 |
-| 025 | `object_security.py` | no | **capture-backed (R4, R9)** — propagation codes measured (0/1/2, all three previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 now adds a clean member-server 19/19 validate/import/export lane; ACL application/content suitability remains unverified and WI-055 is open |
+| 025 | `object_security.py` | no | **capture-backed (R4, R9)** — propagation codes measured (0/1/2, all three previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 adds a clean member-server 19/19 validate/import/export lane. ACL *application* remains unverified; ACL *content* is deliberately unjudged by ruling (WI-055, closed 2026-09-07) rather than by omission |
 | 025 | `network_security.py` | no | no — [NetSecurity availability and one unlinked-GPO firewall probe passed](plan-033/wp3-policy-family-results.md#wp-2-netsecurity-discriminator); model conformance remains unverified |
 | 025 | `policy_families.py` | no | **capture-backed (R7)**; now also a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), 21/21 checks each. The lane corrected the audit key and removed two unsupported Kerberos fields. Still unsurfaced; application and arbitrary-value coverage remain unverified |
 | 026 | `script_policy.py` | no | **capture-backed (R2, R10)** — native wire format measured, and Windows re-emits Studio's `scripts.ini`/`psscripts.ini` byte-identically after `Import-GPO`. Plan 034 now has a repeatable 21/21 metadata lane; payload execution and endpoint processing remain unverified |
@@ -661,7 +661,7 @@ claim and a middle value would weaken a shipped contract.
 | 028 | `gpmc_interop.py` | no | **capture-backed (R6)** — the known-CSE vocabulary measured against 26 production GPOs |
 | 030 | `publication.py` | no | **lane-backed, unsurfaced (R5, R8, R11, publication-completeness)** — a re-runnable lane compares the plan's account of what it would write against what Windows produces: 21/21, both directions of the SYSVOL file set, both extension-list attributes byte-identical, and the packed GPT.INI version moving the declared half. Covers one GPO shape (two registry sides plus one verified GPP family each) and **measures the plan, not a publication** — nothing writes to SYSVOL or AD, the module is unreachable by an operator, and the operation allowlist is still empty. Security filtering, links and WMI filters have no coverage. See [the results](plan-033/publication-completeness-results.md) |
 | 030 | `publisher.py` | no | no |
-| 031 | `certification.py` | no | no |
+| 031 | ~~`certification.py`~~ | — | **deleted 2026-09-07 (WI-056)** — superseded by `oracle_evidence.py`, no consumer outside its own tests. Plan 031's underlying question (what a portfolio of evidence across capabilities looks like) is unanswered and is recorded there, not here |
 | 032 | `hosting.py` | no | no |
 
 ### `security_template.py` — three sections are `preserve-only` (WI-038, decided 2026-09-06)
@@ -691,8 +691,14 @@ be over-read:
 
 - `object_security.py` is **not surfaced** (see the table above), so no operator
   reaches that parse today.
-- It parses these ACLs but does not judge their contents: an ACE granting
-  Everyone full control passes `validate()` silently. That is **WI-055**, open.
+- It parses these ACLs and **deliberately does not judge their contents**: an
+  ACE granting Everyone full control passes `validate()` with no issue. Ruled
+  2026-09-07 (WI-055, closed): a grant to Everyone is normal on parts of
+  `HKLM\SOFTWARE` and on print queues, so a warning would fire on correct
+  configurations; and no Windows tool will say whether an ACL is *advisable*,
+  so there is nothing to measure against. `validate()` is a structural check,
+  and its silence must not be read as approval — the module docstring says so
+  at the point a reader lands.
 
 **No module in this table is `yes`.** Every row is `no` or `capture-backed`, and
 `capture-backed` is not a step toward `yes` — it is a different kind of claim.

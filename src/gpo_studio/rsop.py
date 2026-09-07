@@ -48,6 +48,17 @@ WmiEvaluation = bool | Literal["unevaluatable"]
 #: considered the third case.
 RsopGpoStatus = Literal["applied", "blocked", "unevaluable"]
 
+#: The same three answers plus the one a merged status cannot express.
+#:
+#: ``"out_of_scope"`` means this side's SOM traversal never reached the GPO at
+#: all -- it is not linked anywhere this side searched. Before WI-032 closed,
+#: a GPO absent from one side's precedence defaulted to ``"blocked"`` there,
+#: which conflated "Windows decided against it" with "Windows never considered
+#: it". The worked case is a computer-side GPO under loopback: it is applied,
+#: and it correctly never appears in ``UserResults``. Calling that "blocked on
+#: the user side" would be a claim Windows never made.
+RsopSideStatus = Literal["applied", "blocked", "unevaluable", "out_of_scope"]
+
 #: How one setting differs between two RSOP results.
 #:
 #: ``"uncertainty_changed"`` carries no value change at all: the winner and its
@@ -86,8 +97,6 @@ class RsopTarget:
     computer_group_memberships: tuple[str, ...] = ()
     user_group_memberships: tuple[str, ...] = ()
     loopback_mode: LoopbackMode = "disabled"
-    slow_link: bool = False
-    safe_mode: bool = False
 
     def validate(self) -> tuple[ValidationIssue, ...]:
         """Validate target fields."""
@@ -148,8 +157,6 @@ class RsopQuery:
     #: notice.
     wmi_filter_results: tuple[tuple[str, WmiEvaluation], ...] = ()
     simulate_no_loopback: bool = False
-    simulate_slow_link: bool | None = None
-    simulate_safe_mode: bool | None = None
     created_at: str = ""
     created_by: str = ""
 
@@ -217,7 +224,12 @@ class RsopGpoResult:
 
     gpo_guid: str
     gpo_name: str
+    #: Applied on at least one side. Kept because it is the question a reader
+    #: of a single row usually has; `computer_status` and `user_status` are the
+    #: two answers it merges, and they are no longer unavailable (WI-032).
     status: RsopGpoStatus
+    computer_status: RsopSideStatus = "out_of_scope"
+    user_status: RsopSideStatus = "out_of_scope"
     filtering_reasons: tuple[str, ...] = ()
     precedence: int = 0
     link_scope: str = ""
@@ -239,6 +251,25 @@ class RsopResult:
     gpo_results: tuple[RsopGpoResult, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
     computed_at: str = ""
+
+    @property
+    def computer_applied_gpos(self) -> tuple[str, ...]:
+        """GUIDs applied to the computer, in precedence order (1 = highest).
+
+        The direct answer to "which GPOs applied to the computer", which is
+        what a `ComputerResults` document lists and what WI-032 was filed
+        because this result could not produce.
+        """
+        return self._applied("computer_status")
+
+    @property
+    def user_applied_gpos(self) -> tuple[str, ...]:
+        """GUIDs applied to the user, in precedence order (1 = highest)."""
+        return self._applied("user_status")
+
+    def _applied(self, field_name: str) -> tuple[str, ...]:
+        rows = [r for r in self.gpo_results if getattr(r, field_name) == "applied"]
+        return tuple(r.gpo_guid for r in sorted(rows, key=lambda r: r.precedence))
 
     def get_effective_value(
         self,
@@ -723,14 +754,24 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
             seen_order[gpo.guid] = order
 
             blocked: RsopGpoStatus = "blocked"
+            comp_present = gpo.guid in computer_resolution.gpo_states
+            user_present = gpo.guid in user_resolution.gpo_states
             comp_state = computer_resolution.gpo_states.get(gpo.guid, (blocked, (), ()))
             user_state = user_resolution.gpo_states.get(gpo.guid, (blocked, (), ()))
 
+            # A side that never searched this GPO did not block it. The merged
+            # status below still treats absence as "blocked" -- that is what it
+            # has always meant and what `_status_certainty` orders -- but the
+            # per-side fields say `out_of_scope`, because reporting a block
+            # Windows never decided is the defect WI-032 was filed for.
+            computer_status: RsopSideStatus = comp_state[0] if comp_present else "out_of_scope"
+            user_status: RsopSideStatus = user_state[0] if user_present else "out_of_scope"
+
             # Applied on either side wins, preserving the existing meaning of
-            # "applied to at least one side" (WI-032 tracks the missing per-side
-            # sets). Otherwise an open question outranks a definite block: if
-            # one side is unevaluable and the other blocked, the GPO's fate is
-            # not settled, and saying "blocked" would settle it by omission.
+            # "applied to at least one side". Otherwise an open question
+            # outranks a definite block: if one side is unevaluable and the
+            # other blocked, the GPO's fate is not settled, and saying
+            # "blocked" would settle it by omission.
             status = _merge_side_status(comp_state[0], user_state[0])
             all_reasons = set(comp_state[1]) | set(user_state[1])
             all_warnings = set(comp_state[2]) | set(user_state[2])
@@ -758,6 +799,8 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
                 gpo_guid=gpo.guid,
                 gpo_name=gpo.name,
                 status=status,
+                computer_status=computer_status,
+                user_status=user_status,
                 filtering_reasons=tuple(sorted(all_reasons)),
                 precedence=order,
                 link_scope=entry.scope_dn,

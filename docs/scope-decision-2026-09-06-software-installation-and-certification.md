@@ -140,6 +140,22 @@ That test is the whole safety property. If `certification.py` is eventually
 deleted, the test goes with it; until then it is what makes "superseded" mean
 something.
 
+**2026-09-07 — deleted, and the test went with it (WI-056).** The module had no
+consumer outside its own tests, and the safety property it needed is now
+supplied by its absence: a module that does not exist cannot be wired into a
+lane. `src/gpo_studio/certification.py` (684 lines), `tests/test_certification.py`
+(490) and `test_certification_module_has_no_production_consumer` are removed.
+Git remembers all three, so nothing recoverable was lost.
+
+What survives in `tests/test_superseded_modules.py` is the half that was never
+about this module: `test_the_parity_framework_still_has_four_evidence_states`
+guards the *reason* for the ruling above, and a later edit that took
+`unsupported` or `inconclusive` out of `oracle_evidence` would still falsify the
+argument rather than silently outliving it.
+
+The section below still holds: deleting the code did not answer Plan 031's
+question, and the answer is still owed.
+
 ### What this does not claim
 
 It does not say the *types* are worthless. `ParityEvidence` and

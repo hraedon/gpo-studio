@@ -1,10 +1,15 @@
 """The candidate builder must not silently drop a GPO from its prediction.
 
 `prediction_document` partitions `result.gpo_results` into `applied_gpos`,
-`denied_gpos` and `unevaluable_gpos`. It was three filtered comprehensions, so a
-status matching none of them produced a GPO that appears in NO list -- and a GPO
-missing from the prediction entirely is the one shape the finalizer cannot
-notice: it has nothing to compare, so it reports agreement.
+`denied_gpos`, `unevaluable_gpos` and `out_of_scope_gpos`. It was three filtered
+comprehensions, so a status matching none of them produced a GPO that appears in
+NO list -- and a GPO missing from the prediction entirely is the one shape the
+finalizer cannot notice: it has nothing to compare, so it reports agreement.
+
+Since WI-032 the partition is over the *per-side* status for the scenario's own
+scope, which is why the fourth bucket exists: `out_of_scope` means the side
+never searched the GPO, which is a prediction of "not applied here" rather than
+a claim that Windows blocked it.
 
 The partition now dispatches exhaustively and ends in `assert_never`. That guard
 is a *static* construct, and `mypy` in CI covers `src` only -- this script is not
@@ -45,8 +50,13 @@ def _result_with_status(status: str) -> RsopResult:
                 gpo_guid="g1",
                 gpo_name="Studio-RSOP-Thing",
                 # Deliberately outside the Literal. `Literal` is not enforced at
-                # runtime, which is what lets this test exist at all.
-                status=cast(Any, status),
+                # runtime, which is what lets this test exist at all. The
+                # per-side fields carry it because those are what the builder
+                # now partitions on; `status` stays valid so nothing else in
+                # the document trips first.
+                status="applied",
+                computer_status=cast(Any, status),
+                user_status=cast(Any, status),
             ),
         ),
     )
@@ -69,6 +79,7 @@ def _predict(monkeypatch: pytest.MonkeyPatch, status: str) -> dict[str, Any]:
         ("applied", "applied_gpos"),
         ("blocked", "denied_gpos"),
         ("unevaluable", "unevaluable_gpos"),
+        ("out_of_scope", "out_of_scope_gpos"),
     ],
 )
 def test_every_known_status_lands_in_exactly_one_bucket(
@@ -76,7 +87,7 @@ def test_every_known_status_lands_in_exactly_one_bucket(
 ) -> None:
     """The control: without it, a builder that emitted nothing would pass below."""
     document = _predict(monkeypatch, status)
-    buckets = ("applied_gpos", "denied_gpos", "unevaluable_gpos")
+    buckets = ("applied_gpos", "denied_gpos", "unevaluable_gpos", "out_of_scope_gpos")
     populated = [name for name in buckets if document[name]]
     assert populated == [bucket]
 

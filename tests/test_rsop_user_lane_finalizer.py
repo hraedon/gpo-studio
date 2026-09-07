@@ -109,13 +109,17 @@ def _prediction(**overrides: Any) -> dict[str, Any]:
         "query_id": "wp6b-loopback-merge",
         "scope": "user",
         "loopback_mode": "merge",
+        # The USER-side prediction since WI-032. Studio-RSOP-Loopback is a
+        # computer-side GPO: the model applies it, and it is correctly out of
+        # scope for the user side rather than blocked there, so it belongs in
+        # `out_of_scope_gpos` and not in the set the lane grades.
         "applied_gpos": [
             "Studio-RSOP-CompLocation",
-            "Studio-RSOP-Loopback",
             "Studio-RSOP-UserControl",
             "Studio-RSOP-UserLocation",
         ],
         "denied_gpos": [],
+        "out_of_scope_gpos": [{"gpo": "Studio-RSOP-Loopback", "reasons": []}],
         "winners": [
             {"value_name": "CompOnly", "value": "1", "winning_gpo": "Studio-RSOP-CompLocation"},
             {"value_name": "Control", "value": "present", "winning_gpo": "Studio-RSOP-UserControl"},
@@ -419,21 +423,50 @@ def test_computer_scope_candidate_is_refused(lane, capsys) -> None:
     assert "user-scope finalizer" in capsys.readouterr().err
 
 
-def test_applied_set_difference_alone_does_not_decide_the_verdict(lane) -> None:
-    """WI-032: the applied sets are recorded, not gated.
+def test_the_user_side_applied_set_now_decides_the_verdict(lane) -> None:
+    """WI-032 closed: the applied sets are gated, and agreeing is a pass.
 
-    ``RsopGpoResult.status`` is "applied on at least one side", while
-    ``UserResults`` lists what applied to the USER. On a topology whose GPOs
-    also scope the computer these are different questions, and gating on the
-    difference would manufacture findings out of a reporting gap.
+    They were advisory while the model could only say "applied on at least one
+    side" -- a different question from the one ``UserResults`` answers, so
+    gating would have manufactured findings out of a reporting gap. The model
+    now predicts the user side specifically, so agreement is meaningful.
 
-    Studio-RSOP-Loopback is the concrete case: it is a computer-side GPO that
-    the model reports as applied and that never appears in ``UserResults``.
+    Studio-RSOP-Loopback remains the case that made the old default wrong: a
+    computer-side GPO, correctly absent from ``UserResults`` and correctly not
+    in the user-side prediction, so the two sets agree.
     """
     verdict = _finalize(*lane())
     assert verdict["state"] == "pass"
-    assert verdict["comparison"]["applied_only_predicted"] == ["Studio-RSOP-Loopback"]
-    assert verdict["comparison"]["applied_set_difference_is_advisory"] is True
+    assert verdict["comparison"]["applied_only_predicted"] == []
+    assert verdict["comparison"]["applied_only_observed"] == []
+    assert verdict["comparison"]["applied_findings"] == []
+    assert verdict["comparison"]["applied_set_difference_is_advisory"] is False
+
+
+def test_a_gpo_predicted_for_the_user_and_absent_from_userresults_is_a_finding(
+    lane,
+) -> None:
+    """The promotion, shown firing. Without this the gate is unproven."""
+    prediction = _prediction()
+    prediction["applied_gpos"] = [*prediction["applied_gpos"], "Studio-RSOP-Ghost"]
+    verdict = _finalize(*lane(prediction=prediction))
+    assert verdict["state"] == "finding"
+    assert verdict["comparison"]["applied_only_predicted"] == ["Studio-RSOP-Ghost"]
+    assert any(
+        "absent from UserResults" in message
+        for message in verdict["comparison"]["applied_findings"]
+    )
+
+
+def test_a_gpo_in_userresults_the_model_did_not_predict_is_a_finding(lane) -> None:
+    """The other direction, which a one-sided gate would miss."""
+    prediction = _prediction()
+    prediction["applied_gpos"] = [
+        name for name in prediction["applied_gpos"] if name != "Studio-RSOP-UserControl"
+    ]
+    verdict = _finalize(*lane(prediction=prediction))
+    assert verdict["state"] == "finding"
+    assert verdict["comparison"]["applied_only_observed"] == ["Studio-RSOP-UserControl"]
 
 
 def _filtering_lane(lane, **observation_overrides):

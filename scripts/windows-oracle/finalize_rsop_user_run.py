@@ -29,13 +29,19 @@ So a mode mismatch is inconclusive, never a pass and never a finding.
 The winners are gated: they are what the corpus scenarios assert, and they are
 what an operator would act on.
 
-The applied-GPO sets are RECORDED, not gated (WI-032). ``RsopResult`` carries
-one ``status`` per GPO meaning "applied on at least one side", while
-``UserResults`` lists the GPOs that applied to the USER. On a scenario whose
-GPOs also scope the computer those are different questions, and gating on a
-comparison between them would manufacture findings out of a reporting gap in
-the model's result shape. The difference is written into the verdict so it is
-visible rather than quietly dropped.
+The applied-GPO sets are GATED, since WI-032 closed on 2026-09-07. They were
+recorded and not gated for as long as ``RsopResult`` reported one ``status``
+per GPO meaning "applied on at least one side", because ``UserResults`` lists
+what applied to the USER and comparing the two would have manufactured findings
+out of a reporting gap rather than a model defect. ``RsopGpoResult`` now carries
+``user_status``, the candidate builder predicts that side specifically, and the
+comparison is a real check: a GPO predicted applied to the user and absent from
+``UserResults``, or present there and not predicted, is a finding.
+
+Rows the model declined to predict remain excluded in both directions and make
+the run inconclusive (WI-043). Abstention is not a prediction, and grading one
+is the failure this lane's controls exist to prevent -- promoting the applied
+sets to gated does not change that, and must not.
 """
 
 from __future__ import annotations
@@ -285,8 +291,8 @@ def _compare(
 ) -> dict[str, Any]:
     """Diff the prediction against Windows.
 
-    Winners decide the verdict. The applied sets are computed and reported but
-    do not decide it -- see the module docstring and WI-032.
+    Winners and the user-side applied set both decide the verdict; the applied
+    half was advisory until WI-032 gave the model a per-side answer to compare.
     """
     predicted_applied = sorted(prediction.get("applied_gpos") or [])
 
@@ -338,20 +344,37 @@ def _compare(
             }
         )
 
+    gradable_predicted = [n for n in predicted_applied if n not in unevaluable]
+    applied_only_predicted = sorted(set(gradable_predicted) - set(observed_applied))
+    applied_only_observed = sorted(set(observed_applied) - set(gradable_predicted))
+    applied_findings = sorted(
+        [
+            f"predicted applied to the user, absent from UserResults: {name}"
+            for name in applied_only_predicted
+        ]
+        + [
+            f"in UserResults, not predicted applied to the user: {name}"
+            for name in applied_only_observed
+        ]
+    )
+
     return {
+        # Kept under its old key so a reader diffing an older verdict sees the
+        # rename rather than a silently redefined field: since WI-032 this is
+        # the USER-side prediction, not the either-side one the name described.
         "predicted_applied_either_side": predicted_applied,
+        "predicted_applied_user_side": predicted_applied,
         "unevaluable_gpos": unevaluable,
         "observed_applied_user_side": observed_applied,
         "observed_foreign_gpos": observed_foreign,
-        "applied_set_difference_is_advisory": True,
-        "applied_only_predicted": sorted(
-            set(n for n in predicted_applied if n not in unevaluable) - set(observed_applied)
-        ),
-        "applied_only_observed": sorted(set(observed_applied) - set(predicted_applied)),
+        "applied_set_difference_is_advisory": False,
+        "applied_only_predicted": applied_only_predicted,
+        "applied_only_observed": applied_only_observed,
         "predicted_winners": {name: str(row["value"]) for name, row in predicted_winners.items()},
         "observed_winners": observed_winners,
         "value_findings": value_findings,
-        "agrees": not value_findings,
+        "applied_findings": applied_findings,
+        "agrees": not value_findings and not applied_findings,
         "conclusive": not unevaluable,
     }
 
@@ -559,10 +582,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"  FINDING {finding['value_name']}: predicted {finding['predicted']!r}, "
                 f"observed {finding['observed']!r} ({finding['kind']})"
             )
-        for name in comparison["applied_only_predicted"]:
-            print(f"  note (advisory) {name}: predicted applied, not in UserResults")
-        for name in comparison["applied_only_observed"]:
-            print(f"  note (advisory) {name}: in UserResults, not predicted applied")
+        for message in comparison["applied_findings"]:
+            print(f"  FINDING {message}")
     return 0 if state == "pass" else 1
 
 

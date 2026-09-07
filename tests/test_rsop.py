@@ -1875,46 +1875,74 @@ def test_api_rsop_compute_reports_every_gpo_it_walked(tmp_path: Path) -> None:
     assert results[_GPO_A]["settings_overridden"] == 1
 
 
-def test_api_rsop_compute_always_states_the_per_side_limitation(tmp_path: Path) -> None:
-    """WI-032, stated in the payload rather than only in the docs.
+def test_api_rsop_compute_answers_the_two_sides_separately(tmp_path: Path) -> None:
+    """WI-032, closed: the per-side answer replaced the disclosure of its absence.
 
-    `gpo_results[].status` is "applied on at least one side" and looks exactly
-    like a per-side answer to a caller who has not been told otherwise. The
-    limitation is unconditional because it holds for every answer this surface
-    will ever give, not for the ones some heuristic decides are at risk.
+    `status` used to be all a caller got, and it looks exactly like a per-side
+    answer to anyone not told otherwise, so the surface announced that it was
+    not one. It is now unnecessary because the real answer is present: each row
+    carries `computer_status` and `user_status`, and the disclosure came out in
+    the same change that added them.
     """
     with _api_client(tmp_path) as client:
         resp = client.post("/api/rsop/compute", json=_api_two_tier_payload())
-    limitations = resp.json()["limitations"]
-    assert "gpo_status_is_not_per_side" in [item["code"] for item in limitations]
-    message = next(
-        item["message"]
-        for item in limitations
-        if item["code"] == "gpo_status_is_not_per_side"
-    )
-    assert "WI-032" in message
-    assert "computer_settings" in message
+    body = resp.json()
+    assert resp.status_code == 200, resp.text
+    assert "gpo_status_is_not_per_side" not in [i["code"] for i in body["limitations"]]
+    for row in body["gpo_results"]:
+        assert row["computer_status"] in {
+            "applied",
+            "blocked",
+            "unevaluable",
+            "out_of_scope",
+        }
+        assert row["user_status"] in {
+            "applied",
+            "blocked",
+            "unevaluable",
+            "out_of_scope",
+        }
 
 
-def test_api_rsop_compute_declares_slow_link_is_never_read(tmp_path: Path) -> None:
-    """WI-036. The fields are accepted and no part of the result reflects them."""
+@pytest.mark.parametrize(
+    "location,field",
+    [
+        ("target", "slow_link"),
+        ("target", "safe_mode"),
+        ("query", "simulate_slow_link"),
+        ("query", "simulate_safe_mode"),
+    ],
+)
+def test_api_rsop_compute_refuses_the_fields_it_never_honoured(
+    tmp_path: Path, location: str, field: str
+) -> None:
+    """WI-036, closed by removal: the surface stops offering what it ignores.
+
+    Each field used to be accepted, read nowhere, and disclosed by a
+    limitation. Deleting them alone would have left them accepted and ignored
+    *and* invisible, because Pydantic ignores unknown keys by default -- so
+    both request models refuse extras and a caller still sending one is told,
+    rather than handed a prediction that silently dropped it.
+    """
     payload = _api_two_tier_payload()
-    payload["target"]["slow_link"] = True
+    if location == "target":
+        payload["target"][field] = True
+    else:
+        payload[field] = True
     with _api_client(tmp_path) as client:
         resp = client.post("/api/rsop/compute", json=payload)
-    codes = [item["code"] for item in resp.json()["limitations"]]
-    assert "slow_link_and_safe_mode_are_not_evaluated" in codes
+    assert resp.status_code == 422, resp.text
+    assert field in resp.text
 
 
-def test_api_rsop_compute_omits_the_slow_link_limitation_when_unasked(
-    tmp_path: Path,
-) -> None:
-    """The control. Without it a surface that listed every limitation always
-    would pass the test above while saying nothing."""
+def test_api_rsop_compute_still_answers_without_those_fields(tmp_path: Path) -> None:
+    """The control: the refusal above must be about those keys, not about every
+    request. A model that rejected everything would pass the parametrised test
+    while breaking the surface."""
     with _api_client(tmp_path) as client:
         resp = client.post("/api/rsop/compute", json=_api_two_tier_payload())
-    codes = [item["code"] for item in resp.json()["limitations"]]
-    assert "slow_link_and_safe_mode_are_not_evaluated" not in codes
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["limitations"] == []
 
 
 def test_api_rsop_compute_no_longer_calls_a_measured_cell_reasoned(
@@ -2172,8 +2200,14 @@ def test_api_rsop_compare_reports_nothing_for_identical_topologies(
     assert resp.json()["diffs"] == []
 
 
-def test_api_rsop_compare_states_the_limitations_too(tmp_path: Path) -> None:
-    """A caller that only ever calls `/compare` must still be told (WI-032)."""
+def test_api_rsop_compare_still_carries_a_limitations_array(tmp_path: Path) -> None:
+    """The array outlives the three limitations that have now all been closed.
+
+    It used to carry WI-032's disclosure. Keeping the array present and empty
+    matters: a caller parsing JSON is not reading the capability matrix, and the
+    next honest limitation needs somewhere callers already look. A surface that
+    dropped the field when it had nothing to say would have to grow it back.
+    """
     with _api_client(tmp_path) as client:
         resp = client.post(
             "/api/rsop/compare",
@@ -2182,8 +2216,8 @@ def test_api_rsop_compare_states_the_limitations_too(tmp_path: Path) -> None:
                 "current": _api_two_tier_payload(),
             },
         )
-    codes = [item["code"] for item in resp.json()["limitations"]]
-    assert "gpo_status_is_not_per_side" in codes
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["limitations"] == []
 
 
 def test_api_rsop_compare_rejects_an_invalid_query_on_either_side(
@@ -2200,3 +2234,143 @@ def test_api_rsop_compare_rejects_an_invalid_query_on_either_side(
         )
     assert resp.status_code == 422
     assert resp.json()["error"]["issues"][0]["code"] == "empty_domain"
+
+
+# ---------------------------------------------------------------------------
+# Per-side applied sets (WI-032)
+#
+# `status` collapsed to "applied on at least one side". Windows reports the two
+# sides separately, and on a topology whose GPOs scope both they are different
+# sets. The tests below are the difference, including the case that made the
+# old default wrong rather than merely incomplete.
+# ---------------------------------------------------------------------------
+
+
+def _two_side_topology() -> tuple[SomNode, ...]:
+    return (
+        _node(
+            "OU=Computers," + _DOMAIN_DN,
+            "Computers",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_A, "OU=Computers," + _DOMAIN_DN),),
+        ),
+        _node(
+            "OU=Users," + _DOMAIN_DN,
+            "Users",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_B, "OU=Users," + _DOMAIN_DN),),
+        ),
+        _node(_DOMAIN_DN, "ad", "domain"),
+    )
+
+
+def test_a_gpo_the_other_side_never_searched_is_out_of_scope_not_blocked() -> None:
+    """WI-032's concrete case, and the reason a default of "blocked" was wrong.
+
+    The computer-linked GPO is applied and correctly never reaches the user's
+    side. Reporting that as "blocked on the user side" would attribute to
+    Windows a decision it never made -- there is nothing wrong with either
+    answer, they answer different questions.
+    """
+    gpo_computer = _gpo(
+        _GPO_A,
+        "Computer GPO",
+        settings=(_setting("s1", "computer", r"Software\X", "Val", "c"),),
+    )
+    gpo_user = _gpo(
+        _GPO_B,
+        "User GPO",
+        settings=(_setting("s2", "user", r"Software\Y", "Val", "u"),),
+    )
+    query = _query(
+        target=_target(
+            computer_name="pc01",
+            computer_dn="OU=Computers," + _DOMAIN_DN,
+            user_name="alice",
+            user_dn="OU=Users," + _DOMAIN_DN,
+        ),
+        som_nodes=_two_side_topology(),
+        gpos=(gpo_computer, gpo_user),
+    )
+    result = compute_rsop(query)
+    by_guid = {r.gpo_guid: r for r in result.gpo_results}
+
+    assert by_guid[_GPO_A].status == "applied"
+    assert by_guid[_GPO_A].computer_status == "applied"
+    assert by_guid[_GPO_A].user_status == "out_of_scope"
+
+    assert by_guid[_GPO_B].status == "applied"
+    assert by_guid[_GPO_B].user_status == "applied"
+    assert by_guid[_GPO_B].computer_status == "out_of_scope"
+
+
+def test_the_two_applied_sets_are_different_sets() -> None:
+    """The closing condition, stated directly: two questions, two answers."""
+    gpo_computer = _gpo(
+        _GPO_A,
+        "Computer GPO",
+        settings=(_setting("s1", "computer", r"Software\X", "Val", "c"),),
+    )
+    gpo_user = _gpo(
+        _GPO_B,
+        "User GPO",
+        settings=(_setting("s2", "user", r"Software\Y", "Val", "u"),),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(
+                computer_name="pc01",
+                computer_dn="OU=Computers," + _DOMAIN_DN,
+                user_name="alice",
+                user_dn="OU=Users," + _DOMAIN_DN,
+            ),
+            som_nodes=_two_side_topology(),
+            gpos=(gpo_computer, gpo_user),
+        )
+    )
+    assert result.computer_applied_gpos == (_GPO_A,)
+    assert result.user_applied_gpos == (_GPO_B,)
+
+
+def test_a_disabled_side_is_blocked_there_rather_than_out_of_scope() -> None:
+    """The control that keeps `out_of_scope` from swallowing real decisions.
+
+    A GPO the side *did* search and rejected must still say so. Without this,
+    collapsing every non-applied side to `out_of_scope` would pass the two
+    tests above while destroying the information they exist to preserve.
+    """
+    gpo = _gpo(
+        _GPO_A,
+        "Computer-disabled GPO",
+        settings=(_setting("s1", "user", r"Software\X", "Val", "u"),),
+        computer_enabled=False,
+    )
+    nodes = (
+        _node(
+            "OU=Both," + _DOMAIN_DN,
+            "Both",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_A, "OU=Both," + _DOMAIN_DN),),
+        ),
+        _node(_DOMAIN_DN, "ad", "domain"),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(
+                computer_name="pc01",
+                computer_dn="OU=Both," + _DOMAIN_DN,
+                user_name="alice",
+                user_dn="OU=Both," + _DOMAIN_DN,
+            ),
+            som_nodes=nodes,
+            gpos=(gpo,),
+        )
+    )
+    row = result.gpo_results[0]
+    assert row.computer_status == "blocked"
+    assert row.user_status == "applied"
+    assert result.computer_applied_gpos == ()
+    assert result.user_applied_gpos == (_GPO_A,)
