@@ -1,5 +1,5 @@
 ﻿{
-    "run_id":  "object-security-20260907075319-7408",
+    "run_id":  "object-security-20260907214728-1137",
     "validate_exit_code":  0,
     "import_exit_code":  0,
     "export_exit_code":  0,
@@ -14,7 +14,7 @@
                                    "name":  "validate",
                                    "arguments":  [
                                                      "/validate",
-                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\candidate.inf"
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907144718-12265\\out\\object-security-20260907214728-1137\\candidate.inf"
                                                  ]
                                },
                                {
@@ -22,16 +22,16 @@
                                    "arguments":  [
                                                      "/import",
                                                      "/db",
-                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\temporary-security-database.sdb",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907144718-12265\\out\\object-security-20260907214728-1137\\temporary-security-database.sdb",
                                                      "/cfg",
-                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\candidate.inf",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907144718-12265\\out\\object-security-20260907214728-1137\\candidate.inf",
                                                      "/overwrite",
                                                      "/areas",
                                                      "regkeys",
                                                      "filestore",
                                                      "services",
                                                      "/log",
-                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\commands\\import.log",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907144718-12265\\out\\object-security-20260907214728-1137\\commands\\import.log",
                                                      "/quiet"
                                                  ]
                                },
@@ -40,15 +40,15 @@
                                    "arguments":  [
                                                      "/export",
                                                      "/db",
-                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\temporary-security-database.sdb",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907144718-12265\\out\\object-security-20260907214728-1137\\temporary-security-database.sdb",
                                                      "/cfg",
-                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\exported.inf",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907144718-12265\\out\\object-security-20260907214728-1137\\exported.inf",
                                                      "/areas",
                                                      "regkeys",
                                                      "filestore",
                                                      "services",
                                                      "/log",
-                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\commands\\export.log",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907144718-12265\\out\\object-security-20260907214728-1137\\commands\\export.log",
                                                      "/quiet"
                                                  ]
                                }
