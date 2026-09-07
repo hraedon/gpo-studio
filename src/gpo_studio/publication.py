@@ -1,10 +1,11 @@
 """Planning/modeling layer for GPO publication.
 
 This module does NOT publish to Active Directory or SYSVOL. It builds a typed
-:class:`PublicationPlan` from a :class:`~gpo_studio.model.GPO` and generates an
-administrator-review PowerShell script. The actual AD/SYSVOL writes require
-manual administrator execution against the generated script; the web process
-never writes directly to AD or SYSVOL.
+:class:`PublicationPlan` from a :class:`~gpo_studio.model.GPO` and generates a
+review-only PowerShell artifact that fails closed for every operation lacking
+Windows evidence. Actual publication requires the supported GroupPolicy/GPMC
+publisher described in ``docs/live-publication.md``; the web process never
+writes directly to AD or SYSVOL.
 """
 
 from __future__ import annotations
@@ -337,6 +338,23 @@ def generate_publication_plan(
     # SYSVOL-targeted steps: only created when publishing to SYSVOL. When
     # target="ad" none of these are emitted.
     if _is_sysvol_target(target):
+        if gpo.cse_metadata:
+            preserved_files = sum(len(entry.files) for entry in gpo.cse_metadata)
+            steps.append(
+                PublicationStep(
+                    step_id="unsupported-preserved-cse-content",
+                    operation="unsupported_cse_content",
+                    target="sysvol",
+                    status="pending",
+                    detail=(
+                        "Publication refused: the model contains "
+                        f"{len(gpo.cse_metadata)} preserved CSE metadata entry/entries "
+                        f"and {preserved_files} preserved file(s); this planner cannot "
+                        "publish their opaque content without producing a partial GPO"
+                    ),
+                )
+            )
+
         # Update GPT.INI version counter. The version is a packed 32-bit field
         # whose halves move independently, so the step records which half this
         # plan publishes; incrementing the whole value would move the machine
@@ -884,6 +902,19 @@ def validate_publication_plan(
                 level="error",
                 check="steps",
                 message="Plan has no steps.",
+                component="plan",
+            )
+        )
+
+    if any(step.operation == "unsupported_cse_content" for step in plan.steps):
+        issues.append(
+            InteropIssue(
+                level="error",
+                check="unsupported_cse_content",
+                message=(
+                    "Plan contains preserved CSE metadata or files that the publication "
+                    "planner cannot reproduce; publishing it would create a partial GPO."
+                ),
                 component="plan",
             )
         )

@@ -30,6 +30,10 @@ Current version: `1.0.0`.
 - Plain-text GPO reports now count all 21 typed preference families per scope,
   including drives, services, scheduled tasks, and immediate tasks. Native
   backup fixtures cover these counts; this is not full Get-GPOReport parity.
+- Publication planning now marks preserved CSE metadata/files as unsupported
+  for SYSVOL targets and fails validation, instead of silently omitting them.
+  The regression uses the qualified native Scripts rebackup. Generated scripts
+  remain review-only and refuse all unverified operations.
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.

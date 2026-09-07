@@ -659,7 +659,7 @@ claim and a middle value would weaken a shipped contract.
 | 027 | `folder_redirection.py` | no | **capture-backed (R3)** — and the capture invalidates the module's *scope*: the policy lives in `fdeploy1.ini`, which the module does not address. Input to Plan 034 |
 | 028 | `lifecycle.py` | no | no |
 | 028 | `gpmc_interop.py` | no | **capture-backed (R6)** — the known-CSE vocabulary measured against 26 production GPOs |
-| 030 | `publication.py` | no | **capture-backed (R5, R8, R11)** — packed `gpt.ini` version arithmetic, corroborated independently in the lab and in a production directory |
+| 030 | `publication.py` | no | **capture-backed (R5, R8, R11)** — packed `gpt.ini` version arithmetic, corroborated independently in the lab and in a production directory. SYSVOL plans now refuse preserved CSE content instead of silently omitting it; full plan completeness remains unverified and all script operations remain disabled |
 | 030 | `publisher.py` | no | no |
 | 031 | `certification.py` | no | no |
 | 032 | `hosting.py` | no | no |
