@@ -36,6 +36,9 @@ EVIDENCE = REPO_ROOT / "docs" / "plan-033"
 LANE_VERDICTS = {
     "wp1b-evidence/verification-estate.json": "finalize_wp1b_run.py",
     "wp1b-evidence/scripts-metadata/verification.json": "finalize_scripts_backup_run.py",
+    "wp1b-evidence/publication-completeness/verification.json": (
+        "finalize_publication_run.py"
+    ),
     "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
     "wp3-evidence/policy-families/dc/verification.json": "finalize_wp3_run.py",

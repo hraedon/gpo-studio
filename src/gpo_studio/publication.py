@@ -55,6 +55,11 @@ class PublicationStep:
     # publishes. The halves move independently (see _unpack_gpt_version), so
     # the half must be recorded explicitly rather than guessed at run time.
     version_half: GptVersionHalf | None = None
+    # The GPO-relative SYSVOL path this step writes, for steps that write one.
+    # Typed rather than left implicit in `detail`, so a completeness comparison
+    # against a real SYSVOL tree reads data instead of parsing prose -- the
+    # Plan 034 lane does exactly that, and a detail string is not an interface.
+    sysvol_path: str | None = None
 
 
 def _step_payload(step: PublicationStep) -> dict[str, object]:
@@ -71,6 +76,7 @@ def _step_payload(step: PublicationStep) -> dict[str, object]:
         "detail": step.detail,
         "artifact_ids": list(step.artifact_ids),
         "version_half": step.version_half,
+        "sysvol_path": step.sysvol_path,
     }
 
 
@@ -382,6 +388,7 @@ def generate_publication_plan(
                 status="pending",
                 detail=detail,
                 version_half=version_half,
+                sysvol_path="GPT.INI" if version_half is not None else None,
             )
         )
         rollback.append(
@@ -405,6 +412,7 @@ def generate_publication_plan(
                 status="pending",
                 detail="Write Machine/Registry.pol",
                 artifact_ids=(artifact_id,),
+                sysvol_path="Machine/Registry.pol",
             )
             steps.append(step)
             rollback.append(
@@ -428,6 +436,7 @@ def generate_publication_plan(
                 status="pending",
                 detail="Write User/Registry.pol",
                 artifact_ids=(artifact_id,),
+                sysvol_path="User/Registry.pol",
             )
             steps.append(step)
             rollback.append(
@@ -455,6 +464,7 @@ def generate_publication_plan(
                     status="pending",
                     detail=f"Copy {side_dir}/Preferences/{filename}",
                     artifact_ids=(artifact_id,),
+                    sysvol_path=f"{side_dir}/Preferences/{filename}",
                 )
                 steps.append(step)
                 rollback.append(
@@ -481,6 +491,7 @@ def generate_publication_plan(
                 target="sysvol",
                 status="pending",
                 detail="Write GPO.cmt",
+                sysvol_path="GPO.cmt",
             )
         )
         rollback.append(
@@ -960,6 +971,22 @@ def _is_valid_guid(value: str) -> bool:
         r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$",
         value,
     ))
+
+
+def planned_sysvol_paths(plan: PublicationPlan) -> tuple[str, ...]:
+    """Every GPO-relative SYSVOL path *plan* says it would write, sorted.
+
+    The Plan 034 completeness lane compares this against the tree Windows
+    actually materialises, so it is the plan's own claim about its output and
+    must come from the steps rather than from a second derivation that could
+    disagree with them.
+    """
+    return tuple(
+        sorted(
+            {step.sysvol_path for step in plan.steps if step.sysvol_path is not None},
+            key=str.casefold,
+        )
+    )
 
 
 def validate_publication_plan(

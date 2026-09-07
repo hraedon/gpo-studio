@@ -1,0 +1,56 @@
+{
+  "schema_version": "1",
+  "scenario_id": "plan-completeness",
+  "family": "publication-completeness",
+  "title": "Publication plan completeness: SYSVOL file set and extension registration",
+  "readiness": "ready",
+  "provenance": {
+    "tier": "native-observation",
+    "note": "The plan's account of what publishing this GPO would write, compared against what Windows produced after importing the same content. The extension-list half is the one that had never been checked: WI-057 found the planner naming every file and registering no extension, which no round-trip test can see because a round trip never asks what a third party would have had to write.",
+    "anchors": [
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp1b-evidence/publication-completeness/verification.json",
+        "sha256": "eb27ba53cca1cefad01694d56d41b87609ee6ac8d5c563195053d6e11b6fafa3",
+        "note": "Clean run publication-completeness-20260907193221-2759 passed 21/21 checks on LabMS01."
+      },
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp1b-evidence/publication-completeness/expected.json",
+        "sha256": "45284f0da99090d23826de096154009b265b25218cd42b5760781a99be313679",
+        "note": "The controller-built expectation the run was graded against. Anchored separately because a verdict is only as good as the claim it compared to, and this one never travelled to the guest."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "publication-completeness-gpmc",
+    "boundaries": [
+      "gpo-backup-content"
+    ]
+  },
+  "authored_intent": {
+    "sysvol_paths": [
+      "GPT.INI",
+      "Machine/Preferences/Services/Services.xml",
+      "Machine/Registry.pol",
+      "User/Preferences/Drives/Drives.xml",
+      "User/Registry.pol"
+    ],
+    "version_half": "both",
+    "machine_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+    "user_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+    "expects_gpo_cmt": false
+  },
+  "expected_native": {
+    "sysvol_paths": [
+      "gpt.ini",
+      "machine/preferences/services/services.xml",
+      "machine/registry.pol",
+      "user/preferences/drives/drives.xml",
+      "user/registry.pol"
+    ],
+    "machine_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+    "user_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+    "version_number": 65537
+  }
+}
