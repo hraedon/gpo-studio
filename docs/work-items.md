@@ -25,10 +25,8 @@ Regenerated whenever this file changes; `test_the_open_index_matches_the_registe
 - [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
 - [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
 - [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
-- [WI-057](#wi-057--a-publication-plan-writes-every-file-and-registers-no-extension) — a publication plan writes every file and registers no extension
-- [WI-058](#wi-058--a-gpos-description-has-no-publication-step) — a GPO's description has no publication step
 
-**7 open.** Everything else in this file is closed.
+**5 open.** Everything else in this file is closed.
 
 ---
 
@@ -1965,7 +1963,35 @@ open a second time — is a valid answer only if it says why.
 ## WI-057 — a publication plan writes every file and registers no extension
 
 **Opened:** 2026-09-07 (Plan 034 WP-1 publication probe, on the estate).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-07 under closing condition (a), in `d15d8a6`.
+
+The planner now emits one `update_extension_lists` step per side naming the
+exact attribute value, and `test_plan_registers_the_extension_lists_windows_writes`
+pins both details this entry warned a hand-written fix would get wrong: three
+groups per side, and the machine/user asymmetry in the registry tool half.
+
+The vocabulary is sourced, not restated. `export.py` gained
+`extension_registration`, which reads the same `_GPP_EXTENSION_PROFILES` and
+`_extension_guids` the native backup writes, and `_gpp_family_files` is now the
+single place a family is derived from a serialized GPP path — the divergence
+between two modules' beliefs about one attribute was the defect itself, so
+`test_the_planner_and_the_exporter_cannot_disagree_about_extensions` asserts
+the planner's value is the one the backup actually contains. That test outlives
+the literal GUIDs; the string assertion does not.
+
+Two cases produce no honest value and refuse rather than guess, in the shape
+condition (b) named: a GPP family whose extension metadata has never been
+captured (`unsupported_extension_registration`), and a SYSVOL-only target,
+which cannot reach a directory attribute at all
+(`extension_lists_unreachable`). Both raise a `validate_publication_plan`
+error, and both operations are deliberately left out of the publisher's
+capability map so they fail the capability gate — mapping them would have made
+a refusal publishable by granting a capability.
+
+Changing `export.py` invalidated the Scripts metadata verdict that binds it,
+exactly as `test_a_live_verdict_still_binds_the_harness_that_ships` is built to
+catch. The lane was re-run rather than the verdict edited:
+`scripts-r10-20260907181631-2490`, 21/21, clean tree, bound to `d15d8a6`.
 
 The publication planner names every byte-bearing SYSVOL file Windows produces
 for a GPO, and **no step that makes any of them run.**
@@ -2051,7 +2077,14 @@ lane before it becomes a surface. The lane that would re-run it is WP-1's
 
 **Opened:** 2026-09-07 (Plan 034 WP-1 publication probe; found while
 attributing an unexpected file, not while looking for it).
-**Status:** open.
+**FIXED AND CLOSED** 2026-09-07, in `d15d8a6`.
+
+The planner emits a `write_gpo_comment` step naming `GPO.cmt` when
+`gpo.description` is non-empty. The emit condition is the control run's rather
+than a guess, and
+`test_a_described_gpo_publishes_its_comment_and_an_undescribed_one_does_not`
+keeps both halves of that control — an undescribed GPO must emit no step — so
+the condition cannot quietly widen to "always emit".
 
 `GPO.description` is in the model, is round-tripped by export/import, and no
 publication step writes it. A published GPO would silently lose its comment.

@@ -1,5 +1,14 @@
 # Plan 033 frozen environment specification
 
+**2026-09-07 Scripts metadata re-certification:** run
+`scripts-r10-20260907181631-2490` passed 21/21 on LabMS01 (role 3) at `d15d8a6`
+on a clean tree, re-earning the binding after `export.py` gained
+`extension_registration` (WI-057). Nothing about the lane or its assertions
+changed; a bound source file did, which is what
+`test_a_live_verdict_still_binds_the_harness_that_ships` exists to force. The
+superseded run `scripts-r10-20260907081826-5183` (21/21 at `f6b06af`) remains
+valid for the commit it names.
+
 **2026-09-07 Scripts metadata extension:** run
 `scripts-r10-20260907081826-5183` passed 21/21 on LabMS01 (role 3), using
 the existing frozen profile and a clean isolated checkout at `f6b06af`.

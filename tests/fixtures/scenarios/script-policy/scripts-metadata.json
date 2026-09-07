@@ -23,8 +23,8 @@
       {
         "kind": "lab-runbook",
         "path": "docs/plan-033/wp1b-evidence/scripts-metadata/verification.json",
-        "sha256": "cb715a0e93c40682b39178347e78af2becc2fc23790ac67a5fe71372731130d2",
-        "note": "Clean R10 run passed 21/21 checks with exact report metadata and rebackup INI bytes."
+        "sha256": "33854208d7cecd9a8fd3ab1641489798aa32339651528f7db11c79796aad0c6e",
+        "note": "Clean R10 re-run passed 21/21 checks, re-earning the binding after export.py gained extension_registration (WI-057)."
       }
     ]
   },
