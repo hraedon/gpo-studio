@@ -11,13 +11,13 @@
       {
         "kind": "native-capture",
         "path": "tests/fixtures/native-scripts-gpmc/scripts.ini.txt",
-        "sha256": "9ffc002002a7752c2fa7bd16b21a6995ba89f133425a2ce91676e205bdfc05f1",
+        "sha256": "12840420c02c5c927d2b6a67d8775b6ea91661bea405a7d74f7532a24b7746f7",
         "note": "Banked native legacy scripts.ini capture."
       },
       {
         "kind": "native-capture",
         "path": "tests/fixtures/native-scripts-gpmc/psscripts.ini.txt",
-        "sha256": "b44ecb83a9da6184c6ed4cffda7223f669473a3a78f05f9c531422f3879fdc09",
+        "sha256": "169d24b996a7f332c9b67eae177a19fdefc492df4e94cf49caa3659392af881c",
         "note": "Banked native PowerShell scripts.ini capture with RunPSFirst ordering."
       },
       {

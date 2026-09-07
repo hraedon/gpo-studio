@@ -13,6 +13,8 @@ tests/fixtures/migration-tables/*.migtable -text
 docs/plan-033/**/*.json -text
 docs/plan-033/**/*.md   -text
 tests/fixtures/native-gpp-gpmc/** -text
+# Older Scripts captures are UTF-8 transcripts, stored as LF in Git.
+tests/fixtures/native-scripts-gpmc/*.txt text eol=lf
 scripts/plan-033/build-*.py -text
 scripts/windows-oracle/**   -text
 src/gpo_studio/policy_families.py text eol=lf
