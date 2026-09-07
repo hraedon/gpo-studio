@@ -23,6 +23,7 @@ src/gpo_studio/object_security.py text eol=lf
 src/gpo_studio/sddl.py text eol=lf
 src/gpo_studio/oracle_evidence.py text eol=lf
 src/gpo_studio/export.py text eol=lf
+src/gpo_studio/publication.py text eol=lf
 src/gpo_studio/script_policy.py text eol=lf
 src/gpo_studio/xml_safety.py text eol=lf
 src/gpo_studio/canonical.py text eol=lf
