@@ -1,9 +1,10 @@
 """Content-addressed artifact store for scripts and companion files.
 
 Artifacts are stored by SHA-256 content hash in a dedicated SQLite database.
-Each artifact keeps an immutable audit trail (provenance) and is scanned for
-malware signatures and exposed secrets before it can be approved for
-publication.
+Each artifact keeps an immutable audit trail (provenance) and is checked for
+the EICAR test marker and a small set of exposed-secret heuristics before it
+can be approved for publication. This is a local integrity/policy utility, not
+an antivirus engine or signer verifier.
 """
 
 from __future__ import annotations
@@ -38,12 +39,12 @@ FORBIDDEN_EXTENSIONS = frozenset({
     ".scr", ".pif", ".com", ".hta", ".wsf", ".wsh",
 })
 
-# The EICAR test string is the industry-standard harmless marker used to verify
-# antivirus/malware detection without shipping real malware.
+# The EICAR test string is a harmless marker for exercising this local check;
+# it does not provide malware scanning coverage.
 _EICAR = (
     b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 )
-_KNOWN_MALWARE_SIGNATURES = (_EICAR,)
+_EICAR_MARKERS = (_EICAR,)
 
 _MIME_TYPE_MAP: dict[str, str] = {
     ".ps1": "text/x-powershell",
@@ -119,7 +120,14 @@ class SecretFinding:
 
 
 ProvenanceAction = Literal[
-    "stored", "scanned", "quarantined", "approved", "rejected", "deleted", "accessed"
+    "stored",
+    "duplicate-arrival",
+    "scanned",
+    "quarantined",
+    "approved",
+    "rejected",
+    "deleted",
+    "accessed",
 ]
 
 
@@ -221,12 +229,14 @@ def detect_secrets(content: bytes, max_lines: int = 10000) -> tuple[SecretFindin
     return tuple(findings)
 
 
-def _detect_malware(content: bytes) -> str:
-    """Return a non-empty reason if a known malware signature is found."""
-    for signature in _KNOWN_MALWARE_SIGNATURES:
-        if signature in content:
-            return "known malware signature detected"
-    return ""
+def _detect_eicar_marker(content: bytes) -> bool:
+    """Report whether the EICAR test marker is present.
+
+    A true result means only that this local marker check fired; it carries no
+    statement about the artifact being malware, and a false result carries none
+    about it being clean.
+    """
+    return any(signature in content for signature in _EICAR_MARKERS)
 
 
 def _mime_type_for(path: str) -> str:
@@ -371,9 +381,7 @@ class ArtifactStore:
     def _record_provenance(
         self,
         artifact_id: str,
-        action: Literal[
-            "stored", "scanned", "quarantined", "approved", "rejected", "deleted", "accessed"
-        ],
+        action: ProvenanceAction,
         actor: str,
         detail: str = "",
     ) -> None:
@@ -408,9 +416,11 @@ class ArtifactStore:
         if suffix not in ALLOWED_EXTENSIONS:
             raise ArtifactError(f"Extension not allowed: {suffix}")
 
-        malware_reason = _detect_malware(content)
-        if malware_reason:
-            raise ArtifactError(f"Malware detected: {malware_reason}")
+        if _detect_eicar_marker(content):
+            raise ArtifactError(
+                "EICAR test marker detected; this is a local marker check, "
+                "not malware scanning"
+            )
 
         content_hash = self.compute_hash(content)
         is_text = _is_text_content(content)
@@ -420,9 +430,9 @@ class ArtifactStore:
             scan_result: ScanResult = "suspicious"
             scan_detail = f"{len(secret_findings)} potential secret(s) detected"
         else:
-            # Binary content can't contain text secrets, and the malware
-            # check already ran on all content, so binary artifacts that
-            # pass are scanned/clean.
+            # Secret heuristics inspect only content classified as text.
+            # Passing these local checks does not mean the artifact is
+            # malware-free.
             scan_result = "clean"
             scan_detail = ""
 
@@ -432,6 +442,14 @@ class ArtifactStore:
         with self._lock:
             existing = self._get_row(content_hash)
             if existing is not None:
+                detail = json.dumps(
+                    {"original_name": original_name, "owner": owner, "source": source},
+                    sort_keys=True,
+                )
+                self._record_provenance(
+                    content_hash, "duplicate-arrival", owner or "system", detail
+                )
+                self._connection.commit()
                 return self._load_metadata(existing)
 
             if self._count_artifacts() >= MAX_ARTIFACTS:
@@ -489,9 +507,7 @@ class ArtifactStore:
         target_status: ArtifactStatus,
         actor: str,
         reason: str,
-        action: Literal[
-            "stored", "scanned", "quarantined", "approved", "rejected", "deleted", "accessed"
-        ],
+        action: ProvenanceAction,
         allowed_sources: tuple[ArtifactStatus, ...],
     ) -> None:
         with self._lock:
@@ -661,7 +677,11 @@ def _is_expired(metadata: ArtifactMetadata) -> bool:
 
 
 def check_publication_safety(store: ArtifactStore, artifact_id: str) -> PublicationCheck:
-    """Check if an artifact is safe to publish."""
+    """Read-only publication eligibility check.
+
+    Approval is a review state. Current eligibility may be false without
+    changing the artifact status or writing an audit event.
+    """
     artifact = store.get_artifact(artifact_id, include_content=True)
     if artifact is None:
         return PublicationCheck(
@@ -678,7 +698,7 @@ def check_publication_safety(store: ArtifactStore, artifact_id: str) -> Publicat
     if metadata.scan_result != "clean":
         reasons.append(f"scan_result is {metadata.scan_result}, not clean")
 
-    # Re-scan text content for secrets; binary files rely on their scan_result.
+    # Re-check text content for secrets; this is deliberately read-only.
     if _is_text_content(artifact.content) and detect_secrets(artifact.content):
         reasons.append("content contains potential secrets")
 
@@ -686,8 +706,8 @@ def check_publication_safety(store: ArtifactStore, artifact_id: str) -> Publicat
         reasons.append("artifact has expired")
 
     suffix = Path(metadata.original_name).suffix.lower()
-    if suffix in _EXECUTABLE_EXTENSIONS and not metadata.signer:
-        reasons.append("executable is not signed")
+    if suffix in _EXECUTABLE_EXTENSIONS:
+        reasons.append("executable publication is unsupported pending verified signer ingestion")
 
     computed_hash = store.compute_hash(artifact.content)
     if computed_hash != metadata.content_hash:

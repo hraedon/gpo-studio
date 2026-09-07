@@ -287,8 +287,6 @@ class KerberosPolicy:
     max_service_age_minutes: int = 600
     max_clock_skew_minutes: int = 5
     ticket_validate_client: bool = True
-    enforce_logon_restrictions: bool = True
-    enforce_user_logon_restrictions: bool = False
 
     def validate(self) -> tuple[ValidationIssue, ...]:
         issues: list[ValidationIssue] = []
@@ -332,16 +330,6 @@ class KerberosPolicy:
                 _parse_bool(section.get("TicketValidateClient") if section else None),
                 True,
             ),
-            enforce_logon_restrictions=_default_bool(
-                _parse_bool(section.get("EnforceLogonRestrictions") if section else None),
-                True,
-            ),
-            enforce_user_logon_restrictions=_default_bool(
-                _parse_bool(
-                    section.get("EnforceUserLogonRestrictions") if section else None
-                ),
-                False,
-            ),
         )
 
     def to_template_entries(self) -> dict[str, dict[str, str]]:
@@ -353,12 +341,6 @@ class KerberosPolicy:
                 "MaxClockSkew": _int_str(self.max_clock_skew_minutes),
                 "TicketValidateClient": _bool_to_int_str(
                     self.ticket_validate_client
-                ),
-                "EnforceLogonRestrictions": _bool_to_int_str(
-                    self.enforce_logon_restrictions
-                ),
-                "EnforceUserLogonRestrictions": _bool_to_int_str(
-                    self.enforce_user_logon_restrictions
                 ),
             }
         }
@@ -443,10 +425,6 @@ class AuditPolicyFamily:
     @staticmethod
     def from_template(template: SecurityTemplate) -> AuditPolicyFamily:
         audit = extract_audit_policy(template)
-        ds_value = audit.audit_ds_access
-        section = template.get_section("Event Audit")
-        if section is not None and ds_value is None:
-            ds_value = _parse_int(section.get("AuditDirectoryServiceAccess"))
         return AuditPolicyFamily(
             system_events=_int_to_audit_level(
                 _default_int(audit.audit_system_events, 0)
@@ -467,7 +445,7 @@ class AuditPolicyFamily:
                 _default_int(audit.audit_account_manage, 0)
             ),
             directory_service_access=_int_to_audit_level(
-                _default_int(ds_value, 0)
+                _default_int(audit.audit_ds_access, 0)
             ),
             account_logon=_int_to_audit_level(
                 _default_int(audit.audit_account_logon, 0)
@@ -490,7 +468,7 @@ class AuditPolicyFamily:
                 "AuditAccountManage": _int_str(
                     _audit_level_to_int(self.account_management)
                 ),
-                "AuditDirectoryServiceAccess": _int_str(
+                "AuditDSAccess": _int_str(
                     _audit_level_to_int(self.directory_service_access)
                 ),
                 "AuditAccountLogon": _int_str(

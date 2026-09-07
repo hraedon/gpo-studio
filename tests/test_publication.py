@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter
 from gpo_studio.publication import (
     PublicationPlan,
     PublicationStep,
+    PublicationTarget,
     _bump_gpt_version,
     _gpt_ini_step_lines,
     _gpt_version_half,
@@ -60,6 +62,68 @@ def test_generate_publication_plan_includes_gpp_copy_step() -> None:
     )
     plan = generate_publication_plan(gpo)
     assert any(s.operation == "copy_gpp_xml" for s in plan.steps)
+
+
+@pytest.mark.parametrize("target", ["sysvol", "both"])
+def test_scripts_backup_metadata_makes_sysvol_publication_plan_incomplete(
+    target: PublicationTarget,
+) -> None:
+    from gpo_studio.backup import read_backup
+    from gpo_studio.import_export import collect_cse_metadata
+
+    fixture = (Path(__file__).parents[1] / "docs" / "plan-033" / "wp1b-evidence" /
+               "scripts-metadata" / "rebackup")
+    backup_gpo = read_backup(fixture).gpos[0]
+    metadata = collect_cse_metadata(backup_gpo)
+    assert metadata and sum(len(entry.files) for entry in metadata) == 2
+    gpo = GPO(
+        guid=backup_gpo.guid,
+        name=backup_gpo.display_name,
+        domain=backup_gpo.domain,
+        cse_metadata=metadata,
+    )
+    plan = generate_publication_plan(gpo, target=target)
+    refusal = [step for step in plan.steps if step.operation == "unsupported_cse_content"]
+    assert len(refusal) == 1
+    assert "2 preserved file(s)" in refusal[0].detail
+    assert any(
+        issue.level == "error" and issue.check == "unsupported_cse_content"
+        for issue in validate_publication_plan(plan)
+    )
+    script = generate_publication_script(plan)
+    assert "NOT WINDOWS-VERIFIED: unsupported_cse_content" in script.script_text
+    assert "exit 1" in script.script_text
+
+
+def test_ad_only_plan_does_not_claim_to_publish_sysvol_cse_content() -> None:
+    from gpo_studio.model import CseMetadataEntry
+
+    gpo = GPO(
+        guid="11111111-2222-3333-4444-555555555555",
+        name="Opaque metadata",
+        cse_metadata=(CseMetadataEntry(guid="{opaque}", side="machine"),),
+    )
+    plan = generate_publication_plan(gpo, target="ad")
+    assert not any(step.operation == "unsupported_cse_content" for step in plan.steps)
+
+
+def test_metadata_without_preserved_files_still_refuses_sysvol_plan() -> None:
+    from gpo_studio.model import CseMetadataEntry
+
+    gpo = GPO(
+        guid="11111111-2222-3333-4444-555555555555",
+        name="Opaque metadata",
+        cse_metadata=(CseMetadataEntry(guid="{opaque}", side="machine"),),
+    )
+    plan = generate_publication_plan(gpo, target="sysvol")
+    refusal = [step for step in plan.steps if step.operation == "unsupported_cse_content"]
+    assert len(refusal) == 1
+    assert "1 preserved CSE metadata entry/entries" in refusal[0].detail
+    assert "0 preserved file(s)" in refusal[0].detail
+    assert any(
+        issue.check == "unsupported_cse_content"
+        for issue in validate_publication_plan(plan)
+    )
 
 
 def test_generate_publication_script_copy_gpp_xml_fails_closed() -> None:

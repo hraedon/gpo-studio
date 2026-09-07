@@ -1,0 +1,69 @@
+﻿{
+    "run_id":  "object-security-20260907075319-7408",
+    "validate_exit_code":  0,
+    "import_exit_code":  0,
+    "export_exit_code":  0,
+    "export_created":  true,
+    "cleanup_succeeded":  true,
+    "database_absent_after_cleanup":  true,
+    "database_residual_files":  [
+
+                                ],
+    "invoked_operations":  [
+                               {
+                                   "name":  "validate",
+                                   "arguments":  [
+                                                     "/validate",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\candidate.inf"
+                                                 ]
+                               },
+                               {
+                                   "name":  "import",
+                                   "arguments":  [
+                                                     "/import",
+                                                     "/db",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\temporary-security-database.sdb",
+                                                     "/cfg",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\candidate.inf",
+                                                     "/overwrite",
+                                                     "/areas",
+                                                     "regkeys",
+                                                     "filestore",
+                                                     "services",
+                                                     "/log",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\commands\\import.log",
+                                                     "/quiet"
+                                                 ]
+                               },
+                               {
+                                   "name":  "export",
+                                   "arguments":  [
+                                                     "/export",
+                                                     "/db",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\temporary-security-database.sdb",
+                                                     "/cfg",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\exported.inf",
+                                                     "/areas",
+                                                     "regkeys",
+                                                     "filestore",
+                                                     "services",
+                                                     "/log",
+                                                     "C:\\gpo-studio\\runs\\object-security-20260907005308-9517\\out\\object-security-20260907075319-7408\\commands\\export.log",
+                                                     "/quiet"
+                                                 ]
+                               }
+                           ],
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33296",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US",
+                        "computer_system_name":  "LABMS01",
+                        "computer_system_domain":  "ad.labdomain.dev",
+                        "computer_system_domain_role":  3
+                    },
+    "error":  null
+}

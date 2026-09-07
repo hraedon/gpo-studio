@@ -1,8 +1,25 @@
 # Plan 033 remediation scenario corpus
 
-Status: landed 2026-07-29. The corpus is data plus its validator; no scenario
-has been executed against a Windows oracle, and no scenario changes any
-capability claim by itself.
+**2026-09-07 addition:** `security-template/policy-families` records the
+[member/DC serializer lane](wp3-policy-family-results.md), including its native
+`AuditDSAccess` and five-key Kerberos expectations. It is ready and measured;
+the historical readiness map below predates the estate qualifications.
+
+**2026-09-07 object-security update:** `security-template/services-area` and
+`security-template/regkeys-filesecurity` are anchored to the clean member-server
+object-security verdict: three service rows and six registry/file rows passed
+exact validation, import, and export comparison. Empty/absent service
+descriptors and environment-variable paths remain open questions.
+
+**2026-09-07 script-policy update:** `script-policy/scripts-metadata` is now
+ready and anchored to the clean R10 Import-GPO/report/Backup-GPO run
+(`scripts-r10-20260907081826-5183`, 21/21 checks). The evidence proves Scripts
+metadata interoperability; payload execution and endpoint processing remain
+outside scope.
+
+Status: landed 2026-07-29. The corpus is data plus its validator; the two
+object-security scenarios above now have Windows oracle evidence, and no
+scenario changes any capability claim by itself.
 
 ## What this is
 
@@ -51,7 +68,8 @@ keeps the corpus green.
 | rsop-topology | lsdou-precedence, disabled-block-enforced, security-filtering, wmi-loopback-slowlink | blocked | client-win11 qualification |
 | ilt-os | server-10x-collision, edition-union-expansion | ready | — |
 
-The map is enforced by the loader and pinned by
+The historical map above is retained for provenance. The current machine-readable
+readiness map is enforced by the loader and pinned by
 `test_known_readiness_map`; it changes only with the corpus.
 
 ## Platform gaps the corpus exposes
@@ -112,6 +130,14 @@ type error), a directory, and a section in this file.
   `expected_native.round_trip` (string, required; currently
   `secedit-validate-import-export`). `inf_excerpt` carries the expected
   wire text; `derivations` records code meanings and their provenance.
+
+### script-policy (Plan 026 / R10)
+
+- `authored_intent.entries` (list, required): side, trigger type, command,
+  optional parameters, order, and PowerShell run-order intent.
+- `expected_native.entries` (list, required): exact fields exposed by the
+  Scripts namespace in `Get-GPOReport`; `round_trip` (string, required) names
+  the Import-GPO/report/Backup-GPO comparison.
 
 ### rsop-topology (Plan 029 / WP-6)
 

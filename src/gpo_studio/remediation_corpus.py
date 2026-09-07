@@ -39,10 +39,11 @@ from typing import Literal, assert_never, cast
 SCENARIO_SCHEMA_VERSION = "1"
 PLATFORM_SCHEMA_VERSION = "1"
 
-Family = Literal["gpp-services", "security-template", "rsop-topology", "ilt-os"]
+Family = Literal["gpp-services", "security-template", "script-policy", "rsop-topology", "ilt-os"]
 FAMILIES: tuple[Family, ...] = (
     "gpp-services",
     "security-template",
+    "script-policy",
     "rsop-topology",
     "ilt-os",
 )
@@ -383,6 +384,10 @@ def _validate_family_payload(
             _require_key(authored_intent, "sections", list, context)
             _require_key(expected_native, "entries", list, context)
             _require_key(expected_native, "round_trip", str, context)
+        case "script-policy":
+            _require_key(authored_intent, "entries", list, context)
+            _require_key(expected_native, "entries", list, context)
+            _require_nonempty_str(expected_native, "round_trip", context)
         case "rsop-topology":
             _require_key(authored_intent, "topology", dict, context)
             # Either shape is valid, but whichever is present must be
@@ -405,12 +410,16 @@ def _validate_family_payload(
             assert_never(family)
 
 
-def _require_key(
-    data: dict[str, object], key: str, kind: type, context: str
-) -> None:
+def _require_key(data: dict[str, object], key: str, kind: type, context: str) -> None:
     value = data.get(key)
     if not isinstance(value, kind) or (isinstance(value, (list, dict)) and not value):
         raise _err(context, f"payload key {key!r} must be a non-empty {kind.__name__}")
+
+
+def _require_nonempty_str(data: dict[str, object], key: str, context: str) -> None:
+    value = data.get(key)
+    if not isinstance(value, str) or not value:
+        raise _err(context, f"payload key {key!r} must be a non-empty str")
 
 
 def load_scenario(path: Path, registry: PlatformRegistry) -> Scenario:
@@ -540,9 +549,7 @@ def load_scenario(path: Path, registry: PlatformRegistry) -> Scenario:
     )
 
 
-def load_corpus(
-    directory: Path, registry: PlatformRegistry
-) -> tuple[Scenario, ...]:
+def load_corpus(directory: Path, registry: PlatformRegistry) -> tuple[Scenario, ...]:
     """Load every scenario under ``directory`` (one file per family subdir).
 
     ``platforms.json`` in the same directory is the registry source; scenario
@@ -571,9 +578,7 @@ def anchor_violations(scenario: Scenario, repo_root: Path) -> tuple[str, ...]:
     for anchor in scenario.provenance.anchors:
         target = repo_root / anchor.path
         if not target.is_file():
-            violations.append(
-                f"{scenario.scenario_id}: anchor path does not exist: {anchor.path}"
-            )
+            violations.append(f"{scenario.scenario_id}: anchor path does not exist: {anchor.path}")
             continue
         if anchor.sha256 is not None:
             digest = hashlib.sha256(target.read_bytes()).hexdigest()

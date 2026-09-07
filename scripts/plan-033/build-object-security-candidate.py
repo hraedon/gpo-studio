@@ -1,25 +1,15 @@
 #!/usr/bin/env python3
-"""Build the R9 ``candidate.inf`` pair: Studio's object-security shape(s).
+"""Build the Plan 034 object-security candidate.
 
-Work order R9 (``docs/manual-evidence-requests.md``): does ``secedit`` accept
-``object_security.py``'s ``key = value`` entries, or only the native bare
-quoted-CSV line? This script emits BOTH shapes as byte-identical-except-rows
-candidates so ``secedit /validate`` can give two verdicts:
-
-- ``candidate.inf``               -- what ``to_template_entries()`` emits today
-                                     (``_format_object_value``: ``code,"SDDL"``
-                                     behind a ``key = value`` line).
-- ``candidate-native-shape.inf``  -- the same objects rendered as the corpus's
-                                     spec-informed native lines
-                                     (``"KEY",code,"SDDL"``).
-
-Values are synthetic throughout; nothing here touches a directory or SYSVOL.
+The mixed synthetic candidate exercises propagation codes 0/1/2 for registry
+and file security and startup codes 2/3/4 for services.  It is assembled by
+the product families and shared security-template serializer.
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
+import json
 from pathlib import Path
 
 from gpo_studio.object_security import (
@@ -37,102 +27,86 @@ from gpo_studio.security_template import (
     format_security_template,
 )
 
-_SDDL = "D:PAR(A;OICI;FA;;;BA)"
+_REGISTRY_SDDL = "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+_FILE_SDDL = "D:PAR(A;OICI;FA;;;BA)"
+_SERVICE_SDDL = "D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)"
 
 
-def studio_sections() -> tuple[InfSection, ...]:
-    """Sections rendered exactly as ``to_template_entries()`` emits them."""
-    registry = RegistrySecurityFamily(
-        keys=(
-            RegistryKeySecurity(
-                key_path=r"MACHINE\SOFTWARE\StudioLab\Audit",
-                raw_sddl=_SDDL,
-                propagation="replace",
-            ),
-        )
-    )
-    fs = FileSystemSecurityFamily(
-        files=(
-            FileSecurity(
-                file_path=r"C:\StudioLab\Share",
-                raw_sddl=_SDDL,
-                propagation="replace",
-            ),
-        )
-    )
-    services = SystemServicesFamily(
-        services=(
-            ServiceSecurity(
-                service_name="StudioLabSvc",
-                raw_sddl=_SDDL,
-                startup_mode="automatic",
-            ),
-        )
-    )
-    entries: dict[str, dict[str, str]] = {}
-    entries.update(registry.to_template_entries())
-    entries.update(fs.to_template_entries())
-    entries.update(services.to_template_entries())
-    sections = [
-        InfSection(name="Unicode", entries=(("Unicode", "yes"),)),
-        InfSection(
-            name="Version",
-            entries=(("signature", "$CHICAGO$"), ("Revision", "1")),
+def _families() -> tuple[RegistrySecurityFamily, FileSystemSecurityFamily, SystemServicesFamily]:
+    return (
+        RegistrySecurityFamily(
+            keys=tuple(
+                RegistryKeySecurity(
+                    key_path=rf"MACHINE\Software\GPOStudio\ObjectSecurity\Registry{code}",
+                    raw_sddl=_REGISTRY_SDDL,
+                    propagation=mode,
+                )
+                for code, mode in ((0, "propagate"), (1, "do_not_allow_replace"), (2, "replace"))
+            )
         ),
-    ]
-    for name, rows in entries.items():
-        sections.append(InfSection(name=name, entries=tuple(rows.items())))
-    return tuple(sections)
+        FileSystemSecurityFamily(
+            files=tuple(
+                FileSecurity(
+                    file_path=rf"C:\GPOStudio\ObjectSecurity\File{code}",
+                    raw_sddl=_FILE_SDDL,
+                    propagation=mode,
+                )
+                for code, mode in ((0, "propagate"), (1, "do_not_allow_replace"), (2, "replace"))
+            )
+        ),
+        SystemServicesFamily(
+            services=tuple(
+                ServiceSecurity(
+                    service_name=f"GPOStudioObject{mode.title()}",
+                    startup_mode=mode,
+                    raw_sddl=_SERVICE_SDDL,
+                )
+                for mode in ("automatic", "manual", "disabled")
+            )
+        ),
+    )
 
 
-def native_text() -> str:
-    """The native bare quoted-CSV rows (the measured GptTmpl.inf shape)."""
-    sddl = _SDDL
-    lines = [
-        "[Unicode]",
-        "Unicode=yes",
-        "",
-        "[Version]",
-        'signature="$CHICAGO$"',
-        "Revision=1",
-        "",
-        "[Registry Keys]",
-        '"MACHINE\\SOFTWARE\\StudioLab\\Audit",2,"' + sddl + '"',
-        "",
-        "[File Security]",
-        '"C:\\StudioLab\\Share",2,"' + sddl + '"',
-        "",
-        "[Service General Setting]",
-        '"StudioLabSvc",2,"' + sddl + '"',
-        "",
-    ]
-    return "\r\n".join(lines) + "\r\n"
+def candidate_sections() -> tuple[InfSection, ...]:
+    registry, files, services = _families()
+    entries: dict[str, dict[str, str]] = {}
+    for family in (registry, files, services):
+        entries.update(family.to_template_entries())
+    return (
+        InfSection(name="Unicode", entries=(("Unicode", "yes"),)),
+        InfSection(name="Version", entries=(("signature", '"$CHICAGO$"'), ("Revision", "1"))),
+        *(InfSection(name=name, entries=tuple(values.items())) for name, values in entries.items()),
+    )
 
 
-def render(sections: tuple[InfSection, ...]) -> bytes:
-    template = SecurityTemplate(sections=sections)
-    text = format_security_template(template)
-    return encode_security_template(text)
+def _expected() -> dict[str, object]:
+    sections = candidate_sections()
+    return {
+        "schema_version": 1,
+        "settings": [
+            {
+                "section": section.name,
+                "target": key,
+                "code": int(value.split(",", 1)[0]),
+                "sddl": value.split(',"', 1)[1][:-1],
+            }
+            for section in sections
+            if section.name not in {"Unicode", "Version"}
+            for key, value in section.entries
+        ],
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_dir", type=Path)
     args = parser.parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-
-    studio = args.output_dir / "candidate.inf"
-    native = args.output_dir / "candidate-native-shape.inf"
-    studio.write_bytes(render(studio_sections()))
-    native.write_bytes(encode_security_template(native_text()))
-    print(f"wrote {studio} ({studio.stat().st_size} bytes)")
-    print(f"wrote {native} ({native.stat().st_size} bytes)")
-
-    if "-q" not in sys.argv:
-        print("--- candidate.inf ---")
-        print(studio.read_bytes().decode("utf-16"))
-        print("--- candidate-native-shape.inf ---")
-        print(native.read_bytes().decode("utf-16"))
+    args.output_dir.mkdir(parents=True, exist_ok=False)
+    text = format_security_template(SecurityTemplate(sections=candidate_sections())) + "\n"
+    (args.output_dir / "candidate.inf").write_bytes(encode_security_template(text))
+    (args.output_dir / "expected.json").write_text(
+        json.dumps(_expected(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return 0
 
 

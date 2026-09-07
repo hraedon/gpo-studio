@@ -53,7 +53,15 @@ GUEST_SCRIPTS="$GUEST_RUN_ROOT\\scripts"
 GUEST_OUT="$GUEST_RUN_ROOT\\out"
 
 CANDIDATE_DIR="/tmp/opencode/wp3-candidate-$STAMP"
-uv run python scripts/plan-033/build-wp3-candidate.py "$CANDIDATE_DIR"
+# Kerberos requires a measured DC role; the finalizer also enforces that role.
+# Keep the member-server candidate as the default for the existing tranche.
+CANDIDATE_OPTIONS=()
+case "${GPO_STUDIO_WP3_KERBEROS:-0}" in
+    0) ;;
+    1) CANDIDATE_OPTIONS+=(--include-kerberos) ;;
+    *) echo "GPO_STUDIO_WP3_KERBEROS must be 0 or 1" >&2; exit 1 ;;
+esac
+uv run python scripts/plan-033/build-wp3-candidate.py "$CANDIDATE_DIR" "${CANDIDATE_OPTIONS[@]}"
 
 LOCAL_DIR="/tmp/opencode/wp3-oracle-run-$STAMP"
 mkdir -p "$LOCAL_DIR/deployed"
@@ -69,8 +77,13 @@ psdirect -Action push -LocalPath "$CANDIDATE_DIR/candidate.inf" \
 psdirect -Action push -LocalPath "$CANDIDATE_DIR/expected.json" \
     -RemotePath "$GUEST_SCRIPTS\\expected.json" >/dev/null
 
-psdirect -Action exec -TimeoutSeconds 360 -Command \
-    "& '$GUEST_SCRIPTS\\run-wp3-security-template.ps1' -CandidatePath '$GUEST_SCRIPTS\\candidate.inf' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT'"
+if ! psdirect -Action exec -TimeoutSeconds 360 -Command \
+    "& '$GUEST_SCRIPTS\\run-wp3-security-template.ps1' -CandidatePath '$GUEST_SCRIPTS\\candidate.inf' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT'"; then
+    # A failed oracle is evidence too. Retrieve its result and command streams;
+    # the finalizer must record the failed checks and return nonzero. If the
+    # guest produced no result, the strict run selection/pull still fails.
+    echo "WP-3 guest execution failed; retrieving evidence for the verdict" >&2
+fi
 
 RUN_DIR=$(psdirect -Action exec -Command "$RUN_SELECT")
 RUN_DIR=$(printf '%s' "$RUN_DIR" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
@@ -92,6 +105,8 @@ cp "$SCRIPT_DIR/run-wp3-oracle.sh" \
     "$SCRIPT_DIR/finalize_wp3_run.py" \
     "$REPO_ROOT/scripts/plan-033/build-wp3-candidate.py" \
     "$SCRIPT_DIR/psdirect.ps1" \
+    "$REPO_ROOT/src/gpo_studio/policy_families.py" \
+    "$REPO_ROOT/src/gpo_studio/security_template.py" \
     "$LOCAL_DIR/"
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"

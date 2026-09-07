@@ -35,8 +35,12 @@ EVIDENCE = REPO_ROOT / "docs" / "plan-033"
 #: quietly covering three lanes out of five.
 LANE_VERDICTS = {
     "wp1b-evidence/verification-estate.json": "finalize_wp1b_run.py",
+    "wp1b-evidence/scripts-metadata/verification.json": "finalize_scripts_backup_run.py",
     "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
+    "wp3-evidence/policy-families/dc/verification.json": "finalize_wp3_run.py",
+    "wp3-evidence/policy-families/member/verification.json": "finalize_wp3_run.py",
+    "wp3-evidence/object-security/verification.json": "finalize_object_security_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json": "finalize_rsop_run.py",
@@ -337,6 +341,18 @@ LANE_VERDICTS = {
     ),
 }
 
+# The original estate verdict predates policy-family serializer bindings. It
+# remains useful historical evidence with its exact five-file source set.
+HISTORICAL_BOUND_FILES = {
+    "wp3-evidence/verification-estate.json": {
+        "build-wp3-candidate.py",
+        "finalize_wp3_run.py",
+        "psdirect.ps1",
+        "run-wp3-oracle.sh",
+        "run-wp3-security-template.ps1",
+    }
+}
+
 #: Verdicts committed BEFORE the transport was recorded, kept as history.
 #:
 #: They are listed rather than skipped by pattern so that adding to this set is
@@ -531,6 +547,7 @@ RETIRED_VERDICTS = {
     # between authoring and observation), and it stays stale by construction --
     # the fix changed the observe half and the finalizer it binds.
     "wp6-evidence/verdict-rsop-observe-20260906221248-7683.json",
+    "wp3-evidence/verification-estate.json",
 }
 
 #: JSON files living in a `wp*-evidence/` directory whose names match neither
@@ -638,7 +655,8 @@ def test_source_files_holds_exactly_the_bound_repository_files(
     small untidiness: it makes the verdict unverifiable by the obvious method.
     """
     verdict = _verdict(relative)
-    assert set(verdict["source"]["files"]) == _bound_names(finalizer)
+    expected = HISTORICAL_BOUND_FILES.get(relative, _bound_names(finalizer))
+    assert set(verdict["source"]["files"]) == expected
 
 
 @pytest.mark.parametrize("relative,finalizer", sorted(LANE_VERDICTS.items()))
@@ -988,7 +1006,7 @@ def test_every_committed_verdict_is_covered() -> None:
     """
     committed = {
         path.relative_to(EVIDENCE).as_posix()
-        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        for path in EVIDENCE.glob("wp*-evidence/**/*.json")
         if path.name.startswith(("verdict-", "verification"))
     }
     unmapped = sorted(committed - set(LANE_VERDICTS) - PRE_TRANSPORT_VERDICTS)
@@ -1003,10 +1021,140 @@ def test_the_coverage_guard_is_looking_at_real_files() -> None:
     """The control. A glob that matches nothing makes the test above vacuous."""
     committed = {
         path.relative_to(EVIDENCE).as_posix()
-        for path in EVIDENCE.glob("wp*-evidence/*.json")
+        for path in EVIDENCE.glob("wp*-evidence/**/*.json")
         if path.name.startswith(("verdict-", "verification"))
     }
     assert len(committed) >= len(LANE_VERDICTS)
+
+
+@pytest.mark.parametrize(
+    ("role", "domain_role", "host_name", "kerberos_keys"),
+    [
+        (
+            "dc",
+            5,
+            "LABDC01",
+            {
+                "MaxTicketAge",
+                "MaxRenewAge",
+                "MaxServiceAge",
+                "MaxClockSkew",
+                "TicketValidateClient",
+            },
+        ),
+        ("member", 3, "LABMS01", set()),
+    ],
+)
+def test_wp3_policy_family_evidence_is_intact_and_role_scoped(
+    role: str, domain_role: int, host_name: str, kerberos_keys: set[str]
+) -> None:
+    """The paired WP-3 runs retain their raw bytes and asymmetric host scope."""
+    evidence_dir = EVIDENCE / "wp3-evidence" / "policy-families" / role
+    verification = json.loads(
+        (evidence_dir / "verification.json").read_text(encoding="utf-8")
+    )
+    assert verification["passed"] is True
+    environment = verification["environment"]
+    assert environment["computer_system_domain"] == "ad.labdomain.dev"
+    assert environment["computer_system_domain_role"] == domain_role
+    assert environment["computer_system_name"] == host_name
+
+    expected = json.loads((evidence_dir / "expected.json").read_text(encoding="utf-8"))
+    actual_kerberos = {
+        setting["key"]
+        for setting in expected["settings"]
+        if setting["section"] == "Kerberos Policy"
+    }
+    assert actual_kerberos == kerberos_keys
+
+    source_paths = {
+        "build-wp3-candidate.py": REPO_ROOT / "scripts/plan-033/build-wp3-candidate.py",
+        "finalize_wp3_run.py": REPO_ROOT / "scripts/windows-oracle/finalize_wp3_run.py",
+        "policy_families.py": REPO_ROOT / "src/gpo_studio/policy_families.py",
+        "psdirect.ps1": REPO_ROOT / "scripts/windows-oracle/psdirect.ps1",
+        "run-wp3-oracle.sh": REPO_ROOT / "scripts/windows-oracle/run-wp3-oracle.sh",
+        "run-wp3-security-template.ps1": (
+            REPO_ROOT / "scripts/windows-oracle/run-wp3-security-template.ps1"
+        ),
+        "security_template.py": REPO_ROOT / "src/gpo_studio/security_template.py",
+    }
+    for relative_path, recorded_hash in verification["artifacts"].items():
+        artifact = evidence_dir / Path(relative_path)
+        source_name = relative_path.removeprefix("deployed/")
+        if not artifact.is_file() and source_name in source_paths:
+            artifact = source_paths[source_name]
+        if not artifact.is_file() and relative_path in source_paths:
+            artifact = source_paths[relative_path]
+        assert artifact.is_file(), relative_path
+        actual_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        assert actual_hash == recorded_hash, relative_path
+
+
+def test_object_security_evidence_preserves_native_rows_and_raw_artifacts() -> None:
+    evidence_dir = EVIDENCE / "wp3-evidence" / "object-security"
+    verification = json.loads((evidence_dir / "verification.json").read_text(encoding="utf-8"))
+    assert verification["passed"] is True
+    assert verification["environment"]["computer_system_domain_role"] == 3
+    assert verification["environment"]["computer_system_name"] == "LABMS01"
+    assert verification["environment"]["computer_system_domain"] == "ad.labdomain.dev"
+    symbols = runpy.run_path(str(ORACLE_DIR / "finalize_object_security_run.py"))
+    source_paths = {
+        name: REPO_ROOT / relative
+        for table in _file_tables("finalize_object_security_run.py")
+        for name, relative in table.items()
+    }
+    for relative, digest in verification["artifacts"].items():
+        artifact = evidence_dir / relative
+        if not artifact.is_file():
+            artifact = source_paths[relative.removeprefix("deployed/")]
+        assert hashlib.sha256(artifact.read_bytes()).hexdigest() == digest, relative
+    expected_json = json.loads((evidence_dir / "expected.json").read_text(encoding="utf-8"))
+    expected = symbols["_expected_rows"](expected_json)
+    assert len(expected) == 9
+    assert symbols["_template_rows"](evidence_dir / "candidate.inf", exported=False) == expected
+    assert symbols["_template_rows"](evidence_dir / "exported.inf", exported=True) == expected
+    for section, codes in (
+        ("registry keys", {0, 1, 2}),
+        ("file security", {0, 1, 2}),
+        ("service general setting", {2, 3, 4}),
+    ):
+        assert {value[0] for key, value in expected.items() if key[0] == section} == codes
+
+
+def test_scripts_metadata_evidence_binds_native_files_report_and_identity() -> None:
+    evidence_dir = EVIDENCE / "wp1b-evidence" / "scripts-metadata"
+    verification = json.loads((evidence_dir / "verification.json").read_text(encoding="utf-8"))
+    result = json.loads((evidence_dir / "result.json").read_text(encoding="utf-8-sig"))
+    assert verification["passed"] is True
+    assert verification["environment"]["computer_system_domain_role"] == 3
+    assert verification["environment"]["computer_system_name"] == "LABMS01"
+    assert result["cleanup_state_restored"] is True
+    assert result["report_links_to_count"] == 0
+    symbols = runpy.run_path(str(ORACLE_DIR / "finalize_scripts_backup_run.py"))
+    source_paths = {
+        name: REPO_ROOT / relative
+        for table in _file_tables("finalize_scripts_backup_run.py")
+        for name, relative in table.items()
+    }
+    for relative, digest in verification["artifacts"].items():
+        artifact = evidence_dir / relative
+        if not artifact.is_file():
+            artifact = source_paths[relative.removeprefix("deployed/")]
+        assert hashlib.sha256(artifact.read_bytes()).hexdigest() == digest, relative
+    original = symbols["_candidate_projection"](evidence_dir / "candidate.zip")
+    native = symbols["_rebackup_projection"](evidence_dir / "rebackup")
+    assert original == verification["original_projection"]
+    assert native == verification["rebackup_projection"]
+    assert original["files"] == native["files"]
+    assert len(native["files"]) == 2
+    assert native["user_extension_pair"] == ""
+    assert len(native["wildcard_references"]) == 4
+    assert symbols["_report_matches"](
+        evidence_dir / "report.xml", result["owned_gpo_id"], result["target_name"], result["domain"]
+    )
+    assert verification["candidate_delivery"]["controller_sha256"] == verification[
+        "candidate_delivery"
+    ]["guest_sha256"] == hashlib.sha256((evidence_dir / "candidate.zip").read_bytes()).hexdigest()
 
 
 def test_every_evidence_file_is_accounted_for() -> None:

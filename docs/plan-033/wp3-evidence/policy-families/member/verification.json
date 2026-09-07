@@ -1,0 +1,91 @@
+{
+  "artifacts": {
+    "build-wp3-candidate.py": "c2f159247a4e2f26436a288f366b550efa1c25bde34f86710cbac5a14d60a4da",
+    "candidate.inf": "d59607c749f57b037e985efbb36e97a17a6c9970b24394d5e928d8fa3a3a7105",
+    "commands/export.log": "102688a948e4675e81739519757a765e27c0fa7616a2c77a7c747332fc95199f",
+    "commands/export.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/export.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.log": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/validate.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/validate.stdout.txt": "5d4a75476ff1f9d8922bbf6a3cc5272eba407ba24e280f47256d1821fa66a438",
+    "deployed/run-wp3-security-template.ps1": "fe04de0ac78c1b7f2df065970aee1ae8a048369c7052fa16c8376f6b6cd65994",
+    "expected.json": "5715767c0501e0ae1d501c77652636c77570fce57645309b6a536ed26e522c7d",
+    "exported.inf": "469fcfcb8ec71415957ad418f62bbbb43bfe5cbfbabdce161c9684d4bac02d15",
+    "finalize_wp3_run.py": "a19b51e6424cd1897134838e9de8491ceb0ce0c097e8bc4c17b64e3baa73718b",
+    "policy_families.py": "b832240e451076cb26f161c4afa583a8cbb31a0b9e5a66d1a8d06b991de4e0ff",
+    "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+    "result.json": "a181a2e2ef31ce47ff7f177cb035a28e23bc462645414a2cfb51cfeac156c2a4",
+    "run-wp3-oracle.sh": "8285ef3f629f98ae64ebff7734e842b83a0320de919073a2c0b9963b155c718f",
+    "security_template.py": "499d78689b982bc599c81104611cb3abafccf066fc0cd1bf9ec20de5117d8337"
+  },
+  "candidate_delivery": {
+    "candidate.inf": {
+      "controller_sha256": "d59607c749f57b037e985efbb36e97a17a6c9970b24394d5e928d8fa3a3a7105",
+      "guest_copy_matches": true
+    },
+    "expected.json": {
+      "controller_sha256": "5715767c0501e0ae1d501c77652636c77570fce57645309b6a536ed26e522c7d",
+      "guest_copy_matches": true
+    }
+  },
+  "candidate_differences": [],
+  "checks": {
+    "candidate_authored_key_set_exact": true,
+    "candidate_decodes": true,
+    "candidate_delivered_intact": true,
+    "candidate_has_required_preamble": true,
+    "candidate_semantics_match": true,
+    "cleanup_succeeded": true,
+    "database_absent_after_cleanup": true,
+    "database_residual_files_empty": true,
+    "deployed_harness_matches_source": true,
+    "environment_matches_frozen_spec": true,
+    "expected_schema_supported": true,
+    "export_created": true,
+    "export_succeeded": true,
+    "import_succeeded": true,
+    "kerberos_policy_host_role_supported": true,
+    "local_evidence_copies_match_source": true,
+    "observed_secedit_operations_match": true,
+    "source_tree_clean": true,
+    "validate_succeeded": true,
+    "windows_export_decodes": true,
+    "windows_export_semantics_match": true
+  },
+  "decode_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "lgpo_sha256": "missing",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33296",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "export_differences": [],
+  "harness_error": null,
+  "passed": true,
+  "run_id": "wp3-security-template-20260907071149-3752",
+  "schema_version": 1,
+  "source": {
+    "commit": "4e27f27cf6f4f3a6ba0cbd84af25ea0ebfecbbbc",
+    "dirty": false,
+    "files": {
+      "build-wp3-candidate.py": "c2f159247a4e2f26436a288f366b550efa1c25bde34f86710cbac5a14d60a4da",
+      "finalize_wp3_run.py": "a19b51e6424cd1897134838e9de8491ceb0ce0c097e8bc4c17b64e3baa73718b",
+      "policy_families.py": "b832240e451076cb26f161c4afa583a8cbb31a0b9e5a66d1a8d06b991de4e0ff",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "run-wp3-oracle.sh": "8285ef3f629f98ae64ebff7734e842b83a0320de919073a2c0b9963b155c718f",
+      "run-wp3-security-template.ps1": "fe04de0ac78c1b7f2df065970aee1ae8a048369c7052fa16c8376f6b6cd65994",
+      "security_template.py": "499d78689b982bc599c81104611cb3abafccf066fc0cd1bf9ec20de5117d8337"
+    }
+  },
+  "transport": "psdirect"
+}

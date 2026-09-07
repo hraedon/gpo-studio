@@ -1,0 +1,360 @@
+{
+  "schema_version": "1",
+  "scenario_id": "policy-families",
+  "family": "security-template",
+  "title": "Policy-family serializers: native audit keys and DC-scoped Kerberos",
+  "readiness": "ready",
+  "provenance": {
+    "tier": "native-observation",
+    "note": "Paired WP-3 runs exercised the real policy-family serializers through secedit. The DC candidate includes Kerberos; the member candidate deliberately omits it and does not independently test rejection of Kerberos on a member.",
+    "anchors": [
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp3-evidence/policy-families/dc/verification.json",
+        "sha256": "2cb54e4d20c13903586feaf7040e4cf2c85842ddd73727debeaa0dc2717a8feb",
+        "note": "DC run: Kerberos Policy has five native keys."
+      },
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp3-evidence/policy-families/member/verification.json",
+        "sha256": "29c856aba0ba4df6f9d49e7baf37a076709e5c3e81bc9968d217617eaf4b8b60",
+        "note": "Member run: Kerberos Policy is absent from the candidate."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "security-template-secedit",
+    "boundaries": [
+      "gpo-backup-content"
+    ]
+  },
+  "authored_intent": {
+    "sections": [
+      {
+        "name": "System Access",
+        "entries": [
+          [
+            "MinimumPasswordAge",
+            "1"
+          ],
+          [
+            "MaximumPasswordAge",
+            "42"
+          ],
+          [
+            "MinimumPasswordLength",
+            "14"
+          ],
+          [
+            "PasswordComplexity",
+            "1"
+          ],
+          [
+            "PasswordHistorySize",
+            "12"
+          ],
+          [
+            "ClearTextPassword",
+            "0"
+          ],
+          [
+            "LockoutBadCount",
+            "5"
+          ],
+          [
+            "LockoutDuration",
+            "30"
+          ],
+          [
+            "ResetLockoutCount",
+            "30"
+          ]
+        ]
+      },
+      {
+        "name": "Kerberos Policy",
+        "entries": [
+          [
+            "MaxTicketAge",
+            "10"
+          ],
+          [
+            "MaxRenewAge",
+            "7"
+          ],
+          [
+            "MaxServiceAge",
+            "600"
+          ],
+          [
+            "MaxClockSkew",
+            "5"
+          ],
+          [
+            "TicketValidateClient",
+            "1"
+          ]
+        ]
+      },
+      {
+        "name": "Event Audit",
+        "entries": [
+          [
+            "AuditSystemEvents",
+            "3"
+          ],
+          [
+            "AuditLogonEvents",
+            "1"
+          ],
+          [
+            "AuditObjectAccess",
+            "0"
+          ],
+          [
+            "AuditPrivilegeUse",
+            "0"
+          ],
+          [
+            "AuditPolicyChange",
+            "3"
+          ],
+          [
+            "AuditAccountManage",
+            "0"
+          ],
+          [
+            "AuditDSAccess",
+            "0"
+          ],
+          [
+            "AuditAccountLogon",
+            "0"
+          ],
+          [
+            "AuditProcessTracking",
+            "0"
+          ]
+        ]
+      },
+      {
+        "name": "Privilege Rights",
+        "entries": [
+          [
+            "SeBackupPrivilege",
+            "*S-1-5-32-544,*S-1-5-32-551"
+          ],
+          [
+            "SeRestorePrivilege",
+            "*S-1-5-32-544"
+          ]
+        ]
+      },
+      {
+        "name": "Registry Values",
+        "entries": [
+          [
+            "MACHINE\\Software\\StudioLab\\Sz",
+            "1,\"studio sz value\""
+          ],
+          [
+            "MACHINE\\Software\\StudioLab\\ExpandSz",
+            "2,\"%SystemRoot%\\studio\""
+          ],
+          [
+            "MACHINE\\Software\\StudioLab\\Dword",
+            "4,1"
+          ],
+          [
+            "MACHINE\\Software\\StudioLab\\MultiSz",
+            "7,alpha,beta"
+          ]
+        ]
+      },
+      {
+        "name": "Group Membership",
+        "entries": [
+          [
+            "*S-1-5-32-551__Members",
+            "*S-1-5-32-544"
+          ],
+          [
+            "Power Users__Members",
+            "Administrator"
+          ]
+        ]
+      }
+    ],
+    "operator_meaning": [
+      "DC candidate emits the measured native Kerberos policy keys.",
+      "Member candidate omits Kerberos Policy because secedit exports that area empty on a member server."
+    ]
+  },
+  "expected_native": {
+    "round_trip": "secedit-validate-import-export",
+    "entries": [
+      {
+        "key": "MinimumPasswordAge",
+        "section": "System Access",
+        "value": "1"
+      },
+      {
+        "key": "MaximumPasswordAge",
+        "section": "System Access",
+        "value": "42"
+      },
+      {
+        "key": "MinimumPasswordLength",
+        "section": "System Access",
+        "value": "14"
+      },
+      {
+        "key": "PasswordComplexity",
+        "section": "System Access",
+        "value": "1"
+      },
+      {
+        "key": "PasswordHistorySize",
+        "section": "System Access",
+        "value": "12"
+      },
+      {
+        "key": "ClearTextPassword",
+        "section": "System Access",
+        "value": "0"
+      },
+      {
+        "key": "LockoutBadCount",
+        "section": "System Access",
+        "value": "5"
+      },
+      {
+        "key": "LockoutDuration",
+        "section": "System Access",
+        "value": "30"
+      },
+      {
+        "key": "ResetLockoutCount",
+        "section": "System Access",
+        "value": "30"
+      },
+      {
+        "key": "MaxTicketAge",
+        "section": "Kerberos Policy",
+        "value": "10"
+      },
+      {
+        "key": "MaxRenewAge",
+        "section": "Kerberos Policy",
+        "value": "7"
+      },
+      {
+        "key": "MaxServiceAge",
+        "section": "Kerberos Policy",
+        "value": "600"
+      },
+      {
+        "key": "MaxClockSkew",
+        "section": "Kerberos Policy",
+        "value": "5"
+      },
+      {
+        "key": "TicketValidateClient",
+        "section": "Kerberos Policy",
+        "value": "1"
+      },
+      {
+        "key": "AuditSystemEvents",
+        "section": "Event Audit",
+        "value": "3"
+      },
+      {
+        "key": "AuditLogonEvents",
+        "section": "Event Audit",
+        "value": "1"
+      },
+      {
+        "key": "AuditObjectAccess",
+        "section": "Event Audit",
+        "value": "0"
+      },
+      {
+        "key": "AuditPrivilegeUse",
+        "section": "Event Audit",
+        "value": "0"
+      },
+      {
+        "key": "AuditPolicyChange",
+        "section": "Event Audit",
+        "value": "3"
+      },
+      {
+        "key": "AuditAccountManage",
+        "section": "Event Audit",
+        "value": "0"
+      },
+      {
+        "key": "AuditDSAccess",
+        "section": "Event Audit",
+        "value": "0"
+      },
+      {
+        "key": "AuditAccountLogon",
+        "section": "Event Audit",
+        "value": "0"
+      },
+      {
+        "key": "AuditProcessTracking",
+        "section": "Event Audit",
+        "value": "0"
+      },
+      {
+        "key": "SeBackupPrivilege",
+        "section": "Privilege Rights",
+        "value": "*S-1-5-32-544,*S-1-5-32-551"
+      },
+      {
+        "key": "SeRestorePrivilege",
+        "section": "Privilege Rights",
+        "value": "*S-1-5-32-544"
+      },
+      {
+        "key": "MACHINE\\Software\\StudioLab\\Sz",
+        "section": "Registry Values",
+        "value": "1,\"studio sz value\""
+      },
+      {
+        "key": "MACHINE\\Software\\StudioLab\\ExpandSz",
+        "section": "Registry Values",
+        "value": "2,\"%SystemRoot%\\studio\""
+      },
+      {
+        "key": "MACHINE\\Software\\StudioLab\\Dword",
+        "section": "Registry Values",
+        "value": "4,1"
+      },
+      {
+        "key": "MACHINE\\Software\\StudioLab\\MultiSz",
+        "section": "Registry Values",
+        "value": "7,alpha,beta"
+      },
+      {
+        "key": "*S-1-5-32-551__Members",
+        "section": "Group Membership",
+        "value": "*S-1-5-32-544"
+      },
+      {
+        "key": "Power Users__Members",
+        "section": "Group Membership",
+        "value": "Administrator"
+      }
+    ],
+    "derivations": [
+      "The DC observation proves the tested five-key native Kerberos shape. The member run covers the non-Kerberos tranche; omission from its candidate is a controller scope decision, not a fresh native negative experiment.",
+      "EnforceLogonRestrictions and EnforceUserLogonRestrictions are excluded because secedit /validate rejected them as unknown keys."
+    ]
+  },
+  "open_questions": [
+    "Whether additional Kerberos keys exist on other supported Windows build families remains unmeasured."
+  ]
+}

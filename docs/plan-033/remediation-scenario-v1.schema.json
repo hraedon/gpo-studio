@@ -28,7 +28,7 @@
     },
     "family": {
       "type": "string",
-      "enum": ["gpp-services", "security-template", "rsop-topology", "ilt-os"],
+      "enum": ["gpp-services", "security-template", "script-policy", "rsop-topology", "ilt-os"],
       "description": "Remediation family. Adding a family requires a schema enum entry, a loader validator branch, and a remediation-corpus.md section."
     },
     "title": {

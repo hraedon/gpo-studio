@@ -42,6 +42,7 @@ function Invoke-Secedit {
 }
 
 $osInfo = Get-CimInstance Win32_OperatingSystem
+$computerSystem = Get-CimInstance Win32_ComputerSystem
 $gpModule = Get-Module -ListAvailable GroupPolicy | Select-Object -First 1
 $lgpoPath = 'C:\gpo-tools\LGPO_30\LGPO.exe'
 $lgpoSha256 = if (Test-Path -LiteralPath $lgpoPath -PathType Leaf) {
@@ -68,6 +69,9 @@ $result = [ordered]@{
         gpmc_version = 'built-in'
         locale = (Get-Culture).Name
         lgpo_sha256 = $lgpoSha256
+        computer_system_name = "$($computerSystem.Name)"
+        computer_system_domain = "$($computerSystem.Domain)"
+        computer_system_domain_role = $computerSystem.DomainRole
     }
     error = $null
 }

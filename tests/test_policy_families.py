@@ -170,8 +170,6 @@ MaxRenewAge = 7
 MaxServiceAge = 480
 MaxClockSkew = 5
 TicketValidateClient = 0
-EnforceLogonRestrictions = 1
-EnforceUserLogonRestrictions = 0
 """
     template = parse_security_template(text)
     family = AccountPolicyFamily.from_template(template)
@@ -192,8 +190,6 @@ EnforceUserLogonRestrictions = 0
     assert family.kerberos.max_service_age_minutes == 480
     assert family.kerberos.max_clock_skew_minutes == 5
     assert family.kerberos.ticket_validate_client is False
-    assert family.kerberos.enforce_logon_restrictions is True
-    assert family.kerberos.enforce_user_logon_restrictions is False
 
     entries = family.to_template_entries()
     rebuilt = SecurityTemplate(
@@ -253,7 +249,7 @@ AuditObjectAccess = 1
 AuditPrivilegeUse = 3
 AuditPolicyChange = 2
 AuditAccountManage = 0
-AuditDirectoryServiceAccess = 1
+AuditDSAccess = 1
 AuditAccountLogon = 2
 AuditProcessTracking = 0
 """
@@ -302,6 +298,8 @@ def test_audit_policy_to_template_entries_round_trip() -> None:
         process_tracking="success_and_failure",
     )
     entries = family.to_template_entries()
+    assert entries["Event Audit"]["AuditDSAccess"] == "2"
+    assert "AuditDirectoryServiceAccess" not in entries["Event Audit"]
     rebuilt = SecurityTemplate(
         sections=(InfSection(name="Event Audit", entries=tuple(entries["Event Audit"].items())),)
     )

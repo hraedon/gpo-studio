@@ -1,5 +1,27 @@
 # Plan 033 frozen environment specification
 
+**2026-09-07 Scripts metadata extension:** run
+`scripts-r10-20260907081826-5183` passed 21/21 on LabMS01 (role 3), using
+the existing frozen profile and a clean isolated checkout at `f6b06af`.
+The unlinked target GPO was removed and absence rechecked. This qualifies
+metadata import/report/rebackup only; no script payload was delivered or
+executed. See [the bound result](scripts-metadata-results.md).
+
+**2026-09-07 object-security extension:** run
+`object-security-20260907075319-7408` passed 19/19 on LabMS01 (role 3) under
+the same frozen build-family profile. The separate `object-security-secedit`
+lane qualifies registry/file/service serialization through a temporary database,
+with no `/configure`. See [the bound result](object-security-results.md).
+
+**2026-09-07 WP-3 extension:** the policy-family tranche now has a directly
+executed DC qualification, `wp3-security-template-20260907071106-1024`, and a
+fresh member-server qualification, `wp3-security-template-20260907071149-3752`.
+Both pass 21/21 under the existing 26100/PowerShell 5.1 build-family profile,
+with observed roles 5 and 3 respectively. The DC run adds Kerberos; no lane
+invokes `/configure`. The platform registry records this distinction.
+See [the results and raw evidence](wp3-policy-family-results.md). Earlier rows
+below retain the initial environment qualification history.
+
 Status: environment frozen. Every lane is qualified on the disposable evidence
 estate over PowerShell Direct (2026-08-03). A WP-0 success-path run is certified
 `pass` against a clean, committed source tree, and the same harness produces a

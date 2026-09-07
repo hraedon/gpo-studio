@@ -1250,6 +1250,14 @@ start Sitting C until the bundle is in your hands.**
 
 ## R9 — `secedit /validate` on Studio's SDDL sections
 
+**2026-09-07 implementation update:** The request below is the historical
+work order. R9 already rejected the former key/value shape and accepted native
+quoted CSV; the production formatter was corrected. The builder now emits one
+serializer-backed candidate and a typed expectation manifest for the repeatable
+[object-security lane](plan-033/object-security-results.md). Its new verdict
+must be earned independently; the historical A/B instructions below do not
+describe the current builder.
+
 **Direction B.** Estate: **`LabMS01`.** Estimated: **10 minutes.**
 **Blocked on a bundle.**
 
