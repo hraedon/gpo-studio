@@ -1,0 +1,11 @@
+first 4 bytes: FF FE 0D 00
+CR count: 9  LF count: 9  size: 458 bytes
+
+     
+[version]
+version=100
+[Folder_Redirection]
+{FDD39AD0-238F-46AF-ADB4-6C85480369C7}=s-1-1-0;
+[{FDD39AD0-238F-46AF-ADB4-6C85480369C7}_s-1-1-0]
+Flags=1021
+FullPath=\\zz-studio-fileserver\zzredir\%USERNAME%\Documents
