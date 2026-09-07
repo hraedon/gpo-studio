@@ -7,6 +7,7 @@ import pytest
 from gpo_studio.backup import (
     BackupError,
     _BackupBudget,
+    _parse_native_backup_options,
     parse_bkup_info,
     parse_manifest,
     read_backup,
@@ -200,6 +201,38 @@ def test_read_cse_content(tmp_path: Path) -> None:
         "Registry.pol",
     )
     assert result == content
+
+
+def test_native_backup_options_require_core_settings() -> None:
+    with pytest.raises(BackupError, match="no GroupPolicyCoreSettings"):
+        _parse_native_backup_options(b"<Backup />", "gpo-guid")
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ("not-an-integer", "Invalid Backup.xml Options"),
+        ("4", "Unsupported Backup.xml Options flags"),
+    ],
+)
+def test_native_backup_options_reject_invalid_flags(
+    options: str, message: str
+) -> None:
+    data = (
+        "<Backup><GroupPolicyCoreSettings><ID>{gpo-guid}</ID>"
+        f"<Options>{options}</Options></GroupPolicyCoreSettings></Backup>"
+    ).encode()
+    with pytest.raises(BackupError, match=message):
+        _parse_native_backup_options(data, "gpo-guid")
+
+
+def test_native_backup_options_reject_id_mismatch() -> None:
+    data = (
+        b"<Backup><GroupPolicyCoreSettings><ID>{other}</ID>"
+        b"<Options>0</Options></GroupPolicyCoreSettings></Backup>"
+    )
+    with pytest.raises(BackupError, match="does not match manifest"):
+        _parse_native_backup_options(data, "gpo-guid")
 
 
 def test_entity_declaration_rejected(tmp_path: Path) -> None:
