@@ -51,6 +51,8 @@ TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
         "build-wp3-candidate.py": "scripts/plan-033/build-wp3-candidate.py",
         "finalize_wp3_run.py": "scripts/windows-oracle/finalize_wp3_run.py",
         "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+        "policy_families.py": "src/gpo_studio/policy_families.py",
+        "security_template.py": "src/gpo_studio/security_template.py",
     },
 }
 
@@ -233,6 +235,31 @@ def _candidate_key_set_matches(
     return True
 
 
+def _kerberos_host_role_matches(
+    settings: object, environment: object
+) -> bool:
+    """Require a domain-controller host for Kerberos Policy candidates.
+
+    ``DomainRole`` is a CIM integer: 4 and 5 are backup and primary domain
+    controllers.  Check the exact Python type so JSON booleans and strings
+    cannot accidentally satisfy the gate.
+    """
+    if not isinstance(settings, list):
+        return False
+    has_kerberos_policy = any(
+        isinstance(setting, dict)
+        and isinstance(setting.get("section"), str)
+        and setting["section"].casefold() == "kerberos policy"
+        for setting in settings
+    )
+    if not has_kerberos_policy:
+        return True
+    if not isinstance(environment, dict):
+        return False
+    role = environment.get("computer_system_domain_role")
+    return type(role) is int and role in (4, 5)
+
+
 def _observed_operations_match(result: dict[str, Any]) -> bool:
     operations = result.get("invoked_operations")
     if not isinstance(operations, list):
@@ -337,6 +364,9 @@ def main() -> int:
         "database_residual_files_empty": result["database_residual_files"] == [],
         "observed_secedit_operations_match": _observed_operations_match(result),
         "expected_schema_supported": expected.get("schema_version") == 1,
+        "kerberos_policy_host_role_supported": _kerberos_host_role_matches(
+            expected.get("settings"), result.get("environment")
+        ),
     }
 
     # The profile comes from FROZEN_ENVIRONMENT, per environment-spec rule 7.

@@ -15,6 +15,8 @@ docs/plan-033/**/*.md   -text
 tests/fixtures/native-gpp-gpmc/** -text
 scripts/plan-033/build-*.py -text
 scripts/windows-oracle/**   -text
+src/gpo_studio/policy_families.py text eol=lf
+src/gpo_studio/security_template.py text eol=lf
 
 # Raw census artifacts, verbatim byte copies: every SHA-256 is banked in
 # tests/fixtures/live-domain-census/provenance.json, so the blobs must not

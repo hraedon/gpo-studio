@@ -53,7 +53,15 @@ GUEST_SCRIPTS="$GUEST_RUN_ROOT\\scripts"
 GUEST_OUT="$GUEST_RUN_ROOT\\out"
 
 CANDIDATE_DIR="/tmp/opencode/wp3-candidate-$STAMP"
-uv run python scripts/plan-033/build-wp3-candidate.py "$CANDIDATE_DIR"
+# Kerberos requires a measured DC role; the finalizer also enforces that role.
+# Keep the member-server candidate as the default for the existing tranche.
+CANDIDATE_OPTIONS=()
+case "${GPO_STUDIO_WP3_KERBEROS:-0}" in
+    0) ;;
+    1) CANDIDATE_OPTIONS+=(--include-kerberos) ;;
+    *) echo "GPO_STUDIO_WP3_KERBEROS must be 0 or 1" >&2; exit 1 ;;
+esac
+uv run python scripts/plan-033/build-wp3-candidate.py "$CANDIDATE_DIR" "${CANDIDATE_OPTIONS[@]}"
 
 LOCAL_DIR="/tmp/opencode/wp3-oracle-run-$STAMP"
 mkdir -p "$LOCAL_DIR/deployed"
@@ -92,6 +100,8 @@ cp "$SCRIPT_DIR/run-wp3-oracle.sh" \
     "$SCRIPT_DIR/finalize_wp3_run.py" \
     "$REPO_ROOT/scripts/plan-033/build-wp3-candidate.py" \
     "$SCRIPT_DIR/psdirect.ps1" \
+    "$REPO_ROOT/src/gpo_studio/policy_families.py" \
+    "$REPO_ROOT/src/gpo_studio/security_template.py" \
     "$LOCAL_DIR/"
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"

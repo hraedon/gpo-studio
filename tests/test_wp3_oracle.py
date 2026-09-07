@@ -25,6 +25,27 @@ _observed_operations_match = cast(
     Callable[[dict[str, Any]], bool],
     _FINALIZER["_observed_operations_match"],
 )
+_kerberos_host_role_matches = cast(
+    Callable[[object, object], bool],
+    _FINALIZER["_kerberos_host_role_matches"],
+)
+
+
+def test_kerberos_policy_requires_domain_controller_role() -> None:
+    settings = [{"section": "Kerberos Policy", "key": "MaxServiceAge", "value": "600"}]
+    for role in (None, 0, 3, 6, True, "4"):
+        assert not _kerberos_host_role_matches(
+            settings, {"computer_system_domain_role": role}
+        )
+    for role in (4, 5):
+        assert _kerberos_host_role_matches(
+            settings, {"computer_system_domain_role": role}
+        )
+
+
+def test_non_kerberos_candidate_does_not_require_domain_controller() -> None:
+    settings = [{"section": "System Access", "key": "MinimumPasswordLength", "value": "14"}]
+    assert _kerberos_host_role_matches(settings, {})
 
 
 def test_candidate_key_set_rejects_unexpected_security_setting() -> None:
