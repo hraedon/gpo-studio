@@ -39,7 +39,6 @@ class SafeDirectoryEntry:
     fd: int
 
 
-_IS_WINDOWS = sys.platform == "win32"
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
@@ -206,6 +205,14 @@ def _iter_directory_posix(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
 
 
 def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
+    # The inline platform check (not an intermediate constant) is what lets
+    # mypy analyse this body on Windows only; on POSIX the msvcrt/ntdll
+    # attributes do not resolve and the ignores that papered over that were
+    # unused on Windows. It is also fail-closed at runtime: this helper is
+    # unreachable through iter_directory on POSIX, and reaching it directly
+    # raises instead of dying on a missing module.
+    if sys.platform != "win32":
+        raise SafeOpenError("Windows directory enumeration reached on a POSIX platform")
     import ctypes
     import msvcrt
 
@@ -263,8 +270,8 @@ def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
             ("FileNameLength", ctypes.c_ulong),
         ]
 
-    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)  # type: ignore[attr-defined]
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     ntdll.NtQueryDirectoryFile.restype = ctypes.c_long
     ntdll.NtQueryDirectoryFile.argtypes = (
         ctypes.c_void_p,
@@ -291,7 +298,7 @@ def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
     kernel32.CloseHandle.restype = ctypes.c_int
     kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
 
-    parent_handle = msvcrt.get_osfhandle(dir_fd)  # type: ignore[attr-defined]
+    parent_handle = msvcrt.get_osfhandle(dir_fd)
     restart_scan = True
     while True:
         buffer = ctypes.create_string_buffer(_BUFFER_SIZE)
@@ -389,7 +396,7 @@ def _iter_directory_windows(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
                         f"Cannot open directory entry {name!r} safely: null handle"
                     )
                 try:
-                    child_fd: int = msvcrt.open_osfhandle(child_handle_value, _O_BINARY)  # type: ignore[attr-defined]
+                    child_fd: int = msvcrt.open_osfhandle(child_handle_value, _O_BINARY)
                 except Exception:
                     kernel32.CloseHandle(child_handle_value)
                     raise
@@ -431,7 +438,7 @@ def iter_directory(dir_fd: int) -> Iterator[SafeDirectoryEntry]:
     The caller owns *dir_fd*.  Each yielded entry descriptor is owned by the
     iterator and is closed when the iterator advances or closes.
     """
-    if _IS_WINDOWS:
+    if sys.platform == "win32":
         yield from _iter_directory_windows(dir_fd)
     else:
         yield from _iter_directory_posix(dir_fd)
@@ -453,6 +460,9 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
     ``NtOpenFile`` handle is kept open until the identity check completes,
     preventing file deletion during the brief window between the two opens.
     """
+    # Inline platform check: see _iter_directory_windows.
+    if sys.platform != "win32":
+        raise SafeOpenError("Windows relative open reached on a POSIX platform")
     import ctypes
     import msvcrt
 
@@ -509,8 +519,8 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
 
     _FILE_ID_INFO_CLASS = 18
 
-    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)  # type: ignore[attr-defined]
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
     ntdll.NtOpenFile.restype = ctypes.c_long
     ntdll.NtOpenFile.argtypes = (
@@ -542,7 +552,7 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
     )
 
     def _file_identity(fd: int) -> tuple[int, bytes]:
-        handle = msvcrt.get_osfhandle(fd)  # type: ignore[attr-defined]
+        handle = msvcrt.get_osfhandle(fd)
         info = FILE_ID_INFO()
         if not kernel32.GetFileInformationByHandleEx(
             handle,
@@ -550,7 +560,7 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
             ctypes.byref(info),
             ctypes.sizeof(info),
         ):
-            last_error = ctypes.get_last_error()  # type: ignore[attr-defined]
+            last_error = ctypes.get_last_error()
             raise SafeOpenError(
                 "Cannot get stable file identity: "
                 f"Win32 error {last_error}"
@@ -582,13 +592,13 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
     )
     _INVALID_HANDLE = ctypes.c_void_p(-1).value
     if not root_handle or root_handle == _INVALID_HANDLE:
-        last_error = ctypes.get_last_error()  # type: ignore[attr-defined]
+        last_error = ctypes.get_last_error()
         raise SafeOpenError(
             f"Cannot open path root {anchor!s}: Win32 error {last_error}"
         )
 
     try:
-        nt_fd: int = msvcrt.open_osfhandle(root_handle, _O_BINARY)  # type: ignore[attr-defined]
+        nt_fd: int = msvcrt.open_osfhandle(root_handle, _O_BINARY)
     except Exception:
         kernel32.CloseHandle(root_handle)
         raise
@@ -607,7 +617,7 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
 
         for i, component in enumerate(parts):
             is_last = i == len(parts) - 1
-            parent_handle = msvcrt.get_osfhandle(nt_fd)  # type: ignore[attr-defined]
+            parent_handle = msvcrt.get_osfhandle(nt_fd)
 
             name_us = UNICODE_STRING(
                 Length=len(component.encode("utf-16-le")),
@@ -654,7 +664,7 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
             if child_handle_value is None:
                 raise SafeOpenError(f"NtOpenFile returned a null handle for {component!r}")
             try:
-                new_fd: int = msvcrt.open_osfhandle(child_handle_value, _O_BINARY)  # type: ignore[attr-defined]
+                new_fd: int = msvcrt.open_osfhandle(child_handle_value, _O_BINARY)
             except Exception:
                 kernel32.CloseHandle(child_handle_value)
                 raise
@@ -688,13 +698,13 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
             None,
         )
         if not cw_handle or cw_handle == _INVALID_HANDLE:
-            last_error = ctypes.get_last_error()  # type: ignore[attr-defined]
+            last_error = ctypes.get_last_error()
             raise SafeOpenError(
                 f"CreateFileW failed for {path!s}: Win32 error {last_error}"
             )
 
         try:
-            cw_fd: int = msvcrt.open_osfhandle(cw_handle, _O_BINARY)  # type: ignore[attr-defined]
+            cw_fd: int = msvcrt.open_osfhandle(cw_handle, _O_BINARY)
         except Exception:
             kernel32.CloseHandle(cw_handle)
             raise
@@ -727,6 +737,9 @@ def _windows_open_relative(path: Path, *, directory: bool) -> int:
 
 
 def _open_or_create_regular_windows(path: Path, *, exclusive: bool) -> int:
+    # Inline platform check: see _iter_directory_windows.
+    if sys.platform != "win32":
+        raise SafeOpenError("Windows file creation reached on a POSIX platform")
     import ctypes
     import msvcrt
 
@@ -771,8 +784,8 @@ def _open_or_create_regular_windows(path: Path, *, exclusive: bool) -> int:
             ("SecurityQualityOfService", ctypes.c_void_p),
         ]
 
-    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)  # type: ignore[attr-defined]
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     ntdll.NtCreateFile.restype = ctypes.c_long
     ntdll.NtCreateFile.argtypes = (
         ctypes.POINTER(ctypes.c_void_p),
@@ -800,7 +813,7 @@ def _open_or_create_regular_windows(path: Path, *, exclusive: bool) -> int:
     parent = Path(anchor, *parts[:-1])
     parent_fd = open_directory(parent)
     try:
-        parent_handle = msvcrt.get_osfhandle(parent_fd)  # type: ignore[attr-defined]
+        parent_handle = msvcrt.get_osfhandle(parent_fd)
         name_bytes = name.encode("utf-16-le")
         name_us = UNICODE_STRING(
             Length=len(name_bytes),
@@ -846,7 +859,7 @@ def _open_or_create_regular_windows(path: Path, *, exclusive: bool) -> int:
         if handle_value is None:
             raise SafeOpenError("Cannot safely open or create regular file: null handle")
         try:
-            fd: int = msvcrt.open_osfhandle(handle_value, _O_RDWR | _O_BINARY)  # type: ignore[attr-defined]
+            fd: int = msvcrt.open_osfhandle(handle_value, _O_RDWR | _O_BINARY)
         except Exception:
             kernel32.CloseHandle(handle_value)
             raise
@@ -886,7 +899,7 @@ def _open_regular_windows(path: Path) -> int:
 def open_regular_file(path: str | Path) -> int:
     """Open a regular file while rejecting links in every path component."""
     candidate = Path(path)
-    if _IS_WINDOWS:
+    if sys.platform == "win32":
         return _open_regular_windows(candidate)
     return _open_regular_posix(candidate)
 
@@ -902,7 +915,7 @@ def open_or_create_regular_file(
     :class:`FileExistsError`.
     """
     candidate = Path(path)
-    if _IS_WINDOWS:
+    if sys.platform == "win32":
         return _open_or_create_regular_windows(candidate, exclusive=exclusive)
     return _open_or_create_regular_posix(candidate, exclusive=exclusive, mode=mode)
 
@@ -910,7 +923,7 @@ def open_or_create_regular_file(
 def open_directory(path: str | Path) -> int:
     """Open a directory without following links in its path."""
     candidate = Path(path)
-    if not _IS_WINDOWS:
+    if sys.platform != "win32":
         return _open_directory_posix(candidate)
     for component in _windows_components(candidate):
         if is_link_or_junction(component):
