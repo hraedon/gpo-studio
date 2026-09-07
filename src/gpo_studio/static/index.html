@@ -6,6 +6,7 @@
   <title>GPO Studio</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/studio.css">
+  <script src="/assets/js/theme.js"></script>
   <style>
     .gpp-scope-row{display:flex;gap:7px;margin:-7px 0 12px}
     .gpp-add-actions{display:flex;gap:8px}
@@ -17,7 +18,7 @@
     .gpp-row>label{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap;font-weight:400;margin:0}
     .gpp-row>label input{width:auto;margin:0}
     .gpp-note{color:var(--muted);display:block;margin-bottom:6px;font-size:12px}
-    .ilt-preview{background:var(--green-soft);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:13px;color:var(--green-dark)}
+    .ilt-preview{background:var(--green-soft);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:13px;color:var(--green-ink)}
     .ilt-preview:empty{display:none}
     .gpp-readonly-warn{color:var(--red);font-size:12px;white-space:nowrap;font-weight:400}
     .browser-filter-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:-7px 0 12px}
@@ -26,7 +27,7 @@
     .browser-filter-row input[type=search]{flex:1;min-width:200px;margin:0}
     .browser-policy-toggle{background:transparent;border:0;padding:0;color:var(--green);font-weight:650;cursor:pointer;text-align:left;text-decoration:underline;min-height:0;display:inline}
     .browser-policy-toggle:hover{color:var(--green-dark)}
-    .browser-detail-row td{background:#f7f8f7}
+    .browser-detail-row td{background:var(--surface-2)}
     .browser-detail-row .details{grid-template-columns:140px 1fr}
     .browser-ambiguous{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.04em;background:var(--amber-soft);color:var(--amber);border-radius:99px;padding:2px 6px;margin-left:4px}
     .browser-unresolved-card{border-left:4px solid var(--amber)}
@@ -44,10 +45,10 @@
     .rsop-note{color:var(--muted);font-size:12px;margin:0 0 4px}
     .rsop-results{margin-top:20px}
     .rsop-results h3{margin-top:20px}
-    .rsop-limitations{background:var(--amber-soft);border:1px solid #f0d6a5;border-radius:8px;padding:12px 14px;color:#74460f}
+    .rsop-limitations{background:var(--amber-soft);border:1px solid var(--amber-border);border-radius:8px;padding:12px 14px;color:var(--amber-ink)}
     .rsop-limitations ul,.rsop-warnings ul{margin:6px 0 0;padding-left:20px}
     .rsop-limitations code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
-    .rsop-warnings{background:#f7f8f7;border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--muted)}
+    .rsop-warnings{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--muted)}
     .rsop-inconclusive{background:var(--red-soft);border:1px solid var(--red);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--red)}
     .rsop-conditional{color:var(--amber);font-size:12px;margin-top:3px}
    </style>
@@ -64,7 +65,7 @@
       <button class="full" id="open-rsop">RSOP prediction</button>
       <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
-      <footer><span class="dot"></span> Offline authoring mode</footer>
+      <footer><span><span class="dot"></span> Offline authoring mode</span><button id="theme-toggle" type="button" aria-label="Colour theme: automatic">Auto</button></footer>
     </aside>
 
     <main id="main-content" tabindex="-1">
