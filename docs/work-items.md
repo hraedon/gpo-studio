@@ -25,8 +25,9 @@ Regenerated whenever this file changes; `test_the_open_index_matches_the_registe
 - [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
 - [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
 - [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
+- [WI-059](#wi-059--a-windows-controller-can-mint-a-verdict-ci-will-reject) — a Windows controller can mint a verdict CI will reject
 
-**5 open.** Everything else in this file is closed.
+**6 open.** Everything else in this file is closed.
 
 ---
 
@@ -1991,7 +1992,7 @@ a refusal publishable by granting a capability.
 Changing `export.py` invalidated the Scripts metadata verdict that binds it,
 exactly as `test_a_live_verdict_still_binds_the_harness_that_ships` is built to
 catch. The lane was re-run rather than the verdict edited:
-`scripts-r10-20260907181631-2490`, 21/21, clean tree, bound to `d15d8a6`.
+`scripts-r10-20260907182809-4583`, 21/21, clean tree, bound to `f8a2bbd`.
 
 The publication planner names every byte-bearing SYSVOL file Windows produces
 for a GPO, and **no step that makes any of them run.**
@@ -2112,6 +2113,51 @@ exists so that small known gaps stop being rediscovered.
 emits none; or a ruling records the comment as deliberately not published, in
 `docs/live-publication.md` and in the planner's docstring, so its absence
 reads as a decision rather than an oversight.
+
+---
+
+## WI-059 — a Windows controller can mint a verdict CI will reject
+
+**Opened:** 2026-09-07 (while closing WI-057; it cost two lane runs the same
+afternoon).
+**Status:** open.
+
+The finalizers hash **working-tree bytes** for the source files a verdict
+binds. CI hashes what Git checked out. On a Windows controller those can
+differ, and when they do the lane passes locally and its banked verdict fails
+in CI — after the estate work is already spent.
+
+**How it happened, twice.** `.gitattributes` pins every bound source file to
+`text eol=lf` precisely so working tree and committed bytes agree. That holds
+until something rewrites a file with platform newlines: Python's
+`Path.write_text` translates `
+` to `
+` on Windows by default, so an
+ordinary scripted edit to `export.py` left CRLF in the working tree against an
+LF index. `git status` said clean — it compares normalized content — and the
+lane recorded `61ad9fa8445f` where CI computes `23bfe3e46da2`. The previous
+occurrence was the transcript-anchor half of the same problem, fixed in
+`2b14563` by pinning attributes; that fix made the invariant hold and did not
+make a violation of it visible.
+
+**Why the attributes are not the whole answer.** They make the *checkout*
+correct, which is necessary and not sufficient — nothing checks the working
+tree still matches after an edit. The failure is silent at exactly the moment
+it is cheapest to catch and expensive everywhere after: the estate session is
+over, the tag is cut, the pack is banked, and the first thing that disagrees
+is a CI job.
+
+**Closes when:** each finalizer refuses to mint a verdict whose bound files'
+working-tree bytes differ from their committed bytes — `git show :<path>` is
+the comparison and it needs no network — with the refusal naming the drifted
+files, and one lane run produced under the change. A test that mutates a bound
+file's line endings and proves the refusal fires belongs with it, since a
+guard that cannot be shown to fire is the same class of thing this item is
+about.
+
+**Batching note.** This edits every finalizer, so it invalidates every verdict
+bound to one. It is therefore a WI-048 batch item: worth doing in the same
+session as the next harness change, not on its own.
 
 ---
 

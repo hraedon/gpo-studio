@@ -2,9 +2,9 @@
 
 Plan 034 WP-1 extends Plan 033 WP-1B with a Windows-verified R10 Scripts
 metadata lane on a clean member
-server. Run `scripts-r10-20260907181631-2490` passed all 21 checks from source
-commit `d15d8a6c837101086d3c1d8cf56c7948317eb46b`; the source checkout was clean.
-The immutable evidence tag is `evidence/scripts-r10-20260907181631-2490`.
+server. Run `scripts-r10-20260907182809-4583` passed all 21 checks from source
+commit `f8a2bbde0113...`; the source checkout was clean.
+The immutable evidence tag is `evidence/scripts-r10-20260907182809-4583`.
 
 This is a re-certification. The banked pack was
 `scripts-r10-20260907081826-5183` at `f6b06af`, also 21/21, and it was re-run
@@ -53,7 +53,7 @@ The raw evidence pack is under
 `candidate.zip`, `report.xml`, `result.json`, `verification.json`, the input
 and rebackup trees, command streams, and builder stdout. The 14 bound source
 files are omitted from this bank; recover their exact bytes
-with `git show d15d8a6c837101086d3c1d8cf56c7948317eb46b:<repository-path>` and
+with `git show f8a2bbde0113:<repository-path>` and
 verify its SHA-256 against `verification.json`.
 
 ## Boundary

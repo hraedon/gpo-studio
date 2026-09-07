@@ -1,7 +1,7 @@
 # Plan 033 frozen environment specification
 
 **2026-09-07 Scripts metadata re-certification:** run
-`scripts-r10-20260907181631-2490` passed 21/21 on LabMS01 (role 3) at `d15d8a6`
+`scripts-r10-20260907182809-4583` passed 21/21 on LabMS01 (role 3) at `f8a2bbd`
 on a clean tree, re-earning the binding after `export.py` gained
 `extension_registration` (WI-057). Nothing about the lane or its assertions
 changed; a bound source file did, which is what
