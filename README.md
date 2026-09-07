@@ -80,6 +80,17 @@ their wire behaviour is a hypothesis about Windows, and every layer an external
 oracle has examined has needed correction. See
 [`docs/domain-layer-status.md`](docs/domain-layer-status.md).
 
+Nine of the seventeen have now had oracle contact, through eleven manual
+evidence requests executed in September 2026. Five needed correction, one was
+confirmed correct, and one had its scope invalidated rather than its code; the
+per-request record is in
+[`docs/manual-evidence-requests.md`](docs/manual-evidence-requests.md#where-each-result-lives).
+Those results are recorded as `capture-backed` in the capability matrix — a
+value that means measured wire facts, **not** a re-runnable lane and not a step
+toward promotion.
+[Plan 034](plans/034-post-1.0-layer-reconciliation.md) is the programme that
+turns them into capabilities or into explicit out-of-scope rulings.
+
 ## Run it
 
 Installing a release on Windows? Use the

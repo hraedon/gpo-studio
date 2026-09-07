@@ -16,6 +16,18 @@ note, not a work item.
 including source comments), add a row here, and say what would close it. An item
 whose closing condition is not stated cannot be closed, only forgotten.
 
+## Open right now
+
+Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
+
+- [WI-028](#wi-028--searchedsom-accumulates-soms-for-deleted-containers) — `SearchedSOM` accumulates SOMs for deleted containers
+- [WI-032](#wi-032--rsopresult-has-no-per-side-applieddenied-set) — `RsopResult` has no per-side applied/denied set
+- [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
+- [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
+- [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
+
+**5 open.** Everything else in this file is closed.
+
 ---
 
 ## WI-025 — candidate artifacts are not hash-bound in the WP-1B and endpoint lanes
@@ -552,8 +564,55 @@ in one process shows the flag never arrived.
 ## WI-038 — three security-template sections are preserve-only, and `diff_templates` cannot see them
 
 **Opened:** 2026-08-04 (WP-3 expansion scoping).
-**Status:** open. Established from the code and three behavioural checks; no
-oracle needed for the part that matters.
+**CLOSED 2026-09-06**, by decision. The ruling is **preserve-only**, and it is
+a layering statement rather than a concession. The decision this item was
+waiting for turned out to be already answered by code that landed while it
+waited — which is itself the finding.
+
+**The dichotomy in the original entry is stale.** It offered "either real
+parsing, or an explicit preserve-only declaration". Real parsing **exists**,
+and has since `d7caf44` (the R4/R9 fix). `object_security.py` reads these rows
+out of `unknown_lines` with `_OBJECT_ROW_RE`, a seven-line pattern the R4
+capture proves total over the real shape, and builds typed
+`RegistryKeySecurity` / `FileSecurity` objects carrying `key_path`,
+`propagation` and a fully parsed `SecurityDescriptor`. Checked directly, not
+read off the source: a `"MACHINE\SOFTWARE\App",2,"D:PAR(A;CI;KA;;;WD)"` row
+parses to `propagation='replace'` and an ACE with `trustee_sid='WD'`,
+`rights=('KA',)`.
+
+**So the right question was never "can the project parse these rows" but
+"which layer should".** And the answer is not `security_template.py`.
+That module is the generic INF codec: it knows sections, `key = value`
+entries, encoding and round-trip fidelity. It is *correct* for it to be
+shape-agnostic about section bodies it has no types for, and to preserve them
+verbatim — which it does, losslessly, as the R4 fixture now pins
+(`tests/fixtures/native-security-template-gpmc/`, 3 of 3 native rows to
+`unknown_lines`, `format_security_template` round-tripping them byte-exact).
+Teaching the codec a second entry grammar would duplicate `object_security`'s
+types one layer down and give two modules an opinion about the same bytes.
+
+**What the matrix must therefore not say.** Declaring `security_template.py`
+preserve-only for these three sections is accurate. Presenting that as "GPO
+Studio cannot see these ACLs" would be false — `object_security.py` can, in
+detail. The preserve-only claim is scoped to the codec, and the capability
+matrix states it that way.
+
+**The two partial fixes from 2026-08-04 stand and are now correctly framed.**
+`diff_templates`' whole-line `removed`/`added` pair and the `unparsed_entries`
+warning are not consolation prizes for a codec that cannot parse: they are the
+strongest *true* statements a shape-agnostic codec can make, and the warning
+is what points a reader at the layer that can say more.
+
+**Closed by a decision, but it did not close empty-handed.** Establishing the
+above surfaced a real defect one layer up, in the module that *can* see these
+ACLs and does not judge them: **WI-055**.
+
+---
+
+### The original entry, kept for the reasoning
+
+**Status when opened:** open. Established from the code and three behavioural
+checks; no oracle needed for the part that matters.
 
 `Registry Keys`, `File Security` and `Service General Setting` do not use
 `key = value`. Their entries are bare lines:
@@ -789,8 +848,58 @@ scenario knew the rule and the coverage did not follow it.
 
 ## WI-042 — the LDAP half of the token-group gate fails open
 
-**Opened:** 2026-08-05 (independent review of PR #38). **Status:** open.
-**Deliberately not fixed in the same change; see the last paragraph.**
+**Opened:** 2026-08-05 (independent review of PR #38).
+**CLOSED 2026-09-06** — and it had been substantively closed since **2026-08-06**
+without the register noticing. Both halves of the closing condition are met, and
+**no estate session was required for either.**
+
+**Half one — a failed query is distinguishable from an empty one.** Landed in
+`80c23b5`. `Get-LdapTokenGroups` returns `@{status; groups; reason}` instead of
+a bare list, and all three of its return paths set a status: the no-object case
+and the outer `catch` return `failed`, the success path returns `collected`.
+`finalize_rsop_user_run.py` consults the status **first** and refuses on
+anything that is not `collected`.
+
+**The gate is fail-safe by construction, which is the part worth keeping.** An
+*absent* status is also a refusal. So a future harness that errors and emits no
+status at all is refused rather than certified — the failure mode this item was
+opened for cannot recur even through a collector this gate has never seen.
+
+**Half two — the nesting rows are re-certified against it.** The current live
+user-scope set (2026-09-06, six scenarios) is **6/6 `pass`, every one carrying
+`directory_status: collected`** with a populated directory list of 2–3 groups
+beside its session list. `user-security-filtering` and
+`user-security-filtering-deny` — the two scenarios whose claims rest on nesting
+— are both in that set. The re-certification happened incidentally, as part of
+the WI-048 and WI-049 batches, which is why nobody recorded it against this item.
+
+**Why this closes where WI-048 closed with a caveat.** Both fixes have a path
+that has never fired in anger. The difference is what kind of thing the path is.
+WI-048's retry needs a real transport collision to execute, so only the estate
+can exercise it. WI-042's refusal is **pure finalizer logic over a synthetic
+observe document**, so it is exercisable offline — and it is exercised, by four
+tests (`test_a_failed_directory_query_is_a_lane_failure_not_an_absence`,
+`test_an_observe_document_with_no_collection_status_is_refused`,
+`test_a_collected_but_empty_directory_list_still_refuses_on_the_membership`,
+`test_the_directory_collection_status_is_recorded_even_without_a_group`).
+Mutation-proven 2026-09-06: forcing `status = "collected"` unconditionally —
+which is exactly the original bug — fails two of them.
+
+**The residual, stated rather than buried.** What is proven is that the
+finalizer refuses *given* a `failed` status, and that every PowerShell path
+emits one. What has never been observed is a real bind failure on the estate
+producing `failed` end to end. That residual is small and it is bounded by the
+absent-status rule above; it is not a reason to hold a release.
+
+**Release impact: was BLOCKING, and is not any more.** No release is held by
+this item.
+
+---
+
+### The original entry, kept for the reasoning
+
+**Status when opened:** open. **Deliberately not fixed in the same change; see
+the last paragraph.**
 
 The nesting rows are only a test of the model if the principal really is in the
 group the prediction assumes. WP-9 corroborates that twice and independently:
@@ -1315,7 +1424,28 @@ WI-040 and WI-043 have now made three times, two of them wrong.
 ## WI-048 — PowerShell Direct collides with itself on back-to-back runs
 
 **Opened:** 2026-08-06 (hit twice during the WI-043/WI-047 re-certification).
-**Status:** open.
+**FIXED AND CLOSED 2026-09-06** by `437d25f`, which added the retry to
+`psdirect.ps1` and paid the re-certification the fix demanded: fifteen verdicts
+bound that file, and all fifteen were re-run clean from a fresh tree with a
+zero-residual estate re-query. `test_a_live_verdict_still_binds_the_harness_that_ships`
+reported exactly fifteen broken bindings before a single lane re-ran, and the
+count matched the prediction — WI-045 paying for itself.
+
+**The retry is unproven in anger, and the closure does not claim otherwise.**
+Fourteen back-to-back runs produced zero command-ID collisions, so the retry
+never fired, where the original measurement was two failures in twelve. That is
+either luck at around eight percent or a difference in the controller — these
+ran from a Windows host on the lab subnet rather than the Linux controller the
+failures came from. The retry is correct by construction and mirrors a fix
+`windows-console-driver` measured independently. It has not been observed
+working here, and if collisions recur the reopening is expected rather than
+surprising.
+
+The ordering argument below stands and outlived the bug: harness-touching work
+should still be batched, because every harness edit invalidates every verdict
+bound to it.
+
+**Status when opened:** open.
 
 Two of twelve batch runs died with:
 
@@ -1741,6 +1871,94 @@ CLIENT is a member of, the run restarts the client so the machine token carries
 it, the observation half corroborates the membership independently of the
 prediction, and the estate says whether the GPO applies. The dead predicate and
 field go in the same change.
+
+## WI-055 — the layer that parses an ACL does not judge it
+
+**Opened:** 2026-09-06 (taking the WI-038 decision; not previously suspected).
+**Status:** open.
+
+WI-038 was filed because `security_template.py` could not see an ACL trustee.
+Settling it established that `object_security.py` **can** — and then that it
+does not care what it sees.
+
+**Measured, both families, on a non-system path:**
+
+```
+[Registry Keys] "MACHINE\SOFTWARE\App",2,"D:PAR(A;CI;KA;;;WD)"
+    -> trustee_sid='WD', rights=('KA',), propagation='replace'
+    -> RegistrySecurityFamily.validate() == ()
+
+[File Security]  "C:\Program Files\App",2,"D:PAR(A;CI;KA;;;WD)"
+    -> trustee_sid='WD', rights=('KA',)
+    -> FileSystemSecurityFamily.validate() == ()
+```
+
+`WD` is Everyone and `KA` is full control. Both families parse the trustee and
+the right into typed fields, and both return **no issue at all**.
+
+**What validation does check** is the shape and one hazard: an empty path
+(`empty_registry_key`) and replace-propagation on a system hive
+(`replace_on_system_hive`). The parsed `SecurityDescriptor` is never inspected.
+So validation is a *syntax* check wearing a safety check's name.
+
+**Why this is worth a number rather than a patch.** The obvious fix — warn on
+`WD`/`AN` with broad rights — is a policy judgement about someone else's
+estate, and this project has been wrong before about rules it reasoned out
+rather than measured (WI-033, WI-040, WI-043; two of the three wrong). A
+grant to Everyone is not universally a defect: it is normal on some
+`HKLM\SOFTWARE` subtrees and on print queues. A warning that fires on correct
+configurations is how operators learn to ignore warnings, which costs more
+than the silence does.
+
+**It is also not an oracle question.** No Windows tool will say whether an ACL
+is *advisable*; `secedit /validate` already accepts these rows (R9). This is a
+product decision about what Studio asserts, and it belongs to whoever owns the
+review surface — which is why it is filed rather than fixed here.
+
+**Release impact: not blocking, and worth saying why.** These families are
+unsurfaced (`capability-matrix.md`, post-1.0 table), so no operator reaches
+this validation today. It becomes blocking the moment `object_security.py`
+gets a delivery surface, because at that point Studio shows a reviewer a
+parsed ACL and a clean bill of health in the same view.
+
+**Closes when:** either (a) `validate()` inspects the descriptor against a
+stated, written-down rule set, with the rules' rationale recorded and at least
+one deliberately-permitted case pinned by a test so the rule is a judgement
+and not a reflex; or (b) a ruling records that ACL content is deliberately
+unjudged, and `validate()`'s docstring plus the capability matrix say so, so
+that no reviewer reads its silence as approval.
+
+---
+## WI-056 — `certification.py` is superseded, and its removal is undecided
+
+**Opened:** 2026-09-06 (taking the survey's §8.2 decision).
+**Status:** open, deliberately — the supersession is decided, the removal is not.
+
+[`scope-decision-2026-09-06-software-installation-and-certification.md`](scope-decision-2026-09-06-software-installation-and-certification.md)
+rules that `oracle_evidence.py` is the parity framework and `certification.py`
+is superseded. That much is settled and enforced by
+`test_certification_module_has_no_production_consumer`.
+
+What is **not** settled is whether the module is deleted. It is 400-odd lines
+with no consumer outside its own tests, and Plan 031's underlying question —
+what a portfolio of evidence across capabilities should look like — is real and
+still unanswered. `ParityEvidence` and `EvidencePortfolio` are a sketch at that
+question. Deleting them costs nothing recoverable (git remembers), but it also
+gains nothing today, and doing it in the same breath as the supersession ruling
+would conflate a judgement about *authority* with a judgement about *value*.
+
+This item exists so that "superseded" does not become the seventh instance of
+the failure this register was built for: a status that is true in one paragraph
+and recorded nowhere a person would look. The enforcement test makes the
+supersession real; this entry makes the open question visible.
+
+**Closes when:** Plan 031 is next opened and states either that the module is
+deleted (removing the enforcement test with it) or that its types are the
+starting point for a portfolio model built on `oracle_evidence.py`'s four
+states and the boundary matrix's ownership rules. A third outcome — leaving it
+open a second time — is a valid answer only if it says why.
+
+---
 
 ## Not yet numbered
 

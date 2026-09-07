@@ -29,6 +29,19 @@ def _percent(entry: dict[str, Any]) -> float:
     return float(summary["percent_covered"])
 
 
+def _normalise(name: str) -> str:
+    """`coverage.json` keys files with the PLATFORM separator.
+
+    On win32 every key arrives as `src\\gpo_studio\\api.py`, so a lookup
+    against the `/`-spelled floors below missed all eleven and the gate
+    reported them as *missing coverage entries* -- not as a passing gate, but
+    not as the real fault either. It stayed invisible while `test-windows` was
+    `continue-on-error` and while the pytest step failed ahead of it; the
+    per-module floors have therefore never once been enforced on Windows.
+    """
+    return name.replace("\\", "/")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("report", type=Path)
@@ -36,7 +49,9 @@ def main() -> int:
 
     data = json.loads(args.report.read_text(encoding="utf-8"))
     failures: list[str] = []
-    files: dict[str, dict[str, Any]] = data["files"]
+    files: dict[str, dict[str, Any]] = {
+        _normalise(name): entry for name, entry in data["files"].items()
+    }
     for name, floor in _FLOORS.items():
         if name not in files:
             failures.append(f"missing coverage entry: {name}")

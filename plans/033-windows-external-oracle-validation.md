@@ -9,15 +9,50 @@ edit/save leg remaining. Services is GPMC writer-conformance certified, not
 endpoint-applied. WP-3's Registry Values and Group Membership sections are
 certified on the estate; WP-6 has certified topology items 1-6 including
 security filtering for both the user and the computer account and all three WMI
-cases; WP-9 has certified the user side and both loopback modes. Six model
-defects were found and closed by those lanes (WI-031, WI-033, WI-035, WI-039,
-WI-040) together with WI-041 on the write path, each fixed only after Windows
-had ruled and each re-certified on the commit that ships the fix.
+cases; WP-9 has certified the user side and both loopback modes.
+
+**Live certification set: fifteen verdicts, re-certified 2026-09-06** after the
+WI-048 transport fix moved `psdirect.ps1`, which every lane binds. That batch —
+WP-1B (7/7), the endpoint lane, six WP-6 and six WP-9 scenarios — ran clean from
+a fresh tree with a zero-residual estate re-query. WI-045's binding test
+predicted the exact count of broken bindings before a lane was re-run.
+
+Ten model defects have been found and closed by these lanes: WI-031, WI-033,
+WI-034, WI-035, WI-039, WI-040 and WI-043 on the model, WI-041 on the write
+path, and WI-047's cross-principal identity split, each fixed only after Windows
+had ruled and each re-certified on the commit that ships the fix. WI-049 and
+WI-054 are the counter-examples worth keeping in view: three cells changed by
+reasoning were measured, and **all three agreed** — measurement is not only for
+catching errors.
+
+**Still open against this plan:** WI-028, WI-032 and WI-036 — all three against
+`rsop.py`, none release-blocking, and WI-032 and WI-036 are announced as
+limitations in every `/api/rsop/*` response rather than left in the docs. WP-4
+and WP-5 have not started.
+
+**Nothing is release-blocked.** WI-042 was the last item that was, and it closed
+2026-09-06 without an estate session: its refusal gate landed in `80c23b5` and
+is mutation-proven offline, and its nesting rows were re-certified incidentally
+by the WI-048 and WI-049 batches. WI-038 was decided (preserve-only); the
+decision opened WI-055, which is Plan 034's gate on surfacing
+`object_security.py` rather than a defect in anything shipped.
+
 The remediation scenario corpus for the Plans 025–032 divergence landed
 2026-07-29 (13 scenarios across gpp-services, security-template,
 rsop-topology, and ilt-os, plus the machine-readable test-platform registry —
 data and validator only, nothing oracle-executed; see
 `docs/plan-033/remediation-corpus.md`)
+
+**Superseded as the scoping instrument for Plans 025–032, 2026-09-06.** The
+eleven manual-evidence requests have executed and nine of seventeen modules now
+have oracle contact; see
+[`docs/manual-evidence-requests.md`](../docs/manual-evidence-requests.md) for
+the record-by-record binding and
+[`docs/plans-025-032-oracle-survey.md`](../docs/plans-025-032-oracle-survey.md)
+§5.0 for the module-by-module outcome. Plan 033 remains the owner of the
+harness, the evidence contract and the RSOP lanes; the Plans 025–032
+reconciliation programme is Plan 034's, not this plan's.
+
 Scope: prove Studio import, authoring, prediction, and export claims against
 supported Microsoft tooling without allowing internally consistent round trips
 to substitute for interoperability evidence
