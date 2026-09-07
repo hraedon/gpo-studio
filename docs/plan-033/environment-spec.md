@@ -1,5 +1,14 @@
 # Plan 033 frozen environment specification
 
+**2026-09-07 WP-3 extension:** the policy-family tranche now has a directly
+executed DC qualification, `wp3-security-template-20260907071106-1024`, and a
+fresh member-server qualification, `wp3-security-template-20260907071149-3752`.
+Both pass 21/21 under the existing 26100/PowerShell 5.1 build-family profile,
+with observed roles 5 and 3 respectively. The DC run adds Kerberos; no lane
+invokes `/configure`. The platform registry records this distinction.
+See [the results and raw evidence](wp3-policy-family-results.md). Earlier rows
+below retain the initial environment qualification history.
+
 Status: environment frozen. Every lane is qualified on the disposable evidence
 estate over PowerShell Direct (2026-08-03). A WP-0 success-path run is certified
 `pass` against a clean, committed source tree, and the same harness produces a

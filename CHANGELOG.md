@@ -9,6 +9,16 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Plan 034: the unsurfaced policy-family serializers now feed a repeatable
+  Windows WP-3 lane. Native validation found and corrected `AuditDSAccess`
+  and rejected two speculative Kerberos fields, which were removed. Final
+  member/DC runs each pass 21 checks with retained raw evidence and source
+  bindings. The lane records DC role and retains failure evidence. See
+  [the results](docs/plan-033/wp3-policy-family-results.md).
+- Windows frontend formatting checks now accept checkout line endings without
+  reformatting the source. NetSecurity availability and isolated firewall
+  GPO authoring/readback were measured; the network model remains unverified.
+
 > Post-1.0 development has added considerably more to `src/` than it has added
 > to the operator-facing product. Entries below distinguish **surfaced**
 > capabilities (reachable from the API or browser application) from **domain

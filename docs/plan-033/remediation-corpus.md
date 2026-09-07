@@ -1,5 +1,10 @@
 # Plan 033 remediation scenario corpus
 
+**2026-09-07 addition:** `security-template/policy-families` records the
+[member/DC serializer lane](wp3-policy-family-results.md), including its native
+`AuditDSAccess` and five-key Kerberos expectations. It is ready and measured;
+the historical readiness map below predates the estate qualifications.
+
 Status: landed 2026-07-29. The corpus is data plus its validator; no scenario
 has been executed against a Windows oracle, and no scenario changes any
 capability claim by itself.

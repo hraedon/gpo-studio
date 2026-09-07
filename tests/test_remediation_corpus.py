@@ -79,8 +79,8 @@ class TestSchemas:
 class TestCorpus:
     def test_corpus_loads_all_files(self, registry) -> None:  # type: ignore[no-untyped-def]
         scenarios = load_corpus(SCENARIO_DIR, registry)
-        # 15 since 2026-08-06 (WI-043's user-scope read-deny discriminator).
-        assert len(scenarios) == len(SCENARIO_FILES) == 15
+        # 16 since 2026-09-07 (WP-3 policy-family native observations).
+        assert len(scenarios) == len(SCENARIO_FILES) == 16
         assert {scenario.family for scenario in scenarios} == set(FAMILIES)
 
     def test_every_anchor_hash_verifies(self, registry) -> None:  # type: ignore[no-untyped-def]
@@ -126,6 +126,7 @@ class TestCorpus:
             "group-membership": "ready",
             "regkeys-filesecurity": "ready",
             "services-area": "ready",
+            "policy-families": "ready",
             # Ready since 2026-08-04: WP-9 ran both halves of it, the
             # representable cases as a pass and the deny case as a declared
             # divergence (WI-033).

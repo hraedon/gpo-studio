@@ -1,0 +1,24 @@
+{
+    "captured_utc":  "2026-09-07T07:03:43.2429544Z",
+    "module_version":  "2.0.0.0",
+    "computer":  "LABMS01",
+    "firewall_query_succeeded":  true,
+    "ipsec_query_succeeded":  true,
+    "authored_rule_read_back":  true,
+    "linked":  false,
+    "cleanup_verified":  true,
+    "initial_rule_count":  0,
+    "initial_ipsec_count":  0,
+    "rule":  {
+                 "direction":  "Outbound",
+                 "action":  "Block",
+                 "profile":  "Domain",
+                 "protocol":  "TCP",
+                 "remote_port":  [
+                                     "65000"
+                                 ],
+                 "remote_address":  [
+                                        "192.0.2.1"
+                                    ]
+             }
+}

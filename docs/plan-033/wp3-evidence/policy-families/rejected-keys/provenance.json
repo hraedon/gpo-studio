@@ -1,0 +1,16 @@
+{
+  "audit-validate.stdout.txt": {
+    "run_id": "wp3-security-template-20260907070521-9490",
+    "source_commit": "00f062a",
+    "guest": "LabMS01",
+    "validate_exit_code": 1,
+    "sha256": "c6e804d2697103a1bdfcc303c54384104f8896a697a4ba1efe00f3c7839b2e20"
+  },
+  "kerberos-validate.stdout.txt": {
+    "run_id": "wp3-security-template-20260907070830-5315",
+    "source_commit": "5f7d0fb",
+    "guest": "LabDC01",
+    "validate_exit_code": 1,
+    "sha256": "7d4e0654878cd2f0dc5b457832678e9af731b59c804ead9aa7d2c806224fa35f"
+  }
+}

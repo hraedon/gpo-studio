@@ -17,6 +17,8 @@ scripts/plan-033/build-*.py -text
 scripts/windows-oracle/**   -text
 src/gpo_studio/policy_families.py text eol=lf
 src/gpo_studio/security_template.py text eol=lf
+# Native logs/JSON retain CRLF and padding; their hashes cover those bytes.
+docs/plan-033/wp3-evidence/policy-families/** -text -whitespace
 
 # Raw census artifacts, verbatim byte copies: every SHA-256 is banked in
 # tests/fixtures/live-domain-census/provenance.json, so the blobs must not

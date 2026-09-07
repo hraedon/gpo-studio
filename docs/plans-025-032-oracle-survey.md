@@ -1,5 +1,13 @@
 # Oracle survey — the Plans 025–032 domain layers
 
+> **2026-09-07 update:** [Plan 034's first repeatable lane](plan-033/wp3-policy-family-results.md)
+> found an invalid Event Audit key and two unsupported Kerberos keys in
+> `policy_families.py`, corrected them, and passed on both the estate member
+> and DC. R7 had confirmed units and a five-key native slice, not the whole
+> serializer. The NetSecurity probe also passed; availability is measured,
+> while network-model conformance remains open. The survey below is historical
+> scoping and must be read with these later measurements.
+
 Written 2026-08-06 against `main` at `b421996`, read-only. Nothing was executed
 against Windows and no estate host was contacted **when this was written**.
 
