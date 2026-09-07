@@ -27,6 +27,9 @@ Current version: `1.0.0`.
   duplicate arrivals append provenance without replacing the canonical row,
   and publication eligibility remains read-only. See
   [the scope ruling](docs/plan-033/artifact-store-scope.md).
+- Plain-text GPO reports now count all 21 typed preference families per scope,
+  including drives, services, scheduled tasks, and immediate tasks. Native
+  backup fixtures cover these counts; this is not full Get-GPOReport parity.
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.

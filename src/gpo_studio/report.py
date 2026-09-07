@@ -5,8 +5,35 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from .canonical import policy_semantic_sha256, review_model_sha256
+from .gpp import GppCollection
 from .model import GPO
 from .validation import validate_gpo
+
+
+def _gpp_item_counts(collection: GppCollection) -> tuple[tuple[str, int], ...]:
+    return (
+        ("groups", len(collection.groups)),
+        ("registry", len(collection.registry)),
+        ("environment variables", len(collection.environment)),
+        ("INI files", len(collection.ini_files)),
+        ("regional options", len(collection.regional_options)),
+        ("power options", len(collection.power_options)),
+        ("devices", len(collection.devices)),
+        ("folder options", len(collection.folder_options)),
+        ("data sources", len(collection.data_sources)),
+        ("drives", len(collection.drives)),
+        ("files", len(collection.files)),
+        ("folders", len(collection.folders)),
+        ("network shares", len(collection.network_shares)),
+        ("printers", len(collection.printers)),
+        ("shortcuts", len(collection.shortcuts)),
+        ("applications", len(collection.applications)),
+        ("services", len(collection.services)),
+        ("local users", len(collection.local_users)),
+        ("local groups", len(collection.local_groups)),
+        ("scheduled tasks", len(collection.scheduled_tasks)),
+        ("immediate tasks", len(collection.immediate_tasks)),
+    )
 
 
 def _section(title: str, lines: Iterable[str]) -> list[str]:
@@ -58,8 +85,7 @@ def policy_report(gpo: GPO) -> str:
     lines += _section(
         "Links",
         (
-            f"{item.target} (order={item.order}, enabled={item.enabled}, "
-            f"enforced={item.enforced})"
+            f"{item.target} (order={item.order}, enabled={item.enabled}, enforced={item.enforced})"
             for item in gpo.links
         ),
     )
@@ -85,16 +111,13 @@ def policy_report(gpo: GPO) -> str:
     lines += _section(
         "Group Policy Preferences",
         (
-            f"{collection.scope}: {len(collection.groups)} group item(s), "
-            f"{len(collection.registry)} registry item(s)"
+            f"{collection.scope}: "
+            + ", ".join(f"{count} {label} item(s)" for label, count in _gpp_item_counts(collection))
             for collection in gpo.gpp_collections
         ),
     )
     lines += _section(
         "Preserved extension content",
-        (
-            f"{entry.side}/{entry.guid}: {len(entry.files)} file(s)"
-            for entry in gpo.cse_metadata
-        ),
+        (f"{entry.side}/{entry.guid}: {len(entry.files)} file(s)" for entry in gpo.cse_metadata),
     )
     return "\n".join(lines).rstrip() + "\n"
