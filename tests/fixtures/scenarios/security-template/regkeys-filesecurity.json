@@ -39,9 +39,9 @@
     ],
     "operator_meaning": [
       "Audit key: propagate inheritable permissions, full control to administrators",
-      "Locked key: protect against replacement, administrators full, authenticated users read",
-      "Data directory: replace existing permissions with the authored set",
-      "ReadOnly directory: protect against replacement, read for authenticated users"
+      "Locked key: replace existing permissions, administrators full, authenticated users read",
+      "Data directory: do not allow permissions to be replaced",
+      "ReadOnly directory: replace existing permissions, read for authenticated users"
     ]
   },
   "expected_native": {
@@ -54,7 +54,7 @@
       {"section": "File Security", "key": "C:\\StudioLab\\ReadOnly", "value": "2,D:PAR(A;OICI;FR;;;AU)"}
     ],
     "derivations": [
-      "Each entry is quoted-path, numeric propagation code, quoted SDDL. Documented code meanings: 0 = propagate inheritable permissions to subkeys/subfolders, 1 = replace existing permissions, 2 = do not allow permissions to be replaced. These meanings are spec-informed until the first capture.",
+      "Each entry is quoted-path, numeric propagation code, quoted SDDL. R4 corrected the original prediction: 0 = propagate, 1 = do not allow replacement, 2 = replace. This corrects the labels, not a claim that these exact descriptor combinations have been run.",
       "Registry paths use the MACHINE\\ hive prefix form in security templates, not HKLM; file paths are absolute local paths. Both are quoted CSV fields.",
       "Studio's security_template.py has no typed accessor for either area; entries parse as opaque lines under known section names. The wire truth fixed here is what a typed model must honor."
     ]
