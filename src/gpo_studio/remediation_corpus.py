@@ -39,11 +39,19 @@ from typing import Literal, assert_never, cast
 SCENARIO_SCHEMA_VERSION = "1"
 PLATFORM_SCHEMA_VERSION = "1"
 
-Family = Literal["gpp-services", "security-template", "script-policy", "rsop-topology", "ilt-os"]
+Family = Literal[
+    "gpp-services",
+    "security-template",
+    "script-policy",
+    "publication-completeness",
+    "rsop-topology",
+    "ilt-os",
+]
 FAMILIES: tuple[Family, ...] = (
     "gpp-services",
     "security-template",
     "script-policy",
+    "publication-completeness",
     "rsop-topology",
     "ilt-os",
 )
@@ -388,6 +396,15 @@ def _validate_family_payload(
             _require_key(authored_intent, "entries", list, context)
             _require_key(expected_native, "entries", list, context)
             _require_nonempty_str(expected_native, "round_trip", context)
+        case "publication-completeness":
+            # The authored side is what the plan claims it would write; the
+            # native side is what Windows must be observed to produce. Both are
+            # required, because this family exists precisely to compare them.
+            _require_key(authored_intent, "sysvol_paths", list, context)
+            _require_nonempty_str(authored_intent, "version_half", context)
+            _require_key(expected_native, "sysvol_paths", list, context)
+            _require_nonempty_str(expected_native, "machine_extension_names", context)
+            _require_nonempty_str(expected_native, "user_extension_names", context)
         case "rsop-topology":
             _require_key(authored_intent, "topology", dict, context)
             # Either shape is valid, but whichever is present must be

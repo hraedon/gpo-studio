@@ -1,5 +1,12 @@
 # Plan 033 frozen environment specification
 
+**2026-09-07 publication-completeness lane:** run
+`publication-completeness-20260907193221-2759` passed 21/21 on LabMS01 (role 3)
+at `362699c` on a clean tree, qualifying the lane on the existing frozen
+profile. It measures a publication *plan* against the state Windows reaches
+after importing the same content; it executes no publication. See
+[the results](publication-completeness-results.md).
+
 **2026-09-07 Scripts metadata re-certification:** run
 `scripts-r10-20260907182809-4583` passed 21/21 on LabMS01 (role 3) at `f8a2bbd`
 on a clean tree, re-earning the binding after `export.py` gained
@@ -99,6 +106,7 @@ which of these produced a given verdict.
 | WP-1B | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803213602-6066` (7/7) |
 | WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803230132-8090` (18/18) |
 | WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803230220-2450` (20/20) |
+| publication-completeness | estate, domain-joined member server | `psdirect` | 2026-09-07 | `publication-completeness-20260907193221-2759` (21/21) |
 | endpoint | estate, client guest (26200) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real client build) |
 | WP-6B | estate, member server + client guest (26200) | `psdirect` | 2026-08-04 | `rsop-observe-20260804010341-7165` (`pass`; also `rsop-observe-20260804010551-9363` and `rsop-observe-20260804010738-5543`, identical) |
 | any | `mvmcitest01` (historic shared host) | `ssh` + launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (commit orphaned, see above) |

@@ -157,9 +157,18 @@
     {
       "lane_id": "scripts-metadata-gpmc",
       "plan_wp": "WP-3",
-      "boundaries": ["gpo-backup-content"],
-      "required_hosts": ["member-ws2025-disposable"],
-      "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1", "studio-finalize"],
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
       "oracle": "Import-GPO of a Studio Scripts backup, Get-GPOReport Scripts namespace inspection, and Backup-GPO re-export comparison. Script payload execution is outside this lane.",
       "status": "partial",
       "notes": "Certified by clean R10 run scripts-r10-20260907081826-5183 at f6b06af1bfcc4150b7bdea35b6ecdd660c1d0bc5: 21/21 checks passed for Import-GPO, Get-GPOReport Scripts metadata, and Backup-GPO rebackup. Payload execution and endpoint processing remain outside scope."
@@ -167,9 +176,17 @@
     {
       "lane_id": "object-security-secedit",
       "plan_wp": "WP-3",
-      "boundaries": ["gpo-backup-content"],
-      "required_hosts": ["member-ws2025-disposable"],
-      "required_tools": ["secedit", "powershell-5.1", "studio-finalize"],
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "secedit",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
       "oracle": "secedit /validate, fresh-database /import /overwrite and /export for regkeys, filestore and services; exact target/code/SDDL comparison after parsing ordinal export rows. No /configure.",
       "status": "partial",
       "notes": "Certified object-security-20260907075319-7408 on LabMS01, role 3, at 1b81fed31460915443f944d90cb2b88eaefb2a99. All nine rows and 19 checks pass: registry/file propagation codes 0/1/2 and service startup codes 2/3/4 with explicit descriptor controls. Does not prove applied ACLs, descriptor advisability, empty/absent service descriptors, or GPMC editability. WI-055 remains a pre-surface gate."
@@ -240,6 +257,25 @@
       "oracle": "gpresult.exe /x <file> /f /scope:user /user <DOMAIN>\\<principal> on the client, parsed from the http://www.microsoft.com/GroupPolicy/Rsop namespace's UserResults section, plus the winning HKCU values read from the principal's loaded hive at HKEY_USERS\\<SID>, plus GroupPolicy operational events -- 8005 for the completion of the principal's own processing pass, and 5311 for the loopback mode Windows actually used.",
       "status": "partial",
       "notes": "BUILT AND CERTIFIED 2026-08-04 for three scenarios: user-side-disabled, loopback-merge and loopback-replace. This is the first external check rsop.py's user side and loopback have ever had. Measured facts the lane is built on, all taken before it was designed: an admin can capture another principal's user-scope RSoP from outside the session with /user (without it, gpresult exits 0 and writes nothing); the principal's hive is readable at HKEY_USERS\\<SID>, and reading HKCU instead would return the HARNESS account's hive and report every value absent; and a scheduled task with -LogonType Interactive refreshes user policy inside the principal's session without needing its password. Event 5311 is the load-bearing control: under replace the expected observation is that a GPO's values are ABSENT, which is also what a run where loopback never engaged looks like, so a mode mismatch is inconclusive rather than a finding -- and it fired twice on real runs. CERTIFIED 2026-08-04 for user-side SECURITY FILTERING: Read+Apply, Read without Apply, and Apply through a group the principal belongs to, plus a separate scenario for an explicit deny ACE. That one was certified as a declared divergence first (the model could not express a deny), then WI-033 was fixed and it re-certified as an ordinary pass. The nesting row is gated on token collection -- the principal's own session token and the directory's tokenGroups -- because a token is minted at logon and never updated, so the lane restarts the client after authoring and verifies the NEW token holds the group. Still partial: slow-link and WMI outcomes on the user side are not covered, and the applied-GPO comparison is advisory rather than gated (WI-032). Requires the estate's user-logged-on checkpoint; the lane refuses to run without a verified console session."
+    },
+    {
+      "lane_id": "publication-completeness-gpmc",
+      "plan_wp": "WP-1",
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "Import-GPO of a Studio backup, then read back the GPO's SYSVOL tree and its gPCMachineExtensionNames/gPCUserExtensionNames, and compare both against the publication plan's own claim about what it would write. Executing a publication is outside this lane: nothing here writes to SYSVOL or AD on Studio's behalf.",
+      "status": "partial",
+      "notes": "Certified by clean run publication-completeness-20260907193221-2759 at 362699c3437a: 21/21 checks. The plan's file set matched Windows exactly in both directions, the extension lists matched byte for byte, and the packed GPT.INI version moved the declared half. Covers one GPO shape -- two registry sides plus one verified GPP family per side -- and neither security filtering, links, WMI filters, nor any family whose extension metadata is uncaptured."
     }
   ]
 }

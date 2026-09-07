@@ -11,6 +11,19 @@ object-security verdict: three service rows and six registry/file rows passed
 exact validation, import, and export comparison. Empty/absent service
 descriptors and environment-variable paths remain open questions.
 
+**2026-09-07 publication-completeness family:** a sixth family,
+`publication-completeness/plan-completeness`, anchored to the clean run
+`publication-completeness-20260907193221-2759` (21/21 checks). It is the first
+family whose two sides are not a round trip: `authored_intent` is what the
+publication *plan* claims it would write, and `expected_native` is what Windows
+produced from the same content. That comparison is the only one that could see
+WI-057 — a plan naming every file and registering no client-side extension —
+because a round trip never asks what a third party would have had to write. Its
+scenario carries two anchors rather than one: the verdict, and the
+controller-built expectation the verdict was graded against, which never
+travelled to the guest. Executing a publication remains outside the family; see
+[the results](publication-completeness-results.md).
+
 **2026-09-07 script-policy update:** `script-policy/scripts-metadata` is now
 ready and anchored to the clean R10 Import-GPO/report/Backup-GPO run
 (`scripts-r10-20260907182809-4583`, 21/21 checks). The evidence proves Scripts

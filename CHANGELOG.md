@@ -37,6 +37,15 @@ Current version: `1.0.0`.
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.
+- Plan 034: publication-plan completeness now has a repeatable Windows lane,
+  which passed 21/21 on the clean member server. It compares the plan's own
+  account of what it would write against the SYSVOL tree and extension-list
+  attributes Windows produces from the same content — the comparison that found
+  WI-057 and the only one that could, since a round trip never asks what a
+  third party would have had to write. The lane measures the plan, not a
+  publication: nothing writes to SYSVOL or AD, and the operation allowlist
+  stays empty. See
+  [the results](docs/plan-033/publication-completeness-results.md).
 - Publication plans now register the client-side extensions their SYSVOL
   content requires, and publish a GPO's comment. Both gaps were measured
   against Windows rather than reasoned (WI-057, WI-058): without the extension
