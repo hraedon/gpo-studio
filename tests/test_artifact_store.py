@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -79,10 +80,41 @@ class TestDeduplication:
     def test_same_content_same_id(self, store: ArtifactStore) -> None:
         content = b"same bytes"
         meta1 = store.store_artifact(content, "first.ps1")
+        store.approve_artifact(meta1.artifact_id, "alice")
         meta2 = store.store_artifact(content, "second.ps1")
         assert meta1.artifact_id == meta2.artifact_id
         assert meta1.original_name == "first.ps1"
         assert meta2.original_name == "first.ps1"  # existing metadata returned
+        assert meta2.status == "approved"
+        chain = get_provenance(store, meta1.artifact_id)
+        assert [entry.action for entry in chain] == [
+            "stored",
+            "approved",
+            "duplicate-arrival",
+        ]
+        assert chain[1].actor == "alice"
+        assert json.loads(chain[2].detail) == {
+            "original_name": "second.ps1",
+            "owner": "",
+            "source": "",
+        }
+
+    def test_duplicate_arrival_does_not_change_canonical_metadata(
+        self, store: ArtifactStore
+    ) -> None:
+        first = store.store_artifact(b"same", "canonical.ps1", owner="alice", source="one")
+        second = store.store_artifact(b"same", "alternate.ps1", owner="bob", source="two")
+        assert second == first
+        canonical = store.get_artifact(first.artifact_id)
+        assert canonical is not None
+        assert canonical.metadata.owner == "alice"
+        arrival = get_provenance(store, first.artifact_id)[1]
+        assert arrival.actor == "bob"
+        assert json.loads(arrival.detail) == {
+            "original_name": "alternate.ps1",
+            "owner": "bob",
+            "source": "two",
+        }
 
 
 def test_persistence_across_connections(tmp_path: Path) -> None:
@@ -122,7 +154,7 @@ class TestValidation:
         eicar = (
             b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
         )
-        with pytest.raises(ArtifactError, match="Malware detected"):
+        with pytest.raises(ArtifactError, match="EICAR test marker detected"):
             store.store_artifact(eicar, "malware.ps1")
 
 
@@ -298,22 +330,47 @@ class TestPublicationSafety:
         assert not check.is_safe
         assert any("expired" in r.lower() for r in check.reasons)
 
-    def test_unsigned_executable_is_unsafe(self, store: ArtifactStore) -> None:
-        # An .exe without a signer is not safe to publish, even when approved.
-        meta = store.store_artifact(b"MZ\x00\x00fake", "tool.exe")
+    @pytest.mark.parametrize("suffix, signer", [(".exe", ""), (".dll", "forged signer")])
+    def test_executable_publication_is_unsupported_pending_verified_signer(
+        self, store: ArtifactStore, suffix: str, signer: str
+    ) -> None:
+        meta = store.store_artifact(b"MZ\x00\x00fake" + suffix.encode(), f"tool{suffix}")
+        store._connection.execute(
+            "UPDATE artifacts SET signer = ? WHERE artifact_id = ?",
+            (signer, meta.artifact_id),
+        )
+        store._connection.commit()
         store.approve_artifact(meta.artifact_id, "alice")
         check = check_publication_safety(store, meta.artifact_id)
         assert not check.is_safe
-        assert any("not signed" in r.lower() for r in check.reasons)
+        assert any("unsupported" in r.lower() for r in check.reasons)
+
+    def test_rescan_is_read_only_and_does_not_revoke_approval(
+        self, store: ArtifactStore
+    ) -> None:
+        meta = store.store_artifact(b"Write-Host 'ok'\n", "ok.ps1")
+        store.approve_artifact(meta.artifact_id, "alice")
+        before = get_provenance(store, meta.artifact_id)
+        store._connection.execute(
+            "UPDATE artifacts SET content = ? WHERE artifact_id = ?",
+            (b"api_key = 'now-exposed'\n", meta.artifact_id),
+        )
+        store._connection.commit()
+        check = check_publication_safety(store, meta.artifact_id)
+        assert not check.is_safe
+        assert any("potential secrets" in reason for reason in check.reasons)
+        current = store.get_artifact(meta.artifact_id)
+        assert current is not None
+        assert current.metadata.status == "approved"
+        assert get_provenance(store, meta.artifact_id) == before
 
 
 class TestBinaryHandling:
     def test_binary_skip_secret_scan(self, store: ArtifactStore) -> None:
         content = bytes(range(256))
         meta = store.store_artifact(content, "tool.exe")
-        # Binary content skips secret scanning but is still scanned for
-        # malware.  A binary artifact that passes the malware check is
-        # scanned/clean and eligible for approval.
+        # Secret heuristics skip binary-classified content. Passing local
+        # checks does not provide malware scanning coverage.
         assert meta.status == "scanned"
         assert meta.scan_result == "clean"
 

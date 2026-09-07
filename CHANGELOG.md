@@ -19,6 +19,11 @@ Current version: `1.0.0`.
   member server, with exact six registry/file and three service rows retained
   in the evidence pack. ACL application and content suitability remain outside
   scope under WI-055. See [the results](docs/plan-033/object-security-results.md).
+- Artifact-store scope is now explicit: EICAR marker and secret heuristics are
+  local checks, executable publication requires a future verified signer path,
+  duplicate arrivals append provenance without replacing the canonical row,
+  and publication eligibility remains read-only. See
+  [the scope ruling](docs/plan-033/artifact-store-scope.md).
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.
