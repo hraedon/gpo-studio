@@ -57,6 +57,8 @@ def test_member_candidate_covers_policy_families_without_dc_only_kerberos(
     assert settings[("Event Audit", "AuditLogonEvents")] == "1"
     assert settings[("Event Audit", "AuditObjectAccess")] == "0"
     assert settings[("Event Audit", "AuditPolicyChange")] == "3"
+    assert settings[("Event Audit", "AuditDSAccess")] == "0"
+    assert ("Event Audit", "AuditDirectoryServiceAccess") not in settings
     assert settings[("Privilege Rights", "SeBackupPrivilege")] == (
         "*S-1-5-32-544,*S-1-5-32-551"
     )
@@ -91,4 +93,3 @@ def test_dc_candidate_adds_all_kerberos_family_rows(
         "EnforceLogonRestrictions": "1",
         "EnforceUserLogonRestrictions": "0",
     }
-

@@ -77,8 +77,13 @@ psdirect -Action push -LocalPath "$CANDIDATE_DIR/candidate.inf" \
 psdirect -Action push -LocalPath "$CANDIDATE_DIR/expected.json" \
     -RemotePath "$GUEST_SCRIPTS\\expected.json" >/dev/null
 
-psdirect -Action exec -TimeoutSeconds 360 -Command \
-    "& '$GUEST_SCRIPTS\\run-wp3-security-template.ps1' -CandidatePath '$GUEST_SCRIPTS\\candidate.inf' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT'"
+if ! psdirect -Action exec -TimeoutSeconds 360 -Command \
+    "& '$GUEST_SCRIPTS\\run-wp3-security-template.ps1' -CandidatePath '$GUEST_SCRIPTS\\candidate.inf' -ExpectedPath '$GUEST_SCRIPTS\\expected.json' -OutputDir '$GUEST_OUT'"; then
+    # A failed oracle is evidence too. Retrieve its result and command streams;
+    # the finalizer must record the failed checks and return nonzero. If the
+    # guest produced no result, the strict run selection/pull still fails.
+    echo "WP-3 guest execution failed; retrieving evidence for the verdict" >&2
+fi
 
 RUN_DIR=$(psdirect -Action exec -Command "$RUN_SELECT")
 RUN_DIR=$(printf '%s' "$RUN_DIR" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')

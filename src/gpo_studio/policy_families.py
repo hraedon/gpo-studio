@@ -443,10 +443,6 @@ class AuditPolicyFamily:
     @staticmethod
     def from_template(template: SecurityTemplate) -> AuditPolicyFamily:
         audit = extract_audit_policy(template)
-        ds_value = audit.audit_ds_access
-        section = template.get_section("Event Audit")
-        if section is not None and ds_value is None:
-            ds_value = _parse_int(section.get("AuditDirectoryServiceAccess"))
         return AuditPolicyFamily(
             system_events=_int_to_audit_level(
                 _default_int(audit.audit_system_events, 0)
@@ -467,7 +463,7 @@ class AuditPolicyFamily:
                 _default_int(audit.audit_account_manage, 0)
             ),
             directory_service_access=_int_to_audit_level(
-                _default_int(ds_value, 0)
+                _default_int(audit.audit_ds_access, 0)
             ),
             account_logon=_int_to_audit_level(
                 _default_int(audit.audit_account_logon, 0)
@@ -490,7 +486,7 @@ class AuditPolicyFamily:
                 "AuditAccountManage": _int_str(
                     _audit_level_to_int(self.account_management)
                 ),
-                "AuditDirectoryServiceAccess": _int_str(
+                "AuditDSAccess": _int_str(
                     _audit_level_to_int(self.directory_service_access)
                 ),
                 "AuditAccountLogon": _int_str(

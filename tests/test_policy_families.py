@@ -253,7 +253,7 @@ AuditObjectAccess = 1
 AuditPrivilegeUse = 3
 AuditPolicyChange = 2
 AuditAccountManage = 0
-AuditDirectoryServiceAccess = 1
+AuditDSAccess = 1
 AuditAccountLogon = 2
 AuditProcessTracking = 0
 """
@@ -302,6 +302,8 @@ def test_audit_policy_to_template_entries_round_trip() -> None:
         process_tracking="success_and_failure",
     )
     entries = family.to_template_entries()
+    assert entries["Event Audit"]["AuditDSAccess"] == "2"
+    assert "AuditDirectoryServiceAccess" not in entries["Event Audit"]
     rebuilt = SecurityTemplate(
         sections=(InfSection(name="Event Audit", entries=tuple(entries["Event Audit"].items())),)
     )
