@@ -21,13 +21,9 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 - [WI-028](#wi-028--searchedsom-accumulates-soms-for-deleted-containers) — `SearchedSOM` accumulates SOMs for deleted containers
-- [WI-032](#wi-032--rsopresult-has-no-per-side-applieddenied-set) — `RsopResult` has no per-side applied/denied set
-- [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
-- [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
-- [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
 - [WI-059](#wi-059--a-windows-controller-can-mint-a-verdict-ci-will-reject) — a Windows controller can mint a verdict CI will reject
 
-**6 open.** Everything else in this file is closed.
+**2 open.** Everything else in this file is closed.
 
 ---
 
@@ -197,7 +193,30 @@ green over it.
 ## WI-032 — `RsopResult` has no per-side applied/denied set
 
 **Opened:** 2026-08-04 (WP-9).
-**Status:** open, deliberately not fixed during the lane that found it.
+**FIXED AND CLOSED** 2026-09-07, in `94aef08` / `11b76a5`, re-certified by
+thirteen runs at `c2d58ec`.
+
+`RsopGpoResult` carries `computer_status` and `user_status`; `RsopResult`
+answers `computer_applied_gpos` and `user_applied_gpos`. The WP-9 finalizer's
+applied-set comparison is gated rather than advisory, with tests showing it
+firing in both directions, and the `gpo_status_is_not_per_side` limitation came
+out in the same change that made it untrue — as this entry demanded.
+
+**The gate found a real defect on its first run, which is the part worth
+recording.** Both loopback scenarios reported that the model predicted
+`Studio-RSOP-Loopback` applied to the user while Windows did not list it in
+`UserResults`. No value finding accompanied either — every winning value agreed
+— so the disagreement was purely about membership, and the GPO was exactly the
+one carrying no user values. A GPO that carries nothing for a side is not
+reported by Windows as applied to it, however cleanly it passes the filters.
+That is now the fifth per-side value, `no_settings_for_side`, measured twice
+before being encoded, and the two runs that found it are why it is not a guess.
+
+The entry above worried that gating would "manufacture findings out of a
+reporting gap". It did not: it surfaced a real over-report that the collapsed
+status had been hiding. What made the difference is that the model was given a
+per-side answer *first*, so the comparison was finally between two answers to
+the same question.
 
 `RsopGpoResult.status` collapses to "applied on at least one side". Windows
 reports the two sides separately: `ComputerResults` lists what applied to the
@@ -391,8 +410,24 @@ and its closure are each readable from the repository.
 ## WI-036 — `slow_link` and `safe_mode` are accepted and silently ignored
 
 **Opened:** 2026-08-04, while reconciling the corpus after WI-035.
-**Status:** open. Established from the code and a behavioural check, and it
-needs no oracle.
+**FIXED AND CLOSED** 2026-09-07 in `94aef08`, under the second closing option:
+the fields are removed from the public shape.
+
+`slow_link`, `safe_mode`, `simulate_slow_link` and `simulate_safe_mode` are gone
+from `RsopTarget`, `RsopQuery` and the request models, and the
+`slow_link_and_safe_mode_are_not_evaluated` limitation went with them.
+
+**Removing them was not sufficient on its own**, which is the part a later
+reader should not have to rediscover. Pydantic ignores unknown keys by default,
+so deleting the fields would have left a caller's `slow_link=true` accepted and
+dropped *and* invisible — the same defect with less to see. Both request models
+now refuse extras, so a caller still sending one gets a 422 naming it.
+
+The first option — making the fields drive resolution per CSE — was not taken,
+and deliberately: it would have meant asserting slow-link behaviour this project
+has never measured, and the entry above records that the obvious route to
+measuring it does not work. The blocked slow-link scenario keeps its `slow_link`
+keys, which describe a Windows condition rather than a Studio field.
 
 `RsopTarget.slow_link`, `RsopTarget.safe_mode`, `RsopQuery.simulate_slow_link`
 and `RsopQuery.simulate_safe_mode` are declared and **read nowhere**. A search
@@ -1876,7 +1911,28 @@ field go in the same change.
 ## WI-055 — the layer that parses an ACL does not judge it
 
 **Opened:** 2026-09-06 (taking the WI-038 decision; not previously suspected).
-**Status:** open.
+**CLOSED** 2026-09-07 under closing condition (b), in `94aef08`, re-certified by
+`object-security-20260907214728-1137` (19/19).
+
+A ruling, not a fix: ACL content is deliberately unjudged. Both reasons this
+entry gives are the reasons it was taken that way — a grant to Everyone is
+normal on parts of `HKLM\SOFTWARE` and on print queues, so a warning would fire
+on correct configurations; and no Windows tool will say whether an ACL is
+*advisable*, so there is nothing to measure a rule against. This project has
+been wrong before about rules it reasoned out rather than measured, and
+condition (a) would have required exactly that.
+
+`object_security.py`'s module docstring says so, and the two families the
+measurement named repeat it on `validate` itself, which is where a reader lands
+from a traceback or an IDE. `docs/capability-matrix.md` no longer describes this
+as an open gap. The point of the wording in all three places is that silence
+must not read as approval.
+
+**This does not unblock surfacing.** The entry's release note said this becomes
+operator-facing the moment `object_security.py` gets a delivery surface. What
+changed is that the silence is now a documented decision rather than an
+oversight; a surface that shows a reviewer a parsed ACL still has to say, in the
+surface, that its cleanliness is structural.
 
 WI-038 was filed because `security_template.py` could not see an ACL trustee.
 Settling it established that `object_security.py` **can** — and then that it
@@ -1933,7 +1989,23 @@ that no reviewer reads its silence as approval.
 ## WI-056 — `certification.py` is superseded, and its removal is undecided
 
 **Opened:** 2026-09-06 (taking the survey's §8.2 decision).
-**Status:** open, deliberately — the supersession is decided, the removal is not.
+**CLOSED** 2026-09-07 in `94aef08`: the module is deleted.
+
+`src/gpo_studio/certification.py` (684 lines) and `tests/test_certification.py`
+(490) are gone, and `test_certification_module_has_no_production_consumer` went
+with them — a module that does not exist cannot acquire a consumer, and a guard
+against that would be theatre. The scope decision that ruled the supersession
+records the deletion.
+
+What survives is the half that was never about this module:
+`test_the_parity_framework_still_has_four_evidence_states` guards the *reason*
+for the ruling, so an edit removing `unsupported` or `inconclusive` from
+`oracle_evidence` still falsifies the argument rather than quietly outliving it.
+
+**Plan 031's question is still unanswered**, and deleting the code did not
+answer it. What a portfolio of evidence across capabilities should look like is
+real; `ParityEvidence` and `EvidencePortfolio` were a sketch at it, and git
+remembers them. Dead code was the worse placeholder.
 
 [`scope-decision-2026-09-06-software-installation-and-certification.md`](scope-decision-2026-09-06-software-installation-and-certification.md)
 rules that `oracle_evidence.py` is the parity framework and `certification.py`

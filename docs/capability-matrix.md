@@ -535,21 +535,23 @@ supported.
   and unmeasured. The failure direction is the usual one — a membership the
   model resolves and Windows does not means a GPO reported applied that never
   arrives, or, with a deny, one reported blocked that does.
-- **Per-side applied/denied sets (WI-032, open).** `RsopGpoResult.status`
-  collapses to "applied on at least one side". Windows reports
-  `ComputerResults` and `UserResults` as separate sets and on a topology whose
-  GPOs scope both they differ, so neither the module nor the API can answer
-  "which GPOs applied to the user" separately from "which applied to the
-  computer". The per-side answer that *is* available is `computer_settings` /
-  `user_settings`, which are resolved independently. The API states this in
-  every response — `limitations[].code == "gpo_status_is_not_per_side"` — and
-  in the OpenAPI description of the `status` field.
-- **Slow link and safe mode (WI-036, open).** `slow_link`, `safe_mode`,
-  `simulate_slow_link` and `simulate_safe_mode` are accepted and never read. No
-  certified scenario covers either. Setting one raises
-  `slow_link_and_safe_mode_are_not_evaluated` on the response. Capping the
-  client's vNIC does not produce a slow link either — Group Policy reads the
-  adapter's advertised speed, measured 2026-08-04.
+- ~~**Per-side applied/denied sets (WI-032)**~~ — **closed 2026-09-07.** Each
+  row carries `computer_status` and `user_status`, and the result answers
+  `computer_applied_gpos` / `user_applied_gpos`. Re-certified by thirteen RSOP
+  runs. Two of the five per-side values exist because a merged status could not
+  express them: `out_of_scope` (the side never searched the GPO) and
+  `no_settings_for_side` (it did, and the GPO carries nothing for that side).
+  The second was **measured by the newly-gated comparison on its first run** —
+  the model had been reporting a GPO applied to a side it contributed nothing
+  to, and Windows omits such a GPO from that side's results.
+- ~~**Slow link and safe mode (WI-036)**~~ — **closed 2026-09-07 by removal.**
+  `slow_link`, `safe_mode`, `simulate_slow_link` and `simulate_safe_mode` are
+  gone from the model and the request shape, which now refuses unknown keys, so
+  a caller sending one gets a 422 rather than a prediction that ignored it. The
+  fields were never read and making them work would have meant asserting
+  slow-link behaviour nobody has measured: capping the client's vNIC does not
+  produce a slow link — Group Policy reads the adapter's advertised speed,
+  measured 2026-08-04.
 - **Group Policy Results / logging mode.** Refused, not approximated. `mode`
   accepts only `planning`; `logging` returns 422. Logging mode reports what a
   machine *actually* received, which this engine cannot answer — it predicts
@@ -568,16 +570,24 @@ supported.
   WP-1 and WP-2 are all unimplemented or unmeasured.
 
 `RsopGpoStatus` is a closed set of `applied | blocked | unevaluable`, and
-`blocked` is not the complement of `applied`. As of WI-047 no filtering rule
+`blocked` is not the complement of `applied`. The per-side `RsopSideStatus`
+adds `out_of_scope` and `no_settings_for_side`, both of which also mean "not
+applied here" and neither of which is a decision Windows made against the GPO. As of WI-047 no filtering rule
 produces `unevaluable` — the last one that did was answered by measurement — but
 the state and its machinery stay, because the next unmeasured region will need
 them and a result containing one reports `is_conclusive() == False`.
 
-**Being reconciled is not being finished.** WI-032, WI-036 and WI-054 are all
-open against a module now reachable by operators, which is the ordinary state
-for a surfaced capability rather than a reason to withdraw it. What surfacing
-changes is that each gap now has a reader, so each is stated where the answer is
-read as well as here.
+**Being reconciled is not being finished.** WI-032 and WI-036 closed on
+2026-09-07 and WI-054 remains, against a module reachable by operators — the
+ordinary state for a surfaced capability rather than a reason to withdraw it.
+What surfacing changes is that each gap has a reader, so each is stated where
+the answer is read as well as here.
+
+The `limitations` array this surface returns is now **empty**, and that is a
+result rather than a regression: all three limitations it carried were closed by
+fixing what they disclosed, and each was deleted in the change that closed it.
+The array stays, because a caller parsing JSON is not reading this document and
+the next honest limitation needs somewhere they already look.
 
 Open work items for this module are tracked in
 [`docs/work-items.md`](work-items.md).
