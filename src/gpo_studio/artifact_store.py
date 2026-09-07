@@ -229,12 +229,14 @@ def detect_secrets(content: bytes, max_lines: int = 10000) -> tuple[SecretFindin
     return tuple(findings)
 
 
-def _detect_eicar_marker(content: bytes) -> str:
-    """Return a reason if the EICAR test marker is present."""
-    for signature in _EICAR_MARKERS:
-        if signature in content:
-            return "EICAR test marker present"
-    return ""
+def _detect_eicar_marker(content: bytes) -> bool:
+    """Report whether the EICAR test marker is present.
+
+    A true result means only that this local marker check fired; it carries no
+    statement about the artifact being malware, and a false result carries none
+    about it being clean.
+    """
+    return any(signature in content for signature in _EICAR_MARKERS)
 
 
 def _mime_type_for(path: str) -> str:
@@ -414,9 +416,11 @@ class ArtifactStore:
         if suffix not in ALLOWED_EXTENSIONS:
             raise ArtifactError(f"Extension not allowed: {suffix}")
 
-        malware_reason = _detect_eicar_marker(content)
-        if malware_reason:
-            raise ArtifactError(f"EICAR test marker detected: {malware_reason}")
+        if _detect_eicar_marker(content):
+            raise ArtifactError(
+                "EICAR test marker detected; this is a local marker check, "
+                "not malware scanning"
+            )
 
         content_hash = self.compute_hash(content)
         is_text = _is_text_content(content)
