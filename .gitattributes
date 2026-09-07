@@ -20,9 +20,18 @@ src/gpo_studio/security_template.py text eol=lf
 src/gpo_studio/object_security.py text eol=lf
 src/gpo_studio/sddl.py text eol=lf
 src/gpo_studio/oracle_evidence.py text eol=lf
+src/gpo_studio/export.py text eol=lf
+src/gpo_studio/script_policy.py text eol=lf
+src/gpo_studio/xml_safety.py text eol=lf
+src/gpo_studio/canonical.py text eol=lf
+src/gpo_studio/gpp.py text eol=lf
+src/gpo_studio/model.py text eol=lf
+src/gpo_studio/registry_pol.py text eol=lf
+src/gpo_studio/validation.py text eol=lf
 # Native logs/JSON retain CRLF and padding; their hashes cover those bytes.
 docs/plan-033/wp3-evidence/policy-families/** -text -whitespace
 docs/plan-033/wp3-evidence/object-security/** -text -whitespace
+docs/plan-033/wp1b-evidence/scripts-metadata/** -text -whitespace
 
 # Raw census artifacts, verbatim byte copies: every SHA-256 is banked in
 # tests/fixtures/live-domain-census/provenance.json, so the blobs must not

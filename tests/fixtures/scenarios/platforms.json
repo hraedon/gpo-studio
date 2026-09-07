@@ -155,6 +155,16 @@
       "notes": "Account/audit/user-rights tranche certified, and re-certified on the estate 2026-08-03 (wp3-security-template-20260803230220-2450, 20/20). Registry Values and Group Membership certified 2026-08-04 (wp3-security-template-20260804143907-9761). Policy-family expansion was certified 2026-09-07 by paired runs on the member server and domain controller (wp3-security-template-20260907071149-3752 and wp3-security-template-20260907071106-1024): the DC run carries the five native Kerberos keys and the member run omits the empty area. The lane now requires both frozen hosts for this asymmetric scope."
     },
     {
+      "lane_id": "scripts-metadata-gpmc",
+      "plan_wp": "WP-3",
+      "boundaries": ["gpo-backup-content"],
+      "required_hosts": ["member-ws2025-disposable"],
+      "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1", "studio-finalize"],
+      "oracle": "Import-GPO of a Studio Scripts backup, Get-GPOReport Scripts namespace inspection, and Backup-GPO re-export comparison. Script payload execution is outside this lane.",
+      "status": "defined",
+      "notes": "R10 scripts metadata lane is defined but not yet qualified as a repeatable run; native R2 INI captures are available for the expected wire shape."
+    },
+    {
       "lane_id": "object-security-secedit",
       "plan_wp": "WP-3",
       "boundaries": ["gpo-backup-content"],

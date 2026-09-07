@@ -1,0 +1,97 @@
+{
+  "schema_version": "1",
+  "scenario_id": "scripts-metadata",
+  "family": "script-policy",
+  "title": "Scripts metadata: startup command, parameters, order, and PowerShell ordering",
+  "readiness": "blocked",
+  "blocked_reason": "repeatable R10 scripts metadata lane qualification is pending",
+  "provenance": {
+    "tier": "native-observation",
+    "note": "R2 banked native Scripts CSE INI captures establish the UTF-16LE/CRLF wire bytes and PowerShell ordering; a repeatable R10 Import-GPO/report/Backup-GPO lane must qualify the end-to-end metadata round trip.",
+    "anchors": [
+      {
+        "kind": "native-capture",
+        "path": "tests/fixtures/native-scripts-gpmc/scripts.ini.txt",
+        "sha256": "9ffc002002a7752c2fa7bd16b21a6995ba89f133425a2ce91676e205bdfc05f1",
+        "note": "Banked native legacy scripts.ini capture."
+      },
+      {
+        "kind": "native-capture",
+        "path": "tests/fixtures/native-scripts-gpmc/psscripts.ini.txt",
+        "sha256": "b44ecb83a9da6184c6ed4cffda7223f669473a3a78f05f9c531422f3879fdc09",
+        "note": "Banked native PowerShell scripts.ini capture with RunPSFirst ordering."
+      }
+    ]
+  },
+  "platform": {
+    "lane": "scripts-metadata-gpmc",
+    "boundaries": [
+      "gpo-backup-content"
+    ]
+  },
+  "authored_intent": {
+    "entries": [
+      {
+        "side": "computer",
+        "type": "startup",
+        "command": "zz-studio-marker.cmd",
+        "parameters": "/c alpha beta",
+        "order": 1
+      },
+      {
+        "side": "computer",
+        "type": "startup",
+        "command": "zz-studio-second.cmd",
+        "parameters": null,
+        "order": 2
+      },
+      {
+        "side": "computer",
+        "type": "startup",
+        "command": "zz-studio-marker.ps1",
+        "parameters": "-Mode Alpha",
+        "order": 0,
+        "run_order": "RunPSFirst"
+      }
+    ]
+  },
+  "expected_native": {
+    "round_trip": "import-gpo-report-backup-gpo",
+    "entries": [
+      {
+        "side": "computer",
+        "type": "startup",
+        "command": "zz-studio-marker.cmd",
+        "parameters": "/c alpha beta",
+        "order": 1,
+        "run_order": "RunPSFirst"
+      },
+      {
+        "side": "computer",
+        "type": "startup",
+        "command": "zz-studio-second.cmd",
+        "parameters": null,
+        "order": 2,
+        "run_order": "RunPSFirst"
+      },
+      {
+        "side": "computer",
+        "type": "startup",
+        "command": "zz-studio-marker.ps1",
+        "parameters": "-Mode Alpha",
+        "order": 0,
+        "run_order": "RunPSFirst"
+      }
+    ],
+    "derivations": [
+      "Native legacy scripts.ini is UTF-16LE with BOM and CRLF and carries the two command entries with their parameter positions.",
+      "Native psscripts.ini carries StartExecutePSFirst=true and the PowerShell startup entry.",
+      "This scenario asserts metadata import/render/rebackup only; script payload execution and endpoint policy processing are outside scope."
+    ]
+  },
+  "open_questions": [
+    "Does Import-GPO render all three entries in the GPMC report with exact command, optionalParameters, Type, Order, and RunOrder fields?",
+    "Does Backup-GPO preserve the INI bytes and CSE references after import?",
+    "Are absent executable payload files tolerated by metadata import, and does endpoint processing require them?"
+  ]
+}

@@ -79,8 +79,8 @@ class TestSchemas:
 class TestCorpus:
     def test_corpus_loads_all_files(self, registry) -> None:  # type: ignore[no-untyped-def]
         scenarios = load_corpus(SCENARIO_DIR, registry)
-        # 16 since 2026-09-07 (WP-3 policy-family native observations).
-        assert len(scenarios) == len(SCENARIO_FILES) == 16
+        # 17 since 2026-09-07 (WP-3 policy-family and script-policy additions).
+        assert len(scenarios) == len(SCENARIO_FILES) == 17
         assert {scenario.family for scenario in scenarios} == set(FAMILIES)
 
     def test_every_anchor_hash_verifies(self, registry) -> None:  # type: ignore[no-untyped-def]
@@ -127,6 +127,7 @@ class TestCorpus:
             "regkeys-filesecurity": "ready",
             "services-area": "ready",
             "policy-families": "ready",
+            "scripts-metadata": "blocked",
             # Ready since 2026-08-04: WP-9 ran both halves of it, the
             # representable cases as a pass and the deny case as a declared
             # divergence (WI-033).
@@ -188,8 +189,7 @@ class TestCorpus:
         assert read_deny.readiness == "ready"
         assert read_deny.blocked_reason is None
         assert read_deny.provenance.tier == "native-observation", (
-            "a ready scenario in this family must be anchored to a captured run, not "
-            "to an argument"
+            "a ready scenario in this family must be anchored to a captured run, not to an argument"
         )
         assert read_deny.provenance.anchors, "native-observation with no anchor"
 
@@ -341,6 +341,53 @@ class TestLoaderNegatives:
         with pytest.raises(RemediationCorpusError, match="unknown family"):
             load_scenario(path, registry)
 
+    def test_script_policy_requires_nonempty_entry_payloads(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
+        data = self._base_scenario()
+        data.update(
+            family="script-policy",
+            readiness="blocked",
+            blocked_reason="lane qualification",
+            platform={"lane": "scripts-metadata-gpmc", "boundaries": ["gpo-backup-content"]},
+            authored_intent={"entries": []},
+            expected_native={"entries": [{"command": "x"}], "round_trip": "r"},
+        )
+        path = self._write_scenario(tmp_path, "script-policy", "neg-case", data)
+        with pytest.raises(RemediationCorpusError, match="entries.*non-empty"):
+            load_scenario(path, registry)
+
+    def test_script_policy_requires_expected_entries_and_round_trip(
+        self, tmp_path: Path, registry
+    ) -> None:  # type: ignore[no-untyped-def]
+        data = self._base_scenario()
+        data.update(
+            family="script-policy",
+            readiness="blocked",
+            blocked_reason="lane qualification",
+            platform={"lane": "scripts-metadata-gpmc", "boundaries": ["gpo-backup-content"]},
+            authored_intent={"entries": [{"command": "x"}]},
+            expected_native={"entries": [{"command": "x"}], "round_trip": 3},
+        )
+        path = self._write_scenario(tmp_path, "script-policy", "neg-case", data)
+        with pytest.raises(RemediationCorpusError, match="round_trip"):
+            load_scenario(path, registry)
+
+    def test_script_policy_rejects_empty_round_trip(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
+        data = self._base_scenario()
+        data.update(
+            family="script-policy",
+            readiness="blocked",
+            blocked_reason="lane qualification",
+            platform={
+                "lane": "scripts-metadata-gpmc",
+                "boundaries": ["gpo-backup-content"],
+            },
+            authored_intent={"entries": [{"command": "x"}]},
+            expected_native={"entries": [{"command": "x"}], "round_trip": ""},
+        )
+        path = self._write_scenario(tmp_path, "script-policy", "neg-case", data)
+        with pytest.raises(RemediationCorpusError, match="round_trip.*non-empty"):
+            load_scenario(path, registry)
+
     def test_unknown_lane_rejected(self, tmp_path: Path, registry) -> None:  # type: ignore[no-untyped-def]
         data = self._base_scenario()
         data["platform"]["lane"] = "no-such-lane"
@@ -463,8 +510,7 @@ class TestServicesConformance:
 
     def test_recovery_semantics_are_preserved(self) -> None:
         items = {
-            item.service_name: item
-            for item in parse_gpp_services(NATIVE_SERVICES_XML.read_bytes())
+            item.service_name: item for item in parse_gpp_services(NATIVE_SERVICES_XML.read_bytes())
         }
         assert set(items) == {"WinRM", "Spooler", "W32Time"}
 
@@ -538,21 +584,15 @@ class TestServicesConformance:
                     startup_type=authored["startup_type"],
                     service_action=authored["service_action"],
                     timeout_seconds=authored["timeout_seconds"],
-                    first_failure=(
-                        recovery["first_failure"] if recovery is not None else None
-                    ),
-                    second_failure=(
-                        recovery["second_failure"] if recovery is not None else None
-                    ),
+                    first_failure=(recovery["first_failure"] if recovery is not None else None),
+                    second_failure=(recovery["second_failure"] if recovery is not None else None),
                     third_failure=(
                         recovery["third_failure"]
                         if recovery is not None and recovery["third_failure"] != "none"
                         else None
                     ),
                     reset_fail_count_delay_seconds=(
-                        recovery["reset_fail_count_after_seconds"]
-                        if recovery is not None
-                        else None
+                        recovery["reset_fail_count_after_seconds"] if recovery is not None else None
                     ),
                     restart_service_delay_milliseconds=(
                         recovery["restart_service_after_milliseconds"]
