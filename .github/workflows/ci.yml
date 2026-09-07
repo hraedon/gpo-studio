@@ -1,7 +1,7 @@
 name: ci
 # Scoped to main rather than bare `push`: with `on: [push, pull_request]`, a
 # push to a branch with an open PR fires BOTH events, running every job twice.
-# At 11 jobs that is 22 concurrent jobs from one push, against an account-wide
+# At 13 jobs that is 26 concurrent jobs from one push, against an account-wide
 # cap of 20 -- the run then starves itself and jobs sit queued for over an hour
 # without ever being scheduled.
 on:
@@ -46,6 +46,45 @@ jobs:
           --cov-report=json:coverage.json
       - name: Risk-based coverage floors
         run: python scripts/check_coverage.py coverage.json
+
+  test-windows:
+    # First-pass Windows mirror of `test`. Expected red: this is the baseline
+    # pass, so what fails is recorded and handed to the fixes, not fixed here.
+    # mypy is 25 errors red on win32 (the platform checks route through the
+    # `_IS_WINDOWS` intermediate, which mypy cannot narrow, so both platform
+    # branches are analysed on both platforms) and pytest runs at the known
+    # 34-failure Windows environmental baseline. The install goes through uv
+    # -- the committed lockfile, and the operator's own environment -- rather
+    # than the Linux job's bare pip. continue-on-error keeps the job visible
+    # without gating merges; it flips to enforcing once the mypy and pytest
+    # halves are closed.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Mypy
+        run: uv run mypy src
+      - name: Pytest
+        run: >-
+          uv run pytest -q --cov=src/gpo_studio --cov-branch
+          --cov-report=json:coverage.json
+      - name: Risk-based coverage floors
+        run: uv run python scripts/check_coverage.py coverage.json
 
   frontend:
     runs-on: ubuntu-latest
