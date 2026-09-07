@@ -15,6 +15,10 @@ Current version: `1.0.0`.
   member/DC runs each pass 21 checks with retained raw evidence and source
   bindings. The lane records DC role and retains failure evidence. See
   [the results](docs/plan-033/wp3-policy-family-results.md).
+- Plan 034 object-security serializer lane passed 19/19 checks on the clean
+  member server, with exact six registry/file and three service rows retained
+  in the evidence pack. ACL application and content suitability remain outside
+  scope under WI-055. See [the results](docs/plan-033/object-security-results.md).
 - Windows frontend formatting checks now accept checkout line endings without
   reformatting the source. NetSecurity availability and isolated firewall
   GPO authoring/readback were measured; the network model remains unverified.

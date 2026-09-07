@@ -5,63 +5,113 @@
   "title": "Registry Keys and File Security areas: ACL propagation codes and SDDL payloads",
   "readiness": "ready",
   "provenance": {
-    "tier": "spec-informed",
-    "note": "Shape derived from Microsoft security-template documentation. Propagation code meanings in particular are asserted from documentation, not captured behavior, and the first secedit /export capture must confirm them before any claim.",
+    "tier": "native-observation",
+    "note": "The exact six registry/file rows were accepted and re-exported by secedit on the qualified member server; the verdict is hash-anchored below.",
     "anchors": [
       {
         "kind": "lab-runbook",
-        "path": "docs/plan-033/wp3-evidence/verification.json",
-        "sha256": "7400d1679fc665ca9f405ed3af7b55967b6cbdf47b0ce57a9c8960ac1ea46339",
-        "note": "Certified WP-3 tranche evidence; proves the harness mechanics this scenario reuses, not these areas."
+        "path": "docs/plan-033/wp3-evidence/object-security/verification.json",
+        "sha256": "28e373cd338ec39280690575533ffd8975dbc2094de00ae6abfd9761d2be965d",
+        "note": "19/19 clean member-server object-security secedit validation/import/export verdict; exact candidate and Windows export rows match."
       }
     ]
   },
   "platform": {
-    "lane": "security-template-secedit",
-    "boundaries": ["gpo-backup-content"]
+    "lane": "object-security-secedit",
+    "boundaries": [
+      "gpo-backup-content"
+    ]
   },
   "authored_intent": {
     "sections": [
       {
         "name": "Registry Keys",
         "entries": [
-          ["MACHINE\\SOFTWARE\\StudioLab\\Audit", "0", "D:PAR(A;OICI;FA;;;BA)"],
-          ["MACHINE\\SOFTWARE\\StudioLab\\Locked", "2", "D:PAR(A;OICI;FA;;;BA)(A;OICI;FR;;;AU)"]
+          [
+            "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry0",
+            "0",
+            "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+          ],
+          [
+            "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry1",
+            "1",
+            "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+          ],
+          [
+            "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry2",
+            "2",
+            "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+          ]
         ]
       },
       {
         "name": "File Security",
         "entries": [
-          ["C:\\StudioLab\\Data", "1", "D:PAR(A;OICI;FA;;;BA)"],
-          ["C:\\StudioLab\\ReadOnly", "2", "D:PAR(A;OICI;FR;;;AU)"]
+          [
+            "C:\\GPOStudio\\ObjectSecurity\\File0",
+            "0",
+            "D:PAR(A;OICI;FA;;;BA)"
+          ],
+          [
+            "C:\\GPOStudio\\ObjectSecurity\\File1",
+            "1",
+            "D:PAR(A;OICI;FA;;;BA)"
+          ],
+          [
+            "C:\\GPOStudio\\ObjectSecurity\\File2",
+            "2",
+            "D:PAR(A;OICI;FA;;;BA)"
+          ]
         ]
       }
     ],
     "operator_meaning": [
-      "Audit key: propagate inheritable permissions, full control to administrators",
-      "Locked key: replace existing permissions, administrators full, authenticated users read",
-      "Data directory: do not allow permissions to be replaced",
-      "ReadOnly directory: replace existing permissions, read for authenticated users"
+      "Registry rows exercise propagation codes 0=propagate, 1=do not allow replacement, and 2=replace with one canonical descriptor.",
+      "File rows exercise the same three propagation codes with one canonical inherited descriptor."
     ]
   },
   "expected_native": {
     "round_trip": "secedit-validate-import-export",
-    "inf_excerpt": "[Registry Keys]\n\"MACHINE\\SOFTWARE\\StudioLab\\Audit\",0,\"D:PAR(A;OICI;FA;;;BA)\"\n\"MACHINE\\SOFTWARE\\StudioLab\\Locked\",2,\"D:PAR(A;OICI;FA;;;BA)(A;OICI;FR;;;AU)\"\n[File Security]\n\"C:\\StudioLab\\Data\",1,\"D:PAR(A;OICI;FA;;;BA)\"\n\"C:\\StudioLab\\ReadOnly\",2,\"D:PAR(A;OICI;FR;;;AU)\"",
+    "inf_excerpt": "[Registry Keys]\n1=\"machine\\software\\gpostudio\\objectsecurity\\registry0\", 0, \"D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)\"\n2=\"machine\\software\\gpostudio\\objectsecurity\\registry1\", 1, \"D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)\"\n3=\"machine\\software\\gpostudio\\objectsecurity\\registry2\", 2, \"D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)\"\n[File Security]\n1=\"c:\\gpostudio\\objectsecurity\\file0\", 0, \"D:PAR(A;OICI;FA;;;BA)\"\n2=\"c:\\gpostudio\\objectsecurity\\file1\", 1, \"D:PAR(A;OICI;FA;;;BA)\"\n3=\"c:\\gpostudio\\objectsecurity\\file2\", 2, \"D:PAR(A;OICI;FA;;;BA)\"",
     "entries": [
-      {"section": "Registry Keys", "key": "MACHINE\\SOFTWARE\\StudioLab\\Audit", "value": "0,D:PAR(A;OICI;FA;;;BA)"},
-      {"section": "Registry Keys", "key": "MACHINE\\SOFTWARE\\StudioLab\\Locked", "value": "2,D:PAR(A;OICI;FA;;;BA)(A;OICI;FR;;;AU)"},
-      {"section": "File Security", "key": "C:\\StudioLab\\Data", "value": "1,D:PAR(A;OICI;FA;;;BA)"},
-      {"section": "File Security", "key": "C:\\StudioLab\\ReadOnly", "value": "2,D:PAR(A;OICI;FR;;;AU)"}
+      {
+        "section": "Registry Keys",
+        "key": "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry0",
+        "value": "0,D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+      },
+      {
+        "section": "Registry Keys",
+        "key": "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry1",
+        "value": "1,D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+      },
+      {
+        "section": "Registry Keys",
+        "key": "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry2",
+        "value": "2,D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
+      },
+      {
+        "section": "File Security",
+        "key": "C:\\GPOStudio\\ObjectSecurity\\File0",
+        "value": "0,D:PAR(A;OICI;FA;;;BA)"
+      },
+      {
+        "section": "File Security",
+        "key": "C:\\GPOStudio\\ObjectSecurity\\File1",
+        "value": "1,D:PAR(A;OICI;FA;;;BA)"
+      },
+      {
+        "section": "File Security",
+        "key": "C:\\GPOStudio\\ObjectSecurity\\File2",
+        "value": "2,D:PAR(A;OICI;FA;;;BA)"
+      }
     ],
     "derivations": [
-      "Each entry is quoted-path, numeric propagation code, quoted SDDL. R4 corrected the original prediction: 0 = propagate, 1 = do not allow replacement, 2 = replace. This corrects the labels, not a claim that these exact descriptor combinations have been run.",
-      "Registry paths use the MACHINE\\ hive prefix form in security templates, not HKLM; file paths are absolute local paths. Both are quoted CSV fields.",
-      "Studio's security_template.py has no typed accessor for either area; entries parse as opaque lines under known section names. The wire truth fixed here is what a typed model must honor."
+      "The member-server verdict preserves all six authored propagation codes and canonical SDDL strings byte-for-byte through validation, import, and export.",
+      "Registry and file targets remain separate native sections with quoted paths."
     ]
   },
   "open_questions": [
-    "Does secedit /export emit the same propagation codes it accepted, or normalize (for example, an authored 0 returning as a different code with inherited flags folded into the SDDL)?",
     "Are environment-variable paths (%SystemRoot%) accepted in File Security entries, and how are they returned on export?",
-    "What does secedit do with a Registry Keys entry for a key that does not exist at /import time: accept silently, warn, or fail?"
+    "What does secedit do with a Registry Keys entry for a key that does not exist at /import time?"
   ]
 }

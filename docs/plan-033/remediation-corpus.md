@@ -5,9 +5,15 @@
 `AuditDSAccess` and five-key Kerberos expectations. It is ready and measured;
 the historical readiness map below predates the estate qualifications.
 
-Status: landed 2026-07-29. The corpus is data plus its validator; no scenario
-has been executed against a Windows oracle, and no scenario changes any
-capability claim by itself.
+**2026-09-07 object-security update:** `security-template/services-area` and
+`security-template/regkeys-filesecurity` are anchored to the clean member-server
+object-security verdict: three service rows and six registry/file rows passed
+exact validation, import, and export comparison. Empty/absent service
+descriptors and environment-variable paths remain open questions.
+
+Status: landed 2026-07-29. The corpus is data plus its validator; the two
+object-security scenarios above now have Windows oracle evidence, and no
+scenario changes any capability claim by itself.
 
 ## What this is
 
@@ -56,7 +62,8 @@ keeps the corpus green.
 | rsop-topology | lsdou-precedence, disabled-block-enforced, security-filtering, wmi-loopback-slowlink | blocked | client-win11 qualification |
 | ilt-os | server-10x-collision, edition-union-expansion | ready | — |
 
-The map is enforced by the loader and pinned by
+The historical map above is retained for provenance. The current machine-readable
+readiness map is enforced by the loader and pinned by
 `test_known_readiness_map`; it changes only with the corpus.
 
 ## Platform gaps the corpus exposes

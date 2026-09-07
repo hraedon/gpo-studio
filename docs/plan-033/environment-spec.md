@@ -1,5 +1,11 @@
 # Plan 033 frozen environment specification
 
+**2026-09-07 object-security extension:** run
+`object-security-20260907075319-7408` passed 19/19 on LabMS01 (role 3) under
+the same frozen build-family profile. The separate `object-security-secedit`
+lane qualifies registry/file/service serialization through a temporary database,
+with no `/configure`. See [the bound result](object-security-results.md).
+
 **2026-09-07 WP-3 extension:** the policy-family tranche now has a directly
 executed DC qualification, `wp3-security-template-20260907071106-1024`, and a
 fresh member-server qualification, `wp3-security-template-20260907071149-3752`.

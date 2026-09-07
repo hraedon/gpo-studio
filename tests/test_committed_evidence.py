@@ -39,6 +39,7 @@ LANE_VERDICTS = {
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
     "wp3-evidence/policy-families/dc/verification.json": "finalize_wp3_run.py",
     "wp3-evidence/policy-families/member/verification.json": "finalize_wp3_run.py",
+    "wp3-evidence/object-security/verification.json": "finalize_object_security_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804020517-2089.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804051032-8845.json": "finalize_rsop_run.py",
     "wp6-evidence/verdict-rsop-observe-20260804051228-2926.json": "finalize_rsop_run.py",
@@ -1086,6 +1087,37 @@ def test_wp3_policy_family_evidence_is_intact_and_role_scoped(
         assert artifact.is_file(), relative_path
         actual_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
         assert actual_hash == recorded_hash, relative_path
+
+
+def test_object_security_evidence_preserves_native_rows_and_raw_artifacts() -> None:
+    evidence_dir = EVIDENCE / "wp3-evidence" / "object-security"
+    verification = json.loads((evidence_dir / "verification.json").read_text(encoding="utf-8"))
+    assert verification["passed"] is True
+    assert verification["environment"]["computer_system_domain_role"] == 3
+    assert verification["environment"]["computer_system_name"] == "LABMS01"
+    assert verification["environment"]["computer_system_domain"] == "ad.labdomain.dev"
+    symbols = runpy.run_path(str(ORACLE_DIR / "finalize_object_security_run.py"))
+    source_paths = {
+        name: REPO_ROOT / relative
+        for table in _file_tables("finalize_object_security_run.py")
+        for name, relative in table.items()
+    }
+    for relative, digest in verification["artifacts"].items():
+        artifact = evidence_dir / relative
+        if not artifact.is_file():
+            artifact = source_paths[relative.removeprefix("deployed/")]
+        assert hashlib.sha256(artifact.read_bytes()).hexdigest() == digest, relative
+    expected_json = json.loads((evidence_dir / "expected.json").read_text(encoding="utf-8"))
+    expected = symbols["_expected_rows"](expected_json)
+    assert len(expected) == 9
+    assert symbols["_template_rows"](evidence_dir / "candidate.inf", exported=False) == expected
+    assert symbols["_template_rows"](evidence_dir / "exported.inf", exported=True) == expected
+    for section, codes in (
+        ("registry keys", {0, 1, 2}),
+        ("file security", {0, 1, 2}),
+        ("service general setting", {2, 3, 4}),
+    ):
+        assert {value[0] for key, value in expected.items() if key[0] == section} == codes
 
 
 def test_every_evidence_file_is_accounted_for() -> None:

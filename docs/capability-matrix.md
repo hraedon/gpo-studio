@@ -650,7 +650,7 @@ claim and a middle value would weaken a shipped contract.
 | Plan | Module(s) | Surfaced | Windows-verified |
 |---|---|---|---|
 | 025 | `security_template.py` | no | **capture-backed (R4)** — encoding, BOM, section shape and the quoted-CSV row form of one native GPMC template. The same capture shows it parses **0 of 3** `[Registry Keys]` rows (3 `unknown_lines`); see WI-038 |
-| 025 | `object_security.py` | no | **capture-backed (R4, R9)** — propagation codes measured (0/1/2, all three previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one |
+| 025 | `object_security.py` | no | **capture-backed (R4, R9)** — propagation codes measured (0/1/2, all three previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 now adds a clean member-server 19/19 validate/import/export lane; ACL application/content suitability remains unverified and WI-055 is open |
 | 025 | `network_security.py` | no | no — [NetSecurity availability and one unlinked-GPO firewall probe passed](plan-033/wp3-policy-family-results.md#wp-2-netsecurity-discriminator); model conformance remains unverified |
 | 025 | `policy_families.py` | no | **capture-backed (R7)**; now also a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), 21/21 checks each. The lane corrected the audit key and removed two unsupported Kerberos fields. Still unsurfaced; application and arbitrary-value coverage remain unverified |
 | 026 | `script_policy.py` | no | **capture-backed (R2, R10)** — native wire format measured, and Windows re-emits Studio's `scripts.ini`/`psscripts.ini` byte-identically after `Import-GPO`. The strongest evidence in this table, and still not a lane |

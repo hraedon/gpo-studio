@@ -1,8 +1,11 @@
 # Object-security serialization lane
 
 Plan 034 WP-1 extends the R4/R9 observations into a repeatable, non-applying
-`secedit` lane. The lane is under construction; no new Windows verdict has
-been earned yet.
+`secedit` lane. A clean member-server run passed all 19 checks on 2026-09-07
+(`object-security-20260907075319-7408`, source
+`1b81fed31460915443f944d90cb2b88eaefb2a99`). The retained
+[verification artifact](wp3-evidence/object-security/verification.json) is
+the authoritative verdict and raw-artifact index.
 
 ## Experiment and acceptance
 
@@ -26,6 +29,25 @@ rows, preserves their codes and already-canonical descriptors, and exports
 ordinal-keyed rows with case-normalized targets. Target case and CSV whitespace
 are comparison rules; SDDL changes are findings, not automatically normalized
 away. A failed run is retained and its cause explained before recertification.
+The passing raw pack includes the candidate, expected rows, exported template,
+command streams and logs, environment, and source hashes.
+
+## Re-running and recovering evidence
+
+From a clean checkout with the qualified lab credentials configured, rerun with
+`bash scripts/windows-oracle/run-object-security-oracle.sh`. The runner requires
+`GPO_STUDIO_LAB_HOST`, `GPO_STUDIO_LAB_GUEST`, `HYPERV_CONTROL_USERNAME`, and
+`GUEST_BOOTSTRAP_USERNAME`; it stages the candidate through `psdirect`, runs
+`secedit /validate`, `/import`, and `/export`, then removes the temporary
+database. The recorded run rechecked cleanup with zero residual database files,
+and both candidate and Windows export comparisons reported no differing rows.
+
+The evidence is tagged
+`evidence/object-security-20260907075319-7408`. The verification record binds
+source hashes to commit `1b81fed31460915443f944d90cb2b88eaefb2a99`; when a raw
+pack omits a source file, recover the exact bound bytes with
+`git show 1b81fed31460915443f944d90cb2b88eaefb2a99:<repository-path>` and verify
+the resulting SHA-256 against `verification.json`.
 
 ## Scope
 

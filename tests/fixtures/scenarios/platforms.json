@@ -155,6 +155,16 @@
       "notes": "Account/audit/user-rights tranche certified, and re-certified on the estate 2026-08-03 (wp3-security-template-20260803230220-2450, 20/20). Registry Values and Group Membership certified 2026-08-04 (wp3-security-template-20260804143907-9761). Policy-family expansion was certified 2026-09-07 by paired runs on the member server and domain controller (wp3-security-template-20260907071149-3752 and wp3-security-template-20260907071106-1024): the DC run carries the five native Kerberos keys and the member run omits the empty area. The lane now requires both frozen hosts for this asymmetric scope."
     },
     {
+      "lane_id": "object-security-secedit",
+      "plan_wp": "WP-3",
+      "boundaries": ["gpo-backup-content"],
+      "required_hosts": ["member-ws2025-disposable"],
+      "required_tools": ["secedit", "powershell-5.1", "studio-finalize"],
+      "oracle": "secedit /validate, fresh-database /import /overwrite and /export for regkeys, filestore and services; exact target/code/SDDL comparison after parsing ordinal export rows. No /configure.",
+      "status": "partial",
+      "notes": "Certified object-security-20260907075319-7408 on LabMS01, role 3, at 1b81fed31460915443f944d90cb2b88eaefb2a99. All nine rows and 19 checks pass: registry/file propagation codes 0/1/2 and service startup codes 2/3/4 with explicit descriptor controls. Does not prove applied ACLs, descriptor advisability, empty/absent service descriptors, or GPMC editability. WI-055 remains a pre-surface gate."
+    },
+    {
       "lane_id": "endpoint-application",
       "plan_wp": "WP-5",
       "boundaries": [
