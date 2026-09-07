@@ -127,7 +127,7 @@ class TestCorpus:
             "regkeys-filesecurity": "ready",
             "services-area": "ready",
             "policy-families": "ready",
-            "scripts-metadata": "blocked",
+            "scripts-metadata": "ready",
             # Ready since 2026-08-04: WP-9 ran both halves of it, the
             # representable cases as a pass and the deny case as a declared
             # divergence (WI-033).

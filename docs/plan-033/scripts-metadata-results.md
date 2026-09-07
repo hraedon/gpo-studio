@@ -1,34 +1,60 @@
-# Scripts metadata interoperability lane
+# Scripts metadata lane (R10)
 
-Plan 034 WP-1 turns R10's import/rebackup observation into a repeatable lane.
-Implementation and qualification are in progress; no new bound verdict has
-been earned yet.
+Plan 034 WP-1 extends Plan 033 WP-1B with a Windows-verified R10 Scripts
+metadata lane on a clean member
+server. Run `scripts-r10-20260907081826-5183` passed all 21 checks from source
+commit `f6b06af1bfcc4150b7bdea35b6ecdd660c1d0bc5`; the source checkout was clean.
+The immutable evidence tag is `evidence/scripts-r10-20260907081826-5183`.
+The [verification record](wp1b-evidence/scripts-metadata/verification.json)
+contains the authoritative verdict, source/artifact hashes, environment, and
+raw-artifact index.
 
-The unchanged `build-scripts-backup-candidate.py` uses the production export
-path to emit a deterministic GPMC backup. It contains two legacy startup
-entries, one PowerShell startup entry, and `StartExecutePSFirst=true`. The ZIP
-contains the two INIs, backup metadata, and manifest. It contains no `.cmd` or
-`.ps1` executable payloads. This experiment concerns metadata interoperability,
-not script delivery, execution, or endpoint policy application.
+## Re-run
 
-## Native report observation before qualification
+From a clean checkout with the qualified lab credentials configured, run:
 
-A preliminary, unlinked disposable GPO was imported and backed up on LabMS01
-on 2026-09-07 to inspect Windows' XML representation. Its owned GUID was
-removed and a subsequent `Get-GPO -All` query confirmed absence. This probe
-informed the parser; it is not a certification of the new lane.
+```text
+bash scripts/windows-oracle/run-scripts-backup-oracle.sh
+```
 
-The report stores scripts under the computer-side Scripts extension, using
-the `http://www.microsoft.com/GroupPolicy/Settings/Scripts` namespace. Each
-`Script` has `Command`, `Type`, `Order`, and `RunOrder` fields. `Parameters`
-is omitted for the parameterless command. The XML lists the command scripts
-first with order values 1 and 2, then the PowerShell script with order 0. All
-three carry `RunPSFirst`. XML traversal order therefore must not be confused
-with the recorded execution order.
+The runner requires `GPO_STUDIO_LAB_HOST`, `GPO_STUDIO_LAB_GUEST`,
+`HYPERV_CONTROL_USERNAME`, and `GUEST_BOOTSTRAP_USERNAME`, plus their matching
+`HYPERV_CONTROL_PASSWORD` and `GUEST_BOOTSTRAP_PASSWORD` environment variables
+for the existing `psdirect` transport. It builds the
+serializer-backed candidate, transfers the ZIP with `psdirect`, creates one
+explicit disposable GPO, imports it with `Import-GPO`, obtains an XML
+`Get-GPOReport`, re-backs it up with `Backup-GPO`, pulls the run directory, and
+finalizes the hash-bound comparison. The PowerShell stage removes its owned
+GPO in `finally` and verifies that no owned ID or target name remains.
 
-The lane must match these fields and identities exactly, require an unlinked
-owned GPO, compare both rebackup INIs to the original archive bytes, check the
-Scripts CSE pair and file references, retain raw artifacts, and confirm cleanup.
-Its verdict binds both source and transported bytes. Duplicate or substituted
-metadata, unrelated XML text, incomplete evidence, and failed cleanup must
-prevent a pass. GPMC GUI editability remains a separate capture-backed claim.
+## Observed native behavior
+
+The candidate contained the two authored machine-side INI files. Windows
+reported exactly three startup metadata rows: the command marker with
+`/c alpha beta` at order 1, the second command with no parameters at order 2,
+and the PowerShell marker with `-Mode Alpha` at order 0. The report exposed
+`Command`, optional `Parameters`, `Type=Startup`, `Order`, and
+`RunOrder=RunPSFirst` for these rows. The rebackup preserved the two INI byte
+streams and the machine Scripts extension pair. Windows also emitted its
+four standard script-file wildcard references and normalized the PowerShell
+filename to `PSscripts.ini`; these are compared as native layout facts rather
+than discarded.
+
+The raw evidence pack is under
+[`wp1b-evidence/scripts-metadata`](wp1b-evidence/scripts-metadata/):
+`candidate.zip`, `report.xml`, `result.json`, `verification.json`, the input
+and rebackup trees, command streams, and builder stdout. The 14 bound source
+files are omitted from this bank; recover their exact bytes
+with `git show f6b06af1bfcc4150b7bdea35b6ecdd660c1d0bc5:<repository-path>` and
+verify its SHA-256 against `verification.json`.
+
+## Boundary
+
+This run proves Scripts metadata import, report exposure, and Backup-GPO
+round-trip fidelity for the measured three-entry shape. It does not prove
+script payload execution, endpoint processing, application ordering, user
+side scripts, GUI editability, or broader CSE behavior. The R2 native captures
+remain retained as the original wire-shape anchors; the R10 lab-runbook
+anchor supplies the repeatable Windows verdict. The candidate contained no
+executable payload files; Windows accepted and re-backed up its metadata in
+their absence. Payload delivery and execution remain untested.

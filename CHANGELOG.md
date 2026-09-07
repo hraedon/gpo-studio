@@ -19,6 +19,9 @@ Current version: `1.0.0`.
   member server, with exact six registry/file and three service rows retained
   in the evidence pack. ACL application and content suitability remain outside
   scope under WI-055. See [the results](docs/plan-033/object-security-results.md).
+- Plan 034 Scripts metadata lane passed 21/21 checks for Import-GPO,
+  Get-GPOReport, and Backup-GPO rebackup. Script payload execution remains
+  outside scope.
 - Artifact-store scope is now explicit: EICAR marker and secret heuristics are
   local checks, executable publication requires a future verified signer path,
   duplicate arrivals append provenance without replacing the canonical row,

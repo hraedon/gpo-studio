@@ -35,6 +35,7 @@ EVIDENCE = REPO_ROOT / "docs" / "plan-033"
 #: quietly covering three lanes out of five.
 LANE_VERDICTS = {
     "wp1b-evidence/verification-estate.json": "finalize_wp1b_run.py",
+    "wp1b-evidence/scripts-metadata/verification.json": "finalize_scripts_backup_run.py",
     "wp2-evidence/verification-estate.json": "finalize_wp2_import_run.py",
     "wp3-evidence/verification-estate.json": "finalize_wp3_run.py",
     "wp3-evidence/policy-families/dc/verification.json": "finalize_wp3_run.py",
@@ -1118,6 +1119,42 @@ def test_object_security_evidence_preserves_native_rows_and_raw_artifacts() -> N
         ("service general setting", {2, 3, 4}),
     ):
         assert {value[0] for key, value in expected.items() if key[0] == section} == codes
+
+
+def test_scripts_metadata_evidence_binds_native_files_report_and_identity() -> None:
+    evidence_dir = EVIDENCE / "wp1b-evidence" / "scripts-metadata"
+    verification = json.loads((evidence_dir / "verification.json").read_text(encoding="utf-8"))
+    result = json.loads((evidence_dir / "result.json").read_text(encoding="utf-8-sig"))
+    assert verification["passed"] is True
+    assert verification["environment"]["computer_system_domain_role"] == 3
+    assert verification["environment"]["computer_system_name"] == "LABMS01"
+    assert result["cleanup_state_restored"] is True
+    assert result["report_links_to_count"] == 0
+    symbols = runpy.run_path(str(ORACLE_DIR / "finalize_scripts_backup_run.py"))
+    source_paths = {
+        name: REPO_ROOT / relative
+        for table in _file_tables("finalize_scripts_backup_run.py")
+        for name, relative in table.items()
+    }
+    for relative, digest in verification["artifacts"].items():
+        artifact = evidence_dir / relative
+        if not artifact.is_file():
+            artifact = source_paths[relative.removeprefix("deployed/")]
+        assert hashlib.sha256(artifact.read_bytes()).hexdigest() == digest, relative
+    original = symbols["_candidate_projection"](evidence_dir / "candidate.zip")
+    native = symbols["_rebackup_projection"](evidence_dir / "rebackup")
+    assert original == verification["original_projection"]
+    assert native == verification["rebackup_projection"]
+    assert original["files"] == native["files"]
+    assert len(native["files"]) == 2
+    assert native["user_extension_pair"] == ""
+    assert len(native["wildcard_references"]) == 4
+    assert symbols["_report_matches"](
+        evidence_dir / "report.xml", result["owned_gpo_id"], result["target_name"], result["domain"]
+    )
+    assert verification["candidate_delivery"]["controller_sha256"] == verification[
+        "candidate_delivery"
+    ]["guest_sha256"] == hashlib.sha256((evidence_dir / "candidate.zip").read_bytes()).hexdigest()
 
 
 def test_every_evidence_file_is_accounted_for() -> None:

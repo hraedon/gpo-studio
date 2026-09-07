@@ -161,8 +161,8 @@
       "required_hosts": ["member-ws2025-disposable"],
       "required_tools": ["gpmc", "grouppolicy-module", "powershell-5.1", "studio-finalize"],
       "oracle": "Import-GPO of a Studio Scripts backup, Get-GPOReport Scripts namespace inspection, and Backup-GPO re-export comparison. Script payload execution is outside this lane.",
-      "status": "defined",
-      "notes": "R10 scripts metadata lane is defined but not yet qualified as a repeatable run; native R2 INI captures are available for the expected wire shape."
+      "status": "partial",
+      "notes": "Certified by clean R10 run scripts-r10-20260907081826-5183 at f6b06af1bfcc4150b7bdea35b6ecdd660c1d0bc5: 21/21 checks passed for Import-GPO, Get-GPOReport Scripts metadata, and Backup-GPO rebackup. Payload execution and endpoint processing remain outside scope."
     },
     {
       "lane_id": "object-security-secedit",

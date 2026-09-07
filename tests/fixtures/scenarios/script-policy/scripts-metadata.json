@@ -3,11 +3,10 @@
   "scenario_id": "scripts-metadata",
   "family": "script-policy",
   "title": "Scripts metadata: startup command, parameters, order, and PowerShell ordering",
-  "readiness": "blocked",
-  "blocked_reason": "repeatable R10 scripts metadata lane qualification is pending",
+  "readiness": "ready",
   "provenance": {
     "tier": "native-observation",
-    "note": "R2 banked native Scripts CSE INI captures establish the UTF-16LE/CRLF wire bytes and PowerShell ordering; a repeatable R10 Import-GPO/report/Backup-GPO lane must qualify the end-to-end metadata round trip.",
+    "note": "R2 native INI captures plus the clean R10 Import-GPO/report/Backup-GPO run establish the Scripts metadata round trip. This remains metadata evidence only; payload execution is outside scope.",
     "anchors": [
       {
         "kind": "native-capture",
@@ -20,6 +19,12 @@
         "path": "tests/fixtures/native-scripts-gpmc/psscripts.ini.txt",
         "sha256": "b44ecb83a9da6184c6ed4cffda7223f669473a3a78f05f9c531422f3879fdc09",
         "note": "Banked native PowerShell scripts.ini capture with RunPSFirst ordering."
+      },
+      {
+        "kind": "lab-runbook",
+        "path": "docs/plan-033/wp1b-evidence/scripts-metadata/verification.json",
+        "sha256": "cb715a0e93c40682b39178347e78af2becc2fc23790ac67a5fe71372731130d2",
+        "note": "Clean R10 run passed 21/21 checks with exact report metadata and rebackup INI bytes."
       }
     ]
   },
@@ -90,8 +95,8 @@
     ]
   },
   "open_questions": [
-    "Does Import-GPO render all three entries in the GPMC report with exact command, optionalParameters, Type, Order, and RunOrder fields?",
-    "Does Backup-GPO preserve the INI bytes and CSE references after import?",
-    "Are absent executable payload files tolerated by metadata import, and does endpoint processing require them?"
+    "Does the imported metadata remain editable in the GPMC GUI?",
+    "How are executable payloads delivered and processed at endpoints?",
+    "Do user-side scripts and other ordering combinations retain their metadata through the same round trip?"
   ]
 }

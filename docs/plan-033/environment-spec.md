@@ -1,5 +1,12 @@
 # Plan 033 frozen environment specification
 
+**2026-09-07 Scripts metadata extension:** run
+`scripts-r10-20260907081826-5183` passed 21/21 on LabMS01 (role 3), using
+the existing frozen profile and a clean isolated checkout at `f6b06af`.
+The unlinked target GPO was removed and absence rechecked. This qualifies
+metadata import/report/rebackup only; no script payload was delivered or
+executed. See [the bound result](scripts-metadata-results.md).
+
 **2026-09-07 object-security extension:** run
 `object-security-20260907075319-7408` passed 19/19 on LabMS01 (role 3) under
 the same frozen build-family profile. The separate `object-security-secedit`
