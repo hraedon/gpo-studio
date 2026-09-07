@@ -1,0 +1,45 @@
+{
+  "source": "Read-only census of the production directory (R6 and R8 of gpo-studio docs/manual-evidence-requests.md) executed 2026-09-02, staged at mvmcc03:/home/itadmin/gpo-studio-evidence/inbox/{r06-cse-census,r08-gpo-anatomy}/ and retrieved over SSH on 2026-09-06. These ten files are verbatim byte copies, not transcripts; the originals remain on mvmcc03 (not deleted). Execution notes: windows-console-driver docs/live-census-r6-r8/NOTES.md (verbatim copy); the domain and census population are named in the claim-registry rows there, deliberately not here.",
+  "oracle": "The production directory itself, read via the RSAT PowerShell (Get-ADObject / SYSVOL enumeration) from the operator's non-domain-admin account on a domain member — read-only, no windows-console-driver engine or transaction involved. Sanitised by construction at capture time: the census CSV holds extension-list GUID pairs only; attributes CSVs hold AD attribute names plus populated/kind (True/False + .NET type), never values; sysvol CSVs hold relative structural paths and byte sizes; GPT.INI copies carry [General] + Version= only (displayName stripped).",
+  "files": {
+    "r06-cse-census/extension-lists.csv": {
+      "sha256": "bf10a40061ac6e97d0894f6c2b6225f17e09b165b85d84d4d221d06504c63f9d",
+      "encoding": "utf-8 with BOM, CRLF",
+      "rows": "header + 26 GPOs (one row per groupPolicyContainer object)",
+      "columns": [
+        "machine",
+        "user"
+      ]
+    },
+    "r08-gpo-anatomy/gpo1-GPT.INI": {
+      "sha256": "6e59b8af5826e9ec2c15edddf2ee88feb5399639f14e77c732feee1043173409"
+    },
+    "r08-gpo-anatomy/gpo1-attributes.csv": {
+      "sha256": "91e666e3d04eab3635d5e2805bf861e797857b14478988f076e032de81cf0c0b"
+    },
+    "r08-gpo-anatomy/gpo1-sysvol.csv": {
+      "sha256": "3cb4d588da60162c3673d0e35358a53ec78dd0ee0ef538b27c7d3982b3c14a87"
+    },
+    "r08-gpo-anatomy/gpo2-GPT.INI": {
+      "sha256": "239311805e1ed1b38abe5ba0ca796d5303f2c93f5fb608fbb93dd73c1bbfac50"
+    },
+    "r08-gpo-anatomy/gpo2-attributes.csv": {
+      "sha256": "c5a43f4466f76abea20345e2f37024a4542ff77c2647ba1f68b5785fb35e08c7"
+    },
+    "r08-gpo-anatomy/gpo2-sysvol.csv": {
+      "sha256": "f5f4d98d2d3c0bf5d84e9226a4e370686c01606dcf24852827c106606e4ccd0a"
+    },
+    "r08-gpo-anatomy/gpo3-GPT.INI": {
+      "sha256": "76bc71adb3d71e7d81571b0f51c744453f2cc74ff4d650fd8e51e2a4f2ff44e4"
+    },
+    "r08-gpo-anatomy/gpo3-attributes.csv": {
+      "sha256": "655cbf0932fc8a0c3da9fedc732e2975663759bc20acfb362493d7aae15141d3"
+    },
+    "r08-gpo-anatomy/gpo3-sysvol.csv": {
+      "sha256": "af92fe6239ec96b82889e6603d9f08e39b41c543237d29b29377a21803fc8d31"
+    }
+  },
+  "related_measurement": "Claim-registry rows R6 and R8 (windows-console-driver docs/claim-registry.md, written with this fixture). R6 headline: the two GPP XML root-element clsids {3125E937-EB16-4b4c-9934-544FC6D24D26} and {A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB} appear in NO extension list of any of the 26 production GPOs. R8 headlines: 3 GPOs carry gPCWQLFilter; gpo2's packed Version=131082 (0x0002000A) = user 2 * 65536 + machine 10, live corroboration of R5's packed-halves arithmetic; gpo3 is Version=0 with a populated SYSVOL folder.",
+  "sanitisation": "Every file re-read end to end on this machine before committing. Content is GUIDs, AD attribute names, True/False populated flags, .NET type names, relative structural SYSVOL paths, byte sizes, and bare [General]/Version= pairs. The census CSV's 33 distinct GUIDs are all Windows CSE/tool GUIDs. No domain, account, host, SID, or absolute-path identifiers. The staging host name (mvmcc03, permit-listed) appears in this provenance only, never in the data files.",
+  "copied_into_repo": "2026-09-06"
+}
