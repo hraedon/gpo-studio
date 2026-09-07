@@ -1,0 +1,11 @@
+first 4 bytes: FF FE 5B 00
+CR count: 9  LF count: 9  size: 924 bytes
+[Unicode]
+Unicode=yes
+[Version]
+signature="$CHICAGO$"
+Revision=1
+[Registry Keys]
+"MACHINE\SOFTWARE\zzStudioCharlie",1,"D:PAR(A;CI;KA;;;BA)(A;CIIO;KA;;;CO)(A;CI;KA;;;SY)(A;CI;KR;;;BU)(A;CI;KR;;;S-1-15-2-1)"
+"MACHINE\SOFTWARE\zzStudioBravo",2,"D:PAR(A;CI;KA;;;BA)(A;CIIO;KA;;;CO)(A;CI;KA;;;SY)(A;CI;KR;;;BU)(A;CI;KR;;;S-1-15-2-1)"
+"MACHINE\SOFTWARE\zzStudioAlpha",0,"D:PAR(A;CI;KA;;;BA)(A;CIIO;KA;;;CO)(A;CI;KA;;;SY)(A;CI;KR;;;BU)(A;CI;KR;;;S-1-15-2-1)"
