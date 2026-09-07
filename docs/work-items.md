@@ -23,11 +23,10 @@ Regenerated whenever this file changes; `test_the_open_index_matches_the_registe
 - [WI-028](#wi-028--searchedsom-accumulates-soms-for-deleted-containers) — `SearchedSOM` accumulates SOMs for deleted containers
 - [WI-032](#wi-032--rsopresult-has-no-per-side-applieddenied-set) — `RsopResult` has no per-side applied/denied set
 - [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
-- [WI-042](#wi-042--the-ldap-half-of-the-token-group-gate-fails-open) — the LDAP half of the token-group gate fails open
 - [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
 - [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
 
-**6 open.** Everything else in this file is closed.
+**5 open.** Everything else in this file is closed.
 
 ---
 
@@ -849,8 +848,58 @@ scenario knew the rule and the coverage did not follow it.
 
 ## WI-042 — the LDAP half of the token-group gate fails open
 
-**Opened:** 2026-08-05 (independent review of PR #38). **Status:** open.
-**Deliberately not fixed in the same change; see the last paragraph.**
+**Opened:** 2026-08-05 (independent review of PR #38).
+**CLOSED 2026-09-06** — and it had been substantively closed since **2026-08-06**
+without the register noticing. Both halves of the closing condition are met, and
+**no estate session was required for either.**
+
+**Half one — a failed query is distinguishable from an empty one.** Landed in
+`80c23b5`. `Get-LdapTokenGroups` returns `@{status; groups; reason}` instead of
+a bare list, and all three of its return paths set a status: the no-object case
+and the outer `catch` return `failed`, the success path returns `collected`.
+`finalize_rsop_user_run.py` consults the status **first** and refuses on
+anything that is not `collected`.
+
+**The gate is fail-safe by construction, which is the part worth keeping.** An
+*absent* status is also a refusal. So a future harness that errors and emits no
+status at all is refused rather than certified — the failure mode this item was
+opened for cannot recur even through a collector this gate has never seen.
+
+**Half two — the nesting rows are re-certified against it.** The current live
+user-scope set (2026-09-06, six scenarios) is **6/6 `pass`, every one carrying
+`directory_status: collected`** with a populated directory list of 2–3 groups
+beside its session list. `user-security-filtering` and
+`user-security-filtering-deny` — the two scenarios whose claims rest on nesting
+— are both in that set. The re-certification happened incidentally, as part of
+the WI-048 and WI-049 batches, which is why nobody recorded it against this item.
+
+**Why this closes where WI-048 closed with a caveat.** Both fixes have a path
+that has never fired in anger. The difference is what kind of thing the path is.
+WI-048's retry needs a real transport collision to execute, so only the estate
+can exercise it. WI-042's refusal is **pure finalizer logic over a synthetic
+observe document**, so it is exercisable offline — and it is exercised, by four
+tests (`test_a_failed_directory_query_is_a_lane_failure_not_an_absence`,
+`test_an_observe_document_with_no_collection_status_is_refused`,
+`test_a_collected_but_empty_directory_list_still_refuses_on_the_membership`,
+`test_the_directory_collection_status_is_recorded_even_without_a_group`).
+Mutation-proven 2026-09-06: forcing `status = "collected"` unconditionally —
+which is exactly the original bug — fails two of them.
+
+**The residual, stated rather than buried.** What is proven is that the
+finalizer refuses *given* a `failed` status, and that every PowerShell path
+emits one. What has never been observed is a real bind failure on the estate
+producing `failed` end to end. That residual is small and it is bounded by the
+absent-status rule above; it is not a reason to hold a release.
+
+**Release impact: was BLOCKING, and is not any more.** No release is held by
+this item.
+
+---
+
+### The original entry, kept for the reasoning
+
+**Status when opened:** open. **Deliberately not fixed in the same change; see
+the last paragraph.**
 
 The nesting rows are only a test of the model if the principal really is in the
 group the prediction assumes. WP-9 corroborates that twice and independently:

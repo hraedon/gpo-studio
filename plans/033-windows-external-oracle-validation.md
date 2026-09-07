@@ -25,10 +25,17 @@ WI-054 are the counter-examples worth keeping in view: three cells changed by
 reasoning were measured, and **all three agreed** — measurement is not only for
 catching errors.
 
-**Still open against this plan:** WI-042 (the LDAP half of the token-group gate
-fails open — **release-blocking**, and its closing condition needs a
-re-certification run), WI-028, WI-032, WI-036 and the WI-038 decision. WP-4 and
-WP-5 have not started.
+**Still open against this plan:** WI-028, WI-032 and WI-036 — all three against
+`rsop.py`, none release-blocking, and WI-032 and WI-036 are announced as
+limitations in every `/api/rsop/*` response rather than left in the docs. WP-4
+and WP-5 have not started.
+
+**Nothing is release-blocked.** WI-042 was the last item that was, and it closed
+2026-09-06 without an estate session: its refusal gate landed in `80c23b5` and
+is mutation-proven offline, and its nesting rows were re-certified incidentally
+by the WI-048 and WI-049 batches. WI-038 was decided (preserve-only); the
+decision opened WI-055, which is Plan 034's gate on surfacing
+`object_security.py` rather than a defect in anything shipped.
 
 The remediation scenario corpus for the Plans 025–032 divergence landed
 2026-07-29 (13 scenarios across gpp-services, security-template,
