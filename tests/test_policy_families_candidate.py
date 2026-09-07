@@ -73,7 +73,7 @@ def test_member_candidate_covers_policy_families_without_dc_only_kerberos(
     ] == "Administrator"
 
 
-def test_dc_candidate_adds_all_kerberos_family_rows(
+def test_dc_candidate_adds_measured_kerberos_family_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -90,6 +90,4 @@ def test_dc_candidate_adds_all_kerberos_family_rows(
         "MaxServiceAge": "600",
         "MaxClockSkew": "5",
         "TicketValidateClient": "1",
-        "EnforceLogonRestrictions": "1",
-        "EnforceUserLogonRestrictions": "0",
     }

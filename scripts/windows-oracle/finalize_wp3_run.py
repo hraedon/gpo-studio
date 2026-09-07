@@ -508,7 +508,7 @@ def main() -> int:
         "environment_violations": environment_violations,
         "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
         "artifacts": {
-            str(path.relative_to(run_dir)): _sha256(path)
+            path.relative_to(run_dir).as_posix(): _sha256(path)
             for path in sorted(run_dir.rglob("*"))
             if path.is_file() and path.name != "verification.json"
         },

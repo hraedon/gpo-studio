@@ -170,8 +170,6 @@ MaxRenewAge = 7
 MaxServiceAge = 480
 MaxClockSkew = 5
 TicketValidateClient = 0
-EnforceLogonRestrictions = 1
-EnforceUserLogonRestrictions = 0
 """
     template = parse_security_template(text)
     family = AccountPolicyFamily.from_template(template)
@@ -192,8 +190,6 @@ EnforceUserLogonRestrictions = 0
     assert family.kerberos.max_service_age_minutes == 480
     assert family.kerberos.max_clock_skew_minutes == 5
     assert family.kerberos.ticket_validate_client is False
-    assert family.kerberos.enforce_logon_restrictions is True
-    assert family.kerberos.enforce_user_logon_restrictions is False
 
     entries = family.to_template_entries()
     rebuilt = SecurityTemplate(

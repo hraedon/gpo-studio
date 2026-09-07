@@ -287,8 +287,6 @@ class KerberosPolicy:
     max_service_age_minutes: int = 600
     max_clock_skew_minutes: int = 5
     ticket_validate_client: bool = True
-    enforce_logon_restrictions: bool = True
-    enforce_user_logon_restrictions: bool = False
 
     def validate(self) -> tuple[ValidationIssue, ...]:
         issues: list[ValidationIssue] = []
@@ -332,16 +330,6 @@ class KerberosPolicy:
                 _parse_bool(section.get("TicketValidateClient") if section else None),
                 True,
             ),
-            enforce_logon_restrictions=_default_bool(
-                _parse_bool(section.get("EnforceLogonRestrictions") if section else None),
-                True,
-            ),
-            enforce_user_logon_restrictions=_default_bool(
-                _parse_bool(
-                    section.get("EnforceUserLogonRestrictions") if section else None
-                ),
-                False,
-            ),
         )
 
     def to_template_entries(self) -> dict[str, dict[str, str]]:
@@ -353,12 +341,6 @@ class KerberosPolicy:
                 "MaxClockSkew": _int_str(self.max_clock_skew_minutes),
                 "TicketValidateClient": _bool_to_int_str(
                     self.ticket_validate_client
-                ),
-                "EnforceLogonRestrictions": _bool_to_int_str(
-                    self.enforce_logon_restrictions
-                ),
-                "EnforceUserLogonRestrictions": _bool_to_int_str(
-                    self.enforce_user_logon_restrictions
                 ),
             }
         }
