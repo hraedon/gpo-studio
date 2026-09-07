@@ -11,8 +11,8 @@
       {
         "kind": "lab-runbook",
         "path": "docs/plan-033/wp3-evidence/object-security/verification.json",
-        "sha256": "28e373cd338ec39280690575533ffd8975dbc2094de00ae6abfd9761d2be965d",
-        "note": "19/19 clean member-server object-security secedit validation/import/export verdict; exact candidate and Windows export rows match."
+        "sha256": "ae83e74ff5c4e6288f2d5a5f13dd2f585213b00c8fb68a439fff98021a6032e6",
+        "note": "Clean object-security re-run (19/19), re-earning the binding after the WI-055 ruling was recorded in object_security.py."
       }
     ]
   },
