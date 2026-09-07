@@ -15,3 +15,8 @@ docs/plan-033/**/*.md   -text
 tests/fixtures/native-gpp-gpmc/** -text
 scripts/plan-033/build-*.py -text
 scripts/windows-oracle/**   -text
+
+# Raw census artifacts, verbatim byte copies: every SHA-256 is banked in
+# tests/fixtures/live-domain-census/provenance.json, so the blobs must not
+# be EOL-normalized on any checkout (they are CRLF on disk).
+tests/fixtures/live-domain-census/** -text
