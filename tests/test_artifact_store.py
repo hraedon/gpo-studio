@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -18,9 +19,10 @@ from gpo_studio.artifact_store import (
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> ArtifactStore:
+def store(tmp_path: Path) -> Iterator[ArtifactStore]:
     db_path = tmp_path / "artifacts.db"
-    return ArtifactStore(str(db_path))
+    with ArtifactStore(str(db_path)) as opened:
+        yield opened
 
 
 def _script(name: str = "test.ps1", content: str = "Write-Host 'hello'\n") -> tuple[bytes, str]:
@@ -324,3 +326,28 @@ class TestBinaryHandling:
         updated = store.get_artifact(meta.artifact_id)
         assert updated is not None
         assert updated.metadata.status == "approved"
+
+
+def test_close_releases_the_database_file(tmp_path: Path) -> None:
+    """A closed store must not keep the file open.
+
+    Regression guard for a leak that was invisible on POSIX and fatal on
+    Windows: the store held a sqlite3 connection with no way to release it, so
+    any caller inside a temporary directory failed on *cleanup* rather than on
+    anything it was testing. Deleting the file is the check because that is the
+    operation Windows refuses while a handle is open.
+    """
+    db_path = tmp_path / "closeable.db"
+    store = ArtifactStore(str(db_path))
+    store.store_artifact(b"payload", "a.ps1", artifact_type="script")
+    store.close()
+
+    db_path.unlink()  # raises PermissionError on Windows if a handle survives
+    assert not db_path.exists()
+
+
+def test_close_is_idempotent(tmp_path: Path) -> None:
+    """Closing twice is not an error, so ``__exit__`` after an explicit close is safe."""
+    store = ArtifactStore(str(tmp_path / "twice.db"))
+    store.close()
+    store.close()

@@ -48,19 +48,19 @@ jobs:
         run: python scripts/check_coverage.py coverage.json
 
   test-windows:
-    # First-pass Windows mirror of `test`. Expected red: this is the baseline
-    # pass, so what fails is recorded and handed to the fixes, not fixed here.
-    # mypy is 25 errors red on win32 (the platform checks route through the
-    # `_IS_WINDOWS` intermediate, which mypy cannot narrow, so both platform
-    # branches are analysed on both platforms) and pytest runs at the known
-    # 34-failure Windows environmental baseline. The install goes through uv
-    # -- the committed lockfile, and the operator's own environment -- rather
-    # than the Linux job's bare pip. continue-on-error keeps the job visible
-    # without gating merges; it flips to enforcing once the mypy and pytest
-    # halves are closed.
+    # Windows mirror of `test`, ENFORCING since 2026-09-06. The baseline it was
+    # added at is closed: mypy's 25 win32 errors (D2 -- the platform checks
+    # routed through an `_IS_WINDOWS` intermediate that mypy cannot narrow),
+    # the 32 symlink failures (D3 -- they now skip on the privilege rather than
+    # the platform) and the 2 ArtifactStore handle leaks that made a temporary
+    # directory undeletable. Windows is where this project's operator, release
+    # target and evidence harness live, and a class of defect is invisible
+    # without it: `486874f` had to repair EOL smudging that broke six evidence
+    # anchors and sixteen harness bindings, which no Linux job could observe.
+    # The install goes through uv -- the committed lockfile, and the operator's
+    # own environment -- rather than the Linux job's bare pip.
     runs-on: windows-latest
     timeout-minutes: 20
-    continue-on-error: true
     strategy:
       matrix:
         python-version: ["3.13", "3.14"]

@@ -16,6 +16,19 @@ note, not a work item.
 including source comments), add a row here, and say what would close it. An item
 whose closing condition is not stated cannot be closed, only forgotten.
 
+## Open right now
+
+Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
+
+- [WI-028](#wi-028--searchedsom-accumulates-soms-for-deleted-containers) — `SearchedSOM` accumulates SOMs for deleted containers
+- [WI-032](#wi-032--rsopresult-has-no-per-side-applieddenied-set) — `RsopResult` has no per-side applied/denied set
+- [WI-036](#wi-036--slowlink-and-safemode-are-accepted-and-silently-ignored) — `slow_link` and `safe_mode` are accepted and silently ignored
+- [WI-042](#wi-042--the-ldap-half-of-the-token-group-gate-fails-open) — the LDAP half of the token-group gate fails open
+- [WI-055](#wi-055--the-layer-that-parses-an-acl-does-not-judge-it) — the layer that parses an ACL does not judge it
+- [WI-056](#wi-056--certificationpy-is-superseded-and-its-removal-is-undecided) — `certification.py` is superseded, and its removal is undecided
+
+**6 open.** Everything else in this file is closed.
+
 ---
 
 ## WI-025 — candidate artifacts are not hash-bound in the WP-1B and endpoint lanes
@@ -1362,7 +1375,28 @@ WI-040 and WI-043 have now made three times, two of them wrong.
 ## WI-048 — PowerShell Direct collides with itself on back-to-back runs
 
 **Opened:** 2026-08-06 (hit twice during the WI-043/WI-047 re-certification).
-**Status:** open.
+**FIXED AND CLOSED 2026-09-06** by `437d25f`, which added the retry to
+`psdirect.ps1` and paid the re-certification the fix demanded: fifteen verdicts
+bound that file, and all fifteen were re-run clean from a fresh tree with a
+zero-residual estate re-query. `test_a_live_verdict_still_binds_the_harness_that_ships`
+reported exactly fifteen broken bindings before a single lane re-ran, and the
+count matched the prediction — WI-045 paying for itself.
+
+**The retry is unproven in anger, and the closure does not claim otherwise.**
+Fourteen back-to-back runs produced zero command-ID collisions, so the retry
+never fired, where the original measurement was two failures in twelve. That is
+either luck at around eight percent or a difference in the controller — these
+ran from a Windows host on the lab subnet rather than the Linux controller the
+failures came from. The retry is correct by construction and mirrors a fix
+`windows-console-driver` measured independently. It has not been observed
+working here, and if collisions recur the reopening is expected rather than
+surprising.
+
+The ordering argument below stands and outlived the bug: harness-touching work
+should still be batched, because every harness edit invalidates every verdict
+bound to it.
+
+**Status when opened:** open.
 
 Two of twelve batch runs died with:
 

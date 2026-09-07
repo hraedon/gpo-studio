@@ -143,8 +143,9 @@ def test_validate_publication_plan_valid_with_store() -> None:
     gpo = _gpo_with_registry()
     plan = generate_publication_plan(gpo)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        store = ArtifactStore(os.path.join(tmp, "artifacts.db"))
+    with tempfile.TemporaryDirectory() as tmp, ArtifactStore(
+        os.path.join(tmp, "artifacts.db")
+    ) as store:
         # Find the content matching the artifact hash and store it.
         from gpo_studio.registry_pol import PolRecord, serialize
         content = serialize(
@@ -168,8 +169,9 @@ def test_validate_publication_plan_valid_with_store() -> None:
 def test_validate_publication_plan_missing_artifact_error() -> None:
     gpo = _gpo_with_registry()
     plan = generate_publication_plan(gpo)
-    with tempfile.TemporaryDirectory() as tmp:
-        store = ArtifactStore(os.path.join(tmp, "artifacts.db"))
+    with tempfile.TemporaryDirectory() as tmp, ArtifactStore(
+        os.path.join(tmp, "artifacts.db")
+    ) as store:
         issues = validate_publication_plan(plan, store=store)
         assert any(i.check == "artifact_exists" and i.level == "error" for i in issues)
 
