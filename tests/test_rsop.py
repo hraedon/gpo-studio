@@ -2374,3 +2374,90 @@ def test_a_disabled_side_is_blocked_there_rather_than_out_of_scope() -> None:
     assert row.user_status == "applied"
     assert result.computer_applied_gpos == ()
     assert result.user_applied_gpos == (_GPO_A,)
+
+
+def test_a_gpo_with_nothing_for_a_side_is_not_applied_there() -> None:
+    """Measured by the WP-9 gate on its first run, in both loopback scenarios.
+
+    Studio-RSOP-Loopback is a computer-side GPO with no user values. Under
+    loopback the user side does search its container and reach it, and every
+    winning value agreed -- and Windows still omitted it from UserResults. The
+    model had been calling it applied to the user.
+    """
+    gpo = _gpo(
+        _GPO_A,
+        "Computer-only content",
+        settings=(_setting("s1", "computer", r"Software\X", "Val", "c"),),
+    )
+    nodes = (
+        _node(
+            "OU=Both," + _DOMAIN_DN,
+            "Both",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(_link(_GPO_A, "OU=Both," + _DOMAIN_DN),),
+        ),
+        _node(_DOMAIN_DN, "ad", "domain"),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(
+                computer_name="pc01",
+                computer_dn="OU=Both," + _DOMAIN_DN,
+                user_name="alice",
+                user_dn="OU=Both," + _DOMAIN_DN,
+            ),
+            som_nodes=nodes,
+            gpos=(gpo,),
+        )
+    )
+    row = result.gpo_results[0]
+    assert row.computer_status == "applied"
+    assert row.user_status == "no_settings_for_side"
+    assert result.computer_applied_gpos == (_GPO_A,)
+    assert result.user_applied_gpos == ()
+
+
+def test_no_settings_for_side_is_distinct_from_blocked_and_out_of_scope() -> None:
+    """The control. All three mean "not applied here" and Windows distinguishes
+    them, so collapsing them would lose the reason a reviewer needs."""
+    searched_and_empty = _gpo(
+        _GPO_A,
+        "Empty on user side",
+        settings=(_setting("s1", "computer", r"Software\X", "Val", "c"),),
+    )
+    searched_and_disabled = _gpo(
+        _GPO_B,
+        "User side disabled",
+        settings=(_setting("s2", "user", r"Software\Y", "Val", "u"),),
+        user_enabled=False,
+    )
+    nodes = (
+        _node(
+            "OU=Both," + _DOMAIN_DN,
+            "Both",
+            "ou",
+            parent_dn=_DOMAIN_DN,
+            links=(
+                _link(_GPO_A, "OU=Both," + _DOMAIN_DN),
+                _link(_GPO_B, "OU=Both," + _DOMAIN_DN),
+            ),
+        ),
+        _node(_DOMAIN_DN, "ad", "domain"),
+    )
+    result = compute_rsop(
+        _query(
+            target=_target(
+                computer_name="pc01",
+                computer_dn="OU=Both," + _DOMAIN_DN,
+                user_name="alice",
+                user_dn="OU=Both," + _DOMAIN_DN,
+            ),
+            som_nodes=nodes,
+            gpos=(searched_and_empty, searched_and_disabled),
+        )
+    )
+    by_guid = {r.gpo_guid: r for r in result.gpo_results}
+    assert by_guid[_GPO_A].user_status == "no_settings_for_side"
+    assert by_guid[_GPO_B].user_status == "blocked"
+    assert result.user_applied_gpos == ()

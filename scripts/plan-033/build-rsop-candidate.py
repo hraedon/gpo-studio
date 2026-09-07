@@ -1862,6 +1862,13 @@ def prediction_document(
             unevaluable.append(row)
         elif side_status == "out_of_scope":
             out_of_scope.append(row)
+        elif side_status == "no_settings_for_side":
+            # Not applied on this side, and not blocked either: Windows simply
+            # does not list a GPO that carries nothing for the side. Shares the
+            # out-of-scope bucket because the lane's question is the same --
+            # this GPO must not appear in the side's results -- and the reason
+            # rides along in the row.
+            out_of_scope.append({**row, "reason": "no_settings_for_side"})
         else:
             assert_never(side_status)
 

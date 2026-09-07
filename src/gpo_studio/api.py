@@ -1296,7 +1296,9 @@ class RsopGpoResultResponse(BaseModel):
             "of 'applied' -- 'unevaluable' means no measurement covers the case."
         )
     )
-    computer_status: Literal["applied", "blocked", "unevaluable", "out_of_scope"] = Field(
+    computer_status: Literal[
+        "applied", "blocked", "unevaluable", "out_of_scope", "no_settings_for_side"
+    ] = Field(
         description=(
             "What happened to this GPO on the COMPUTER side. 'out_of_scope' "
             "means this side never searched it -- it is not linked anywhere the "
@@ -1305,7 +1307,9 @@ class RsopGpoResultResponse(BaseModel):
             "distinction by simply omitting the GPO from ComputerResults."
         )
     )
-    user_status: Literal["applied", "blocked", "unevaluable", "out_of_scope"] = Field(
+    user_status: Literal[
+        "applied", "blocked", "unevaluable", "out_of_scope", "no_settings_for_side"
+    ] = Field(
         description="What happened to this GPO on the USER side. See computer_status."
     )
     filtering_reasons: list[str]

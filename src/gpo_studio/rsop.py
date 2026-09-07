@@ -54,10 +54,24 @@ RsopGpoStatus = Literal["applied", "blocked", "unevaluable"]
 #: all -- it is not linked anywhere this side searched. Before WI-032 closed,
 #: a GPO absent from one side's precedence defaulted to ``"blocked"`` there,
 #: which conflated "Windows decided against it" with "Windows never considered
-#: it". The worked case is a computer-side GPO under loopback: it is applied,
-#: and it correctly never appears in ``UserResults``. Calling that "blocked on
-#: the user side" would be a claim Windows never made.
-RsopSideStatus = Literal["applied", "blocked", "unevaluable", "out_of_scope"]
+#: it". Calling that "blocked" would be a claim Windows never made.
+#:
+#: ``"no_settings_for_side"`` means the side searched the GPO, nothing filtered
+#: it out, and it carries no settings for that side -- so Windows does not
+#: report it as applied there. **Measured, not reasoned:** the promoted WP-9
+#: applied-set gate found this on its first run, in both loopback scenarios
+#: (2026-09-07). ``Studio-RSOP-Loopback`` is a computer-side GPO with
+#: ``user_values={}``; under loopback the user side does search its container
+#: and reach it, every winning value agreed, and Windows still omitted it from
+#: ``UserResults``. The model had been reporting it applied to the user.
+#:
+#: The rule is stated over the settings this model resolves, which are registry
+#: values. A GPO whose only user-side content were a preference or a script is
+#: outside what ``compute_rsop`` represents at all, so this says nothing about
+#: that case.
+RsopSideStatus = Literal[
+    "applied", "blocked", "unevaluable", "out_of_scope", "no_settings_for_side"
+]
 
 #: How one setting differs between two RSOP results.
 #:
@@ -561,6 +575,26 @@ def _merge_side_status(computer: RsopGpoStatus, user: RsopGpoStatus) -> RsopGpoS
     return max(computer, user, key=_status_certainty)
 
 
+def _side_status(
+    resolved: RsopGpoStatus,
+    searched: bool,
+    gpo: GPO,
+    side: Literal["computer", "user"],
+) -> RsopSideStatus:
+    """What this side's answer is for *gpo*, in Windows' own terms.
+
+    Two cases a merged status cannot express, both measured rather than
+    reasoned -- see `RsopSideStatus`. A side that never searched the GPO did
+    not block it, and a GPO carrying nothing for this side is not reported as
+    applied to it however cleanly it passed the filters.
+    """
+    if not searched:
+        return "out_of_scope"
+    if resolved == "applied" and not any(item.side == side for item in gpo.settings):
+        return "no_settings_for_side"
+    return resolved
+
+
 def _side_enabled(gpo: GPO, side: Literal["computer", "user"]) -> bool:
     if side == "computer":
         return gpo.computer_enabled
@@ -764,8 +798,10 @@ def compute_rsop(query: RsopQuery) -> RsopResult:
             # has always meant and what `_status_certainty` orders -- but the
             # per-side fields say `out_of_scope`, because reporting a block
             # Windows never decided is the defect WI-032 was filed for.
-            computer_status: RsopSideStatus = comp_state[0] if comp_present else "out_of_scope"
-            user_status: RsopSideStatus = user_state[0] if user_present else "out_of_scope"
+            computer_status = _side_status(
+                comp_state[0], comp_present, gpo, "computer"
+            )
+            user_status = _side_status(user_state[0], user_present, gpo, "user")
 
             # Applied on either side wins, preserving the existing meaning of
             # "applied to at least one side". Otherwise an open question
