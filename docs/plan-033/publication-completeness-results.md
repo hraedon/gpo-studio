@@ -1,5 +1,12 @@
 # Publication completeness — Windows results
 
+**Current qualification (2026-09-08):** `publication-completeness-20260908013539-2644`, 21/21,
+on clean frozen `b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`.
+[Complete successor evidence](wp1b-evidence/backup-report-20260908/publication/verification.json) and the
+[reason for the targeted refresh](backup-report-fidelity.md). Earlier results
+below remain records of their original revisions and scope.
+
+
 Plan 034 WP-1's `publication` item. Run
 `publication-completeness-20260907193221-2759` passed all 21 checks on the
 clean disposable member server from source commit `362699c3437a`; the source

@@ -26,6 +26,7 @@ from .gpp import (
 from .identity import Identity
 from .model import (
     GPO,
+    BackupInventory,
     ConflictError,
     CseFileEntry,
     CseMetadataEntry,
@@ -236,6 +237,8 @@ def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
 
 
 def gpo_from_dict(data: dict[str, Any]) -> GPO:
+    from .backup_inventory import inventory_from_dict
+
     gpo = GPO(
         guid=str(data["guid"]),
         name=str(data["name"]),
@@ -249,6 +252,10 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         source_guid=str(data.get("source_guid", "")),
         cse_metadata=tuple(
             _cse_metadata_entry(item) for item in data.get("cse_metadata", [])
+        ),
+        backup_inventory=(
+            inventory_from_dict(data["backup_inventory"])
+            if data.get("backup_inventory") is not None else None
         ),
         security_filters=tuple(
             _security_filter(item) for item in data.get("security_filters", [])
@@ -568,6 +575,7 @@ class WorkspaceStore:
         links: tuple[GPOLink, ...] = (),
         source_guid: str = "",
         cse_metadata: tuple[CseMetadataEntry, ...] = (),
+        backup_inventory: BackupInventory | None = None,
         domain: str = "studio.local",
         computer_enabled: bool = True,
         user_enabled: bool = True,
@@ -592,6 +600,7 @@ class WorkspaceStore:
             links=links,
             source_guid=source_guid,
             cse_metadata=cse_metadata,
+            backup_inventory=backup_inventory,
             domain=domain,
             is_starter=is_starter,
             template_version=template_version,
@@ -856,6 +865,7 @@ class WorkspaceStore:
             links=forked_links,
             source_guid=source.guid,
             cse_metadata=source.cse_metadata,
+            backup_inventory=source.backup_inventory,
             domain=source.domain,
             computer_enabled=source.computer_enabled,
             user_enabled=source.user_enabled,

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from .backup_inventory import inventory_from_dict
 from .gpp import contains_cpassword
-from .model import StudioError
+from .model import BackupInventory, CseFileEntry, StudioError
 from .safe_io import (
     SafeOpenError,
     is_link_or_junction,
@@ -83,6 +85,7 @@ class BackupGpo:
     content_root: Path | None = None
     computer_enabled: bool = True
     user_enabled: bool = True
+    backup_inventory: BackupInventory | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -590,6 +593,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
         )
         computer_enabled = True
         user_enabled = True
+        inventory = None
         if backup_xml_path.exists():
             if is_link_or_junction(backup_xml_path):
                 raise BackupError(f"Symlinks are not allowed: {backup_xml_path}")
@@ -598,6 +602,42 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
             computer_enabled, user_enabled = _parse_native_backup_options(
                 backup_xml, gpo.guid
             )
+            if is_native_layout:
+                report_path = backup_xml_path.with_name("gpreport.xml")
+                report_xml = b""
+                if report_path.exists():
+                    report_xml = read_file_bytes(report_path)
+                    budget.add_file(len(report_xml))
+                    _safe_parse(report_xml)
+                # Side files have already been scanned through pinned handles.
+                # Scan only the remaining root content, including Adm and GPO.cmt.
+                extra_files: dict[str, CseFile] = {}
+                try:
+                    root_fd = open_directory(content_root)
+                except SafeOpenError as error:
+                    raise BackupError("Cannot open native backup content directory") from error
+                try:
+                    _scan_directory_fd(
+                        root_fd, content_root, Path(), 0, budget, extra_files,
+                        skip_sides=True,
+                    )
+                finally:
+                    os.close(root_fd)
+                files = {
+                    f"{side}/{f.relative_path.replace(chr(92), '/')}": f
+                    for side, extensions in (("Machine", machine_exts), ("User", user_exts))
+                    for extension in extensions for f in extension.files
+                }
+                files.update({key.replace("\\", "/"): f for key, f in extra_files.items()})
+                inventory = BackupInventory(
+                    backup_xml_base64=base64.b64encode(backup_xml).decode("ascii"),
+                    report_xml_base64=base64.b64encode(report_xml).decode("ascii"),
+                    files=tuple(
+                        CseFileEntry(relative_path=path, content_hash=f.content_hash, size=f.size)
+                        for path, f in sorted(files.items())
+                    ),
+                )
+                inventory = inventory_from_dict(asdict(inventory))
 
         enriched_gpos.append(
             BackupGpo(
@@ -611,6 +651,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                 content_root=content_root,
                 computer_enabled=computer_enabled,
                 user_enabled=user_enabled,
+                backup_inventory=inventory,
             )
         )
 
@@ -629,11 +670,17 @@ def _scan_directory_fd(
     depth: int,
     budget: _BackupBudget,
     results: dict[str, CseFile],
+    *,
+    skip_sides: bool = False,
 ) -> None:
     if depth > _MAX_DEPTH:
         raise BackupError(f"Directory nesting depth exceeds {_MAX_DEPTH}")
     try:
         for entry in iter_directory(dir_fd):
+            if skip_sides and os.path.normcase(entry.name) in {
+                os.path.normcase("Machine"), os.path.normcase("User"),
+            }:
+                continue
             budget.add_entry()
             entry_path = dir_path / entry.name
             relative_path = relative_dir / entry.name

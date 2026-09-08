@@ -4,6 +4,11 @@
 `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`: 21 lane verdicts plus WP-0's separate manifest.
 No product capability was expanded by this batch.
 
+**Subsequent qualification:** [WI-060](backup-report-fidelity.md) replaces only
+the Scripts metadata and publication verdicts after model/digest changes. This
+batch and its hashes remain immutable; the live registry follows those two
+successors and the other 19 original verdicts.
+
 ## Enforced behaviour
 
 A normalized clean Git status can hide CRLF working bytes against an LF blob.
@@ -78,7 +83,7 @@ bytes recovered from their exact recorded commits; every recovered digest was
 checked against the unchanged historical verdict before banking.
 
 The environment qualification table, platform registry and capability matrix
-point to the current batch. Host scope is retained: member-server role 3 and
+record this batch and its subsequent WI-060 successors. Host scope is retained: member-server role 3 and
 DC role 5 have separate WP-3 records; only the DC candidate contains Kerberos.
 The endpoint and RSoP runs use the real client and verify their teardown.
 Scripts remains metadata qualification, object security remains temporary

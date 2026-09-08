@@ -1712,6 +1712,20 @@ def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
     return gpo_dict
 
 
+def _gpo_list_item(gpo: Any) -> dict[str, Any]:
+    """List rows carry import provenance as a flag, not as the retained bytes.
+
+    `GPO.to_dict()` is `asdict`, so `backup_inventory` -- two base64 native XML
+    documents whose only bound is the 50MB per-file import cap -- would ride in
+    every row of a response the workbench refetches on load and after every
+    mutation (`static/js/render.mjs`). The detail endpoint still serves the
+    whole snapshot, so nothing is hidden, only not repeated per row.
+    """
+    item = _gpo_to_api_dict(gpo)
+    item["has_backup_inventory"] = item.pop("backup_inventory", None) is not None
+    return item
+
+
 def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     if request is not None:
         request.state.gpo_guid = gpo.guid
@@ -2591,7 +2605,7 @@ def _merge_template_catalogues(sources: list[Any]) -> AdmxCatalogue:
 @app.get("/api/gpos")
 def list_gpos(request: Request) -> dict[str, Any]:
     gpos = _store(request).list_gpos()
-    return {"items": [_gpo_to_api_dict(gpo) for gpo in gpos], "count": len(gpos)}
+    return {"items": [_gpo_list_item(gpo) for gpo in gpos], "count": len(gpos)}
 
 
 @app.post("/api/gpos", status_code=201)
@@ -2605,7 +2619,7 @@ def create_gpo(request: Request, body: CreateGPO) -> dict[str, Any]:
 @app.get("/api/starter-gpos")
 def list_starter_gpos(request: Request) -> dict[str, Any]:
     gpos = _store(request).list_starter_gpos()
-    return {"items": [_gpo_to_api_dict(gpo) for gpo in gpos], "count": len(gpos)}
+    return {"items": [_gpo_list_item(gpo) for gpo in gpos], "count": len(gpos)}
 
 
 @app.post("/api/starter-gpos", status_code=201)
@@ -3434,6 +3448,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         settings=all_settings,
         source_guid=backup_gpo.guid,
         cse_metadata=cse_metadata,
+        backup_inventory=backup_gpo.backup_inventory,
         domain=backup_gpo.domain or "studio.local",
         security_filters=security_filters,
         wmi_filter=wmi_filter,
