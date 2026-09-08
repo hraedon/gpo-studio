@@ -33,6 +33,12 @@ finalize_user = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(finalize_user)
 
 
+@pytest.fixture(autouse=True)
+def isolate_grading_from_git_byte_provenance(monkeypatch):
+    """Real Git refusal is covered across all lanes in test_finalizer_source_bytes."""
+    monkeypatch.setattr(finalize_user, "assert_bound_source_bytes", lambda *_: None)
+
+
 def _author_state(**overrides: Any) -> dict[str, Any]:
     state: dict[str, Any] = {
         "run_id": "rsop-author-20260804000000-1111",

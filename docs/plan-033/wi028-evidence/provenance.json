@@ -1,0 +1,95 @@
+{
+  "kind": "diagnostic-observation-not-conformance-verdict",
+  "run": "WI028-20260908-0003",
+  "baseline_commit": "0b57d68e8dd5f8835f6af11b226f240d988c93da",
+  "collector": "scripts/plan-033/collect-searched-som.ps1",
+  "collector_sha256": "bc7f72de6e4559ecfe1bc7581275e317112ccb1a1ff437404921072abe708e6d",
+  "captures": {
+    "before": {
+      "raw_artifacts": [
+        {
+          "name": "gpresult.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "gpresult.xml",
+          "sha256": "7a7457cb02e247dfe3ddf042bb8b1ec0670380d0a69a6005ef85d4a39c029dab"
+        },
+        {
+          "name": "snapshot.json",
+          "sha256": "f0d543681287be8e905a393a9bef848e2db40d8e793b3b8aae48c53ef0a3067e"
+        }
+      ],
+      "wmi_rows": 9,
+      "xml_rows": 9,
+      "session_som": "DC=ad,DC=labdomain,DC=dev",
+      "session_creation_time": "/Date(1785345213000)/",
+      "marker_wmi_rows": 0,
+      "marker_xml_rows": 0
+    },
+    "during": {
+      "raw_artifacts": [
+        {
+          "name": "gpresult.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "gpresult.xml",
+          "sha256": "8a532b71261f6db0ae72218ce1741c1e9eeb33fff5480d70705d833baba1da4e"
+        },
+        {
+          "name": "gpupdate.txt",
+          "sha256": "dd76275359567b56d7b7083d9e11d2885f013865a8cba67269240450281a812a"
+        },
+        {
+          "name": "snapshot.json",
+          "sha256": "3788270d0ca97af420c492cbe8d2ce23822816d39a318501ec0d33ff33134377"
+        }
+      ],
+      "wmi_rows": 10,
+      "xml_rows": 10,
+      "session_som": "OU=WI028-20260908-0003,DC=ad,DC=labdomain,DC=dev",
+      "session_creation_time": "/Date(1785345213000)/",
+      "marker_wmi_rows": 1,
+      "marker_xml_rows": 1
+    },
+    "after": {
+      "raw_artifacts": [
+        {
+          "name": "gpresult.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "gpresult.xml",
+          "sha256": "2f02d5ea355bf2b3fb93d57eb57cbb85e621269f09775f7e861e8e4ac2be79de"
+        },
+        {
+          "name": "gpupdate.txt",
+          "sha256": "dd76275359567b56d7b7083d9e11d2885f013865a8cba67269240450281a812a"
+        },
+        {
+          "name": "snapshot.json",
+          "sha256": "270f2e3943d220e006d87cf577a38282277d48bcac7196a67b4c52fcaefc9817"
+        }
+      ],
+      "wmi_rows": 10,
+      "xml_rows": 10,
+      "session_som": "DC=ad,DC=labdomain,DC=dev",
+      "session_creation_time": "/Date(1785345213000)/",
+      "marker_wmi_rows": 1,
+      "marker_xml_rows": 1
+    }
+  },
+  "files": {
+    "after-searched-som.json": "275a401ebe4a16c376bff9d60d2b21823c7ccee795cf476adb89c741a3a46e27",
+    "after-snapshot.json": "270f2e3943d220e006d87cf577a38282277d48bcac7196a67b4c52fcaefc9817",
+    "author.json": "cec8cdf5bbf7a9f9daf58d86e91606258878e005e783520c45046be03e4938a3",
+    "before-searched-som.json": "5239e7e5d7fcb628cabbddc3e3984b0df1e9a6276acdbe93090e091734ad1bd6",
+    "before-snapshot.json": "f0d543681287be8e905a393a9bef848e2db40d8e793b3b8aae48c53ef0a3067e",
+    "cleanup.json": "b86adf04c6aa4990bbd9db8876e8613f5036ad728af59e722f1880618c2e0a29",
+    "directory.json": "6cd2adf5778bb486df60c45e4f67da1e013d449b0b59a657b497425cd402a1b6",
+    "during-searched-som.json": "c668af10a1dcf8a8bfcc4a3d7638f325977b6204c5cf675ef478030656b0954c",
+    "during-snapshot.json": "3788270d0ca97af420c492cbe8d2ce23822816d39a318501ec0d33ff33134377"
+  },
+  "raw_capture_location": "private controller archive; full gpresult XML is not committed"
+}

@@ -1,0 +1,434 @@
+﻿{
+    "run_id":  "rsop-author-20260908005328-2525",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-author-20260908005328-2525",
+    "command_dir":  "C:\\gpo-studio\\out\\rsop-author-20260908005328-2525\\commands",
+    "phase":  "setup",
+    "author_computer":  "LABMS01",
+    "target_computer":  "LabCL01",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "domain_controller":  "LabDC01.ad.labdomain.dev",
+    "domain_dn":  "DC=ad,DC=labdomain,DC=dev",
+    "site_dn":  "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=ad,DC=labdomain,DC=dev",
+    "policy_key":  "Software\\Policies\\StudioLab",
+    "original_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "original_parent":  "CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "child_ou_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+    "scope":  "user",
+    "loopback_mode":  "disabled",
+    "target_user":  "labauto1",
+    "user_ou_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+    "user_original_dn":  "CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev",
+    "user_original_parent":  "CN=Users,DC=ad,DC=labdomain,DC=dev",
+    "user_sid":  "S-1-5-21-343068944-2904821402-3322616572-1106",
+    "group_name":  "StudioRsopGroup-20260908005328-1439",
+    "group_dn":  "CN=StudioRsopGroup-20260908005328-1439,OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+    "group_created":  true,
+    "group_sid":  "S-1-5-21-343068944-2904821402-3322616572-1143",
+    "group_member":  "user",
+    "group_member_sid":  "S-1-5-21-343068944-2904821402-3322616572-1106",
+    "user_moved":  true,
+    "ous":  [
+                {
+                    "symbolic_name":  "StudioRsop",
+                    "key":  "root",
+                    "parent_key":  "domain",
+                    "name":  "StudioRsop-20260908005328-1439",
+                    "block_inheritance":  false,
+                    "parent_dn":  "DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                },
+                {
+                    "symbolic_name":  "StudioRsopParent",
+                    "key":  "parent",
+                    "parent_key":  "root",
+                    "name":  "StudioRsopParent-20260908005328-1439",
+                    "block_inheritance":  false,
+                    "parent_dn":  "OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                },
+                {
+                    "symbolic_name":  "StudioRsopChild",
+                    "key":  "child",
+                    "parent_key":  "parent",
+                    "name":  "StudioRsopChild-20260908005328-1439",
+                    "block_inheritance":  false,
+                    "parent_dn":  "OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                }
+            ],
+    "gpos":  [
+                 {
+                     "symbolic_name":  "Studio-RSOP-FilterDenyGroup",
+                     "name":  "Studio-RSOP-FilterDenyGroup-20260908005328-1439",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                     "order":  1,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+
+                                ],
+                     "user_values":  [
+                                         {
+                                             "type":  "String",
+                                             "value":  "1",
+                                             "value_name":  "DenyGroupOnly"
+                                         },
+                                         {
+                                             "type":  "String",
+                                             "value":  "denyGroup",
+                                             "value_name":  "Filter"
+                                         }
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+                                     {
+                                         "kind":  "read",
+                                         "principal":  "authenticated-users"
+                                     },
+                                     {
+                                         "kind":  "apply",
+                                         "principal":  "user"
+                                     },
+                                     {
+                                         "kind":  "deny",
+                                         "principal":  "group"
+                                     }
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "e375f4b6-7c19-4052-8599-45ddebe78866",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+                                                "StudioRsopGroup-20260908005328-1439=GpoCustom",
+                                                "labauto1=GpoApply",
+                                                "Domain Admins=GpoEditDeleteModifySecurity",
+                                                "Enterprise Admins=GpoEditDeleteModifySecurity",
+                                                "Authenticated Users=GpoRead",
+                                                "ENTERPRISE DOMAIN CONTROLLERS=GpoRead",
+                                                "SYSTEM=GpoEditDeleteModifySecurity"
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-FilterDenyApplyComp",
+                     "name":  "Studio-RSOP-FilterDenyApplyComp-20260908005328-1439",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                     "order":  2,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+
+                                ],
+                     "user_values":  [
+                                         {
+                                             "type":  "String",
+                                             "value":  "1",
+                                             "value_name":  "DenyApplyCompOnly"
+                                         },
+                                         {
+                                             "type":  "String",
+                                             "value":  "denyApplyComp",
+                                             "value_name":  "Filter"
+                                         }
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+                                     {
+                                         "kind":  "read",
+                                         "principal":  "authenticated-users"
+                                     },
+                                     {
+                                         "kind":  "apply",
+                                         "principal":  "user"
+                                     },
+                                     {
+                                         "kind":  "deny",
+                                         "principal":  "computer"
+                                     }
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "da2e8604-15ad-4d01-bbbe-59224aed62d5",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+                                                "LabCL01$=GpoCustom",
+                                                "labauto1=GpoApply",
+                                                "Domain Admins=GpoEditDeleteModifySecurity",
+                                                "Enterprise Admins=GpoEditDeleteModifySecurity",
+                                                "Authenticated Users=GpoRead",
+                                                "ENTERPRISE DOMAIN CONTROLLERS=GpoRead",
+                                                "SYSTEM=GpoEditDeleteModifySecurity"
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-FilterDeny",
+                     "name":  "Studio-RSOP-FilterDeny-20260908005328-1439",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                     "order":  3,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+
+                                ],
+                     "user_values":  [
+                                         {
+                                             "type":  "String",
+                                             "value":  "1",
+                                             "value_name":  "DenyOnly"
+                                         },
+                                         {
+                                             "type":  "String",
+                                             "value":  "deny",
+                                             "value_name":  "Filter"
+                                         }
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+                                     {
+                                         "kind":  "read",
+                                         "principal":  "authenticated-users"
+                                     },
+                                     {
+                                         "kind":  "apply",
+                                         "principal":  "user"
+                                     },
+                                     {
+                                         "kind":  "deny",
+                                         "principal":  "user"
+                                     }
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "f043e116-ddd8-44ba-8ca6-fc0b7af8fd0c",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+                                                "labauto1=GpoCustom",
+                                                "Domain Admins=GpoEditDeleteModifySecurity",
+                                                "Enterprise Admins=GpoEditDeleteModifySecurity",
+                                                "Authenticated Users=GpoRead",
+                                                "ENTERPRISE DOMAIN CONTROLLERS=GpoRead",
+                                                "SYSTEM=GpoEditDeleteModifySecurity"
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-FilterAllow",
+                     "name":  "Studio-RSOP-FilterAllow-20260908005328-1439",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                     "order":  4,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+
+                                ],
+                     "user_values":  [
+                                         {
+                                             "type":  "String",
+                                             "value":  "1",
+                                             "value_name":  "AllowOnly"
+                                         },
+                                         {
+                                             "type":  "String",
+                                             "value":  "allow",
+                                             "value_name":  "Filter"
+                                         }
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+                                     {
+                                         "kind":  "read",
+                                         "principal":  "authenticated-users"
+                                     },
+                                     {
+                                         "kind":  "apply",
+                                         "principal":  "user"
+                                     }
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "4570656a-5a0b-49b2-b4be-071c074257ac",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+                                                "labauto1=GpoApply",
+                                                "Domain Admins=GpoEditDeleteModifySecurity",
+                                                "Enterprise Admins=GpoEditDeleteModifySecurity",
+                                                "Authenticated Users=GpoRead",
+                                                "ENTERPRISE DOMAIN CONTROLLERS=GpoRead",
+                                                "SYSTEM=GpoEditDeleteModifySecurity"
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-FilterReadOnly",
+                     "name":  "Studio-RSOP-FilterReadOnly-20260908005328-1439",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                     "order":  5,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+
+                                ],
+                     "user_values":  [
+                                         {
+                                             "type":  "String",
+                                             "value":  "readOnly",
+                                             "value_name":  "Filter"
+                                         },
+                                         {
+                                             "type":  "String",
+                                             "value":  "1",
+                                             "value_name":  "ReadOnlyOnly"
+                                         }
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+                                     {
+                                         "kind":  "read",
+                                         "principal":  "authenticated-users"
+                                     },
+                                     {
+                                         "kind":  "read",
+                                         "principal":  "user"
+                                     }
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "a9a2f04c-9337-4d26-93b9-9524d1c7f82b",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+                                                "Domain Admins=GpoEditDeleteModifySecurity",
+                                                "labauto1=GpoRead",
+                                                "Enterprise Admins=GpoEditDeleteModifySecurity",
+                                                "Authenticated Users=GpoRead",
+                                                "ENTERPRISE DOMAIN CONTROLLERS=GpoRead",
+                                                "SYSTEM=GpoEditDeleteModifySecurity"
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-FilterNested",
+                     "name":  "Studio-RSOP-FilterNested-20260908005328-1439",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                     "order":  6,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+
+                                ],
+                     "user_values":  [
+                                         {
+                                             "type":  "String",
+                                             "value":  "nested",
+                                             "value_name":  "Filter"
+                                         },
+                                         {
+                                             "type":  "String",
+                                             "value":  "1",
+                                             "value_name":  "NestedOnly"
+                                         }
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+                                     {
+                                         "kind":  "read",
+                                         "principal":  "authenticated-users"
+                                     },
+                                     {
+                                         "kind":  "apply",
+                                         "principal":  "group"
+                                     }
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "d92f7433-77af-462d-975f-d94791710199",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+                                                "StudioRsopGroup-20260908005328-1439=GpoApply",
+                                                "Domain Admins=GpoEditDeleteModifySecurity",
+                                                "Enterprise Admins=GpoEditDeleteModifySecurity",
+                                                "Authenticated Users=GpoRead",
+                                                "ENTERPRISE DOMAIN CONTROLLERS=GpoRead",
+                                                "SYSTEM=GpoEditDeleteModifySecurity"
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-UserControl",
+                     "name":  "Studio-RSOP-UserControl-20260908005328-1439",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260908005328-1439,OU=StudioRsopParent-20260908005328-1439,OU=StudioRsop-20260908005328-1439,DC=ad,DC=labdomain,DC=dev",
+                     "order":  7,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+
+                                ],
+                     "user_values":  [
+                                         {
+                                             "type":  "String",
+                                             "value":  "present",
+                                             "value_name":  "Control"
+                                         }
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "21fe1203-9e7a-43b5-ac3f-6b4f2e5bccde",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 }
+             ],
+    "computer_moved":  true,
+    "authored_problems":  [
+
+                          ],
+    "setup_completed":  true,
+    "replication_run":  true,
+    "environment":  {
+                        "caption":  "Microsoft Windows Server 2025 Standard",
+                        "build":  "26100",
+                        "powershell_version":  "5.1.26100.33296",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US",
+                        "gp_module_version":  "1.0.0.0",
+                        "domain":  "AD.LABDOMAIN.DEV"
+                    },
+    "error":  null
+}

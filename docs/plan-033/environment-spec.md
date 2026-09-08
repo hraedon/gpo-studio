@@ -1,5 +1,9 @@
 # Plan 033 frozen environment specification
 
+**Current qualification:** the [WI-059 batch](wi059-harness-batch.md), 22 passing
+runs on `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`. The dated measurement notes below
+are history; the Qualified environments table records the current bindings.
+
 **2026-09-07 publication-completeness lane:** run
 `publication-completeness-20260907193221-2759` passed 21/21 on LabMS01 (role 3)
 at `362699c` on a clean tree, qualifying the lane on the existing frozen
@@ -38,32 +42,19 @@ invokes `/configure`. The platform registry records this distinction.
 See [the results and raw evidence](wp3-policy-family-results.md). Earlier rows
 below retain the initial environment qualification history.
 
-Status: environment frozen. Every lane is qualified on the disposable evidence
-estate over PowerShell Direct (2026-08-03). A WP-0 success-path run is certified
-`pass` against a clean, committed source tree, and the same harness produces a
-parser-valid `fail` manifest for a deliberate failure path.
-Last updated: 2026-08-03 (WP-0, WP-2 and WP-3 qualified on the estate; the SSH
-transport retired)
-Validation host: the disposable evidence estate, domain-joined member server,
-PowerShell Direct — see **Qualified environments** below
-Certified passing manifest hash (success-path run
-`live-synthetic-registry-basic-20260803213433-5325`, source commit `97bdaf9`,
-tag `evidence/live-synthetic-registry-basic-20260803213433-5325`):
-`76c79ba93152b59203383b1443b24b159d412bca5dd83775c33a3b8d891d4b3a`
+Status: environment frozen; requalified 2026-09-08 by the full WI-059 batch.
+Validation hosts remain the isolated member server, domain controller and
+client over PowerShell Direct, with the existing build-family requirements.
+Current WP-0 run: `live-synthetic-registry-basic-20260908003108-1493` at `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`.
+Canonical manifest hash: `184477fdedb21cba4e55c7f4d3c1f606c37478551ec2ce74937d8a6f61dc98a9`.
+Its [complete integrity pack](wp0-evidence/wi059-20260908/wp0/manifest.json) includes the recipe,
+guest scripts, controller, transport, finalizer and shared enforcement library.
+Every artifact and command stream rehashes intact, and cleanup passed.
 
-The corresponding fail-path run
-(`live-synthetic-registry-basic-20260803183850-2692`) parses as `fail`, canonical
-hash `68c9dfdf24fc955b19f4e8c57e6b8a61ee28c4d3fe3fb2fc30cf29552c628ebe`. It
-carries a real failed command and its real stderr, so the parser is demonstrated
-to tell a failed run from a missing one on this transport too.
-
-This run carries the full integrity pack: the deployed harness scripts
-(`run-evidence.ps1`, `common.psm1`), the recipe, the control-plane orchestrator
-and the transport (`psdirect.ps1`) are hashed input artifacts bound to the
-recorded commit; every artifact and command stream rehashes intact; and the
-cleanup re-query is a strict `Get-GPO -All` probe (absent / present /
-query-error) with both streams recorded as command/artifact evidence. The
-verdict is committed at `docs/plan-033/wp0-evidence/manifest-estate.json`.
+The historical success manifest remains at `wp0-evidence/manifest-estate.json`.
+The deliberate failure-path capture `live-synthetic-registry-basic-20260803183850-2692`
+remains historical evidence of a parser-valid failure; it was not re-executed
+as a separate live qualification in this batch.
 
 > **The superseded mvmcitest01 certification.** Until 2026-08-03 this line cited
 > the success-path run `live-synthetic-registry-basic-20260726070916` at commit
@@ -102,25 +93,32 @@ which of these produced a given verdict.
 
 | Lane | Environment | Transport | Qualified | Certifying run (tagged `evidence/<run-id>`) |
 |---|---|---|---|---|
-| WP-0 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `live-synthetic-registry-basic-20260803213433-5325` (`pass`) |
-| WP-1B | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp1b-writer-20260803213602-6066` (7/7) |
-| WP-2 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp2-native-import-20260803230132-8090` (18/18) |
-| WP-3 | estate, domain-joined member server | `psdirect` | 2026-08-03 | `wp3-security-template-20260803230220-2450` (20/20) |
-| publication-completeness | estate, domain-joined member server | `psdirect` | 2026-09-07 | `publication-completeness-20260907193221-2759` (21/21) |
-| endpoint | estate, client guest (26200) | `psdirect` | 2026-08-03 | `endpoint-observe-20260803142424-3050` (`pass`, real client build) |
-| WP-6B | estate, member server + client guest (26200) | `psdirect` | 2026-08-04 | `rsop-observe-20260804010341-7165` (`pass`; also `rsop-observe-20260804010551-9363` and `rsop-observe-20260804010738-5543`, identical) |
-| any | `mvmcitest01` (historic shared host) | `ssh` + launcher | 2026-07-26 | **retired 2026-08-03** — `live-synthetic-registry-basic-20260726070916` (commit orphaned, see above) |
+| wp0 | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `live-synthetic-registry-basic-20260908003108-1493` (`pass`) |
+| wp1b | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `wp1b-writer-20260908003141-5853` (`pass`) |
+| wp2 | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `wp2-native-import-20260908003212-8693` (`pass`) |
+| wp3-member | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `wp3-security-template-20260908003235-1230` (`pass`) |
+| wp3-dc | estate, domain controller (role 5) | `psdirect` | 2026-09-08 | `wp3-security-template-20260908003251-3920` (`pass`) |
+| object-security | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `object-security-20260908003317-7120` (`pass`) |
+| scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `scripts-r10-20260908003334-8294` (`pass`) |
+| publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `publication-completeness-20260908003355-4887` (`pass`) |
+| endpoint | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `endpoint-observe-20260908003432-9991` (`pass`) |
+| lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908003647-5124` (`pass`) |
+| disabled-block-enforced | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908003802-3428` (`pass`) |
+| wmi-filtering | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908003917-3943` (`pass`) |
+| wmi-filtering-error | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908004032-4871` (`pass`) |
+| computer-security-filtering | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908004147-8239` (`pass`) |
+| computer-security-filtering-group-deny | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908004329-7397` (`pass`) |
+| computer-security-filtering-deny-read | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908004451-9557` (`pass`) |
+| loopback-merge | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908004610-7393` (`pass`) |
+| loopback-replace | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908004751-4785` (`pass`) |
+| user-side-disabled | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908004932-4297` (`pass`) |
+| user-security-filtering | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908005147-1436` (`pass`) |
+| user-security-filtering-deny | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908005409-2134` (`pass`) |
+| user-security-filtering-read-deny | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908005556-1857` (`pass`) |
 
-Each estate row cites a run made against the lane scripts as they ship. WP-2 and
-WP-3 cite `db775b0`, which moved the candidate hashes out of `source.files`;
-WP-0 and WP-1B still cite `97bdaf9` because nothing they bind changed after it,
-and re-certifying a lane whose inputs are identical adds no information. The
-rows were produced after an adversarial review round changed what several of these
-checks mean. WP-1B's verdict now gates on the environment at all; WP-2's and
-WP-3's are graded against the candidate this controller built rather than the
-copy the guest returned, and each carries a `candidate_delivered_intact` check
-proving the guest ran against that candidate byte for byte. Every run also owns
-a private tree on the guest, so no run can select another's evidence.
+Every current row binds `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`. The shared byte guard and
+finalizer inputs are part of the recorded evidence. Earlier qualification
+records below remain historical, with their original scope and commit.
 
 Earlier rounds on this branch remain valid for the commits they name, and are
 superseded here for two different reasons worth keeping distinct. The
@@ -186,7 +184,7 @@ is why `ssh` cannot be used there.
 | Role | OS | Build | Notes |
 |------|----|-------|-------|
 | DC / server | Windows Server 2025 Standard | 26100 family | Primary validation target |
-| Client | Windows 11 Enterprise (25H2) | 26200 family | Endpoint processing oracle; **qualified 2026-08-03** by `endpoint-observe-20260803142424-3050` |
+| Client | Windows 11 Enterprise (25H2) | 26200 family | Endpoint processing oracle; **requalified 2026-09-08** by `endpoint-observe-20260908003432-9991` |
 
 Builds are qualified by **family**, not by exact servicing revision. A run on
 `26100.4652` and a run on `26100.5011` are both on-target for the 26100 family;
@@ -207,18 +205,19 @@ invalidated by this change, precisely because the endpoint lane had never run.
 **Client qualification (2026-08-03).** The client is no longer untested. Run
 `endpoint-observe-20260803142424-3050` applied real policy to the estate client
 guest and observed CSE evidence, passing with no lane problems and no control
-problems, on a genuine 26200 build. Two limits were measured at the same time,
-and they constrain every lane built on this host rather than being defects to
-fix:
+problems, on a genuine 26200 build. The initial measurements established the
+module constraint and the then-missing interactive session:
 
 - **The `GroupPolicy` module is absent**, so `Get-GPResultantSetOfPolicy` is not
   available. RSAT is a Feature-on-Demand whose source is on the internet, which
   an estate with no egress cannot reach. That is the isolation invariant
   working. Client-side RSOP capture is `gpresult.exe` only.
-- **The estate has never had an interactive logon**, and PowerShell Direct does
-  not provide one. `gpresult /x` without `/scope:computer` therefore exits **0**,
+- **At that time the estate had no interactive logon**, and PowerShell Direct
+  does not provide one. `gpresult /x` without `/scope:computer` therefore exited **0**,
   writes **no file**, and reports that the invoking account has no RSoP data.
-  User-scope resolution is WP-9 work; WP-6 is computer scope only.
+  WP-9 subsequently established and verified interactive sessions; the current
+  batch requalifies all six user scenarios through explicit `/scope:user /user`
+  capture. WP-6 remains computer scope only.
 
 ## Tool versions (frozen from live dry run 2026-07-26)
 
@@ -227,8 +226,8 @@ fix:
 | PowerShell | 5.1.26100 family, Desktop edition | Built into Windows |
 | GroupPolicy module | 1.0.0.0 (exact) | `Get-Module GroupPolicy` — **server only**, absent on the client |
 | GPMC | built-in (matched to OS build) | Server Manager feature |
-| secedit | rides the server OS build family (26100) | Built into Windows; exercised 20/20 by `wp3-security-template-20260803230220-2450` |
-| gpresult.exe | rides the client OS build family (26200) | Built into Windows; qualified with the client 2026-08-03 |
+| secedit | rides the server OS build family (26100) | Built into Windows; 21/21 on member `wp3-security-template-20260908003235-1230` and DC `wp3-security-template-20260908003251-3920` |
+| gpresult.exe | rides the client OS build family (26200) | Built into Windows; requalified with the client 2026-09-08 |
 | LGPO.exe | **recorded, not qualified** — see below | Microsoft Security Compliance Toolkit |
 
 `secedit` and `gpresult.exe` carry no independent version pin: they ship with

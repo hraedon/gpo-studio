@@ -1,0 +1,63 @@
+{
+  "backup_id": "{62917A0F-CD9B-5172-A068-84C0BD54917E}",
+  "gpo_name": "GPOStudio WP1B registry-both",
+  "native_shape_findings": [],
+  "settings": [
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\GPOStudio\\WP1B",
+      "registry_type": "REG_DWORD",
+      "side": "computer",
+      "value": 1101,
+      "value_name": "MachineValue"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\GPOStudio\\WP1B",
+      "registry_type": "REG_SZ",
+      "side": "user",
+      "value": "wp1b-conformance",
+      "value_name": "UserValue"
+    }
+  ],
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-000000000001}",
+  "summary": {
+    "preferences": {
+      "computer": {
+        "drives": [],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      },
+      "user": {
+        "drives": [],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      }
+    },
+    "registry": {
+      "computer": [
+        {
+          "hive": "HKLM",
+          "key": "Software\\Policies\\GPOStudio\\WP1B",
+          "registry_type": "REG_DWORD",
+          "value": 1101,
+          "value_name": "MachineValue"
+        }
+      ],
+      "user": [
+        {
+          "hive": "HKCU",
+          "key": "Software\\Policies\\GPOStudio\\WP1B",
+          "registry_type": "REG_SZ",
+          "value": "wp1b-conformance",
+          "value_name": "UserValue"
+        }
+      ]
+    },
+    "version": "gpo-studio.writer-conformance.v1"
+  }
+}

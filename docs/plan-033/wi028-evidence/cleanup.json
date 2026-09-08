@@ -1,0 +1,6 @@
+{
+    "captured_utc":  "2026-09-08T00:00:49.0361365Z",
+    "restored_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "removed_ou":  "OU=WI028-20260908-0003,DC=ad,DC=labdomain,DC=dev",
+    "residual_count":  0
+}

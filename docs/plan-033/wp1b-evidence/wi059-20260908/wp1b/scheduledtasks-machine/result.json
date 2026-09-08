@@ -1,0 +1,26 @@
+﻿{
+    "candidate_id":  "scheduledtasks-machine",
+    "family":  "scheduled_tasks",
+    "target_name":  "WP1B-scheduledtasks-machine-20260908-003147-4868",
+    "backup_id":  "{FC1A2E50-3C24-5D7C-AF9C-126796565F8F}",
+    "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000005}",
+    "whatif_succeeded":  true,
+    "whatif_target_absent":  true,
+    "import_succeeded":  true,
+    "report_captured":  true,
+    "rebackup_succeeded":  true,
+    "rebackup_dir":  "scheduledtasks-machine/rebackup",
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "version_state":  {
+                          "computer_dsa":  1,
+                          "computer_sysvol":  1,
+                          "user_dsa":  1,
+                          "user_sysvol":  1,
+                          "gpo_status":  "AllSettingsEnabled"
+                      },
+    "registry_readback":  [
+
+                          ],
+    "error":  null
+}

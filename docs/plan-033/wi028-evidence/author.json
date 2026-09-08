@@ -1,0 +1,10 @@
+{
+    "computer_guid":  "635bae97-d20a-42ca-86f8-976babf6c84c",
+    "original_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "original_parent":  "CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "ou_dn":  "OU=WI028-20260908-0003,DC=ad,DC=labdomain,DC=dev",
+    "run":  "WI028-20260908-0003",
+    "ou_guid":  "62b88652-fadf-4060-b087-b7a2e21b074e",
+    "current_dn":  "CN=LABCL01,OU=WI028-20260908-0003,DC=ad,DC=labdomain,DC=dev",
+    "captured_utc":  "2026-09-08T00:00:35.3076577Z"
+}

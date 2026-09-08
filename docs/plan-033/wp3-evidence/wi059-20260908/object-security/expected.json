@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "settings": [
+    {
+      "code": 0,
+      "sddl": "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)",
+      "section": "Registry Keys",
+      "target": "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry0"
+    },
+    {
+      "code": 1,
+      "sddl": "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)",
+      "section": "Registry Keys",
+      "target": "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry1"
+    },
+    {
+      "code": 2,
+      "sddl": "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)",
+      "section": "Registry Keys",
+      "target": "MACHINE\\Software\\GPOStudio\\ObjectSecurity\\Registry2"
+    },
+    {
+      "code": 0,
+      "sddl": "D:PAR(A;OICI;FA;;;BA)",
+      "section": "File Security",
+      "target": "C:\\GPOStudio\\ObjectSecurity\\File0"
+    },
+    {
+      "code": 1,
+      "sddl": "D:PAR(A;OICI;FA;;;BA)",
+      "section": "File Security",
+      "target": "C:\\GPOStudio\\ObjectSecurity\\File1"
+    },
+    {
+      "code": 2,
+      "sddl": "D:PAR(A;OICI;FA;;;BA)",
+      "section": "File Security",
+      "target": "C:\\GPOStudio\\ObjectSecurity\\File2"
+    },
+    {
+      "code": 2,
+      "sddl": "D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)",
+      "section": "Service General Setting",
+      "target": "GPOStudioObjectAutomatic"
+    },
+    {
+      "code": 3,
+      "sddl": "D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)",
+      "section": "Service General Setting",
+      "target": "GPOStudioObjectManual"
+    },
+    {
+      "code": 4,
+      "sddl": "D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)",
+      "section": "Service General Setting",
+      "target": "GPOStudioObjectDisabled"
+    }
+  ]
+}

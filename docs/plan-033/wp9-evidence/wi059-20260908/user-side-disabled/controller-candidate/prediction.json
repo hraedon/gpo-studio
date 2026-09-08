@@ -1,0 +1,48 @@
+{
+  "applied_gpos": [
+    "Studio-RSOP-UserControl",
+    "Studio-RSOP-UserOn"
+  ],
+  "computer_group_memberships": [],
+  "denied_gpos": [
+    {
+      "gpo": "Studio-RSOP-UserSideOff",
+      "reasons": [
+        "user_side_disabled"
+      ]
+    }
+  ],
+  "expect_finding": "",
+  "loopback_mode": "disabled",
+  "out_of_scope_gpos": [],
+  "query_id": "wp6b-user-side-disabled",
+  "scenario_id": "user-side-disabled",
+  "scope": "user",
+  "target": {
+    "computer_name": "LabCL01",
+    "domain": "ad.labdomain.dev",
+    "site_name": "Default-First-Site-Name",
+    "user_name": "labauto1"
+  },
+  "unevaluable_gpos": [],
+  "user_group_memberships": [],
+  "warnings": [],
+  "winners": [
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "present",
+      "value_name": "Control",
+      "winning_gpo": "Studio-RSOP-UserControl"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "userOn",
+      "value_name": "UserWinner",
+      "winning_gpo": "Studio-RSOP-UserOn"
+    }
+  ]
+}

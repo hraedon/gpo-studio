@@ -1,0 +1,106 @@
+{
+  "author_run_id": "rsop-author-20260908003912-1576",
+  "boot_applied_values": [],
+  "candidate": {
+    "expected.json": "9f3b7dfd07aa9f2ca867f48a2edbc7e13a20ac92726a5a32acba30768a9b900b",
+    "prediction.json": "dcbdf191f3090720f72761e16c3ea906d88a56ce04ff8f0a9604c488dfdd42cc",
+    "topology.json": "140fd1d7c1e4d72b99fcc0b0dad702004ae18d9df1f84771d240db0613764e87"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [],
+    "conclusive": true,
+    "observed_applied": [
+      "Studio-RSOP-Control",
+      "Studio-RSOP-WmiTrue"
+    ],
+    "observed_foreign_gpos": [
+      "Default Domain Policy",
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "Control": "present",
+      "Wmi": "true",
+      "WmiTrueOnly": "1"
+    },
+    "predicted_applied": [
+      "Studio-RSOP-Control",
+      "Studio-RSOP-WmiTrue"
+    ],
+    "predicted_winners": {
+      "Control": "present",
+      "Wmi": "true",
+      "WmiTrueOnly": "1"
+    },
+    "unevaluable_gpos": [],
+    "value_findings": []
+  },
+  "control_problems": [],
+  "cse_completed": true,
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.9168"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.33296"
+    }
+  },
+  "expected_finding": "",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": true,
+  "run_id": "rsop-observe-20260908003917-3943",
+  "scenario_id": "wmi-filtering",
+  "schema_version": 1,
+  "scope": "computer",
+  "settle_attempts": 1,
+  "source": {
+    "commit": "4cfa9af4b3f12104e8c592cd94df00b88e49beb5",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "c46fc12670bc41fc4fcd84100a8b159c668a48f068504447601372a94da352eb",
+      "finalize_rsop_run.py": "b88f21a2adb377f23418cc3fdf6f40ac6f1e451c8bf69980bb72210c40112492",
+      "oracle_evidence.py": "e9d7f9fe8cc9d4fadab2dbca03fd8e0c6adf277263d6fca9cb54202fe2176369",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "run-rsop-author.ps1": "ace45b03f48dc27eaadadd6ba0abaa647aaf32c1487a3970e5b08dad0eeeec0a",
+      "run-rsop-observe.ps1": "bdd9d8a308804ae8fff94d1aa7d5a24cc43a23c9487b8352c8caa7cf0e865293",
+      "run-rsop-oracle.sh": "f15b4369736b99762cd8fd4b00f834cde52825a3d210dbc58bb7fd81bd6e2a3c"
+    }
+  },
+  "state": "pass",
+  "token_groups": {
+    "directory": [
+      "LAB\\Domain Computers"
+    ],
+    "directory_error": null,
+    "directory_status": "collected",
+    "group": "",
+    "machine_token": [
+      "BUILTIN\\Administrators",
+      "Everyone",
+      "BUILTIN\\Users",
+      "NT AUTHORITY\\NETWORK",
+      "NT AUTHORITY\\Authenticated Users",
+      "This Organization",
+      "LABCL01$",
+      "Domain Computers",
+      "Authentication authority asserted identity",
+      "System Mandatory Level"
+    ],
+    "member": ""
+  },
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "work_package": "WP-6B"
+}

@@ -674,12 +674,330 @@ NON_VERDICT_EVIDENCE_FILES: dict[str, str] = {
     ),
 }
 
+# WI-059: replacement runs on one frozen harness; the old records remain immutable.
+LANE_VERDICTS.update({
+    'wp1b-evidence/wi059-20260908/wp1b/verification.json': 'finalize_wp1b_run.py',
+    'wp2-evidence/wi059-20260908/wp2/verification.json': 'finalize_wp2_import_run.py',
+    'wp3-evidence/wi059-20260908/wp3-member/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi059-20260908/wp3-dc/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi059-20260908/object-security/verification.json': (
+        'finalize_object_security_run.py'
+    ),
+    'wp1b-evidence/wi059-20260908/scripts-metadata/verification.json': (
+        'finalize_scripts_backup_run.py'
+    ),
+    'wp1b-evidence/wi059-20260908/publication/verification.json': 'finalize_publication_run.py',
+    'wp6-evidence/wi059-20260908/endpoint/verification.json': 'finalize_endpoint_run.py',
+    'wp6-evidence/wi059-20260908/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/wmi-filtering/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/computer-security-filtering/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp9-evidence/wi059-20260908/loopback-merge/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi059-20260908/loopback-replace/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi059-20260908/user-side-disabled/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi059-20260908/user-security-filtering/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+})
+RETIRED_VERDICTS.update({
+    'wp1b-evidence/verification-estate.json',
+    'wp1b-evidence/scripts-metadata/verification.json',
+    'wp1b-evidence/publication-completeness/verification.json',
+    'wp6-evidence/verdict-rsop-observe-20260907221946-2994.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222055-1770.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222206-6220.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222315-2698.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222431-1389.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222610-4330.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222726-4256.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907220844-4855.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221020-2710.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221153-8426.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221411-3148.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221626-5555.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221808-9398.json',
+    'wp2-evidence/verification-estate.json',
+    'wp3-evidence/policy-families/dc/verification.json',
+    'wp3-evidence/policy-families/member/verification.json',
+    'wp3-evidence/object-security/verification.json',
+    'wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json',
+})
+
 #: The verdicts that are still CLAIMS: everything mapped and not retired.
 LIVE_VERDICTS = {
     relative: finalizer
     for relative, finalizer in LANE_VERDICTS.items()
     if relative not in RETIRED_VERDICTS
 }
+
+
+# WI-059: immutable source-file schemas of records banked before enforcement.
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp1b-evidence/verification-estate.json',
+    ),
+    {
+        'build-wp1b-candidates.py',
+        'psdirect.ps1',
+        'run-wp1b-oracle.sh',
+        'run-wp1b-writer.ps1',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp1b-evidence/scripts-metadata/verification.json',
+    ),
+    {
+        'build-scripts-backup-candidate.py',
+        'canonical.py',
+        'export.py',
+        'finalize_scripts_backup_run.py',
+        'gpp.py',
+        'model.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'registry_pol.py',
+        'run-scripts-backup-import.ps1',
+        'run-scripts-backup-oracle.sh',
+        'script_policy.py',
+        'validation.py',
+        'xml_safety.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp1b-evidence/publication-completeness/verification.json',
+    ),
+    {
+        'build-publication-candidate.py',
+        'canonical.py',
+        'export.py',
+        'finalize_publication_run.py',
+        'gpp.py',
+        'model.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'publication.py',
+        'registry_pol.py',
+        'run-publication-import.ps1',
+        'run-publication-oracle.sh',
+        'validation.py',
+        'xml_safety.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp6-evidence/verdict-rsop-observe-20260907221946-2994.json',
+        'wp6-evidence/verdict-rsop-observe-20260907222055-1770.json',
+        'wp6-evidence/verdict-rsop-observe-20260907222206-6220.json',
+        'wp6-evidence/verdict-rsop-observe-20260907222315-2698.json',
+        'wp6-evidence/verdict-rsop-observe-20260907222431-1389.json',
+        'wp6-evidence/verdict-rsop-observe-20260907222610-4330.json',
+        'wp6-evidence/verdict-rsop-observe-20260907222726-4256.json',
+        'wp6-evidence/verdict-rsop-observe-20260804020517-2089.json',
+        'wp6-evidence/verdict-rsop-observe-20260804051032-8845.json',
+        'wp6-evidence/verdict-rsop-observe-20260804051228-2926.json',
+        'wp6-evidence/verdict-rsop-observe-20260804070708-6831.json',
+        'wp6-evidence/verdict-rsop-observe-20260804151624-6393.json',
+        'wp6-evidence/verdict-rsop-observe-20260804152957-1430.json',
+        'wp6-evidence/verdict-rsop-observe-20260804154241-9337.json',
+        'wp6-evidence/verdict-rsop-observe-20260804010341-7165.json',
+        'wp6-evidence/verdict-rsop-observe-20260804010551-9363.json',
+        'wp6-evidence/verdict-rsop-observe-20260804010738-5543.json',
+        'wp6-evidence/verdict-rsop-observe-20260804012618-5426.json',
+        'wp6-evidence/verdict-rsop-observe-20260804012803-7606.json',
+        'wp6-evidence/verdict-rsop-observe-20260804015016-5317.json',
+        'wp6-evidence/verdict-rsop-observe-20260804015258-1810.json',
+        'wp6-evidence/verdict-rsop-observe-20260804015447-4913.json',
+        'wp6-evidence/verdict-rsop-observe-20260804020109-7624.json',
+        'wp6-evidence/verdict-rsop-observe-20260804020308-9752.json',
+        'wp6-evidence/verdict-rsop-observe-20260804153726-7284.json',
+        'wp6-evidence/verdict-rsop-observe-20260805064008-9181.json',
+        'wp6-evidence/verdict-rsop-observe-20260805064155-8996.json',
+        'wp6-evidence/verdict-rsop-observe-20260805064351-9402.json',
+        'wp6-evidence/verdict-rsop-observe-20260805064540-1562.json',
+        'wp6-evidence/verdict-rsop-observe-20260805064725-4970.json',
+        'wp6-evidence/verdict-rsop-observe-20260805045139-3731.json',
+        'wp6-evidence/verdict-rsop-observe-20260805045851-3883.json',
+        'wp6-evidence/verdict-rsop-observe-20260805194053-7180.json',
+        'wp6-evidence/verdict-rsop-observe-20260805194245-3734.json',
+        'wp6-evidence/verdict-rsop-observe-20260805194432-5944.json',
+        'wp6-evidence/verdict-rsop-observe-20260805194627-2633.json',
+        'wp6-evidence/verdict-rsop-observe-20260805194814-2731.json',
+        'wp6-evidence/verdict-rsop-observe-20260805195001-1590.json',
+        'wp6-evidence/verdict-rsop-observe-20260805220819-4762.json',
+        'wp6-evidence/verdict-rsop-observe-20260805221004-8571.json',
+        'wp6-evidence/verdict-rsop-observe-20260805221150-4243.json',
+        'wp6-evidence/verdict-rsop-observe-20260805221335-1702.json',
+        'wp6-evidence/verdict-rsop-observe-20260805221522-1983.json',
+        'wp6-evidence/verdict-rsop-observe-20260805221707-4871.json',
+        'wp6-evidence/verdict-rsop-observe-20260806181033-3296.json',
+        'wp6-evidence/verdict-rsop-observe-20260906045316-1301.json',
+        'wp6-evidence/verdict-rsop-observe-20260806181222-5315.json',
+        'wp6-evidence/verdict-rsop-observe-20260906045428-3847.json',
+        'wp6-evidence/verdict-rsop-observe-20260806181411-9752.json',
+        'wp6-evidence/verdict-rsop-observe-20260906045536-1696.json',
+        'wp6-evidence/verdict-rsop-observe-20260806181600-5707.json',
+        'wp6-evidence/verdict-rsop-observe-20260906045643-6646.json',
+        'wp6-evidence/verdict-rsop-observe-20260806181748-7763.json',
+        'wp6-evidence/verdict-rsop-observe-20260906045750-7576.json',
+        'wp6-evidence/verdict-rsop-observe-20260806181935-5130.json',
+        'wp6-evidence/verdict-rsop-observe-20260906045858-7209.json',
+        'wp6-evidence/verdict-rsop-observe-20260906183835-6175.json',
+        'wp6-evidence/verdict-rsop-observe-20260906183948-3890.json',
+        'wp6-evidence/verdict-rsop-observe-20260906184057-2689.json',
+        'wp6-evidence/verdict-rsop-observe-20260906184205-5172.json',
+        'wp6-evidence/verdict-rsop-observe-20260906184313-1876.json',
+        'wp6-evidence/verdict-rsop-observe-20260906184434-8187.json',
+        'wp6-evidence/verdict-rsop-observe-20260906221638-4687.json',
+        'wp6-evidence/verdict-rsop-observe-20260906221931-1695.json',
+        'wp6-evidence/verdict-rsop-observe-20260906223143-4837.json',
+        'wp6-evidence/verdict-rsop-observe-20260906223251-8863.json',
+        'wp6-evidence/verdict-rsop-observe-20260906223400-9371.json',
+        'wp6-evidence/verdict-rsop-observe-20260906223508-6654.json',
+        'wp6-evidence/verdict-rsop-observe-20260906223619-5576.json',
+        'wp6-evidence/verdict-rsop-observe-20260906221248-7683.json',
+    ),
+    {
+        'build-rsop-candidate.py',
+        'psdirect.ps1',
+        'run-rsop-author.ps1',
+        'run-rsop-observe.ps1',
+        'run-rsop-oracle.sh',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp9-evidence/verdict-rsop-user-observe-20260907220844-4855.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260907221020-2710.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260907221153-8426.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260907221411-3148.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260907221626-5555.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260907221808-9398.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260804050024-4383.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260804045552-9148.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260804045809-8312.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260804065146-4224.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260804065525-9254.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260804150527-3868.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805065203-1562.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805065415-8622.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805065630-6815.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805065943-6615.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805070255-2473.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805195149-5629.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805195400-1809.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805195614-1767.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805195909-4033.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805200214-4370.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805221856-6415.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805222106-2378.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805222317-3382.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805222624-9750.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260805222929-6350.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260806165543-8004.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260806182125-6983.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906051241-1230.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260806182338-3982.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906051412-9765.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260806182554-1472.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906051544-3625.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260806182911-5363.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906051750-5647.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260806183612-5557.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906052004-2373.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260806184006-2532.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906052146-2480.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906184610-3620.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906184743-5732.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906184916-2617.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906185125-9433.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906185345-9222.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906185527-8016.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906222041-8299.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906222219-6252.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906222352-5950.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906222601-2732.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906222818-6584.json',
+        'wp9-evidence/verdict-rsop-user-observe-20260906222959-7716.json',
+    ),
+    {
+        'build-rsop-candidate.py',
+        'psdirect.ps1',
+        'run-rsop-author.ps1',
+        'run-rsop-user-observe.ps1',
+        'run-rsop-user-oracle.sh',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp2-evidence/verification-estate.json',
+    ),
+    {
+        'build-wp2-candidate.py',
+        'psdirect.ps1',
+        'run-wp2-import.ps1',
+        'run-wp2-oracle.sh',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp3-evidence/policy-families/dc/verification.json',
+        'wp3-evidence/policy-families/member/verification.json',
+    ),
+    {
+        'build-wp3-candidate.py',
+        'finalize_wp3_run.py',
+        'policy_families.py',
+        'psdirect.ps1',
+        'run-wp3-oracle.sh',
+        'run-wp3-security-template.ps1',
+        'security_template.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp3-evidence/object-security/verification.json',
+    ),
+    {
+        'build-object-security-candidate.py',
+        'finalize_object_security_run.py',
+        'object_security.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'run-object-security-oracle.sh',
+        'run-object-security-template.ps1',
+        'sddl.py',
+        'security_template.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json',
+    ),
+    {
+        'build-endpoint-candidate.py',
+        'psdirect.ps1',
+        'run-endpoint-author.ps1',
+        'run-endpoint-observe.ps1',
+        'run-endpoint-oracle.sh',
+    },
+))
 
 
 def _verdict(relative: str) -> dict[str, Any]:
@@ -1026,7 +1344,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/manifest-estate.json")
+    manifest = _verdict("wp0-evidence/wi059-20260908/wp0/manifest.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (
@@ -1429,7 +1747,10 @@ def _history_is_complete() -> bool:
 def _verdict_commits() -> dict[str, list[str]]:
     """commit -> the verdict files that bind it, over every committed verdict."""
     bound: dict[str, list[str]] = {}
-    for path in sorted(EVIDENCE.glob("wp*-evidence/*.json")):
+    paths = set(EVIDENCE.glob("wp*-evidence/*.json"))
+    paths.update(EVIDENCE / relative for relative in LANE_VERDICTS)
+    paths.update(EVIDENCE.glob("wp0-evidence/**/manifest.json"))
+    for path in sorted(paths):
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

@@ -1,0 +1,52 @@
+{
+  "backup_id": "{FC1A2E50-3C24-5D7C-AF9C-126796565F8F}",
+  "gpo_name": "GPOStudio WP1B scheduledtasks-machine",
+  "native_shape_findings": [],
+  "settings": [],
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-000000000005}",
+  "summary": {
+    "preferences": {
+      "computer": {
+        "drives": [],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [
+          {
+            "action": "update",
+            "arguments": "/c exit 0",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "element_variant": "TaskV2",
+            "enabled": true,
+            "ilt": null,
+            "name": "GPOStudio WP1B Conformance Task",
+            "program": "C:\\Windows\\System32\\cmd.exe",
+            "run_as": "NT AUTHORITY\\System",
+            "start_in": "C:\\Windows\\System32",
+            "trigger_days": "",
+            "trigger_time": "03:15:00",
+            "trigger_type": "daily"
+          }
+        ],
+        "services": []
+      },
+      "user": {
+        "drives": [],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      }
+    },
+    "registry": {
+      "computer": [],
+      "user": []
+    },
+    "version": "gpo-studio.writer-conformance.v1"
+  }
+}

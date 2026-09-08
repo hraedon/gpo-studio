@@ -1,0 +1,20 @@
+{
+    "captured_utc":  "2026-09-08T00:57:39.3099876Z",
+    "directory_server":  "LabDC01.ad.labdomain.dev",
+    "computer_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "computer_restored":  true,
+    "user_dn":  "CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev",
+    "user_restored":  true,
+    "residual_ous":  [
+
+                     ],
+    "residual_gpos":  [
+
+                      ],
+    "residual_groups":  [
+
+                        ],
+    "residual_wmi_filters":  [
+
+                             ]
+}

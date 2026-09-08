@@ -1,0 +1,26 @@
+﻿{
+    "candidate_id":  "localusers-machine",
+    "family":  "local_users",
+    "target_name":  "WP1B-localusers-machine-20260908-003146-6983",
+    "backup_id":  "{DF49401F-85C1-55BB-A2DE-CAB0A6E5600D}",
+    "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000004}",
+    "whatif_succeeded":  true,
+    "whatif_target_absent":  true,
+    "import_succeeded":  true,
+    "report_captured":  true,
+    "rebackup_succeeded":  true,
+    "rebackup_dir":  "localusers-machine/rebackup",
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "version_state":  {
+                          "computer_dsa":  1,
+                          "computer_sysvol":  1,
+                          "user_dsa":  1,
+                          "user_sysvol":  1,
+                          "gpo_status":  "AllSettingsEnabled"
+                      },
+    "registry_readback":  [
+
+                          ],
+    "error":  null
+}

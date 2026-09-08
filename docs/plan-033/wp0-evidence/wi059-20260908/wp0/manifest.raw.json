@@ -1,0 +1,183 @@
+{
+    "fixture":  {
+                    "fixture_id":  "synthetic-registry-basic",
+                    "generation_recipe":  "C:\\gpo-studio\\runs\\20260907173052-14347\\scripts\\recipe.json"
+                },
+    "comparisons":  [
+
+                    ],
+    "run_id":  "live-synthetic-registry-basic-20260908003108-1493",
+    "commands":  [
+                     {
+                         "exit_code":  0,
+                         "relevant_event_ids":  [
+
+                                                ],
+                         "command_line":  "New-GPO -Name WP0-DryRun-Registry-20260908-003108-5697",
+                         "command_id":  "new-gpo",
+                         "stdout_sha256":  "cf5d63a4125ea3550b8563293c2fdc46f930589ac85dc850473fdadd7ff5bdb0",
+                         "stderr_sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "exit_code":  0,
+                         "relevant_event_ids":  [
+
+                                                ],
+                         "command_line":  "Set-GPRegistryValue (3 settings)",
+                         "command_id":  "set-gpregistryvalue",
+                         "stdout_sha256":  "778fcb4e240891cdc26d587012ffc7d4f7a5fcaa4dbdd255fecaf887e53bae99",
+                         "stderr_sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "exit_code":  0,
+                         "relevant_event_ids":  [
+
+                                                ],
+                         "command_line":  "Backup-GPO -Guid 9a800c77-3994-4cad-a7d8-2f67f247fa5c",
+                         "command_id":  "backup-gpo",
+                         "stdout_sha256":  "9c2656e3139bc1db4ad57204c59a1992cfd14c0bd7769a527abf5db3537e89b6",
+                         "stderr_sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "exit_code":  0,
+                         "relevant_event_ids":  [
+
+                                                ],
+                         "command_line":  "Get-GPOReport -Guid 9a800c77-3994-4cad-a7d8-2f67f247fa5c -ReportType XML",
+                         "command_id":  "get-gporeport",
+                         "stdout_sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                         "stderr_sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "exit_code":  0,
+                         "relevant_event_ids":  [
+
+                                                ],
+                         "command_line":  "Get-GPPermission -Guid 9a800c77-3994-4cad-a7d8-2f67f247fa5c -All",
+                         "command_id":  "get-gppermission",
+                         "stdout_sha256":  "01127a71d1686f495b5a807dcd335219b7a35887c517dfe6e346c50dcb15ead1",
+                         "stderr_sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                     },
+                     {
+                         "exit_code":  0,
+                         "relevant_event_ids":  [
+
+                                                ],
+                         "command_line":  "Get-GPO -All | filter Id -eq 9a800c77-3994-4cad-a7d8-2f67f247fa5c (strict post-removal re-query)",
+                         "command_id":  "cleanup-requery",
+                         "stdout_sha256":  "564f217fc834f25fada89b12228c56d432cb0f9f9a0ddbe24d7195967c96eacc",
+                         "stderr_sha256":  "99ccb1b9c81fe6d4e6abbff85e508deaec3f9bc640539688d0fe75b13cf3a669"
+                     }
+                 ],
+    "schema_version":  1,
+    "artifacts":  [
+                      {
+                          "size_bytes":  1394,
+                          "relative_path":  "fixture-input.json",
+                          "sha256":  "53c8f9e544625eb56ab901823df2b2fb4657a23f143411d26fd720dd9d5f1eec",
+                          "artifact_id":  "fixture-input",
+                          "role":  "input"
+                      },
+                      {
+                          "size_bytes":  3941,
+                          "relative_path":  "backup\\{195DBB5B-8274-441D-804E-907EECDB14C5}\\Backup.xml",
+                          "sha256":  "baaf4891cc4456a285c13bd10db575c836d7d0cd1c1c1c1d32ab585ceaf896df",
+                          "artifact_id":  "backup-backup-195DBB5B-8274-441D-804E-907EECDB14C5-Backup.xml",
+                          "role":  "output"
+                      },
+                      {
+                          "size_bytes":  16994,
+                          "relative_path":  "backup\\{195DBB5B-8274-441D-804E-907EECDB14C5}\\gpreport.xml",
+                          "sha256":  "f1624b676581d79f5eeaf553b8069a1a593d0e4dc67fb7fbc6a9c09d51ea90c0",
+                          "artifact_id":  "backup-backup-195DBB5B-8274-441D-804E-907EECDB14C5-gpreport.xml",
+                          "role":  "output"
+                      },
+                      {
+                          "size_bytes":  64,
+                          "relative_path":  "backup\\{195DBB5B-8274-441D-804E-907EECDB14C5}\\DomainSysvol\\GPO\\GPO.cmt",
+                          "sha256":  "083b73413ff5e3192a9414f1e83312d0f941aa7cbc004d85c1a9050c9bfcbfd6",
+                          "artifact_id":  "backup-backup-195DBB5B-8274-441D-804E-907EECDB14C5-DomainSysvol-GPO-GPO.cmt",
+                          "role":  "output"
+                      },
+                      {
+                          "size_bytes":  268,
+                          "relative_path":  "backup\\{195DBB5B-8274-441D-804E-907EECDB14C5}\\DomainSysvol\\GPO\\Machine\\registry.pol",
+                          "sha256":  "33006aa22bc14dbe7c11e274408f0e0ac31386e925b0565839e124c7caabaaa9",
+                          "artifact_id":  "backup-backup-195DBB5B-8274-441D-804E-907EECDB14C5-DomainSysvol-GPO-Machine-registry.pol",
+                          "role":  "output"
+                      },
+                      {
+                          "size_bytes":  158,
+                          "relative_path":  "backup\\{195DBB5B-8274-441D-804E-907EECDB14C5}\\DomainSysvol\\GPO\\User\\registry.pol",
+                          "sha256":  "655af407f6fe68986811b3ecb09c9ade191eb97b3bdefeacf0f5455ed02a9a6a",
+                          "artifact_id":  "backup-backup-195DBB5B-8274-441D-804E-907EECDB14C5-DomainSysvol-GPO-User-registry.pol",
+                          "role":  "output"
+                      },
+                      {
+                          "size_bytes":  16994,
+                          "relative_path":  "gpreport.xml",
+                          "sha256":  "76ec484b69f3db70dc22552631e71102130b3907cf27c54402b0ebd4f1d82713",
+                          "artifact_id":  "gpreport",
+                          "role":  "output"
+                      },
+                      {
+                          "size_bytes":  1190,
+                          "relative_path":  "permissions.txt",
+                          "sha256":  "01127a71d1686f495b5a807dcd335219b7a35887c517dfe6e346c50dcb15ead1",
+                          "artifact_id":  "permissions",
+                          "role":  "raw-log"
+                      },
+                      {
+                          "size_bytes":  93,
+                          "relative_path":  "commands\\cleanup-requery.stdout.txt",
+                          "sha256":  "564f217fc834f25fada89b12228c56d432cb0f9f9a0ddbe24d7195967c96eacc",
+                          "artifact_id":  "cleanup-requery-stdout",
+                          "role":  "raw-log"
+                      },
+                      {
+                          "size_bytes":  77,
+                          "relative_path":  "commands\\cleanup-requery.stderr.txt",
+                          "sha256":  "99ccb1b9c81fe6d4e6abbff85e508deaec3f9bc640539688d0fe75b13cf3a669",
+                          "artifact_id":  "cleanup-requery-stderr",
+                          "role":  "raw-log"
+                      }
+                  ],
+    "tools":  [
+                  {
+                      "sha256":  null,
+                      "name":  "GroupPolicy",
+                      "version":  "1.0.0.0"
+                  }
+              ],
+    "source":  {
+                   "dirty":  true,
+                   "commit":  "0000000000000000000000000000000000000000"
+               },
+    "started_at":  "2026-09-08T00:31:08.4634149Z",
+    "capability":  {
+                       "evidence_state":  "inconclusive",
+                       "matrix_row":  "wp0.evidence-harness.self-consistency"
+                   },
+    "completed_at":  "2026-09-08T00:31:11.9764624Z",
+    "cleanup":  {
+                    "state_restored":  true,
+                    "attempted":  true,
+                    "succeeded":  true,
+                    "removed_resources":  [
+                                              "gpo:9a800c77-3994-4cad-a7d8-2f67f247fa5c"
+                                          ],
+                    "failures":  [
+
+                                 ]
+                },
+    "environment":  {
+                        "lgpo_sha256":  "0000000000000000000000000000000000000000000000000000000000000000",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US",
+                        "client_build":  "not-tested",
+                        "server_build":  "Microsoft Windows Server 2025 Standard 26100",
+                        "powershell_version":  "5.1.26100.33296"
+                    }
+}

@@ -1,0 +1,38 @@
+{
+  "control_gpo": "Studio-RSOP-Control",
+  "control_value_name": "Control",
+  "endpoint_user": "",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-DomainPlain",
+      "isolates": "non-enforced domain link must NOT reach a child that blocks inheritance"
+    },
+    {
+      "gpo": "Studio-RSOP-DomainEnforced",
+      "isolates": "enforced link defeats the block AND applies last, so it wins the conflict"
+    },
+    {
+      "gpo": "Studio-RSOP-ChildGPO",
+      "isolates": "linked AT the blocking container, so the block does not affect it"
+    },
+    {
+      "gpo": "Studio-RSOP-UserSideOff",
+      "isolates": "a disabled USER side must not stop the COMPUTER side applying"
+    },
+    {
+      "gpo": "Studio-RSOP-DisabledLink",
+      "isolates": "a disabled link must make its GPO vanish entirely"
+    },
+    {
+      "gpo": "Studio-RSOP-Control",
+      "isolates": "CONTROL: unconflicted, unfiltered. Absent => the experiment did not run."
+    }
+  ],
+  "scenario_id": "disabled-block-enforced",
+  "scope": "computer"
+}

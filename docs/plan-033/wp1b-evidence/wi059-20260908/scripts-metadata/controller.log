@@ -1,0 +1,182 @@
+wrote C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907173326-14501\studio-scripts-backup.zip (2647 bytes)
+backup id: {49227F28-6122-5999-8CEB-923CB9BF3001}
+archive: C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907173326-14501\studio-scripts-backup.zip (2647 bytes)
+archive sha256: cd650643ed6449d1052c9bd26a08197fe1d9ac2d814eeede5ef177fcf0993f12
+members (5):
+  manifest.xml  620 bytes  sha256:cfe788f05d6f16dd125b735905022020b50129199f3d402f9fbe5f730857c2b7
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/Backup.xml  2774 bytes  sha256:f037344018bed720808554d80b4601f03f195a4085340eb630e32972d08db2c0
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/DomainSysvol/GPO/Machine/Scripts/psscripts.ini  226 bytes  sha256:a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/DomainSysvol/GPO/Machine/Scripts/scripts.ini  234 bytes  sha256:46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/bkupInfo.xml  509 bytes  sha256:bbb07a602e9736426189202be270208a59b6938295c9f8eee2be9533f921873f
+
+PSComputerName   : mpmlabhv01
+RunspaceId       : 9d5abfca-f3db-44b2-94fe-7ccd93d1b7d6
+Id               : b0cce6c6-887b-4071-8b5f-56fd2002dc90
+DisplayName      : zz-studio-r10-scripts-r10-20260908003334-8294
+Path             : cn={b0cce6c6-887b-4071-8b5f-56fd2002dc90},cn=policies,cn=system,DC=AD,DC=LABDOMAIN,DC=DEV
+Owner            : LAB\Domain Admins
+DomainName       : AD.LABDOMAIN.DEV
+CreationTime     : 9/8/2026 12:33:29 AM
+ModificationTime : 9/8/2026 12:33:30 AM
+User             : Microsoft.GroupPolicy.UserConfiguration
+Computer         : Microsoft.GroupPolicy.ComputerConfiguration
+GpoStatus        : AllSettingsEnabled
+WmiFilter        : 
+Description      : Plan 034 R10 disposable metadata oracle
+
+LOCAL_RUN_DIR=/tmp/opencode/scripts-r10-run-20260907173326-14501
+CANDIDATE_DIR=/tmp/opencode/scripts-r10-candidate-20260907173326-14501
+{
+  "artifacts": {
+    "build-scripts-backup-candidate.py": "eeb1bee6865946f44557c87b0bfc5e70601a6e4d24196de77a983a4ef24120ad",
+    "builder.stdout.txt": "737e22358ec9e7e5a3d9fa2dc3899a4167d374db4d78c933b992b72ce0c13a1c",
+    "candidate.zip": "cd650643ed6449d1052c9bd26a08197fe1d9ac2d814eeede5ef177fcf0993f12",
+    "canonical.py": "f6d50f11789abb16d35355d909de9c1f86d59658432119281344597cd875da38",
+    "commands/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/backup.stdout.txt": "bd08ff9afea1a8a2e79f9d153502ff309af7a42cfe5c19ccc3de490c21aa8d38",
+    "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.stdout.txt": "6d05bd9786c76eb38c21f7a000863707ecc5659fbdc219344c1dc7011b428135",
+    "commands/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "deployed/run-scripts-backup-import.ps1": "402b3212f444d4fd712b3c2a31afc56f8276e3c1415586f5c2a5b3b6305c1cb5",
+    "export.py": "23bfe3e46da2edcc8a7868545aecf024c3c38f5b06380461371a02934876984c",
+    "finalize_scripts_backup_run.py": "148dca1135ad102114ffdf869847d3f89c72c491e3b4f297210c76688dc46dfa",
+    "gpp.py": "09b8ed054ea3b856545908a847c2cd7361e90f9f83d43267822c06605abf5494",
+    "input/manifest.xml": "cfe788f05d6f16dd125b735905022020b50129199f3d402f9fbe5f730857c2b7",
+    "input/{49227F28-6122-5999-8CEB-923CB9BF3001}/Backup.xml": "f037344018bed720808554d80b4601f03f195a4085340eb630e32972d08db2c0",
+    "input/{49227F28-6122-5999-8CEB-923CB9BF3001}/DomainSysvol/GPO/Machine/Scripts/psscripts.ini": "a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b",
+    "input/{49227F28-6122-5999-8CEB-923CB9BF3001}/DomainSysvol/GPO/Machine/Scripts/scripts.ini": "46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c",
+    "input/{49227F28-6122-5999-8CEB-923CB9BF3001}/bkupInfo.xml": "bbb07a602e9736426189202be270208a59b6938295c9f8eee2be9533f921873f",
+    "model.py": "0c2f526fb733f13110f19fde5178c2c417f44e1d8f94f5007e5187092899fb0e",
+    "oracle_evidence.py": "e9d7f9fe8cc9d4fadab2dbca03fd8e0c6adf277263d6fca9cb54202fe2176369",
+    "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+    "rebackup/manifest.xml": "04a95c28076aced497106abe78adb315b093ecfe36ce0db88cb4aa73f6479e06",
+    "rebackup/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/Backup.xml": "06ea5cddf3c6cbfe368a68a4e6e8ced96160fd98494708b71195578b02e436f7",
+    "rebackup/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/DomainSysvol/GPO/GPO.cmt": "4623b9b2fe51cce8b54d9e61f3b626e72630d582d251115d3168835b0ab82381",
+    "rebackup/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/DomainSysvol/GPO/Machine/Scripts/PSscripts.ini": "a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b",
+    "rebackup/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/DomainSysvol/GPO/Machine/Scripts/scripts.ini": "46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c",
+    "rebackup/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/bkupInfo.xml": "1fbc766a78483553174fefcc1bceb139f5295476d3bb2ba67b0265bd46a48fac",
+    "rebackup/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/gpreport.xml": "42305ee6f9731fb95edea604bcf3a8e637d2eaabb5107f08ac216aa6009836fc",
+    "registry_pol.py": "893014badac42eb3c98c5c951564a5969d886018e81b7431138e50e1486ecc3a",
+    "report.xml": "04e60c1bc49f616cc942cfc4128364035c32ac1ad2b6cc557dc7e365790db2d5",
+    "result.json": "db1896588515afb6f50b0e94c53136b14ae79f2cd8016f87f3893b46aa58b114",
+    "run-scripts-backup-oracle.sh": "cfc2fdd524061e18e0b8be756c4130123293d7fc3d60c57f14a65feeb8241aec",
+    "script_policy.py": "919841ccbfb97849e05c077aeb93e7d9447ec80aa9a3936dc923f11fa0de418c",
+    "validation.py": "f71186642784d6ccb19439318c5acb9876fabfdae79c74a9e1633441961b4d59",
+    "xml_safety.py": "8f9a65060cd904c081d06023324990504674e49b603630f1696f32fa269cfb53"
+  },
+  "candidate_delivery": {
+    "controller_sha256": "cd650643ed6449d1052c9bd26a08197fe1d9ac2d814eeede5ef177fcf0993f12",
+    "guest_sha256": "cd650643ed6449d1052c9bd26a08197fe1d9ac2d814eeede5ef177fcf0993f12"
+  },
+  "checks": {
+    "candidate_delivered_intact": true,
+    "candidate_identity_matches_manifest": true,
+    "candidate_metadata_exact": true,
+    "cleanup_state_restored": true,
+    "cleanup_succeeded": true,
+    "deployed_harness_matches_source": true,
+    "disposable_gpo_unlinked": true,
+    "environment_matches_frozen_spec": true,
+    "harness_reported_no_error": true,
+    "import_succeeded": true,
+    "local_evidence_copies_match_source": true,
+    "member_server_host_role": true,
+    "raw_command_artifacts_complete": true,
+    "rebackup_identity_matches_owned_target": true,
+    "rebackup_succeeded": true,
+    "report_exposes_exact_scripts_metadata": true,
+    "report_succeeded": true,
+    "result_schema_exact": true,
+    "source_tree_clean": true,
+    "windows_rebackup_ini_bytes_exact": true,
+    "windows_rebackup_metadata_exact": true
+  },
+  "comparison_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33296",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "harness_error": null,
+  "original_projection": {
+    "backup_id": "{49227F28-6122-5999-8CEB-923CB9BF3001}",
+    "display_name": "zz-studio-evidence-10-scripts",
+    "domain": "synthetic.test",
+    "file_references": [
+      "Machine/Scripts/psscripts.ini",
+      "Machine/Scripts/scripts.ini"
+    ],
+    "files": {
+      "Machine/Scripts/psscripts.ini": "a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b",
+      "Machine/Scripts/scripts.ini": "46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c"
+    },
+    "gpo_id": "{22222222-3333-4444-5555-666666666666}",
+    "machine_extension_pair": "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]",
+    "script_files": [
+      "Machine/Scripts/psscripts.ini",
+      "Machine/Scripts/scripts.ini"
+    ],
+    "source_gpo_id": "{22222222-3333-4444-5555-666666666666}",
+    "user_extension_pair": "",
+    "wildcard_references": []
+  },
+  "passed": true,
+  "rebackup_projection": {
+    "display_name": "zz-studio-r10-scripts-r10-20260908003334-8294",
+    "domain": "AD.LABDOMAIN.DEV",
+    "file_references": [
+      "Machine/Scripts/PSscripts.ini",
+      "Machine/Scripts/scripts.ini"
+    ],
+    "files": {
+      "Machine/Scripts/psscripts.ini": "a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b",
+      "Machine/Scripts/scripts.ini": "46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c"
+    },
+    "gpo_id": "{b0cce6c6-887b-4071-8b5f-56fd2002dc90}",
+    "machine_extension_pair": "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]",
+    "script_files": [
+      "Machine/Scripts/PSscripts.ini",
+      "Machine/Scripts/scripts.ini"
+    ],
+    "user_extension_pair": "",
+    "wildcard_references": [
+      "%GPO_MACH_FSPATH%\\Scripts\\Shutdown\\*",
+      "%GPO_MACH_FSPATH%\\Scripts\\Startup\\*",
+      "%GPO_USER_FSPATH%\\Scripts\\Logoff\\*",
+      "%GPO_USER_FSPATH%\\Scripts\\Logon\\*"
+    ]
+  },
+  "run_id": "scripts-r10-20260908003334-8294",
+  "schema_version": 1,
+  "source": {
+    "commit": "4cfa9af4b3f12104e8c592cd94df00b88e49beb5",
+    "dirty": false,
+    "files": {
+      "build-scripts-backup-candidate.py": "eeb1bee6865946f44557c87b0bfc5e70601a6e4d24196de77a983a4ef24120ad",
+      "canonical.py": "f6d50f11789abb16d35355d909de9c1f86d59658432119281344597cd875da38",
+      "export.py": "23bfe3e46da2edcc8a7868545aecf024c3c38f5b06380461371a02934876984c",
+      "finalize_scripts_backup_run.py": "148dca1135ad102114ffdf869847d3f89c72c491e3b4f297210c76688dc46dfa",
+      "gpp.py": "09b8ed054ea3b856545908a847c2cd7361e90f9f83d43267822c06605abf5494",
+      "model.py": "0c2f526fb733f13110f19fde5178c2c417f44e1d8f94f5007e5187092899fb0e",
+      "oracle_evidence.py": "e9d7f9fe8cc9d4fadab2dbca03fd8e0c6adf277263d6fca9cb54202fe2176369",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "registry_pol.py": "893014badac42eb3c98c5c951564a5969d886018e81b7431138e50e1486ecc3a",
+      "run-scripts-backup-import.ps1": "402b3212f444d4fd712b3c2a31afc56f8276e3c1415586f5c2a5b3b6305c1cb5",
+      "run-scripts-backup-oracle.sh": "cfc2fdd524061e18e0b8be756c4130123293d7fc3d60c57f14a65feeb8241aec",
+      "script_policy.py": "919841ccbfb97849e05c077aeb93e7d9447ec80aa9a3936dc923f11fa0de418c",
+      "validation.py": "f71186642784d6ccb19439318c5acb9876fabfdae79c74a9e1633441961b4d59",
+      "xml_safety.py": "8f9a65060cd904c081d06023324990504674e49b603630f1696f32fa269cfb53"
+    }
+  },
+  "transport": "psdirect"
+}
+EVIDENCE_TAG=created evidence/scripts-r10-20260908003334-8294 at 4cfa9af4b3f1 — push it: git push origin evidence/scripts-r10-20260908003334-8294

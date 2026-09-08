@@ -176,7 +176,11 @@ value and the workaround is gone.
 
 ## Gotcha: `SearchedSOM` accumulates deleted OUs
 
-Observed, mechanism not established, and it would mislead the obvious next step.
+**Investigated 2026-09-07; WI-028 closed with an explicit scoped-use strategy.**
+The original observation below is retained. A controlled empty-OU experiment
+now reproduces the stale row in `root/rsop/computer:RSOP_SOM` and fresh XML
+after verified AD deletion and a successful forced refresh. See the
+[investigation and hash-bound captures](wi028-searched-som-investigation.md).
 
 The `SearchedSOM` list in run 3's document contains **24 entries**, including
 OUs from all three of today's runs *and* `GPOStudioLab-*` OUs from the endpoint
@@ -190,8 +194,15 @@ block-inheritance and enforcement evidence) would be reading rows for containers
 that no longer exist and were not searched in that run. It could "confirm" a
 block-inheritance prediction against an OU from a previous experiment.
 
-Do not build the enforcement/block-inheritance oracle on `SearchedSOM` without
-first establishing why stale rows persist and how to scope a read to one run.
+**Do not use the whole `SearchedSOM` list as a current-run oracle.** Use unique
+experiment OU identities, prove their absence in a before capture, and select
+exact author-recorded identities and reasons during the experiment. Require
+the expected cardinality and WMI/XML agreement. Retain other rows only as
+diagnostics. Shared local/site/domain rows are not made fresh by this strategy;
+their precedence assertions need independent freshness evidence. Session
+creation time and successful `gpupdate` are not row-freshness checks. No
+current lane grades this section, and block/enforcement qualification remains
+separate work under the full [scoping requirements](wi028-searched-som-investigation.md).
 
 ## Two harness defects the estate found, and one it did not
 
