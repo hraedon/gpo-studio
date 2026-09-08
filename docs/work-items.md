@@ -20,9 +20,8 @@ whose closing condition is not stated cannot be closed, only forgotten.
 
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
-- [WI-059](#wi-059--a-windows-controller-can-mint-a-verdict-ci-will-reject) — a Windows controller can mint a verdict CI will reject
 
-**1 open.** Everything else in this file is closed.
+**0 open.** Every numbered item in this file is closed.
 
 ---
 
@@ -2204,7 +2203,7 @@ reads as a decision rather than an oversight.
 
 **Opened:** 2026-09-07 (while closing WI-057; it cost two lane runs the same
 afternoon).
-**Status:** open.
+**Status:** closed 2026-09-08 after finalizer enforcement and the complete estate batch.
 
 The finalizers hash **working-tree bytes** for the source files a verdict
 binds. CI hashes what Git checked out. On a Windows controller those can
@@ -2214,9 +2213,7 @@ in CI — after the estate work is already spent.
 **How it happened, twice.** `.gitattributes` pins every bound source file to
 `text eol=lf` precisely so working tree and committed bytes agree. That holds
 until something rewrites a file with platform newlines: Python's
-`Path.write_text` translates `
-` to `
-` on Windows by default, so an
+`Path.write_text` translates `\n` to `\r\n` on Windows by default, so an
 ordinary scripted edit to `export.py` left CRLF in the working tree against an
 LF index. `git status` said clean — it compares normalized content — and the
 lane recorded `61ad9fa8445f` where CI computes `23bfe3e46da2`. The previous
@@ -2243,7 +2240,7 @@ about.
 bound to one. It is therefore a WI-048 batch item: worth doing in the same
 session as the next harness change, not on its own.
 
-**2026-09-07 — preflight prepared; finalizer enforcement remains open.**
+**Preparation at `d03de25` — preflight only (superseded by the completed batch below).**
 `scripts/plan-033/check-bound-source-bytes.py` checks the declared sets of all
 ten finalizers (51 distinct paths), including WP-0. Real-Git tests prove it
 refuses CRLF working bytes even when normalized status/diff are clean. Its
@@ -2258,8 +2255,11 @@ finalizer refusal tests and fresh estate batch are still required.
 including WP-0's library path, and the source tables bind both the finalizer
 and shared guard. Thirty real-Git subprocess cases cover refusals and clean
 controls. The previous packs and their recorded input bytes are preserved.
-The 21 replacement live verdicts plus WP-0 are still pending; this item stays
-open until the estate batch and registry updates are complete.
+All 21 replacement live verdicts and WP-0 passed against frozen commit
+`4cfa9af4b3f12104e8c592cd94df00b88e49beb5`. The banked artifacts, current registry entries,
+and exact source bindings are checked by the completed-batch tests. Old packs
+and tags remain intact; no historical verdict was rewritten. The client and
+directory cleanup checks passed. See [the completed batch](plan-033/wi059-harness-batch.md).
 
 ---
 

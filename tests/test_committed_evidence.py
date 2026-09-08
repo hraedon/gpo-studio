@@ -674,6 +674,70 @@ NON_VERDICT_EVIDENCE_FILES: dict[str, str] = {
     ),
 }
 
+# WI-059: replacement runs on one frozen harness; the old records remain immutable.
+LANE_VERDICTS.update({
+    'wp1b-evidence/wi059-20260908/wp1b/verification.json': 'finalize_wp1b_run.py',
+    'wp2-evidence/wi059-20260908/wp2/verification.json': 'finalize_wp2_import_run.py',
+    'wp3-evidence/wi059-20260908/wp3-member/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi059-20260908/wp3-dc/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi059-20260908/object-security/verification.json': (
+        'finalize_object_security_run.py'
+    ),
+    'wp1b-evidence/wi059-20260908/scripts-metadata/verification.json': (
+        'finalize_scripts_backup_run.py'
+    ),
+    'wp1b-evidence/wi059-20260908/publication/verification.json': 'finalize_publication_run.py',
+    'wp6-evidence/wi059-20260908/endpoint/verification.json': 'finalize_endpoint_run.py',
+    'wp6-evidence/wi059-20260908/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/wmi-filtering/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi059-20260908/computer-security-filtering/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp9-evidence/wi059-20260908/loopback-merge/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi059-20260908/loopback-replace/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi059-20260908/user-side-disabled/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi059-20260908/user-security-filtering/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+})
+RETIRED_VERDICTS.update({
+    'wp1b-evidence/verification-estate.json',
+    'wp1b-evidence/scripts-metadata/verification.json',
+    'wp1b-evidence/publication-completeness/verification.json',
+    'wp6-evidence/verdict-rsop-observe-20260907221946-2994.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222055-1770.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222206-6220.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222315-2698.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222431-1389.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222610-4330.json',
+    'wp6-evidence/verdict-rsop-observe-20260907222726-4256.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907220844-4855.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221020-2710.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221153-8426.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221411-3148.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221626-5555.json',
+    'wp9-evidence/verdict-rsop-user-observe-20260907221808-9398.json',
+    'wp2-evidence/verification-estate.json',
+    'wp3-evidence/policy-families/dc/verification.json',
+    'wp3-evidence/policy-families/member/verification.json',
+    'wp3-evidence/object-security/verification.json',
+    'wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json',
+})
+
 #: The verdicts that are still CLAIMS: everything mapped and not retired.
 LIVE_VERDICTS = {
     relative: finalizer
@@ -1280,7 +1344,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/manifest-estate.json")
+    manifest = _verdict("wp0-evidence/wi059-20260908/wp0/manifest.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (
@@ -1683,7 +1747,10 @@ def _history_is_complete() -> bool:
 def _verdict_commits() -> dict[str, list[str]]:
     """commit -> the verdict files that bind it, over every committed verdict."""
     bound: dict[str, list[str]] = {}
-    for path in sorted(EVIDENCE.glob("wp*-evidence/*.json")):
+    paths = set(EVIDENCE.glob("wp*-evidence/*.json"))
+    paths.update(EVIDENCE / relative for relative in LANE_VERDICTS)
+    paths.update(EVIDENCE.glob("wp0-evidence/**/manifest.json"))
+    for path in sorted(paths):
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

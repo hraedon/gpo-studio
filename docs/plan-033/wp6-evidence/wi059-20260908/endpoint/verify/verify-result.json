@@ -1,0 +1,13 @@
+﻿{
+    "computer":  "LABCL01",
+    "gpupdate_exit_code":  0,
+    "target_gpo":  "Endpoint-20260908-003427-1093",
+    "gpo_still_applied":  false,
+    "tasks_removed":  true,
+    "residual_tasks":  [
+
+                       ],
+    "errors":  [
+
+               ]
+}

@@ -1,0 +1,127 @@
+{
+  "domain": "ad.labdomain.dev",
+  "endpoint_computer": "LabCL01",
+  "endpoint_user": "",
+  "gpos": [
+    {
+      "enforced": false,
+      "filters": [],
+      "link_enabled": true,
+      "name": "Studio-RSOP-WmiError",
+      "order": 1,
+      "raw_values": [],
+      "scope": "ou",
+      "scope_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "scope_key": "child",
+      "user_enabled": true,
+      "user_values": [],
+      "values": [
+        {
+          "type": "String",
+          "value": "error",
+          "value_name": "Wmi"
+        },
+        {
+          "type": "String",
+          "value": "1",
+          "value_name": "WmiErrorOnly"
+        }
+      ],
+      "wmi_filter": {
+        "expect_true": null,
+        "name": "StudioRsopUnevaluatable",
+        "query": "SELECT * FROM Win32_NoSuchClassStudioLab",
+        "why": "UNKNOWN OUTCOME: the query is valid WQL naming a class that does not exist, so it can be neither true nor false. What Windows does with it is what this scenario is for."
+      }
+    },
+    {
+      "enforced": false,
+      "filters": [],
+      "link_enabled": true,
+      "name": "Studio-RSOP-WmiTrue",
+      "order": 2,
+      "raw_values": [],
+      "scope": "ou",
+      "scope_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "scope_key": "child",
+      "user_enabled": true,
+      "user_values": [],
+      "values": [
+        {
+          "type": "String",
+          "value": "true",
+          "value_name": "Wmi"
+        },
+        {
+          "type": "String",
+          "value": "1",
+          "value_name": "WmiTrueOnly"
+        }
+      ],
+      "wmi_filter": {
+        "expect_true": true,
+        "name": "StudioRsopAlwaysTrue",
+        "query": "SELECT * FROM Win32_OperatingSystem WHERE BuildNumber >= '1'",
+        "why": "CONTROL: proves filter authoring works in this run, so the error row's outcome cannot be blamed on a malformed filter."
+      }
+    },
+    {
+      "enforced": false,
+      "filters": [],
+      "link_enabled": true,
+      "name": "Studio-RSOP-Control",
+      "order": 3,
+      "raw_values": [],
+      "scope": "ou",
+      "scope_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "scope_key": "child",
+      "user_enabled": true,
+      "user_values": [],
+      "values": [
+        {
+          "type": "String",
+          "value": "present",
+          "value_name": "Control"
+        }
+      ],
+      "wmi_filter": null
+    }
+  ],
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "ous": [
+    {
+      "block_inheritance": false,
+      "dn": "OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "key": "root",
+      "name": "StudioRsop",
+      "parent_dn": "DC=ad,DC=labdomain,DC=dev",
+      "parent_key": "domain"
+    },
+    {
+      "block_inheritance": false,
+      "dn": "OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "key": "parent",
+      "name": "StudioRsopParent",
+      "parent_dn": "OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "parent_key": "root"
+    },
+    {
+      "block_inheritance": false,
+      "dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "key": "child",
+      "name": "StudioRsopChild",
+      "parent_dn": "OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+      "parent_key": "parent"
+    }
+  ],
+  "policy_key": "Software\\Policies\\StudioLab",
+  "scenario_id": "wmi-filtering-error",
+  "scope": "computer",
+  "site_name": "Default-First-Site-Name",
+  "target_ou_dn": "OU=StudioRsopChild,OU=StudioRsopParent,OU=StudioRsop,DC=ad,DC=labdomain,DC=dev",
+  "target_ou_key": "child",
+  "user_ou_dn": "",
+  "user_ou_key": ""
+}

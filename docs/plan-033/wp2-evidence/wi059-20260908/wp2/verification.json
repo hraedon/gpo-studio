@@ -1,0 +1,88 @@
+{
+  "artifacts": {
+    "build-wp2-candidate.py": "e07136eac9a60b011c6f13d571c2967d938d81dccef74e3ea1ebac7018619db1",
+    "candidate.zip": "ddd72fd9373f880f171de63501c543e1426854e5fc5a835fa8ba0721f705b0f3",
+    "commands\\backup-gpo.stdout.txt": "b474479b163d34460512f978e3db1645750b994d333951a90855f40aa668f7de",
+    "commands\\get-gpo.stdout.txt": "3706b0bd72c27418f3a1a952afa7642634cb9a7bf794441b52688729834aa5cf",
+    "commands\\import-actual.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands\\import-actual.stdout.txt": "ffc9de5d40e314ef71a0a2ffb23edbae486c75ec71fb4ab5eba551a1552baeb2",
+    "commands\\import-whatif.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands\\import-whatif.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "deployed\\run-wp2-import.ps1": "aa200b2386de9c9b99a53565f0e076d0fc3c8d520403564721345cd14ffcefce",
+    "expected.json": "811f6133d08d212b07278da928a9261bd5d5f6bea01e2539a0bf20ca46c7b6f6",
+    "finalize_wp2_import_run.py": "4199a4fce726b0f26d36f54aaea8afd2472cd16d6015b3366b91e9eb78e2f6b5",
+    "gpreport-after-import.xml": "78e04b8efa7979b8ae97db633f4e4e2e488ccd31564072c25f2732fa35d9f905",
+    "input\\manifest.xml": "cacb5ac8fb3fe6f69880b0f21aa97cd5757c0ef7ef6a8f051ea4af4abfbd1b13",
+    "input\\{043EA4BF-4DC1-5374-8557-B85E805B5CE0}\\Backup.xml": "5f05ac0cc371c09dd4f5be94f1214395f2b83aaa83d76bb0bd7361b4e9b53dce",
+    "input\\{043EA4BF-4DC1-5374-8557-B85E805B5CE0}\\DomainSysvol\\GPO\\Machine\\registry.pol": "f8dea3be075fc11c60877dd29c1a8ddd58506829aa8baa6c8f4de16a7950ce37",
+    "input\\{043EA4BF-4DC1-5374-8557-B85E805B5CE0}\\DomainSysvol\\GPO\\User\\registry.pol": "6ab052452b6453f4b2153cc7486d2cd025c8ef802e311a5f4fdccf4644bed23e",
+    "input\\{043EA4BF-4DC1-5374-8557-B85E805B5CE0}\\bkupInfo.xml": "8a7ba5bba3e5dd92b54a824f62fc44c4133db5644d95372ecc10db0f6694eec1",
+    "oracle_evidence.py": "e9d7f9fe8cc9d4fadab2dbca03fd8e0c6adf277263d6fca9cb54202fe2176369",
+    "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+    "rebackup\\manifest.xml": "5db85c3ac3c30b7a80e787bdcdd2b9fee42890a90ccfc2cdb6867d8c994fc6eb",
+    "rebackup\\{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}\\Backup.xml": "f9b8828d6586230465f4b4eb85c10be680623bc187f2438e5c43d1a71d20ffaa",
+    "rebackup\\{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}\\DomainSysvol\\GPO\\Machine\\registry.pol": "f8dea3be075fc11c60877dd29c1a8ddd58506829aa8baa6c8f4de16a7950ce37",
+    "rebackup\\{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}\\DomainSysvol\\GPO\\User\\registry.pol": "6ab052452b6453f4b2153cc7486d2cd025c8ef802e311a5f4fdccf4644bed23e",
+    "rebackup\\{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}\\bkupInfo.xml": "dec7a2e1e35710055ae77e15721a453dc471c7676088189e30cac746bd46ba1f",
+    "rebackup\\{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}\\gpreport.xml": "8c749a8f2546ce16f509964fd445f19ac2f3f3d506f5ed107514abe9d0933276",
+    "result.json": "4687c939340c034abf593f4391bebf9142469529d36e9b12a34bc72ae0cc8173",
+    "run-wp2-oracle.sh": "784caca5a7a9dafa6c4477aa4a4aeea95cd1b9de3365efe6bc892580ea5e6be0"
+  },
+  "candidate_delivery": {
+    "candidate.zip": {
+      "controller_sha256": "ddd72fd9373f880f171de63501c543e1426854e5fc5a835fa8ba0721f705b0f3",
+      "guest_copy_matches": true
+    },
+    "expected.json": {
+      "controller_sha256": "811f6133d08d212b07278da928a9261bd5d5f6bea01e2539a0bf20ca46c7b6f6",
+      "guest_copy_matches": true
+    }
+  },
+  "checks": {
+    "actual_import_succeeded": true,
+    "backup_id_distinct": true,
+    "backup_id_matches": true,
+    "candidate_delivered_intact": true,
+    "cleanup_state_restored": true,
+    "cleanup_succeeded": true,
+    "computer_versions_synchronized": true,
+    "environment_matches_frozen_spec": true,
+    "group_policy_readback_matches": true,
+    "harness_matches_source": true,
+    "rebackup_has_one_gpo": true,
+    "rebackup_machine_version_matches": true,
+    "rebackup_user_version_matches": true,
+    "source_tree_clean": true,
+    "user_versions_synchronized": true,
+    "whatif_succeeded": true,
+    "whatif_target_absent": true,
+    "windows_rebackup_matches": true
+  },
+  "environment": {
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33296",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "passed": true,
+  "rebackup_error": null,
+  "run_id": "wp2-native-import-20260908003212-8693",
+  "schema_version": 1,
+  "source": {
+    "commit": "4cfa9af4b3f12104e8c592cd94df00b88e49beb5",
+    "dirty": false,
+    "files": {
+      "build-wp2-candidate.py": "e07136eac9a60b011c6f13d571c2967d938d81dccef74e3ea1ebac7018619db1",
+      "finalize_wp2_import_run.py": "4199a4fce726b0f26d36f54aaea8afd2472cd16d6015b3366b91e9eb78e2f6b5",
+      "oracle_evidence.py": "e9d7f9fe8cc9d4fadab2dbca03fd8e0c6adf277263d6fca9cb54202fe2176369",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "run-wp2-import.ps1": "aa200b2386de9c9b99a53565f0e076d0fc3c8d520403564721345cd14ffcefce",
+      "run-wp2-oracle.sh": "784caca5a7a9dafa6c4477aa4a4aeea95cd1b9de3365efe6bc892580ea5e6be0"
+    }
+  },
+  "transport": "psdirect"
+}

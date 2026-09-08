@@ -1,0 +1,77 @@
+﻿{
+    "run_id":  "rsop-observe-20260908003917-3943",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-observe-20260908003917-3943",
+    "scope":  "computer",
+    "computer":  "LABCL01",
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "cse_completed":  true,
+    "cse_completed_at":  "2026-09-08T00:39:17.9825263+00:00",
+    "rsop_captured":  true,
+    "rsop_parse_error":  null,
+    "pre_run_residual":  [
+
+                         ],
+    "boot_applied_values":  [
+
+                            ],
+    "applied_gpos":  [
+                         "Default Domain Policy",
+                         "Local Group Policy",
+                         "Studio-RSOP-Control-20260908003912-5431",
+                         "Studio-RSOP-WmiTrue-20260908003912-5431"
+                     ],
+    "denied_gpos":  [
+                        {
+                            "gpo":  "Studio-RSOP-WmiFalse-20260908003912-5431",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        }
+                    ],
+    "observed_values":  [
+                            {
+                                "value_name":  "Control",
+                                "value":  "present"
+                            },
+                            {
+                                "value_name":  "Wmi",
+                                "value":  "true"
+                            },
+                            {
+                                "value_name":  "WmiTrueOnly",
+                                "value":  "1"
+                            }
+                        ],
+    "control_present":  true,
+    "lane_problems":  [
+
+                      ],
+    "token_group":  "",
+    "token_groups_session":  [
+                                 "BUILTIN\\Administrators",
+                                 "Everyone",
+                                 "BUILTIN\\Users",
+                                 "NT AUTHORITY\\NETWORK",
+                                 "NT AUTHORITY\\Authenticated Users",
+                                 "This Organization",
+                                 "LABCL01$",
+                                 "Domain Computers",
+                                 "Authentication authority asserted identity",
+                                 "System Mandatory Level"
+                             ],
+    "token_groups_ldap":  [
+                              "LAB\\Domain Computers"
+                          ],
+    "token_groups_ldap_status":  "collected",
+    "token_groups_ldap_error":  null,
+    "token_collection_error":  null,
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.9168",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

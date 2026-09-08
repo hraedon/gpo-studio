@@ -1,0 +1,91 @@
+﻿{
+    "run_id":  "rsop-observe-20260908004329-7397",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-observe-20260908004329-7397",
+    "scope":  "computer",
+    "computer":  "LABCL01",
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "cse_completed":  true,
+    "cse_completed_at":  "2026-09-08T00:43:30.7622142+00:00",
+    "rsop_captured":  true,
+    "rsop_parse_error":  null,
+    "pre_run_residual":  [
+
+                         ],
+    "boot_applied_values":  [
+                                {
+                                    "value_name":  "AllowOnly",
+                                    "value":  "1"
+                                },
+                                {
+                                    "value_name":  "Control",
+                                    "value":  "present"
+                                },
+                                {
+                                    "value_name":  "Filter",
+                                    "value":  "allow"
+                                }
+                            ],
+    "applied_gpos":  [
+                         "Default Domain Policy",
+                         "Local Group Policy",
+                         "Studio-RSOP-CompFilterAllow-20260908004257-2545",
+                         "Studio-RSOP-Control-20260908004257-2545"
+                     ],
+    "denied_gpos":  [
+                        {
+                            "gpo":  "Studio-RSOP-CompFilterDenyGroup-20260908004257-2545",
+                            "reasons":  [
+                                            "access_denied",
+                                            "filter_not_allowed"
+                                        ]
+                        }
+                    ],
+    "observed_values":  [
+                            {
+                                "value_name":  "AllowOnly",
+                                "value":  "1"
+                            },
+                            {
+                                "value_name":  "Control",
+                                "value":  "present"
+                            },
+                            {
+                                "value_name":  "Filter",
+                                "value":  "allow"
+                            }
+                        ],
+    "control_present":  true,
+    "lane_problems":  [
+
+                      ],
+    "token_group":  "StudioRsopGroup",
+    "token_groups_session":  [
+                                 "BUILTIN\\Administrators",
+                                 "Everyone",
+                                 "BUILTIN\\Users",
+                                 "NT AUTHORITY\\NETWORK",
+                                 "NT AUTHORITY\\Authenticated Users",
+                                 "This Organization",
+                                 "LABCL01$",
+                                 "StudioRsopGroup-20260908004257-2545",
+                                 "Domain Computers",
+                                 "Authentication authority asserted identity",
+                                 "System Mandatory Level"
+                             ],
+    "token_groups_ldap":  [
+                              "LAB\\Domain Computers",
+                              "LAB\\StudioRsopGroup-20260908004257-2545"
+                          ],
+    "token_groups_ldap_status":  "collected",
+    "token_groups_ldap_error":  null,
+    "token_collection_error":  null,
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.9168",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

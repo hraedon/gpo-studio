@@ -1,0 +1,28 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-security-filtering-deny
+built rsop candidate for user-security-filtering-deny (7 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-user-candidate-20260907175308
+  predicted winners: AllowOnly=1(Studio-RSOP-FilterAllow), Control=present(Studio-RSOP-UserControl), DenyApplyCompOnly=1(Studio-RSOP-FilterDenyApplyComp), Filter=denyApplyComp(Studio-RSOP-FilterDenyApplyComp), NestedOnly=1(Studio-RSOP-FilterNested)
+  predicted denied:  Studio-RSOP-FilterDeny(security_filter_denied/security_filter_mismatch), Studio-RSOP-FilterDenyGroup(security_filter_denied/security_filter_mismatch), Studio-RSOP-FilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-user-observe-20260908005325-5587
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260908005325-5587
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20260908005328-2525
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260908005328-2525
+--- re-establishing the interactive session (group 'StudioRsopGroup') ---
+OperationStopped: C:\projects\gpo-studio\scripts\windows-oracle\psdirect.ps1:249
+Line |
+ 249 |      $result = Invoke-Command -Session $session `
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | harness exited 1
+RUN_ID=rsop-user-observe-20260908005403-2455
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260908005403-2455
+RESESSION_PROBLEMS=
+RUN_ID=rsop-user-observe-20260908005409-2134
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260908005409-2134
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260908005328-2525","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-user-run-20260907175308
+CANDIDATE_DIR=/tmp/rsop-user-candidate-20260907175308
+
+run rsop-user-observe-20260908005409-2134: state=pass (source 4cfa9af4b3f12104e8c592cd94df00b88e49beb5, dirty=False)
+  loopback intended='disabled' observed='disabled'

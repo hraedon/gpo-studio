@@ -1,0 +1,26 @@
+﻿{
+    "candidate_id":  "groups-machine",
+    "family":  "groups",
+    "target_name":  "WP1B-groups-machine-20260908-003146-4310",
+    "backup_id":  "{A842E8CD-71AA-565A-8076-F9D3F567F36C}",
+    "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000003}",
+    "whatif_succeeded":  true,
+    "whatif_target_absent":  true,
+    "import_succeeded":  true,
+    "report_captured":  true,
+    "rebackup_succeeded":  true,
+    "rebackup_dir":  "groups-machine/rebackup",
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "version_state":  {
+                          "computer_dsa":  1,
+                          "computer_sysvol":  1,
+                          "user_dsa":  1,
+                          "user_sysvol":  1,
+                          "gpo_status":  "AllSettingsEnabled"
+                      },
+    "registry_readback":  [
+
+                          ],
+    "error":  null
+}

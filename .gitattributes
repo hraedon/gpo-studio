@@ -47,3 +47,6 @@ tests/fixtures/recipes/synthetic-registry-basic.json text eol=lf
 # WI-028 diagnostic captures retain their exact bytes and are not lane verdicts.
 scripts/plan-033/collect-searched-som.ps1 -text
 docs/plan-033/wi028-evidence/** -text -whitespace
+# WI-059 retains complete native packs, including CRLF logs and source snapshots.
+docs/plan-033/*-evidence/wi059-20260908/** -text -whitespace
+docs/plan-033/wi059-cleanup/** -text -whitespace

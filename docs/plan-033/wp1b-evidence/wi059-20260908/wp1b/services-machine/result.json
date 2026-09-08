@@ -1,0 +1,26 @@
+﻿{
+    "candidate_id":  "services-machine",
+    "family":  "services",
+    "target_name":  "WP1B-services-machine-20260908-003147-7340",
+    "backup_id":  "{F6F5914C-D377-5C47-A177-838E79089159}",
+    "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000007}",
+    "whatif_succeeded":  true,
+    "whatif_target_absent":  true,
+    "import_succeeded":  true,
+    "report_captured":  true,
+    "rebackup_succeeded":  true,
+    "rebackup_dir":  "services-machine/rebackup",
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "version_state":  {
+                          "computer_dsa":  1,
+                          "computer_sysvol":  1,
+                          "user_dsa":  1,
+                          "user_sysvol":  1,
+                          "gpo_status":  "AllSettingsEnabled"
+                      },
+    "registry_readback":  [
+
+                          ],
+    "error":  null
+}

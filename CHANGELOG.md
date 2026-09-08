@@ -9,6 +9,15 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- WI-059: every oracle finalizer now refuses working-tree/index/HEAD byte
+  drift before writing verdicts or tags, including with `--no-tag`. All 21
+  live lane verdicts and WP-0 were requalified in one frozen estate batch;
+  exact captures and historical records are preserved. See
+  [the completed batch](docs/plan-033/wi059-harness-batch.md).
+- WI-028: measured `SearchedSOM` persistence in the client's RSoP WMI namespace
+  after verified OU deletion and policy refresh. The investigation documents
+  a scoped-use strategy for future SOM assertions; current lanes do not grade
+  these historical rows. See [the findings](docs/plan-033/wi028-searched-som-investigation.md).
 - Plan 034: the unsurfaced policy-family serializers now feed a repeatable
   Windows WP-3 lane. Native validation found and corrected `AuditDSAccess`
   and rejected two speculative Kerberos fields, which were removed. Final

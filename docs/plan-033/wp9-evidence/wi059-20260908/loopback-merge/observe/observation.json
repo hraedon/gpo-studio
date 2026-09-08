@@ -1,0 +1,107 @@
+﻿{
+    "run_id":  "rsop-user-observe-20260908004610-7393",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-user-observe-20260908004610-7393",
+    "scope":  "user",
+    "computer":  "LABCL01",
+    "principal":  "labauto1",
+    "principal_sid":  "S-1-5-21-343068944-2904821402-3322616572-1106",
+    "session_present":  true,
+    "session_detail":  {
+                           "console_user":  "LAB\\labauto1",
+                           "hive_loaded":  true,
+                           "expected":  "LAB\\labauto1",
+                           "present":  true
+                       },
+    "intended_loopback_mode":  "merge",
+    "observed_loopback_mode":  "merge",
+    "loopback_control_ok":  true,
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "computer_refresh_exit":  0,
+    "user_policy_completed":  true,
+    "user_policy_completed_at":  "2026-09-08T00:46:19.5054409+00:00",
+    "refresh_task_results":  [
+                                 {
+                                     "label":  "initial",
+                                     "final_state":  "Ready",
+                                     "last_task_result":  0,
+                                     "last_run_time":  "09/08/2026 00:46:17",
+                                     "marker_written":  true
+                                 }
+                             ],
+    "token_groups_session":  [
+                                 "Domain Users",
+                                 "Everyone",
+                                 "BUILTIN\\Users",
+                                 "NT AUTHORITY\\INTERACTIVE",
+                                 "CONSOLE LOGON",
+                                 "NT AUTHORITY\\Authenticated Users",
+                                 "This Organization",
+                                 "LOCAL",
+                                 "Authentication authority asserted identity",
+                                 "Medium Mandatory Level"
+                             ],
+    "token_groups_ldap":  [
+                              "BUILTIN\\Users",
+                              "LAB\\Domain Users"
+                          ],
+    "token_groups_ldap_status":  "collected",
+    "token_groups_ldap_error":  null,
+    "token_collection_error":  null,
+    "rsop_captured":  true,
+    "rsop_parse_error":  null,
+    "pre_run_residual":  [
+
+                         ],
+    "preflight_taken_at":  "2026-09-08T00:46:02.9787719+00:00",
+    "applied_gpos":  [
+                         "Local Group Policy",
+                         "Studio-RSOP-CompLocation-20260908004605-1336",
+                         "Studio-RSOP-UserControl-20260908004605-1336",
+                         "Studio-RSOP-UserLocation-20260908004605-1336"
+                     ],
+    "denied_gpos":  [
+                        {
+                            "gpo":  "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        },
+                        {
+                            "gpo":  "{9543ff5b-1d9c-4557-91b7-f47464edde97}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        }
+                    ],
+    "observed_values":  [
+                            {
+                                "value_name":  "CompOnly",
+                                "value":  "1"
+                            },
+                            {
+                                "value_name":  "Control",
+                                "value":  "present"
+                            },
+                            {
+                                "value_name":  "Loop",
+                                "value":  "computerLocation"
+                            },
+                            {
+                                "value_name":  "UserOnly",
+                                "value":  "1"
+                            }
+                        ],
+    "control_present":  true,
+    "lane_problems":  [
+
+                      ],
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.9168",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

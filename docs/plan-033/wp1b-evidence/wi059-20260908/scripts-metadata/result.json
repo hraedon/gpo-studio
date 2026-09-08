@@ -1,0 +1,28 @@
+﻿{
+    "schema_version":  1,
+    "run_id":  "scripts-r10-20260908003334-8294",
+    "target_name":  "zz-studio-r10-scripts-r10-20260908003334-8294",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "backup_id":  "{49227F28-6122-5999-8CEB-923CB9BF3001}",
+    "source_gpo_id":  "{22222222-3333-4444-5555-666666666666}",
+    "owned_gpo_id":  "b0cce6c6-887b-4071-8b5f-56fd2002dc90",
+    "import_succeeded":  true,
+    "report_succeeded":  true,
+    "report_links_to_count":  0,
+    "rebackup_succeeded":  true,
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "computer_system_domain_role":  3,
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33296",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US",
+                        "computer_system_name":  "LABMS01",
+                        "computer_system_domain":  "ad.labdomain.dev"
+                    },
+    "error":  null
+}

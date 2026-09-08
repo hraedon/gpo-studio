@@ -7,6 +7,11 @@
 > the engineering program that established this contract.
 > **Supersedes:** `docs/roadmap.md` (historical context only).
 
+**Evidence current as of 2026-09-08:** [WI-059 requalification](plan-033/wi059-harness-batch.md)
+replaced all 21 live lane verdicts and refreshed WP-0 on one frozen harness.
+Historical measurements cited below retain their original scope; this batch
+adds source-byte enforcement and does not expand the capability contract.
+
 GPO Studio is an offline-first, single-operator authoring and review workbench.
 It edits a local SQLite workspace and emits reviewable artifacts. The web
 process never writes to Active Directory or SYSVOL.
@@ -369,14 +374,11 @@ native `Backup-GPO`, side-version reconciliation, and strict cleanup. The import
 reader handles both the native v2 layout and the legacy format for backwards
 compatibility with pre-WP-2 Studio archives.
 
-**Re-certified 2026-08-03** on the lab estate as run
-`wp2-native-import-20260803230132-8090`: all eighteen checks pass against a
-clean tree, bound to commit `db775b0` with an `evidence/` tag, and committed as
-`docs/plan-033/wp2-evidence/verification-estate.json`. This row now rests on a
-verifiable manifest like every other lane. The earlier run
-`wp2-native-import-20260726235913-9111` is superseded — its source commit was
-orphaned by squash-merge and could never be retro-tagged, which is what the
-re-certification existed to repair.
+**Re-certified 2026-09-08** as `wp2-native-import-20260908003212-8693` against
+clean frozen revision `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`. The
+[current native import evidence](plan-033/wp2-evidence/wi059-20260908/wp2/verification.json) retains
+the native observations and source bindings; earlier packs and tags remain
+historical records for their original revisions.
 
 - **API:** `POST /api/backups/import`.
 - Multi-GPO backups are rejected.

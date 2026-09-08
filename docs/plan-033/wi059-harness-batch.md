@@ -1,130 +1,108 @@
-# WI-059: byte preflight and the next finalizer batch
+# WI-059: every finalizer enforces committed source bytes
 
-**Status:** finalizer enforcement implemented; live requalification in progress.
-WI-059 remains open until the batch is banked. The 21 previous live verdicts
-are preserved, but their source bindings are stale under the changed harness.
+**Status:** closed 2026-09-08. All 22 estate runs passed on frozen harness
+`4cfa9af4b3f12104e8c592cd94df00b88e49beb5`: 21 lane verdicts plus WP-0's separate manifest.
+No product capability was expanded by this batch.
 
-The shared raw-byte guard now executes inside all ten finalization paths,
-including WP-0's library entry point, before evidence outputs or tags. All
-lanes bind their finalizer and the shared library, and the drivers retain those
-inputs. Thirty subprocess tests exercise hidden CRLF drift with and without
-tagging and confirm that clean bytes reach the existing input checks.
-Legacy synthetic grading tests keep their synthetic provenance isolated;
-the new subprocess tests exercise real Git and unmocked enforcement.
+## Enforced behaviour
 
-Historical packs that previously fell back to current source files now retain
-the exact missing input bytes recovered from their recorded commits, with
-each recovered hash checked against the unchanged historical verdict.
+A normalized clean Git status can hide CRLF working bytes against an LF blob.
+All ten supported finalization paths now call the shared raw-byte check in
+`oracle_evidence.py` before grading or writing finalized output. It compares
+the working file to `git show :<path>` and that index blob to `HEAD:<path>`,
+using binary subprocess output. A mismatch, missing blob/file or empty source
+set refuses finalization and names the affected paths. It rewrites nothing.
+`--no-tag` does not bypass it. Existing candidate, artifact, cleanup, host-role
+and clean-tree checks remain in place.
 
-## The check available now
-
-Run from the repository before the estate session:
+Every lane now binds its finalizer and the shared library, including the
+legacy lanes that omitted them. Drivers retain those exact input copies.
+WP-0 records both as manifest input artifacts. The operator preflight uses
+the same implementation across 57 declared source files in all ten lanes:
 
 ```console
 uv run python scripts/plan-033/check-bound-source-bytes.py
 ```
 
-The preflight reads all ten finalizers' declared source tables, including
-WP-0's separate harness-input table, and checks 51 distinct files. For each
-path it compares working-tree bytes with `git show :<path>` in binary mode,
-then compares that index blob with `HEAD:<path>`. The second comparison stops
-a staged edit being attributed to the older commit. It reports every
-unreadable or differing path, returns nonzero on failure and rewrites nothing.
-An empty discovery or source set is also a refusal.
+Run it before estate work; finalizers repeat the check afterwards. Thirty
+subprocess cases exercise all ten finalizers with hidden CRLF drift, with and
+without tagging, and with clean source controls. Refusals produce no new tag
+or verdict and preserve existing output. Helper tests additionally cover
+staged changes, absent files/blobs, binary bytes and multiple named failures.
 
-The real-Git regression test creates LF index/HEAD content and a CRLF working
-file, restages it without changing the index content, confirms that both
-`git status` and `git diff HEAD` are empty, and proves the raw-byte check still
-refuses. Other tests cover binary preservation, multiple failures, staged
-content changes, missing files/blobs, and absent repositories.
+## Evidence
 
-The first run on this Windows checkout caught an additional real mismatch:
-`tests/fixtures/recipes/synthetic-registry-basic.json` had LF in Git and CRLF
-on disk. WP-0 already compares its deployed recipe to HEAD, so that checkout
-could not qualify the recipe it would deploy. The recipe now has an explicit
-`text eol=lf` rule, and the working copy was restored to the unchanged Git
-bytes. All 51 paths then passed. This does not change any recipe content.
+| Experiment | Passing run | Banked verdict |
+|---|---|---|
+| wp0 | `live-synthetic-registry-basic-20260908003108-1493` | [evidence](wp0-evidence/wi059-20260908/wp0/manifest.json) |
+| wp1b | `wp1b-writer-20260908003141-5853` | [evidence](wp1b-evidence/wi059-20260908/wp1b/verification.json) |
+| wp2 | `wp2-native-import-20260908003212-8693` | [evidence](wp2-evidence/wi059-20260908/wp2/verification.json) |
+| wp3-member | `wp3-security-template-20260908003235-1230` | [evidence](wp3-evidence/wi059-20260908/wp3-member/verification.json) |
+| wp3-dc | `wp3-security-template-20260908003251-3920` | [evidence](wp3-evidence/wi059-20260908/wp3-dc/verification.json) |
+| object-security | `object-security-20260908003317-7120` | [evidence](wp3-evidence/wi059-20260908/object-security/verification.json) |
+| scripts-metadata | `scripts-r10-20260908003334-8294` | [evidence](wp1b-evidence/wi059-20260908/scripts-metadata/verification.json) |
+| publication | `publication-completeness-20260908003355-4887` | [evidence](wp1b-evidence/wi059-20260908/publication/verification.json) |
+| endpoint | `endpoint-observe-20260908003432-9991` | [evidence](wp6-evidence/wi059-20260908/endpoint/verification.json) |
+| lsdou-precedence | `rsop-observe-20260908003647-5124` | [evidence](wp6-evidence/wi059-20260908/lsdou-precedence/verification.json) |
+| disabled-block-enforced | `rsop-observe-20260908003802-3428` | [evidence](wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json) |
+| wmi-filtering | `rsop-observe-20260908003917-3943` | [evidence](wp6-evidence/wi059-20260908/wmi-filtering/verification.json) |
+| wmi-filtering-error | `rsop-observe-20260908004032-4871` | [evidence](wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json) |
+| computer-security-filtering | `rsop-observe-20260908004147-8239` | [evidence](wp6-evidence/wi059-20260908/computer-security-filtering/verification.json) |
+| computer-security-filtering-group-deny | `rsop-observe-20260908004329-7397` | [evidence](wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json) |
+| computer-security-filtering-deny-read | `rsop-observe-20260908004451-9557` | [evidence](wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json) |
+| loopback-merge | `rsop-user-observe-20260908004610-7393` | [evidence](wp9-evidence/wi059-20260908/loopback-merge/verification.json) |
+| loopback-replace | `rsop-user-observe-20260908004751-4785` | [evidence](wp9-evidence/wi059-20260908/loopback-replace/verification.json) |
+| user-side-disabled | `rsop-user-observe-20260908004932-4297` | [evidence](wp9-evidence/wi059-20260908/user-side-disabled/verification.json) |
+| user-security-filtering | `rsop-user-observe-20260908005147-1436` | [evidence](wp9-evidence/wi059-20260908/user-security-filtering/verification.json) |
+| user-security-filtering-deny | `rsop-user-observe-20260908005409-2134` | [evidence](wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json) |
+| user-security-filtering-read-deny | `rsop-user-observe-20260908005556-1857` | [evidence](wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json) |
 
-The CLI remains an **operator preflight**: a file can change after it runs.
-Finalizers now repeat the same check. Their clean-tree gates remain necessary.
 
-## Implementation boundary for the batch
+The [batch manifest](wi059-batch.json) records every banked file's SHA-256.
+Each pack retains the native result, command outputs, delivered input copies,
+controller candidate where applicable, and controller transcript. A renamed
+banked verdict retains its exact bytes and its original filename is recorded
+in the batch manifest. All runs passed with `source.dirty=false` at the same
+revision; every passing run has an `evidence/<run-id>` tag.
 
-1. Reconcile the current source and the live evidence registry again; the
-   inventory below is the `0b57d68` starting point, not a permanent lane list.
-2. Move/reuse the tested raw-byte check at a shared finalizer boundary. Pass
-   each finalizer its actual declared source set. Refuse before any tag,
-   manifest, or verdict is written, including `--no-tag` paths. Keep raw binary
-   comparison and named-file diagnostics; do not silently normalize evidence.
-3. Bind the shared guard and the finalizer source wherever they execute.
-   Several legacy lane tables currently name their driver/builder/transport
-   but not their finalizer. A passing drift test over those tables does not
-   prove that changed grading code is bound. Update the relevant deployment
-   copy lists and historical bound-file registries in the same batch rather
-   than accepting that coverage gap as a reason to skip requalification.
-4. Add behavioural tests that drive **every** finalizer with bound-file CRLF
-   drift and verify a nonzero refusal with no new tag or verdict. Tests of the
-   helper alone do not satisfy this integration condition. Retain each lane's
-   existing artifact, candidate, cleanup, role and dirty-tree checks.
-5. Complete baseline/lint/type/PowerShell gates, commit all harness changes
-   once, and run the preflight on those exact working bytes. Keep that revision
-   fixed during the estate batch. Bank genuine new runs, preserve the old
-   artifacts and tags, and update the registries that gate work.
+The independent [post-batch directory check](wi059-cleanup/directory.json)
+confirms both accounts were restored and no experiment OUs, GPOs, groups or
+WMI filters survived. Its collector and raw output are hash-bound in the
+batch manifest; the capture follows the last completed lane.
 
-## Requalification inventory
+The 21 previous live verdicts are explicitly retired in the registry, with
+their original bytes and tags preserved. Their historical source-file schemas
+are frozen as literal expectations. Older native packs that previously read
+missing inputs from the *current* source tree now contain the original input
+bytes recovered from their exact recorded commits; every recovered digest was
+checked against the unchanged historical verdict before banking.
 
-There are **21 live verdicts** across nine finalizers. WP-0 is the tenth
-finalizer and has a separately registered manifest, so check its provenance
-and schedule a fresh WP-0 run as well when its finalization path changes.
-Thus a batch changing all ten finalizers should budget **21 lane runs plus
-WP-0**, not assume that 21 is the entire evidence surface.
+The environment qualification table, platform registry and capability matrix
+point to the current batch. Host scope is retained: member-server role 3 and
+DC role 5 have separate WP-3 records; only the DC candidate contains Kerberos.
+The endpoint and RSoP runs use the real client and verify their teardown.
+Scripts remains metadata qualification, object security remains temporary
+database serialization, and publication remains a plan comparison.
 
-| Lane | Live runs | Required scope |
-|---|---:|---|
-| WP-1B | 1 | All seven writer candidates |
-| Scripts metadata | 1 | Native import/report/backup metadata |
-| Publication completeness | 1 | Full registered publication candidate |
-| WP-2 | 1 | Native import |
-| WP-3 policy families | 2 | Member and DC separately; Kerberos only on DC |
-| Object security | 1 | Existing object-security candidate |
-| Endpoint | 1 | Existing endpoint experiment and verified teardown |
-| WP-6 computer RSoP | 7 | Scenarios below |
-| WP-9 user RSoP | 6 | Scenarios below |
+## Validation
 
-WP-6: `lsdou-precedence`, `disabled-block-enforced`, `wmi-filtering`,
-`wmi-filtering-error`, `computer-security-filtering`,
-`computer-security-filtering-group-deny`,
-`computer-security-filtering-deny-read`.
+Before the estate session, 3,764 tests passed and 38 skipped, with only the 21
+old live-binding checks excluded pending replacement evidence. Coverage was
+89.44%, above all floors; Ruff, strict source typing, the static safety gate,
+and shell syntax checks passed.
 
-WP-9: `loopback-merge`, `loopback-replace`, `user-side-disabled`,
-`user-security-filtering`, `user-security-filtering-deny`,
-`user-security-filtering-read-deny`.
+After banking, the full suite passed **3,851 tests, with 38 skips and no
+exclusions**, in 98.02 seconds on Windows/Python 3.13. All current live
+bindings, WP-0 artifact integrity and source bindings, the 741 banked file
+hashes, final cleanup, and lane registry citations passed. Four existing
+SQLite resource warnings remain. Ruff, strict typing, static safety and the
+57-file source preflight passed. All 88 tracked PowerShell files parsed and
+passed PSScriptAnalyzer 1.25.0. Remote CI is recorded in the change's review.
 
-Use the existing drivers and their declared prerequisites. The RSoP lanes
-need a distinct author and client; the user lane needs the correctly named
-interactive user session and its existing token checks. Run experiments
-sequentially because they share the directory topology and client. Never
-substitute fabricated observations for a lane that cannot run.
+The local identifier denylist was unavailable. Captured data was reviewed as
+lab-only and scanned against the supplied credential values before banking;
+the existing configured GitHub identifier gate remains the publication check.
 
-The new [WI-028 results](wi028-searched-som-investigation.md) do not require
-changing these lane finalizers: none currently grades `SearchedSOM`. Carry a
-future SOM-lane change into this batch only after its scoped assertions are
-defined; collecting stale SOM rows is not itself a precedence qualification.
-
-Completion requires all affected live evidence to name the final harness
-revision, clean estate re-queries, passing committed-evidence tests, and the
-normal local/remote validation. The WI-059 entry's minimum of one new live run
-does not excuse leaving the other currently claimed verdicts stale.
-
-## Validation of this preparation
-
-The Windows Python 3.13 run passed **3,755 tests, with 38 skipped**. Coverage
-floors, Ruff, strict source typing, the static safety gate, and the diagnostic
-collector's PowerShell parse/analysis and ASCII checks passed. All 21 current
-live verdict bindings still pass. The full suite emitted four SQLite
-resource warnings in existing tests; there were no test failures.
-
-The repository identifier gate had no configured denylist and therefore
-skipped its identifier scan. The staged additions were reviewed as lab-only
-data, and an exact-value scan against the supplied lab passwords found no
-credential values. This is local validation; no remote CI run is claimed.
+The [WI-028 investigation](wi028-searched-som-investigation.md) is independent:
+none of these lanes grades `SearchedSOM`. Its scoped-use guidance remains a
+prerequisite for any future SOM precedence lane.

@@ -1,0 +1,19 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-side-disabled
+built rsop candidate for user-side-disabled (3 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-user-candidate-20260907174907
+  predicted winners: Control=present(Studio-RSOP-UserControl), UserWinner=userOn(Studio-RSOP-UserOn)
+  predicted denied:  Studio-RSOP-UserSideOff(user_side_disabled)
+RUN_ID=rsop-user-observe-20260908004924-4710
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260908004924-4710
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20260908004927-5390
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260908004927-5390
+RUN_ID=rsop-user-observe-20260908004932-4297
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260908004932-4297
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260908004927-5390","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-user-run-20260907174907
+CANDIDATE_DIR=/tmp/rsop-user-candidate-20260907174907
+
+run rsop-user-observe-20260908004932-4297: state=pass (source 4cfa9af4b3f12104e8c592cd94df00b88e49beb5, dirty=False)
+  loopback intended='disabled' observed='disabled'

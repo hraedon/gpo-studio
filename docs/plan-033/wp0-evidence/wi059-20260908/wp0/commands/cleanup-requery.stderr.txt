@@ -1,0 +1,1 @@
+﻿RESULT=ABSENT: GPO 9a800c77-3994-4cad-a7d8-2f67f247fa5c confirmed absent
