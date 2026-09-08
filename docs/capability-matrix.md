@@ -390,7 +390,9 @@ historical records for their original revisions.
 - Native imports retain exact `Backup.xml` / optional `gpreport.xml` bytes and
   every payload file's path, size and hash. `GET /api/gpos/{guid}/report.txt`
   includes this historical source inventory, including unmodeled native
-  extension observations. Later edits do not update the snapshot. See
+  extension observations. Later edits do not update the snapshot. The snapshot
+  is served by `GET /api/gpos/{guid}`; `GET /api/gpos` rows carry only
+  `has_backup_inventory`, so the retained bytes are not repeated per row. See
   [measured backup/report fidelity](plan-033/backup-report-fidelity.md).
 
 ### GPMC backup export — supported subset

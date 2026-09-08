@@ -9,6 +9,16 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- WI-061 (part): `GET /api/gpos` and `GET /api/starter-gpos` no longer carry
+  WI-060's retained native XML in every row -- rows report
+  `has_backup_inventory` and the detail endpoint serves the snapshot. The
+  workbench refetches the list on load and after every mutation. The
+  per-revision copies of the same bytes remain open.
+- Retained inventory paths are now deduplicated exactly rather than
+  case-insensitively: `read_backup` keys its file map case-sensitively and fed
+  its own output back through the validator, which could refuse a capture the
+  importer had just produced. Reports also state that native names and values
+  are reproduced verbatim from the source domain.
 - WI-060: native backup imports retain the original XML documents and a complete
   payload file inventory. Plain-text reports expose imported native settings,
   including unmodeled Scripts commands, as an explicitly historical snapshot.

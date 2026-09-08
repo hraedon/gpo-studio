@@ -140,6 +140,7 @@ def test_scripts_are_identified_without_claiming_payload_preservation(
             assert "Unmodeled extension files (metadata only)" in report.text
             assert "original bytes not stored" in report.text
             assert "Keep the original backup" in report.text
+            assert "reproduced verbatim from the source domain" in report.text
             assert client.get(f"/api/gpos/{guid}/gpmc-backup").status_code == 422
             gpo = reopened.get_gpo(guid)
             without = replace(gpo, backup_inventory=None)
@@ -261,3 +262,66 @@ def test_retained_native_xml_uses_the_import_safety_boundaries(xml: bytes) -> No
     data["report_xml_base64"] = base64.b64encode(xml).decode()
     with pytest.raises(StudioError):
         inventory_from_dict(data)
+
+
+def test_the_gpo_list_carries_provenance_as_a_flag_not_as_source_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The workbench refetches this list on load and after every save.
+
+    `GPO.to_dict()` is `asdict`, so retaining the native XML put two base64
+    documents in every row of it. Nothing in the list needs them; the detail
+    endpoint still serves the whole snapshot.
+    """
+    inbox = tmp_path / "inbox"
+    shutil.copytree(SCRIPTS, inbox)
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox))
+    with closing(WorkspaceStore(tmp_path / "inventory.db")) as store:
+        monkeypatch.setattr(app.state, "store", store, raising=False)
+        monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+        with TestClient(app) as client:
+            imported = client.post("/api/backups/import", json={
+                "path": str(inbox), "actor": "list-test", "reason": "provenance flag",
+            })
+            assert imported.status_code == 201, imported.text
+            guid = imported.json()["gpo"]["guid"]
+            drafted = client.post("/api/gpos", json={
+                "name": "Authored here", "description": "",
+                "actor": "list-test", "reason": "no import provenance",
+            })
+            assert drafted.status_code == 201, drafted.text
+
+            items = client.get("/api/gpos").json()["items"]
+            rows = {item["guid"]: item for item in items}
+            assert set(rows) == {guid, drafted.json()["gpo"]["guid"]}
+            assert rows[guid]["has_backup_inventory"] is True
+            assert "backup_inventory" not in rows[guid]
+            assert rows[drafted.json()["gpo"]["guid"]]["has_backup_inventory"] is False
+
+            detail = client.get(f"/api/gpos/{guid}")
+            assert detail.status_code == 200
+            inventory = gpo_from_dict(detail.json()["gpo"]).backup_inventory
+            assert inventory is not None
+            assert inventory.backup_xml_base64 not in json.dumps(items)
+
+
+def test_case_distinct_inventory_paths_are_kept_and_exact_duplicates_refused() -> None:
+    """`read_backup` keys its file map case-sensitively; the validator agrees.
+
+    A case-folded uniqueness rule refused an inventory the builder had just
+    produced, because `read_backup` feeds its own output back through
+    `inventory_from_dict`. Case-distinct paths are distinct files.
+    """
+    inventory = read_backup(SCRIPTS).gpos[0].backup_inventory
+    assert inventory is not None
+    data = asdict(inventory)
+    original = data["files"][0]
+    assert original["relative_path"] != original["relative_path"].upper()
+    variant = dict(original, relative_path=original["relative_path"].upper())
+
+    accepted = inventory_from_dict({**data, "files": [*data["files"], variant]})
+    paths = {f.relative_path for f in accepted.files}
+    assert {original["relative_path"], variant["relative_path"]} <= paths
+
+    with pytest.raises(StudioError, match="file metadata"):
+        inventory_from_dict({**data, "files": [*data["files"], dict(original)]})

@@ -94,3 +94,12 @@ Local verification on Windows/Python 3.13: 3,904 tests passed, 38 skipped;
 branch coverage 89.48%, all per-module floors satisfied. Ruff, strict mypy,
 the static safety gate and the raw-source-byte preflight passed. Remote CI
 remains the check for Linux and both supported Python versions.
+
+## Follow-ups filed
+
+Reviewing this tranche opened [WI-061](../work-items.md#wi-061--retained-native-xml-is-copied-into-every-revision-snapshot)
+(the retained bytes were serialized into every GPO list row, and are still
+stored per revision) and [WI-062](../work-items.md#wi-062--evidence-packs-duplicate-source-bytes-that-are-already-bound-to-head)
+(packs bank source bytes that `assert_bound_source_bytes` already binds to
+HEAD). The response half of WI-061 is fixed; both remainders touch modules the
+two runs above bind, so they land with an estate batch, not on their own.

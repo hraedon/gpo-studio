@@ -21,7 +21,10 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**0 open.** Every numbered item in this file is closed.
+**2 open.**
+
+- [WI-061](#wi-061--retained-native-xml-is-copied-into-every-revision-snapshot) - responses fixed; per-revision storage open.
+- [WI-062](#wi-062--evidence-packs-duplicate-source-bytes-that-are-already-bound-to-head) - drop the banked copies in favour of the manifest.
 
 ---
 
@@ -2299,3 +2302,64 @@ verdicts whose bound model/digest inputs change; preserve their old records.
 The [implementation and measured scope](plan-033/backup-report-fidelity.md)
 record the bounded corpus. Broader family coverage and full native report
 equivalence remain Plan 034 work, rather than conclusions from this tranche.
+
+
+## WI-061 — retained native XML is copied into every revision snapshot
+
+**Opened:** 2026-09-08, review of the WI-060 tranche.
+**Status:** open - API responses are fixed; the stored copies are not.
+
+`GPO.to_dict()` is `asdict`, so WI-060's retained `Backup.xml` and
+`gpreport.xml` ride wherever a GPO is serialized. Two places, with different
+costs:
+
+- **Responses.** `GET /api/gpos` carried both base64 documents in every row,
+  and `static/js/render.mjs` refetches that list on load and after every
+  mutation. Fixed here: list rows carry `has_backup_inventory` and the detail
+  endpoint serves the snapshot.
+- **Storage.** `store` writes `json.dumps(gpo.to_dict())` into each revision's
+  `snapshot_json`. Imports are archived and require a fork to edit, so the fork
+  carries the inventory and every later edit re-stores the same immutable bytes.
+  Workspace growth is O(revisions x report size), bounded only by the 50MB
+  per-file import cap. The largest report in the corpus is 52KB synthetic and
+  single-family; production reports are larger.
+
+**Closes when:** a revision stores retained source bytes once - by digest in a
+side table, or by any scheme where N revisions of one import do not hold N
+copies - with a test that writes several revisions and asserts the workspace
+does not grow by the inventory each time.
+
+The fix touches `model.py` and `store.py`. `model.py` is bound by the Scripts
+metadata and publication finalizers, so this lands with an estate batch that
+requalifies them, not on its own.
+
+
+## WI-062 — evidence packs duplicate source bytes that are already bound to HEAD
+
+**Opened:** 2026-09-08, review of the WI-060 tranche.
+**Status:** open.
+
+Each lane pack banks a byte copy of every bound source module. There are 27
+copies of `oracle_evidence.py` in `docs/`, which is now 16MB against 3.6MB of
+`src/`, and each requalification adds another set.
+
+Since WI-059, `assert_bound_source_bytes` refuses to finalize unless
+worktree, index and HEAD agree for exactly those paths, and the batch manifest
+already records `(path, sha256)` beside the run's commit. Within this
+repository the copies are therefore provably identical to what git already
+holds at the recorded commit, and a hash mismatch would be detectable without
+them.
+
+Note what removal does **not** buy: the blobs stay in history, so `.git` does
+not shrink and the existing packs are not made smaller by deleting their
+working-tree copies. The saving is only in what future packs add, which is why
+this is a policy change to the finalizers rather than a deletion sweep.
+Historical packs and their tags stay immutable either way.
+
+**Closes when:** finalizers record bound source as `(commit, path, sha256)`
+instead of copying bytes, `test_committed_evidence.py` verifies packs against
+that manifest form, and the decision is written down - including the case for
+keeping copies, if a pack must verify standalone outside this repository.
+
+`oracle_evidence.py` is bound by all 21 live lanes, so changing the finalizers
+requalifies the estate. This belongs to the next batch that does that anyway.

@@ -63,12 +63,16 @@ def inventory_from_dict(data: object) -> BackupInventory:
             not isinstance(path, str) or not path or "\\" in path or ":" in path
             or PurePosixPath(path).is_absolute()
             or any(part in {"", ".", ".."} for part in path.split("/"))
-            or path.casefold() in seen or "\x00" in path
+            or path in seen or "\x00" in path
             or not isinstance(digest, str) or not _SHA256.fullmatch(digest)
             or type(size) is not int or size < 0
         ):
             raise StudioError("Invalid native inventory file metadata")
-        seen.add(path.casefold())
+        # Exact duplicates make the record incoherent; case-distinct paths do
+        # not. `read_backup` inventories those as the separate files they are,
+        # so a case-folded rule refused captures the builder had just produced.
+        # Nothing writes these paths -- they are rendered into a report.
+        seen.add(path)
         entries.append(CseFileEntry(path, digest, size))
     inventory = BackupInventory(backup_xml, report_xml, tuple(entries))
     validate_report_identity(inventory, (identifier.text or "").strip().strip("{}"))
@@ -107,6 +111,7 @@ def _observations(element: ET.Element, path: str) -> Iterator[str]:
 
 def inventory_report_lines(inventory: BackupInventory) -> Iterator[str]:
     yield "Imported source snapshot; later edits do not update these observations."
+    yield "Names and values below are reproduced verbatim from the source domain."
     yield "Payload files are inventoried by hash, not stored here. Keep the original backup."
     raw, backup = _xml(inventory.backup_xml_base64)
     yield f"Backup.xml SHA-256: {hashlib.sha256(raw).hexdigest()}"
