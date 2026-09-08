@@ -17,6 +17,7 @@ from gpo_studio.import_export import extract_side_settings
 from gpo_studio.model import ValidationError
 from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
+    assert_bound_source_bytes,
     lane_environment_violations,
     tag_evidence_commit,
 )
@@ -47,6 +48,8 @@ TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
 #: it drives the transport from the controller and is never copied to the guest.
 TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
     "psdirect": {
+        "finalize_wp2_import_run.py": "scripts/windows-oracle/finalize_wp2_import_run.py",
+        "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
         "run-wp2-oracle.sh": "scripts/windows-oracle/run-wp2-oracle.sh",
         "build-wp2-candidate.py": "scripts/plan-033/build-wp2-candidate.py",
         "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
@@ -87,9 +90,7 @@ def main() -> int:
     # file set the provenance check expects. Only one transport remains; the
     # argument stays because the recorded value is what distinguishes these
     # verdicts from the ones the retired SSH path produced.
-    parser.add_argument(
-        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect"
-    )
+    parser.add_argument("--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect")
     parser.add_argument(
         "--no-tag",
         action="store_true",
@@ -102,12 +103,21 @@ def main() -> int:
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
+    try:
+        assert_bound_source_bytes(
+            repo_root,
+            {
+                **TRANSPORT_DEPLOYED_FILES[args.transport],
+                **TRANSPORT_LOCAL_FILES[args.transport],
+            }.values(),
+        )
+    except OracleEvidenceError as exc:
+        print(f"finalize refused: {exc}", file=sys.stderr)
+        return 1
     candidate_root = args.candidate_root.resolve()
 
     result = json.loads((run_dir / "result.json").read_text(encoding="utf-8-sig"))
-    expected = json.loads(
-        (candidate_root / "expected.json").read_text(encoding="utf-8")
-    )
+    expected = json.loads((candidate_root / "expected.json").read_text(encoding="utf-8"))
     checks: dict[str, bool] = {
         "whatif_succeeded": result["whatif_succeeded"] is True,
         "whatif_target_absent": result["whatif_target_absent"] is True,
@@ -120,26 +130,24 @@ def main() -> int:
 
     versions = result["version_state"] or {}
     checks["computer_versions_synchronized"] = (
-        int(versions.get("computer_dsa", -1))
-        == int(versions.get("computer_sysvol", -2))
-        > 0
+        int(versions.get("computer_dsa", -1)) == int(versions.get("computer_sysvol", -2)) > 0
     )
     checks["user_versions_synchronized"] = (
-        int(versions.get("user_dsa", -1))
-        == int(versions.get("user_sysvol", -2))
-        > 0
+        int(versions.get("user_dsa", -1)) == int(versions.get("user_sysvol", -2)) > 0
     )
 
     expected_settings = sorted(_setting_projection(item) for item in expected["settings"])
     readback_settings = sorted(_setting_projection(item) for item in result["registry_readback"])
     checks["group_policy_readback_matches"] = readback_settings == expected_settings
 
-    checks.update({
-        "rebackup_has_one_gpo": False,
-        "windows_rebackup_matches": False,
-        "rebackup_machine_version_matches": False,
-        "rebackup_user_version_matches": False,
-    })
+    checks.update(
+        {
+            "rebackup_has_one_gpo": False,
+            "windows_rebackup_matches": False,
+            "rebackup_machine_version_matches": False,
+            "rebackup_user_version_matches": False,
+        }
+    )
     rebackup_error: str | None = None
     try:
         rebackup = read_backup(run_dir / "rebackup")
@@ -170,14 +178,11 @@ def main() -> int:
         core = root.find(f".//{{{_BACKUP_NS}}}GroupPolicyCoreSettings")
         if core is None:
             raise ValueError("re-backup has no GroupPolicyCoreSettings")
-        packed_machine = int(
-            core.findtext(f"{{{_BACKUP_NS}}}MachineVersionNumber", "-1")
-        )
+        packed_machine = int(core.findtext(f"{{{_BACKUP_NS}}}MachineVersionNumber", "-1"))
         packed_user = int(core.findtext(f"{{{_BACKUP_NS}}}UserVersionNumber", "-1"))
         if versions:
             checks["rebackup_machine_version_matches"] = packed_machine == (
-                (int(versions["computer_dsa"]) << 16)
-                | int(versions["computer_sysvol"])
+                (int(versions["computer_dsa"]) << 16) | int(versions["computer_sysvol"])
             )
             checks["rebackup_user_version_matches"] = packed_user == (
                 (int(versions["user_dsa"]) << 16) | int(versions["user_sysvol"])
@@ -204,8 +209,7 @@ def main() -> int:
         for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
     local_map = {
-        name: repo_root / source
-        for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
+        name: repo_root / source for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
     }
     source_hashes: dict[str, str] = {}
     harness_ok = True
@@ -235,9 +239,7 @@ def main() -> int:
             and _sha256(guest_copy) == _sha256(controller_copy)
         )
         candidate_delivery[name] = {
-            "controller_sha256": (
-                _sha256(controller_copy) if controller_copy.is_file() else None
-            ),
+            "controller_sha256": (_sha256(controller_copy) if controller_copy.is_file() else None),
             "guest_copy_matches": intact,
         }
     checks["candidate_delivered_intact"] = all(

@@ -324,6 +324,10 @@ def _run_main(
     *,
     dirty: bool = False,
 ) -> dict[str, Any]:
+    # Synthetic Git isolates grading; all lanes have real-Git refusal subprocess tests.
+    monkeypatch.setitem(
+        _FINALIZER["main"].__globals__, "assert_bound_source_bytes", lambda *_: None
+    )
     root = Path(__file__).parents[1]
 
     def fake_run(arguments: list[str], **_kwargs: object) -> SimpleNamespace:

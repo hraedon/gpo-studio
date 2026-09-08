@@ -36,6 +36,7 @@ from gpo_studio.backup import BackupError, read_backup
 from gpo_studio.model import ValidationError
 from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
+    assert_bound_source_bytes,
     lane_environment_violations,
     tag_evidence_commit,
 )
@@ -92,6 +93,8 @@ TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
 #: it drives the transport from the controller and is never copied to the guest.
 TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
     "psdirect": {
+        "finalize_wp1b_run.py": "scripts/windows-oracle/finalize_wp1b_run.py",
+        "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
         "run-wp1b-oracle.sh": "scripts/windows-oracle/run-wp1b-oracle.sh",
         "build-wp1b-candidates.py": "scripts/plan-033/build-wp1b-candidates.py",
         "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
@@ -216,9 +219,7 @@ def _finalize_candidate(
     # for any candidate whose expected.json simply did not mention it -- the
     # check would read as passing precisely when there was nothing to check.
     shape_findings = expected.get("native_shape_findings")
-    checks["native_shape_matches_corpus"] = (
-        shape_findings is not None and not shape_findings
-    )
+    checks["native_shape_matches_corpus"] = shape_findings is not None and not shape_findings
 
     expected_settings = sorted(_setting_projection(item) for item in expected["settings"])
     readback_settings = sorted(_setting_projection(item) for item in result["registry_readback"])
@@ -318,9 +319,7 @@ def main() -> int:
     # must be bound to the source commit. Only one transport remains; the
     # argument stays because the recorded value is what distinguishes these
     # verdicts from the ones the retired SSH path produced.
-    parser.add_argument(
-        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect"
-    )
+    parser.add_argument("--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect")
     parser.add_argument(
         "--no-tag",
         action="store_true",
@@ -334,6 +333,17 @@ def main() -> int:
     run_dir = args.run_dir.resolve()
     candidate_root = args.candidate_root.resolve()
     repo_root = args.repo_root.resolve()
+    try:
+        assert_bound_source_bytes(
+            repo_root,
+            {
+                **TRANSPORT_DEPLOYED_FILES[args.transport],
+                **TRANSPORT_LOCAL_FILES[args.transport],
+            }.values(),
+        )
+    except OracleEvidenceError as exc:
+        print(f"finalize refused: {exc}", file=sys.stderr)
+        return 1
 
     run_result = json.loads((run_dir / "run-result.json").read_text(encoding="utf-8-sig"))
 
@@ -362,8 +372,7 @@ def main() -> int:
         for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
     local_map = {
-        name: repo_root / source
-        for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
+        name: repo_root / source for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
     }
     source_hashes: dict[str, str] = {}
     harness_ok = True
@@ -396,17 +405,10 @@ def main() -> int:
     # and mint an evidence tag for it, while WP-2 and WP-3 on the same guest
     # refused. WP-1B is the lane that qualified the estate, which made it the
     # worst one to leave ungated.
-    environment_violations = list(
-        lane_environment_violations(run_result["environment"])
-    )
+    environment_violations = list(lane_environment_violations(run_result["environment"]))
 
     states = {candidate["state"] for candidate in candidates}
-    passed = (
-        harness_ok
-        and not dirty
-        and not environment_violations
-        and states == {"pass"}
-    )
+    passed = harness_ok and not dirty and not environment_violations and states == {"pass"}
     verdict = {
         "schema_version": 1,
         "work_package": "WP-1B",

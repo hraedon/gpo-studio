@@ -109,6 +109,8 @@ cp "$SCRIPT_DIR/run-wp3-oracle.sh" \
     "$REPO_ROOT/src/gpo_studio/security_template.py" \
     "$LOCAL_DIR/"
 
+cp "$SCRIPT_DIR/finalize_wp3_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
 # --candidate-root is not optional: it is what makes the verdict's yardstick the

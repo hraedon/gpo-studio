@@ -53,6 +53,7 @@ from gpo_studio.oracle_evidence import (  # noqa: E402
     CLIENT_NOT_TESTED,
     FROZEN_ENVIRONMENT,
     OracleEvidenceError,
+    assert_bound_source_bytes,
     tag_evidence_commit,
 )
 
@@ -68,6 +69,8 @@ DEPLOYED_FILES: dict[str, str] = {
 #: Scripts that execute on the controller, where the source-tree copy *is* the
 #: executed copy.
 LOCAL_FILES: dict[str, str] = {
+    "finalize_endpoint_run.py": "scripts/windows-oracle/finalize_endpoint_run.py",
+    "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
     "run-endpoint-oracle.sh": "scripts/windows-oracle/run-endpoint-oracle.sh",
     "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
     "build-endpoint-candidate.py": "scripts/plan-033/build-endpoint-candidate.py",
@@ -397,6 +400,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
+    try:
+        assert_bound_source_bytes(repo_root, {**DEPLOYED_FILES, **LOCAL_FILES}.values())
+    except OracleEvidenceError as exc:
+        print(f"finalize refused: {exc}", file=sys.stderr)
+        return 1
 
     author_path = _find_one(run_dir / "author", "author-result.json")
     observe_path = _find_one(run_dir / "observe", "observe-result.json")

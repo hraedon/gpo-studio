@@ -2254,6 +2254,13 @@ legacy finalizer-binding gap, all 21 current live verdicts, and WP-0's separate
 manifest. No finalizer was changed and no old verdict was retired. The
 finalizer refusal tests and fresh estate batch are still required.
 
+**Batch implementation:** the shared check now runs inside every finalizer,
+including WP-0's library path, and the source tables bind both the finalizer
+and shared guard. Thirty real-Git subprocess cases cover refusals and clean
+controls. The previous packs and their recorded input bytes are preserved.
+The 21 replacement live verdicts plus WP-0 are still pending; this item stays
+open until the estate batch and registry updates are complete.
+
 ---
 
 ## Not yet numbered

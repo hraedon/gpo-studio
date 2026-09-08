@@ -15,6 +15,7 @@ from xml.etree.ElementTree import Element
 
 from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
+    assert_bound_source_bytes,
     lane_environment_violations,
     tag_evidence_commit,
 )
@@ -216,6 +217,11 @@ def main() -> int:
     run = args.run_dir.resolve()
     candidate = args.candidate_root.resolve() / "studio-scripts-backup.zip"
     repo = args.repo_root.resolve()
+    try:
+        assert_bound_source_bytes(repo, {**DEPLOYED_FILES, **LOCAL_FILES}.values())
+    except OracleEvidenceError as exc:
+        print(f"finalize refused: {exc}", file=sys.stderr)
+        return 1
     result = json.loads((run / "result.json").read_text(encoding="utf-8-sig"))
     exact_keys = {
         "schema_version",

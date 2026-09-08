@@ -13,6 +13,7 @@ from typing import Any
 
 from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
+    assert_bound_source_bytes,
     lane_environment_violations,
     tag_evidence_commit,
 )
@@ -36,9 +37,7 @@ from gpo_studio.security_template import (
 #: reviewer tells them apart.
 TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
     "psdirect": {
-        "run-wp3-security-template.ps1": (
-            "scripts/windows-oracle/run-wp3-security-template.ps1"
-        ),
+        "run-wp3-security-template.ps1": ("scripts/windows-oracle/run-wp3-security-template.ps1"),
     },
 }
 
@@ -47,6 +46,7 @@ TRANSPORT_DEPLOYED_FILES: dict[str, dict[str, str]] = {
 #: it drives the transport from the controller and is never copied to the guest.
 TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
     "psdirect": {
+        "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
         "run-wp3-oracle.sh": "scripts/windows-oracle/run-wp3-oracle.sh",
         "build-wp3-candidate.py": "scripts/plan-033/build-wp3-candidate.py",
         "finalize_wp3_run.py": "scripts/windows-oracle/finalize_wp3_run.py",
@@ -101,11 +101,7 @@ def _canonical_principal(raw: str) -> str:
 
 
 def _principal_set(raw: str) -> set[str]:
-    return {
-        canonical
-        for part in raw.split(",")
-        if (canonical := _canonical_principal(part))
-    }
+    return {canonical for part in raw.split(",") if (canonical := _canonical_principal(part))}
 
 
 def _group_membership_key_matches(expected_key: str, actual_key: str) -> bool:
@@ -114,9 +110,9 @@ def _group_membership_key_matches(expected_key: str, actual_key: str) -> bool:
         expected_folded = expected_key.casefold()
         actual_folded = actual_key.casefold()
         if expected_folded.endswith(suffix) and actual_folded.endswith(suffix):
-            return _canonical_principal(
-                expected_folded[: -len(suffix)]
-            ) == _canonical_principal(actual_folded[: -len(suffix)])
+            return _canonical_principal(expected_folded[: -len(suffix)]) == _canonical_principal(
+                actual_folded[: -len(suffix)]
+            )
     return False
 
 
@@ -143,14 +139,10 @@ def _setting_matches(
         return False
     if section.casefold() == "privilege rights":
         expected_principals = {
-            principal.strip().casefold()
-            for principal in expected.split(",")
-            if principal.strip()
+            principal.strip().casefold() for principal in expected.split(",") if principal.strip()
         }
         actual_principals = {
-            principal.strip().casefold()
-            for principal in actual.split(",")
-            if principal.strip()
+            principal.strip().casefold() for principal in actual.split(",") if principal.strip()
         }
         return actual_principals == expected_principals
     return actual.strip() == expected.strip()
@@ -190,9 +182,7 @@ def _candidate_key_set_matches(
     expected_by_section: dict[str, set[str]] = {}
     for setting in settings:
         section = str(setting["section"]).casefold()
-        expected_by_section.setdefault(section, set()).add(
-            str(setting["key"]).casefold()
-        )
+        expected_by_section.setdefault(section, set()).add(str(setting["key"]).casefold())
 
     authored_sections = [
         section
@@ -200,10 +190,9 @@ def _candidate_key_set_matches(
         if section.name.casefold() not in {"unicode", "version"}
     ]
     actual_section_names = [section.name.casefold() for section in authored_sections]
-    if (
-        len(actual_section_names) != len(set(actual_section_names))
-        or set(actual_section_names) != set(expected_by_section)
-    ):
+    if len(actual_section_names) != len(set(actual_section_names)) or set(
+        actual_section_names
+    ) != set(expected_by_section):
         return False
 
     for section_name, expected_keys in expected_by_section.items():
@@ -235,9 +224,7 @@ def _candidate_key_set_matches(
     return True
 
 
-def _kerberos_host_role_matches(
-    settings: object, environment: object
-) -> bool:
+def _kerberos_host_role_matches(settings: object, environment: object) -> bool:
     """Require a domain-controller host for Kerberos Policy candidates.
 
     ``DomainRole`` is a CIM integer: 4 and 5 are backup and primary domain
@@ -331,9 +318,7 @@ def main() -> int:
     # file set the provenance check expects. Only one transport remains; the
     # argument stays because the recorded value is what distinguishes these
     # verdicts from the ones the retired SSH path produced.
-    parser.add_argument(
-        "--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect"
-    )
+    parser.add_argument("--transport", choices=sorted(TRANSPORT_DEPLOYED_FILES), default="psdirect")
     parser.add_argument(
         "--no-tag",
         action="store_true",
@@ -346,21 +331,28 @@ def main() -> int:
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
+    try:
+        assert_bound_source_bytes(
+            repo_root,
+            {
+                **TRANSPORT_DEPLOYED_FILES[args.transport],
+                **TRANSPORT_LOCAL_FILES[args.transport],
+            }.values(),
+        )
+    except OracleEvidenceError as exc:
+        print(f"finalize refused: {exc}", file=sys.stderr)
+        return 1
     candidate_root = args.candidate_root.resolve()
 
     result = json.loads((run_dir / "result.json").read_text(encoding="utf-8-sig"))
-    expected = json.loads(
-        (candidate_root / "expected.json").read_text(encoding="utf-8")
-    )
+    expected = json.loads((candidate_root / "expected.json").read_text(encoding="utf-8"))
     checks: dict[str, bool] = {
         "validate_succeeded": result["validate_exit_code"] == 0,
         "import_succeeded": result["import_exit_code"] == 0,
         "export_succeeded": result["export_exit_code"] == 0,
         "export_created": result["export_created"] is True,
         "cleanup_succeeded": result["cleanup_succeeded"] is True,
-        "database_absent_after_cleanup": (
-            result["database_absent_after_cleanup"] is True
-        ),
+        "database_absent_after_cleanup": (result["database_absent_after_cleanup"] is True),
         "database_residual_files_empty": result["database_residual_files"] == [],
         "observed_secedit_operations_match": _observed_operations_match(result),
         "expected_schema_supported": expected.get("schema_version") == 1,
@@ -425,8 +417,7 @@ def main() -> int:
         for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
     local_map = {
-        name: repo_root / source
-        for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
+        name: repo_root / source for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
     }
     source_hashes: dict[str, str] = {}
     deployed_harness_ok = True
@@ -463,9 +454,7 @@ def main() -> int:
             and _sha256(guest_copy) == _sha256(controller_copy)
         )
         candidate_delivery[name] = {
-            "controller_sha256": (
-                _sha256(controller_copy) if controller_copy.is_file() else None
-            ),
+            "controller_sha256": (_sha256(controller_copy) if controller_copy.is_file() else None),
             "guest_copy_matches": intact,
         }
     checks["candidate_delivered_intact"] = all(

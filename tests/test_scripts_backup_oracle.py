@@ -182,6 +182,8 @@ def test_main_accepts_complete_synthetic_evidence_pack(tmp_path: Path, monkeypat
     for name, relative in _FINALIZER["LOCAL_FILES"].items():
         (run / name).write_bytes((_ROOT / relative).read_bytes())
     finalizer_globals = _FINALIZER["main"].__globals__
+    # This semantic-pack test supplies synthetic Git; real byte refusals have subprocess tests.
+    monkeypatch.setitem(finalizer_globals, "assert_bound_source_bytes", lambda *_: None)
     monkeypatch.setitem(finalizer_globals, "lane_environment_violations", lambda _: ())
 
     def fake_run(*args: Any, **kwargs: Any) -> Any:

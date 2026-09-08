@@ -2,63 +2,18 @@
 """WI-059 preflight: refuse bound source bytes that Git will not reproduce.
 
 Run before reserving the estate. This does not mint a verdict, replace the
-finalizers' clean-tree checks, or close WI-059: finalizers must also enforce
-the invariant in the next harness batch. Nothing is normalized or rewritten.
+finalizers' clean-tree checks. The finalizers enforce the same shared check
+again before grading. Nothing is normalized or rewritten.
 """
 
 from __future__ import annotations
 
 import argparse
 import runpy
-import subprocess
 import sys
-from collections.abc import Iterable
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-
-class SourceBytesError(ValueError):
-    """The source set cannot be reproduced from the recorded Git revision."""
-
-
-def assert_bound_source_bytes(repo_root: Path, paths: Iterable[str]) -> None:
-    """Compare raw worktree/index/HEAD bytes; Git's normalized status is insufficient.
-
-    The index is the WI-059 comparison. HEAD is checked too: a staged edit
-    cannot become evidence for the older commit a finalizer would name.
-    Read in binary mode so Python cannot conceal CRLF differences on Windows.
-    """
-    problems = []
-    unique_paths = sorted(set(paths))
-    if not unique_paths:
-        raise SourceBytesError("no bound source paths supplied")
-    for relative in unique_paths:
-        path = PurePosixPath(relative)
-        if path.is_absolute() or ".." in path.parts or "\\" in relative or ":" in relative:
-            problems.append(f"{relative}: expected a repository-relative Git path")
-            continue
-        blobs = {}
-        for label, revision in (("index", ""), ("HEAD", "HEAD")):
-            try:
-                blobs[label] = subprocess.run(
-                    ["git", "show", f"{revision}:{relative}"],
-                    cwd=repo_root,
-                    capture_output=True,
-                    check=True,
-                    timeout=30,
-                ).stdout
-            except (OSError, subprocess.SubprocessError):
-                problems.append(f"{relative}: cannot read {label} blob")
-        try:
-            working = (repo_root / relative).read_bytes()
-        except OSError:
-            problems.append(f"{relative}: cannot read working-tree file")
-            continue
-        if "index" in blobs and working != blobs["index"]:
-            problems.append(f"{relative}: working-tree bytes differ from index")
-        if "index" in blobs and "HEAD" in blobs and blobs["index"] != blobs["HEAD"]:
-            problems.append(f"{relative}: index bytes differ from HEAD")
-    if problems:
-        raise SourceBytesError("bound source bytes refused:\n" + "\n".join(problems))
+from gpo_studio.oracle_evidence import SourceBytesError, assert_bound_source_bytes
 
 
 def bound_source_paths(repo_root: Path) -> dict[str, tuple[str, ...]]:

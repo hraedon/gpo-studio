@@ -54,6 +54,8 @@ cp "$SCRIPT_DIR/run-publication-oracle.sh" \
     "$REPO_ROOT/scripts/plan-033/build-publication-candidate.py" \
     "$REPO_ROOT/src/gpo_studio/"{publication.py,export.py,canonical.py,gpp.py,model.py,registry_pol.py,validation.py,oracle_evidence.py,xml_safety.py} \
     "$LOCAL_DIR/"
+cp "$SCRIPT_DIR/finalize_publication_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
 set +e

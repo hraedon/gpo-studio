@@ -21,9 +21,9 @@ import json
 import re
 import subprocess
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal, cast
 
 from .xml_safety import parse_xml_bounded
@@ -1255,6 +1255,51 @@ _WP0_COMPARISON_ASSERTION_ID = "wp0-gpo-report-self-consistency"
 _WP0_COMPARISON_ORACLE = "Backup-GPO native gpreport vs Get-GPOReport native output"
 
 
+class SourceBytesError(OracleEvidenceError):
+    """The source set cannot be reproduced from the recorded Git revision."""
+
+
+def assert_bound_source_bytes(repo_root: Path, paths: Iterable[str]) -> None:
+    """Compare raw worktree/index/HEAD bytes; Git's normalized status is insufficient.
+
+    The index is the WI-059 comparison. HEAD is checked too: a staged edit
+    cannot become evidence for the older commit a finalizer would name.
+    Read in binary mode so Python cannot conceal CRLF differences on Windows.
+    """
+    problems: list[str] = []
+    unique_paths = sorted(set(paths))
+    if not unique_paths:
+        raise SourceBytesError("no bound source paths supplied")
+    for relative in unique_paths:
+        path = PurePosixPath(relative)
+        if path.is_absolute() or ".." in path.parts or "\\" in relative or ":" in relative:
+            problems.append(f"{relative}: expected a repository-relative Git path")
+            continue
+        blobs: dict[str, bytes] = {}
+        for label, revision in (("index", ""), ("HEAD", "HEAD")):
+            try:
+                blobs[label] = subprocess.run(
+                    ["git", "show", f"{revision}:{relative}"],
+                    cwd=repo_root,
+                    capture_output=True,
+                    check=True,
+                    timeout=30,
+                ).stdout
+            except (OSError, subprocess.SubprocessError):
+                problems.append(f"{relative}: cannot read {label} blob")
+        try:
+            working = (repo_root / relative).read_bytes()
+        except OSError:
+            problems.append(f"{relative}: cannot read working-tree file")
+            continue
+        if "index" in blobs and working != blobs["index"]:
+            problems.append(f"{relative}: working-tree bytes differ from index")
+        if "index" in blobs and "HEAD" in blobs and blobs["index"] != blobs["HEAD"]:
+            problems.append(f"{relative}: index bytes differ from HEAD")
+    if problems:
+        raise SourceBytesError("bound source bytes refused:\n" + "\n".join(problems))
+
+
 def git_source_state(repo_root: Path) -> SourceState:
     """Compute the authoritative source provenance from the git working tree.
 
@@ -1489,6 +1534,16 @@ _HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
         "orchestrator/run-windows-oracle.sh",
         "scripts/windows-oracle/run-windows-oracle.sh",
     ),
+    (
+        "harness-finalizer",
+        "orchestrator/finalize_oracle_run.py",
+        "scripts/windows-oracle/finalize_oracle_run.py",
+    ),
+    (
+        "harness-finalizer-library",
+        "orchestrator/oracle_evidence.py",
+        "src/gpo_studio/oracle_evidence.py",
+    ),
 )
 
 _HARNESS_INPUT_FILES: dict[str, tuple[tuple[str, str, str], ...]] = {
@@ -1686,6 +1741,10 @@ def finalize_oracle_run(
     output artifact stands in for the missing report, and an explanatory
     comparison records why no semantic comparison was possible.
     """
+    # WI-059: refuse before reading/grading or writing any finalized artifacts.
+    assert_bound_source_bytes(
+        repo_root, (row[2] for row in _HARNESS_INPUT_FILES["psdirect"])
+    )
     raw_path = run_dir / "manifest.raw.json"
     raw = json.loads(raw_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):

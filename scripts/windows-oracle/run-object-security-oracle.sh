@@ -53,6 +53,8 @@ cp "$SCRIPT_DIR/run-object-security-oracle.sh" \
    "$REPO_ROOT/src/gpo_studio/sddl.py" \
    "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" \
    "$LOCAL_DIR/"
+cp "$SCRIPT_DIR/finalize_object_security_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
 set +e

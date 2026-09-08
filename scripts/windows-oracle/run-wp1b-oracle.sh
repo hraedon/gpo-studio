@@ -96,6 +96,8 @@ psdirect -Action pull -RemotePath "$GUEST_SCRIPTS\\run-wp1b-writer.ps1" \
 cp "$SCRIPT_DIR/run-wp1b-oracle.sh" "$REPO_ROOT/scripts/plan-033/build-wp1b-candidates.py" \
     "$SCRIPT_DIR/psdirect.ps1" "$LOCAL_DIR/"
 
+cp "$SCRIPT_DIR/finalize_wp1b_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
 uv run python scripts/windows-oracle/finalize_wp1b_run.py "$LOCAL_DIR" \

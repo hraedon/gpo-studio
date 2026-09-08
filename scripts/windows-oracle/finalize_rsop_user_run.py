@@ -67,7 +67,11 @@ from finalize_rsop_run import (  # noqa: E402
     _symbolic_map,
 )
 
-from gpo_studio.oracle_evidence import OracleEvidenceError, tag_evidence_commit  # noqa: E402
+from gpo_studio.oracle_evidence import (  # noqa: E402
+    OracleEvidenceError,
+    assert_bound_source_bytes,
+    tag_evidence_commit,
+)
 
 # The observation half is a different script from the computer lane's, and the
 # authoring half is the same one. Both are bound by hash: a lane that certifies
@@ -78,6 +82,8 @@ DEPLOYED_FILES: dict[str, str] = {
 }
 
 LOCAL_FILES: dict[str, str] = {
+    "finalize_rsop_user_run.py": "scripts/windows-oracle/finalize_rsop_user_run.py",
+    "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
     "run-rsop-user-oracle.sh": "scripts/windows-oracle/run-rsop-user-oracle.sh",
     "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
     "build-rsop-candidate.py": "scripts/plan-033/build-rsop-candidate.py",
@@ -389,6 +395,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     run_dir = args.run_dir.resolve()
     repo_root = args.repo_root.resolve()
+    try:
+        assert_bound_source_bytes(repo_root, {**DEPLOYED_FILES, **LOCAL_FILES}.values())
+    except OracleEvidenceError as exc:
+        print(f"finalize refused: {exc}", file=sys.stderr)
+        return 1
 
     author_path = _find_one(run_dir / "author", "author-state.json")
     observe_path = _find_one(run_dir / "observe", "observation.json")

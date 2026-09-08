@@ -15,6 +15,7 @@ from typing import Any
 
 from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
+    assert_bound_source_bytes,
     lane_environment_violations,
     tag_evidence_commit,
 )
@@ -226,6 +227,11 @@ def main() -> int:
     run_dir = args.run_dir.resolve()
     candidate_root = args.candidate_root.resolve()
     repo_root = args.repo_root.resolve()
+    try:
+        assert_bound_source_bytes(repo_root, {**DEPLOYED_FILES, **LOCAL_FILES}.values())
+    except OracleEvidenceError as exc:
+        print(f"finalize refused: {exc}", file=sys.stderr)
+        return 1
     result = json.loads((run_dir / "result.json").read_text(encoding="utf-8-sig"))
     expected_raw = json.loads((candidate_root / "expected.json").read_text(encoding="utf-8"))
     checks = {

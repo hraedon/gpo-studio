@@ -313,6 +313,8 @@ fi
 cp "$SCRIPT_DIR/run-endpoint-oracle.sh" "$SCRIPT_DIR/psdirect.ps1" \
     "$REPO_ROOT/scripts/plan-033/build-endpoint-candidate.py" "$LOCAL_DIR/"
 
+cp "$SCRIPT_DIR/finalize_endpoint_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
 if [[ "$OBSERVE_STATUS" -ne 0 ]]; then

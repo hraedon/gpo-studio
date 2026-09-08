@@ -1,8 +1,20 @@
 # WI-059: byte preflight and the next finalizer batch
 
-**Status:** preparation implemented 2026-09-07; finalizer enforcement and live
-requalification are not implemented. WI-059 remains open. The existing 21 live
-verdicts remain unchanged and their current byte bindings still pass.
+**Status:** finalizer enforcement implemented; live requalification in progress.
+WI-059 remains open until the batch is banked. The 21 previous live verdicts
+are preserved, but their source bindings are stale under the changed harness.
+
+The shared raw-byte guard now executes inside all ten finalization paths,
+including WP-0's library entry point, before evidence outputs or tags. All
+lanes bind their finalizer and the shared library, and the drivers retain those
+inputs. Thirty subprocess tests exercise hidden CRLF drift with and without
+tagging and confirm that clean bytes reach the existing input checks.
+Legacy synthetic grading tests keep their synthetic provenance isolated;
+the new subprocess tests exercise real Git and unmocked enforcement.
+
+Historical packs that previously fell back to current source files now retain
+the exact missing input bytes recovered from their recorded commits, with
+each recovered hash checked against the unchanged historical verdict.
 
 ## The check available now
 
@@ -33,9 +45,8 @@ could not qualify the recipe it would deploy. The recipe now has an explicit
 `text eol=lf` rule, and the working copy was restored to the unchanged Git
 bytes. All 51 paths then passed. This does not change any recipe content.
 
-This is an **operator preflight**, not finalizer enforcement. A file can change
-after it runs. The existing finalizer clean-tree gates are still necessary,
-and WI-059 is not closed by a standalone script passing.
+The CLI remains an **operator preflight**: a file can change after it runs.
+Finalizers now repeat the same check. Their clean-tree gates remain necessary.
 
 ## Implementation boundary for the batch
 

@@ -101,6 +101,8 @@ psdirect -Action pull -RemotePath "$GUEST_SCRIPTS\\run-wp2-import.ps1" \
 cp "$SCRIPT_DIR/run-wp2-oracle.sh" "$REPO_ROOT/scripts/plan-033/build-wp2-candidate.py" \
     "$SCRIPT_DIR/psdirect.ps1" "$LOCAL_DIR/"
 
+cp "$SCRIPT_DIR/finalize_wp2_import_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
 # --candidate-root is not optional: it is what makes the verdict's yardstick the

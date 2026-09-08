@@ -57,6 +57,12 @@ def _init_clean_git_repo(path: Path) -> str:
 
 
 _TEST_HARNESS_FILES = {
+    "orchestrator/finalize_oracle_run.py": (
+        "scripts/windows-oracle/finalize_oracle_run.py", b"# fake finalizer\n"
+    ),
+    "orchestrator/oracle_evidence.py": (
+        "src/gpo_studio/oracle_evidence.py", b"# fake library\n"
+    ),
     # deployed relative path -> (repository path, content)
     "scripts/run-evidence.ps1": (
         "scripts/windows-oracle/run-evidence.ps1",
@@ -93,6 +99,8 @@ _TEST_HARNESS_FILES_SSH = {
 }
 
 _HARNESS_ARTIFACT_IDS = {
+    "harness-finalizer",
+    "harness-finalizer-library",
     "harness-run-evidence",
     "harness-common",
     "harness-recipe",

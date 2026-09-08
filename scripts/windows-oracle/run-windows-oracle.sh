@@ -115,6 +115,8 @@ sources = {
     "scripts/recipe.json": repo_root / "tests/fixtures/recipes/synthetic-registry-basic.json",
     "orchestrator/run-windows-oracle.sh": script_dir / "run-windows-oracle.sh",
     "orchestrator/psdirect.ps1": script_dir / "psdirect.ps1",
+    "orchestrator/finalize_oracle_run.py": script_dir / "finalize_oracle_run.py",
+    "orchestrator/oracle_evidence.py": repo_root / "src/gpo_studio/oracle_evidence.py",
 }
 files = {}
 for rel, src in sources.items():
@@ -173,6 +175,8 @@ psdirect -Action pull -RemotePath "$GUEST_RUN_ROOT\\harness-inputs.json" \
 # the guest), so copy the exact files that were hashed at deploy time.
 cp "$SCRIPT_DIR/run-windows-oracle.sh" "$LOCAL_DIR/orchestrator/run-windows-oracle.sh"
 cp "$SCRIPT_DIR/psdirect.ps1" "$LOCAL_DIR/orchestrator/psdirect.ps1"
+
+cp "$SCRIPT_DIR/finalize_oracle_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/orchestrator/"
 
 echo "=== retrieved files ==="
 find "$LOCAL_DIR" -type f | sort
