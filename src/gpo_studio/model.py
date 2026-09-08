@@ -60,6 +60,19 @@ class CseMetadataEntry:
     files: tuple[CseFileEntry, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True, slots=True)
+class BackupInventory:
+    """Immutable import provenance, not instructions for publishing policy.
+
+    The two native XML documents retain their exact bytes as base64. File
+    entries inventory the source payload; they do not contain its bytes.
+    """
+
+    backup_xml_base64: str
+    report_xml_base64: str = ""
+    files: tuple[CseFileEntry, ...] = field(default_factory=tuple)
+
+
 TargetType = Literal["user", "group", "computer"]
 
 
@@ -109,6 +122,7 @@ class GPO:
     links: tuple[GPOLink, ...] = field(default_factory=tuple)
     source_guid: str = ""
     cse_metadata: tuple[CseMetadataEntry, ...] = field(default_factory=tuple)
+    backup_inventory: BackupInventory | None = None
     security_filters: tuple[SecurityFilter, ...] = field(default_factory=tuple)
     wmi_filter: WmiFilter | None = None
     gpp_collections: tuple[GppCollection, ...] = field(default_factory=tuple)

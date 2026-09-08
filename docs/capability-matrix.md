@@ -81,7 +81,7 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 | GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry, Drives, Local Users and Groups, Scheduled Tasks daily Exec, Services) |
 | Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | verified |
 | cpassword | blocked | &#10007; | &#10007; | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; |
-| Unknown CSE content | preserved | &#10007; | &#9680; | &#10007; | &mdash; | &#10003; | &#10003; | &mdash; |
+| Unknown CSE content | metadata retained | &#10007; | &#9680; | &#10007; | &mdash; | &#10003; | &#10003; | &mdash; |
 | SDDL parsing | preview | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Migration tables | preview | &mdash; | &#9680; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 
@@ -384,6 +384,11 @@ historical records for their original revisions.
 - Multi-GPO backups are rejected.
 - Symlink, path-traversal, and entity-expansion guards are enforced.
 - Optional migration table can be applied to security filter SIDs/principals.
+- Native imports retain exact `Backup.xml` / optional `gpreport.xml` bytes and
+  every payload file's path, size and hash. `GET /api/gpos/{guid}/report.txt`
+  includes this historical source inventory, including unmodeled native
+  extension observations. Later edits do not update the snapshot. See
+  [measured backup/report fidelity](plan-033/backup-report-fidelity.md).
 
 ### GPMC backup export — supported subset
 
@@ -419,16 +424,15 @@ export, and GPMC backup export. The detector (`contains_cpassword`) checks for
 the attribute name in any XML element, including namespace-qualified attributes
 (e.g. `x:cpassword`) and mixed-case variants.
 
-### Unknown CSE content — preserved
+### Unknown CSE content — metadata retained
 
 When a GPMC backup contains CSE files that GPO Studio does not have a typed
-editor for (anything beyond registry policy and GPP Groups/Registry XML),
+parser for (outside registry policy and the supported GPP discovery paths),
 those files are:
 
 1. **Inventoried** — file path, SHA-256 hash, and size are stored as
-   `CseMetadataEntry` on the GPO. This includes unhandled Preferences/ files
-   (e.g. `ScheduledTasks.xml`, `Drives.xml`) that are not parsed by the GPP
-   Groups or Registry parsers.
+   `CseMetadataEntry` on the GPO. This includes unhandled Preferences files and
+   Scripts INI files. Recognized GPP families are modeled separately.
 2. **Hashed** — included in `review_model_sha256` so the review digest
    accounts for their presence.
 3. **Not editable** — there is no authoring surface for unknown CSE bytes.
@@ -439,8 +443,10 @@ those files are:
    written back to a GPMC backup.
 
 **GPMC backup export is blocked** when unknown CSE content is present, because
-the bytes cannot be faithfully reproduced. Studio bundle export includes the
-metadata (hashes and sizes) in `manifest.json` but not the original bytes.
+the bytes cannot be faithfully reproduced. Serialization in a Studio manifest
+retains the metadata, but executable Studio bundle/plan export also refuses
+unmodeled CSE content. The native import snapshot retains the two XML documents
+and observations, not the original payload bytes or authority to publish them.
 
 ### SDDL parsing — preview
 

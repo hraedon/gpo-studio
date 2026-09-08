@@ -3434,6 +3434,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         settings=all_settings,
         source_guid=backup_gpo.guid,
         cse_metadata=cse_metadata,
+        backup_inventory=backup_gpo.backup_inventory,
         domain=backup_gpo.domain or "studio.local",
         security_filters=security_filters,
         wmi_filter=wmi_filter,

@@ -21,7 +21,9 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**0 open.** Every numbered item in this file is closed.
+**1 open.**
+
+- [WI-060](#wi-060--imported-native-settings-disappear-from-the-policy-report) - retained native inventory; affected qualification refresh pending.
 
 ---
 
@@ -2273,3 +2275,26 @@ from the member server. It does not: `gpresult /x /f /scope:user /user
 <principal>` on the client itself produces a `UserResults` document for a
 principal signed in at the console, measured 2026-08-04. The question can stay
 closed unless something needs RPC/WMI for its own sake.
+
+
+## WI-060 — imported native settings disappear from the policy report
+
+**Opened:** 2026-09-08, Plan 034 backup/report discriminator.
+**Status:** open - implementation and native capture replay pass; affected live
+qualifications pending refresh.
+
+`Backup.xml` handler and registration declarations were discarded, and the
+Scripts capture's three startup commands became a count of two unknown files.
+The report called this preserved content even though it retained no payload
+bytes. Comparing handler count with unmodeled-file groups would not detect the
+right gap: Windows includes empty and fallback handlers.
+
+**Closes when:** public import retains the native XML source bytes and complete
+payload inventory, public reports expose native setting observations separately
+from editable current settings, persistence/forks retain the snapshot, and
+independent comparisons against native captures pass. Refresh the two live
+verdicts whose bound model/digest inputs change; preserve their old records.
+
+The [implementation and measured scope](plan-033/backup-report-fidelity.md)
+record the bounded corpus. Broader family coverage and full native report
+equivalence remain Plan 034 work, rather than conclusions from this tranche.

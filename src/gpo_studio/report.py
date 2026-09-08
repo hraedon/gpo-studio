@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from .backup_inventory import inventory_report_lines
 from .canonical import policy_semantic_sha256, review_model_sha256
 from .gpp import GppCollection
 from .model import GPO
@@ -117,7 +118,22 @@ def policy_report(gpo: GPO) -> str:
         ),
     )
     lines += _section(
-        "Preserved extension content",
-        (f"{entry.side}/{entry.guid}: {len(entry.files)} file(s)" for entry in gpo.cse_metadata),
+        "Unmodeled extension files (metadata only)",
+        (
+            line
+            for entry in gpo.cse_metadata
+            for line in (
+                f"{entry.side}/{entry.guid}: {len(entry.files)} file(s); original bytes not stored",
+                *(
+                    f"  {file.relative_path}: {file.size} bytes; SHA-256 {file.content_hash}"
+                    for file in entry.files
+                ),
+            )
+        ),
     )
+    if gpo.backup_inventory is not None:
+        lines += _section(
+            "Imported Windows inventory (source snapshot)",
+            inventory_report_lines(gpo.backup_inventory),
+        )
     return "\n".join(lines).rstrip() + "\n"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import fields
+from dataclasses import asdict, fields
 from typing import Any
 
 from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
@@ -350,7 +350,7 @@ def review_model_dict(gpo: GPO) -> dict[str, Any]:
         }
         for c in cse_sorted
     ]
-    return {
+    result = {
         **base,
         "name": gpo.name,
         "description": gpo.description,
@@ -358,6 +358,10 @@ def review_model_dict(gpo: GPO) -> dict[str, Any]:
         "source_guid": gpo.source_guid,
         "cse_metadata": cse_canonical,
     }
+    # Preserve existing digests for GPOs without native import provenance.
+    if gpo.backup_inventory is not None:
+        result["backup_inventory"] = asdict(gpo.backup_inventory)
+    return result
 
 
 def policy_semantic_sha256(gpo: GPO) -> str:
