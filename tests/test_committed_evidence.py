@@ -738,6 +738,52 @@ RETIRED_VERDICTS.update({
     'wp6-evidence/verdict-endpoint-observe-20260906185837-7523.json',
 })
 
+# WI-060: model/review-digest changes retire only these two WI-059 runs.
+LANE_VERDICTS.update({
+    "wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json": (
+        "finalize_scripts_backup_run.py"
+    ),
+    "wp1b-evidence/backup-report-20260908/publication/verification.json": (
+        "finalize_publication_run.py"
+    ),
+})
+RETIRED_VERDICTS.update({
+    "wp1b-evidence/wi059-20260908/scripts-metadata/verification.json",
+    "wp1b-evidence/wi059-20260908/publication/verification.json",
+})
+HISTORICAL_BOUND_FILES["wp1b-evidence/wi059-20260908/scripts-metadata/verification.json"] = {
+    "build-scripts-backup-candidate.py",
+    "canonical.py",
+    "export.py",
+    "finalize_scripts_backup_run.py",
+    "gpp.py",
+    "model.py",
+    "oracle_evidence.py",
+    "psdirect.ps1",
+    "registry_pol.py",
+    "run-scripts-backup-import.ps1",
+    "run-scripts-backup-oracle.sh",
+    "script_policy.py",
+    "validation.py",
+    "xml_safety.py",
+}
+HISTORICAL_BOUND_FILES["wp1b-evidence/wi059-20260908/publication/verification.json"] = {
+    "build-publication-candidate.py",
+    "canonical.py",
+    "export.py",
+    "finalize_publication_run.py",
+    "gpp.py",
+    "model.py",
+    "oracle_evidence.py",
+    "psdirect.ps1",
+    "publication.py",
+    "registry_pol.py",
+    "run-publication-import.ps1",
+    "run-publication-oracle.sh",
+    "validation.py",
+    "xml_safety.py",
+}
+
 #: The verdicts that are still CLAIMS: everything mapped and not retired.
 LIVE_VERDICTS = {
     relative: finalizer

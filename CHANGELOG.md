@@ -9,6 +9,13 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- WI-060: native backup imports retain the original XML documents and a complete
+  payload file inventory. Plain-text reports expose imported native settings,
+  including unmodeled Scripts commands, as an explicitly historical snapshot.
+  Payload bytes still require the original backup. The regression compares
+  27 Windows-produced backups; the two affected qualifications each passed
+  21/21 on fresh clean-source runs. See
+  [the measured scope and evidence](docs/plan-033/backup-report-fidelity.md).
 - WI-059: every oracle finalizer now refuses working-tree/index/HEAD byte
   drift before writing verdicts or tags, including with `--no-tag`. All 21
   live lane verdicts and WP-0 were requalified in one frozen estate batch;

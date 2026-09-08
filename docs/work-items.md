@@ -21,9 +21,7 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**1 open.**
-
-- [WI-060](#wi-060--imported-native-settings-disappear-from-the-policy-report) - retained native inventory; affected qualification refresh pending.
+**0 open.** Every numbered item in this file is closed.
 
 ---
 
@@ -2280,8 +2278,11 @@ closed unless something needs RPC/WMI for its own sake.
 ## WI-060 — imported native settings disappear from the policy report
 
 **Opened:** 2026-09-08, Plan 034 backup/report discriminator.
-**Status:** open - implementation and native capture replay pass; affected live
-qualifications pending refresh.
+**Status:** closed 2026-09-08. Native capture replay passes for 27 backups.
+Both affected live qualifications passed 21/21 on clean frozen `b5ccbab`: Scripts
+`scripts-r10-20260908013518-2476` and publication
+`publication-completeness-20260908013539-2644`. Complete successor evidence,
+source snapshots and cleanup results are banked; the old records remain intact.
 
 `Backup.xml` handler and registration declarations were discarded, and the
 Scripts capture's three startup commands became a count of two unknown files.

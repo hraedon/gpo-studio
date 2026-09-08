@@ -34,7 +34,7 @@ BKP = "{http://www.microsoft.com/GroupPolicy/GPOOperations}"
 BACKUPS = sorted(NATIVE.glob("*/manifest.xml")) + sorted(
     p for p in EVIDENCE.glob("*-evidence/wi059-20260908/**/manifest.xml")
     if "rebackup" in p.parts or "backup" in p.parts
-)
+) + [EVIDENCE / "wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup/manifest.xml"]
 SCRIPTS = EVIDENCE / "wp1b-evidence/wi059-20260908/scripts-metadata/rebackup"
 
 
@@ -166,7 +166,7 @@ def test_invalid_retained_inventory_is_refused(invalid: object) -> None:
 
 
 def test_inventory_replay_has_real_windows_coverage() -> None:
-    assert len(BACKUPS) >= 25
+    assert len(BACKUPS) == 27
     assert all(p.exists() for p in BACKUPS)
 
 

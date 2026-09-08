@@ -1,5 +1,12 @@
 # Scripts metadata lane (R10)
 
+**Current qualification (2026-09-08):** `scripts-r10-20260908013518-2476`, 21/21,
+on clean frozen `b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`.
+[Complete successor evidence](wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json) and the
+[reason for the targeted refresh](backup-report-fidelity.md). Earlier results
+below remain records of their original revisions and scope.
+
+
 Plan 034 WP-1 extends Plan 033 WP-1B with a Windows-verified R10 Scripts
 metadata lane on a clean member
 server. Run `scripts-r10-20260907182809-4583` passed all 21 checks from source

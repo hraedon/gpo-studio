@@ -171,7 +171,7 @@
       ],
       "oracle": "Import-GPO of a Studio Scripts backup, Get-GPOReport Scripts namespace inspection, and Backup-GPO re-export comparison. Script payload execution is outside this lane.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5 by scripts-r10-20260908003334-8294. Import-GPO, Get-GPOReport Scripts metadata and Backup-GPO rebackup pass. Script payload execution and endpoint processing remain outside scope."
+      "notes": "Requalified 2026-09-08 at b5ccbabd19b7ed661312915ca4b314dc27bbdd6e by scripts-r10-20260908013518-2476. Import-GPO, Get-GPOReport Scripts metadata and Backup-GPO rebackup pass. Script payload execution and endpoint processing remain outside scope."
     },
     {
       "lane_id": "object-security-secedit",
@@ -275,7 +275,7 @@
       ],
       "oracle": "Import-GPO of a Studio backup, then read back the GPO's SYSVOL tree and its gPCMachineExtensionNames/gPCUserExtensionNames, and compare both against the publication plan's own claim about what it would write. Executing a publication is outside this lane: nothing here writes to SYSVOL or AD on Studio's behalf.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5 by publication-completeness-20260908003355-4887. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
+      "notes": "Requalified 2026-09-08 at b5ccbabd19b7ed661312915ca4b314dc27bbdd6e by publication-completeness-20260908013539-2644. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
     }
   ]
 }

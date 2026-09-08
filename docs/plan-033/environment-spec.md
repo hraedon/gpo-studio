@@ -1,8 +1,11 @@
 # Plan 033 frozen environment specification
 
-**Current qualification:** the [WI-059 batch](wi059-harness-batch.md), 22 passing
-runs on `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`. The dated measurement notes below
-are history; the Qualified environments table records the current bindings.
+**Current qualification:** the [WI-059 batch](wi059-harness-batch.md), with
+[WI-060 successors](backup-report-fidelity.md) for Scripts and publication.
+The two successor runs bind `b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`; the
+other 19 verdicts and WP-0 retain their WI-059 source bindings. The dated
+measurement notes below are history; the Qualified environments table records
+the current bindings.
 
 **2026-09-07 publication-completeness lane:** run
 `publication-completeness-20260907193221-2759` passed 21/21 on LabMS01 (role 3)
@@ -99,8 +102,8 @@ which of these produced a given verdict.
 | wp3-member | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `wp3-security-template-20260908003235-1230` (`pass`) |
 | wp3-dc | estate, domain controller (role 5) | `psdirect` | 2026-09-08 | `wp3-security-template-20260908003251-3920` (`pass`) |
 | object-security | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `object-security-20260908003317-7120` (`pass`) |
-| scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `scripts-r10-20260908003334-8294` (`pass`) |
-| publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `publication-completeness-20260908003355-4887` (`pass`) |
+| scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `scripts-r10-20260908013518-2476` (`pass`) |
+| publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-09-08 | `publication-completeness-20260908013539-2644` (`pass`) |
 | endpoint | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `endpoint-observe-20260908003432-9991` (`pass`) |
 | lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908003647-5124` (`pass`) |
 | disabled-block-enforced | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-observe-20260908003802-3428` (`pass`) |
@@ -116,7 +119,8 @@ which of these produced a given verdict.
 | user-security-filtering-deny | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908005409-2134` (`pass`) |
 | user-security-filtering-read-deny | estate, member server + client (26200) | `psdirect` | 2026-09-08 | `rsop-user-observe-20260908005556-1857` (`pass`) |
 
-Every current row binds `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`. The shared byte guard and
+Scripts and publication bind the WI-060 revision above; every other current
+row binds `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`. The shared byte guard and
 finalizer inputs are part of the recorded evidence. Earlier qualification
 records below remain historical, with their original scope and commit.
 

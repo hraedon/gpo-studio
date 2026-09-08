@@ -11,6 +11,9 @@
 replaced all 21 live lane verdicts and refreshed WP-0 on one frozen harness.
 Historical measurements cited below retain their original scope; this batch
 adds source-byte enforcement and does not expand the capability contract.
+[WI-060 backup/report fidelity](plan-033/backup-report-fidelity.md) subsequently
+adds a surfaced source inventory and refreshes only the two affected Scripts
+and publication qualifications; all other WI-059 source bindings still hold.
 
 GPO Studio is an offline-first, single-operator authoring and review workbench.
 It edits a local SQLite workspace and emits reviewable artifacts. The web

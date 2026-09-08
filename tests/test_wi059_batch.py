@@ -50,7 +50,17 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
     batch = json.loads((EVIDENCE / "wi059-batch.json").read_text(encoding="utf-8"))
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     new_verdicts = {r["verdict"] for r in batch["runs"] if r["name"] != "wp0"}
-    assert set(registry["LIVE_VERDICTS"]) == new_verdicts
+    successors = json.loads((EVIDENCE / "backup-report-batch.json").read_text(encoding="utf-8"))
+    replaced = {r["replaces"] for r in successors["runs"]}
+    replacements = {r["verdict"] for r in successors["runs"]}
+    assert len(replaced) == len(replacements) == 2
+    assert replaced <= new_verdicts
+    assert replaced <= registry["RETIRED_VERDICTS"]
+    assert set(registry["LIVE_VERDICTS"]) == (new_verdicts - replaced) | replacements
+    for run in successors["runs"]:
+        assert registry["LANE_VERDICTS"][run["replaces"]] == (
+            registry["LIVE_VERDICTS"][run["verdict"]]
+        )
     wp0 = next(r for r in batch["runs"] if r["name"] == "wp0")
     path = EVIDENCE / wp0["verdict"]
     manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -76,6 +86,8 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
 def test_platform_lane_records_name_the_current_qualification() -> None:
     batch = json.loads((EVIDENCE / "wi059-batch.json").read_text(encoding="utf-8"))
     runs = {run["name"]: run for run in batch["runs"]}
+    successors = json.loads((EVIDENCE / "backup-report-batch.json").read_text(encoding="utf-8"))
+    runs.update({run["name"]: run for run in successors["runs"]})
     platforms = json.loads(
         (ROOT / "tests/fixtures/scenarios/platforms.json").read_text(encoding="utf-8")
     )
@@ -97,6 +109,6 @@ def test_platform_lane_records_name_the_current_qualification() -> None:
             "user-security-filtering-read-deny",
         ),
     }.items():
-        assert batch["source_commit"] in lanes[lane_id]["notes"]
         for name in names:
+            assert runs[name]["commit"] in lanes[lane_id]["notes"]
             assert runs[name]["run_id"] in lanes[lane_id]["notes"]

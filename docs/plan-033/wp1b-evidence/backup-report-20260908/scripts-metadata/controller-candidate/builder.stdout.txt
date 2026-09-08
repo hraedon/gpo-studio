@@ -1,0 +1,10 @@
+wrote C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907183509-15319\studio-scripts-backup.zip (2647 bytes)
+backup id: {49227F28-6122-5999-8CEB-923CB9BF3001}
+archive: C:\Users\merrittp\AppData\Local\Temp\opencode\scripts-r10-candidate-20260907183509-15319\studio-scripts-backup.zip (2647 bytes)
+archive sha256: cd650643ed6449d1052c9bd26a08197fe1d9ac2d814eeede5ef177fcf0993f12
+members (5):
+  manifest.xml  620 bytes  sha256:cfe788f05d6f16dd125b735905022020b50129199f3d402f9fbe5f730857c2b7
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/Backup.xml  2774 bytes  sha256:f037344018bed720808554d80b4601f03f195a4085340eb630e32972d08db2c0
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/DomainSysvol/GPO/Machine/Scripts/psscripts.ini  226 bytes  sha256:a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/DomainSysvol/GPO/Machine/Scripts/scripts.ini  234 bytes  sha256:46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c
+  {49227F28-6122-5999-8CEB-923CB9BF3001}/bkupInfo.xml  509 bytes  sha256:bbb07a602e9736426189202be270208a59b6938295c9f8eee2be9533f921873f

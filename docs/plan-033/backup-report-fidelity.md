@@ -1,8 +1,8 @@
 # Backup and report inventory fidelity
 
-Status: implemented on the public import/report paths; native capture replay
-passes. The two affected live source bindings are awaiting replacement runs.
-This is the bounded WI-060 tranche of Plan 034 WP-2.
+Status: complete for the bounded WI-060 tranche of Plan 034 WP-2 (2026-09-08).
+Implemented on the public import/report paths; all 27 native capture replay
+cases pass. Both affected live qualifications were replaced on clean source.
 
 ## What the native captures exposed
 
@@ -56,8 +56,8 @@ and ten native backups/rebackups from the immutable WI-059 batch. It includes
 registry on both sides, Scripts, Drives, local users/groups, environment,
 files/folders, INI, power, printers, scheduled/immediate tasks, Services,
 shortcuts and item targeting. Studio-produced input candidates are excluded
-from the comparison corpus. A fresh Scripts rebackup will be added with the
-affected-lane requalification.
+from the comparison corpus. The fresh Scripts rebackup from the affected-lane
+requalification brings the regression corpus to 27 backups.
 
 This establishes observation retention and report inventory for those captures.
 It does not establish typed editing, full GPMC report equivalence, endpoint
@@ -69,7 +69,28 @@ open.
 ## Affected Windows qualifications
 
 Only the Scripts metadata and publication-completeness finalizers bind the
-changed `model.py` and `canonical.py`. Their replacement runs must use one clean
-frozen revision and retain original native output, exact source bytes, cleanup
-results and evidence tags. The other 19 live verdicts and WP-0 stay bound to
-their existing source bytes. Historical WI-059 packs and tags are immutable.
+changed `model.py` and `canonical.py`. Both replacement runs passed 21/21 on
+LabMS01, member-server role 3, using clean frozen revision
+`b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`.
+
+| Lane | Run | Evidence |
+|---|---|---|
+| Scripts metadata | `scripts-r10-20260908013518-2476` | [complete pack](wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json) |
+| Publication completeness | `publication-completeness-20260908013539-2644` | [complete pack](wp1b-evidence/backup-report-20260908/publication/verification.json) |
+
+The [batch manifest](backup-report-batch.json) hashes every banked artifact,
+including native results, command output, source snapshots and controller
+candidates. Both native results confirm removal of their owned GPOs and
+restored state. Each run has an `evidence/<run-id>` tag. The live registry,
+platform notes and environment table name these successors; the original
+WI-059 packs, hashes and tags remain unchanged.
+
+The other 19 live verdicts and WP-0 still match their existing bound source
+bytes. Scripts remains metadata/rebackup qualification, and publication
+completeness measures the plan against native import output; neither run
+executes script payloads or a Studio publication.
+
+Local verification on Windows/Python 3.13: 3,904 tests passed, 38 skipped;
+branch coverage 89.48%, all per-module floors satisfied. Ruff, strict mypy,
+the static safety gate and the raw-source-byte preflight passed. Remote CI
+remains the check for Linux and both supported Python versions.
