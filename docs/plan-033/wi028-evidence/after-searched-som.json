@@ -1,0 +1,88 @@
+{
+  "source_artifact": "gpresult.xml",
+  "source_sha256": "2f02d5ea355bf2b3fb93d57eb57cbb85e621269f09775f7e861e8e4ac2be79de",
+  "xpath": "/r:Rsop/r:ComputerResults/r:SearchedSOM",
+  "namespace": "http://www.microsoft.com/GroupPolicy/Rsop",
+  "rows": [
+    {
+      "Path": "ad.labdomain.dev/WI028-20260908-0003",
+      "Type": "OU",
+      "Order": "4",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "Local",
+      "Type": "Local",
+      "Order": "1",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev/StudioRsop-20260907222535-3240",
+      "Type": "OU",
+      "Order": "4",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev/StudioRsop-20260907222535-3240/StudioRsopParent-20260907222535-3240/StudioRsopChild-20260907222535-3240",
+      "Type": "OU",
+      "Order": "6",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev/StudioRsop-20260907222721-3274/StudioRsopParent-20260907222721-3274/StudioRsopChild-20260907222721-3274",
+      "Type": "OU",
+      "Order": "6",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev/StudioRsop-20260907222721-3274",
+      "Type": "OU",
+      "Order": "4",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev/StudioRsop-20260907222535-3240/StudioRsopParent-20260907222535-3240",
+      "Type": "OU",
+      "Order": "5",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev",
+      "Type": "Domain",
+      "Order": "3",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev/Configuration/Sites/Default-First-Site-Name",
+      "Type": "Site",
+      "Order": "2",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    },
+    {
+      "Path": "ad.labdomain.dev/StudioRsop-20260907222721-3274/StudioRsopParent-20260907222721-3274",
+      "Type": "OU",
+      "Order": "5",
+      "BlocksInheritance": "false",
+      "Blocked": "false",
+      "Reason": "Normal"
+    }
+  ]
+}

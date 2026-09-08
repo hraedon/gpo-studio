@@ -20,10 +20,9 @@ whose closing condition is not stated cannot be closed, only forgotten.
 
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
-- [WI-028](#wi-028--searchedsom-accumulates-soms-for-deleted-containers) — `SearchedSOM` accumulates SOMs for deleted containers
 - [WI-059](#wi-059--a-windows-controller-can-mint-a-verdict-ci-will-reject) — a Windows controller can mint a verdict CI will reject
 
-**2 open.** Everything else in this file is closed.
+**1 open.** Everything else in this file is closed.
 
 ---
 
@@ -75,7 +74,9 @@ it is recorded there — but it is why this item's endpoint run is bound to
 ## WI-028 — `SearchedSOM` accumulates SOMs for deleted containers
 
 **Opened:** 2026-08-04 (WP-6B, `plan-033/wp6b-results.md`).
-**Status:** open. Observed; mechanism not established.
+**Status:** closed 2026-09-07 under the warning-and-scoping-strategy condition.
+Retention in the computer RSoP WMI namespace is reproduced; internal purge
+rules and a general freshness oracle are not established.
 
 The `SearchedSOM` section of a `gpresult /x /scope:computer` document listed 24
 entries on the estate client, including OUs from all three WP-6B runs that day
@@ -99,6 +100,17 @@ section carry an explicit warning and a scoping strategy.
 
 **Do not** build the enforcement/block-inheritance oracle on `SearchedSOM`
 before this is closed.
+
+**Closure evidence.** A new empty OU appeared in both `RSOP_SOM` and
+`SearchedSOM`, then remained after the client was restored, the OU's deletion
+was verified in AD, and computer policy was forcibly refreshed. The three
+captures contain 9/10/10 SOM rows. `RSOP_Session.SOM` followed the client's
+current location, but the session creation time did not identify this run.
+The [investigation and scoped-use requirements](plan-033/wi028-searched-som-investigation.md)
+and [hash-bound diagnostic records](plan-033/wi028-evidence/provenance.json)
+record the experiment and its limits. The WP-6 results now carry the explicit
+warning and strategy; no current lane grades this section. Closing this item
+does not qualify shared-scope freshness, loopback or precedence semantics.
 
 ## WI-029 — `disabled-block-enforced` is one assertion away from being WP-6B-runnable
 
@@ -2230,6 +2242,17 @@ about.
 **Batching note.** This edits every finalizer, so it invalidates every verdict
 bound to one. It is therefore a WI-048 batch item: worth doing in the same
 session as the next harness change, not on its own.
+
+**2026-09-07 — preflight prepared; finalizer enforcement remains open.**
+`scripts/plan-033/check-bound-source-bytes.py` checks the declared sets of all
+ten finalizers (51 distinct paths), including WP-0. Real-Git tests prove it
+refuses CRLF working bytes even when normalized status/diff are clean. Its
+first run found an unpinned WP-0 recipe: the LF rule and local byte correction
+now make the check pass without changing the recipe's committed content.
+The [batch plan](plan-033/wi059-harness-batch.md) records the integration gates,
+legacy finalizer-binding gap, all 21 current live verdicts, and WP-0's separate
+manifest. No finalizer was changed and no old verdict was retired. The
+finalizer refusal tests and fresh estate batch are still required.
 
 ---
 

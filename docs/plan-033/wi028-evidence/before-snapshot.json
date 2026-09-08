@@ -1,0 +1,168 @@
+﻿{
+    "schema_version":  1,
+    "started_utc":  "2026-09-07T23:59:49.0913134Z",
+    "completed_utc":  "2026-09-07T23:59:52.6611052Z",
+    "computer":  "LABCL01",
+    "os_caption":  "Microsoft Windows 11 Enterprise",
+    "build":  "26200",
+    "last_boot_utc":  "2026-09-07T22:25:47.9825510Z",
+    "forced_refresh":  false,
+    "namespace":  "root/rsop/computer",
+    "som_before_gpresult":  [
+                                {
+                                    "id":  "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  2,
+                                    "SOMOrder":  2,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  3,
+                                    "SOMOrder":  3,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "Local",
+                                    "reason":  1,
+                                    "type":  1,
+                                    "SOMOrder":  1,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "OU=StudioRsop-20260907222535-3240,DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  4,
+                                    "SOMOrder":  4,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "OU=StudioRsop-20260907222721-3274,DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  4,
+                                    "SOMOrder":  4,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "OU=StudioRsopChild-20260907222535-3240,OU=StudioRsopParent-20260907222535-3240,OU=StudioRsop-20260907222535-3240,DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  4,
+                                    "SOMOrder":  6,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "OU=StudioRsopChild-20260907222721-3274,OU=StudioRsopParent-20260907222721-3274,OU=StudioRsop-20260907222721-3274,DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  4,
+                                    "SOMOrder":  6,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "OU=StudioRsopParent-20260907222535-3240,OU=StudioRsop-20260907222535-3240,DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  4,
+                                    "SOMOrder":  5,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                },
+                                {
+                                    "id":  "OU=StudioRsopParent-20260907222721-3274,OU=StudioRsop-20260907222721-3274,DC=ad,DC=labdomain,DC=dev",
+                                    "reason":  1,
+                                    "type":  4,
+                                    "SOMOrder":  5,
+                                    "blocked":  false,
+                                    "blocking":  false
+                                }
+                            ],
+    "som_after_gpresult":  [
+                               {
+                                   "id":  "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  2,
+                                   "SOMOrder":  2,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  3,
+                                   "SOMOrder":  3,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "Local",
+                                   "reason":  1,
+                                   "type":  1,
+                                   "SOMOrder":  1,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "OU=StudioRsop-20260907222535-3240,DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  4,
+                                   "SOMOrder":  4,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "OU=StudioRsop-20260907222721-3274,DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  4,
+                                   "SOMOrder":  4,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "OU=StudioRsopChild-20260907222535-3240,OU=StudioRsopParent-20260907222535-3240,OU=StudioRsop-20260907222535-3240,DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  4,
+                                   "SOMOrder":  6,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "OU=StudioRsopChild-20260907222721-3274,OU=StudioRsopParent-20260907222721-3274,OU=StudioRsop-20260907222721-3274,DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  4,
+                                   "SOMOrder":  6,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "OU=StudioRsopParent-20260907222535-3240,OU=StudioRsop-20260907222535-3240,DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  4,
+                                   "SOMOrder":  5,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               },
+                               {
+                                   "id":  "OU=StudioRsopParent-20260907222721-3274,OU=StudioRsop-20260907222721-3274,DC=ad,DC=labdomain,DC=dev",
+                                   "reason":  1,
+                                   "type":  4,
+                                   "SOMOrder":  5,
+                                   "blocked":  false,
+                                   "blocking":  false
+                               }
+                           ],
+    "session":  [
+                    {
+                        "id":  "Session1",
+                        "targetName":  "LAB\\LABCL01$",
+                        "SOM":  "DC=ad,DC=labdomain,DC=dev",
+                        "Site":  "Default-First-Site-Name",
+                        "creationTime":  "\/Date(1785345213000)\/"
+                    }
+                ]
+}

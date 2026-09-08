@@ -1,0 +1,11 @@
+{
+    "captured_utc":  "2026-09-07T23:59:21.4579598Z",
+    "domain":  "DC=ad,DC=labdomain,DC=dev",
+    "computer_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "residual_ous":  [
+
+                     ],
+    "residual_gpos":  [
+
+                      ]
+}

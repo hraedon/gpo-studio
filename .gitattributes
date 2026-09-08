@@ -41,3 +41,9 @@ docs/plan-033/wp1b-evidence/publication-completeness/** -text -whitespace
 # tests/fixtures/live-domain-census/provenance.json, so the blobs must not
 # be EOL-normalized on any checkout (they are CRLF on disk).
 tests/fixtures/live-domain-census/** -text
+
+# WP-0 binds the deployed recipe to HEAD too; Windows must deploy those bytes.
+tests/fixtures/recipes/synthetic-registry-basic.json text eol=lf
+# WI-028 diagnostic captures retain their exact bytes and are not lane verdicts.
+scripts/plan-033/collect-searched-som.ps1 -text
+docs/plan-033/wi028-evidence/** -text -whitespace
