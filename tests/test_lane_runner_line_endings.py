@@ -29,8 +29,9 @@ expiry is just a permission.
 
 from __future__ import annotations
 
-import shutil
+import functools
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,33 @@ CRLF_PENDING_RENORMALIZATION = frozenset(
 )
 
 
+@functools.cache
+def _bash_can_check_a_file() -> bool:
+    """Whether `bash -n <path>` on this host means anything.
+
+    Not `shutil.which("bash")`: on a GitHub Windows runner that finds
+    `C:\\Windows\\System32\\bash.exe`, the WSL launcher, which exists, is on
+    PATH, and exits 1 for everything because no distribution is installed --
+    so every runner "failed to parse" with empty stderr. The capability this
+    test needs is `bash -n` against a path *this* interpreter wrote, so probe
+    exactly that: a file that must parse, through the same call the assertion
+    makes. A host where the probe fails cannot distinguish a broken runner
+    from a broken bash, and skips.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        probe = Path(directory) / "probe.sh"
+        probe.write_bytes(b"#!/usr/bin/env bash\nprobe() { :; }\nprobe\n")
+        try:
+            return (
+                subprocess.run(
+                    ["bash", "-n", str(probe)], capture_output=True
+                ).returncode
+                == 0
+            )
+        except OSError:
+            return False
+
+
 def _controller_sources() -> list[Path]:
     """Every file the controller executes from the tree, not from a guest.
 
@@ -91,8 +119,11 @@ def test_every_lane_runner_parses_under_bash(runner: Path) -> None:
     `bash -n` and not a CR scan, because parseability is the property that
     actually matters and CRLF is only today's way of losing it.
     """
-    if shutil.which("bash") is None:  # pragma: no cover - depends on the host
-        pytest.skip("no bash on this host; test_no_new_controller_source_carries_crlf still runs")
+    if not _bash_can_check_a_file():  # pragma: no cover - depends on the host
+        pytest.skip(
+            "no bash here that can syntax-check a file; "
+            "test_no_new_controller_source_carries_crlf still runs"
+        )
     result = subprocess.run(
         ["bash", "-n", str(runner)], capture_output=True, text=True
     )
