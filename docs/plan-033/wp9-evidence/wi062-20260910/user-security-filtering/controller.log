@@ -1,0 +1,28 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-security-filtering
+built rsop candidate for user-security-filtering (4 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-user-candidate-20260911103820
+  predicted winners: AllowOnly=1(Studio-RSOP-FilterAllow), Control=present(Studio-RSOP-UserControl), Filter=allow(Studio-RSOP-FilterAllow), NestedOnly=1(Studio-RSOP-FilterNested)
+  predicted denied:  Studio-RSOP-FilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-user-observe-20260905191438-7058
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260905191438-7058
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20260905191441-7658
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260905191441-7658
+--- re-establishing the interactive session (group 'StudioRsopGroup') ---
+[31;1mOperationStopped: [0mC:\projects\gpo-studio\scripts\windows-oracle\psdirect.ps1:249[0m
+[31;1m[0m[36;1mLine |[0m
+[31;1m[0m[36;1m[36;1m 249 | [0m     [36;1m$result = Invoke-Command -Session $session `[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mharness exited 1[0m
+RUN_ID=rsop-user-observe-20260909173916-6586
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260909173916-6586
+RESESSION_PROBLEMS=
+RUN_ID=rsop-user-observe-20260909173922-1159
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260909173922-1159
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260905191441-7658","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-user-run-20260911103820
+CANDIDATE_DIR=/tmp/rsop-user-candidate-20260911103820
+
+run rsop-user-observe-20260909173922-1159: state=pass (source f5cad5777ec4ad3ed0857717d511b057852db6ba, dirty=False)
+  loopback intended='disabled' observed='disabled'

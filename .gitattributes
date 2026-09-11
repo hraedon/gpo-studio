@@ -53,3 +53,8 @@ docs/plan-033/wi059-cleanup/** -text -whitespace
 
 # WI-060 replacement runs retain exact native artifacts and source bytes.
 docs/plan-033/wp1b-evidence/backup-report-20260908/** -text -whitespace
+
+# WI-062 manifest-form packs retain exact native artifacts (CRLF logs and
+# XML); the batch manifest's SHA-256s cover those bytes.
+docs/plan-033/*-evidence/wi062-20260910/** -text -whitespace
+docs/plan-033/wi062-cleanup/** -text -whitespace

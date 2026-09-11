@@ -152,7 +152,7 @@ echo "=== retrieving run dir ==="
 # Use a unique local dir so stale, permission-locked files from a previous run
 # can never block this retrieval.
 LOCAL_DIR="/tmp/opencode/oracle-run-${RUN_LABEL}-$STAMP"
-mkdir -p "$LOCAL_DIR/scripts" "$LOCAL_DIR/orchestrator"
+mkdir -p "$LOCAL_DIR/scripts"
 # Pulling a directory delivers its CONTENTS, matching `scp -r host:dir/. local/`.
 psdirect -Action pull -RemotePath "$RUN_DIR" -LocalPath "$LOCAL_DIR" >/dev/null
 
@@ -171,12 +171,12 @@ done
 psdirect -Action pull -RemotePath "$GUEST_RUN_ROOT\\harness-inputs.json" \
     -LocalPath "$LOCAL_DIR" >/dev/null
 
-# The orchestrator and the transport run on the control host (never deployed to
-# the guest), so copy the exact files that were hashed at deploy time.
-cp "$SCRIPT_DIR/run-windows-oracle.sh" "$LOCAL_DIR/orchestrator/run-windows-oracle.sh"
-cp "$SCRIPT_DIR/psdirect.ps1" "$LOCAL_DIR/orchestrator/psdirect.ps1"
-
-cp "$SCRIPT_DIR/finalize_oracle_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/orchestrator/"
+# The orchestrator and the transport run on the control host (never deployed
+# to the guest), so the source-tree copy IS the executed copy. WI-062: those
+# files are no longer banked here -- the finalizer binds them by
+# (commit, path, sha256) from the deploy-time record against the tree and the
+# commit, and the pack carries the record rather than a second copy of bytes
+# git already holds.
 
 echo "=== retrieved files ==="
 find "$LOCAL_DIR" -type f | sort

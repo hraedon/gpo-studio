@@ -696,24 +696,28 @@ def test_lane_failure_suppresses_the_controls_and_the_comparison(lane) -> None:
     assert verdict["comparison"] is None
 
 
-def _finalize_user_with_local_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, run_dir_copy: str | None
+def _finalize_user_with_deployed_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, deployed_copy: str | None
 ) -> dict[str, Any]:
-    """Drive the harness check with exactly one locally-executed script.
+    """Drive the harness check with exactly one guest-deployed script.
 
     The `lane` fixture blanks LOCAL_FILES so the harness binding is forced
     passing and other tests earn their outcome from what they vary. That is
-    right for them and useless here, so this builds the run directly.
+    right for them and useless here, so this builds the run directly. Since
+    WI-062 the controller-side half carries no pack copy, so the guest-
+    retrieved half is the half this check can actually fail on.
     """
     run_dir = tmp_path / "run"
     (run_dir / "author").mkdir(parents=True)
     (run_dir / "observe").mkdir(parents=True)
     candidate = tmp_path / "candidate"
     candidate.mkdir()
-    source_rel = "scripts/plan-033/build-rsop-candidate.py"
+    source_rel = "scripts/windows-oracle/run-rsop-author.ps1"
 
-    monkeypatch.setattr(finalize_user, "DEPLOYED_FILES", {})
-    monkeypatch.setattr(finalize_user, "LOCAL_FILES", {"build-rsop-candidate.py": source_rel})
+    monkeypatch.setattr(
+        finalize_user, "DEPLOYED_FILES", {"run-rsop-author.ps1": source_rel}
+    )
+    monkeypatch.setattr(finalize_user, "LOCAL_FILES", {})
     monkeypatch.setattr(finalize_user, "tag_evidence_commit", lambda *a, **k: None)
 
     def fake_run(args: list[str], **kwargs: Any):
@@ -737,8 +741,11 @@ def _finalize_user_with_local_file(
     (candidate / "prediction.json").write_text(json.dumps(_prediction()), encoding="utf-8")
     (candidate / "expected.json").write_text(json.dumps(_expected()), encoding="utf-8")
 
-    if run_dir_copy is not None:
-        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8", newline="")
+    if deployed_copy is not None:
+        (run_dir / "deployed").mkdir()
+        (run_dir / "deployed" / "run-rsop-author.ps1").write_text(
+            deployed_copy, encoding="utf-8", newline=""
+        )
 
     finalize_user.main(
         [
@@ -753,30 +760,90 @@ def _finalize_user_with_local_file(
     return json.loads((run_dir / "rsop-user-verdict.json").read_text(encoding="utf-8"))
 
 
-def test_user_harness_check_passes_when_the_local_copy_matches(
+def test_user_harness_check_passes_when_the_deployed_copy_matches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The control: without it, both tests below pass on a check that always fails."""
-    real = (_REPO_ROOT / "scripts/plan-033/build-rsop-candidate.py").read_text(encoding="utf-8")
-    verdict = _finalize_user_with_local_file(tmp_path, monkeypatch, run_dir_copy=real)
+    real = (_REPO_ROOT / "scripts/windows-oracle/run-rsop-author.ps1").read_text(encoding="utf-8")
+    verdict = _finalize_user_with_deployed_file(tmp_path, monkeypatch, deployed_copy=real)
     assert verdict["harness_matches_source"] is True
 
 
-def test_user_missing_local_copy_fails_the_harness_check(
+def test_user_missing_deployed_copy_fails_the_harness_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """WI-042, user lane. The comparison was a file against itself."""
-    verdict = _finalize_user_with_local_file(tmp_path, monkeypatch, run_dir_copy=None)
+    verdict = _finalize_user_with_deployed_file(tmp_path, monkeypatch, deployed_copy=None)
     assert verdict["harness_matches_source"] is False
 
 
-def test_user_altered_local_copy_fails_the_harness_check(
+def test_user_altered_deployed_copy_fails_the_harness_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    verdict = _finalize_user_with_local_file(
-        tmp_path, monkeypatch, run_dir_copy="# not the script that ran\n"
+    verdict = _finalize_user_with_deployed_file(
+        tmp_path, monkeypatch, deployed_copy="# not the script that ran\n"
     )
     assert verdict["harness_matches_source"] is False
+
+
+def test_user_controller_files_bind_by_manifest_without_pack_copies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WI-062, user lane: no pack copy for the controller half, and the
+    verdict carries the (path, sha256) record that replaces it."""
+    import hashlib
+
+    run_dir = tmp_path / "run"
+    (run_dir / "author").mkdir(parents=True)
+    (run_dir / "observe").mkdir(parents=True)
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    source_rel = "scripts/plan-033/build-rsop-candidate.py"
+
+    monkeypatch.setattr(finalize_user, "DEPLOYED_FILES", {})
+    monkeypatch.setattr(
+        finalize_user, "LOCAL_FILES", {"build-rsop-candidate.py": source_rel}
+    )
+    monkeypatch.setattr(finalize_user, "tag_evidence_commit", lambda *a, **k: None)
+
+    def fake_run(args: list[str], **kwargs: Any):
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(finalize_user.subprocess, "run", fake_run)
+
+    (candidate / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+    (run_dir / "author" / "topology.json").write_text(_TOPOLOGY, encoding="utf-8")
+    (run_dir / "author" / "author-state.json").write_text(
+        json.dumps(_author_state()), encoding="utf-8"
+    )
+    (run_dir / "author" / "cleanup-result.json").write_text(
+        json.dumps(_cleanup_result()), encoding="utf-8"
+    )
+    (run_dir / "observe" / "observation.json").write_text(
+        json.dumps(_observation()), encoding="utf-8"
+    )
+    (candidate / "prediction.json").write_text(json.dumps(_prediction()), encoding="utf-8")
+    (candidate / "expected.json").write_text(json.dumps(_expected()), encoding="utf-8")
+
+    finalize_user.main(
+        [
+            str(run_dir),
+            "--candidate-root",
+            str(candidate),
+            "--no-tag",
+            "--repo-root",
+            str(_REPO_ROOT),
+        ]
+    )
+    verdict = json.loads((run_dir / "rsop-user-verdict.json").read_text(encoding="utf-8"))
+    assert verdict["harness_matches_source"] is True
+    source = verdict["source"]
+    assert source["paths"] == {"build-rsop-candidate.py": source_rel}
+    assert source["banked_copies"] == []
+    expected = hashlib.sha256((_REPO_ROOT / source_rel).read_bytes()).hexdigest()
+    assert source["files"]["build-rsop-candidate.py"] == expected
 
 
 def test_a_model_abstention_is_inconclusive_not_a_pass(lane) -> None:

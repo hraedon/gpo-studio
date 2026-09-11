@@ -27,6 +27,7 @@ from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
     assert_bound_source_bytes,
     lane_environment_violations,
+    manifest_bound_source,
     tag_evidence_commit,
 )
 
@@ -248,16 +249,21 @@ def main() -> int:
         ):
             checks[name] = False
 
-    source_hashes: dict[str, str] = {}
-    for check, mapping, base in (
-        ("deployed_harness_matches_source", DEPLOYED_FILES, run / "deployed"),
-        ("local_evidence_copies_match_source", LOCAL_FILES, run),
-    ):
-        ok = True
-        for name, relative in mapping.items():
-            source_hashes[name] = _sha(repo / relative)
-            ok &= (base / name).is_file() and _sha(base / name) == source_hashes[name]
-        checks[check] = ok
+    # WI-062: controller-side files are bound by (commit, path, sha256) from
+    # the source-tree copy that ran -- no byte copy rides in the pack, since
+    # git at the commit holds the bytes and assert_bound_source_bytes proved
+    # tree, index and HEAD agree.
+    bound_local = manifest_bound_source(repo, LOCAL_FILES)
+    source_hashes: dict[str, str] = {
+        name: entry["sha256"] for name, entry in bound_local.items()
+    }
+    deployed_ok = True
+    for name, relative in DEPLOYED_FILES.items():
+        source_hashes[name] = _sha(repo / relative)
+        deployed_ok &= (run / "deployed" / name).is_file() and _sha(
+            run / "deployed" / name
+        ) == source_hashes[name]
+    checks["deployed_harness_matches_source"] = deployed_ok
 
     guest = run / "candidate.zip"
     checks["candidate_delivered_intact"] = (
@@ -275,7 +281,7 @@ def main() -> int:
     checks["source_tree_clean"] = not dirty
 
     verdict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": result["run_id"],
         "transport": "psdirect",
         "passed": all(checks.values()),
@@ -294,7 +300,16 @@ def main() -> int:
         },
         "environment": result["environment"],
         "environment_violations": violations,
-        "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        "source": {
+            "commit": commit,
+            "dirty": dirty,
+            "files": source_hashes,
+            # WI-062: every bound file's repository path, and the names whose
+            # bytes the pack actually carries. Controller-side files are
+            # verified against git at the commit, not against pack copies.
+            "paths": {**DEPLOYED_FILES, **LOCAL_FILES},
+            "banked_copies": sorted(DEPLOYED_FILES),
+        },
         "artifacts": {
             p.relative_to(run).as_posix(): _sha(p)
             for p in sorted(run.rglob("*"))

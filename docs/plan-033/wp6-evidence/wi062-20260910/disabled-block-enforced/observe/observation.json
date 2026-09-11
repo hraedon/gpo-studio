@@ -1,0 +1,93 @@
+﻿{
+    "run_id":  "rsop-observe-20260905191734-7320",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-observe-20260905191734-7320",
+    "scope":  "computer",
+    "computer":  "LABCL01",
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "cse_completed":  true,
+    "cse_completed_at":  "2026-09-05T19:17:35.0498742+00:00",
+    "rsop_captured":  true,
+    "rsop_parse_error":  null,
+    "pre_run_residual":  [
+
+                         ],
+    "boot_applied_values":  [
+
+                            ],
+    "applied_gpos":  [
+                         "Default Domain Policy",
+                         "Local Group Policy",
+                         "Studio-RSOP-ChildGPO-20260905191730-4002",
+                         "Studio-RSOP-Control-20260905191730-4002",
+                         "Studio-RSOP-DomainEnforced-20260905191730-4002",
+                         "Studio-RSOP-UserSideOff-20260905191730-4002"
+                     ],
+    "denied_gpos":  [
+                        {
+                            "gpo":  "{74ade061-a1d4-4e26-ac58-6c057d700c51}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        },
+                        {
+                            "gpo":  "{628ee2a8-204f-4bb8-b63a-131e742c2982}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        }
+                    ],
+    "observed_values":  [
+                            {
+                                "value_name":  "Block",
+                                "value":  "domainEnforced"
+                            },
+                            {
+                                "value_name":  "Control",
+                                "value":  "present"
+                            },
+                            {
+                                "value_name":  "EnforcedOnly",
+                                "value":  "1"
+                            },
+                            {
+                                "value_name":  "MachineVal",
+                                "value":  "1"
+                            },
+                            {
+                                "value_name":  "Side",
+                                "value":  "computer"
+                            }
+                        ],
+    "control_present":  true,
+    "lane_problems":  [
+
+                      ],
+    "token_group":  "",
+    "token_groups_session":  [
+                                 "BUILTIN\\Administrators",
+                                 "Everyone",
+                                 "BUILTIN\\Users",
+                                 "NT AUTHORITY\\NETWORK",
+                                 "NT AUTHORITY\\Authenticated Users",
+                                 "This Organization",
+                                 "LABCL01$",
+                                 "Domain Computers",
+                                 "Authentication authority asserted identity",
+                                 "System Mandatory Level"
+                             ],
+    "token_groups_ldap":  [
+                              "LAB\\Domain Computers"
+                          ],
+    "token_groups_ldap_status":  "collected",
+    "token_groups_ldap_error":  null,
+    "token_collection_error":  null,
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.9168",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

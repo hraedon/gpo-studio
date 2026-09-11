@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<BackupInst xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"><GPOGuid>{22222222-3333-4444-5555-666666666666}</GPOGuid><GPODomain>synthetic.test</GPODomain><GPODomainGuid>{5e65c07d-ec3e-55c4-a879-00d5e30243fb}</GPODomainGuid><GPODomainController>UNKNOWN</GPODomainController><BackupTime>1980-01-01T00:00:00</BackupTime><ID>{49227F28-6122-5999-8CEB-923CB9BF3001}</ID><Comment /><GPODisplayName>zz-studio-evidence-10-scripts</GPODisplayName></BackupInst>

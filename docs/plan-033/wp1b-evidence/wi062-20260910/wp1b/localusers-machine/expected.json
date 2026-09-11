@@ -1,0 +1,49 @@
+{
+  "backup_id": "{DF49401F-85C1-55BB-A2DE-CAB0A6E5600D}",
+  "gpo_name": "GPOStudio WP1B localusers-machine",
+  "native_shape_findings": [],
+  "settings": [],
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-000000000004}",
+  "summary": {
+    "preferences": {
+      "computer": {
+        "drives": [],
+        "groups": [],
+        "local_users": [
+          {
+            "account_disabled": true,
+            "account_locked_out": false,
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "description": "Plan 033 WP-1B writer conformance",
+            "full_name": "WP1B Conformance User",
+            "ilt": null,
+            "password_never_expires": true,
+            "user_cannot_change_password": false,
+            "user_name": "wp1b-localuser"
+          }
+        ],
+        "scheduled_tasks": [],
+        "services": []
+      },
+      "user": {
+        "drives": [],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      }
+    },
+    "registry": {
+      "computer": [],
+      "user": []
+    },
+    "version": "gpo-studio.writer-conformance.v1"
+  }
+}

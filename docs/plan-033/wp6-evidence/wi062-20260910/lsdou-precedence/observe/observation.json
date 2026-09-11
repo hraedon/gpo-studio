@@ -1,0 +1,80 @@
+﻿{
+    "run_id":  "rsop-observe-20260905191621-5031",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-observe-20260905191621-5031",
+    "scope":  "computer",
+    "computer":  "LABCL01",
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "cse_completed":  true,
+    "cse_completed_at":  "2026-09-05T19:16:21.8622752+00:00",
+    "rsop_captured":  true,
+    "rsop_parse_error":  null,
+    "pre_run_residual":  [
+
+                         ],
+    "boot_applied_values":  [
+
+                            ],
+    "applied_gpos":  [
+                         "Default Domain Policy",
+                         "Local Group Policy",
+                         "Studio-RSOP-ChildA-20260905191617-3117",
+                         "Studio-RSOP-ChildB-20260905191617-3117",
+                         "Studio-RSOP-Control-20260905191617-3117",
+                         "Studio-RSOP-Domain-20260905191617-3117",
+                         "Studio-RSOP-Parent-20260905191617-3117",
+                         "Studio-RSOP-Site-20260905191617-3117"
+                     ],
+    "denied_gpos":  [
+
+                    ],
+    "observed_values":  [
+                            {
+                                "value_name":  "ChildBOnly",
+                                "value":  "1"
+                            },
+                            {
+                                "value_name":  "Control",
+                                "value":  "present"
+                            },
+                            {
+                                "value_name":  "Precedence",
+                                "value":  "childA"
+                            },
+                            {
+                                "value_name":  "SiteOnly",
+                                "value":  "1"
+                            }
+                        ],
+    "control_present":  true,
+    "lane_problems":  [
+
+                      ],
+    "token_group":  "",
+    "token_groups_session":  [
+                                 "BUILTIN\\Administrators",
+                                 "Everyone",
+                                 "BUILTIN\\Users",
+                                 "NT AUTHORITY\\NETWORK",
+                                 "NT AUTHORITY\\Authenticated Users",
+                                 "This Organization",
+                                 "LABCL01$",
+                                 "Domain Computers",
+                                 "Authentication authority asserted identity",
+                                 "System Mandatory Level"
+                             ],
+    "token_groups_ldap":  [
+                              "LAB\\Domain Computers"
+                          ],
+    "token_groups_ldap_status":  "collected",
+    "token_groups_ldap_error":  null,
+    "token_collection_error":  null,
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.9168",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

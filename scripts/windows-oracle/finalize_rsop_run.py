@@ -52,6 +52,7 @@ from gpo_studio.oracle_evidence import (  # noqa: E402
     FROZEN_ENVIRONMENT,
     OracleEvidenceError,
     assert_bound_source_bytes,
+    manifest_bound_source,
     tag_evidence_commit,
 )
 
@@ -416,19 +417,22 @@ def main(argv: list[str] | None = None) -> int:
     prediction = _load(args.candidate_root / "prediction.json")
     expected = _load(args.candidate_root / "expected.json")
 
-    source_hashes: dict[str, str] = {}
+    # WI-062: controller-side files are bound by (commit, path, sha256) from
+    # the source-tree copy that ran -- no byte copy rides in the pack, since
+    # git at the commit holds the bytes and assert_bound_source_bytes proved
+    # tree, index and HEAD agree.
+    bound_local = manifest_bound_source(repo_root, LOCAL_FILES)
+    source_hashes: dict[str, str] = {
+        name: entry["sha256"] for name, entry in bound_local.items()
+    }
     harness_ok = True
-    for name, source in {**DEPLOYED_FILES, **LOCAL_FILES}.items():
+    for name, source in DEPLOYED_FILES.items():
         src_hash = _sha256(repo_root / source)
         source_hashes[name] = src_hash
-        # The evidence copy, NOT the source again. See the identical fix in
-        # `finalize_rsop_user_run.py`: reading `repo_root / source` here
-        # compared a file against itself, so `harness_matches_source` could not
-        # fail and a run whose local scripts were never copied certified as an
-        # intact harness. The lane copies them to the run directory's root.
-        evidence = (
-            run_dir / "deployed" / name if name in DEPLOYED_FILES else run_dir / name
-        )
+        # The evidence copy retrieved from the guest, NOT the source again:
+        # reading `repo_root / source` compared a file against itself, so
+        # `harness_matches_source` could not fail.
+        evidence = run_dir / "deployed" / name
         if not evidence.is_file() or _sha256(evidence) != src_hash:
             harness_ok = False
 
@@ -504,7 +508,7 @@ def main(argv: list[str] | None = None) -> int:
         state = "expected-finding" if expected_finding else "finding"
 
     verdict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "work_package": "WP-6B",
         "scope": "computer",
         "run_id": observe.get("run_id"),
@@ -540,7 +544,16 @@ def main(argv: list[str] | None = None) -> int:
             "client": observe.get("environment"),
             "server": author.get("environment"),
         },
-        "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        "source": {
+            "commit": commit,
+            "dirty": dirty,
+            "files": source_hashes,
+            # WI-062: every bound file's repository path, and the names whose
+            # bytes the pack actually carries. Controller-side files are
+            # verified against git at the commit, not against pack copies.
+            "paths": {**DEPLOYED_FILES, **LOCAL_FILES},
+            "banked_copies": sorted(DEPLOYED_FILES),
+        },
         "harness_matches_source": harness_ok,
         "candidate": candidate_hashes,
         "topology_delivered_intact": topology_delivered_intact,

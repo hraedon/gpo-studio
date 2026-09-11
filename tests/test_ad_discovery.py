@@ -146,7 +146,7 @@ _VALID_PRINCIPALS = {
 
 
 def test_schema_version_bumped() -> None:
-    assert SCHEMA_VERSION == 3
+    assert SCHEMA_VERSION == 4
 
 
 def test_discovery_script_forest_content() -> None:

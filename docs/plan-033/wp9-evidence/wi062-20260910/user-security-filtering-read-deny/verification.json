@@ -1,0 +1,136 @@
+{
+  "author_run_id": "rsop-author-20260905191929-2502",
+  "candidate": {
+    "expected.json": "24c1f05c9a5cba626fad6696ee5701b44a31787db43c2dc596d317c0a7d48a8b",
+    "prediction.json": "c90e4b7143db0ae919de61ac36389c56483f4de2e64d3e02c5612a266c526612",
+    "topology.json": "991cd2e75137f225e4984afbd600b594f047ef44fa19dbcf65c97e6bc9836687"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_findings": [],
+    "applied_only_observed": [],
+    "applied_only_predicted": [],
+    "applied_set_difference_is_advisory": false,
+    "conclusive": true,
+    "observed_applied_user_side": [
+      "Studio-RSOP-UserDenyReadUser",
+      "Studio-RSOP-UserReadDenyAllow",
+      "Studio-RSOP-UserReadDenyControl"
+    ],
+    "observed_foreign_gpos": [
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "DenyReadUserOnly": "1",
+      "Filter": "denyReadUser"
+    },
+    "predicted_applied_either_side": [
+      "Studio-RSOP-UserDenyReadUser",
+      "Studio-RSOP-UserReadDenyAllow",
+      "Studio-RSOP-UserReadDenyControl"
+    ],
+    "predicted_applied_user_side": [
+      "Studio-RSOP-UserDenyReadUser",
+      "Studio-RSOP-UserReadDenyAllow",
+      "Studio-RSOP-UserReadDenyControl"
+    ],
+    "predicted_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "DenyReadUserOnly": "1",
+      "Filter": "denyReadUser"
+    },
+    "unevaluable_gpos": [],
+    "value_findings": []
+  },
+  "control_problems": [],
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.9168"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.33296"
+    }
+  },
+  "expected_finding": "",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "loopback": {
+    "control_ok": true,
+    "intended": "disabled",
+    "observed": "disabled"
+  },
+  "passed": true,
+  "principal": "labauto1",
+  "principal_sid": "S-1-5-21-343068944-2904821402-3322616572-1106",
+  "run_id": "rsop-user-observe-20260909174332-6160",
+  "scenario_id": "user-security-filtering-read-deny",
+  "schema_version": 2,
+  "scope": "user",
+  "settle_attempts": 1,
+  "source": {
+    "banked_copies": [
+      "run-rsop-author.ps1",
+      "run-rsop-user-observe.ps1"
+    ],
+    "commit": "f5cad5777ec4ad3ed0857717d511b057852db6ba",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "c46fc12670bc41fc4fcd84100a8b159c668a48f068504447601372a94da352eb",
+      "finalize_rsop_user_run.py": "3cb796c62482874fe1c5a724a89ce43ce28703ee2b724bf4fd6a598005165a21",
+      "oracle_evidence.py": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "run-rsop-author.ps1": "ace45b03f48dc27eaadadd6ba0abaa647aaf32c1487a3970e5b08dad0eeeec0a",
+      "run-rsop-user-observe.ps1": "eb654b423519b2396ecdb0fa8cc19621116a1c23501599d8ddefe69ed6dffc8c",
+      "run-rsop-user-oracle.sh": "d15895d98c78022f6a08cc12d629319fba11ce8410a7d5fd0f709245bba6d827"
+    },
+    "paths": {
+      "build-rsop-candidate.py": "scripts/plan-033/build-rsop-candidate.py",
+      "finalize_rsop_user_run.py": "scripts/windows-oracle/finalize_rsop_user_run.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "run-rsop-author.ps1": "scripts/windows-oracle/run-rsop-author.ps1",
+      "run-rsop-user-observe.ps1": "scripts/windows-oracle/run-rsop-user-observe.ps1",
+      "run-rsop-user-oracle.sh": "scripts/windows-oracle/run-rsop-user-oracle.sh"
+    }
+  },
+  "state": "pass",
+  "token_groups": {
+    "directory": [
+      "BUILTIN\\Users",
+      "LAB\\Domain Users"
+    ],
+    "directory_error": null,
+    "directory_status": "collected",
+    "group": "",
+    "session": [
+      "Domain Users",
+      "Everyone",
+      "BUILTIN\\Users",
+      "NT AUTHORITY\\INTERACTIVE",
+      "CONSOLE LOGON",
+      "NT AUTHORITY\\Authenticated Users",
+      "This Organization",
+      "LOCAL",
+      "StudioRsopGroup-20260905191713-2641",
+      "Authentication authority asserted identity",
+      "Medium Mandatory Level"
+    ]
+  },
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "user_policy_completed": true,
+  "work_package": "WP-9"
+}

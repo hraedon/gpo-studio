@@ -9,6 +9,23 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- WI-061: revision snapshots no longer each carry a full copy of the retained
+  native XML. Schema v4 stores each distinct document once
+  (`retained_documents`, keyed by the SHA-256 of the decoded bytes) with
+  per-snapshot references, rehydrating at every store read so no consumer of
+  the API observes the encoding; a v3 workspace migrates in place, and
+  deleting the last holder collects its documents. The bound
+  Scripts/publication qualifications are re-earned by this batch.
+- WI-062: evidence packs no longer bank byte copies of controller-side bound
+  source. Verdicts record `(commit, path, sha256)` for every bound file
+  (schema version 2), `harness_matches_source` covers the guest-deployed
+  half, WP-0's manifest carries the orchestrator files in `source.bound`,
+  and `test_committed_evidence.py` re-derives recorded digests from git at
+  each verdict's own commit. Historical packs and tags are untouched. The
+  requalification batch banked WP-0 plus 20 schema-version-2 verdicts at one
+  frozen harness; the computer group-deny lane is pending the estate repair
+  its batch note describes. See [the decision](docs/plan-033/bound-source-manifest.md)
+  and [the batch](docs/plan-033/wi062-batch.md).
 - WI-061 (part): `GET /api/gpos` and `GET /api/starter-gpos` no longer carry
   WI-060's retained native XML in every row -- rows report
   `has_backup_inventory` and the detail endpoint serves the snapshot. The

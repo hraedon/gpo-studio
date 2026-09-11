@@ -236,8 +236,14 @@ def test_wp0_guest_files_are_pushed_and_pulled_back() -> None:
                 f"WP-0 binds {path} but never pulls it back"
             )
         else:
-            # Controller-side: the source-tree copy is the executed copy, and
-            # the driver copies it into the run directory after the run.
-            assert f'cp "$SCRIPT_DIR/{leaf}"' in body or f"/{leaf}\"" in body, (
-                f"WP-0 binds {path} but never copies it into the run directory"
+            # Controller-side since WI-062: the source-tree copy is the
+            # executed copy and NO byte copy rides in the pack -- the
+            # manifest's source.bound carries (commit, path, sha256). A cp of
+            # one of these into the run directory is the retired behaviour.
+            assert not any(
+                line.lstrip().startswith("cp ") and leaf in line
+                for line in body.splitlines()
+            ), (
+                f"WP-0 banks a byte copy of controller-side {path}; WI-062 "
+                "replaced that with the manifest binding"
             )

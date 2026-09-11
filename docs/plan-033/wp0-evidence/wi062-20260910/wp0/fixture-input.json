@@ -1,0 +1,33 @@
+{
+    "fixture_id":  "synthetic-registry-basic",
+    "gpo_name":  "WP0-DryRun-Registry-20260905-190936-7810",
+    "settings":  [
+                     {
+                         "side":  "computer",
+                         "hive":  "HKLM",
+                         "key":  "SOFTWARE\\Policies\\GPOStudio\\Test",
+                         "value_name":  "TestString",
+                         "value_type":  "REG_SZ",
+                         "value":  "synthetic-test-value",
+                         "action":  "set"
+                     },
+                     {
+                         "side":  "computer",
+                         "hive":  "HKLM",
+                         "key":  "SOFTWARE\\Policies\\GPOStudio\\Test",
+                         "value_name":  "TestDword",
+                         "value_type":  "REG_DWORD",
+                         "value":  42,
+                         "action":  "set"
+                     },
+                     {
+                         "side":  "user",
+                         "hive":  "HKCU",
+                         "key":  "SOFTWARE\\Policies\\GPOStudio\\Test",
+                         "value_name":  "UserString",
+                         "value_type":  "REG_SZ",
+                         "value":  "synthetic-user-value",
+                         "action":  "set"
+                     }
+                 ]
+}

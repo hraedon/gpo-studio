@@ -1,0 +1,227 @@
+﻿{
+    "run_id":  "wp1b-writer-20260905191051-4805",
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33296",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US",
+                        "domain":  "AD.LABDOMAIN.DEV"
+                    },
+    "candidates":  [
+                       {
+                           "candidate_id":  "registry-both",
+                           "family":  "registry",
+                           "target_name":  "WP1B-registry-both-20260905-191051-9680",
+                           "backup_id":  "{62917A0F-CD9B-5172-A068-84C0BD54917E}",
+                           "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000001}",
+                           "whatif_succeeded":  true,
+                           "whatif_target_absent":  true,
+                           "import_succeeded":  true,
+                           "report_captured":  true,
+                           "rebackup_succeeded":  true,
+                           "rebackup_dir":  "registry-both/rebackup",
+                           "cleanup_succeeded":  true,
+                           "cleanup_state_restored":  true,
+                           "version_state":  {
+                                                 "computer_dsa":  1,
+                                                 "computer_sysvol":  1,
+                                                 "user_dsa":  1,
+                                                 "user_sysvol":  1,
+                                                 "gpo_status":  "AllSettingsEnabled"
+                                             },
+                           "registry_readback":  [
+                                                     {
+                                                         "side":  "computer",
+                                                         "hive":  "HKLM",
+                                                         "key":  "Software\\Policies\\GPOStudio\\WP1B",
+                                                         "value_name":  "MachineValue",
+                                                         "registry_type":  "REG_DWORD",
+                                                         "value":  1101
+                                                     },
+                                                     {
+                                                         "side":  "user",
+                                                         "hive":  "HKCU",
+                                                         "key":  "Software\\Policies\\GPOStudio\\WP1B",
+                                                         "value_name":  "UserValue",
+                                                         "registry_type":  "REG_SZ",
+                                                         "value":  "wp1b-conformance"
+                                                     }
+                                                 ],
+                           "error":  null
+                       },
+                       {
+                           "candidate_id":  "drives-user",
+                           "family":  "drives",
+                           "target_name":  "WP1B-drives-user-20260905-191058-1166",
+                           "backup_id":  "{5659232E-17FC-50FC-AC6D-AE4C1BD8842C}",
+                           "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000002}",
+                           "whatif_succeeded":  true,
+                           "whatif_target_absent":  true,
+                           "import_succeeded":  true,
+                           "report_captured":  true,
+                           "rebackup_succeeded":  true,
+                           "rebackup_dir":  "drives-user/rebackup",
+                           "cleanup_succeeded":  true,
+                           "cleanup_state_restored":  true,
+                           "version_state":  {
+                                                 "computer_dsa":  1,
+                                                 "computer_sysvol":  1,
+                                                 "user_dsa":  1,
+                                                 "user_sysvol":  1,
+                                                 "gpo_status":  "AllSettingsEnabled"
+                                             },
+                           "registry_readback":  [
+
+                                                 ],
+                           "error":  null
+                       },
+                       {
+                           "candidate_id":  "groups-machine",
+                           "family":  "groups",
+                           "target_name":  "WP1B-groups-machine-20260905-191059-8653",
+                           "backup_id":  "{A842E8CD-71AA-565A-8076-F9D3F567F36C}",
+                           "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000003}",
+                           "whatif_succeeded":  true,
+                           "whatif_target_absent":  true,
+                           "import_succeeded":  true,
+                           "report_captured":  true,
+                           "rebackup_succeeded":  true,
+                           "rebackup_dir":  "groups-machine/rebackup",
+                           "cleanup_succeeded":  true,
+                           "cleanup_state_restored":  true,
+                           "version_state":  {
+                                                 "computer_dsa":  1,
+                                                 "computer_sysvol":  1,
+                                                 "user_dsa":  1,
+                                                 "user_sysvol":  1,
+                                                 "gpo_status":  "AllSettingsEnabled"
+                                             },
+                           "registry_readback":  [
+
+                                                 ],
+                           "error":  null
+                       },
+                       {
+                           "candidate_id":  "localusers-machine",
+                           "family":  "local_users",
+                           "target_name":  "WP1B-localusers-machine-20260905-191059-2897",
+                           "backup_id":  "{DF49401F-85C1-55BB-A2DE-CAB0A6E5600D}",
+                           "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000004}",
+                           "whatif_succeeded":  true,
+                           "whatif_target_absent":  true,
+                           "import_succeeded":  true,
+                           "report_captured":  true,
+                           "rebackup_succeeded":  true,
+                           "rebackup_dir":  "localusers-machine/rebackup",
+                           "cleanup_succeeded":  true,
+                           "cleanup_state_restored":  true,
+                           "version_state":  {
+                                                 "computer_dsa":  1,
+                                                 "computer_sysvol":  1,
+                                                 "user_dsa":  1,
+                                                 "user_sysvol":  1,
+                                                 "gpo_status":  "AllSettingsEnabled"
+                                             },
+                           "registry_readback":  [
+
+                                                 ],
+                           "error":  null
+                       },
+                       {
+                           "candidate_id":  "scheduledtasks-machine",
+                           "family":  "scheduled_tasks",
+                           "target_name":  "WP1B-scheduledtasks-machine-20260905-191100-5285",
+                           "backup_id":  "{FC1A2E50-3C24-5D7C-AF9C-126796565F8F}",
+                           "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000005}",
+                           "whatif_succeeded":  true,
+                           "whatif_target_absent":  true,
+                           "import_succeeded":  true,
+                           "report_captured":  true,
+                           "rebackup_succeeded":  true,
+                           "rebackup_dir":  "scheduledtasks-machine/rebackup",
+                           "cleanup_succeeded":  true,
+                           "cleanup_state_restored":  true,
+                           "version_state":  {
+                                                 "computer_dsa":  1,
+                                                 "computer_sysvol":  1,
+                                                 "user_dsa":  1,
+                                                 "user_sysvol":  1,
+                                                 "gpo_status":  "AllSettingsEnabled"
+                                             },
+                           "registry_readback":  [
+
+                                                 ],
+                           "error":  null
+                       },
+                       {
+                           "candidate_id":  "services-machine",
+                           "family":  "services",
+                           "target_name":  "WP1B-services-machine-20260905-191101-6460",
+                           "backup_id":  "{F6F5914C-D377-5C47-A177-838E79089159}",
+                           "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000007}",
+                           "whatif_succeeded":  true,
+                           "whatif_target_absent":  true,
+                           "import_succeeded":  true,
+                           "report_captured":  true,
+                           "rebackup_succeeded":  true,
+                           "rebackup_dir":  "services-machine/rebackup",
+                           "cleanup_succeeded":  true,
+                           "cleanup_state_restored":  true,
+                           "version_state":  {
+                                                 "computer_dsa":  1,
+                                                 "computer_sysvol":  1,
+                                                 "user_dsa":  1,
+                                                 "user_sysvol":  1,
+                                                 "gpo_status":  "AllSettingsEnabled"
+                                             },
+                           "registry_readback":  [
+
+                                                 ],
+                           "error":  null
+                       },
+                       {
+                           "candidate_id":  "mixed-all",
+                           "family":  "mixed",
+                           "target_name":  "WP1B-mixed-all-20260905-191102-4240",
+                           "backup_id":  "{B7CCB038-5F83-502D-9151-C5B86B049E35}",
+                           "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000006}",
+                           "whatif_succeeded":  true,
+                           "whatif_target_absent":  true,
+                           "import_succeeded":  true,
+                           "report_captured":  true,
+                           "rebackup_succeeded":  true,
+                           "rebackup_dir":  "mixed-all/rebackup",
+                           "cleanup_succeeded":  true,
+                           "cleanup_state_restored":  true,
+                           "version_state":  {
+                                                 "computer_dsa":  1,
+                                                 "computer_sysvol":  1,
+                                                 "user_dsa":  1,
+                                                 "user_sysvol":  1,
+                                                 "gpo_status":  "AllSettingsEnabled"
+                                             },
+                           "registry_readback":  [
+                                                     {
+                                                         "side":  "computer",
+                                                         "hive":  "HKLM",
+                                                         "key":  "Software\\Policies\\GPOStudio\\WP1B",
+                                                         "value_name":  "MachineValue",
+                                                         "registry_type":  "REG_DWORD",
+                                                         "value":  1101
+                                                     },
+                                                     {
+                                                         "side":  "user",
+                                                         "hive":  "HKCU",
+                                                         "key":  "Software\\Policies\\GPOStudio\\WP1B",
+                                                         "value_name":  "UserValue",
+                                                         "registry_type":  "REG_SZ",
+                                                         "value":  "wp1b-conformance"
+                                                     }
+                                                 ],
+                           "error":  null
+                       }
+                   ]
+}

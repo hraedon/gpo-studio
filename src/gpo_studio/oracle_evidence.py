@@ -136,9 +136,27 @@ class IntegrityViolation(OracleEvidenceError):
 
 
 @dataclass(frozen=True, slots=True)
+class BoundSource:
+    """A controller-side harness file bound by ``(commit, path, sha256)``.
+
+    WI-062: files that execute on the controller are recorded in the manifest
+    rather than byte-copied into the pack. Within this repository the bytes are
+    already preserved by git at ``commit``, and a pack holding a divergent copy
+    is detectable by re-hashing ``git show <commit>:<path>`` against the
+    recorded digest -- so the copy adds weight without adding a check. The
+    trade-off, recorded in docs/plan-033/bound-source-manifest.md, is that a
+    pack can no longer be verified standalone outside this repository.
+    """
+
+    path: str
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class SourceState:
     commit: str
     dirty: bool
+    bound: tuple[BoundSource, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,10 +340,33 @@ def _timestamp(data: Mapping[str, object], key: str) -> dt.datetime:
 
 def _source(raw: object) -> SourceState:
     data = _mapping(raw, "source")
-    _exact_keys(data, required=frozenset({"commit", "dirty"}), label="source")
+    _exact_keys(
+        data,
+        required=frozenset({"commit", "dirty"}),
+        optional=frozenset({"bound"}),
+        label="source",
+    )
+    bound_raw = data.get("bound", [])
+    if not isinstance(bound_raw, list):
+        raise OracleEvidenceError("source.bound must be an array")
+    bound: list[BoundSource] = []
+    for index, item in enumerate(bound_raw):
+        entry = _mapping(item, f"source.bound[{index}]")
+        _exact_keys(
+            entry,
+            required=frozenset({"path", "sha256"}),
+            label=f"source.bound[{index}]",
+        )
+        bound.append(
+            BoundSource(
+                path=_string(entry, "path", f"source.bound[{index}]"),
+                sha256=_sha256(entry, "sha256", f"source.bound[{index}]"),
+            )
+        )
     return SourceState(
         commit=_string(data, "commit", "source"),
         dirty=_bool(data, "dirty", "source"),
+        bound=tuple(bound),
     )
 
 
@@ -1300,6 +1341,31 @@ def assert_bound_source_bytes(repo_root: Path, paths: Iterable[str]) -> None:
         raise SourceBytesError("bound source bytes refused:\n" + "\n".join(problems))
 
 
+def manifest_bound_source(
+    repo_root: Path, files: Mapping[str, str]
+) -> dict[str, dict[str, str]]:
+    """Record controller-side bound source as ``(commit, path, sha256)``.
+
+    WI-062. ``files`` maps each file's pack-side name to its repository-relative
+    path; the result is the ``paths``/``files`` pair a lane verdict records
+    instead of banking byte copies: ``{name: {path, sha256}}``. The commit is
+    the verdict's ``source.commit``, recorded beside this block.
+
+    Callers must first pass the same paths through
+    :func:`assert_bound_source_bytes`: that check is what makes the tree hash
+    recorded here also the hash of the file at the recorded commit. A verdict
+    carrying this block without that enforcement is a claim about bytes git
+    may not hold.
+    """
+    bound: dict[str, dict[str, str]] = {}
+    for name, source_path in sorted(files.items()):
+        bound[name] = {
+            "path": source_path,
+            "sha256": _sha256_of_bytes((repo_root / source_path).read_bytes()),
+        }
+    return bound
+
+
 def git_source_state(repo_root: Path) -> SourceState:
     """Compute the authoritative source provenance from the git working tree.
 
@@ -1512,11 +1578,9 @@ def assert_evidence_pack(run_dir: Path, manifest: Mapping[str, object]) -> None:
 # the exact scripts and recipe that produced it (and, via git, to the commit).
 # Each entry is (artifact_id, deployed relative path, repository path).
 #
-# ``psdirect`` is the only transport. There is no privileged launcher to bind,
-# because there is none to deploy; ``psdirect.ps1`` takes its place in the
-# record -- it runs on the controller, not the guest, but it is just as much
-# part of what produced the run.
-_HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
+# These ran ON THE GUEST, so the pack retains the retrieved copy and the
+# finalizer hashes it: the copy is evidence of what the guest executed.
+_HARNESS_DEPLOYED_FILES: tuple[tuple[str, str, str], ...] = (
     (
         "harness-run-evidence",
         "scripts/run-evidence.ps1",
@@ -1528,7 +1592,19 @@ _HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
         "scripts/recipe.json",
         "tests/fixtures/recipes/synthetic-registry-basic.json",
     ),
-    # The control-plane orchestrator that drives the run.
+)
+
+# The control-plane files that drive the run. ``psdirect`` is the only
+# transport, so there is no privileged launcher to bind; ``psdirect.ps1`` runs
+# on the controller and takes the launcher's place in the record.
+#
+# WI-062: these execute on the controller, where the source-tree copy IS the
+# executed copy, so they are bound by (commit, path, sha256) in the manifest's
+# ``source.bound`` instead of a byte copy in the pack. The deployed-relative
+# path stays in each entry because the driver still hashes every one of them
+# into harness-inputs.json at deploy time and the finalizer still verifies
+# each against that record and against git at the commit.
+_HARNESS_ORCHESTRATOR_FILES: tuple[tuple[str, str, str], ...] = (
     (
         "harness-orchestrator",
         "orchestrator/run-windows-oracle.sh",
@@ -1544,19 +1620,15 @@ _HARNESS_INPUT_FILES_COMMON: tuple[tuple[str, str, str], ...] = (
         "orchestrator/oracle_evidence.py",
         "src/gpo_studio/oracle_evidence.py",
     ),
+    (
+        "harness-psdirect",
+        "orchestrator/psdirect.ps1",
+        "scripts/windows-oracle/psdirect.ps1",
+    ),
 )
 
 _HARNESS_INPUT_FILES: dict[str, tuple[tuple[str, str, str], ...]] = {
-    "psdirect": (
-        *_HARNESS_INPUT_FILES_COMMON,
-        # The transport itself, which reaches the guest through the hypervisor
-        # and needs no launcher.
-        (
-            "harness-psdirect",
-            "orchestrator/psdirect.ps1",
-            "scripts/windows-oracle/psdirect.ps1",
-        ),
-    ),
+    "psdirect": (*_HARNESS_DEPLOYED_FILES, *_HARNESS_ORCHESTRATOR_FILES),
 }
 _HARNESS_INPUTS_MANIFEST = "harness-inputs.json"
 
@@ -1576,14 +1648,24 @@ def build_harness_inputs(
     repo_root: Path,
     *,
     commit: str | None = None,
-) -> list[dict[str, object]]:
-    """Verify the deployed harness inputs and describe them as input artifacts.
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Verify the harness inputs and bind them to the recorded commit.
 
     Reads ``harness-inputs.json`` (written by the orchestrator at deploy time,
-    before the credential boundary), confirms each deployed file's hash matches,
-    and confirms the deployed bytes are identical to the file at the recorded
-    commit.  The result is a set of ``input`` artifacts that bind the run to the
-    exact harness code that produced it.
+    before the credential boundary), confirms each recorded file's hash
+    matches, and confirms the recorded bytes are identical to the file at the
+    recorded commit.
+
+    The two halves of the record verify differently, because they are
+    different kinds of evidence:
+
+    * deployed files (``_HARNESS_DEPLOYED_FILES``) ran on the guest, so the
+      pack holds the retrieved copy and it is hashed as an ``input`` artifact;
+    * orchestrator files (``_HARNESS_ORCHESTRATOR_FILES``) ran on the
+      controller, where the source-tree copy is the executed copy, so they are
+      verified against the tree and against git at the commit and returned as
+      ``bound`` rows -- (path, sha256) records in the manifest's source block,
+      not byte copies in the pack (WI-062).
 
     The git comparison used to be optional behind a ``check_git`` flag that no
     caller ever passed.  It is the only leg that anchors the recorded hashes to
@@ -1645,6 +1727,7 @@ def build_harness_inputs(
         )
 
     artifacts: list[dict[str, object]] = []
+    bound_rows: list[dict[str, object]] = []
     problems: list[str] = []
     seen: set[str] = set()
     for artifact_id, relative_path, repo_path in _HARNESS_INPUT_FILES[transport]:
@@ -1662,16 +1745,36 @@ def build_harness_inputs(
             problems.append(f"harness input {relative_path!r} has no valid size_bytes")
             continue
         deployed_path = run_dir / relative_path
-        if not deployed_path.is_file():
-            problems.append(f"deployed harness input {relative_path!r} is missing")
-            continue
-        actual_sha = _sha256_file(deployed_path)
-        if actual_sha != recorded_sha:
-            problems.append(
-                f"deployed harness input {relative_path!r}: recorded sha256 "
-                f"{recorded_sha} != actual {actual_sha}"
-            )
-            continue
+        if (artifact_id, relative_path, repo_path) in _HARNESS_DEPLOYED_FILES:
+            # The guest executed this file: the retrieved copy in the pack is
+            # the evidence, so it must exist and hash to the record.
+            if not deployed_path.is_file():
+                problems.append(f"deployed harness input {relative_path!r} is missing")
+                continue
+            actual_sha = _sha256_file(deployed_path)
+            if actual_sha != recorded_sha:
+                problems.append(
+                    f"deployed harness input {relative_path!r}: recorded sha256 "
+                    f"{recorded_sha} != actual {actual_sha}"
+                )
+                continue
+        else:
+            # The controller executed this file from the source tree, so the
+            # tree copy is the evidence (WI-062): hash it, not a pack copy.
+            source_path = repo_root / repo_path
+            try:
+                actual_sha = _sha256_of_bytes(source_path.read_bytes())
+            except OSError:
+                problems.append(
+                    f"orchestrator harness input {repo_path!r} cannot be read"
+                )
+                continue
+            if actual_sha != recorded_sha:
+                problems.append(
+                    f"orchestrator harness input {repo_path!r}: deploy-time "
+                    f"sha256 {recorded_sha} != tree {actual_sha}"
+                )
+                continue
         if not commit or not _COMMIT_SHA_RE.fullmatch(commit):
             problems.append(
                 "harness inputs cannot be bound to a commit: no valid commit recorded"
@@ -1686,30 +1789,39 @@ def build_harness_inputs(
             continue
         if _sha256_of_bytes(committed_bytes) != recorded_sha:
             problems.append(
-                f"deployed harness input {relative_path!r} differs from the "
+                f"harness input {relative_path!r} differs from the "
                 f"file at commit {commit!r}"
             )
             diff = "\n".join(
                 difflib.unified_diff(
                     committed_bytes.decode("utf-8", "replace").splitlines(),
-                    deployed_path.read_bytes().decode("utf-8", "replace").splitlines(),
-                    fromfile=f"{relative_path}@{commit}",
-                    tofile=f"deployed/{relative_path}",
+                    (
+                        deployed_path.read_bytes()
+                        if deployed_path.is_file()
+                        else (repo_root / repo_path).read_bytes()
+                    ).decode("utf-8", "replace").splitlines(),
+                    fromfile=f"{repo_path}@{commit}",
+                    tofile=f"deployed/{relative_path}"
+                    if deployed_path.is_file()
+                    else repo_path,
                     lineterm="",
                 )
             )
             if diff:
                 problems.append(diff)
             continue
-        artifacts.append(
-            {
-                "artifact_id": artifact_id,
-                "role": "input",
-                "relative_path": relative_path,
-                "sha256": recorded_sha,
-                "size_bytes": size,
-            }
-        )
+        if (artifact_id, relative_path, repo_path) in _HARNESS_DEPLOYED_FILES:
+            artifacts.append(
+                {
+                    "artifact_id": artifact_id,
+                    "role": "input",
+                    "relative_path": relative_path,
+                    "sha256": recorded_sha,
+                    "size_bytes": size,
+                }
+            )
+        else:
+            bound_rows.append({"path": repo_path, "sha256": recorded_sha})
 
     extra = sorted(set(deployed) - seen)
     if extra:
@@ -1719,7 +1831,7 @@ def build_harness_inputs(
         raise IntegrityViolation(
             "harness input verification failed:\n" + "\n".join(problems)
         )
-    return artifacts
+    return artifacts, bound_rows
 
 
 def finalize_oracle_run(
@@ -1794,11 +1906,14 @@ def finalize_oracle_run(
             )
             existing_artifact_ids.add(stream_artifact_id)
 
-    # Verify and bind the deployed harness scripts and recipe as input artifacts
-    # (tied to the recorded commit), then rehash the entire raw pack - every
-    # artifact file and every command stream - before building any comparisons.
-    # Both checks fail closed so altered or lost evidence is never finalized.
-    harness_inputs = build_harness_inputs(run_dir, repo_root, commit=source.commit)
+    # Verify and bind the harness scripts and recipe (deployed copies from the
+    # guest; controller-side files as (commit, path, sha256) records), then
+    # rehash the entire raw pack - every artifact file and every command
+    # stream - before building any comparisons. Both checks fail closed so
+    # altered or lost evidence is never finalized.
+    harness_inputs, bound_rows = build_harness_inputs(
+        run_dir, repo_root, commit=source.commit
+    )
     artifacts_raw.extend(harness_inputs)
     assert_evidence_pack(run_dir, {"artifacts": artifacts_raw, "commands": commands_raw})
 
@@ -1940,7 +2055,13 @@ def finalize_oracle_run(
         evidence_state = "pass" if pass_eligible else "inconclusive"
 
     finalized: dict[str, object] = dict(raw)
-    finalized["source"] = {"commit": source.commit, "dirty": source.dirty}
+    source_block: dict[str, object] = {"commit": source.commit, "dirty": source.dirty}
+    if bound_rows:
+        # WI-062: the controller-side harness, bound by digest rather than by
+        # a byte copy in the pack. Absent on manifests written before the
+        # policy change; those keep their byte copies and their own history.
+        source_block["bound"] = bound_rows
+    finalized["source"] = source_block
     finalized["artifacts"] = artifacts_raw
     finalized["comparisons"] = comparisons
     finalized["capability"] = {

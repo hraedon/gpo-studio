@@ -784,11 +784,91 @@ HISTORICAL_BOUND_FILES["wp1b-evidence/wi059-20260908/publication/verification.js
     "xml_safety.py",
 }
 
-#: The verdicts that are still CLAIMS: everything mapped and not retired.
+# WI-062: the manifest-form batch. These verdicts are schema version 2 --
+# (commit, path, sha256) bound source, guest-deployed copies only in packs.
+LANE_VERDICTS.update({
+    'wp1b-evidence/wi062-20260910/wp1b/verification.json': 'finalize_wp1b_run.py',
+    'wp2-evidence/wi062-20260910/wp2/verification.json': 'finalize_wp2_import_run.py',
+    'wp3-evidence/wi062-20260910/wp3-member/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi062-20260910/wp3-dc/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi062-20260910/object-security/verification.json': (
+        'finalize_object_security_run.py'
+    ),
+    'wp1b-evidence/wi062-20260910/scripts-metadata/verification.json': (
+        'finalize_scripts_backup_run.py'
+    ),
+    'wp1b-evidence/wi062-20260910/publication/verification.json': 'finalize_publication_run.py',
+    'wp6-evidence/wi062-20260910/endpoint/verification.json': 'finalize_endpoint_run.py',
+    'wp6-evidence/wi062-20260910/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/disabled-block-enforced/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/wmi-filtering/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/wmi-filtering-error/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/computer-security-filtering/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/wi062-20260910/computer-security-filtering-deny-read/'
+    'verification.json': 'finalize_rsop_run.py',
+    'wp9-evidence/wi062-20260910/loopback-merge/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi062-20260910/loopback-replace/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi062-20260910/user-side-disabled/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi062-20260910/user-security-filtering/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi062-20260910/user-security-filtering-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi062-20260910/user-security-filtering-read-deny/'
+    'verification.json': 'finalize_rsop_user_run.py',
+})
+RETIRED_VERDICTS.update({
+    'wp1b-evidence/backup-report-20260908/publication/verification.json',
+    'wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json',
+    'wp1b-evidence/wi059-20260908/wp1b/verification.json',
+    'wp2-evidence/wi059-20260908/wp2/verification.json',
+    'wp3-evidence/wi059-20260908/object-security/verification.json',
+    'wp3-evidence/wi059-20260908/wp3-dc/verification.json',
+    'wp3-evidence/wi059-20260908/wp3-member/verification.json',
+    'wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json',
+    'wp6-evidence/wi059-20260908/computer-security-filtering/verification.json',
+    'wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json',
+    'wp6-evidence/wi059-20260908/endpoint/verification.json',
+    'wp6-evidence/wi059-20260908/lsdou-precedence/verification.json',
+    'wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json',
+    'wp6-evidence/wi059-20260908/wmi-filtering/verification.json',
+    'wp9-evidence/wi059-20260908/loopback-merge/verification.json',
+    'wp9-evidence/wi059-20260908/loopback-replace/verification.json',
+    'wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json',
+    'wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json',
+    'wp9-evidence/wi059-20260908/user-security-filtering/verification.json',
+    'wp9-evidence/wi059-20260908/user-side-disabled/verification.json',
+})
+
+
+#: WI-062: verdicts whose bound harness changed and whose replacement the next
+#: estate batch owes. Enumerated, never pattern-matched, for the same reason
+#: RETIRED_VERDICTS is: parking a verdict here is a deliberate act with a
+#: reason, and `test_pending_requalification_verdicts_are_genuinely_stale`
+#: keeps the set honest in both directions -- a verdict whose binding still
+#: matches the tree is live and must not be parked, and this set is a debt to
+#: be emptied by the batch, not a quieter neighbour of RETIRED_VERDICTS.
+#:
+#: The 2026-09-10 WI-062 batch emptied every entry but this one. The group-deny
+#: lane reboots the client mid-run, and on the post-checkpoint estate the
+#: rebooted client lands on a clock the reverted DC cannot reach: matching it
+#: needs a forward clock jump, and every forward jump deletes the DC-locator
+#: DNS records (reproduced four times, with DNS scavenging disabled and with
+#: lockout disabled). The lane's verdict is owed by the estate repair that
+#: restores the DC to real time without the DNS purge, not by any harness
+#: change; the batch note records the attempts.
+PENDING_REQUALIFICATION = {
+    "wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json",
+}
+
 LIVE_VERDICTS = {
     relative: finalizer
     for relative, finalizer in LANE_VERDICTS.items()
     if relative not in RETIRED_VERDICTS
+    and relative not in PENDING_REQUALIFICATION
 }
 
 
@@ -1309,6 +1389,97 @@ def test_retired_verdicts_are_genuinely_stale() -> None:
     )
 
 
+def test_pending_requalification_verdicts_are_genuinely_stale() -> None:
+    """PENDING_REQUALIFICATION is a debt, not a parking place.
+
+    A verdict may only sit here if its binding genuinely drifted -- the same
+    discipline RETIRED_VERDICTS is held to. A verdict that still matches the
+    tree is live and belongs in LIVE_VERDICTS; keeping it here would silence
+    the freshness gate for a certification that never lapsed.
+    """
+    not_stale = sorted(
+        relative
+        for relative in PENDING_REQUALIFICATION
+        if not _recorded_vs_tree(relative, LANE_VERDICTS[relative])
+    )
+    assert not not_stale, (
+        "These verdicts are parked as pending requalification but still bind "
+        f"the shipping harness exactly: {not_stale}. A verdict that matches "
+        "the tree is live -- remove it from PENDING_REQUALIFICATION."
+    )
+
+
+@pytest.mark.parametrize(
+    "relative,finalizer",
+    sorted(
+        (relative, finalizer)
+        for relative, finalizer in LANE_VERDICTS.items()
+        if _verdict(relative).get("schema_version") == 2
+    ),
+)
+def test_a_manifest_form_verdict_resolves_against_its_commit(
+    relative: str, finalizer: str
+) -> None:
+    """WI-062: schema-version-2 packs bind controller-side source by manifest.
+
+    The verdict records ``(commit, path, sha256)`` for every bound file, and
+    the pack carries bytes only for the names `banked_copies` lists (the
+    guest-deployed half). Verify exactly that: each recorded path resolves at
+    the recorded commit to the recorded digest, the name/path table agrees
+    with the finalizer's own tables, and the pack holds no byte copy of a
+    controller-side bound file -- a copy is the thing this schema retired.
+    """
+    verdict = _verdict(relative)
+    source = verdict["source"]
+    commit = source["commit"]
+    deployed, local = _file_tables(finalizer)
+    assert source["paths"] == {**deployed, **local}
+    assert source["banked_copies"] == sorted(deployed)
+
+    for name, recorded in source["files"].items():
+        path = source["paths"][name]
+        blob = subprocess.run(
+            ["git", "show", f"{commit}:{path}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout
+        assert hashlib.sha256(blob).hexdigest() == recorded, (
+            f"{relative}: {name} ({path}) does not hash to what the verdict "
+            f"recorded at {commit}"
+        )
+        if name in local:
+            # The pack must not carry the bytes this schema binds by manifest.
+            pack_dir = (EVIDENCE / relative).parent
+            assert not (pack_dir / name).is_file(), (
+                f"{relative}: schema-version-2 pack still banks a byte copy of "
+                f"{name}, which the manifest form replaced"
+            )
+
+
+def test_every_lane_finalizer_writes_the_manifest_form() -> None:
+    """The nine lane finalizers all emit schema version 2 with the new keys.
+
+    The pack tests above only see a finalizer's output once a verdict is
+    committed; this keeps the half that has no committed evidence yet honest.
+    """
+    for finalizer in sorted(
+        {finalizer for finalizer in LANE_VERDICTS.values()}
+        | {
+            "finalize_wp1b_run.py",
+            "finalize_wp2_import_run.py",
+            "finalize_wp3_run.py",
+        }
+    ):
+        text = (ORACLE_DIR / finalizer).read_text(encoding="utf-8")
+        assert '"schema_version": 2,' in text, finalizer
+        assert '"paths":' in text and '"banked_copies":' in text, finalizer
+        assert "manifest_bound_source" in text, (
+            f"{finalizer}: controller-side files must be bound through "
+            "manifest_bound_source, not by banking byte copies"
+        )
+
+
 def test_pre_transport_verdicts_really_predate_the_transport_field() -> None:
     """The second escape hatch, closed the same way as the first.
 
@@ -1354,16 +1525,22 @@ def test_the_live_set_is_not_empty_and_covers_every_lane() -> None:
 
     `LIVE_VERDICTS` is a subtraction, so it degrades quietly: retire enough and
     the parametrised test above simply stops generating cases, reporting green
-    for a repository whose every claim has expired. Each lane must keep at least
-    one verdict that still binds the code it ships.
+    for a repository whose every claim has expired. Each lane must keep at
+    least one verdict that still binds the code it ships -- or an enumerated
+    entry in PENDING_REQUALIFICATION that names the batch which owes it, which
+    is a visible debt rather than a silent gap.
     """
     assert set(LANE_VERDICTS) >= RETIRED_VERDICTS, (
         "RETIRED_VERDICTS names verdicts that are not in LANE_VERDICTS: "
         f"{sorted(RETIRED_VERDICTS - set(LANE_VERDICTS))}"
     )
-    lanes = {relative.split("/")[0] for relative in LIVE_VERDICTS}
-    assert lanes == {relative.split("/")[0] for relative in LANE_VERDICTS}, (
-        f"Some lane has no live certification left: {sorted(lanes)}"
+    covered = {relative.split("/")[0] for relative in LIVE_VERDICTS}
+    pending = {relative.split("/")[0] for relative in PENDING_REQUALIFICATION}
+    every = {relative.split("/")[0] for relative in LANE_VERDICTS}
+    uncovered = sorted(every - covered - pending)
+    assert not uncovered, (
+        f"Some lane has neither a live certification nor a pending "
+        f"requalification: {uncovered}"
     )
 
 
@@ -1390,7 +1567,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/wi059-20260908/wp0/manifest.json")
+    manifest = _verdict("wp0-evidence/wi062-20260910/wp0/manifest.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (

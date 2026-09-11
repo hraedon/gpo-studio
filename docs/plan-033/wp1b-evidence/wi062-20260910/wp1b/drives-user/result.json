@@ -1,0 +1,26 @@
+﻿{
+    "candidate_id":  "drives-user",
+    "family":  "drives",
+    "target_name":  "WP1B-drives-user-20260905-191058-1166",
+    "backup_id":  "{5659232E-17FC-50FC-AC6D-AE4C1BD8842C}",
+    "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000002}",
+    "whatif_succeeded":  true,
+    "whatif_target_absent":  true,
+    "import_succeeded":  true,
+    "report_captured":  true,
+    "rebackup_succeeded":  true,
+    "rebackup_dir":  "drives-user/rebackup",
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "version_state":  {
+                          "computer_dsa":  1,
+                          "computer_sysvol":  1,
+                          "user_dsa":  1,
+                          "user_sysvol":  1,
+                          "gpo_status":  "AllSettingsEnabled"
+                      },
+    "registry_readback":  [
+
+                          ],
+    "error":  null
+}

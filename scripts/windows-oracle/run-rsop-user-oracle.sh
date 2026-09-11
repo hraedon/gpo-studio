@@ -335,11 +335,11 @@ author -Action pull -RemotePath "$GUEST_SCRIPTS\\run-rsop-author.ps1" \
 
 refresh_endpoint >/dev/null || echo "WARNING: post-teardown refresh exited non-zero" >&2
 
-# Locally-executed scripts: the source-tree copy IS the executed copy.
-cp "$SCRIPT_DIR/run-rsop-user-oracle.sh" "$SCRIPT_DIR/psdirect.ps1" \
-    "$REPO_ROOT/scripts/plan-033/build-rsop-candidate.py" "$LOCAL_DIR/"
-
-cp "$SCRIPT_DIR/finalize_rsop_user_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+# Locally-executed scripts and bound modules: the source-tree copy IS the
+# executed copy, and WI-062 stops banking byte copies of it -- the finalizer
+# records each as (commit, path, sha256) and git at the commit holds the
+# bytes that assert_bound_source_bytes proved identical across tree, index
+# and HEAD.
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
