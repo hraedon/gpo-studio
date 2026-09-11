@@ -1,8 +1,18 @@
 # Policy-family reconciliation: the first Plan 034 lane
 
 Status: representative serializer conformance measured on 2026-09-07;
-**unsurfaced**. This does not qualify policy application or every supported
-input. Plan 034 remains in progress.
+**surfaced 2026-09-11** at `POST /api/security-template/policy-families`
+(Plan 034 WP-3), in the emission direction only. This does not qualify policy
+application or every supported input. Plan 034 remains in progress.
+
+The surface composes the INF in `api.py` rather than in `policy_families.py`,
+because the serializers, their codec and `build-wp3-candidate.py` are all in
+this lane's bound file set: sharing a function between the builder and the
+endpoint would expire both verdicts below and cost an estate re-run.
+`tests/test_policy_family_surface.py` holds the two compositions equal instead,
+section for section in both scopes, so the drift this document already records
+catching once cannot return unnoticed. Lifting the composition into the library
+belongs to the next batch that re-runs the estate anyway.
 
 The WP-3 candidate now calls the real `AccountPolicyFamily`, `AuditPolicyFamily`,
 `UserRightsFamily`, and `SecurityOptionsFamily` serializers. Previously it

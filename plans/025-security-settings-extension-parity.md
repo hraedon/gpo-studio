@@ -1,13 +1,23 @@
 # Plan 025 — Security Settings extension parity
 
 Status: implemented (domain layer) — **not surfaced**. `security_template.py`,
-`object_security.py`, `network_security.py`, and `policy_families.py` are
-landed and unit-tested but are reachable from no API endpoint, UI module, or
-export path; their only consumers are their own test modules. Plan 033 now has
-a certified Studio-origin `secedit` writer tranche for account policy, event
-audit, and user rights, but platform wiring and the broader native corpus and
-security areas remain open. The `Windows-verified` claim in this plan's scope
-is **not** met.
+`object_security.py`, and `network_security.py` are landed and unit-tested but
+are reachable from no API endpoint, UI module, or export path; their only
+consumers are their own test modules. Plan 033 now has a certified
+Studio-origin `secedit` writer tranche for account policy, event audit, and
+user rights, but platform wiring and the broader native corpus and security
+areas remain open. The `Windows-verified` claim in this plan's scope is
+**not** met.
+
+**One of the four left, 2026-09-11.** `policy_families.py` is reachable at
+`POST /api/security-template/policy-families` (Plan 034 WP-3), in the emission
+direction its member and DC lanes certified and no further: the surface
+renders families as INF and does not parse one back, because the read
+direction has no cmdlet oracle. It is the first module of this plan to satisfy
+both halves of the exit condition in the order
+[`domain-layer-status.md`](../docs/domain-layer-status.md) requires — lane
+first, then surface. The plan stays unsurfaced because three modules still
+are; this line exists so that fact is not read as covering all four.
 
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane
