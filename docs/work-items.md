@@ -21,7 +21,9 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**0 open.**
+**1 open.**
+
+- [WI-063](#wi-063--eight-lane-runners-are-committed-with-crlf-and-no-longer-parse) - renormalize with the next estate requalification.
 
 ---
 
@@ -2383,3 +2385,53 @@ keeping copies, if a pack must verify standalone outside this repository.
 
 `oracle_evidence.py` is bound by all 21 live lanes, so changing the finalizers
 requalifies the estate. This belongs to the next batch that does that anyway.
+
+## WI-063 — eight lane runners are committed with CRLF and no longer parse
+
+**Opened:** 2026-09-11 (review of PR #72).
+**Status:** open.
+
+Sixteen controller-side harness files changed line endings in `f5cad577`:
+eight `run-*-oracle.sh` and eight `finalize_*_run.py`. The Python half is
+harmless — CPython reads universal newlines — but a `bash` script whose lines
+end in CR is not a `bash` script. All eight fail `bash -n` with
+`syntax error near unexpected token $'{\r'`, and the documented way to start a
+lane is `bash scripts/windows-oracle/run-wp3-oracle.sh`
+(`wp3-policy-family-results.md`, `tranche-2026-09-06-batch2-runbook.md`). On
+`main` all ten runners parse; on this branch two do.
+
+**How it hid.** This is WI-059's failure mode, returning through the door
+WI-059's own fix opened. `assert_bound_source_bytes` refuses to finalize when
+worktree, index and HEAD disagree — which is exactly how a Windows-side CRLF
+edit announces itself, *when the path is declared `text eol=lf`*. Under
+`-text` there is no normalization to disagree with: the CRLF working tree and
+the CRLF blob agree perfectly, `git status` is clean, and the check passes
+because there is genuinely no drift left to find. The bytes simply changed.
+
+`.gitattributes` says why `-text` is there: "Without these rules a Windows
+checkout smudges each file to CRLF and every binding fails — so pin the bytes
+rather than the platform." The goal was to pin LF. `-text` pins *whatever is
+committed*, in both directions; `text eol=lf` pins LF and is what the same
+file already uses for every `src/gpo_studio/*.py` it binds — which is why
+`oracle_evidence.py` (`text eol=lf`) stayed LF through the same session that
+flipped `finalize_wp3_run.py` (`-text`). One rule keeps the guard; the other
+trades it away for the same stated benefit. `scripts/plan-033/build-*.py`
+carries the same `-text` rule and is still LF, which is luck, not a control.
+
+**Why this is not a one-line fix.** All sixteen files are hash-bound by the
+WI-062 batch. Renormalizing them to LF changes their tree digests, and
+`test_a_live_verdict_still_binds_the_harness_that_ships` then fails for 19 of
+the 21 banked verdicts — everything except WP-0 and WP-1B, whose two runners
+were already LF. The fix therefore costs a full estate requalification, and
+the estate owes one anyway for the 22nd lane (computer group-deny, blocked on
+the clock/DNS failure in `wi062-batch.md`). This belongs to that batch, for
+the same reason WI-062 belonged to the previous one.
+
+**Closes when:** `scripts/windows-oracle/**` and `scripts/plan-033/build-*.py`
+are declared `text eol=lf` rather than `-text`, the sixteen files are
+renormalized, every `run-*-oracle.sh` passes `bash -n`, and the lanes are
+re-run so their verdicts bind the renormalized bytes.
+`tests/test_lane_runner_line_endings.py` holds the line until then: its
+exemption list names exactly these sixteen files and fails if a
+seventeenth joins them — or if one of the sixteen is quietly fixed without the
+requalification that makes its verdict honest again.
