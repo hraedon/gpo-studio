@@ -531,10 +531,78 @@ def test_build_harness_inputs_binds_to_commit(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     run_dir = tmp_path / "run"
     commit = _setup_harness_repo_and_inputs(repo, run_dir)
-    artifacts = build_harness_inputs(run_dir, repo, commit=commit)
+    artifacts, bound = build_harness_inputs(run_dir, repo, commit=commit)
+    # WI-062: only the guest-deployed half is banked as pack artifacts; the
+    # controller-side half comes back as (path, sha256) records instead.
     ids = {a["artifact_id"] for a in artifacts}
-    assert ids == _HARNESS_ARTIFACT_IDS
+    assert ids == {
+        "harness-run-evidence",
+        "harness-common",
+        "harness-recipe",
+    }
     assert all(a["role"] == "input" for a in artifacts)
+    bound_paths = {row["path"] for row in bound}
+    assert bound_paths == {
+        "scripts/windows-oracle/finalize_oracle_run.py",
+        "src/gpo_studio/oracle_evidence.py",
+        "scripts/windows-oracle/run-windows-oracle.sh",
+        "scripts/windows-oracle/psdirect.ps1",
+    }
+    for row in bound:
+        blob = subprocess.run(
+            ["git", "show", f"{commit}:{row['path']}"],
+            cwd=repo,
+            capture_output=True,
+            check=True,
+        ).stdout
+        assert hashlib.sha256(blob).hexdigest() == row["sha256"]
+
+
+def test_build_harness_inputs_detects_orchestrator_tree_drift(tmp_path: Path) -> None:
+    """WI-062's new failure mode: the tree copy that executed is the evidence.
+
+    The orchestrator files no longer have a pack copy to rehash, so the check
+    that replaces it compares the deploy-time record against the source tree.
+    A tree that drifted from the recorded bytes must refuse -- otherwise the
+    manifest would bind bytes the controller did not execute.
+    """
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir)
+    (repo / "src/gpo_studio/oracle_evidence.py").write_bytes(b"# drifted library\n")
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        assert "deploy-time sha256" in str(exc) and "!= tree" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
+
+
+def test_build_harness_inputs_detects_orchestrator_drift_from_commit(
+    tmp_path: Path,
+) -> None:
+    """And the tree agreeing with the record is still not enough: the record
+    must match the file AT THE COMMIT, or the binding names bytes git does
+    not hold."""
+    repo = tmp_path / "repo"
+    run_dir = tmp_path / "run"
+    commit = _setup_harness_repo_and_inputs(repo, run_dir)
+    changed = b"# changed orchestrator\n"
+    # Move tree AND record together: every local check passes, the commit
+    # comparison is the only leg that can refuse.
+    (repo / "scripts/windows-oracle/run-windows-oracle.sh").write_bytes(changed)
+    inputs = json.loads((run_dir / "harness-inputs.json").read_text(encoding="utf-8"))
+    inputs["files"]["orchestrator/run-windows-oracle.sh"]["sha256"] = hashlib.sha256(
+        changed
+    ).hexdigest()
+    inputs["files"]["orchestrator/run-windows-oracle.sh"]["size_bytes"] = len(changed)
+    (run_dir / "harness-inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
+    try:
+        build_harness_inputs(run_dir, repo, commit=commit)
+    except IntegrityViolation as exc:
+        assert "differs from the file at commit" in str(exc)
+    else:
+        raise AssertionError("expected IntegrityViolation")
 
 
 def test_build_harness_inputs_refuses_the_retired_ssh_file_set(

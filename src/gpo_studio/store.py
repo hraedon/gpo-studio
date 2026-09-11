@@ -41,6 +41,13 @@ from .model import (
     WmiFilter,
     WorkspaceError,
 )
+from .snapshot_documents import (
+    RetainedDocument,
+    SnapshotDocumentError,
+    apply_documents,
+    extract_documents,
+    snapshot_digests,
+)
 from .validation import (
     validate_gpo,
     validate_gpp_collection,
@@ -539,6 +546,60 @@ class WorkspaceStore:
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
+    def _encode_snapshot_payload(self, gpo: GPO) -> tuple[str, list[RetainedDocument]]:
+        """Serialize a snapshot with its retained native XML moved to references.
+
+        WI-061. The returned documents must be filed with
+        :meth:`_store_documents` inside the same transaction that writes the
+        snapshot rows, or the payload's digests would reference nothing.
+        """
+        data = gpo.to_dict()
+        try:
+            documents = extract_documents(data)
+        except SnapshotDocumentError as error:
+            raise WorkspaceError(str(error)) from error
+        return json.dumps(data, separators=(",", ":"), sort_keys=True), documents
+
+    def _store_documents(
+        self, guid: str, revision: int, documents: list[RetainedDocument]
+    ) -> None:
+        """File a snapshot's retained documents; call inside the row's transaction.
+
+        Revision 0 names the head snapshot in ``gpos``; revisions number from 1
+        and name their ``revisions`` row. The reference rows cascade away with
+        the GPO, which is what makes unreferenced-document cleanup an indexed
+        query rather than a parse of every snapshot.
+        """
+        for document in documents:
+            self._connection.execute(
+                "INSERT OR IGNORE INTO retained_documents VALUES(?,?,?)",
+                (document.digest, document.content_base64, document.byte_length),
+            )
+            self._connection.execute(
+                "INSERT OR IGNORE INTO snapshot_documents VALUES(?,?,?)",
+                (guid, revision, document.digest),
+            )
+
+    def _load_snapshot(self, snapshot_json: str) -> dict[str, Any]:
+        """Parse a stored snapshot and rehydrate its retained documents."""
+        data: dict[str, Any] = json.loads(snapshot_json)
+        if not snapshot_digests(data):
+            return data
+
+        def lookup(digest: str) -> str | None:
+            row = self._connection.execute(
+                "SELECT content_base64 FROM retained_documents WHERE digest=?",
+                (digest,),
+            ).fetchone()
+            return None if row is None else str(row["content_base64"])
+
+        try:
+            apply_documents(data, lookup)
+        except SnapshotDocumentError as error:
+            self._degraded = True
+            raise WorkspaceError(str(error)) from error
+        return data
+
     def list_gpos(self) -> list[GPO]:
         with self._lock:
             self._require_healthy()
@@ -546,7 +607,7 @@ class WorkspaceStore:
                 rows = self._connection.execute(
                     "SELECT snapshot_json FROM gpos ORDER BY name COLLATE NOCASE"
                 ).fetchall()
-                return [gpo_from_dict(json.loads(row["snapshot_json"])) for row in rows]
+                return [gpo_from_dict(self._load_snapshot(row["snapshot_json"])) for row in rows]
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
@@ -559,7 +620,7 @@ class WorkspaceStore:
                 ).fetchone()
                 if row is None:
                     raise NotFoundError(f"GPO {guid} was not found")
-                return gpo_from_dict(json.loads(row["snapshot_json"]))
+                return gpo_from_dict(self._load_snapshot(row["snapshot_json"]))
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)
 
@@ -610,7 +671,7 @@ class WorkspaceStore:
             created_at=timestamp,
             updated_at=timestamp,
         )
-        payload = json.dumps(gpo.to_dict(), separators=(",", ":"), sort_keys=True)
+        payload, documents = self._encode_snapshot_payload(gpo)
         with self._lock:
             self._require_healthy()
             try:
@@ -620,6 +681,8 @@ class WorkspaceStore:
                        VALUES(?,?,?,?,?)""",
                     (gpo.guid, gpo.name, gpo.revision, payload, timestamp),
                 )
+                self._store_documents(gpo.guid, 0, documents)
+                self._store_documents(gpo.guid, 1, documents)
                 self._connection.execute(
                     "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
                     (gpo.guid, 1, actor, reason, timestamp, payload),
@@ -640,7 +703,10 @@ class WorkspaceStore:
                        WHERE json_extract(snapshot_json, '$.is_starter') = 1
                        ORDER BY name COLLATE NOCASE"""
                 ).fetchall()
-                return [gpo_from_dict(json.loads(row["snapshot_json"])) for row in rows]
+                return [
+                    gpo_from_dict(self._load_snapshot(row["snapshot_json"]))
+                    for row in rows
+                ]
             except sqlite3.OperationalError as error:
                 if "no such function: json_extract" in str(error).lower():
                     return [gpo for gpo in self.list_gpos() if gpo.is_starter]
@@ -742,6 +808,14 @@ class WorkspaceStore:
                     "DELETE FROM gpos WHERE guid = ?",
                     (current.guid,),
                 )
+                # WI-061. The GPO's snapshot_documents rows cascade with its
+                # gpos row; any retained document no snapshot references any
+                # more is an orphan this deletion created, so it goes now
+                # rather than accumulating behind the deletion log.
+                self._connection.execute(
+                    "DELETE FROM retained_documents WHERE digest NOT IN "
+                    "(SELECT digest FROM snapshot_documents)"
+                )
                 self._connection.execute("COMMIT")
             except sqlite3.Error as exc:
                 with contextlib.suppress(sqlite3.Error):
@@ -785,9 +859,7 @@ class WorkspaceStore:
                 if ready_issues:
                     rejected += 1
                     continue
-            payload = json.dumps(
-                normalized.to_dict(), separators=(",", ":"), sort_keys=True
-            )
+            payload, documents = self._encode_snapshot_payload(normalized)
             try:
                 with self._lock:
                     self._require_healthy()
@@ -810,6 +882,8 @@ class WorkspaceStore:
                                 timestamp,
                             ),
                         )
+                        self._store_documents(normalized.guid, 0, documents)
+                        self._store_documents(normalized.guid, 1, documents)
                         self._connection.execute(
                             "INSERT INTO revisions VALUES(?,?,?,?,?,?)",
                             (normalized.guid, 1, actor, reason, timestamp, payload),
@@ -901,9 +975,9 @@ class WorkspaceStore:
                 updated = replace(
                     changed, revision=current.revision + 1, updated_at=timestamp
                 )
-                payload = json.dumps(
-                    updated.to_dict(), separators=(",", ":"), sort_keys=True
-                )
+                payload, documents = self._encode_snapshot_payload(updated)
+                self._store_documents(current.guid, 0, documents)
+                self._store_documents(current.guid, updated.revision, documents)
                 cursor = self._connection.execute(
                     """UPDATE gpos SET name=?, revision=?, snapshot_json=?, updated_at=?
                        WHERE guid=? AND revision=?""",
@@ -1745,7 +1819,7 @@ class WorkspaceStore:
                         actor=str(row["actor"]),
                         reason=str(row["reason"]),
                         created_at=str(row["created_at"]),
-                        snapshot=json.loads(row["snapshot_json"]),
+                        snapshot=self._load_snapshot(row["snapshot_json"]),
                     )
                     for row in rows
                 ]
@@ -1768,7 +1842,7 @@ class WorkspaceStore:
                     actor=str(row["actor"]),
                     reason=str(row["reason"]),
                     created_at=str(row["created_at"]),
-                    snapshot=json.loads(row["snapshot_json"]),
+                    snapshot=self._load_snapshot(row["snapshot_json"]),
                 )
             except sqlite3.Error as error:
                 self._map_sqlite_error(error)

@@ -569,14 +569,93 @@ def _minimal_run(tmp_path: Path) -> tuple[Path, Path]:
     return run_dir, candidate
 
 
-def _finalize_with_local_file(
-    tmp_path: Path, monkeypatch, *, run_dir_copy: str | None
+def _finalize_with_deployed_file(
+    tmp_path: Path, monkeypatch, *, deployed_copy: str | None
 ) -> dict[str, Any]:
-    """Drive the harness check with one locally-executed script.
+    """Drive the harness check with one guest-deployed script.
 
-    ``run_dir_copy`` is what the lane is pretended to have copied into the run
-    directory: the real bytes, altered bytes, or nothing at all.
+    ``deployed_copy`` is what the lane is pretended to have retrieved into the
+    run directory: the real bytes, altered bytes, or nothing at all. Since
+    WI-062 the controller-side scripts carry no pack copy -- they are bound by
+    (commit, path, sha256) -- so the guest-retrieved half is the only half
+    this check can fail on, which makes it the half worth testing.
     """
+    run_dir, candidate = _minimal_run(tmp_path)
+    source_rel = "scripts/windows-oracle/run-rsop-author.ps1"
+
+    monkeypatch.setattr(
+        finalize_rsop_run, "DEPLOYED_FILES", {"run-rsop-author.ps1": source_rel}
+    )
+    monkeypatch.setattr(finalize_rsop_run, "LOCAL_FILES", {})
+    monkeypatch.setattr(finalize_rsop_run, "tag_evidence_commit", lambda *a, **k: "tag")
+
+    def fake_run(args: list[str], **kwargs: Any):
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(finalize_rsop_run.subprocess, "run", fake_run)
+
+    if deployed_copy is not None:
+        (run_dir / "deployed").mkdir()
+        (run_dir / "deployed" / "run-rsop-author.ps1").write_text(
+            deployed_copy, encoding="utf-8", newline=""
+        )
+
+    finalize_rsop_run.main(
+        [
+            str(run_dir),
+            "--candidate-root",
+            str(candidate),
+            "--no-tag",
+            "--repo-root",
+            str(_REPO_ROOT),
+        ]
+    )
+    return json.loads((run_dir / "rsop-verdict.json").read_text(encoding="utf-8"))
+
+
+def test_harness_check_passes_when_the_deployed_copy_matches(tmp_path: Path, monkeypatch) -> None:
+    """The control. Without it the two tests below pass on a check that always fails."""
+    real = (_REPO_ROOT / "scripts/windows-oracle/run-rsop-author.ps1").read_text(encoding="utf-8")
+    verdict = _finalize_with_deployed_file(tmp_path, monkeypatch, deployed_copy=real)
+    assert verdict["harness_matches_source"] is True
+
+
+def test_a_missing_deployed_copy_fails_the_harness_check(tmp_path: Path, monkeypatch) -> None:
+    """WI-042: this could not fail.
+
+    The finalizer compared ``repo_root / source`` against itself for the
+    locally-executed half, so a run that never copied its scripts -- or copied
+    them and had them altered afterwards -- still certified
+    ``harness_matches_source``. The verdict asserted a binding nothing checked.
+    The controller half is manifest-bound since WI-062, so this check lives on
+    the guest-retrieved half -- and still has to be able to fail.
+    """
+    verdict = _finalize_with_deployed_file(tmp_path, monkeypatch, deployed_copy=None)
+    assert verdict["harness_matches_source"] is False
+
+
+def test_an_altered_deployed_copy_fails_the_harness_check(tmp_path: Path, monkeypatch) -> None:
+    verdict = _finalize_with_deployed_file(
+        tmp_path, monkeypatch, deployed_copy="# not the script that ran\n"
+    )
+    assert verdict["harness_matches_source"] is False
+
+
+def test_controller_files_bind_by_manifest_without_pack_copies(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """WI-062: the controller half needs no byte copy, and the verdict says
+    where its bytes live instead.
+
+    A lane that banks nothing for its controller-side scripts must still
+    certify a clean harness, and the verdict must carry the (path, sha256)
+    record a reviewer resolves against the commit -- plus the name set the
+    pack actually holds, which no longer includes the controller half.
+    """
+    import hashlib
+
     run_dir, candidate = _minimal_run(tmp_path)
     source_rel = "scripts/plan-033/build-rsop-candidate.py"
 
@@ -593,9 +672,6 @@ def _finalize_with_local_file(
 
     monkeypatch.setattr(finalize_rsop_run.subprocess, "run", fake_run)
 
-    if run_dir_copy is not None:
-        (run_dir / "build-rsop-candidate.py").write_text(run_dir_copy, encoding="utf-8", newline="")
-
     finalize_rsop_run.main(
         [
             str(run_dir),
@@ -606,33 +682,13 @@ def _finalize_with_local_file(
             str(_REPO_ROOT),
         ]
     )
-    return json.loads((run_dir / "rsop-verdict.json").read_text(encoding="utf-8"))
-
-
-def test_harness_check_passes_when_the_local_copy_matches(tmp_path: Path, monkeypatch) -> None:
-    """The control. Without it the two tests below pass on a check that always fails."""
-    real = (_REPO_ROOT / "scripts/plan-033/build-rsop-candidate.py").read_text(encoding="utf-8")
-    verdict = _finalize_with_local_file(tmp_path, monkeypatch, run_dir_copy=real)
+    verdict = json.loads((run_dir / "rsop-verdict.json").read_text(encoding="utf-8"))
     assert verdict["harness_matches_source"] is True
-
-
-def test_a_missing_local_copy_fails_the_harness_check(tmp_path: Path, monkeypatch) -> None:
-    """WI-042: this could not fail.
-
-    The finalizer compared ``repo_root / source`` against itself for the
-    locally-executed half, so a run that never copied its scripts -- or copied
-    them and had them altered afterwards -- still certified
-    ``harness_matches_source``. The verdict asserted a binding nothing checked.
-    """
-    verdict = _finalize_with_local_file(tmp_path, monkeypatch, run_dir_copy=None)
-    assert verdict["harness_matches_source"] is False
-
-
-def test_an_altered_local_copy_fails_the_harness_check(tmp_path: Path, monkeypatch) -> None:
-    verdict = _finalize_with_local_file(
-        tmp_path, monkeypatch, run_dir_copy="# not the script that ran\n"
-    )
-    assert verdict["harness_matches_source"] is False
+    source = verdict["source"]
+    assert source["paths"] == {"build-rsop-candidate.py": source_rel}
+    assert source["banked_copies"] == []
+    expected = hashlib.sha256((_REPO_ROOT / source_rel).read_bytes()).hexdigest()
+    assert source["files"]["build-rsop-candidate.py"] == expected
 
 
 def test_an_abstention_is_excluded_from_the_applied_comparison_in_both_directions(

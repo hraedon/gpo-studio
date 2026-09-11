@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import sqlite3
 from typing import Protocol
 
-SCHEMA_VERSION = 3
+from .snapshot_documents import SnapshotDocumentError, extract_documents
+
+SCHEMA_VERSION = 4
 MIN_READ_VERSION = 0
 
 
@@ -109,6 +112,93 @@ def _v2_to_v3(conn: sqlite3.Connection) -> None:
 
 
 _MIGRATIONS[2] = _v2_to_v3
+
+
+def _v3_to_v4(conn: sqlite3.Connection) -> None:
+    """Store retained native XML once per digest instead of per snapshot (WI-061).
+
+    ``retained_documents`` holds each distinct document's exact base64 bytes,
+    keyed by the SHA-256 of the decoded bytes. ``snapshot_documents`` records
+    which snapshots reference which digest -- head snapshots as revision 0 --
+    both to make unreferenced-document cleanup an indexed query and to cascade
+    a deleted GPO's references away with it.
+
+    Existing snapshots are rewritten in place: inline base64 becomes a digest
+    reference, and the bytes move to the side table. A snapshot with no
+    ``backup_inventory`` bytes is left byte-identical.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS retained_documents (
+            digest TEXT PRIMARY KEY,
+            content_base64 TEXT NOT NULL,
+            byte_length INTEGER NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS snapshot_documents (
+            gpo_guid TEXT NOT NULL REFERENCES gpos(guid) ON DELETE CASCADE,
+            revision INTEGER NOT NULL,
+            digest TEXT NOT NULL
+                REFERENCES retained_documents(digest) ON DELETE CASCADE,
+            PRIMARY KEY (gpo_guid, revision, digest)
+        )
+        """
+    )
+    for table, key_columns, rewrite_sql in (
+        (
+            "gpos",
+            ("guid",),
+            "UPDATE gpos SET snapshot_json=? WHERE guid=?",
+        ),
+        (
+            "revisions",
+            ("gpo_guid", "revision"),
+            "UPDATE revisions SET snapshot_json=? WHERE gpo_guid=? AND revision=?",
+        ),
+    ):
+        keys = ", ".join(key_columns)
+        columns = (*key_columns, "snapshot_json")
+        rows = conn.execute(f"SELECT {keys}, snapshot_json FROM {table}").fetchall()
+        for row in rows:
+            # Work with bare tuples and sqlite3.Row alike: callers may hand
+            # migrate() a connection that never set a row factory.
+            record = dict(zip(columns, row, strict=True))
+            data = json.loads(record["snapshot_json"])
+            try:
+                extracted = extract_documents(data)
+            except SnapshotDocumentError as error:
+                raise SchemaError(
+                    f"Workspace snapshot holds invalid retained XML and cannot "
+                    f"be migrated to schema v4: {error}"
+                ) from error
+            if not extracted:
+                continue
+            key_values = tuple(record[column] for column in key_columns)
+            # The head snapshot is revision 0; revisions number from 1.
+            revision = 0 if table == "gpos" else int(record["revision"])
+            for document in extracted:
+                # The document row must exist before the row referencing it.
+                conn.execute(
+                    "INSERT OR IGNORE INTO retained_documents VALUES(?,?,?)",
+                    (document.digest, document.content_base64, document.byte_length),
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO snapshot_documents VALUES(?,?,?)",
+                    (key_values[0], revision, document.digest),
+                )
+            conn.execute(
+                rewrite_sql,
+                (
+                    json.dumps(data, separators=(",", ":"), sort_keys=True),
+                    *key_values,
+                ),
+            )
+
+
+_MIGRATIONS[3] = _v3_to_v4
 
 
 def get_schema_version(conn: sqlite3.Connection) -> int:

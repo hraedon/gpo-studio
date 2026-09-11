@@ -339,19 +339,27 @@ def test_the_finalizer_refuses_a_candidate_root_missing_a_required_file(
         assert omitted in completed.stderr, omitted
 
 
-def test_the_lane_binds_every_source_file_it_copies() -> None:
-    """The driver's copy list and the finalizer's bound set must not drift.
+def test_the_lane_binds_every_source_file_it_uses() -> None:
+    """The driver's file set and the finalizer's bound set must not drift.
 
-    A bound file the driver never copies fails every run; a copied file the
-    verdict does not bind is a source change no verdict would notice.
+    WI-062 split the contract in two. A deployed file the driver never
+    retrieves still fails every run, exactly as before. A controller-side
+    file is no longer banked as a pack copy -- the driver must not copy it,
+    and the finalizer still must bind it, or a source change no verdict
+    notices would slip through the manifest form.
     """
     driver = (_ROOT / "scripts/windows-oracle/run-publication-oracle.sh").read_text(
         encoding="utf-8"
     )
     local = cast(dict[str, str], _FINALIZER["LOCAL_FILES"])
     deployed = cast(dict[str, str], _FINALIZER["DEPLOYED_FILES"])
-    for name in list(local) + list(deployed):
-        assert name in driver, f"{name} is bound but the driver never copies it"
+    for name in deployed:
+        assert name in driver, f"{name} is deployed but the driver never moves it"
+    for name in local:
+        assert not any(
+            line.startswith("cp ") and name in line
+            for line in driver.splitlines()
+        ), f"{name} is manifest-bound since WI-062; the driver must not bank a copy"
     for name, relative in {**local, **deployed}.items():
         assert (_ROOT / relative).is_file(), f"{name} binds a path that does not exist"
 

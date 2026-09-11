@@ -99,21 +99,15 @@ psdirect -Action pull -RemotePath "$RUN_DIR" -LocalPath "$LOCAL_DIR" >/dev/null
 psdirect -Action pull -RemotePath "$GUEST_SCRIPTS\\run-wp3-security-template.ps1" \
     -LocalPath "$LOCAL_DIR/deployed" >/dev/null
 
-# These scripts ran locally, so retain the exact source-tree bytes. Execute the
-# retained finalizer copy so the verdict-producing code is itself evidence.
-cp "$SCRIPT_DIR/run-wp3-oracle.sh" \
-    "$SCRIPT_DIR/finalize_wp3_run.py" \
-    "$REPO_ROOT/scripts/plan-033/build-wp3-candidate.py" \
-    "$SCRIPT_DIR/psdirect.ps1" \
-    "$REPO_ROOT/src/gpo_studio/policy_families.py" \
-    "$REPO_ROOT/src/gpo_studio/security_template.py" \
-    "$LOCAL_DIR/"
-
-cp "$SCRIPT_DIR/finalize_wp3_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+# Locally-executed scripts and bound modules: the source-tree copy IS the
+# executed copy, and WI-062 stops banking byte copies of it -- the finalizer
+# records each as (commit, path, sha256) and git at the commit holds the
+# bytes that assert_bound_source_bytes proved identical across tree, index
+# and HEAD.
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
 # --candidate-root is not optional: it is what makes the verdict's yardstick the
 # candidate this controller built, rather than the copy the guest returned.
-uv run python "$LOCAL_DIR/finalize_wp3_run.py" "$LOCAL_DIR" \
+uv run python "$SCRIPT_DIR/finalize_wp3_run.py" "$LOCAL_DIR" \
     --candidate-root "$CANDIDATE_DIR" --repo-root "$REPO_ROOT" --transport "$TRANSPORT"

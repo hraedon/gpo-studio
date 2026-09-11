@@ -38,6 +38,7 @@ from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
     assert_bound_source_bytes,
     lane_environment_violations,
+    manifest_bound_source,
     tag_evidence_commit,
 )
 from gpo_studio.registry_pol import RegistryPolError
@@ -371,15 +372,22 @@ def main() -> int:
         name: repo_root / source
         for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
-    local_map = {
-        name: repo_root / source for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
+    local_table = TRANSPORT_LOCAL_FILES[args.transport]
+    # WI-062. The deployed set ran on the guest, so the pack's retrieved copies
+    # are the evidence and each must hash to the committed source. The local
+    # set ran on this controller, where the source-tree copy IS the executed
+    # copy: it is bound by (commit, path, sha256) instead of a byte copy in
+    # the pack -- the bytes are already preserved by git at the commit, and
+    # assert_bound_source_bytes above proved the tree, index and HEAD agree.
+    bound_local = manifest_bound_source(repo_root, local_table)
+    source_hashes: dict[str, str] = {
+        name: entry["sha256"] for name, entry in bound_local.items()
     }
-    source_hashes: dict[str, str] = {}
     harness_ok = True
-    for name, src_path in {**deployed_map, **local_map}.items():
+    for name, src_path in deployed_map.items():
         src_hash = _sha256(src_path)
         source_hashes[name] = src_hash
-        evidence_path = run_dir / "deployed" / name if name in deployed_map else run_dir / name
+        evidence_path = run_dir / "deployed" / name
         if not evidence_path.is_file() or _sha256(evidence_path) != src_hash:
             harness_ok = False
 
@@ -410,7 +418,7 @@ def main() -> int:
     states = {candidate["state"] for candidate in candidates}
     passed = harness_ok and not dirty and not environment_violations and states == {"pass"}
     verdict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "work_package": "WP-1B",
         "run_id": run_result["run_id"],
         "passed": passed,
@@ -419,7 +427,19 @@ def main() -> int:
         "environment": run_result["environment"],
         "environment_violations": environment_violations,
         "candidates": candidates,
-        "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        "source": {
+            "commit": commit,
+            "dirty": dirty,
+            "files": source_hashes,
+            # WI-062: every bound file's repository path, so the verdict
+            # resolves itself against source.commit without the finalizer's
+            # tables, and the names whose bytes the pack actually carries.
+            "paths": {
+                **TRANSPORT_DEPLOYED_FILES[args.transport],
+                **TRANSPORT_LOCAL_FILES[args.transport],
+            },
+            "banked_copies": sorted(TRANSPORT_DEPLOYED_FILES[args.transport]),
+        },
         # The INPUT side of every comparison above, hashed. `artifacts` records
         # what the run produced; this records what it was graded against, which
         # was the verdict's one unhashed input (WI-025).

@@ -19,6 +19,7 @@ from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
     assert_bound_source_bytes,
     lane_environment_violations,
+    manifest_bound_source,
     tag_evidence_commit,
 )
 from gpo_studio.registry_pol import RegistryPolError
@@ -202,21 +203,25 @@ def main() -> int:
     # Provenance: verify that the harness files which actually executed
     # match the committed source tree.  Files deployed to Windows are
     # retrieved post-run from the remote host into deployed/ and compared
-    # against source.  Locally-executed scripts are compared from the
-    # source-tree copy that ran.
+    # against source.  Locally-executed scripts are bound by
+    # (commit, path, sha256) from the source-tree copy that ran (WI-062) --
+    # no byte copy rides in the pack, because git at the commit holds the
+    # bytes and assert_bound_source_bytes proved tree, index and HEAD agree.
     deployed_map = {
         name: repo_root / source
         for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
-    local_map = {
-        name: repo_root / source for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
+    bound_local = manifest_bound_source(
+        repo_root, TRANSPORT_LOCAL_FILES[args.transport]
+    )
+    source_hashes: dict[str, str] = {
+        name: entry["sha256"] for name, entry in bound_local.items()
     }
-    source_hashes: dict[str, str] = {}
     harness_ok = True
-    for name, src_path in {**deployed_map, **local_map}.items():
+    for name, src_path in deployed_map.items():
         src_hash = _sha256(src_path)
         source_hashes[name] = src_hash
-        evidence_path = run_dir / "deployed" / name if name in deployed_map else run_dir / name
+        evidence_path = run_dir / "deployed" / name
         if not evidence_path.is_file() or _sha256(evidence_path) != src_hash:
             harness_ok = False
     checks["harness_matches_source"] = harness_ok
@@ -278,7 +283,7 @@ def main() -> int:
     checks["source_tree_clean"] = not dirty
 
     verdict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": result["run_id"],
         "passed": all(checks.values()),
         "checks": checks,
@@ -287,7 +292,19 @@ def main() -> int:
         "candidate_delivery": candidate_delivery,
         "environment": result["environment"],
         "environment_violations": environment_violations,
-        "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        "source": {
+            "commit": commit,
+            "dirty": dirty,
+            "files": source_hashes,
+            # WI-062: every bound file's repository path, and the names whose
+            # bytes the pack actually carries. Controller-side files are
+            # verified against git at the commit, not against pack copies.
+            "paths": {
+                **TRANSPORT_DEPLOYED_FILES[args.transport],
+                **TRANSPORT_LOCAL_FILES[args.transport],
+            },
+            "banked_copies": sorted(TRANSPORT_DEPLOYED_FILES[args.transport]),
+        },
         "artifacts": {
             str(path.relative_to(run_dir)): _sha256(path)
             for path in sorted(run_dir.rglob("*"))

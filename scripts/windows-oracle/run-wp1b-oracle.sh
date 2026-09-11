@@ -92,11 +92,9 @@ psdirect -Action pull -RemotePath "$RUN_DIR" -LocalPath "$LOCAL_DIR" >/dev/null
 psdirect -Action pull -RemotePath "$GUEST_SCRIPTS\\run-wp1b-writer.ps1" \
     -LocalPath "$LOCAL_DIR/deployed" >/dev/null
 
-# Locally-executed scripts: the source-tree copy IS the executed copy.
-cp "$SCRIPT_DIR/run-wp1b-oracle.sh" "$REPO_ROOT/scripts/plan-033/build-wp1b-candidates.py" \
-    "$SCRIPT_DIR/psdirect.ps1" "$LOCAL_DIR/"
-
-cp "$SCRIPT_DIR/finalize_wp1b_run.py" "$REPO_ROOT/src/gpo_studio/oracle_evidence.py" "$LOCAL_DIR/"
+# Locally-executed scripts: the source-tree copy IS the executed copy, and
+# WI-062 stops banking byte copies of it -- the finalizer records each as
+# (commit, path, sha256) and git at the commit holds the bytes.
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"

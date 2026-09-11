@@ -15,6 +15,7 @@ from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
     assert_bound_source_bytes,
     lane_environment_violations,
+    manifest_bound_source,
     tag_evidence_commit,
 )
 from gpo_studio.security_template import (
@@ -416,24 +417,23 @@ def main() -> int:
         name: repo_root / source
         for name, source in TRANSPORT_DEPLOYED_FILES[args.transport].items()
     }
-    local_map = {
-        name: repo_root / source for name, source in TRANSPORT_LOCAL_FILES[args.transport].items()
+    # WI-062: controller-side files are bound by (commit, path, sha256) from
+    # the source-tree copy that ran -- no byte copy rides in the pack, since
+    # git at the commit holds the bytes and assert_bound_source_bytes proved
+    # tree, index and HEAD agree.
+    bound_local = manifest_bound_source(
+        repo_root, TRANSPORT_LOCAL_FILES[args.transport]
+    )
+    source_hashes: dict[str, str] = {
+        name: entry["sha256"] for name, entry in bound_local.items()
     }
-    source_hashes: dict[str, str] = {}
     deployed_harness_ok = True
-    local_evidence_copies_ok = True
     for name, source_path in deployed_map.items():
         source_hash = _sha256(source_path)
         source_hashes[name] = source_hash
         evidence_path = run_dir / "deployed" / name
         if not evidence_path.is_file() or _sha256(evidence_path) != source_hash:
             deployed_harness_ok = False
-    for name, source_path in local_map.items():
-        source_hash = _sha256(source_path)
-        source_hashes[name] = source_hash
-        evidence_path = run_dir / name
-        if not evidence_path.is_file() or _sha256(evidence_path) != source_hash:
-            local_evidence_copies_ok = False
     checks["deployed_harness_matches_source"] = deployed_harness_ok
 
     # The guest ran against the candidate this controller built, byte for byte.
@@ -460,9 +460,9 @@ def main() -> int:
     checks["candidate_delivered_intact"] = all(
         bool(entry["guest_copy_matches"]) for entry in candidate_delivery.values()
     )
-    # These files did not round-trip through Windows. This check detects
-    # evidence-pack corruption; it is not independent execution provenance.
-    checks["local_evidence_copies_match_source"] = local_evidence_copies_ok
+    # WI-062 retired this check rather than keeping it vacuous: the local
+    # files are no longer banked as pack copies, so there is nothing to
+    # rehash. Their binding is the (commit, path, sha256) record in source.
 
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -483,7 +483,7 @@ def main() -> int:
     checks["source_tree_clean"] = not dirty
 
     verdict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": result["run_id"],
         "passed": all(checks.values()),
         "checks": checks,
@@ -495,7 +495,19 @@ def main() -> int:
         "candidate_delivery": candidate_delivery,
         "environment": result["environment"],
         "environment_violations": environment_violations,
-        "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        "source": {
+            "commit": commit,
+            "dirty": dirty,
+            "files": source_hashes,
+            # WI-062: every bound file's repository path, and the names whose
+            # bytes the pack actually carries. Controller-side files are
+            # verified against git at the commit, not against pack copies.
+            "paths": {
+                **TRANSPORT_DEPLOYED_FILES[args.transport],
+                **TRANSPORT_LOCAL_FILES[args.transport],
+            },
+            "banked_copies": sorted(TRANSPORT_DEPLOYED_FILES[args.transport]),
+        },
         "artifacts": {
             path.relative_to(run_dir).as_posix(): _sha256(path)
             for path in sorted(run_dir.rglob("*"))

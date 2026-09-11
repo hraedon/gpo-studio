@@ -56,10 +56,21 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
     assert len(replaced) == len(replacements) == 2
     assert replaced <= new_verdicts
     assert replaced <= registry["RETIRED_VERDICTS"]
-    assert set(registry["LIVE_VERDICTS"]) == (new_verdicts - replaced) | replacements
+    batch_verdicts = (new_verdicts - replaced) | replacements
+    pending = set(registry["PENDING_REQUALIFICATION"])
+    # WI-062 parked this batch's drift for its own requalification run; the
+    # parked set is a subset of what this batch minted, and everything the
+    # batch minted is live or explicitly pending.
+    assert pending <= batch_verdicts
+    assert set(registry["LIVE_VERDICTS"]) | pending == batch_verdicts
+    pending_map = {
+        relative: registry["LANE_VERDICTS"][relative]
+        for relative in registry["PENDING_REQUALIFICATION"]
+    }
+    live_or_pending = {**registry["LIVE_VERDICTS"], **pending_map}
     for run in successors["runs"]:
         assert registry["LANE_VERDICTS"][run["replaces"]] == (
-            registry["LIVE_VERDICTS"][run["verdict"]]
+            live_or_pending[run["verdict"]]
         )
     wp0 = next(r for r in batch["runs"] if r["name"] == "wp0")
     path = EVIDENCE / wp0["verdict"]
@@ -69,6 +80,12 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
     artifacts = {a["artifact_id"]: a for a in manifest["artifacts"]}
     # These paths are deliberately independent of the finalizer's table: a
     # future edit cannot delete its own binding and make this check vacuous.
+    # The hashes are resolved against the run's own commit rather than the
+    # current tree: WI-062 changed the harness, and a historical pack binds
+    # the bytes git holds at the commit it names, not the bytes of the day a
+    # reviewer happens to read it.
+    import subprocess
+
     for artifact_id, relative in (
         ("harness-finalizer", "scripts/windows-oracle/finalize_oracle_run.py"),
         ("harness-finalizer-library", "src/gpo_studio/oracle_evidence.py"),
@@ -78,8 +95,14 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
         ("harness-run-evidence", "scripts/windows-oracle/run-evidence.ps1"),
         ("harness-common", "scripts/windows-oracle/common.psm1"),
     ):
+        committed = subprocess.run(
+            ["git", "show", f"{manifest['source']['commit']}:{relative}"],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout
         assert artifacts[artifact_id]["sha256"] == hashlib.sha256(
-            (ROOT / relative).read_bytes()
+            committed
         ).hexdigest()
 
 

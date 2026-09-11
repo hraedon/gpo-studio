@@ -2307,7 +2307,18 @@ equivalence remain Plan 034 work, rather than conclusions from this tranche.
 ## WI-061 — retained native XML is copied into every revision snapshot
 
 **Opened:** 2026-09-08, review of the WI-060 tranche.
-**Status:** open - API responses are fixed; the stored copies are not.
+**Status:** open - fix landed 2026-09-10 (schema v4); closes with the
+WI-062 estate batch's requalification run, which this change rides.
+
+**Fix:** schema v4 adds `retained_documents` (each distinct document once,
+keyed by the SHA-256 of the decoded bytes) and `snapshot_documents` (which
+snapshots reference which digest; head snapshots as revision 0, cascading
+with the GPO). Snapshots carry digest references; every store read
+rehydrates, so no consumer of the API observes the encoding. A v3 workspace
+migrates in place, rewriting inline base64 to the side table and leaving
+inventory-free snapshots byte-identical. `snapshot_documents.py` is the
+codec; the model is untouched, so no verdict bound to `model.py` is affected
+by this item.
 
 `GPO.to_dict()` is `asdict`, so WI-060's retained `Backup.xml` and
 `gpreport.xml` ride wherever a GPO is serialized. Two places, with different
@@ -2337,7 +2348,11 @@ requalifies them, not on its own.
 ## WI-062 — evidence packs duplicate source bytes that are already bound to HEAD
 
 **Opened:** 2026-09-08, review of the WI-060 tranche.
-**Status:** open.
+**Status:** open - finalizers, drivers, library and
+`test_committed_evidence.py` converted to the manifest form 2026-09-10;
+closes when the estate batch requalifies all 21 lanes and banks the first
+schema-version-2 packs. The decision, including the standalone-verification trade-off, is
+[written down](plan-033/bound-source-manifest.md).
 
 Each lane pack banks a byte copy of every bound source module. There are 27
 copies of `oracle_evidence.py` in `docs/`, which is now 16MB against 3.6MB of

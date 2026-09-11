@@ -54,6 +54,7 @@ from gpo_studio.oracle_evidence import (  # noqa: E402
     FROZEN_ENVIRONMENT,
     OracleEvidenceError,
     assert_bound_source_bytes,
+    manifest_bound_source,
     tag_evidence_commit,
 )
 
@@ -427,12 +428,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     expected = _load(args.candidate_root / "expected.json")
 
-    source_hashes: dict[str, str] = {}
+    # WI-062: controller-side files are bound by (commit, path, sha256) from
+    # the source-tree copy that ran -- no byte copy rides in the pack, since
+    # git at the commit holds the bytes and assert_bound_source_bytes proved
+    # tree, index and HEAD agree.
+    bound_local = manifest_bound_source(repo_root, LOCAL_FILES)
+    source_hashes: dict[str, str] = {
+        name: entry["sha256"] for name, entry in bound_local.items()
+    }
     harness_ok = True
-    for name, source in {**DEPLOYED_FILES, **LOCAL_FILES}.items():
+    for name, source in DEPLOYED_FILES.items():
         src_hash = _sha256(repo_root / source)
         source_hashes[name] = src_hash
-        evidence = run_dir / "deployed" / name if name in DEPLOYED_FILES else run_dir / name
+        evidence = run_dir / "deployed" / name
         if not evidence.is_file() or _sha256(evidence) != src_hash:
             harness_ok = False
 
@@ -475,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     ]
 
     verdict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "work_package": "WP-6-endpoint",
         "run_id": observe.get("run_id"),
         "author_run_id": author.get("run_id"),
@@ -506,7 +514,16 @@ def main(argv: list[str] | None = None) -> int:
         "rows": observe.get("observed_tasks", []),
         "unexpected_rows": unexpected,
         "harness_matches_source": harness_ok,
-        "source": {"commit": commit, "dirty": dirty, "files": source_hashes},
+        "source": {
+            "commit": commit,
+            "dirty": dirty,
+            "files": source_hashes,
+            # WI-062: every bound file's repository path, and the names whose
+            # bytes the pack actually carries. Controller-side files are
+            # verified against git at the commit, not against pack copies.
+            "paths": {**DEPLOYED_FILES, **LOCAL_FILES},
+            "banked_copies": sorted(DEPLOYED_FILES),
+        },
         # The INPUT side of the comparison, hashed. `artifacts` below covers
         # what the run produced; without this block the thing it was graded
         # against was the one unhashed input in the verdict (WI-025).
