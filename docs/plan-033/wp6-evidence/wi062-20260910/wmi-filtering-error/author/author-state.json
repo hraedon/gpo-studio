@@ -1,0 +1,202 @@
+﻿{
+    "run_id":  "rsop-author-20260905191946-9060",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-author-20260905191946-9060",
+    "command_dir":  "C:\\gpo-studio\\out\\rsop-author-20260905191946-9060\\commands",
+    "phase":  "setup",
+    "author_computer":  "LABMS01",
+    "target_computer":  "LabCL01",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "domain_controller":  "LabDC01.ad.labdomain.dev",
+    "domain_dn":  "DC=ad,DC=labdomain,DC=dev",
+    "site_dn":  "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=ad,DC=labdomain,DC=dev",
+    "policy_key":  "Software\\Policies\\StudioLab",
+    "original_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "original_parent":  "CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "child_ou_dn":  "OU=StudioRsopChild-20260905191947-3983,OU=StudioRsopParent-20260905191947-3983,OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+    "scope":  "computer",
+    "loopback_mode":  "disabled",
+    "target_user":  "",
+    "user_ou_dn":  "",
+    "user_original_dn":  null,
+    "user_original_parent":  null,
+    "user_sid":  null,
+    "group_name":  "",
+    "group_dn":  null,
+    "group_created":  false,
+    "group_sid":  null,
+    "group_member":  "",
+    "group_member_sid":  null,
+    "user_moved":  false,
+    "ous":  [
+                {
+                    "symbolic_name":  "StudioRsop",
+                    "key":  "root",
+                    "parent_key":  "domain",
+                    "name":  "StudioRsop-20260905191947-3983",
+                    "block_inheritance":  false,
+                    "parent_dn":  "DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                },
+                {
+                    "symbolic_name":  "StudioRsopParent",
+                    "key":  "parent",
+                    "parent_key":  "root",
+                    "name":  "StudioRsopParent-20260905191947-3983",
+                    "block_inheritance":  false,
+                    "parent_dn":  "OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsopParent-20260905191947-3983,OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                },
+                {
+                    "symbolic_name":  "StudioRsopChild",
+                    "key":  "child",
+                    "parent_key":  "parent",
+                    "name":  "StudioRsopChild-20260905191947-3983",
+                    "block_inheritance":  false,
+                    "parent_dn":  "OU=StudioRsopParent-20260905191947-3983,OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                    "dn":  "OU=StudioRsopChild-20260905191947-3983,OU=StudioRsopParent-20260905191947-3983,OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                    "created":  true
+                }
+            ],
+    "gpos":  [
+                 {
+                     "symbolic_name":  "Studio-RSOP-WmiError",
+                     "name":  "Studio-RSOP-WmiError-20260905191947-3983",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260905191947-3983,OU=StudioRsopParent-20260905191947-3983,OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                     "order":  1,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "error",
+                                        "value_name":  "Wmi"
+                                    },
+                                    {
+                                        "type":  "String",
+                                        "value":  "1",
+                                        "value_name":  "WmiErrorOnly"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  {
+                                        "expect_true":  null,
+                                        "name":  "StudioRsopUnevaluatable",
+                                        "query":  "SELECT * FROM Win32_NoSuchClassStudioLab",
+                                        "why":  "UNKNOWN OUTCOME: the query is valid WQL naming a class that does not exist, so it can be neither true nor false. What Windows does with it is what this scenario is for."
+                                    },
+                     "wmi_filter_id":  "{1f729b03-eeca-4bf9-939f-4dbeaeb423e6}",
+                     "guid":  "dafb6bab-31ee-4c52-a31e-11de19d1ae97",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-WmiTrue",
+                     "name":  "Studio-RSOP-WmiTrue-20260905191947-3983",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260905191947-3983,OU=StudioRsopParent-20260905191947-3983,OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                     "order":  2,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "true",
+                                        "value_name":  "Wmi"
+                                    },
+                                    {
+                                        "type":  "String",
+                                        "value":  "1",
+                                        "value_name":  "WmiTrueOnly"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  {
+                                        "expect_true":  true,
+                                        "name":  "StudioRsopAlwaysTrue",
+                                        "query":  "SELECT * FROM Win32_OperatingSystem WHERE BuildNumber \u003e= \u00271\u0027",
+                                        "why":  "CONTROL: proves filter authoring works in this run, so the error row\u0027s outcome cannot be blamed on a malformed filter."
+                                    },
+                     "wmi_filter_id":  "{fb04fc04-1737-485f-8b78-c588e6fbd734}",
+                     "guid":  "346af92c-c5cc-43e6-b524-af8c28c3f5a2",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 },
+                 {
+                     "symbolic_name":  "Studio-RSOP-Control",
+                     "name":  "Studio-RSOP-Control-20260905191947-3983",
+                     "scope":  "ou",
+                     "scope_dn":  "OU=StudioRsopChild-20260905191947-3983,OU=StudioRsopParent-20260905191947-3983,OU=StudioRsop-20260905191947-3983,DC=ad,DC=labdomain,DC=dev",
+                     "order":  3,
+                     "enforced":  false,
+                     "link_enabled":  true,
+                     "user_enabled":  true,
+                     "values":  [
+                                    {
+                                        "type":  "String",
+                                        "value":  "present",
+                                        "value_name":  "Control"
+                                    }
+                                ],
+                     "user_values":  [
+
+                                     ],
+                     "raw_values":  [
+
+                                    ],
+                     "filters":  [
+
+                                 ],
+                     "wmi_filter":  null,
+                     "wmi_filter_id":  null,
+                     "guid":  "3c304ee8-8a55-4041-9715-420308b8c237",
+                     "created":  true,
+                     "linked":  true,
+                     "permission_summary":  [
+
+                                            ]
+                 }
+             ],
+    "computer_moved":  true,
+    "authored_problems":  [
+
+                          ],
+    "setup_completed":  true,
+    "replication_run":  true,
+    "environment":  {
+                        "caption":  "Microsoft Windows Server 2025 Standard",
+                        "build":  "26100",
+                        "powershell_version":  "5.1.26100.33296",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US",
+                        "gp_module_version":  "1.0.0.0",
+                        "domain":  "AD.LABDOMAIN.DEV"
+                    },
+    "error":  null
+}

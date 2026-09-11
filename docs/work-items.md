@@ -21,10 +21,7 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**2 open.**
-
-- [WI-061](#wi-061--retained-native-xml-is-copied-into-every-revision-snapshot) - responses fixed; per-revision storage open.
-- [WI-062](#wi-062--evidence-packs-duplicate-source-bytes-that-are-already-bound-to-head) - drop the banked copies in favour of the manifest.
+**0 open.**
 
 ---
 
@@ -2307,8 +2304,12 @@ equivalence remain Plan 034 work, rather than conclusions from this tranche.
 ## WI-061 — retained native XML is copied into every revision snapshot
 
 **Opened:** 2026-09-08, review of the WI-060 tranche.
-**Status:** open - fix landed 2026-09-10 (schema v4); closes with the
-WI-062 estate batch's requalification run, which this change rides.
+**Status:** closed 2026-09-11. Schema v4 landed and the
+[WI-062 batch](wi062-batch.md) re-earned the Scripts metadata and publication
+verdicts on
+the new storage; the workspace-growth test writes several revisions and
+asserts the stored snapshots and the database file both stay far below one
+copy of the inventory.
 
 **Fix:** schema v4 adds `retained_documents` (each distinct document once,
 keyed by the SHA-256 of the decoded bytes) and `snapshot_documents` (which
@@ -2348,10 +2349,14 @@ requalifies them, not on its own.
 ## WI-062 — evidence packs duplicate source bytes that are already bound to HEAD
 
 **Opened:** 2026-09-08, review of the WI-060 tranche.
-**Status:** open - finalizers, drivers, library and
-`test_committed_evidence.py` converted to the manifest form 2026-09-10;
-closes when the estate batch requalifies all 21 lanes and banks the first
-schema-version-2 packs. The decision, including the standalone-verification trade-off, is
+**Status:** closed 2026-09-11. Finalizers, drivers, library and
+`test_committed_evidence.py` record and verify the manifest form; the
+[WI-062 batch](wi062-batch.md) banked 21 runs at one frozen harness -- WP-0
+plus 20 schema-version-2 lane verdicts. One lane (computer group-deny) could
+not run: its client reboot cannot be reconciled with the reverted estate's
+clock, and its WI-059 verdict stays in `PENDING_REQUALIFICATION` as a debt
+owed by the estate repair described in the batch note, not by any harness
+change. The decision, including the standalone-verification trade-off, is
 [written down](plan-033/bound-source-manifest.md).
 
 Each lane pack banks a byte copy of every bound source module. There are 27

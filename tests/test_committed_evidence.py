@@ -784,6 +784,66 @@ HISTORICAL_BOUND_FILES["wp1b-evidence/wi059-20260908/publication/verification.js
     "xml_safety.py",
 }
 
+# WI-062: the manifest-form batch. These verdicts are schema version 2 --
+# (commit, path, sha256) bound source, guest-deployed copies only in packs.
+LANE_VERDICTS.update({
+    'wp1b-evidence/wi062-20260910/wp1b/verification.json': 'finalize_wp1b_run.py',
+    'wp2-evidence/wi062-20260910/wp2/verification.json': 'finalize_wp2_import_run.py',
+    'wp3-evidence/wi062-20260910/wp3-member/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi062-20260910/wp3-dc/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/wi062-20260910/object-security/verification.json': (
+        'finalize_object_security_run.py'
+    ),
+    'wp1b-evidence/wi062-20260910/scripts-metadata/verification.json': (
+        'finalize_scripts_backup_run.py'
+    ),
+    'wp1b-evidence/wi062-20260910/publication/verification.json': 'finalize_publication_run.py',
+    'wp6-evidence/wi062-20260910/endpoint/verification.json': 'finalize_endpoint_run.py',
+    'wp6-evidence/wi062-20260910/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/disabled-block-enforced/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/wmi-filtering/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/wmi-filtering-error/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/wi062-20260910/computer-security-filtering/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/wi062-20260910/computer-security-filtering-deny-read/'
+    'verification.json': 'finalize_rsop_run.py',
+    'wp9-evidence/wi062-20260910/loopback-merge/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi062-20260910/loopback-replace/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi062-20260910/user-side-disabled/verification.json': 'finalize_rsop_user_run.py',
+    'wp9-evidence/wi062-20260910/user-security-filtering/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi062-20260910/user-security-filtering-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/wi062-20260910/user-security-filtering-read-deny/'
+    'verification.json': 'finalize_rsop_user_run.py',
+})
+RETIRED_VERDICTS.update({
+    'wp1b-evidence/backup-report-20260908/publication/verification.json',
+    'wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json',
+    'wp1b-evidence/wi059-20260908/wp1b/verification.json',
+    'wp2-evidence/wi059-20260908/wp2/verification.json',
+    'wp3-evidence/wi059-20260908/object-security/verification.json',
+    'wp3-evidence/wi059-20260908/wp3-dc/verification.json',
+    'wp3-evidence/wi059-20260908/wp3-member/verification.json',
+    'wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json',
+    'wp6-evidence/wi059-20260908/computer-security-filtering/verification.json',
+    'wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json',
+    'wp6-evidence/wi059-20260908/endpoint/verification.json',
+    'wp6-evidence/wi059-20260908/lsdou-precedence/verification.json',
+    'wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json',
+    'wp6-evidence/wi059-20260908/wmi-filtering/verification.json',
+    'wp9-evidence/wi059-20260908/loopback-merge/verification.json',
+    'wp9-evidence/wi059-20260908/loopback-replace/verification.json',
+    'wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json',
+    'wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json',
+    'wp9-evidence/wi059-20260908/user-security-filtering/verification.json',
+    'wp9-evidence/wi059-20260908/user-side-disabled/verification.json',
+})
+
+
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
 #: estate batch owes. Enumerated, never pattern-matched, for the same reason
 #: RETIRED_VERDICTS is: parking a verdict here is a deliberate act with a
@@ -791,34 +851,17 @@ HISTORICAL_BOUND_FILES["wp1b-evidence/wi059-20260908/publication/verification.js
 #: keeps the set honest in both directions -- a verdict whose binding still
 #: matches the tree is live and must not be parked, and this set is a debt to
 #: be emptied by the batch, not a quieter neighbour of RETIRED_VERDICTS.
+#:
+#: The 2026-09-10 WI-062 batch emptied every entry but this one. The group-deny
+#: lane reboots the client mid-run, and on the post-checkpoint estate the
+#: rebooted client lands on a clock the reverted DC cannot reach: matching it
+#: needs a forward clock jump, and every forward jump deletes the DC-locator
+#: DNS records (reproduced four times, with DNS scavenging disabled and with
+#: lockout disabled). The lane's verdict is owed by the estate repair that
+#: restores the DC to real time without the DNS purge, not by any harness
+#: change; the batch note records the attempts.
 PENDING_REQUALIFICATION = {
-    # WI-062 changed `oracle_evidence.py` (bound by every lane), every lane
-    # finalizer and every lane driver, so every live verdict's binding
-    # drifted at once. The 2026-09-08 WI-059 batch's remaining 19 verdicts
-    # and the two WI-060 successors are re-earned by the WI-062 batch, which
-    # also banks the first schema-version-2 packs (manifest-form bound
-    # source, no controller-side byte copies).
-    "wp1b-evidence/wi059-20260908/wp1b/verification.json",
-    "wp2-evidence/wi059-20260908/wp2/verification.json",
-    "wp3-evidence/wi059-20260908/wp3-member/verification.json",
-    "wp3-evidence/wi059-20260908/wp3-dc/verification.json",
-    "wp3-evidence/wi059-20260908/object-security/verification.json",
-    "wp6-evidence/wi059-20260908/endpoint/verification.json",
-    "wp6-evidence/wi059-20260908/lsdou-precedence/verification.json",
-    "wp6-evidence/wi059-20260908/disabled-block-enforced/verification.json",
-    "wp6-evidence/wi059-20260908/wmi-filtering/verification.json",
-    "wp6-evidence/wi059-20260908/wmi-filtering-error/verification.json",
-    "wp6-evidence/wi059-20260908/computer-security-filtering/verification.json",
     "wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json",
-    "wp6-evidence/wi059-20260908/computer-security-filtering-deny-read/verification.json",
-    "wp9-evidence/wi059-20260908/loopback-merge/verification.json",
-    "wp9-evidence/wi059-20260908/loopback-replace/verification.json",
-    "wp9-evidence/wi059-20260908/user-side-disabled/verification.json",
-    "wp9-evidence/wi059-20260908/user-security-filtering/verification.json",
-    "wp9-evidence/wi059-20260908/user-security-filtering-deny/verification.json",
-    "wp9-evidence/wi059-20260908/user-security-filtering-read-deny/verification.json",
-    "wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json",
-    "wp1b-evidence/backup-report-20260908/publication/verification.json",
 }
 
 LIVE_VERDICTS = {
@@ -1524,7 +1567,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/wi059-20260908/wp0/manifest.json")
+    manifest = _verdict("wp0-evidence/wi062-20260910/wp0/manifest.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (

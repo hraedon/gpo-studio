@@ -1,0 +1,21 @@
+studio-publication-backup.zip sha256=a8cc678cef1da035e8a229356c108496001ed2ed8574b597dcf317034bca0d36
+expected.json sha256=45284f0da99090d23826de096154009b265b25218cd42b5760781a99be313679
+{
+  "backup_id": "{78A65ED0-2EFD-5D61-8A80-284FD79A6177}",
+  "domain": "synthetic.test",
+  "expects_gpo_cmt": false,
+  "gpo_id": "{31415926-5358-9793-2384-626433832795}",
+  "gpo_name": "zz-studio-evidence-publication-completeness",
+  "machine_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+  "plan_payload_digest": "5244d8c41c44fb1bef55412d7b841e732c6a4016a0d18bc1cecaedb4f443e2a3",
+  "schema_version": 1,
+  "sysvol_paths": [
+    "GPT.INI",
+    "Machine/Preferences/Services/Services.xml",
+    "Machine/Registry.pol",
+    "User/Preferences/Drives/Drives.xml",
+    "User/Registry.pol"
+  ],
+  "user_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+  "version_half": "both"
+}

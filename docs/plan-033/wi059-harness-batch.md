@@ -4,10 +4,12 @@
 `4cfa9af4b3f12104e8c592cd94df00b88e49beb5`: 21 lane verdicts plus WP-0's separate manifest.
 No product capability was expanded by this batch.
 
-**Subsequent qualification:** [WI-060](backup-report-fidelity.md) replaces only
-the Scripts metadata and publication verdicts after model/digest changes. This
-batch and its hashes remain immutable; the live registry follows those two
-successors and the other 19 original verdicts.
+**Subsequent qualification:** [WI-060](backup-report-fidelity.md) replaced
+only the Scripts metadata and publication verdicts after model/digest changes;
+[the WI-062 batch](wi062-batch.md) then requalified 20 of the remaining 21 on
+the manifest-form harness (the group-deny lane is pending estate repair). This
+batch and its hashes remain immutable; the live registry follows the WI-062
+verdicts.
 
 ## Enforced behaviour
 

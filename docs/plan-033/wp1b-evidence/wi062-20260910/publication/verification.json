@@ -1,0 +1,133 @@
+{
+  "artifacts": {
+    "builder.stdout.txt": "cd887bf008ea9ff7d7831415292d5b5d2e31c9174195f3e89da8108691bf0225",
+    "candidate.zip": "a8cc678cef1da035e8a229356c108496001ed2ed8574b597dcf317034bca0d36",
+    "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.stdout.txt": "0b5a8bbb9f9d2674e8eaf853eba4732a5fb8f25a21529ca481e89123b9337645",
+    "commands/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "deployed/run-publication-import.ps1": "a59a52d38f79233847238a2fde2d76f44c20b60062960b8fca3082fa9ac0e9a4",
+    "input/manifest.xml": "e74c34a77f9247730ada41621761476e8c688c8c2517e60f2b827e7a4979c03b",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/Backup.xml": "b6cdd6f0a97d07fd5213d8d62bb57361319ad3aad7b5bbdb2945debe7ebb3a3f",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml": "88a027fd9da2365d93fa8538cb0016023bedd473d7c62eb0ff64429a6a9cd091",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/Machine/registry.pol": "1c78e62222391e07ea06a6876e1a69470857e4fd488025ebc4be8fe02b95695f",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "f36188dcff6d30ec99082e10c6ebd44008504a552f525614e4930c60c74038f6",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/DomainSysvol/GPO/User/registry.pol": "980b383efa1b32ec812887f20f076aa50f4ade74c7d21646adc01b4a8a49809b",
+    "input/{78A65ED0-2EFD-5D61-8A80-284FD79A6177}/bkupInfo.xml": "e9c5e1451c06cb861947ac66e886bb2c778e464149ffe050b33472fb752f4155",
+    "report.xml": "c9d67acdb993653da78bd186a71ec77be9258cfed366175a0c060846f2b392a7",
+    "result.json": "ef6a8afe766e861c8a87a60d07344b5b3390447431f71767bf8a5a4c440fca36"
+  },
+  "candidate": {
+    "builder.stdout.txt": "cd887bf008ea9ff7d7831415292d5b5d2e31c9174195f3e89da8108691bf0225",
+    "expected.json": "45284f0da99090d23826de096154009b265b25218cd42b5760781a99be313679",
+    "studio-publication-backup.zip": "a8cc678cef1da035e8a229356c108496001ed2ed8574b597dcf317034bca0d36"
+  },
+  "candidate_delivery": {
+    "controller_sha256": "a8cc678cef1da035e8a229356c108496001ed2ed8574b597dcf317034bca0d36",
+    "guest_sha256": "a8cc678cef1da035e8a229356c108496001ed2ed8574b597dcf317034bca0d36"
+  },
+  "checks": {
+    "candidate_delivered_intact": true,
+    "candidate_identity_matches_manifest": true,
+    "cleanup_state_restored": true,
+    "cleanup_succeeded": true,
+    "deployed_harness_matches_source": true,
+    "disposable_gpo_unlinked": true,
+    "environment_matches_frozen_spec": true,
+    "gpo_cmt_present_only_if_planned": true,
+    "gpt_version_moved_the_declared_half": true,
+    "harness_reported_no_error": true,
+    "import_succeeded": true,
+    "machine_extension_names_exact": true,
+    "member_server_host_role": true,
+    "plan_names_every_file_windows_wrote": true,
+    "raw_command_artifacts_complete": true,
+    "result_schema_exact": true,
+    "source_tree_clean": true,
+    "sysvol_path_is_the_owned_gpos": true,
+    "user_extension_names_exact": true,
+    "windows_wrote_every_file_the_plan_names": true
+  },
+  "comparison": {
+    "expected_machine_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+    "expected_user_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+    "expected_version_half": "both",
+    "missing_files": [],
+    "observed_machine_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+    "observed_sysvol_paths": [
+      "gpt.ini",
+      "machine/preferences/services/services.xml",
+      "machine/registry.pol",
+      "user/preferences/drives/drives.xml",
+      "user/registry.pol"
+    ],
+    "observed_user_extension_names": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+    "observed_version_number": 65537,
+    "planned_sysvol_paths": [
+      "gpt.ini",
+      "machine/preferences/services/services.xml",
+      "machine/registry.pol",
+      "user/preferences/drives/drives.xml",
+      "user/registry.pol"
+    ],
+    "unplanned_files": []
+  },
+  "comparison_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33296",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "harness_error": null,
+  "passed": true,
+  "run_id": "publication-completeness-20260905191330-7322",
+  "schema_version": 2,
+  "source": {
+    "banked_copies": [
+      "run-publication-import.ps1"
+    ],
+    "commit": "f5cad5777ec4ad3ed0857717d511b057852db6ba",
+    "dirty": false,
+    "files": {
+      "build-publication-candidate.py": "69a62e61535d8a5e4f336ffb4c95f9d69ce7bc00cf0e903f7a4298a4bd5c264f",
+      "canonical.py": "e636f3221a401e22120c2ef8606ea65c8cdd2ec36c80032c3760efba7006f85c",
+      "export.py": "23bfe3e46da2edcc8a7868545aecf024c3c38f5b06380461371a02934876984c",
+      "finalize_publication_run.py": "f92f08a4929580ea76e975010454cba22e31da258880562e44ed6c28c63b1723",
+      "gpp.py": "09b8ed054ea3b856545908a847c2cd7361e90f9f83d43267822c06605abf5494",
+      "model.py": "7660a34e76a1c09aa9de719151d520a1b0a4346fa20683cb3a30463f8b0175ea",
+      "oracle_evidence.py": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "publication.py": "b354fe6b000ab33dcded87130e030dd85f02ae953f153ddbe52658311f038c57",
+      "registry_pol.py": "893014badac42eb3c98c5c951564a5969d886018e81b7431138e50e1486ecc3a",
+      "run-publication-import.ps1": "a59a52d38f79233847238a2fde2d76f44c20b60062960b8fca3082fa9ac0e9a4",
+      "run-publication-oracle.sh": "4b4af5dad8795aaf017648add0c5e2e55ed048767e78b0b73a3fabe6094f3938",
+      "validation.py": "f71186642784d6ccb19439318c5acb9876fabfdae79c74a9e1633441961b4d59",
+      "xml_safety.py": "8f9a65060cd904c081d06023324990504674e49b603630f1696f32fa269cfb53"
+    },
+    "paths": {
+      "build-publication-candidate.py": "scripts/plan-033/build-publication-candidate.py",
+      "canonical.py": "src/gpo_studio/canonical.py",
+      "export.py": "src/gpo_studio/export.py",
+      "finalize_publication_run.py": "scripts/windows-oracle/finalize_publication_run.py",
+      "gpp.py": "src/gpo_studio/gpp.py",
+      "model.py": "src/gpo_studio/model.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "publication.py": "src/gpo_studio/publication.py",
+      "registry_pol.py": "src/gpo_studio/registry_pol.py",
+      "run-publication-import.ps1": "scripts/windows-oracle/run-publication-import.ps1",
+      "run-publication-oracle.sh": "scripts/windows-oracle/run-publication-oracle.sh",
+      "validation.py": "src/gpo_studio/validation.py",
+      "xml_safety.py": "src/gpo_studio/xml_safety.py"
+    }
+  },
+  "transport": "psdirect"
+}

@@ -1,0 +1,67 @@
+﻿{
+    "schema_version":  1,
+    "run_id":  "publication-completeness-20260905191330-7322",
+    "target_name":  "zz-studio-pub-publication-completeness-20260905191330-7322",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "backup_id":  "{78A65ED0-2EFD-5D61-8A80-284FD79A6177}",
+    "source_gpo_id":  "{31415926-5358-9793-2384-626433832795}",
+    "owned_gpo_id":  "2a592904-0b52-4a1f-a14b-6336c32c3611",
+    "import_succeeded":  true,
+    "report_links_to_count":  0,
+    "sysvol_path":  "\\\\AD.LABDOMAIN.DEV\\sysvol\\AD.LABDOMAIN.DEV\\Policies\\{2a592904-0b52-4a1f-a14b-6336c32c3611}",
+    "sysvol_files":  [
+                         {
+                             "relative_path":  "gpt.ini",
+                             "length":  26,
+                             "sha256":  "1c8c9f20fd4469735e17ccfafcf5baa83c178412a7a3ec25153efb28d09675cd"
+                         },
+                         {
+                             "relative_path":  "Machine/Preferences/Services/Services.xml",
+                             "length":  342,
+                             "sha256":  "88a027fd9da2365d93fa8538cb0016023bedd473d7c62eb0ff64429a6a9cd091"
+                         },
+                         {
+                             "relative_path":  "Machine/registry.pol",
+                             "length":  118,
+                             "sha256":  "1c78e62222391e07ea06a6876e1a69470857e4fd488025ebc4be8fe02b95695f"
+                         },
+                         {
+                             "relative_path":  "User/Preferences/Drives/Drives.xml",
+                             "length":  350,
+                             "sha256":  "f36188dcff6d30ec99082e10c6ebd44008504a552f525614e4930c60c74038f6"
+                         },
+                         {
+                             "relative_path":  "User/registry.pol",
+                             "length":  114,
+                             "sha256":  "980b383efa1b32ec812887f20f076aa50f4ade74c7d21646adc01b4a8a49809b"
+                         }
+                     ],
+    "gpt_ini_text":  "[General]\r\nVersion=65537\r\n",
+    "ad_attributes":  {
+                          "versionNumber":  65537,
+                          "gPCMachineExtensionNames":  "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}][{91FBB303-0CD5-4055-BF42-E512A681B325}{CC5746A9-9B74-4BE5-AE2E-64379C86E0E4}]",
+                          "gPCUserExtensionNames":  "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F73-3407-48AE-BA88-E8213C6761F1}][{00000000-0000-0000-0000-000000000000}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}][{5794DAFD-BE60-433F-88A2-1A31939AC01F}{2EA1A81B-48E5-45E9-8BB7-A6E3AC170006}]",
+                          "gPCFileSysPath":  "\\\\AD.LABDOMAIN.DEV\\sysvol\\AD.LABDOMAIN.DEV\\Policies\\{2a592904-0b52-4a1f-a14b-6336c32c3611}",
+                          "gPCFunctionalityVersion":  "2",
+                          "flags":  "0",
+                          "computer_ds_version":  1,
+                          "computer_sysvol_version":  1,
+                          "user_ds_version":  1,
+                          "user_sysvol_version":  1
+                      },
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "computer_system_domain_role":  3,
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33296",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US",
+                        "computer_system_name":  "LABMS01",
+                        "computer_system_domain":  "ad.labdomain.dev"
+                    },
+    "error":  null
+}

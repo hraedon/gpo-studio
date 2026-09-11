@@ -1,0 +1,26 @@
+﻿{
+    "run_id":  "rsop-author-20260905191617-6114",
+    "phase":  "cleanup",
+    "cleanup_problems":  [
+
+                         ],
+    "residual":  {
+                     "computer_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+                     "computer_restored":  true,
+                     "user_dn":  null,
+                     "user_restored":  null,
+                     "surviving_group":  null,
+                     "surviving_wmi_filters":  [
+
+                                               ],
+                     "surviving_links":  [
+
+                                         ],
+                     "surviving_gpos":  [
+
+                                        ],
+                     "surviving_ous":  [
+
+                                       ]
+                 }
+}

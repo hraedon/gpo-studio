@@ -58,20 +58,16 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
     assert replaced <= registry["RETIRED_VERDICTS"]
     batch_verdicts = (new_verdicts - replaced) | replacements
     pending = set(registry["PENDING_REQUALIFICATION"])
-    # WI-062 parked this batch's drift for its own requalification run; the
-    # parked set is a subset of what this batch minted, and everything the
-    # batch minted is live or explicitly pending.
+    # WI-062 requalified this batch wholesale: every verdict it minted is now
+    # retired except the ones the WI-062 batch could not re-run -- the
+    # group-deny lane, parked as pending with its estate-repair reason.
     assert pending <= batch_verdicts
-    assert set(registry["LIVE_VERDICTS"]) | pending == batch_verdicts
-    pending_map = {
-        relative: registry["LANE_VERDICTS"][relative]
-        for relative in registry["PENDING_REQUALIFICATION"]
-    }
-    live_or_pending = {**registry["LIVE_VERDICTS"], **pending_map}
+    assert batch_verdicts <= set(registry["RETIRED_VERDICTS"]) | pending
+    assert not (set(registry["LIVE_VERDICTS"]) & batch_verdicts)
     for run in successors["runs"]:
-        assert registry["LANE_VERDICTS"][run["replaces"]] == (
-            live_or_pending[run["verdict"]]
-        )
+        assert registry["LANE_VERDICTS"][run["replaces"]] == registry[
+            "LANE_VERDICTS"
+        ][run["verdict"]]
     wp0 = next(r for r in batch["runs"] if r["name"] == "wp0")
     path = EVIDENCE / wp0["verdict"]
     manifest = json.loads(path.read_text(encoding="utf-8"))

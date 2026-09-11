@@ -1,0 +1,34 @@
+{
+  "commit": "f5cad5777ec4ad3ed0857717d511b057852db6ba",
+  "transport": "psdirect",
+  "files": {
+    "scripts/run-evidence.ps1": {
+      "sha256": "3927f3f884a5a2f1db9f0be2d5963ebc1211e29559b950c44ef863c4ea5cba30",
+      "size_bytes": 14344
+    },
+    "scripts/common.psm1": {
+      "sha256": "df56945f250b1d6238d8fe28928fdbecf32dc9191713cbc8e0f4dde08e3c5f51",
+      "size_bytes": 2674
+    },
+    "scripts/recipe.json": {
+      "sha256": "d14ce94d8a6bf478d8e5601dbaeaa18f05a8e0f1eccf401e49748ba326b9a160",
+      "size_bytes": 875
+    },
+    "orchestrator/run-windows-oracle.sh": {
+      "sha256": "e9e681b475d81aa67e970a1c8b411a9e0f5e631a2b5e0d89818837e5aefc80c1",
+      "size_bytes": 8858
+    },
+    "orchestrator/psdirect.ps1": {
+      "sha256": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "size_bytes": 26084
+    },
+    "orchestrator/finalize_oracle_run.py": {
+      "sha256": "3e92fa057c83fb3cdce25389c09a0413ced73d684d46939c8b334fab09ef6cf9",
+      "size_bytes": 3430
+    },
+    "orchestrator/oracle_evidence.py": {
+      "sha256": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "size_bytes": 79942
+    }
+  }
+}

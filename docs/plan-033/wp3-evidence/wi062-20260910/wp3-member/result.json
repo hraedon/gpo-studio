@@ -1,0 +1,70 @@
+﻿{
+    "run_id":  "wp3-security-template-20260905191215-9060",
+    "validate_exit_code":  0,
+    "import_exit_code":  0,
+    "export_exit_code":  0,
+    "export_created":  true,
+    "cleanup_succeeded":  true,
+    "database_absent_after_cleanup":  true,
+    "database_residual_files":  [
+
+                                ],
+    "invoked_operations":  [
+                               {
+                                   "name":  "validate",
+                                   "arguments":  [
+                                                     "/validate",
+                                                     "C:\\gpo-studio\\runs\\20260911085505-1195\\out\\wp3-security-template-20260905191215-9060\\candidate.inf"
+                                                 ]
+                               },
+                               {
+                                   "name":  "import",
+                                   "arguments":  [
+                                                     "/import",
+                                                     "/db",
+                                                     "C:\\gpo-studio\\runs\\20260911085505-1195\\out\\wp3-security-template-20260905191215-9060\\temporary-security-database.sdb",
+                                                     "/cfg",
+                                                     "C:\\gpo-studio\\runs\\20260911085505-1195\\out\\wp3-security-template-20260905191215-9060\\candidate.inf",
+                                                     "/overwrite",
+                                                     "/areas",
+                                                     "securitypolicy",
+                                                     "user_rights",
+                                                     "group_mgmt",
+                                                     "/log",
+                                                     "C:\\gpo-studio\\runs\\20260911085505-1195\\out\\wp3-security-template-20260905191215-9060\\commands\\import.log",
+                                                     "/quiet"
+                                                 ]
+                               },
+                               {
+                                   "name":  "export",
+                                   "arguments":  [
+                                                     "/export",
+                                                     "/db",
+                                                     "C:\\gpo-studio\\runs\\20260911085505-1195\\out\\wp3-security-template-20260905191215-9060\\temporary-security-database.sdb",
+                                                     "/cfg",
+                                                     "C:\\gpo-studio\\runs\\20260911085505-1195\\out\\wp3-security-template-20260905191215-9060\\exported.inf",
+                                                     "/areas",
+                                                     "securitypolicy",
+                                                     "user_rights",
+                                                     "group_mgmt",
+                                                     "/log",
+                                                     "C:\\gpo-studio\\runs\\20260911085505-1195\\out\\wp3-security-template-20260905191215-9060\\commands\\export.log",
+                                                     "/quiet"
+                                                 ]
+                               }
+                           ],
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33296",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US",
+                        "lgpo_sha256":  "missing",
+                        "computer_system_name":  "LABMS01",
+                        "computer_system_domain":  "ad.labdomain.dev",
+                        "computer_system_domain_role":  3
+                    },
+    "error":  null
+}

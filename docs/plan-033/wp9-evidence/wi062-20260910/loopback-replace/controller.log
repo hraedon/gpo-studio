@@ -1,0 +1,18 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=loopback-replace
+built rsop candidate for loopback-replace (4 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-user-candidate-20260911103449
+  predicted winners: CompOnly=1(Studio-RSOP-CompLocation), Control=present(Studio-RSOP-UserControl), Loop=computerLocation(Studio-RSOP-CompLocation)
+RUN_ID=rsop-user-observe-20260905191117-2666
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260905191117-2666
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20260905191123-2012
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260905191123-2012
+RUN_ID=rsop-user-observe-20260905191128-2282
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260905191128-2282
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260905191123-2012","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-user-run-20260911103449
+CANDIDATE_DIR=/tmp/rsop-user-candidate-20260911103449
+
+run rsop-user-observe-20260905191128-2282: state=pass (source f5cad5777ec4ad3ed0857717d511b057852db6ba, dirty=False)
+  loopback intended='replace' observed='replace'

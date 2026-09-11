@@ -21,8 +21,11 @@ Current version: `1.0.0`.
   (schema version 2), `harness_matches_source` covers the guest-deployed
   half, WP-0's manifest carries the orchestrator files in `source.bound`,
   and `test_committed_evidence.py` re-derives recorded digests from git at
-  each verdict's own commit. Historical packs and tags are untouched. See
-  [the decision](docs/plan-033/bound-source-manifest.md).
+  each verdict's own commit. Historical packs and tags are untouched. The
+  requalification batch banked WP-0 plus 20 schema-version-2 verdicts at one
+  frozen harness; the computer group-deny lane is pending the estate repair
+  its batch note describes. See [the decision](docs/plan-033/bound-source-manifest.md)
+  and [the batch](docs/plan-033/wi062-batch.md).
 - WI-061 (part): `GET /api/gpos` and `GET /api/starter-gpos` no longer carry
   WI-060's retained native XML in every row -- rows report
   `has_backup_inventory` and the detail endpoint serves the snapshot. The

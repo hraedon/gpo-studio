@@ -1,7 +1,10 @@
 # Plan 033 frozen environment specification
 
-**Current qualification:** the [WI-059 batch](wi059-harness-batch.md), with
-[WI-060 successors](backup-report-fidelity.md) for Scripts and publication.
+**Current qualification:** the [WI-062 batch](wi062-batch.md) -- 21 of 22
+runs on frozen harness `f5cad577` (manifest-form bound source; schema
+version 2). The computer group-deny lane is pending estate repair; the batch
+note records the clock/DNS failure that blocks it. The WI-059 batch and its
+WI-060 successors remain the binding history for their commits.
 The two successor runs bind `b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`; the
 other 19 verdicts and WP-0 retain their WI-059 source bindings. The dated
 measurement notes below are history; the Qualified environments table records

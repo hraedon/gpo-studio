@@ -1,0 +1,46 @@
+﻿{
+    "run_id":  "wp2-native-import-20260905191148-9446",
+    "target_name":  "WP2-NativeImport-20260905-191149-5283",
+    "backup_id":  "{043EA4BF-4DC1-5374-8557-B85E805B5CE0}",
+    "source_gpo_id":  "{11111111-2222-3333-4444-555555555555}",
+    "whatif_succeeded":  true,
+    "whatif_target_absent":  true,
+    "import_succeeded":  true,
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "version_state":  {
+                          "computer_dsa":  1,
+                          "computer_sysvol":  1,
+                          "user_dsa":  1,
+                          "user_sysvol":  1,
+                          "gpo_status":  "AllSettingsEnabled"
+                      },
+    "registry_readback":  [
+                              {
+                                  "side":  "computer",
+                                  "hive":  "HKLM",
+                                  "key":  "Software\\Policies\\GPOStudio\\WP2",
+                                  "value_name":  "MachineValue",
+                                  "registry_type":  "REG_DWORD",
+                                  "value":  42
+                              },
+                              {
+                                  "side":  "user",
+                                  "hive":  "HKCU",
+                                  "key":  "Software\\Policies\\GPOStudio\\WP2",
+                                  "value_name":  "UserValue",
+                                  "registry_type":  "REG_SZ",
+                                  "value":  "synthetic-wp2-value"
+                              }
+                          ],
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33296",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

@@ -1,0 +1,38 @@
+{
+  "control_gpo": "Studio-RSOP-Control",
+  "control_value_name": "Control",
+  "endpoint_user": "",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-Site",
+      "isolates": "site scope applies first and loses conflicts; its unique value still applies"
+    },
+    {
+      "gpo": "Studio-RSOP-Domain",
+      "isolates": "domain scope applies after site and before OUs"
+    },
+    {
+      "gpo": "Studio-RSOP-Parent",
+      "isolates": "parent OU applies after domain and before child"
+    },
+    {
+      "gpo": "Studio-RSOP-ChildA",
+      "isolates": "link order 1 applies last within a container and wins"
+    },
+    {
+      "gpo": "Studio-RSOP-ChildB",
+      "isolates": "link order 2 loses the conflict; its unique value still applies"
+    },
+    {
+      "gpo": "Studio-RSOP-Control",
+      "isolates": "CONTROL: unconflicted, unfiltered. Absent => the experiment did not run."
+    }
+  ],
+  "scenario_id": "lsdou-precedence",
+  "scope": "computer"
+}

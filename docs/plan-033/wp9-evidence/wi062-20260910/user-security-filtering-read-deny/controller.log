@@ -1,0 +1,19 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-security-filtering-read-deny
+built rsop candidate for user-security-filtering-read-deny (5 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-user-candidate-20260911104309
+  predicted winners: AllowOnly=1(Studio-RSOP-UserReadDenyAllow), Control=present(Studio-RSOP-UserReadDenyControl), DenyReadUserOnly=1(Studio-RSOP-UserDenyReadUser), Filter=denyReadUser(Studio-RSOP-UserDenyReadUser)
+  predicted denied:  Studio-RSOP-UserDenyReadComp(security_filter_read_denied), Studio-RSOP-UserReadDenyApply(security_filter_denied/security_filter_mismatch)
+RUN_ID=rsop-user-observe-20260909174324-1102
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260909174324-1102
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20260905191929-2502
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260905191929-2502
+RUN_ID=rsop-user-observe-20260909174332-6160
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260909174332-6160
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260905191929-2502","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-user-run-20260911104309
+CANDIDATE_DIR=/tmp/rsop-user-candidate-20260911104309
+
+run rsop-user-observe-20260909174332-6160: state=pass (source f5cad5777ec4ad3ed0857717d511b057852db6ba, dirty=False)
+  loopback intended='disabled' observed='disabled'

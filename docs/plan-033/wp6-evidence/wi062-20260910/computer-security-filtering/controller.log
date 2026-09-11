@@ -1,0 +1,15 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=computer-security-filtering
+built rsop candidate for computer-security-filtering (4 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-candidate-20260911090340
+  predicted winners: AllowOnly=1(Studio-RSOP-CompFilterAllow), Control=present(Studio-RSOP-Control), Filter=allow(Studio-RSOP-CompFilterAllow)
+  predicted denied:  Studio-RSOP-CompFilterDeny(security_filter_denied), Studio-RSOP-CompFilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-author-20260905192055-2747
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260905192055-2747
+RUN_ID=rsop-observe-20260905192059-1061
+WORK_DIR=C:\gpo-studio\out\rsop-observe-20260905192059-1061
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260905192055-2747","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":null,"user_restored":null,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-run-20260911090340
+CANDIDATE_DIR=/tmp/rsop-candidate-20260911090340
+
+run rsop-observe-20260905192059-1061: state=pass (source f5cad5777ec4ad3ed0857717d511b057852db6ba, dirty=False)

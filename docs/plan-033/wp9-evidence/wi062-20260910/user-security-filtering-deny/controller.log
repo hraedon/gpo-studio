@@ -1,0 +1,28 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-security-filtering-deny
+built rsop candidate for user-security-filtering-deny (7 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-user-candidate-20260911104051
+  predicted winners: AllowOnly=1(Studio-RSOP-FilterAllow), Control=present(Studio-RSOP-UserControl), DenyApplyCompOnly=1(Studio-RSOP-FilterDenyApplyComp), Filter=denyApplyComp(Studio-RSOP-FilterDenyApplyComp), NestedOnly=1(Studio-RSOP-FilterNested)
+  predicted denied:  Studio-RSOP-FilterDeny(security_filter_denied/security_filter_mismatch), Studio-RSOP-FilterDenyGroup(security_filter_denied/security_filter_mismatch), Studio-RSOP-FilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-user-observe-20260909174108-3251
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260909174108-3251
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20260905191713-9694
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260905191713-9694
+--- re-establishing the interactive session (group 'StudioRsopGroup') ---
+[31;1mOperationStopped: [0mC:\projects\gpo-studio\scripts\windows-oracle\psdirect.ps1:249[0m
+[31;1m[0m[36;1mLine |[0m
+[31;1m[0m[36;1m[36;1m 249 | [0m     [36;1m$result = Invoke-Command -Session $session `[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mharness exited 1[0m
+RUN_ID=rsop-user-observe-20260909174145-4937
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260909174145-4937
+RESESSION_PROBLEMS=
+RUN_ID=rsop-user-observe-20260909174151-2079
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20260909174151-2079
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260905191713-9694","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-user-run-20260911104051
+CANDIDATE_DIR=/tmp/rsop-user-candidate-20260911104051
+
+run rsop-user-observe-20260909174151-2079: state=pass (source f5cad5777ec4ad3ed0857717d511b057852db6ba, dirty=False)
+  loopback intended='disabled' observed='disabled'

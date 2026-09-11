@@ -1,0 +1,15 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=disabled-block-enforced
+built rsop candidate for disabled-block-enforced (6 GPOs) in C:\Users\merrittp\AppData\Local\Temp\rsop-candidate-20260911090015
+  predicted winners: Block=domainEnforced(Studio-RSOP-DomainEnforced), Control=present(Studio-RSOP-Control), EnforcedOnly=1(Studio-RSOP-DomainEnforced), MachineVal=1(Studio-RSOP-UserSideOff), Side=computer(Studio-RSOP-ChildGPO)
+  predicted denied:  Studio-RSOP-DomainPlain(blocked_by_inheritance)
+RUN_ID=rsop-author-20260905191730-9006
+WORK_DIR=C:\gpo-studio\out\rsop-author-20260905191730-9006
+RUN_ID=rsop-observe-20260905191734-7320
+WORK_DIR=C:\gpo-studio\out\rsop-observe-20260905191734-7320
+--- authoring cleanup ---
+{"run_id":"rsop-author-20260905191730-9006","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":null,"user_restored":null,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/tmp/rsop-run-20260911090015
+CANDIDATE_DIR=/tmp/rsop-candidate-20260911090015
+
+run rsop-observe-20260905191734-7320: state=pass (source f5cad5777ec4ad3ed0857717d511b057852db6ba, dirty=False)
