@@ -46,6 +46,10 @@ tests/fixtures/live-domain-census/** -text
 tests/fixtures/recipes/synthetic-registry-basic.json text eol=lf
 # WI-028 diagnostic captures retain their exact bytes and are not lane verdicts.
 scripts/plan-033/collect-searched-som.ps1 -text
+# The clock/DNS collector is bound by nothing, so pin LF rather than "whatever
+# was committed" -- WI-063 is what `-text` costs on a file someone edits from
+# Windows, and a new file has no committed bytes worth preserving over the rule.
+scripts/plan-033/collect-dc-clock-dns.ps1 text eol=lf
 docs/plan-033/wi028-evidence/** -text -whitespace
 # WI-059 retains complete native packs, including CRLF logs and source snapshots.
 docs/plan-033/*-evidence/wi059-20260908/** -text -whitespace

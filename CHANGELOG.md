@@ -9,6 +9,54 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- WI-069: the estate repair that blocks the 22nd lane is an item now, not a
+  paragraph. It had no number while three open items (WI-063, WI-064, WI-065)
+  waited on the estate run it blocks, and the only account of the failure was
+  one paragraph in the WI-062 batch note that four other documents pointed
+  back at. `docs/plan-033/estate-clock-dns-repair.md` adds the capture plan and
+  `scripts/plan-033/collect-dc-clock-dns.ps1` the read-only collector -- three
+  phases, LDAP node state and replication metadata rather than resolver
+  answers, the scavenging and aging settings as configured rather than as
+  remembered. Neither was run: this host has no lab credential capability
+  provisioned, so the transport is unavailable from it.
+  It also records the step nobody took. That the DC-locator records were
+  *deleted* was concluded through a resolver, and absent, tombstoned and
+  present-but-unserved are one symptom from there and three different findings
+  over LDAP -- the third being plausible on exactly the machine whose clock has
+  just jumped. The account may still be right; the step between symptom and
+  mechanism was never taken, and it is one read.
+
+- Plan 034 WP-4 is ruled: Folder Redirection is a **read target**, with the
+  writer deferred behind R12
+  ([the decision](docs/scope-decision-2026-09-11-folder-redirection.md)). The
+  read half is `src/gpo_studio/fdeploy.py` -- a strict UTF-16LE/BOM codec, a
+  lossless parse, structural validation, review rendering and a diff keyed on
+  `(folder GUID, principal)` -- reachable at
+  `POST /api/folder-redirection/fdeploy`. Before this, `fdeploy1.ini` reached
+  an operator as a 458-byte SHA-256 in the unmodeled-file inventory, and the
+  module named `folder_redirection.py` addressed neither it nor the marker
+  beside it.
+  Two limits ride in the module and in every response rather than in a document:
+  `Flags` is carried as the integer Windows wrote and **no bit is named** --
+  one capture is one observation of a ten-bit word (WI-066) -- and one capture
+  is also one shape, so multi-folder and multi-principal documents are
+  unmeasured. No lane has read this artifact in either direction, so the banked
+  R3 capture is doing a lane's job: the reader is tested against bytes
+  hash-bound to what GPMC wrote, which is stronger than a round trip through
+  our own output and weaker than a verdict.
+  The parse reaches no `GPO`, so an imported backup's reports and diffs are
+  unchanged -- that field lands in `model.py`, which two live verdicts bind
+  (WI-068, filed against the batch that owes WI-063 through WI-065).
+- WI-067: the R3 fixture's provenance called
+  `{FDD39AD0-238F-46AF-ADB4-6C85480369C7}` the Folder Redirection CSE GUID. It
+  keys the redirected *folder*; the CSE GUID is
+  `{25537BA6-77A8-11D2-9B6C-0000F8080861}`, which is what R6's census counted
+  and which appears in neither captured file. The repository already
+  contradicted itself two paragraphs apart and nothing reconciled it because no
+  code read the file. The constant is renamed and the provenance record carries
+  a dated correction rather than a silent rewrite; the upstream envelope is
+  still wrong, which is what keeps the item open.
+
 - Plan 034 WP-3: `policy_families.py` is reachable. `POST /api/security-template/
   policy-families` renders the account, audit, user-rights and security-options
   families as a `GptTmpl.inf` -- text for reading, UTF-16LE/BOM/CRLF bytes for

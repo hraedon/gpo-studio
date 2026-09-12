@@ -32,6 +32,9 @@ limit rejects the import; limits are not truncation targets.
 | ILT XML depth | 50 |
 | ILT XML text or tail slot | 65,536 characters |
 | ILT XML attribute value | 4,096 characters |
+| `fdeploy` file | 1 MiB |
+| `fdeploy` sections | 5,000 |
+| `fdeploy` entries per section | 5,000 |
 | SDDL text | 256 KiB |
 | SDDL ACEs | 10,000 |
 | ADMX or ADML file | 10 MiB |

@@ -21,8 +21,12 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**4 open.**
+**7 open.**
 
+- [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
+
+- [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
+- [WI-067](#wi-067--the-fixture-calls-a-folder-guid-the-cse-guid) - correct the upstream R3 provenance note.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 - [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - the check conflates unparsed with unparseable.
 - [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - star the key, then certify it with candidate rows.
@@ -2583,3 +2587,146 @@ three explicitly (BOM, CRLF, no `[Policy]` section); R12 is this item's own
 follow-up and states both. **R3 is the only one whose claim is narrower than
 its request**, so this is a single instance rather than a pattern, and the
 corrected row closes it without needing a new control.
+
+**Updated 2026-09-11:** the ruling this item informs was taken —
+[`scope-decision-2026-09-11-folder-redirection.md`](scope-decision-2026-09-11-folder-redirection.md),
+read target with the writer deferred — and the read half landed as
+`src/gpo_studio/fdeploy.py`. That does not close this item; it narrows it. The
+reader carries `Flags` as the integer Windows wrote and names no bit, and
+`tests/test_fdeploy.py::test_flags_is_carried_and_never_decoded_into_options`
+is the test R12 has to make someone deliberately change. What still owes a
+capture is unchanged: questions 3 and 4, and the writer that cannot be built
+without them.
+
+## WI-067 — the fixture calls a folder GUID the CSE GUID
+
+**Opened:** 2026-09-11 (writing the fdeploy reader against the R3 capture).
+**Status:** open.
+
+`tests/fixtures/native-folder-redirection-gpmc/provenance.json` says, in its
+sanitisation note, that `{FDD39AD0-238F-46AF-ADB4-6C85480369C7}` "is the
+well-known Folder Redirection CSE GUID", and
+`tests/test_native_folder_redirection_capture.py` named its constant `_FR_CSE`
+with the same comment. It is not the CSE GUID. It keys the redirected
+**folder** — `FOLDERID_Documents`, which is the folder R3 authored and the one
+the captured `FullPath` ends in. The Folder Redirection CSE GUID is
+`{25537BA6-77A8-11D2-9B6C-0000F8080861}`, which is what R6's census counted
+(0 of 26) and which appears in neither captured file.
+
+**The repository already contradicted itself**, which is what makes this a
+defect rather than a reading. [The brief](scope-brief-2026-09-11-folder-redirection.md)
+names the CSE GUID correctly two paragraphs from where it quotes the capture
+naming the other one. Nothing reconciled them because nothing had to: no code
+read the file, so the label was prose nobody executed.
+
+**Why it is worth a number.** The two GUIDs are the join between this
+artifact's *key* and this family's *demand figure*, and the ruling turns on
+both. A reader who took the note at face value would conclude R6 counted the
+thing `fdeploy1.ini` is keyed by — that the census and the capture measured the
+same identifier. They do not, and the 0-of-26 means what it means only because
+they do not.
+
+**Corrected, not rewritten.** The test constant is renamed `_DOCUMENTS_FOLDER`
+with the correction in its comment, and the provenance record carries a dated
+`corrections` key naming the error while leaving the original wording in place
+— a provenance record that is silently edited stops being one.
+`tests/test_fdeploy.py::test_the_cse_guid_is_not_the_guid_the_file_carries`
+pins both GUIDs and asserts the capture names the folder one and not the CSE
+one.
+
+**Closes when:** the upstream record is corrected at source — the
+`windows-console-driver` R3 envelope
+(`docs/estate-window-3/records/r3-window3-record.json`) carries the same
+sanitisation note, and this repository holds a copy. The copy is now right and
+the original is not, which is the wrong way round for a provenance chain. It
+stays open until the upstream note is corrected or annotated the same way.
+
+## WI-068 — a parsed redirection reaches no GPO, so no report or diff shows it
+
+**Opened:** 2026-09-11 (landing the Plan 034 WP-4 read ruling).
+**Status:** open.
+
+`fdeploy.py` reads the artifact and renders it, and
+`POST /api/folder-redirection/fdeploy` is where an operator reaches that. What
+does **not** happen is the part the scope brief asked for by name: an imported
+backup's `fdeploy1.ini` still appears in `policy_report` as a line in
+"Unmodeled extension files (metadata only)" — a path, a size and a SHA-256 —
+and appears in no diff at all.
+
+**Why it stopped there.** The `backup_inventory` precedent is the whole recipe:
+`read_backup` captures, a field on `GPO` carries it, `policy_report` renders
+it, `canonical.review_model_dict` folds it in, `diff_gpos` compares it. Every
+step is in a file bound by nothing except one — the field goes on `GPO`, in
+`model.py`, which the publication and scripts-metadata verdicts bind. Adding it
+expires two verdicts that are honest today, and
+`test_a_live_verdict_still_binds_the_harness_that_ships` goes red until the
+estate re-runs. The estate cannot re-run: the batch that owes WI-063, WI-064
+and WI-065 is itself blocked on the clock/DNS failure in
+[`wi062-batch.md`](plan-033/wi062-batch.md).
+
+So this is WI-048's ordering argument applied honestly rather than a shortcut:
+the behaviour that *could* go in an unbound file did (the parser, the
+validator, the renderer, the diff function, the endpoint), and only the two
+lines that cannot are deferred.
+
+**Closes when:** `GPO` carries the parsed document, `read_backup` populates it
+from `User/Documents & Settings/fdeploy1.ini`, `policy_report` renders it
+through `fdeploy_report_lines`, `diff_gpos` compares it through
+`diff_fdeploy`, `review_model_dict` folds it in (and `policy_semantic_dict`
+does **not** — this is import provenance, the same split
+`test_backup_report_inventory.py` pins for `backup_inventory`), and the
+publication and scripts-metadata lanes are re-run on the batch that already
+owes three items. `tests/test_fdeploy_surface.py` holds the endpoint's
+composition equal to the module's in the meantime, which is the same workaround
+the two WP-3 surfaces used the same week.
+
+## WI-069 — the estate repair the batch owes has no number and no plan
+
+**Opened:** 2026-09-11 (looking for the item that tracks the WI-062 blocker).
+**Status:** open.
+
+The computer group-deny lane's verdict sits in `PENDING_REQUALIFICATION` and
+its reason is "the estate repair described in the batch note". That repair has
+never been an item. It is one paragraph in
+[`wi062-batch.md`](plan-033/wi062-batch.md), and `environment-spec.md`,
+`CHANGELOG.md`, WI-062's closure and WI-063's body each point back to it.
+
+That is the failure AGENTS.md names in the sentence above this register:
+**a WI number in one prose paragraph is a note, not a work item** — except this
+was worse, because it had no number at all. It also blocks three open items:
+WI-063, WI-064 and WI-065 all say "the estate owes a run anyway", and the run
+they are waiting on is waiting on this.
+
+**What is actually unknown.** Reverting to `estate-current-20260905` gives a
+~6-day Kerberos skew; setting the DC forward to real time works for minutes and
+then removes every dynamic DC-locator record domain-wide, host A records
+included. Reproduced four times with scavenging disabled, per-zone aging
+disabled, lockout threshold zero and records force-re-registered. The mechanism
+was not identified, three attempts are archived on the controller, and **no log
+from them is committed** — this repository holds the paragraph and nothing else.
+
+**The step that was skipped.** Nothing established that the records were
+deleted rather than unserved. Absent, tombstoned, and present-but-unserved are
+one symptom through a resolver and three different findings over LDAP, and the
+third is plausible precisely on a DC whose clock has just jumped. That is one
+read-only query.
+
+**The plan and the collector are written**, offline, in
+[`estate-clock-dns-repair.md`](plan-033/estate-clock-dns-repair.md):
+`scripts/plan-033/collect-dc-clock-dns.ps1` takes a three-phase read-only
+capture (before / after-jump / broken) covering the LDAP node state,
+replication metadata for the locator records, the scavenging and aging settings
+as configured rather than as remembered, and the DNS/W32Time/Netlogon events.
+It writes nothing. It was not run: this host has neither
+`cred:lab-hyperv-control` nor `cred:lab-guest-bootstrap` provisioned, so the
+transport is unavailable here.
+
+**Two debts, not one.** The lane needs an estate it can run on; the record
+needs a mechanism. The document names two paths to the first that do not
+require the second — re-anchoring the client at boot rather than disabling
+time-sync, or re-baselining the estate at real time so no jump ever happens.
+
+**Closes when:** the group-deny lane runs and its verdict leaves
+`PENDING_REQUALIFICATION`, **and** the note says which of the two debts was
+paid — the mechanism identified, or the lane unblocked around it. Closing it by
+doing one silently is how this became a paragraph in the first place.
