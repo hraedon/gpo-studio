@@ -33,6 +33,22 @@ must never write directly to Active Directory or SYSVOL.
   known dynamic-import limit are in
   [`docs/gate-decision-2026-07-29-static-safety.md`](docs/gate-decision-2026-07-29-static-safety.md),
   and `tests/test_safety_gate.py` pins the fail-closed behaviour.
+- **Price an edit before making it.** Every live lane verdict binds its source
+  by `(commit, path, sha256)`, so editing a bound file expires every verdict
+  that binds it and the evidence is dishonest until the estate re-runs. What
+  each file costs, in lanes, is
+  [`docs/plan-033/bound-source-cost.md`](docs/plan-033/bound-source-cost.md) --
+  generated from the live verdicts and guarded by
+  `tests/test_bound_source_cost.py`. Check it before touching anything under
+  `src/gpo_studio/` or `scripts/`. `oracle_evidence.py` and `psdirect.ps1` cost
+  the whole estate; `model.py`, `export.py` and `validation.py` cost two lanes
+  each. If no estate session is planned, either put the behaviour in a file
+  nothing binds and add a test holding it equal to the bound one, or file a work
+  item pinned by a test that fails when someone fixes it without re-running the
+  lane. That is WI-048's ordering argument, and the batching decision belongs to
+  whoever books the session.
+- A cost of zero is not a licence. It means no lane has measured that file --
+  a statement about coverage, not about quality.
 - Keep the core (`model`, `store`, `registry_pol`) independent from FastAPI.
 - **A landed domain layer is not a capability.** Plans are routinely executed
   as typed, unit-tested modules before any delivery surface exists. A module

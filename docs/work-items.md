@@ -2479,7 +2479,7 @@ different keys." It was fixed for the policy families and not for this one.
 
 **Not fixed here.** `object_security.py` is bound by the live object-security
 verdict (`object-security-20260905191252-4253`), so the one-line correction
-expires it and costs an estate run — the same accounting as [[WI-063]] and the
+expires it and costs an estate run — the same accounting as WI-063 and the
 same batch. Filing it does not make restricted groups safe to surface in the
 meantime: `POST /api/security-template/object-security` deliberately omits the
 family, and says so in its response.
@@ -2525,7 +2525,7 @@ the models, which is what `from_template` does and what leaves the check
 meaning what it says; emitted bytes are unaffected because `_resolve_sddl`
 prefers the raw form. `object_security.py` is bound by the live verdict, so
 correcting the check itself expires it and costs an estate run — the same
-accounting as [[WI-063]] and [[WI-064]], and the same batch.
+accounting as WI-063 and WI-064, and the same batch.
 
 **Closes when:** `validate` distinguishes "not parsed" from "parsed and
 failed" — by parsing on demand, or by a field that records the attempt — the
