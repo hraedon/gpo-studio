@@ -9,6 +9,32 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Plan 034 WP-3: `policy_families.py` is reachable. `POST /api/security-template/
+  policy-families` renders the account, audit, user-rights and security-options
+  families as a `GptTmpl.inf` -- text for reading, UTF-16LE/BOM/CRLF bytes for
+  writing -- in the emission direction its member and DC lanes certified
+  (21/21 each at `4e27f27`) and no further. It does not parse a template back:
+  that direction reaches its oracle only through a GPMC snap-in and no lane
+  certifies it. Every response carries the three limits the lane did not reach
+  -- `/configure` is never invoked, one tranche of values was measured, and
+  GPME editing is unmeasured -- and a member-server render omits the Kerberos
+  section, which is what the lane's finalizer requires. The second layer to
+  leave the unproven-draft set after `rsop.py`, and the first from Plan 025,
+  whose three other modules remain in it.
+  The composition lives in `api.py` because the serializers, their codec and
+  the candidate builder are all in the verdicts' bound file set;
+  `tests/test_policy_family_surface.py` holds it equal to the certified
+  builder's in both scopes rather than letting a second composition drift.
+- WI-063: eight `run-*-oracle.sh` lane runners are committed with CRLF and no
+  longer parse under `bash`. Filed rather than fixed: all sixteen affected
+  files are hash-bound by the WI-062 batch, so renormalizing them fails the
+  live-harness binding for 19 of the 21 banked verdicts and costs an estate
+  requalification, which the estate owes anyway for its 22nd lane.
+  `tests/test_lane_runner_line_endings.py` holds the line until then. The
+  mechanism is `-text` in `.gitattributes`, which pins committed bytes in both
+  directions and so removes the worktree/index disagreement WI-059's guard
+  detects; `text eol=lf` -- already used for every `src/gpo_studio/*.py` in the
+  same file -- pins LF and keeps the guard.
 - WI-061: revision snapshots no longer each carry a full copy of the retained
   native XML. Schema v4 stores each distinct document once
   (`retained_documents`, keyed by the SHA-256 of the decoded bytes) with

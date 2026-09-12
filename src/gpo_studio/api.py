@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -121,6 +122,17 @@ from .policy_config import (
     policy_setting_prefix,
     resolve_policy,
 )
+from .policy_families import (
+    AccountPolicyFamily,
+    AuditLevel,
+    AuditPolicyFamily,
+    KerberosPolicy,
+    LockoutPolicy,
+    PasswordPolicy,
+    SecurityOption,
+    SecurityOptionsFamily,
+    UserRightsFamily,
+)
 from .registry_pol import RegistryPolError
 from .report import policy_report
 from .rsop import (
@@ -130,6 +142,13 @@ from .rsop import (
     compute_rsop,
 )
 from .sddl import SddlError, parse_sddl
+from .security_template import (
+    InfSection,
+    PrivilegeRight,
+    SecurityTemplate,
+    encode_security_template,
+    format_security_template,
+)
 from .settings_browser import (
     build_category_tree,
     build_settings_browser,
@@ -4021,4 +4040,367 @@ def rsop_compare(body: RsopCompareRequest) -> dict[str, Any]:
         "baseline_is_conclusive": baseline.is_conclusive(),
         "current_is_conclusive": current.is_conclusive(),
         "limitations": _rsop_limitations([body.baseline, body.current]),
+    }
+
+
+# --------------------------------------------------------------------------
+# Plan 034 WP-3: the policy-family surface.
+#
+# `policy_families.py` was imported by nothing outside its own island until
+# this endpoint. WP-1 certified it -- `wp3-security-template-20260907071149-3752`
+# (member server, 21/21) and `...071106-1024` (domain controller, 21/21), both
+# at `4e27f27` -- and WP-3's rule is that a certified module gets a surface,
+# with what it cannot answer stated in the answer rather than in a document
+# the caller is not reading.
+#
+# **Why the composition lives here and not in `policy_families.py`.** The
+# family serializers, `security_template.py` and `build-wp3-candidate.py` are
+# all in the WP-3 verdicts' bound file set, so any edit to them expires both
+# live certifications and costs an estate re-run (WI-048's ordering argument).
+# `api.py` is bound by nothing. Composing here therefore surfaces the module at
+# zero evidence cost -- and buys the drift that `wp3-policy-family-results.md`
+# records catching once already: "Previously it handwrote the INF sections and
+# could pass while those serializers emitted different keys."
+#
+# So the drift is closed by a test rather than by a shared function:
+# `test_policy_family_surface.py` renders this endpoint's sections and the
+# candidate builder's from the same inputs and requires them equal, section for
+# section and entry for entry, in both scopes. Lifting the composition into the
+# library is the right end state and belongs to the next batch that re-runs the
+# estate anyway -- the same batch WI-063 is filed against.
+# --------------------------------------------------------------------------
+
+#: What the builder wraps every candidate in, and what `secedit` round-tripped.
+_INF_UNICODE_SECTION = InfSection(name="Unicode", entries=(("Unicode", "yes"),))
+_INF_VERSION_SECTION = InfSection(
+    name="Version", entries=(("signature", '"$CHICAGO$"'), ("Revision", "1"))
+)
+
+
+class PasswordPolicyData(BaseModel):
+    minimum_password_age_days: int = Field(default=0, ge=0, le=999)
+    maximum_password_age_days: int = Field(default=42, ge=0, le=999)
+    minimum_password_length: int = Field(default=0, ge=0, le=128)
+    password_complexity_enabled: bool = False
+    password_history_size: int = Field(default=0, ge=0, le=1024)
+    reversible_encryption: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class LockoutPolicyData(BaseModel):
+    lockout_threshold: int = Field(default=0, ge=0, le=999)
+    lockout_duration_minutes: int = Field(default=30, ge=0, le=99999)
+    lockout_window_minutes: int = Field(default=30, ge=0, le=99999)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class KerberosPolicyData(BaseModel):
+    """Units are the ones measured on a real DC (work order R7), not guessed.
+
+    `max_ticket_age_hours` is hours and `max_service_age_minutes` is minutes --
+    the default effective policy carries 10 and 600 for the same ten-hour
+    duration, which is exactly the pair a unit mix-up would make look
+    consistent.
+    """
+
+    max_ticket_age_hours: int = Field(default=10, ge=0, le=99999)
+    max_renewal_age_days: int = Field(default=7, ge=0, le=99999)
+    max_service_age_minutes: int = Field(default=600, ge=0, le=99999)
+    max_clock_skew_minutes: int = Field(default=5, ge=0, le=99999)
+    ticket_validate_client: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AccountPolicyFamilyData(BaseModel):
+    password: PasswordPolicyData = Field(default_factory=PasswordPolicyData)
+    lockout: LockoutPolicyData = Field(default_factory=LockoutPolicyData)
+    kerberos: KerberosPolicyData = Field(default_factory=KerberosPolicyData)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AuditPolicyFamilyData(BaseModel):
+    """The nine Event Audit categories, all measured in the member-server run."""
+
+    system_events: AuditLevel = "none"
+    logon_events: AuditLevel = "none"
+    object_access: AuditLevel = "none"
+    privilege_use: AuditLevel = "none"
+    policy_change: AuditLevel = "none"
+    account_management: AuditLevel = "none"
+    directory_service_access: AuditLevel = "none"
+    account_logon: AuditLevel = "none"
+    process_tracking: AuditLevel = "none"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PrivilegeRightData(BaseModel):
+    #: `SeBackupPrivilege`, not its display name: the INF key is the constant.
+    name: str = Field(min_length=1, max_length=128)
+    #: SID form is `*S-1-5-32-544`; a bare account name is also accepted by
+    #: Windows and is what the DC control row in the lane's candidate uses.
+    principals: list[str] = Field(default_factory=list, max_length=500)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UserRightsFamilyData(BaseModel):
+    assignments: list[PrivilegeRightData] = Field(default_factory=list, max_length=200)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SecurityOptionData(BaseModel):
+    #: A `[Registry Values]` path, e.g. `MACHINE\\Software\\StudioLab\\Dword`.
+    key: str = Field(min_length=1, max_length=1024)
+    #: The native `type,value` spelling -- `4,1` for a DWORD, `7,alpha,beta`
+    #: for a MULTI_SZ. All four types in the lane's candidate returned from
+    #: `secedit` byte-identical.
+    value: str = Field(default="", max_length=4096)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SecurityOptionsFamilyData(BaseModel):
+    options: list[SecurityOptionData] = Field(default_factory=list, max_length=500)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PolicyFamilyRenderRequest(BaseModel):
+    """The four families, and the scope that decides whether Kerberos is real.
+
+    `scope` and not an `include_kerberos` flag, because the flag is the
+    mechanism and the scope is the reason: the lane's finalizer refuses a
+    Kerberos candidate unless the guest reports an integer domain-controller
+    role, and a member server exports the section empty rather than absent. A
+    caller who names the scope gets the emission rule that was measured for it.
+    """
+
+    scope: Literal["member_server", "domain_controller"] = "member_server"
+    account: AccountPolicyFamilyData = Field(default_factory=AccountPolicyFamilyData)
+    audit: AuditPolicyFamilyData = Field(default_factory=AuditPolicyFamilyData)
+    user_rights: UserRightsFamilyData = Field(default_factory=UserRightsFamilyData)
+    security_options: SecurityOptionsFamilyData = Field(
+        default_factory=SecurityOptionsFamilyData
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class InfSectionResponse(BaseModel):
+    name: str
+    entries: list[tuple[str, str]]
+
+
+class PolicyFamilyLimitation(BaseModel):
+    """What this answer does not say, delivered with the answer.
+
+    The same contract as `RsopLimitation`: a caller reading JSON is not reading
+    `capability-matrix.md`, and a capability whose limits live only in a
+    document is surfaced without them.
+    """
+
+    code: str
+    message: str
+
+
+class PolicyFamilyRenderResponse(BaseModel):
+    #: The INF as text, in the section order `secedit` accepted.
+    inf_text: str
+    #: The same template as the bytes Windows consumes: UTF-16LE with a BOM,
+    #: base64-encoded. `inf_text` is for reading; this is for writing.
+    inf_base64: str
+    sections: list[InfSectionResponse]
+    #: Every family's own validation, merged. Advisory: none of it blocks the
+    #: render, because an INF Windows accepts is not the same question as an
+    #: INF an administrator should deploy.
+    issues: list[ValidationIssueResponse]
+    limitations: list[PolicyFamilyLimitation]
+
+
+def _policy_family_limitations(scope: str) -> list[dict[str, str]]:
+    """State what the WP-3 certification does and does not reach.
+
+    Every entry is measured rather than reasoned: each one names something
+    `wp3-policy-family-results.md` records the lane not doing. The first three
+    hold for every answer this surface gives. The fourth is conditional on an
+    exact property of the request -- `scope`, which the caller sends -- and not
+    on a heuristic about the caller, which is the distinction
+    `_rsop_limitations` draws and the reason a guessed limitation is worse than
+    none: it would be absent exactly when the guess was wrong.
+    """
+    limitations = [
+        {
+            "code": "round_trip_not_application",
+            "message": (
+                "The certification behind this surface is secedit /validate, "
+                "/import into a temporary database, and /export. /configure is "
+                "never invoked, so nothing here is evidence that Windows "
+                "applies these settings to an endpoint."
+            ),
+        },
+        {
+            "code": "representative_values_only",
+            "message": (
+                "One tranche of values was measured: password and lockout, all "
+                "nine Event Audit keys, two user rights, and four registry "
+                "value types. The wire representation survives Windows' "
+                "security database for those; it is not evidence of meaningful "
+                "behaviour for every value this request shape accepts."
+            ),
+        },
+        {
+            "code": "gpmc_editing_unmeasured",
+            "message": (
+                "Whether GPME can open and edit the emitted template is not "
+                "measured. The read direction of security_template reaches its "
+                "oracle only through a GPMC snap-in with no cmdlet surface, and "
+                "stays capture-backed (Plan 034 WP-1)."
+            ),
+        },
+    ]
+    if scope == "member_server":
+        limitations.append({
+            "code": "kerberos_omitted_for_member_server",
+            "message": (
+                "The Kerberos Policy section is omitted: a member server "
+                "exports it empty, and the lane's finalizer refuses a Kerberos "
+                "candidate unless the guest reports a domain-controller role. "
+                "Send scope=domain_controller to emit it."
+            ),
+        })
+    return limitations
+
+
+def _merge_policy_family_entries(
+    *families: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Merge family sections, refusing a key two families both claim.
+
+    Mirrors the candidate builder's `_merge_family_entries`. The refusal is not
+    defensive tidiness: a silent overwrite would emit an INF whose last writer
+    won, and the lane compares what Windows returns against what was *sent*, so
+    the surface would disagree with the certification it claims.
+    """
+    merged: dict[str, dict[str, str]] = {}
+    for family in families:
+        for section, entries in family.items():
+            target = merged.setdefault(section, {})
+            overlap = target.keys() & entries.keys()
+            if overlap:
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="duplicate_policy_family_entry",
+                        message=(
+                            f"Two families claim the same {section} "
+                            f"key: {', '.join(sorted(overlap))}."
+                        ),
+                        path=f"sections/{section}",
+                    )
+                ])
+            target.update(entries)
+    return merged
+
+
+def _policy_family_models(
+    body: PolicyFamilyRenderRequest,
+) -> tuple[
+    AccountPolicyFamily, AuditPolicyFamily, UserRightsFamily, SecurityOptionsFamily
+]:
+    """Turn the request into the certified dataclasses, unchanged."""
+    return (
+        AccountPolicyFamily(
+            password=PasswordPolicy(**body.account.password.model_dump()),
+            lockout=LockoutPolicy(**body.account.lockout.model_dump()),
+            kerberos=KerberosPolicy(**body.account.kerberos.model_dump()),
+        ),
+        AuditPolicyFamily(**body.audit.model_dump()),
+        UserRightsFamily(
+            assignments=tuple(
+                PrivilegeRight(name=a.name, principals=tuple(a.principals))
+                for a in body.user_rights.assignments
+            )
+        ),
+        SecurityOptionsFamily(
+            options=tuple(
+                SecurityOption(key=o.key, value=o.value)
+                for o in body.security_options.options
+            )
+        ),
+    )
+
+
+def policy_family_sections(
+    body: PolicyFamilyRenderRequest,
+) -> tuple[InfSection, ...]:
+    """Compose the four families into the INF sections the lane certified.
+
+    Public because `test_policy_family_surface.py` holds it against
+    `build-wp3-candidate.py`; see the note at the top of this block for why the
+    two are separate at all.
+
+    `Group Membership` is deliberately absent. The candidate carries it as a
+    comparator control -- proof the lane would notice a section nothing in
+    `policy_families.py` emits -- so emitting it here would surface a family
+    this module does not model.
+    """
+    account, audit, user_rights, security_options = _policy_family_models(body)
+    account_entries = account.to_template_entries()
+    if body.scope != "domain_controller":
+        del account_entries["Kerberos Policy"]
+    merged = _merge_policy_family_entries(
+        account_entries,
+        audit.to_template_entries(),
+        user_rights.to_template_entries(),
+        security_options.to_template_entries(),
+    )
+    return (
+        _INF_UNICODE_SECTION,
+        *(
+            InfSection(name=name, entries=tuple(entries.items()))
+            for name, entries in merged.items()
+        ),
+        _INF_VERSION_SECTION,
+    )
+
+
+@app.post(
+    "/api/security-template/policy-families",
+    response_model=PolicyFamilyRenderResponse,
+)
+def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
+    """Render account, audit, user-rights and security-options families as INF.
+
+    The direction this answers is the one Windows has verified: Studio emits a
+    `GptTmpl.inf` and `secedit` validates, imports and re-exports it without a
+    difference. It does not read one back -- parsing is the direction with no
+    cmdlet oracle behind it, and it is not surfaced here rather than surfaced
+    with a warning.
+
+    Read `limitations` before treating the output as deployable. `issues` is
+    advisory and never blocks the render: whether Windows accepts a template
+    and whether an administrator should deploy it are different questions, and
+    only the first one has been measured.
+    """
+    sections = policy_family_sections(body)
+    account, audit, user_rights, security_options = _policy_family_models(body)
+    text = format_security_template(SecurityTemplate(sections=sections)) + "\n"
+    issues: list[ValidationIssue] = []
+    for family in (account, audit, user_rights, security_options):
+        issues.extend(family.validate())
+    return {
+        "inf_text": text,
+        "inf_base64": base64.b64encode(encode_security_template(text)).decode("ascii"),
+        "sections": [
+            {"name": section.name, "entries": [list(e) for e in section.entries]}
+            for section in sections
+        ],
+        "issues": [asdict(issue) for issue in issues],
+        "limitations": _policy_family_limitations(body.scope),
     }

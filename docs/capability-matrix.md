@@ -605,6 +605,66 @@ the next honest limitation needs somewhere they already look.
 Open work items for this module are tracked in
 [`docs/work-items.md`](work-items.md).
 
+### `policy_families.py` (Plan 025) — a certified serializer, reachable at `/api/security-template/policy-families`
+
+Reconciled 2026-09-11 under Plan 034 WP-3. The second layer to leave the
+unproven-draft set, and the first from Plan 025 — whose other three modules
+are still in it, which is why Plan 025 itself remains unsurfaced.
+
+**Reachable at** `POST /api/security-template/policy-families`: the account,
+audit, user-rights and security-options families arrive as typed JSON and come
+back as a `GptTmpl.inf` — text for reading, and UTF-16LE/BOM/CRLF bytes for
+writing. As with `/api/rsop/*`, everything arrives in the request body and
+nothing is read from the workspace.
+
+**One direction only, and that is the point.** The endpoint emits a template
+and does not parse one back. Emission is what the lanes certified;
+`security_template.py`'s read direction reaches its oracle only through a GPMC
+snap-in with no cmdlet surface, so no lane certifies it and parsing is absent
+here rather than present with a warning. Its state is the one recorded in the
+post-1.0 table below, and this section deliberately does not restate that
+value: `test_capture_backed_is_confined_to_the_post_10_table` keeps the term
+out of everything above that heading, so that a release claim cannot acquire a
+middle value by being described near one.
+
+**Certified** by two runs at `4e27f27`, 21/21 checks each, zero differences:
+`wp3-security-template-20260907071149-3752` (member server, observed domain
+role 3) and `wp3-security-template-20260907071106-1024` (domain controller,
+observed role 5, adding the five Kerberos keys). Windows validated, imported
+into a temporary security database, and re-exported the template Studio built.
+Two defects were found by these runs before they were fixed: the audit key
+`AuditDirectoryServiceAccess` (native is `AuditDSAccess`) and two speculative
+Kerberos fields that had never been measured. See
+[the results](plan-033/wp3-policy-family-results.md).
+
+**What is NOT certified, and is not claimed** — all three are carried in every
+response's `limitations`, not only here:
+
+- **Application.** The lane observes `secedit /validate`, `/import` into a
+  temporary database and `/export`. `/configure` is never invoked, so nothing
+  establishes that Windows *applies* these settings to an endpoint.
+- **Arbitrary values.** One tranche was measured: password and lockout, all
+  nine Event Audit keys, two user rights, four registry value types, and five
+  Kerberos keys on the DC. The wire representation survives Windows' security
+  database for those; other values are unmeasured.
+- **GPMC editing.** Whether GPME can open and edit the emitted template is not
+  measured — the read direction above.
+
+**There is no browser panel**, and its absence is recorded rather than
+implied: the endpoint is the surface. A panel would be the natural next step
+and is not a precondition for the exit condition, which asks for a surface an
+operator can reach, not for every surface.
+
+**The composition lives in `api.py`, deliberately.** `policy_families.py`,
+`security_template.py` and `build-wp3-candidate.py` are all in the WP-3
+verdicts' bound file set, so wiring the surface through a shared function would
+have expired both certifications and cost an estate run.
+`tests/test_policy_family_surface.py` holds the endpoint's composition equal to
+the certified builder's — section for section, in both scopes — because an
+unheld second composition is the exact defect this lane was corrected for once
+already. Lifting it into the library belongs to the next batch that re-runs the
+estate anyway.
+
 ---
 
 ## Post-1.0 domain layers — landed but not surfaced
@@ -675,7 +735,7 @@ claim and a middle value would weaken a shipped contract.
 | 025 | `security_template.py` | no | **capture-backed (R4)** — encoding, BOM, section shape and the quoted-CSV row form of one native GPMC template. The same capture shows it parses **0 of 3** `[Registry Keys]` rows (3 `unknown_lines`); see WI-038 |
 | 025 | `object_security.py` | no | **capture-backed (R4, R9)** — propagation codes measured (0/1/2, all three previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 adds a clean member-server 19/19 validate/import/export lane. ACL *application* remains unverified; ACL *content* is deliberately unjudged by ruling (WI-055, closed 2026-09-07) rather than by omission |
 | 025 | `network_security.py` | no | no — [NetSecurity availability and one unlinked-GPO firewall probe passed](plan-033/wp3-policy-family-results.md#wp-2-netsecurity-discriminator); model conformance remains unverified |
-| 025 | `policy_families.py` | no | **capture-backed (R7)**; now also a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), 21/21 checks each. The lane corrected the audit key and removed two unsupported Kerberos fields. Still unsurfaced; application and arbitrary-value coverage remain unverified |
+| 025 | `policy_families.py` | **yes** — `POST /api/security-template/policy-families` | **lane-backed and surfaced (R7)** — a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), 21/21 checks each; the lane corrected the audit key and removed two unsupported Kerberos fields. Surfaced 2026-09-11 in the **emission direction only**: the endpoint renders families as INF and does not parse one back, because `security_template.py`'s read direction has no cmdlet oracle. Every response carries the three limits the lane did not reach — `/configure` is never invoked, one tranche of values was measured, and GPME editing is unmeasured. Application and arbitrary-value coverage remain unverified |
 | 026 | `script_policy.py` | no | **capture-backed (R2, R10)** — native wire format measured, and Windows re-emits Studio's `scripts.ini`/`psscripts.ini` byte-identically after `Import-GPO`. Plan 034 now has a repeatable 21/21 metadata lane; payload execution and endpoint processing remain unverified |
 | 026 | `artifact_store.py` | no | **local scope reviewed; no Windows claim** — EICAR marker rejection and secret heuristics only; executable publication is unsupported without verified signer ingestion. Duplicate arrivals are audited and publication eligibility remains read-only. See [the scope ruling](plan-033/artifact-store-scope.md) |
 | 027 | `software_install.py` | no | no — **writing is out of scope** (decided 2026-09-06). The CSE appears in 0 of 26 production GPOs (R6) and its `.aas` artifact is generated by Windows Installer, not authorable. Ceiling is preserve-only; see [the scope decision](scope-decision-2026-09-06-software-installation-and-certification.md) |
