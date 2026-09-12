@@ -149,30 +149,87 @@ the parser and writer, plus one estate session — which the estate owes anyway
 for WI-063, WI-064 and WI-065. *Buys:* real GPMC parity for a family GPMC has.
 *Gives up:* the argument that effort follows measured demand.
 
+## The capture does not yet support a writer
+
+**Revised 2026-09-11**, after this brief's first draft argued the deferral on
+cost and was asked to justify it. The economic argument was the weaker one. The
+real constraint is a measurement gap, and naming it is more useful than the
+recommendation it was buried under.
+
+R3's request asked for **two** folders — Documents in Basic mode with three
+options set away from their defaults, and Pictures in Advanced mode with two
+different groups, options left at default "so we can tell a default encoding
+from the non-default one". It said the resulting file "settles four questions
+at once".
+
+**Step 4 was never authored.** What is banked is three sections and four
+entries: one folder, one principal (`s-1-1-0`, Everyone — which is what Basic
+mode means), one `Flags` value.
+
+| Question R3 asked | Status |
+|---|---|
+| 1. Which file the CSE reads | **Settled.** `fdeploy1.ini`, with an empty `fdeploy.ini` marker beside it |
+| 2. How each folder is keyed | **Seen once.** `{folder GUID}_{sid}`, from a single sample |
+| 3. How the four option flags are encoded | **Open.** One observation |
+| 4. How multiple group rules are represented | **Open.** One principal, Basic mode |
+
+Question 3 is the one that blocks a writer. `Flags=1021` is `0b1111111101` —
+nine bits set across at least ten positions, against four booleans the module
+models. One sample of a bitfield attributes no bit to any option, and the
+control that would have made it readable (a second folder at defaults) is the
+step that was skipped. Building an encoder from it would mean inferring a bit
+layout from one point, which is exactly the "reasoned out rather than measured"
+move [`domain-layer-status.md`](domain-layer-status.md) exists to stop, and
+which this project has been wrong about before — `object_security.py`'s
+propagation codes were wrong on all three values until R4 measured them.
+
+Question 4 blocks the Advanced half specifically: a writer that cannot
+represent per-group rules is the defect the module already has, carried
+forward into a new file format.
+
+**The gap is cheap to close, and it is not a lane.** R12 below is step 4 of
+R3, re-requested: a GPMC authoring session on LabMS01, one folder, one
+person-hour at the console, the same class of work R3 itself was. It needs no
+estate lane and no harness change, so it does not queue behind the batch that
+owes WI-063, WI-064 and WI-065 — though the writer's *certification* can ride
+that batch once it exists.
+
 ## Recommendation
 
-**(b), with (c) explicitly deferred rather than refused.**
+**Build it. Read first, because read is buildable today; capture R12 before
+writing, because writing is not.**
 
-The reasoning is that (b) is the only option whose cost is *already sunk*. The
-capture exists; a parser tested against it needs no estate session and no
-scheduling decision, and it converts a preserved blob into something a reviewer
-can read — which is the thing a workbench is for, and the thing the module's
-current 537 lines conspicuously do not do.
+This is a change of emphasis from the first draft, which recommended (b) with
+(c) "deferred" and left the reason sounding like caution about scope. It is
+not: (c) is the right destination. The 0-of-26 demand figure does not carry
+enough weight to refuse a family this tractable, for the reason this document
+already gives — the two costs that made the Software Installation ruling easy
+are both absent here.
 
-It also makes (c) cheap later rather than expensive: a certified parser is most
-of a certified writer in this codebase, as WP-1B's history shows in the other
-direction. And it avoids the one outcome that would be hard to justify — ruling
-a tractable family out on a demand figure of 26 GPOs, when the two costs that
-justified doing exactly that for Software Installation do not apply.
+The order is what matters:
 
-Against the recommendation, honestly: (a) is defensible on the plan's own
-principle that effort should follow measurement, and a reader who weights the
-0-of-26 more heavily than the tractability should take (a). That is the
-disagreement the ruling has to settle, and it is not one more measurement will
-settle — the next estate is the only thing that would move the demand figure.
+1. **Now, no estate:** parse `fdeploy1.ini`, tested against the banked R3
+   capture, surfaced in reports and diffs. Converts a preserved blob into
+   something a reviewer can read, which is what the module's current 537 lines
+   conspicuously do not do — and a certified parser is most of a certified
+   writer in this codebase.
+2. **One person-hour at the console:** R12, which closes questions 3 and 4.
+3. **Then the writer**, certified by a `Backup-GPO`/`Import-GPO` lane in the
+   shape the scripts-metadata lane already has, on the batch the estate owes
+   anyway.
+
+Against this, honestly: (a) remains defensible on the plan's own principle that
+effort follows measurement, and a reader who weights 0-of-26 above tractability
+should take it. That disagreement is not one more measurement will settle — only
+a second estate would move the demand figure. But note what *is* settled: the
+question is no longer "can this be written?" It is whether it is worth the
+person-hour to find out, and that is a much smaller thing to decide.
 
 ## What would change the answer
 
+- **R12, which is already specified** — the flags encoding and the multi-group
+  representation. This is the only open question that blocks a decision to
+  build rather than merely informing one.
 - **A second estate's census.** The demand figure is this document's weakest
   input and the only one a future measurement can move.
 - **The endpoint half disagreeing with the file half.** R3 measured what the

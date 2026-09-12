@@ -25,6 +25,18 @@ Current version: `1.0.0`.
   the candidate builder are all in the verdicts' bound file set;
   `tests/test_policy_family_surface.py` holds it equal to the certified
   builder's in both scopes rather than letting a second composition drift.
+- WI-066: R3 answered one of the four questions it was designed to answer. Its
+  request authors two folders -- Documents in Basic with three non-default
+  options, and Pictures in Advanced with two groups at defaults, the second
+  existing expressly so the first could be read against it. Step 4 was never
+  authored, so the banked capture is one folder, one principal and one
+  `Flags=1021`: nine bits set against four modelled booleans, with no control.
+  Nothing was misrecorded -- the result was entered against the scope-changing
+  question R3 was asked, which it answers emphatically, and the binding table
+  had no column for what a capture did not settle. R3's row now says. R12 is
+  step 4 re-requested, plus a third folder that makes one flag bit derivable
+  rather than merely constrained; it is a console session, not a lane. Checked
+  while filing: R3 is the only request whose claim is narrower than its body.
 - Plan 034 WP-4: the Folder Redirection scope brief
   (`docs/scope-brief-2026-09-11-folder-redirection.md`). Not a ruling -- the
   plan says this one is a decision, and the brief assembles what it needs
