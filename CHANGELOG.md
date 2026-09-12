@@ -9,6 +9,79 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- A second-opinion read of the fdeploy reader before it merged found four things
+  worth keeping the record of, because three were self-inflicted. It was **not**
+  cross-lineage, which the first version of this entry claimed: the reviewer was
+  a Claude subagent, the same lineage as the author, so it is a second opinion
+  and carries none of the independence a cross-lineage review is cited for. The
+  defects it found are real either way; the provenance claim was not. A `Flags`
+  value of more than 4300 digits reached `int()`, which refuses that conversion
+  and raises a bare `ValueError` -- a 10 KB request returned 500 from a handler
+  whose own docstring says this surface is never a server fault; the digit
+  pattern is bounded now. `is_marker` was "no sections", so a file of prose was
+  reported as the empty marker GPMC writes, validated clean, and described in a
+  report line that asserted Windows wrote it -- three untrue statements about a
+  native artifact, now one honest one. `validate_fdeploy` was quadratic and its
+  result unbounded: one in-cap document took 4.19s and produced a 5.4MB answer,
+  and takes 0.045s for a capped one now.
+  The fourth is the useful one. `format_fdeploy` returned its input whenever a
+  reparse matched, so `format(parse(t)) == t` was `t == t` and both round-trip
+  tests passed against a parser mutated to return no sections at all -- exactly
+  the self-consistency AGENTS.md rejects, in a test whose docstring cited
+  WI-064 to claim otherwise. The serializer now always rebuilds from the parsed
+  document, which is why the document carries the file's preamble and each
+  section's verbatim lines; the same mutation now fails twelve tests.
+
+- WI-069: the estate repair that blocks the 22nd lane is an item now, not a
+  paragraph. It had no number while three open items (WI-063, WI-064, WI-065)
+  waited on the estate run it blocks, and the only account of the failure was
+  one paragraph in the WI-062 batch note that four other documents pointed
+  back at. `docs/plan-033/estate-clock-dns-repair.md` adds the capture plan and
+  `scripts/plan-033/collect-dc-clock-dns.ps1` the read-only collector -- three
+  phases, LDAP node state and replication metadata rather than resolver
+  answers, the scavenging and aging settings as configured rather than as
+  remembered. Neither was run: this host has no lab credential capability
+  provisioned, so the transport is unavailable from it.
+  It also records the step nobody took. That the DC-locator records were
+  *deleted* was concluded through a resolver, and absent, tombstoned and
+  present-but-unserved are one symptom from there and three different findings
+  over LDAP -- the third being plausible on exactly the machine whose clock has
+  just jumped. The account may still be right; the step between symptom and
+  mechanism was never taken, and it is one read.
+
+- Plan 034 WP-4 is ruled: Folder Redirection is a **read target**, with the
+  writer deferred behind R12
+  ([the decision](docs/scope-decision-2026-09-11-folder-redirection.md)). The
+  read half is `src/gpo_studio/fdeploy.py` -- a strict UTF-16LE/BOM codec, a
+  lossless parse, structural validation, review rendering and a diff keyed on
+  `(folder GUID, principal)` -- reachable at
+  `POST /api/folder-redirection/fdeploy`. Before this, `fdeploy1.ini` reached
+  an operator as a 458-byte SHA-256 in the unmodeled-file inventory, and the
+  module named `folder_redirection.py` addressed neither it nor the marker
+  beside it.
+  Four limits ride in the module and in every response rather than in a
+  document: `Flags` is carried as the integer Windows wrote and **no bit is
+  named** -- one capture is one observation of a ten-bit word (WI-066); one
+  capture is also one shape, so multi-folder and multi-principal documents are
+  unmeasured; twelve of the thirteen folder names are documented Windows
+  constants no lane has measured, and an unrecognised GUID reports null rather
+  than a guess; and there is no writer. No lane has read this artifact in either direction, so the banked
+  R3 capture is doing a lane's job: the reader is tested against bytes
+  hash-bound to what GPMC wrote, which is stronger than a round trip through
+  our own output and weaker than a verdict.
+  The parse reaches no `GPO`, so an imported backup's reports and diffs are
+  unchanged -- that field lands in `model.py`, which two live verdicts bind
+  (WI-068, filed against the batch that owes WI-063 through WI-065).
+- WI-067: the R3 fixture's provenance called
+  `{FDD39AD0-238F-46AF-ADB4-6C85480369C7}` the Folder Redirection CSE GUID. It
+  keys the redirected *folder*; the CSE GUID is
+  `{25537BA6-77A8-11D2-9B6C-0000F8080861}`, which is what R6's census counted
+  and which appears in neither captured file. The repository already
+  contradicted itself two paragraphs apart and nothing reconciled it because no
+  code read the file. The constant is renamed and the provenance record carries
+  a dated correction rather than a silent rewrite; the upstream envelope is
+  still wrong, which is what keeps the item open.
+
 - Plan 034 WP-3: `policy_families.py` is reachable. `POST /api/security-template/
   policy-families` renders the account, audit, user-rights and security-options
   families as a `GptTmpl.inf` -- text for reading, UTF-16LE/BOM/CRLF bytes for
