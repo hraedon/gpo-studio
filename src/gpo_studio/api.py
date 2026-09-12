@@ -4234,7 +4234,9 @@ class PolicyFamilyRenderResponse(BaseModel):
     limitations: list[PolicyFamilyLimitation]
 
 
-def _policy_family_limitations(scope: str) -> list[dict[str, str]]:
+def _policy_family_limitations(
+    scope: str, sections: tuple[InfSection, ...] = ()
+) -> list[dict[str, str]]:
     """State what the WP-3 certification does and does not reach.
 
     Every entry is measured rather than reasoned: each one names something
@@ -4283,6 +4285,29 @@ def _policy_family_limitations(scope: str) -> list[dict[str, str]]:
                 "exports it empty, and the lane's finalizer refuses a Kerberos "
                 "candidate unless the guest reports a domain-controller role. "
                 "Send scope=domain_controller to emit it."
+            ),
+        })
+    # Conditional on what this render actually produced, which is an exact
+    # property rather than a guess about the caller -- the distinction
+    # `_rsop_limitations` draws.
+    empty = [
+        section.name
+        for section in sections
+        if not section.entries and section.name not in {"Unicode", "Version"}
+    ]
+    if empty:
+        limitations.append({
+            "code": "empty_sections_unmeasured",
+            "message": (
+                "These sections are emitted with a header and no entries: "
+                f"{', '.join(empty)}. Every section in the certified candidate "
+                "carried entries, so `secedit` has never been asked to accept "
+                "an empty one here. `UserRightsFamily` and "
+                "`SecurityOptionsFamily` emit their section unconditionally "
+                "while the object-security families omit theirs when empty; "
+                "the two behaviours disagree and only the non-empty one is "
+                "measured. Supply entries, or drop the section from the "
+                "template before deploying it."
             ),
         })
     return limitations
@@ -4413,7 +4438,7 @@ def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
             for section in sections
         ],
         "issues": [asdict(issue) for issue in issues],
-        "limitations": _policy_family_limitations(body.scope),
+        "limitations": _policy_family_limitations(body.scope, sections),
     }
 
 

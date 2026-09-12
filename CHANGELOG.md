@@ -25,6 +25,22 @@ Current version: `1.0.0`.
   the candidate builder are all in the verdicts' bound file set;
   `tests/test_policy_family_surface.py` holds it equal to the certified
   builder's in both scopes rather than letting a second composition drift.
+- The "Security template" panel: one dialog reaching both Plan 034 WP-3
+  surfaces, switched by a mode selector, with `limitations` rendered **above**
+  the answer as the RSOP panel does. Thin on purpose -- families arrive as JSON
+  and only `scope` is a field. The `scope` control is hidden for object
+  security, which has no such distinction, and an empty validation list renders
+  with WI-055's ruling beside it rather than as a bare "no issues". Seven
+  browser tests including an axe scan of the open dialog, which the
+  workspace-wide scan cannot reach because it runs with every dialog closed.
+- `POST /api/security-template/policy-families` now declares
+  `empty_sections_unmeasured` when a family renders as a bare section header.
+  `UserRightsFamily` and `SecurityOptionsFamily` emit their section
+  unconditionally while the object-security families omit theirs when empty;
+  the two disagree, every section in the certified candidate carried entries,
+  and only the non-empty behaviour is measured. Conditional on what the render
+  produced, which is an exact property of the answer rather than a guess about
+  the caller.
 - `docs/plan-033/bound-source-cost.md`: what each file costs to edit, in lanes
   that must be re-run, generated from the live verdicts by
   `scripts/plan-033/report-bound-source-cost.py` and guarded by

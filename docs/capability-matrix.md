@@ -650,10 +650,14 @@ response's `limitations`, not only here:
 - **GPMC editing.** Whether GPME can open and edit the emitted template is not
   measured — the read direction above.
 
-**There is no browser panel**, and its absence is recorded rather than
-implied: the endpoint is the surface. A panel would be the natural next step
-and is not a precondition for the exit condition, which asks for a surface an
-operator can reach, not for every surface.
+**The browser panel is "Security template" in the rail**, and it is
+deliberately thin, as the RSOP one is. Families arrive as JSON in a textarea
+and only `scope` is a field — these families *could* be drawn as forms, so that
+is an honest "not yet" rather than a stated limit. What the panel adds over
+calling the endpoint is that it renders `limitations` **above** the answer: an
+INF Windows will accept is not an INF shown to apply, and underneath the output
+is too late to say so. One dialog serves both this surface and
+`object_security.py`'s, because they render two halves of the same file.
 
 **The composition lives in `api.py`, deliberately.** `policy_families.py`,
 `security_template.py` and `build-wp3-candidate.py` are all in the WP-3
@@ -703,6 +707,14 @@ response's `limitations`:
 - **The first tranche only.** Empty versus absent service descriptors,
   environment-variable file paths, noncanonical SDDL and broader descriptor
   combinations are outside it.
+
+**Reachable in the browser** through the same "Security template" dialog as
+the policy families, switched by its mode selector. The `scope` control is
+hidden for this mode, which has no such distinction — sending `scope` here
+would be a 422, since both request shapes forbid unknown keys. An empty
+validation list renders with the ruling beside it rather than as a bare "no
+issues", which is the one place an operator would otherwise read silence as
+approval.
 
 **Two defects were found by building the surface**, both filed against the
 batch that will re-run this lane: WI-064 above, and WI-065 — `validate` reports

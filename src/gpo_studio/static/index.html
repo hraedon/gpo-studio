@@ -51,6 +51,7 @@
     .rsop-warnings{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--muted)}
     .rsop-inconclusive{background:var(--red-soft);border:1px solid var(--red);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--red)}
     .rsop-conditional{color:var(--amber);font-size:12px;margin-top:3px}
+    .inf-output{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;white-space:pre;font-size:12px;line-height:1.5}
    </style>
 </head>
 <body>
@@ -63,6 +64,7 @@
       <button class="full" id="import-gpmc">Import GPMC backup</button>
       <button class="full" id="open-starter-gpos">Starter GPOs</button>
       <button class="full" id="open-rsop">RSOP prediction</button>
+      <button class="full" id="open-security-template">Security template</button>
       <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span><span class="dot"></span> Offline authoring mode</span><button id="theme-toggle" type="button" aria-label="Colour theme: automatic">Auto</button></footer>
@@ -422,6 +424,22 @@
       <label>Topology<textarea name="topology" rows="10" class="mono" placeholder='{"nodes": [], "gpos": []}'>{"nodes": [], "gpos": []}</textarea><small>The SOM tree, the GPOs and any evaluated WMI filter results, as JSON. The workspace holds draft policies rather than an estate, so there is nothing here to draw an OU tree from.</small></label>
       <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Compute</button></div>
       <div id="rsop-results" class="rsop-results"></div>
+    </form>
+  </dialog>
+
+  <dialog id="security-template-dialog" class="wide" aria-labelledby="security-template-dialog-title">
+    <form method="dialog" id="security-template-form">
+      <div class="dialog-head"><div><p class="eyebrow">Security settings</p><h2 id="security-template-dialog-title">Render a security template</h2></div><button class="icon" value="cancel" aria-label="Close">&times;</button></div>
+      <p class="rsop-note">Emission only: this builds a <code>GptTmpl.inf</code> and never reads one back. Both families are certified by a Windows lane that validates, imports and re-exports the template through <code>secedit</code> &mdash; and never runs <code>/configure</code>, so none of it is evidence that Windows applies these settings. What each answer does not say is listed above the answer.</p>
+      <div class="grid two compact">
+        <label>Families<select name="mode" id="security-template-mode"><option value="policy-families">Policy families &mdash; account, audit, user rights, security options</option><option value="object-security">Object security &mdash; registry keys, files, services</option></select></label>
+        <label id="security-template-scope-row">Scope<select name="scope"><option value="member_server">Member server</option><option value="domain_controller">Domain controller</option></select><small>A member server exports Kerberos policy empty, so the section is omitted for it.</small></label>
+      </div>
+      <label>Families<textarea name="families" rows="12" class="mono" placeholder='{
+  "audit": {"logon_events": "success"}
+}'>{}</textarea><small>The families for the selected mode, as JSON. Restricted groups are not renderable: no lane has read that serializer (WI-064).</small></label>
+      <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Render</button></div>
+      <div id="security-template-results" class="rsop-results"></div>
     </form>
   </dialog>
 

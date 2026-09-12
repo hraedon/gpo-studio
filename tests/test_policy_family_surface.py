@@ -289,3 +289,49 @@ def test_every_answer_carries_the_three_unconditional_limitations(
             "representative_values_only",
             "gpmc_editing_unmeasured",
         } <= codes
+
+
+def test_an_empty_family_section_is_declared_unmeasured(client: TestClient) -> None:
+    """No certified candidate ever carried a section with no entries.
+
+    `UserRightsFamily` and `SecurityOptionsFamily` emit their section
+    unconditionally, so a caller who supplies neither gets `[Privilege Rights]`
+    and `[Registry Values]` as bare headers -- a template shape `secedit` has
+    never been asked to accept here. The object-security families omit an empty
+    section instead, so the two halves of the same file disagree about it and
+    only the non-empty behaviour is measured.
+
+    Conditional on what this render produced, which is an exact property of the
+    answer rather than a guess about the caller.
+    """
+    response = client.post("/api/security-template/policy-families", json={})
+    assert response.status_code == 200
+    body = response.json()
+    empty = [
+        section["name"] for section in body["sections"] if not section["entries"]
+    ]
+    assert empty == ["Privilege Rights", "Registry Values"]
+    message = next(
+        limitation["message"]
+        for limitation in body["limitations"]
+        if limitation["code"] == "empty_sections_unmeasured"
+    )
+    assert "Privilege Rights" in message and "Registry Values" in message
+
+
+def test_the_certified_render_carries_no_empty_section_limitation(
+    client: TestClient,
+) -> None:
+    """The control: the limitation must be absent when it does not apply.
+
+    One that fired on every answer would be noise, and one that fired on the
+    certified candidate would be saying the measured case is unmeasured.
+    """
+    response = client.post(
+        "/api/security-template/policy-families", json=CERTIFIED_REQUEST
+    )
+    body = response.json()
+    assert all(section["entries"] for section in body["sections"])
+    assert "empty_sections_unmeasured" not in {
+        limitation["code"] for limitation in body["limitations"]
+    }

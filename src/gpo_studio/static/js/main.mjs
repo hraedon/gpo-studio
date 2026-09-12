@@ -9,6 +9,7 @@ import {initDiff,loadDiffSelectors} from './diff.mjs';
 import {initBrowser,loadBrowser} from './browser.mjs';
 import {initStarter} from './starter.mjs';
 import {initRsop} from './rsop.mjs';
+import {initSecurityTemplate} from './security-template.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -222,6 +223,7 @@ initDiff();
 initBrowser();
 initStarter();
 initRsop();
+initSecurityTemplate();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 loadList().then(()=>setAppStatus("")).catch(error=>{
