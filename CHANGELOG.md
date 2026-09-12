@@ -9,8 +9,12 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
-- A cross-lineage read of the fdeploy reader before it merged found four things
-  worth keeping the record of, because three were self-inflicted. A `Flags`
+- A second-opinion read of the fdeploy reader before it merged found four things
+  worth keeping the record of, because three were self-inflicted. It was **not**
+  cross-lineage, which the first version of this entry claimed: the reviewer was
+  a Claude subagent, the same lineage as the author, so it is a second opinion
+  and carries none of the independence a cross-lineage review is cited for. The
+  defects it found are real either way; the provenance claim was not. A `Flags`
   value of more than 4300 digits reached `int()`, which refuses that conversion
   and raises a bare `ValueError` -- a 10 KB request returned 500 from a handler
   whose own docstring says this surface is never a server fault; the digit
