@@ -698,6 +698,12 @@ def diff_fdeploy(
     named ``[{folder}_{principal}]``, so a folder redirected for two groups is
     two rows, and R12 will show whether a folder can appear with more than one.
     Ordering is by identity, not file order, so the result is stable.
+
+    A document that repeats a section therefore diffs as one row, the last,
+    while :func:`validate_fdeploy` reports the duplication and the parse lists
+    both. That is a deliberate asymmetry -- a diff keyed on identity has no
+    second slot for the same identity -- and the validator is where the file's
+    own inconsistency is meant to be read.
     """
     old_map = {(r.folder_guid.casefold(), r.principal.casefold()): r for r in old.redirections()}
     new_map = {(r.folder_guid.casefold(), r.principal.casefold()): r for r in new.redirections()}
