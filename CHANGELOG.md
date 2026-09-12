@@ -25,6 +25,16 @@ Current version: `1.0.0`.
   the candidate builder are all in the verdicts' bound file set;
   `tests/test_policy_family_surface.py` holds it equal to the certified
   builder's in both scopes rather than letting a second composition drift.
+- `docs/plan-033/bound-source-cost.md`: what each file costs to edit, in lanes
+  that must be re-run, generated from the live verdicts by
+  `scripts/plan-033/report-bound-source-cost.py` and guarded by
+  `tests/test_bound_source_cost.py`. The information was always complete and
+  never readable -- spread across twenty-one packs -- so pricing a change meant
+  opening all of them. `oracle_evidence.py` and `psdirect.ps1` cost the whole
+  estate; `model.py`, `export.py` and `validation.py` cost two lanes each; the
+  rest of `src/gpo_studio/` costs nothing, which is a statement about coverage
+  rather than about quality. Linked from AGENTS.md, where the next session
+  reads it before editing.
 - Plan 034 WP-3: `object_security.py` is reachable. `POST /api/security-template/
   object-security` renders registry-key, file-system and service security as a
   `GptTmpl.inf`, for the three families its lane certified (18/18 at
