@@ -1,23 +1,31 @@
 # Plan 025 — Security Settings extension parity
 
-Status: implemented (domain layer) — **not surfaced**. `security_template.py`,
-`object_security.py`, and `network_security.py` are landed and unit-tested but
-are reachable from no API endpoint, UI module, or export path; their only
-consumers are their own test modules. Plan 033 now has a certified
+Status: implemented (domain layer) — **not surfaced**. `security_template.py`
+and `network_security.py` are landed and unit-tested but are reachable from no
+API endpoint, UI module, or export path; their only consumers are their own
+test modules. Plan 033 now has a certified
 Studio-origin `secedit` writer tranche for account policy, event audit, and
 user rights, but platform wiring and the broader native corpus and security
 areas remain open. The `Windows-verified` claim in this plan's scope is
 **not** met.
 
-**One of the four left, 2026-09-11.** `policy_families.py` is reachable at
-`POST /api/security-template/policy-families` (Plan 034 WP-3), in the emission
-direction its member and DC lanes certified and no further: the surface
-renders families as INF and does not parse one back, because the read
-direction has no cmdlet oracle. It is the first module of this plan to satisfy
-both halves of the exit condition in the order
+**Two of the four left, 2026-09-11.** `policy_families.py` is reachable at
+`POST /api/security-template/policy-families` and `object_security.py` at
+`POST /api/security-template/object-security` (Plan 034 WP-3), each in the
+emission direction its lanes certified and no further: both render families as
+INF and neither parses one back, because the read direction has no cmdlet
+oracle. They are the first modules of this plan to satisfy both halves of the
+exit condition in the order
 [`domain-layer-status.md`](../docs/domain-layer-status.md) requires — lane
-first, then surface. The plan stays unsurfaced because three modules still
-are; this line exists so that fact is not read as covering all four.
+first, then surface. The plan stays unsurfaced because two modules still are;
+this line exists so that fact is not read as covering all four.
+
+Surfacing `object_security.py` also found two defects a certified lane could
+not: WI-064 (the restricted-groups writer emits a bare SID where Windows
+exports a star-SID, so that family is deliberately not surfaced) and WI-065
+(`validate` calls an unparsed descriptor unparseable, so this lane's own
+candidate fails its own validator). Both are filed against the batch that
+re-runs the estate, because this module is bound by its verdict.
 
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane

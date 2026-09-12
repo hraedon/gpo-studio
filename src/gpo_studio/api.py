@@ -116,6 +116,17 @@ from .model import (
     WorkspaceError,
 )
 from .numeric import coerce_dword_qword
+from .object_security import (
+    FileSecurity,
+    FileSystemSecurityFamily,
+    PropagationMode,
+    RegistryKeySecurity,
+    RegistrySecurityFamily,
+    ServiceSecurity,
+    StartupMode,
+    SystemServicesFamily,
+    _try_parse_sddl,
+)
 from .policy_config import (
     PolicyConfiguration,
     PolicyState,
@@ -141,7 +152,7 @@ from .rsop import (
     compare_rsop_results,
     compute_rsop,
 )
-from .sddl import SddlError, parse_sddl
+from .sddl import SddlError, SecurityDescriptor, parse_sddl
 from .security_template import (
     InfSection,
     PrivilegeRight,
@@ -4403,4 +4414,262 @@ def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
         ],
         "issues": [asdict(issue) for issue in issues],
         "limitations": _policy_family_limitations(body.scope),
+    }
+
+
+# --------------------------------------------------------------------------
+# Plan 034 WP-3: the object-security surface.
+#
+# The second module from this plan to be surfaced, by the same route and under
+# the same constraint as the policy families above: `object_security.py`,
+# `sddl.py`, `security_template.py` and `build-object-security-candidate.py`
+# are all in the object-security verdict's bound file set, so the composition
+# lives here and `test_object_security_surface.py` holds it equal to the
+# builder's.
+#
+# **Restricted groups are deliberately absent** (WI-064). The lane's candidate
+# carries Registry Keys, File Security and Service General Setting and no
+# `[Group Membership]` rows, so `RestrictedGroupsFamily` has never been through
+# an oracle -- and when it was looked at, its writer turned out to emit
+# `S-1-5-32-544__Members` where Windows emits `*S-1-5-32-544__Members`. Omitted
+# rather than surfaced with a warning, which is the rule the read direction of
+# the policy-family surface follows for the same reason.
+# --------------------------------------------------------------------------
+
+
+class ObjectSecurityRegistryKeyData(BaseModel):
+    #: A `[Registry Keys]` target, e.g. `MACHINE\\Software\\Contoso`.
+    key_path: str = Field(min_length=1, max_length=1024)
+    raw_sddl: str = Field(default="", max_length=8192)
+    propagation: PropagationMode = "propagate"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ObjectSecurityFileData(BaseModel):
+    file_path: str = Field(min_length=1, max_length=1024)
+    raw_sddl: str = Field(default="", max_length=8192)
+    propagation: PropagationMode = "propagate"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ObjectSecurityServiceData(BaseModel):
+    service_name: str = Field(min_length=1, max_length=256)
+    #: Startup codes 2, 3 and 4 on the wire; all three were measured.
+    startup_mode: StartupMode | None = None
+    raw_sddl: str = Field(default="", max_length=8192)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ObjectSecurityRenderRequest(BaseModel):
+    """The three families the object-security lane certified, and no others.
+
+    There is no `restricted_groups` field. Adding one would surface a
+    serializer no oracle has read and which is known to emit the wrong key
+    form (WI-064); `extra="forbid"` means a caller who sends one is told so
+    rather than having it ignored.
+    """
+
+    registry_keys: list[ObjectSecurityRegistryKeyData] = Field(
+        default_factory=list, max_length=500
+    )
+    files: list[ObjectSecurityFileData] = Field(default_factory=list, max_length=500)
+    services: list[ObjectSecurityServiceData] = Field(
+        default_factory=list, max_length=500
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ObjectSecurityRenderResponse(BaseModel):
+    inf_text: str
+    inf_base64: str
+    sections: list[InfSectionResponse]
+    #: Structural only. A clean list is not a judgement that the access granted
+    #: is appropriate -- see the `acl_content_is_not_judged` limitation.
+    issues: list[ValidationIssueResponse]
+    limitations: list[PolicyFamilyLimitation]
+
+
+def _object_security_limitations() -> list[dict[str, str]]:
+    """Four limits, every one of them a ruling or a measurement.
+
+    None is conditional: the lane's scope is the same for every render, and the
+    ACL-content entry is a decision (WI-055) rather than a gap, which is why it
+    is phrased as what Studio *will not* answer rather than what it has not yet
+    measured.
+    """
+    return [
+        {
+            "code": "round_trip_not_application",
+            "message": (
+                "The certification behind this surface is secedit /validate, "
+                "/import into a temporary database, and /export. /configure is "
+                "never invoked, so nothing here is evidence that Windows "
+                "applies these permissions, nor that inheritance resolves as "
+                "written on an endpoint."
+            ),
+        },
+        {
+            "code": "acl_content_is_not_judged",
+            "message": (
+                "Validation is structural. An ACE granting Everyone full "
+                "control parses into typed fields and produces no issue, by "
+                "ruling (WI-055) rather than by omission: a grant to Everyone "
+                "is normal on parts of HKLM\\SOFTWARE and on print queues, and "
+                "no Windows tool will say whether an ACL is advisable. A clean "
+                "result is not approval of the access granted."
+            ),
+        },
+        {
+            "code": "restricted_groups_not_surfaced",
+            "message": (
+                "Group Membership is not renderable here. The lane's candidate "
+                "carries no such rows, so the restricted-groups serializer has "
+                "never been measured -- and it emits a bare SID where Windows "
+                "emits a star-SID (WI-064). Omitted rather than offered with a "
+                "warning."
+            ),
+        },
+        {
+            "code": "first_tranche_only",
+            "message": (
+                "One tranche was measured: three Registry Keys rows, three "
+                "File Security rows and three Service General Setting rows, "
+                "covering propagation codes 0/1/2 and startup codes 2/3/4, "
+                "each with an explicit canonical SDDL control. Empty versus "
+                "absent service descriptors, environment-variable file paths, "
+                "noncanonical SDDL and broader descriptor combinations are "
+                "outside it."
+            ),
+        },
+    ]
+
+
+def object_security_sections(
+    body: ObjectSecurityRenderRequest,
+) -> tuple[InfSection, ...]:
+    """Compose the three families into the sections the lane certified.
+
+    Mirrors `build-object-security-candidate.py`'s `candidate_sections`,
+    including its section order -- `Version` comes *second* here, before the
+    family sections, where the policy-family builder puts it last. Both orders
+    were accepted by `secedit` on their own runs; neither has been measured
+    against the other, so each surface emits the order its own lane certified
+    rather than a tidier one shared between them.
+    """
+    registry, files, services = _object_security_models(body)
+    entries: dict[str, dict[str, str]] = {}
+    for family in (registry, files, services):
+        # `update`, not a merge: the builder replaces whole sections and the
+        # three families write disjoint ones. Kept identical so that a family
+        # that ever did collide would behave here exactly as it does there.
+        entries.update(family.to_template_entries())
+    return (
+        _INF_UNICODE_SECTION,
+        _INF_VERSION_SECTION,
+        *(
+            InfSection(name=name, entries=tuple(values.items()))
+            for name, values in entries.items()
+        ),
+    )
+
+
+def _parsed_sddl(raw: str) -> SecurityDescriptor | None:
+    """Parse `raw`, or `None` if it will not parse — what `from_template` does.
+
+    **This call is load-bearing, and omitting it misdiagnoses valid input**
+    (WI-065). `SystemServicesFamily.validate` reads
+    `raw_sddl and security_descriptor is None` as "could not be parsed", but
+    that field is only ever populated by `from_template`; a model built
+    directly carries `None` because nothing tried, not because something
+    failed. The lane's own candidate builder constructs services exactly that
+    way, so the certified descriptor
+    `D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)` — which Windows accepted and
+    re-exported byte for byte, and which `parse_sddl` reads without complaint —
+    comes back from `validate` as three `unparseable_service_sddl` errors. The
+    builder never calls `validate`, which is why nothing noticed.
+
+    Parsing here is not a workaround for that: it is what the only other
+    constructor in the codebase does, and it leaves `validate`'s check meaning
+    what it says. Emitted bytes are unaffected, because `_resolve_sddl` prefers
+    the raw form for a lossless round trip; `test_object_security_surface.py`
+    holds that against the builder.
+    """
+    return _try_parse_sddl(raw)
+
+
+def _object_security_models(
+    body: ObjectSecurityRenderRequest,
+) -> tuple[RegistrySecurityFamily, FileSystemSecurityFamily, SystemServicesFamily]:
+    return (
+        RegistrySecurityFamily(
+            keys=tuple(
+                RegistryKeySecurity(
+                    key_path=k.key_path,
+                    raw_sddl=k.raw_sddl,
+                    security_descriptor=_parsed_sddl(k.raw_sddl),
+                    propagation=k.propagation,
+                )
+                for k in body.registry_keys
+            )
+        ),
+        FileSystemSecurityFamily(
+            files=tuple(
+                FileSecurity(
+                    file_path=f.file_path,
+                    raw_sddl=f.raw_sddl,
+                    security_descriptor=_parsed_sddl(f.raw_sddl),
+                    propagation=f.propagation,
+                )
+                for f in body.files
+            )
+        ),
+        SystemServicesFamily(
+            services=tuple(
+                ServiceSecurity(
+                    service_name=s.service_name,
+                    startup_mode=s.startup_mode,
+                    raw_sddl=s.raw_sddl,
+                    security_descriptor=_parsed_sddl(s.raw_sddl),
+                )
+                for s in body.services
+            )
+        ),
+    )
+
+
+@app.post(
+    "/api/security-template/object-security",
+    response_model=ObjectSecurityRenderResponse,
+)
+def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
+    """Render registry, file and service object security as INF.
+
+    The same shape and the same direction as
+    `/api/security-template/policy-families`: families in as typed JSON, a
+    `GptTmpl.inf` out, emission only, limitations in the response.
+
+    `issues` is structural and never blocks the render. Read
+    `acl_content_is_not_judged` before reading an empty list as approval — the
+    silence there is a ruling, and it is the one limitation on this surface
+    that will not be closed by a future measurement.
+    """
+    sections = object_security_sections(body)
+    registry, files, services = _object_security_models(body)
+    text = format_security_template(SecurityTemplate(sections=sections)) + "\n"
+    issues: list[ValidationIssue] = []
+    for family in (registry, files, services):
+        issues.extend(family.validate())
+    return {
+        "inf_text": text,
+        "inf_base64": base64.b64encode(encode_security_template(text)).decode("ascii"),
+        "sections": [
+            {"name": section.name, "entries": [list(e) for e in section.entries]}
+            for section in sections
+        ],
+        "issues": [asdict(issue) for issue in issues],
+        "limitations": _object_security_limitations(),
     }
