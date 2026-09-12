@@ -25,6 +25,27 @@ Current version: `1.0.0`.
   the candidate builder are all in the verdicts' bound file set;
   `tests/test_policy_family_surface.py` holds it equal to the certified
   builder's in both scopes rather than letting a second composition drift.
+- Plan 034 WP-3: `object_security.py` is reachable. `POST /api/security-template/
+  object-security` renders registry-key, file-system and service security as a
+  `GptTmpl.inf`, for the three families its lane certified (18/18 at
+  `f5cad577`, propagation codes 0/1/2 and startup codes 2/3/4) and in the
+  emission direction only. Restricted groups are not renderable: no lane has
+  read that serializer. Four limits ride on every response, including
+  `acl_content_is_not_judged` -- WI-055's ruling, surfaced where a caller reads
+  the answer rather than left as an empty `issues` list that looks like
+  approval.
+- WI-064: the restricted-groups writer emits `S-1-5-32-544__Members` where
+  Windows exports `*S-1-5-32-544__Members`, starring every SID in the entry's
+  value and not the one in its key. The parser strips a leading star, so Studio
+  read its own output back into the model that produced it and the round trip
+  stayed clean. Filed, not fixed: the module is bound by its verdict.
+- WI-065: `SystemServicesFamily.validate` reports `unparseable_service_sddl`
+  when `raw_sddl` is set and `security_descriptor` is `None` -- but that field
+  is only populated by `from_template`, so a directly built model is called
+  malformed for having gone unparsed. Validating the object-security lane's own
+  candidate yields three such errors for a descriptor Windows accepted. The
+  surface parses on construction as a workaround; the check itself is filed
+  against the same batch.
 - WI-063: eight `run-*-oracle.sh` lane runners are committed with CRLF and no
   longer parse under `bash`. Filed rather than fixed: all sixteen affected
   files are hash-bound by the WI-062 batch, so renormalizing them fails the

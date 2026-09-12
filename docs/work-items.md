@@ -21,8 +21,10 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**1 open.**
+**3 open.**
 
+- [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - the check conflates unparsed with unparseable.
+- [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - star the key, then certify it with candidate rows.
 - [WI-063](#wi-063--eight-lane-runners-are-committed-with-crlf-and-no-longer-parse) - renormalize with the next estate requalification.
 
 ---
@@ -2435,3 +2437,98 @@ re-run so their verdicts bind the renormalized bytes.
 exemption list names exactly these sixteen files and fails if a
 seventeenth joins them — or if one of the sixteen is quietly fixed without the
 requalification that makes its verdict honest again.
+
+## WI-064 — the restricted-groups writer emits a bare SID where Windows emits a star-SID
+
+**Opened:** 2026-09-11 (scoping the WP-3 object-security surface).
+**Status:** open.
+
+`RestrictedGroupsFamily.to_template_entries()` writes the `[Group Membership]`
+key as `S-1-5-32-544__Members`. Windows writes `*S-1-5-32-544__Members`, which
+is what the R4 export in
+[`wp3-expansion-design.md`](plan-033/wp3-expansion-design.md) shows: an entry
+authored as `Administrators__Members` came back as
+`*S-1-5-32-544__Members`. Under MS-GPSB the principal in that key is a *name*
+unless it is star-prefixed, so what Studio emits does not name the group it
+means — it names a group called "S-1-5-32-544".
+
+**The writer disagrees with itself**, which is the part that makes this
+unambiguous rather than a reading of the spec. `_format_member_list` writes
+every member as `*{sid}`. The same family, in the same call, stars the SIDs in
+the value and not the SID in the key.
+
+**How it hid.** `_parse_group_key` strips a leading `*` if there is one, so the
+reader accepts both forms and Studio parses its own output back into exactly
+the model that produced it. The round trip is clean, the unit tests pass, and
+the artifact is wrong — which is the failure
+`decode_security_template`'s own docstring names as the reason it decodes the
+wire contract strictly rather than "allowing an internally consistent
+parse/format round trip to hide an invalid artifact". The same trap, one
+module over, in the direction nothing was looking.
+
+**No lane would have caught it either**, and that is the more useful half. The
+object-security lane's candidate carries Registry Keys, File Security and
+Service General Setting; it has no `[Group Membership]` rows at all. The WP-3
+policy-family candidate *does*, but hand-writes them
+(`*S-1-5-32-551__Members = *S-1-5-32-544`) as a comparator control — so
+`secedit` has validated the native key shape while never once seeing the
+serializer that is supposed to produce it. That is verbatim the defect the WP-3
+lane was corrected for in `wp3-policy-family-results.md`: "Previously it
+handwrote the INF sections and could pass while those serializers emitted
+different keys." It was fixed for the policy families and not for this one.
+
+**Not fixed here.** `object_security.py` is bound by the live object-security
+verdict (`object-security-20260905191252-4253`), so the one-line correction
+expires it and costs an estate run — the same accounting as [[WI-063]] and the
+same batch. Filing it does not make restricted groups safe to surface in the
+meantime: `POST /api/security-template/object-security` deliberately omits the
+family, and says so in its response.
+
+**Closes when:** the key is emitted in star form, the object-security
+candidate carries `[Group Membership]` rows built by
+`RestrictedGroupsFamily` rather than by hand, and a re-run certifies that
+Windows accepts and re-exports them. A fix without the candidate rows would
+leave the family exactly where it is now — written by a serializer no oracle
+has read.
+
+## WI-065 — "could not be parsed" is reported for SDDL nothing tried to parse
+
+**Opened:** 2026-09-11 (building the WP-3 object-security surface; found by the
+surface's first test run, not by reading).
+**Status:** open.
+
+`SystemServicesFamily.validate` raises `unparseable_service_sddl` when
+`raw_sddl` is set and `security_descriptor is None`. But `security_descriptor`
+is populated in exactly one place — `from_template`, via `_try_parse_sddl` — so
+on any model built any other way the field is `None` because nothing tried, not
+because something failed. The check conflates *unparsed* with *unparseable*,
+and reports the second.
+
+**The lane's own candidate trips it.** `build-object-security-candidate.py`
+constructs `ServiceSecurity(service_name=…, startup_mode=…, raw_sddl=…)` with
+no descriptor, so validating the certified candidate yields three
+`unparseable_service_sddl` errors for
+`D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)` — a descriptor Windows accepted and
+re-exported byte for byte in `object-security-20260905191252-4253`, and which
+`parse_sddl` reads without complaint. The builder never calls `validate`, which
+is why this survived a certified run: the lane measures the bytes, and the
+validator is on a path the lane does not walk.
+
+Its neighbours do not have the check at all —
+`RegistrySecurityFamily.validate` and `FileSystemSecurityFamily.validate` judge
+path and propagation only — so the defect is one family wide and reads as an
+oversight in the other two rather than a decision.
+
+**Worked around at the surface, not fixed.**
+`POST /api/security-template/object-security` parses `raw_sddl` when it builds
+the models, which is what `from_template` does and what leaves the check
+meaning what it says; emitted bytes are unaffected because `_resolve_sddl`
+prefers the raw form. `object_security.py` is bound by the live verdict, so
+correcting the check itself expires it and costs an estate run — the same
+accounting as [[WI-063]] and [[WI-064]], and the same batch.
+
+**Closes when:** `validate` distinguishes "not parsed" from "parsed and
+failed" — by parsing on demand, or by a field that records the attempt — the
+candidate builder's services carry descriptors, and a re-run re-earns the
+verdict. `test_object_security_surface.py` asserts the present behaviour and
+fails when the check is corrected, which is the prompt to re-run the lane.

@@ -59,6 +59,21 @@ changed.
 
 Empty versus absent service descriptors, environment-variable file paths,
 noncanonical SDDL, and broader descriptor combinations remain outside this
-first tranche. WI-055 remains a gate before an object-security delivery surface:
-the current validators do not judge permissive ACL contents. The module remains
-unsurfaced even after a successful format verdict.
+first tranche.
+
+**Surfaced 2026-09-11** at `POST /api/security-template/object-security`
+(Plan 034 WP-3), in the emission direction and for these three families only.
+WI-055 was the stated gate and it closed on 2026-09-07 as a ruling rather than
+a fix: ACL content is deliberately unjudged, and the surface carries that as
+`acl_content_is_not_judged` in every response instead of leaving a clean
+`issues` list to be read as approval.
+
+Two defects were found while scoping the surface, both filed rather than fixed
+because this module is bound by the verdict above and correcting it costs a
+re-run: the restricted-groups writer emits a bare SID where Windows emits a
+star-SID (WI-064 — and that family is therefore not surfaced at all), and
+`SystemServicesFamily.validate` reports "could not be parsed" for a descriptor
+nothing tried to parse, which is why validating this lane's own candidate
+yields three errors for an SDDL Windows accepted (WI-065). Neither was
+reachable by the lane: the first has no rows in the candidate, and the second
+is on a path the candidate builder never calls.

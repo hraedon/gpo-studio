@@ -665,6 +665,55 @@ unheld second composition is the exact defect this lane was corrected for once
 already. Lifting it into the library belongs to the next batch that re-runs the
 estate anyway.
 
+### `object_security.py` (Plan 025) — three certified families, reachable at `/api/security-template/object-security`
+
+Reconciled 2026-09-11 under Plan 034 WP-3, by the route
+`policy_families.py` established the same day.
+
+**Reachable at** `POST /api/security-template/object-security`: registry-key,
+file-system and service security arrive as typed JSON and come back as a
+`GptTmpl.inf`. Emission only, request body only, same shape as the sibling
+surface above.
+
+**Certified** by `object-security-20260905191252-4253` at `f5cad577` (18/18),
+succeeding `object-security-20260907075319-7408` (19/19) on the same lane:
+three `[Registry Keys]` rows, three `[File Security]` rows and three
+`[Service General Setting]` rows, exercising propagation codes 0/1/2 and
+startup codes 2/3/4, each with an explicit canonical SDDL control. Windows
+validated, imported into a temporary security database and re-exported them.
+See [the results](plan-033/object-security-results.md).
+
+**What is NOT certified, and is not claimed** — all four ride on every
+response's `limitations`:
+
+- **Application and inheritance.** `/configure` is never invoked. Nothing here
+  says Windows applies these permissions, or that inheritance resolves as
+  written on an endpoint.
+- **ACL content, permanently.** Validation is structural. An ACE granting
+  Everyone full control produces no issue *by ruling* (WI-055, 2026-09-07):
+  such a grant is normal on parts of `HKLM\SOFTWARE` and on print queues, and
+  no Windows tool will say whether an ACL is advisable. This is the one limit
+  on this surface that no future measurement will close, which is why it is
+  phrased as what Studio will not answer.
+- **Restricted groups**, which are not renderable here at all. The lane's
+  candidate carries no `[Group Membership]` rows, so that serializer has never
+  been read by an oracle — and it emits `S-1-5-32-544__Members` where Windows
+  exports `*S-1-5-32-544__Members` (WI-064). Omitted rather than offered with a
+  warning.
+- **The first tranche only.** Empty versus absent service descriptors,
+  environment-variable file paths, noncanonical SDDL and broader descriptor
+  combinations are outside it.
+
+**Two defects were found by building the surface**, both filed against the
+batch that will re-run this lane: WI-064 above, and WI-065 — `validate` reports
+"could not be parsed" for a descriptor nothing tried to parse, so validating
+this lane's own candidate yields three errors for an SDDL Windows accepted.
+Neither was reachable by the lane itself; the first has no rows in the
+candidate and the second sits on a path the candidate builder never calls. That
+a surface found what a certified lane could not is the argument for WP-3's
+ordering rather than against it: the lane measured the bytes, and the surface
+is what walks the rest of the module.
+
 ---
 
 ## Post-1.0 domain layers — landed but not surfaced
@@ -733,7 +782,7 @@ claim and a middle value would weaken a shipped contract.
 | Plan | Module(s) | Surfaced | Windows-verified |
 |---|---|---|---|
 | 025 | `security_template.py` | no | **capture-backed (R4)** — encoding, BOM, section shape and the quoted-CSV row form of one native GPMC template. The same capture shows it parses **0 of 3** `[Registry Keys]` rows (3 `unknown_lines`); see WI-038 |
-| 025 | `object_security.py` | no | **capture-backed (R4, R9)** — propagation codes measured (0/1/2, all three previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 adds a clean member-server 19/19 validate/import/export lane. ACL *application* remains unverified; ACL *content* is deliberately unjudged by ruling (WI-055, closed 2026-09-07) rather than by omission |
+| 025 | `object_security.py` | **yes** — `POST /api/security-template/object-security` | **lane-backed and surfaced (R4, R9)** — propagation codes measured (0/1/2, all three previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 adds a clean member-server 19/19 validate/import/export lane. Surfaced 2026-09-11 in the **emission direction only**, for the three certified families; restricted groups are omitted because no lane has read that serializer and it emits the wrong key form (WI-064). ACL *application* remains unverified; ACL *content* is deliberately unjudged by ruling (WI-055, closed 2026-09-07) rather than by omission, and every response says so |
 | 025 | `network_security.py` | no | no — [NetSecurity availability and one unlinked-GPO firewall probe passed](plan-033/wp3-policy-family-results.md#wp-2-netsecurity-discriminator); model conformance remains unverified |
 | 025 | `policy_families.py` | **yes** — `POST /api/security-template/policy-families` | **lane-backed and surfaced (R7)** — a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), 21/21 checks each; the lane corrected the audit key and removed two unsupported Kerberos fields. Surfaced 2026-09-11 in the **emission direction only**: the endpoint renders families as INF and does not parse one back, because `security_template.py`'s read direction has no cmdlet oracle. Every response carries the three limits the lane did not reach — `/configure` is never invoked, one tranche of values was measured, and GPME editing is unmeasured. Application and arbitrary-value coverage remain unverified |
 | 026 | `script_policy.py` | no | **capture-backed (R2, R10)** — native wire format measured, and Windows re-emits Studio's `scripts.ini`/`psscripts.ini` byte-identically after `Import-GPO`. Plan 034 now has a repeatable 21/21 metadata lane; payload execution and endpoint processing remain unverified |
