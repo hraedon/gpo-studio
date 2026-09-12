@@ -21,8 +21,9 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**3 open.**
+**4 open.**
 
+- [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 - [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - the check conflates unparsed with unparseable.
 - [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - star the key, then certify it with candidate rows.
 - [WI-063](#wi-063--eight-lane-runners-are-committed-with-crlf-and-no-longer-parse) - renormalize with the next estate requalification.
@@ -2532,3 +2533,53 @@ failed" — by parsing on demand, or by a field that records the attempt — the
 candidate builder's services carry descriptors, and a re-run re-earns the
 verdict. `test_object_security_surface.py` asserts the present behaviour and
 fails when the check is corrected, which is the prompt to re-run the lane.
+
+## WI-066 — R3 answered one of the four questions it was designed to answer
+
+**Opened:** 2026-09-11 (reviewing the WP-4 brief's own reasoning).
+**Status:** open.
+
+R3's request lists four things that "fall out of the same file": which file the
+CSE reads, how each folder is keyed, how the four option flags are encoded, and
+how multiple group rules are represented. Its steps author two folders to get
+them — Documents in Basic with three options set away from default, and
+Pictures in Advanced with two groups and options left at default, the second
+existing expressly "so we can tell a default encoding from the non-default
+one".
+
+**Step 4 was never authored.** The banked capture is three sections and four
+entries: one folder, one principal (`s-1-1-0`, Everyone), one `Flags=1021`.
+Question 1 is settled. Question 2 is seen once. Questions 3 and 4 are open.
+
+**How it hid.** Nothing was misrecorded and nothing lied. The result was
+entered against the question R3 was *asked* — "is Folder Redirection in
+`fdeploy.ini` rather than `User Shell Folders`?" — which it answers
+emphatically, and which was the scope-changing half. The three secondary
+questions were in the request body rather than in the claim, so a capture that
+answered a quarter of the request closed it looking complete. The binding table
+recorded what it settled and had no column for what it did not.
+
+That is a gap in the request/result contract, not in anyone's diligence:
+**a request that enumerates four questions needs its result row to answer four,
+or to say which it skipped.** R3's row now does.
+
+**Why it matters now.** `Flags=1021` is `0b1111111101` — nine bits set against
+the four booleans `folder_redirection.py` models. One observation of a bitfield
+attributes no bit to any option, and the control that would have made it
+readable is the step that was skipped. Any Folder Redirection writer built on
+this capture would be inferring a bit layout from one point.
+`object_security.py`'s propagation codes were wrong on all three values until
+R4 measured them; this is the same guess with more bits.
+
+**Closes when:** R12 is captured — one GPMC session on LabMS01, no lane, no
+harness change — and the result row for it answers questions 3 and 4 or names
+what it still does not. The brief
+[`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md)
+is what consumes it, and is written to be revised rather than replaced.
+
+**Checked, rather than left as a worry.** Two other requests enumerate
+questions in their body — R2 asks three and R12 asks two. R2's row answers all
+three explicitly (BOM, CRLF, no `[Policy]` section); R12 is this item's own
+follow-up and states both. **R3 is the only one whose claim is narrower than
+its request**, so this is a single instance rather than a pattern, and the
+corrected row closes it without needing a new control.

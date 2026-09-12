@@ -38,7 +38,7 @@ Fixture paths are in this one.
 |---|---|---|---|---|
 | R1 | `estate-window-2/records/r1-migtable.json`, `-4/r1-v1-record.json`, `-6/r1-v2-record.json` | `tests/fixtures/migration-tables/r1-studio.migtable` | `936394d` | GPMC's `.migtable` namespace and `Mapping → Type/Source/Destination` shape. `migration.py` parsed neither — a GPMC table produced an **empty table, silently**, on a live API endpoint |
 | R2 | `-2/r2-record.json`, `-3/r2-psorder-window3-record.json`, `-4/r2-v2-record.json` | `tests/fixtures/native-scripts-gpmc/` | `4221432`, `38e3e9f` | `scripts.ini`/`psscripts.ini` are UTF-16LE BOM + CRLF; ordering is `[ScriptsConfig] StartExecutePSFirst`; no `[Policy]` section exists |
-| R3 | `-3/r3-window3-record.json` | `tests/fixtures/native-folder-redirection-gpmc/` (D5) | none yet | Folder Redirection writes an empty `fdeploy.ini` marker plus the real policy in **`fdeploy1.ini`** — `version=100`, `Flags=1021`. `folder_redirection.py` addresses neither file. **Scope question for Plan 034, not a patch** |
+| R3 | `-3/r3-window3-record.json` | `tests/fixtures/native-folder-redirection-gpmc/` (D5) | none yet | Folder Redirection writes an empty `fdeploy.ini` marker plus the real policy in **`fdeploy1.ini`** — `version=100`, `Flags=1021`. `folder_redirection.py` addresses neither file. **Scope question for Plan 034, not a patch.** **Partial against its own request (recorded 2026-09-11):** this row asked four questions and the capture answers the first cleanly. The Pictures/Advanced folder was never authored, so there is **one** folder, **one** principal (`s-1-1-0`, Everyone) and **one** `Flags` value — no multi-group representation, and no default/non-default contrast to read the flag bits against. Questions 3 and 4 are open; see R12 and WI-066 |
 | R4 | `-4/r4-v2b-record.json` (qualification artifact) | `tests/fixtures/native-security-template-gpmc/` (D4) | `d7caf44` | Propagation codes are **propagate=0, do-not-allow-replace=1, replace=2** — `object_security.py` was wrong on all three. Native `[Registry Keys]` rows are bare quoted-CSV; `key = value` appears nowhere. `security_template.py` parses **0 of 3** native rows (3 `unknown_lines`) |
 | R5 | `-2/r5m-record.json`, `-2/r5u-record.json`, `-4/r5{m,u}-v2-record.json` | — (facts only) | `725d085` | `gpt.ini`/`versionNumber` is the packed field `user·65536 + machine`. `publication.py`'s flat `+1` would corrupt it on a user-side change |
 | R6 | claim-registry R6 row | `tests/fixtures/live-domain-census/r06-cse-census/` (D6) | `0a6664e`, `b8fa1f4` | The two GPP XML `clsid`s in `_KNOWN_CSE_GUIDS` appear in **no extension list of any of the 26 production GPOs**. They were never CSE GUIDs |
@@ -517,6 +517,15 @@ Deferred to R5's block, which removes all of Sitting A's GPOs at once.
 ## R3 — A GPMC-authored Folder Redirection GPO
 
 **Direction A.** Estate: **`LabMS01`.** Estimated: **15 minutes.**
+
+> **Delivered partially, 2026-09-04; noticed 2026-09-11.** Step 3 (Documents,
+> Basic) was captured. **Step 4 was not** — no Advanced folder, no second
+> group, so no multi-rule representation and no default-encoding control to
+> contrast step 3's non-default one against. The capture settles question 1
+> and shows question 2's key form once. Questions 3 and 4 are open, and a
+> writer needs both. R12 is step 4, re-requested. Nothing about this row was
+> wrong; the gap is that "four things fall out of the same file" was recorded
+> as though four things had.
 
 ### The question
 
@@ -1585,6 +1594,79 @@ Remove-Item -Recurse -Force 'C:\gpo-studio\manual\r11-live-roundtrip'
 Paste the re-query output. If it returns a row, say so immediately — an orphaned
 unlinked GPO in a production domain is harmless but untidy, and we would rather
 chase it now than find it in six months.
+
+---
+
+## R12 — The Folder Redirection flags, and a second group rule
+
+**Direction A.** Estate: **`LabMS01`.** Estimated: **15 minutes.**
+Opened 2026-09-11 as [WI-066](work-items.md).
+
+### The question
+
+This is **step 4 of R3, re-requested**, plus a flags control R3's design
+implied and its delivery lost. R3 captured Documents in Basic mode: one folder,
+one principal (`s-1-1-0`), one `Flags=1021`. The Advanced folder was never
+authored.
+
+Two questions are therefore still open, and both block a writer:
+
+1. **How the four option flags are encoded.** `Flags=1021` is `0b1111111101` —
+   nine bits set against four modelled booleans. One sample of a bitfield
+   attributes no bit to any option. R3's design knew this: it asked for a
+   second folder *at defaults* precisely so the non-default one could be read
+   against it. That control is what went missing.
+2. **How multiple group rules are represented.** One principal was captured, so
+   nothing shows whether a second group adds a `[{GUID}_{sid}]` section, extends
+   the `[Folder_Redirection]` value, or something else.
+
+A writer built without these would be inferring a bit layout from one point.
+`object_security.py`'s propagation codes were wrong on all three values until
+R4 measured them; this is the same shape of guess.
+
+### Steps
+
+Reuse R3's GPO if it still exists; otherwise create
+`zz-studio-evidence-12-folderredir`, **unlinked**, and repeat R3 step 3 first so
+the two folders sit in one file.
+
+1. **User Configuration → Policies → Windows Settings → Folder Redirection.**
+2. Right-click **Pictures** → **Properties**.
+   - **Setting:** `Advanced - Specify locations for various user groups`
+   - **Add** two groups that exist in the lab — `LAB\Domain Users` and
+     `LAB\Domain Admins` are fine and not sensitive:
+     - `LAB\Domain Users` → root path `\\zz-studio-fileserver\zzpics-a`
+     - `LAB\Domain Admins` → root path `\\zz-studio-fileserver\zzpics-b`
+   - **Settings tab: leave every option at its default.** This is the control.
+     Documents carries three non-default options and Pictures carries none, so
+     the two `Flags` values differ by exactly those three — which is what makes
+     the bits readable.
+3. Right-click **Videos** → **Properties**.
+   - **Setting:** `Basic`, root path `\\zz-studio-fileserver\zzvid`
+   - **Settings tab:** change **exactly one** option from its default —
+     **uncheck** "Grant the user exclusive rights to Videos" — and leave the
+     other three alone.
+   - This is the one that makes the encoding *derivable* rather than merely
+     constrained: Pictures gives the default word, Videos gives default-minus-
+     one-option, and the difference is that option's bit. Two folders would
+     bound the answer; three identify one bit outright.
+4. Close the editor, reopen all three property pages to confirm GPMC persisted
+   them, then capture exactly as R3 step 6 does — `Backup-GPO`, `Get-GPOReport`,
+   and the recursive `DomainSysvol` listing.
+
+### What comes back
+
+One `fdeploy1.ini` with three folder GUIDs, four `[{GUID}_{sid}]` sections
+(Pictures contributes two, one per group), and three distinct `Flags` values.
+That settles question 4 outright and gives question 3 one identified bit plus a
+three-point constraint on the rest.
+
+**It does not claim to settle the whole flag word.** Nine bits are set and four
+options are modelled; the remainder are presumably fixed or mean something the
+module does not model, and saying which would need a fourth and fifth folder.
+The honest output is "one option's bit identified, three more constrained, the
+rest unexplained" — which is enough to write the four options Studio models and
+to know that it is copying the rest rather than composing them.
 
 ---
 
