@@ -2694,8 +2694,9 @@ never been an item. It is one paragraph in
 That is the failure AGENTS.md names in the sentence above this register:
 **a WI number in one prose paragraph is a note, not a work item** — except this
 was worse, because it had no number at all. It also blocks three open items:
-WI-063, WI-064 and WI-065 all say "the estate owes a run anyway", and the run
-they are waiting on is waiting on this.
+WI-063 says the estate "owes one anyway", and WI-064 and WI-065 each say the
+fix "costs an estate run" -- and the run all three are waiting on is waiting
+on this.
 
 **What is actually unknown.** Reverting to `estate-current-20260905` gives a
 ~6-day Kerberos skew; setting the DC forward to real time works for minutes and

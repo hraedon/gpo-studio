@@ -95,7 +95,17 @@ _SECTION_HEADER = re.compile(r"^\[(?P<name>.*)\]$")
 #: spellings -- `1_021`, `+1021`, and every non-ASCII decimal digit -- none of
 #: which Windows writes. Reading one as 1021 would report a value the file does
 #: not carry, which is the whole failure mode this module is written against.
-_FLAGS_VALUE = re.compile(r"^\d+$", re.ASCII)
+#:
+#: The length bound is not cosmetic. `int()` refuses a conversion longer than
+#: `sys.get_int_max_str_digits()` (4300 by default) and raises a bare
+#: `ValueError` that is not an `FdeployError`, so an unbounded `\d+` turns a
+#: 10 KB request into a 500. Ten digits covers every value a 32-bit flag word
+#: can be spelled as; anything longer is reported unreadable, which is true.
+_FLAGS_VALUE = re.compile(r"^\d{1,10}$", re.ASCII)
+
+#: A response is a thing a person reads. Past this many structural complaints,
+#: more of them inform nobody and only inflate the answer.
+_MAX_VALIDATION_ISSUES = 1_000
 
 #: ``[{folder-guid}_{principal-sid}]``. The separator is an underscore and SIDs
 #: contain hyphens and digits only, so the split is unambiguous from the right.
@@ -110,11 +120,20 @@ class FdeployError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class FdeploySection:
-    """One INI section, preserved in file order with its lines verbatim."""
+    """One INI section, preserved in file order with its lines verbatim.
+
+    ``lines`` is the section exactly as it was spelled, header line first,
+    including blank lines and any surrounding whitespace. ``entries`` and
+    ``unknown_lines`` are read off it at parse time and are the convenient
+    view; ``lines`` is the faithful one, and it is what
+    :func:`format_fdeploy` re-emits. A section assembled in memory has no
+    ``lines`` and is serialized from ``entries`` instead.
+    """
 
     name: str
     entries: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     unknown_lines: tuple[str, ...] = field(default_factory=tuple)
+    lines: tuple[str, ...] = field(default_factory=tuple)
 
     def get(self, key: str) -> str | None:
         """Return the first value for *key*, matched case-insensitively."""
@@ -166,11 +185,24 @@ class FdeployDocument:
     sections: tuple[FdeploySection, ...] = field(default_factory=tuple)
     raw_text: str = ""
     parse_warnings: tuple[str, ...] = field(default_factory=tuple)
+    #: Lines before the first section header, verbatim. Both native files open
+    #: with one -- an empty line, then five spaces -- and the marker consists
+    #: of nothing else, so this is content GPMC wrote, not framing.
+    preamble: tuple[str, ...] = field(default_factory=tuple)
+    #: Whether the source text ended with a line break. Kept so the round trip
+    #: does not invent or drop a final CRLF.
+    ends_with_newline: bool = False
 
     @property
     def is_marker(self) -> bool:
-        """True for the empty ``fdeploy.ini`` GPMC lays down beside the policy."""
-        return not self.sections
+        """True only for the empty ``fdeploy.ini`` GPMC lays down beside the policy.
+
+        Not merely "no sections". A file of prose parses to no sections too,
+        and calling that the marker would be this module stating a fact about
+        Windows that it measured nowhere -- so a document that produced parse
+        warnings is not the marker, whatever else it is.
+        """
+        return not self.sections and not self.parse_warnings
 
     def section(self, name: str) -> FdeploySection | None:
         """Return the first section named *name*, matched case-insensitively."""
@@ -196,7 +228,7 @@ class FdeployDocument:
         if section is None:
             return ()
         return tuple(
-            (guid, tuple(sid for sid in value.split(";") if sid))
+            (guid, tuple(sid for sid in (s.strip() for s in value.split(";")) if sid))
             for guid, value in section.entries
         )
 
@@ -276,43 +308,53 @@ def encode_fdeploy(text: str) -> bytes:
 def parse_fdeploy(text: str) -> FdeployDocument:
     """Parse ``fdeploy`` text into a :class:`FdeployDocument`.
 
-    Preserves section order, entry order and every line that is neither, so
-    ``format_fdeploy(parse_fdeploy(t)) == t``. Blank and whitespace-only lines
-    outside any section are dropped by the parse and restored by the raw-text
-    round trip -- both native files open with exactly such a preamble (an empty
-    line, then five spaces), which is content GPMC wrote rather than transcript
-    framing.
+    Every line is kept: the preamble before the first section header on the
+    document, and each section's own lines, verbatim and in order, on the
+    section. ``entries`` and ``unknown_lines`` are read off those lines rather
+    than replacing them, which is what makes
+    ``format_fdeploy(parse_fdeploy(t)) == t`` a claim about this function
+    instead of about a stored copy of its input.
+
+    Line endings are the one thing not preserved: CRLF and LF both parse, and
+    the serializer emits CRLF, which is what R3 measured throughout both
+    native files.
     """
     if len(text.encode("utf-8")) > _MAX_FDEPLOY_SIZE:
         raise FdeployError(f"fdeploy exceeds {_MAX_FDEPLOY_SIZE} bytes")
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    raw_lines = normalized.split("\n")
+    ends_with_newline = len(raw_lines) > 1 and raw_lines[-1] == ""
+    if ends_with_newline:
+        raw_lines = raw_lines[:-1]
 
     sections: list[FdeploySection] = []
     warnings: list[str] = []
+    preamble: list[str] = []
     current: str | None = None
+    current_lines: list[str] = []
     entries: list[tuple[str, str]] = []
     unknown: list[str] = []
 
     def flush() -> None:
-        nonlocal current, entries, unknown
+        nonlocal current, current_lines, entries, unknown
         if current is not None:
             sections.append(
                 FdeploySection(
                     name=current,
                     entries=tuple(entries),
                     unknown_lines=tuple(unknown),
+                    lines=tuple(current_lines),
                 )
             )
             current = None
+            current_lines = []
             entries = []
             unknown = []
 
-    for line in normalized.split("\n"):
+    for line in raw_lines:
         stripped = line.strip()
-        if not stripped:
-            continue
-        header = _SECTION_HEADER.match(stripped)
+        header = _SECTION_HEADER.match(stripped) if stripped else None
         if header is not None:
             flush()
             if len(sections) >= _MAX_SECTIONS:
@@ -321,9 +363,15 @@ def parse_fdeploy(text: str) -> FdeployDocument:
             if not name:
                 warnings.append("Encountered section header with empty name")
             current = name
+            current_lines = [line]
             continue
         if current is None:
-            warnings.append(f"Line outside any section: {stripped}")
+            preamble.append(line)
+            if stripped:
+                warnings.append(f"Line outside any section: {stripped}")
+            continue
+        current_lines.append(line)
+        if not stripped:
             continue
         if "=" in stripped:
             if len(entries) >= _MAX_SECTION_ENTRIES:
@@ -343,33 +391,41 @@ def parse_fdeploy(text: str) -> FdeployDocument:
         sections=tuple(sections),
         raw_text=text,
         parse_warnings=tuple(warnings),
+        preamble=tuple(preamble),
+        ends_with_newline=ends_with_newline,
     )
 
 
 def format_fdeploy(document: FdeployDocument) -> str:
     """Serialize a :class:`FdeployDocument` back to ``fdeploy`` text.
 
-    Returns ``raw_text`` when it still re-parses to the same sections, which is
-    the lossless path the banked R3 capture exercises, and the path every
-    document read from bytes takes. Reconstruction is the fallback for a
-    document assembled in memory: it reproduces only what was read -- it
-    invents no ``Flags`` value, because nothing here knows how to -- and it
-    emits each section's unrecognised lines after its entries rather than where
-    they stood, because a document that was never parsed from text has no
-    original order to preserve. A document that *was* parsed never reaches
-    this path, so nothing round-tripped from a file is reordered by it.
-    """
-    if document.raw_text:
-        reparsed = parse_fdeploy(document.raw_text)
-        if reparsed.sections == document.sections:
-            return document.raw_text
+    Always rebuilt from the document, never handed back from ``raw_text``.
+    That distinction is the whole value of the function as evidence: a
+    serializer that returns its input when the input still re-parses proves
+    only that parsing is deterministic, and would pass unchanged against a
+    parser that read nothing at all. Rebuilding means
+    ``format_fdeploy(parse_fdeploy(t)) == t`` fails the moment the parser
+    loses a line -- which is the property the banked R3 capture is used to
+    assert.
 
-    lines: list[str] = []
+    A document assembled in memory has no verbatim lines to re-emit, so its
+    sections are written from ``entries`` followed by ``unknown_lines``. It
+    invents no ``Flags`` value, because nothing here knows how to.
+    """
+    out: list[str] = list(document.preamble)
     for section in document.sections:
-        lines.append(f"[{section.name}]")
-        lines.extend(f"{key}={value}" for key, value in section.entries)
-        lines.extend(section.unknown_lines)
-    return "".join(f"{line}\r\n" for line in lines)
+        if section.lines:
+            out.extend(section.lines)
+            continue
+        out.append(f"[{section.name}]")
+        out.extend(f"{key}={value}" for key, value in section.entries)
+        out.extend(section.unknown_lines)
+    text = "\r\n".join(out)
+    if text and document.ends_with_newline:
+        text += "\r\n"
+    elif not text and document.ends_with_newline:
+        text = "\r\n"
+    return text
 
 
 def read_fdeploy(data: bytes) -> FdeployDocument:
@@ -390,11 +446,30 @@ def validate_fdeploy(document: FdeployDocument) -> tuple[ValidationIssue, ...]:
     whether Windows would accept the file: no lane has read this artifact in
     the write direction, so an opinion about acceptance would be a guess
     wearing a severity.
+
+    The result is capped. Past :data:`_MAX_VALIDATION_ISSUES` structural
+    complaints a reader learns nothing further, and an uncapped list on a
+    pathological document is a response nobody can read.
     """
     issues: list[ValidationIssue] = []
 
-    if document.is_marker:
-        return ()
+    if not document.sections:
+        if document.parse_warnings:
+            # Not the marker. Saying so is the point: the marker is a measured
+            # thing GPMC writes, and a file that parsed into nothing is not it.
+            issues.append(
+                ValidationIssue(
+                    severity="warning",
+                    code="no_sections_parsed",
+                    message=(
+                        f"no sections were parsed and {len(document.parse_warnings)} "
+                        "line(s) were not readable as INI; content is preserved "
+                        "verbatim but nothing here is a redirection"
+                    ),
+                    path="fdeploy",
+                )
+            )
+        return tuple(issues)
 
     if document.version is None:
         issues.append(
@@ -406,15 +481,39 @@ def validate_fdeploy(document: FdeployDocument) -> tuple[ValidationIssue, ...]:
             )
         )
 
-    listed: dict[str, tuple[str, ...]] = {
-        guid.casefold(): principals for guid, principals in document.folders()
-    }
-    seen: set[str] = set()
+    # Folded once into sets, not re-scanned per redirection: a document listing
+    # many principals against many sections is otherwise quadratic, and the
+    # size caps bound the input rather than the work.
+    listed: dict[str, set[str]] = {}
+    duplicated: list[str] = []
+    for guid, principals in document.folders():
+        folder_key = guid.casefold()
+        if folder_key in listed:
+            duplicated.append(guid)
+        listed.setdefault(folder_key, set()).update(
+            sid.casefold() for sid in principals
+        )
+
+    for guid in duplicated:
+        issues.append(
+            ValidationIssue(
+                severity="warning",
+                code="duplicate_folder_key",
+                message=(
+                    f"[{FOLDER_REDIRECTION_SECTION}] lists {guid} more than once; "
+                    "which spelling Windows honours is unmeasured, so every listed "
+                    "principal is treated as listed"
+                ),
+                path=f"fdeploy.{guid}",
+            )
+        )
+
+    seen: set[tuple[str, str]] = set()
 
     for rule in document.redirections():
-        key = f"{rule.folder_guid.casefold()}_{rule.principal.casefold()}"
+        pair = (rule.folder_guid.casefold(), rule.principal.casefold())
         base = f"fdeploy.{rule.folder_guid}_{rule.principal}"
-        if key in seen:
+        if pair in seen:
             issues.append(
                 ValidationIssue(
                     severity="error",
@@ -423,10 +522,10 @@ def validate_fdeploy(document: FdeployDocument) -> tuple[ValidationIssue, ...]:
                     path=base,
                 )
             )
-        seen.add(key)
+        seen.add(pair)
 
-        principals = listed.get(rule.folder_guid.casefold())
-        if principals is None:
+        listed_principals = listed.get(pair[0])
+        if listed_principals is None:
             issues.append(
                 ValidationIssue(
                     severity="warning",
@@ -438,9 +537,7 @@ def validate_fdeploy(document: FdeployDocument) -> tuple[ValidationIssue, ...]:
                     path=base,
                 )
             )
-        elif not any(
-            sid.casefold() == rule.principal.casefold() for sid in principals
-        ):
+        elif pair[1] not in listed_principals:
             issues.append(
                 ValidationIssue(
                     severity="warning",
@@ -476,14 +573,17 @@ def validate_fdeploy(document: FdeployDocument) -> tuple[ValidationIssue, ...]:
                 ValidationIssue(
                     severity="warning",
                     code="unreadable_flags",
-                    message=f"Flags is not an integer: {rule.flags_text!r}",
+                    message=(
+                        "Flags is not an integer Windows could have written: "
+                        f"{rule.flags_text!r}"
+                    ),
                     path=f"{base}.Flags",
                 )
             )
 
     for guid, principals in document.folders():
         for sid in principals:
-            if f"{guid.casefold()}_{sid.casefold()}" not in seen:
+            if (guid.casefold(), sid.casefold()) not in seen:
                 issues.append(
                     ValidationIssue(
                         severity="error",
@@ -495,6 +595,18 @@ def validate_fdeploy(document: FdeployDocument) -> tuple[ValidationIssue, ...]:
                         path=f"fdeploy.{guid}",
                     )
                 )
+
+    if len(issues) > _MAX_VALIDATION_ISSUES:
+        truncated = len(issues) - _MAX_VALIDATION_ISSUES
+        issues = issues[:_MAX_VALIDATION_ISSUES]
+        issues.append(
+            ValidationIssue(
+                severity="warning",
+                code="validation_truncated",
+                message=f"{truncated} further structural issue(s) are not listed",
+                path="fdeploy",
+            )
+        )
 
     return tuple(issues)
 
@@ -513,6 +625,16 @@ def fdeploy_report_lines(document: FdeployDocument) -> Iterator[str]:
     """
     if document.is_marker:
         yield "Empty marker file; GPMC writes one beside the policy. No sections."
+        return
+
+    if not document.sections:
+        # Deliberately not called a marker. See `FdeployDocument.is_marker`.
+        yield "No sections parsed. This is not the marker GPMC writes."
+        yield "Content preserved verbatim, uninterpreted:"
+        for line in document.preamble:
+            yield f"  {line}"
+        for warning in document.parse_warnings:
+            yield f"Parse warning: {warning}"
         return
 
     yield f"Version: {document.version or '(absent)'}"

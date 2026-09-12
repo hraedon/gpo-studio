@@ -220,8 +220,8 @@ def test_the_cse_guid_is_not_the_guid_the_file_carries() -> None:
 def test_unrecognised_sections_and_lines_survive_verbatim() -> None:
     """Preserve what is not understood; a reader that drops it is lying."""
     text = (
-        "[version]\nversion=100\n"
-        "[Something_New]\nKey=Value\nnot a key value line\n"
+        "[version]\r\nversion=100\r\n"
+        "[Something_New]\r\nKey=Value\r\nnot a key value line\r\n"
     )
     document = parse_fdeploy(text)
     section = document.section("Something_New")
@@ -344,12 +344,125 @@ def test_a_document_assembled_in_memory_serializes_without_inventing_anything() 
         )
     )
     text = format_fdeploy(document)
+    # No trailing break: a hand-built document records no source text, so the
+    # serializer adds none rather than guessing one the file never had.
     assert text == (
         "[version]\r\nversion=100\r\n"
         f"[{_DOCUMENTS}_{_EVERYONE}]\r\n"
         "FullPath=\\\\fs\\share\r\n"
-        "a line nothing parsed\r\n"
+        "a line nothing parsed"
     )
     assert "Flags" not in text
     (rule,) = parse_fdeploy(text).redirections()
     assert rule.flags is None and rule.flags_text == ""
+
+
+# ---------------------------------------------------------------------------
+# What an adversarial read found, pinned so it cannot come back
+# ---------------------------------------------------------------------------
+
+
+def test_a_flags_value_too_long_for_int_is_unreadable_not_a_crash() -> None:
+    """`int()` refuses a conversion past 4300 digits and raises a bare ValueError.
+
+    An unbounded digit pattern therefore turned a 10 KB document into an
+    unhandled exception -- a server fault for what is only ever a caller
+    mistake about the bytes. Ten digits spells every 32-bit value; longer is
+    reported as what it is.
+    """
+    document = parse_fdeploy(
+        f"[{_DOCUMENTS}_{_EVERYONE}]\nFlags={'9' * 5000}\nFullPath=\\\\fs\\share\n"
+    )
+    (rule,) = document.redirections()
+    assert rule.flags is None
+    assert rule.flags_text == "9" * 5000
+    assert "unreadable_flags" in {i.code for i in validate_fdeploy(document)}
+
+
+def test_a_file_that_parsed_into_nothing_is_not_called_the_marker() -> None:
+    """The marker is a measured artifact; "no sections" is not the same claim.
+
+    A document of prose parses to zero sections too. Reporting it as the file
+    GPMC writes beside the policy -- and validating it clean -- would be this
+    module stating something about Windows that it measured nowhere.
+    """
+    junk = parse_fdeploy("hello world\r\nthis is not an ini\r\n")
+    assert junk.sections == ()
+    assert not junk.is_marker
+    assert {i.code for i in validate_fdeploy(junk)} == {"no_sections_parsed"}
+
+    rendered = "\n".join(fdeploy_report_lines(junk))
+    assert "This is not the marker GPMC writes." in rendered
+    assert "hello world" in rendered
+
+    # The real marker still is one, and the two differ by their warnings.
+    marker = read_fdeploy(_marker_bytes())
+    assert marker.is_marker and marker.parse_warnings == ()
+
+
+def test_a_folder_listed_twice_does_not_produce_a_false_unlisted_principal() -> None:
+    """Last-wins lookup against a first-wins reader is how that verdict arose.
+
+    Which spelling Windows honours is unmeasured, so every listed principal
+    counts as listed and the duplication itself is what gets reported.
+    """
+    document = parse_fdeploy(
+        f"[version]\nversion=100\n"
+        f"[Folder_Redirection]\n{_DOCUMENTS}={_EVERYONE};\n"
+        f"{_DOCUMENTS}=S-1-5-21-1-1-1-513;\n"
+        f"[{_DOCUMENTS}_{_EVERYONE}]\nFlags=1021\nFullPath=\\\\fs\\a\n"
+        f"[{_DOCUMENTS}_S-1-5-21-1-1-1-513]\nFlags=1021\nFullPath=\\\\fs\\b\n"
+    )
+    codes = {i.code for i in validate_fdeploy(document)}
+    assert codes == {"duplicate_folder_key"}
+
+
+def test_whitespace_after_a_semicolon_is_not_part_of_the_principal() -> None:
+    """A space is a spelling, not a different SID -- two false issues, one error."""
+    document = parse_fdeploy(
+        f"[version]\nversion=100\n"
+        f"[Folder_Redirection]\n{_DOCUMENTS}={_EVERYONE}; S-1-5-21-1-1-1-513;\n"
+        f"[{_DOCUMENTS}_{_EVERYONE}]\nFlags=1021\nFullPath=\\\\fs\\a\n"
+        f"[{_DOCUMENTS}_S-1-5-21-1-1-1-513]\nFlags=1021\nFullPath=\\\\fs\\b\n"
+    )
+    assert document.folders() == (
+        (_DOCUMENTS, (_EVERYONE, "S-1-5-21-1-1-1-513")),
+    )
+    assert validate_fdeploy(document) == ()
+
+
+def test_the_issue_list_is_capped_rather_than_proportional_to_the_input() -> None:
+    """Past a point, more complaints inform nobody and only inflate the answer."""
+    listed = ";".join(f"S-1-5-21-1-1-1-{i}" for i in range(3000)) + ";"
+    document = parse_fdeploy(
+        f"[version]\nversion=100\n[Folder_Redirection]\n{_DOCUMENTS}={listed}\n"
+    )
+    issues = validate_fdeploy(document)
+    assert len(issues) == 1001
+    assert issues[-1].code == "validation_truncated"
+    assert "2000 further" in issues[-1].message
+
+
+def test_a_duplicated_redirection_section_is_reported() -> None:
+    document = parse_fdeploy(
+        f"[Folder_Redirection]\n{_DOCUMENTS}={_EVERYONE};\n"
+        f"[{_DOCUMENTS}_{_EVERYONE}]\nFlags=1021\nFullPath=\\\\fs\\a\n"
+        f"[{_DOCUMENTS}_{_EVERYONE}]\nFlags=1021\nFullPath=\\\\fs\\b\n"
+    )
+    codes = {i.code for i in validate_fdeploy(document)}
+    assert "duplicate_redirection" in codes
+
+
+def test_the_size_and_count_ceilings_refuse_rather_than_truncate() -> None:
+    with pytest.raises(FdeployError, match="section count exceeds"):
+        parse_fdeploy("".join(f"[s{i}]\n" for i in range(5_001)))
+    with pytest.raises(FdeployError, match="entry count in section"):
+        parse_fdeploy("[s]\n" + "".join(f"k{i}=v\n" for i in range(5_001)))
+    with pytest.raises(FdeployError, match="exceeds"):
+        parse_fdeploy("A" * (1024 * 1024 + 1))
+
+
+def test_a_section_header_with_an_empty_name_is_warned_about() -> None:
+    document = parse_fdeploy("[]\nkey=value\n")
+    assert any("empty name" in w for w in document.parse_warnings)
+    assert document.sections[0].name == ""

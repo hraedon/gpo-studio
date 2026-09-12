@@ -9,6 +9,25 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- A cross-lineage read of the fdeploy reader before it merged found four things
+  worth keeping the record of, because three were self-inflicted. A `Flags`
+  value of more than 4300 digits reached `int()`, which refuses that conversion
+  and raises a bare `ValueError` -- a 10 KB request returned 500 from a handler
+  whose own docstring says this surface is never a server fault; the digit
+  pattern is bounded now. `is_marker` was "no sections", so a file of prose was
+  reported as the empty marker GPMC writes, validated clean, and described in a
+  report line that asserted Windows wrote it -- three untrue statements about a
+  native artifact, now one honest one. `validate_fdeploy` was quadratic and its
+  result unbounded: one in-cap document took 4.19s and produced a 5.4MB answer,
+  and takes 0.045s for a capped one now.
+  The fourth is the useful one. `format_fdeploy` returned its input whenever a
+  reparse matched, so `format(parse(t)) == t` was `t == t` and both round-trip
+  tests passed against a parser mutated to return no sections at all -- exactly
+  the self-consistency AGENTS.md rejects, in a test whose docstring cited
+  WI-064 to claim otherwise. The serializer now always rebuilds from the parsed
+  document, which is why the document carries the file's preamble and each
+  section's verbatim lines; the same mutation now fails twelve tests.
+
 - WI-069: the estate repair that blocks the 22nd lane is an item now, not a
   paragraph. It had no number while three open items (WI-063, WI-064, WI-065)
   waited on the estate run it blocks, and the only account of the failure was
@@ -36,11 +55,13 @@ Current version: `1.0.0`.
   an operator as a 458-byte SHA-256 in the unmodeled-file inventory, and the
   module named `folder_redirection.py` addressed neither it nor the marker
   beside it.
-  Two limits ride in the module and in every response rather than in a document:
-  `Flags` is carried as the integer Windows wrote and **no bit is named** --
-  one capture is one observation of a ten-bit word (WI-066) -- and one capture
-  is also one shape, so multi-folder and multi-principal documents are
-  unmeasured. No lane has read this artifact in either direction, so the banked
+  Four limits ride in the module and in every response rather than in a
+  document: `Flags` is carried as the integer Windows wrote and **no bit is
+  named** -- one capture is one observation of a ten-bit word (WI-066); one
+  capture is also one shape, so multi-folder and multi-principal documents are
+  unmeasured; twelve of the thirteen folder names are documented Windows
+  constants no lane has measured, and an unrecognised GUID reports null rather
+  than a guess; and there is no writer. No lane has read this artifact in either direction, so the banked
   R3 capture is doing a lane's job: the reader is tested against bytes
   hash-bound to what GPMC wrote, which is stronger than a round trip through
   our own output and weaker than a verdict.

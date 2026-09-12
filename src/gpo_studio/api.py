@@ -4833,7 +4833,7 @@ class FdeployDiffResponse(BaseModel):
 
 
 def _fdeploy_limitations() -> list[dict[str, str]]:
-    """Three limits, every one of them a ruling or a measurement, not a guess.
+    """Four limits, every one of them a ruling or a measurement, not a guess.
 
     None is conditional on the query: every parse and every diff is missing
     the same `Flags` decode, was measured against the same single native
@@ -4851,6 +4851,15 @@ def _fdeploy_limitations() -> list[dict[str, str]]:
                 "Exactly one native capture exists (R3): one folder, one "
                 "principal. Multi-folder and multi-principal shapes are "
                 "unmeasured."
+            ),
+        },
+        {
+            "code": "folder_names_documented_not_measured",
+            "message": (
+                "folder_name comes from a table of documented KNOWNFOLDERID "
+                "values. Exactly one of them -- Documents -- is corroborated "
+                "by a capture in this repository; the rest are unmeasured. An "
+                "unrecognised GUID reports null rather than a guess."
             ),
         },
         {

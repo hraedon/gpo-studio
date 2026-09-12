@@ -73,7 +73,7 @@ release-candidate gate; the historical table below therefore retains “not yet.
 
 | Capability | State | Notes |
 |---|---|---|
-| Scripts / software installation / folder redirection | out of scope | Planned in Plan 026 and Plan 027. |
+| Scripts / software installation / folder redirection | out of scope for 1.0 | Drafted in Plan 026 and Plan 027; **reconciled under Plan 034**, not Plan 027, and not together. Software installation is ruled out of scope ([2026-09-06](scope-decision-2026-09-06-software-installation-and-certification.md)). Folder redirection is ruled a read target ([2026-09-11](scope-decision-2026-09-11-folder-redirection.md)) and has a post-1.0 read surface at `POST /api/folder-redirection/fdeploy`; the writer is deferred behind WI-066. |
 | Starter GPOs | out of scope | Planned in Plan 022. |
 | Live create / update / delete (AD/SYSVOL) | blocked | The web process never writes to AD or SYSVOL. Publication is an explicit adapter boundary. |
 | RSoP / Group Policy Modeling results | out of scope | Runtime evaluation is not a 1.0 goal. |

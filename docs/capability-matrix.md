@@ -133,7 +133,7 @@ native Windows tooling path), failed (tested, failed unexpectedly), pending
 | RSoP simulation | Not planned for 1.0, and not in the 1.0 contract. Post-1.0, `rsop.py` is certified in twelve measured regions and reachable at `/api/rsop/compute` and `/api/rsop/compare` — see [Reconciled post-1.0 layers](#reconciled-post-10-layers--certified-and-surfaced) below. |
 | Authentication / multi-user | Identity is claimed (untrusted) from the request body. |
 | Additional GPP CSEs | Drive, Files, Folders, Tasks, Services, Environment, Shortcuts, Printers. |
-| Scripts, software installation, folder redirection | Not implemented. |
+| Scripts, software installation, folder redirection | Not implemented, and the 1.0 contract is unchanged. Post-1.0 the three have diverged and this row no longer describes them together: software installation was ruled **out of scope** ([2026-09-06](scope-decision-2026-09-06-software-installation-and-certification.md)), and folder redirection was ruled a **read target** ([2026-09-11](scope-decision-2026-09-11-folder-redirection.md)) — `fdeploy.py` reads `fdeploy1.ini` at `POST /api/folder-redirection/fdeploy`, with no lane behind it. See the post-1.0 rows below. |
 | Starter GPOs | Not implemented. |
 | Multi-domain / forest-scale operations | Not implemented. |
 | GPO-level metadata diff | Name, description, and domain changes are reported by two-way and three-way diff. `status` is workflow state, not policy, and is intentionally not diffed. |

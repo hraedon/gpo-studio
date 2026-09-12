@@ -12,7 +12,7 @@ The positive assertions are pinned to the R3 capture the same way
 `test_fdeploy.py` pins them -- reconstructed from the banked ASCII transcript,
 hash-checked against what Windows wrote, never against a fixture this
 repository invented. The negative and structural tests (bad base64, no BOM,
-an unknown folder GUID, the three limitations) use synthetic documents built
+an unknown folder GUID, the four limitations) use synthetic documents built
 with `encode_fdeploy`, because they are about the surface's error handling and
 response shape rather than about what the one capture says.
 """
@@ -128,7 +128,10 @@ def test_the_native_capture_parses_through_the_endpoint_to_its_banked_shape(
     assert redirection["describe_flags"] == "1021 (binary 1111111101)"
 
     assert body["report_lines"][0] == "Version: 100"
-    assert any("Documents" in line for line in body["report_lines"])
+    # Not `any("Documents" in line)`: the FullPath line ends in \Documents, so
+    # that assertion passes unchanged when the name lookup returns None. Pin
+    # the line that actually renders the name.
+    assert body["report_lines"][2] == f"Documents {_DOCUMENTS} for {_EVERYONE}:"
 
 
 def test_the_capture_validates_clean_through_the_endpoint(client: TestClient) -> None:
@@ -140,16 +143,23 @@ def test_the_capture_validates_clean_through_the_endpoint(client: TestClient) ->
 
 
 # ---------------------------------------------------------------------------
-# The three limitations, carried in every parse response
+# The four limitations, carried in every parse response
 # ---------------------------------------------------------------------------
 
 
-def test_every_parse_response_carries_all_three_limitations(client: TestClient) -> None:
+def test_every_parse_response_carries_all_four_limitations(client: TestClient) -> None:
     """The house rule: limits travel in the response body, not only in docs.
 
-    None of the three depends on what was sent -- the Flags decode, the
-    single-capture scope and the read-only ruling hold for every call -- so
-    all three must be present regardless of which document was parsed.
+    None of the four depends on what was sent -- the Flags decode, the
+    single-capture scope, the folder-name table's evidence base and the
+    read-only ruling hold for every call -- so all four must be present
+    regardless of which document was parsed.
+
+    `folder_names_documented_not_measured` is here because the module
+    docstring saying it is not enough: a caller reading JSON is not reading
+    the docstring, which is this block's whole stated rationale. Twelve of the
+    thirteen names in that table are documented Windows constants no lane has
+    measured.
     """
     response = client.post(
         "/api/folder-redirection/fdeploy",
@@ -159,11 +169,12 @@ def test_every_parse_response_carries_all_three_limitations(client: TestClient) 
     assert codes == {
         "flags_not_decoded",
         "single_capture_only",
+        "folder_names_documented_not_measured",
         "read_only_no_writer",
     }
 
 
-def test_the_diff_response_also_carries_the_three_limitations(
+def test_the_diff_response_also_carries_the_four_limitations(
     client: TestClient,
 ) -> None:
     old = _synthetic_bytes(folder=_UNKNOWN_FOLDER, path=r"\\server\A")
@@ -175,6 +186,7 @@ def test_the_diff_response_also_carries_the_three_limitations(
     assert codes == {
         "flags_not_decoded",
         "single_capture_only",
+        "folder_names_documented_not_measured",
         "read_only_no_writer",
     }
 
