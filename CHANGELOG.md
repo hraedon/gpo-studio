@@ -25,6 +25,21 @@ Current version: `1.0.0`.
   the candidate builder are all in the verdicts' bound file set;
   `tests/test_policy_family_surface.py` holds it equal to the certified
   builder's in both scopes rather than letting a second composition drift.
+- Plan 034 WP-4: the Folder Redirection scope brief
+  (`docs/scope-brief-2026-09-11-folder-redirection.md`). Not a ruling -- the
+  plan says this one is a decision, and the brief assembles what it needs
+  without taking it. Zero estate time. It ran the offline discriminator the
+  survey asked for and nobody had: an advanced policy with three group rules
+  produces one registry tuple, carrying neither the group SIDs nor the four
+  option flags that R3 shows Windows encoding as `Flags=1021`, so
+  `to_registry_settings()` is not a Folder Redirection writer at any level of
+  detail. The CSE appears in 0 of the same 26 production GPOs that ruled
+  Software Installation out -- but the two costs that made *that* ruling easy
+  are absent here: this capture is already taken, and `fdeploy1.ini` is a
+  458-byte UTF-16LE INI whose oracle is `Backup-GPO`, not an undocumented
+  binary. Recommendation: read target, write deferred rather than refused.
+  `tests/test_folder_redirection_scope.py` pins the code facts and fails when a
+  ruling is acted on.
 - The "Security template" panel: one dialog reaching both Plan 034 WP-3
   surfaces, switched by a mode selector, with `limitations` rendered **above**
   the answer as the RSOP panel does. Thin on purpose -- families arrive as JSON
