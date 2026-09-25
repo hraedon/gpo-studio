@@ -42,6 +42,21 @@ problems, and one of them was not fixable:
   deletion mechanism was not identified; the estate needs a repair that
   restores the DC to real time without it (or a fresh DC build) before the
   group-deny lane can run.
+
+**Correction (2026-09-25), measured:** the deletion did not reproduce under
+instrumentation on the 2026-09-20 baseline generation — see
+`dns-deletion-experiment-20260925.md` in this directory. One restore/jump
+cycle with DNS debug logging, DS deletion auditing, and SACLs on both DNS
+partitions armed: 92 minutes with zero external intervention, then a
+NetLogon restart and a `dsregdns` each observed 10 minutes — the record set
+never moved, nothing wrote to the DNS partitions, and the wire carried 156
+UPDATE packets, all NOERROR refreshes, zero delete signatures. On that
+generation the forward jump and both DC-local repair gestures are exonerated;
+the surviving suspects are the 9/5-era baseline's pre-clock-seed internal
+state (this repro's generation was minted under the window-9 clock-seed
+discipline, which the analysis had already nominated as the prevention) and
+the endpoint-lane's own member activity. The lane's retry no longer needs to
+fear the restore/jump itself.
 - The batch therefore ran on the **frozen checkpoint timeline**: all three
   guests reverted, client time-sync disabled before boot, clients aligned
   behind the DC. Guest-stamped run ids in this batch carry 2026-09-05 dates;
