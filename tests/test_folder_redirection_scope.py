@@ -1,16 +1,22 @@
 """Plan 034 WP-4: the code facts the Folder Redirection ruling rests on.
 
-[`scope-brief-2026-09-11-folder-redirection.md`](../docs/scope-brief-2026-09-11-folder-redirection.md)
-assembles what a ruling needs. Two of its inputs are properties of this
-repository rather than of Windows, and a brief resting on a code fact that has
-since changed is the same defect as a status line that has gone stale -- the
-thing this project keeps building guards against.
+The ruling was taken on 2026-09-11 --
+[`scope-decision-2026-09-11-folder-redirection.md`](../docs/scope-decision-2026-09-11-folder-redirection.md)
+-- as **read target, write deferred**. These tests are what keep that decision
+honest in both directions.
 
-So: the survey's zero-cost discriminator, run rather than quoted, and the
-banked capture it is set against. Both assert the **present** behaviour. If the
-ruling is taken as (b) or (c) and a writer is built, these fail, and that
-failure is the prompt to retire the brief rather than to leave it standing over
-code it no longer describes.
+Two of them assert the measurements the ruling rested on, which are properties
+of this repository rather than of Windows: a brief resting on a code fact that
+has since changed is the same defect as a status line that has gone stale.
+They still describe `folder_redirection.py`, which the ruling did not touch.
+
+The last one changed shape when the ruling was acted on. It used to assert
+that nothing in the product read or wrote fdeploy, and its own docstring said
+that when that stopped being true, "the brief has to say which option was
+taken". It has, and so the assertion is now the other half of the same
+contract: the reader exists, and the **writer still does not**. A writer needs
+the `Flags` encoding R12 owes (WI-066), so this fails if one appears before
+that capture does.
 """
 
 from __future__ import annotations
@@ -23,12 +29,8 @@ from gpo_studio.folder_redirection import (
     RedirectionRule,
 )
 
-CAPTURE = (
-    Path(__file__).resolve().parents[1]
-    / "tests"
-    / "fixtures"
-    / "native-folder-redirection-gpmc"
-)
+_ROOT = Path(__file__).resolve().parents[1]
+CAPTURE = _ROOT / "tests" / "fixtures" / "native-folder-redirection-gpmc"
 
 
 def _advanced_policy_with_three_groups() -> FolderRedirectionPolicy:
@@ -109,22 +111,49 @@ def test_the_capture_the_brief_quotes_is_still_what_is_banked() -> None:
     assert "[Folder_Redirection]" not in marker
 
 
-def test_nothing_in_the_product_yet_reads_or_writes_fdeploy() -> None:
-    """The premise of every option in the brief, asserted rather than assumed.
+def test_the_ruling_is_recorded_where_a_reader_would_look_for_it() -> None:
+    """A decision taken in a commit message is a note, not a ruling.
 
-    Option (a) preserves, (b) parses, (c) also emits -- all three start from
-    "there is no handling today". When that stops being true this fails, and
-    the brief has to say which option was taken.
+    The same argument `docs/work-items.md` makes for WI numbers. The read half
+    landed, so the document that says *which* option was taken has to exist and
+    has to name the deferral, or the code is the only record of the decision.
     """
-    source = Path(__file__).resolve().parents[1] / "src" / "gpo_studio"
-    mentions = sorted(
+    decision = _ROOT / "docs" / "scope-decision-2026-09-11-folder-redirection.md"
+    assert decision.exists(), (
+        "the fdeploy reader is in the product with no recorded ruling; "
+        "docs/scope-brief-2026-09-11-folder-redirection.md recommended one"
+    )
+    text = decision.read_text(encoding="utf-8")
+    assert "read target" in text
+    assert "WI-066" in text  # the deferral's gate, named
+
+
+def test_the_writer_half_is_still_deferred_behind_r12() -> None:
+    """The reader may exist; nothing may compose an fdeploy from our model.
+
+    `encode_fdeploy` is the codec's other half and exists to prove the reader
+    lossless against native bytes. The line this holds is that no *other*
+    product module reaches for it, because emitting a document Windows has
+    never written needs the `Flags` encoding WI-066 owes -- and a writer built
+    on one observation is `object_security.py`'s propagation codes again.
+    """
+    source = _ROOT / "src" / "gpo_studio"
+    callers = sorted(
         path.name
         for path in source.glob("*.py")
-        if "fdeploy" in path.read_text(encoding="utf-8").lower()
+        if path.name != "fdeploy.py"
+        and "encode_fdeploy" in path.read_text(encoding="utf-8")
     )
-    assert mentions == [], (
-        f"{mentions} now mention fdeploy. A ruling was taken, or a writer was "
-        "started without one; either way "
-        "docs/scope-brief-2026-09-11-folder-redirection.md is no longer a "
-        "description of the code and needs to record the decision."
+    assert callers == [], (
+        f"{callers} now emit fdeploy bytes. Plan 034 WP-4 deferred the writer "
+        "until R12 measures the Flags encoding (WI-066); if that capture "
+        "landed, say so in the decision document and change this test."
     )
+
+    # The other direction the writer could arrive from: a conversion hung off
+    # the existing model, which is the shape `to_registry_settings` already is.
+    assert not [
+        name
+        for name in dir(FolderRedirectionPolicy)
+        if "fdeploy" in name.casefold()
+    ]

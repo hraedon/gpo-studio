@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import logging
 import os
@@ -65,6 +66,16 @@ from .export import (
     native_backup_refusal,
     plan_refusal,
     powershell_plan,
+)
+from .fdeploy import (
+    FLAGS_ARE_UNDECODED,
+    FdeployError,
+    FdeployRedirection,
+    diff_fdeploy,
+    fdeploy_report_lines,
+    known_folder_name,
+    read_fdeploy,
+    validate_fdeploy,
 )
 from .gpp import (
     _GROUP_KNOWN_CHILDREN,
@@ -2166,6 +2177,18 @@ async def ambiguous_policy(
         },
         status_code=409,
     )
+
+
+@app.exception_handler(FdeployError)
+async def fdeploy_error(_request: Request, error: FdeployError) -> JSONResponse:
+    """400: malformed base64, a bad wire contract, or unparseable content.
+
+    `FdeployError` is a `ValueError`, not a `StudioError` -- this surface has
+    no revision, no conflict, no workspace to be unavailable, so none of the
+    codes `studio_error` maps to fit. It is always a caller mistake about the
+    bytes handed in, never a server fault, hence 400 rather than 422 or 500.
+    """
+    return JSONResponse({"error": {"message": str(error)}}, status_code=400)
 
 
 def _json_safe_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -4697,4 +4720,236 @@ def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
         ],
         "issues": [asdict(issue) for issue in issues],
         "limitations": _object_security_limitations(),
+    }
+
+
+# --------------------------------------------------------------------------
+# Plan 034 WP-4: the fdeploy (Folder Redirection) reader surface.
+#
+# `fdeploy.py` is a read target, not a write target -- see its module
+# docstring and the scope decision it cites. This block is the operator's
+# only path to the artifact: nothing in the GPO model carries it yet (WI-068),
+# so a caller who wants to know what `fdeploy1.ini` says has no route but this
+# one until that lands.
+#
+# Same shape as the two surfaces above: typed request in, typed structure out,
+# limitations carried in the response body rather than left in this comment.
+# `FdeployError` -- raised for a bad wire contract on either side of the codec
+# -- is mapped to 400 by the `fdeploy_error` handler above, not to the
+# `StudioError` family's 422, because it is never anything but a caller
+# mistake about the bytes it sent.
+# --------------------------------------------------------------------------
+
+#: `1 MiB` decoded, base64-inflated by 4/3 and rounded up with margin. The
+#: real cap is `fdeploy.py`'s own `_MAX_FDEPLOY_SIZE`; this only keeps an
+#: oversized string from being accepted by Pydantic before that check runs.
+_MAX_FDEPLOY_BASE64_LENGTH = 1_398_200
+
+
+class FdeployRequest(BaseModel):
+    """Native `fdeploy`/`fdeploy1` bytes, base64-encoded.
+
+    `filename` is advisory only, for a caller's own logging -- it is never
+    read to decide anything. Whether the bytes are a valid `fdeploy` artifact
+    is decided by `decode_fdeploy`'s BOM sniff, not by what the file was
+    called.
+    """
+
+    content_base64: str = Field(min_length=1, max_length=_MAX_FDEPLOY_BASE64_LENGTH)
+    filename: str | None = Field(default=None, max_length=260)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FdeployDiffRequest(BaseModel):
+    """Two native `fdeploy` documents to compare, both base64-encoded."""
+
+    old_base64: str = Field(min_length=1, max_length=_MAX_FDEPLOY_BASE64_LENGTH)
+    new_base64: str = Field(min_length=1, max_length=_MAX_FDEPLOY_BASE64_LENGTH)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FdeployFolderResponse(BaseModel):
+    guid: str
+    principals: list[str]
+
+
+class FdeployRedirectionResponse(BaseModel):
+    folder_guid: str
+    #: `known_folder_name(folder_guid)`, or `None`. Never a guess: an
+    #: unrecognised GUID is reported as `None` and the GUID, not a name made
+    #: up to fill the field.
+    folder_name: str | None
+    principal: str
+    full_path: str
+    #: The integer Windows wrote, or `None` when `Flags` was not one. See
+    #: `FdeployLimitation` code `flags_not_decoded` -- this is carried, never
+    #: decoded into named options.
+    flags: int | None
+    flags_text: str
+    describe_flags: str
+
+
+class FdeployLimitation(BaseModel):
+    """What this answer does not say, delivered with the answer.
+
+    The same contract as `PolicyFamilyLimitation` and `RsopLimitation`: a
+    caller reading JSON is not reading the module docstring, so a limit that
+    lives only there is surfaced without it.
+    """
+
+    code: str
+    message: str
+
+
+class FdeployParseResponse(BaseModel):
+    version: str | None
+    folders: list[FdeployFolderResponse]
+    redirections: list[FdeployRedirectionResponse]
+    is_marker: bool
+    parse_warnings: list[str]
+    #: Structural only, from `validate_fdeploy` -- see that function's
+    #: docstring for what it does and does not judge.
+    validation: list[ValidationIssueResponse]
+    report_lines: list[str]
+    limitations: list[FdeployLimitation]
+
+
+class FdeployChangeResponse(BaseModel):
+    kind: str
+    folder_guid: str
+    folder_name: str | None
+    principal: str
+    old_full_path: str | None
+    new_full_path: str | None
+    old_flags_text: str | None
+    new_flags_text: str | None
+
+
+class FdeployDiffResponse(BaseModel):
+    changes: list[FdeployChangeResponse]
+    limitations: list[FdeployLimitation]
+
+
+def _fdeploy_limitations() -> list[dict[str, str]]:
+    """Four limits, every one of them a ruling or a measurement, not a guess.
+
+    None is conditional on the query: every parse and every diff is missing
+    the same `Flags` decode, was measured against the same single native
+    capture, and is offered read-only for the same reason, so all three are
+    returned for every call rather than computed from the document.
+    """
+    return [
+        {
+            "code": "flags_not_decoded",
+            "message": FLAGS_ARE_UNDECODED,
+        },
+        {
+            "code": "single_capture_only",
+            "message": (
+                "Exactly one native capture exists (R3): one folder, one "
+                "principal. Multi-folder and multi-principal shapes are "
+                "unmeasured."
+            ),
+        },
+        {
+            "code": "folder_names_documented_not_measured",
+            "message": (
+                "folder_name comes from a table of documented KNOWNFOLDERID "
+                "values. Exactly one of them -- Documents -- is corroborated "
+                "by a capture in this repository; the rest are unmeasured. An "
+                "unrecognised GUID reports null rather than a guess."
+            ),
+        },
+        {
+            "code": "read_only_no_writer",
+            "message": (
+                "This is a read surface only -- no writer exists for "
+                "fdeploy. Authoring the artifact is deferred behind "
+                "WI-066/R12."
+            ),
+        },
+    ]
+
+
+def _decode_fdeploy_base64(content_base64: str) -> bytes:
+    """Decode a caller's base64 payload, folding a bad encoding into `FdeployError`.
+
+    Keeps the error surface single: an invalid base64 string and an invalid
+    `fdeploy` artifact both reach the caller as the same 400, through the one
+    handler registered for `FdeployError`, rather than a base64 failure
+    surfacing as an unhandled 500.
+    """
+    try:
+        return base64.b64decode(content_base64, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise FdeployError(f"invalid base64: {error}") from error
+
+
+def _fdeploy_redirection_response(rule: FdeployRedirection) -> dict[str, Any]:
+    return {
+        "folder_guid": rule.folder_guid,
+        "folder_name": known_folder_name(rule.folder_guid),
+        "principal": rule.principal,
+        "full_path": rule.full_path,
+        "flags": rule.flags,
+        "flags_text": rule.flags_text,
+        "describe_flags": rule.describe_flags(),
+    }
+
+
+@app.post("/api/folder-redirection/fdeploy", response_model=FdeployParseResponse)
+def parse_fdeploy_document(body: FdeployRequest) -> dict[str, Any]:
+    """Decode and parse a native `fdeploy`/`fdeploy1` file and report its structure.
+
+    This is the first route that reads the artifact at all -- see
+    `fdeploy.py`'s module docstring for why that is worth saying. Read
+    `limitations` before treating the output as the whole story: `Flags` is
+    carried, not decoded, and only one native shape has ever been measured.
+    """
+    document = read_fdeploy(_decode_fdeploy_base64(body.content_base64))
+    issues = validate_fdeploy(document)
+    return {
+        "version": document.version,
+        "folders": [
+            {"guid": guid, "principals": list(principals)}
+            for guid, principals in document.folders()
+        ],
+        "redirections": [
+            _fdeploy_redirection_response(rule) for rule in document.redirections()
+        ],
+        "is_marker": document.is_marker,
+        "parse_warnings": list(document.parse_warnings),
+        "validation": [asdict(issue) for issue in issues],
+        "report_lines": list(fdeploy_report_lines(document)),
+        "limitations": _fdeploy_limitations(),
+    }
+
+
+@app.post("/api/folder-redirection/fdeploy/diff", response_model=FdeployDiffResponse)
+def diff_fdeploy_documents(body: FdeployDiffRequest) -> dict[str, Any]:
+    """Diff two native `fdeploy` documents by `(folder GUID, principal)`.
+
+    Identity is the pair because that is the file's own key -- see
+    `diff_fdeploy`'s docstring. `kind` is `added`, `modified` or `removed`;
+    the side that does not apply carries `None` rather than an empty string.
+    """
+    old = read_fdeploy(_decode_fdeploy_base64(body.old_base64))
+    new = read_fdeploy(_decode_fdeploy_base64(body.new_base64))
+    return {
+        "changes": [
+            {
+                "kind": change.kind,
+                "folder_guid": change.folder_guid,
+                "folder_name": known_folder_name(change.folder_guid),
+                "principal": change.principal,
+                "old_full_path": change.old.full_path if change.old else None,
+                "new_full_path": change.new.full_path if change.new else None,
+                "old_flags_text": change.old.flags_text if change.old else None,
+                "new_flags_text": change.new.flags_text if change.new else None,
+            }
+            for change in diff_fdeploy(old, new)
+        ],
+        "limitations": _fdeploy_limitations(),
     }

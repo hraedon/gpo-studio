@@ -1,6 +1,11 @@
 # WI-062: the manifest-form requalification batch
 
-**Status:** executed 2026-09-10/11. 21 of 22 runs passed on frozen harness
+**Status:** executed 2026-09-10/11. **The estate repair this note describes is
+now [WI-069](../work-items.md), with a capture plan and a read-only collector in
+[`estate-clock-dns-repair.md`](estate-clock-dns-repair.md)** -- including the
+step this note did not take: that the records were *deleted*, rather than
+present and unserved, was concluded through a resolver and never checked
+against the directory. 21 of 22 runs passed on frozen harness
 `f5cad5777ec4ad3ed0857717d511b057852db6ba`: WP-0's manifest plus 20 lane
 verdicts, all schema version 2. The 22nd run -- the computer group-deny lane
 -- is owed by an estate repair and stays in

@@ -41,9 +41,13 @@ _BANKED = {
     ),
 }
 
-#: The Folder Redirection CSE GUID -- a Windows constant, the only GUID the
-#: semantic file names.
-_FR_CSE = "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}"
+#: The only GUID the semantic file names. It keys the *folder* --
+#: ``FOLDERID_Documents``, which is the folder R3 authored and which the
+#: captured ``FullPath`` ends in -- and it is **not** the Folder Redirection
+#: CSE GUID, ``{25537BA6-77A8-11D2-9B6C-0000F8080861}``, which is what R6's
+#: census counted and what this constant and the fixture's provenance note
+#: both called it until WI-067.
+_DOCUMENTS_FOLDER = "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}"
 
 
 def _native_capture_bytes(name: str) -> bytes:
@@ -110,13 +114,13 @@ def test_policy_reconstruction_is_hash_bound_with_banked_shape() -> None:
     sections, entries = _parse_inf(text)
 
     # fdeploy.section_names.* and sections.N.line_count, in file order.
-    assert sections == ["version", "Folder_Redirection", f"{_FR_CSE}_s-1-1-0"]
+    assert sections == ["version", "Folder_Redirection", f"{_DOCUMENTS_FOLDER}_s-1-1-0"]
     # fdeploy.entry_count == 4, with every key/value banked verbatim.
     assert len(entries) == 4
     assert entries["version"] == ("100", "version")
-    assert entries[_FR_CSE] == ("s-1-1-0;", "Folder_Redirection")
-    assert entries["Flags"] == ("1021", f"{_FR_CSE}_s-1-1-0")
+    assert entries[_DOCUMENTS_FOLDER] == ("s-1-1-0;", "Folder_Redirection")
+    assert entries["Flags"] == ("1021", f"{_DOCUMENTS_FOLDER}_s-1-1-0")
     assert entries["FullPath"] == (
         "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
-        f"{_FR_CSE}_s-1-1-0",
+        f"{_DOCUMENTS_FOLDER}_s-1-1-0",
     )
