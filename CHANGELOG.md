@@ -9,6 +9,14 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Added a Folder Redirection browser panel for reviewing native `fdeploy` files
+  and comparing earlier/current copies through the existing API. It preserves
+  uploaded bytes, shows raw flags and both files' structural diagnostics, and
+  distinguishes an empty redirection diff from identical file bytes. File
+  selections are bounded to 1 MiB each; changing files or closing the panel
+  prevents pending responses from restoring stale results. The panel retains
+  the reader's single-capture evidence limits; WI-066 and WI-068 remain open.
+
 - A second-opinion read of the fdeploy reader before it merged found four things
   worth keeping the record of, because three were self-inflicted. It was **not**
   cross-lineage, which the first version of this entry claimed: the reviewer was

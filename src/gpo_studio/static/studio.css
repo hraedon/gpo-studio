@@ -32,3 +32,22 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{max-height:cal
 .rail footer{display:flex;align-items:center;justify-content:space-between;gap:8px}
 #theme-toggle{background:transparent;border:1px solid var(--rail-line);color:var(--rail-footer);padding:5px 12px;font-size:12px;font-weight:650;border-radius:7px}
 #theme-toggle:hover{background:var(--rail-item-hover);color:var(--rail-ink)}
+
+/* Native Folder Redirection review: paths and identifiers must remain readable. */
+#folder-redirection-results :is(td, li, h3){overflow-wrap:anywhere}
+#folder-redirection-results table{table-layout:fixed;width:100%;min-width:600px}
+#folder-redirection-results td{vertical-align:top}
+#folder-redirection-results caption{text-align:left;font-weight:650;padding:10px 0}
+#folder-redirection-results details{margin-top:14px}
+#folder-redirection-results summary{cursor:pointer;font-weight:650}
+.fdeploy-report{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:12px}
+#folder-redirection-form input[type=file]{max-width:100%}
+.fdeploy-change{border:1px solid var(--line);border-radius:8px;padding:14px;margin-top:14px;overflow-wrap:anywhere}
+.fdeploy-change h4{font-size:15px;margin:0}
+.fdeploy-change h5{font-size:14px;margin:0 0 10px}
+.fdeploy-change-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.fdeploy-change-values>section{background:var(--surface-2);padding:12px;border-radius:6px}
+.fdeploy-change-values dl{margin:0}
+.fdeploy-change-values dt{font-size:12px;color:var(--muted)}
+.fdeploy-change-values dd{margin:2px 0 10px;white-space:pre-wrap}
+@media(max-width:600px){.fdeploy-change-values{grid-template-columns:1fr}}
