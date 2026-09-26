@@ -7,6 +7,13 @@ host this was written on — no `cred:lab-hyperv-control` or
 `scripts/windows-oracle/run-*-oracle.sh` would fail before it reached the
 Hyper-V host.
 
+**Update, 2026-09-25:** the [instrumented experiment](dns-deletion-experiment-20260925.md)
+ran on a newer, clock-seeded baseline. A forward jump alone, a NetLogon restart,
+and `dsregdns` left the DC-locator records intact there. This plan's three-phase
+collector has not seen the old failure; its mechanism remains unknown. The
+group-deny lane can now retry on the newer baseline with a DC-locator canary,
+but its verdict is still `PENDING_REQUALIFICATION`.
+
 It exists because the debt had no number and no plan. The failure is recorded
 in one paragraph of [`wi062-batch.md`](wi062-batch.md), referenced from
 `environment-spec.md`, `CHANGELOG.md` and WI-062's and WI-063's bodies, and

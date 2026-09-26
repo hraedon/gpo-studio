@@ -2705,13 +2705,14 @@ WI-063 says the estate "owes one anyway", and WI-064 and WI-065 each say the
 fix "costs an estate run" -- and the run all three are waiting on is waiting
 on this.
 
-**What is actually unknown.** Reverting to `estate-current-20260905` gives a
+**What was unknown at filing.** Reverting to `estate-current-20260905` gives a
 ~6-day Kerberos skew; setting the DC forward to real time works for minutes and
 then removes every dynamic DC-locator record domain-wide, host A records
 included. Reproduced four times with scavenging disabled, per-zone aging
 disabled, lockout threshold zero and records force-re-registered. The mechanism
 was not identified, three attempts are archived on the controller, and **no log
-from them is committed** — this repository holds the paragraph and nothing else.
+from those attempts is committed**. The later controlled experiment below is a
+separate baseline generation, not a record of those failures.
 
 **The step that was skipped.** Nothing established that the records were
 deleted rather than unserved. Absent, tombstoned, and present-but-unserved are
@@ -2728,6 +2729,17 @@ as configured rather than as remembered, and the DNS/W32Time/Netlogon events.
 It writes nothing. It was not run: this host has neither
 `cred:lab-hyperv-control` nor `cred:lab-guest-bootstrap` provisioned, so the
 transport is unavailable here.
+
+**Progress, 2026-09-25:** an [instrumented restore/jump experiment](plan-033/dns-deletion-experiment-20260925.md)
+on the newer, clock-seeded 2026-09-20 baseline found the DNS record set intact
+for 92 minutes after the jump and after separate NetLogon restart and `dsregdns`
+gestures. DNS debug logging saw no delete packets; directory auditing saw no
+writes to the DNS partitions. This exonerates the jump and those two gestures
+**on that generation**, not the old `estate-current-20260905` failure or the
+member activity the group-deny lane performs. The three-phase collector above
+has still not observed the old failure. The next discriminating step is the
+group-deny lane retry on the newer baseline with its DC-locator canary; its
+verdict remains `PENDING_REQUALIFICATION`, so this item remains open.
 
 **Two debts, not one.** The lane needs an estate it can run on; the record
 needs a mechanism. The document names two paths to the first that do not
