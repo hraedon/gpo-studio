@@ -37,6 +37,7 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{max-height:cal
 #folder-redirection-results :is(td, li, h3){overflow-wrap:anywhere}
 #folder-redirection-results table{table-layout:fixed;width:100%;min-width:600px}
 #folder-redirection-results td{vertical-align:top}
+#folder-redirection-results td.mono{white-space:pre-wrap}
 #folder-redirection-results caption{text-align:left;font-weight:650;padding:10px 0}
 #folder-redirection-results details{margin-top:14px}
 #folder-redirection-results summary{cursor:pointer;font-weight:650}
