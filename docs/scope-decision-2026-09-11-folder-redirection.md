@@ -6,6 +6,12 @@ target, a read target, or out of scope.
 **The ruling: read target. The writer is deferred behind R12, and deferred is
 not declined.**
 
+**Delivery update, 2026-09-25:** the existing reader and diff are also reachable
+through the **Folder Redirection** sidebar panel. It reviews selected native
+files and compares an earlier copy with a current one, displaying evidence
+limits and both files' diagnostics. See the [review guide](folder-redirection-review.md).
+Its evidence remains the R3 capture; workspace integration remains WI-068.
+
 This records a decision, not an argument for one. The argument is
 [`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md),
 which assembled everything a ruling needed and stopped there, as
