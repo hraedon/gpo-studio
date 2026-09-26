@@ -21,12 +21,11 @@ whose closing condition is not stated cannot be closed, only forgotten.
 Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
 
 
-**7 open.**
+**6 open.**
 
 - [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
 
 - [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
-- [WI-067](#wi-067--the-fixture-calls-a-folder-guid-the-cse-guid) - correct the upstream R3 provenance note.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 - [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - the check conflates unparsed with unparseable.
 - [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - star the key, then certify it with candidate rows.
@@ -2601,7 +2600,8 @@ without them.
 ## WI-067 — the fixture calls a folder GUID the CSE GUID
 
 **Opened:** 2026-09-11 (writing the fdeploy reader against the R3 capture).
-**Status:** open.
+**Status:** closed 2026-09-25. The incorrect label was introduced in this
+repository's derived provenance note; the upstream R3 envelope never had it.
 
 `tests/fixtures/native-folder-redirection-gpmc/provenance.json` says, in its
 sanitisation note, that `{FDD39AD0-238F-46AF-ADB4-6C85480369C7}` "is the
@@ -2634,12 +2634,19 @@ with the correction in its comment, and the provenance record carries a dated
 pins both GUIDs and asserts the capture names the folder one and not the CSE
 one.
 
-**Closes when:** the upstream record is corrected at source — the
-`windows-console-driver` R3 envelope
-(`docs/estate-window-3/records/r3-window3-record.json`) carries the same
-sanitisation note, and this repository holds a copy. The copy is now right and
-the original is not, which is the wrong way round for a provenance chain. It
-stays open until the upstream note is corrected or annotated the same way.
+**Closure audit (2026-09-25):** the supposed upstream correction has no target.
+The `windows-console-driver` R3 envelope
+(`docs/estate-window-3/records/r3-window3-record.json`, inspected at `dc6c560`)
+contains no sanitisation note or CSE label for the folder GUID. Its
+`ad.gPCUserExtensionNames` delta names
+`{25537BA6-77A8-11D2-9B6C-0000F8080861}`; its `fdeploy.entries.1.key`
+delta names `{FDD39AD0-238F-46AF-ADB4-6C85480369C7}`. The upstream record
+already distinguishes the two identifiers by where Windows wrote them. This
+repository's `provenance.json` was authored separately when the capture was
+copied, and its mistaken sanitisation wording is preserved with a dated
+`corrections` annotation. The test constant and assertions are corrected too.
+No upstream artifact needs changing; the earlier closing condition assumed a
+note there that does not exist.
 
 ## WI-068 — a parsed redirection reaches no GPO, so no report or diff shows it
 

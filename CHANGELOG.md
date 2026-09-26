@@ -79,8 +79,11 @@ Current version: `1.0.0`.
   and which appears in neither captured file. The repository already
   contradicted itself two paragraphs apart and nothing reconciled it because no
   code read the file. The constant is renamed and the provenance record carries
-  a dated correction rather than a silent rewrite; the upstream envelope is
-  still wrong, which is what keeps the item open.
+  a dated correction rather than a silent rewrite. The item is closed after
+  checking the upstream R3 envelope: it never carried the mistaken note. It
+  records the CSE GUID in `ad.gPCUserExtensionNames` and the folder GUID in
+  `fdeploy.entries.1.key`; the false label was introduced only by this
+  repository's derived provenance note.
 
 - Plan 034 WP-3: `policy_families.py` is reachable. `POST /api/security-template/
   policy-families` renders the account, audit, user-rights and security-options
