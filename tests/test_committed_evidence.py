@@ -860,6 +860,13 @@ RETIRED_VERDICTS.update({
 #: lockout disabled). The lane's verdict is owed by the estate repair that
 #: restores the DC to real time without the DNS purge, not by any harness
 #: change; the batch note records the attempts.
+#:
+#: That repair is now **WI-069**, with a three-phase read-only capture plan and
+#: a collector in `docs/plan-033/estate-clock-dns-repair.md`. It was a debt
+#: named only in prose until 2026-09-11, which is the failure the work-item
+#: register exists to prevent -- and it also notes the step nobody took: that
+#: the records were *deleted* was concluded through a resolver, and absent,
+#: tombstoned and present-but-unserved are one symptom from there.
 PENDING_REQUALIFICATION = {
     "wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json",
 }

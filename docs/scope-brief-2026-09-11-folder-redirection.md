@@ -1,8 +1,15 @@
 # Scope brief, 2026-09-11 — Folder Redirection
 
-Status: **not decided.** This is Plan 034 WP-4, which the plan states is "a
-decision first" and "not a lane until someone rules". Everything a ruling needs
-is now measured and assembled here; the ruling itself is a person's, in the way
+Status: **decided, 2026-09-11** — read target, writer deferred behind R12. The
+ruling is recorded in
+[`scope-decision-2026-09-11-folder-redirection.md`](scope-decision-2026-09-11-folder-redirection.md);
+this document is the argument it rests on and is kept as written, because a
+brief rewritten after the fact stops being evidence of how the decision was
+reached. Read it for the reasoning, not for the status.
+
+This is Plan 034 WP-4, which the plan states is "a decision first" and "not a
+lane until someone rules". Everything a ruling needed was measured and
+assembled here; the ruling itself was a person's, in the way
 `software_install`'s was.
 
 Nothing here consumed estate time. The decisive capture was taken in September
