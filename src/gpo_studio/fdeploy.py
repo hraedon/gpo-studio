@@ -107,6 +107,11 @@ _FLAGS_VALUE = re.compile(r"^\d{1,10}$", re.ASCII)
 #: more of them inform nobody and only inflate the answer.
 _MAX_VALIDATION_ISSUES = 1_000
 
+#: The same bound for parse warnings. Every unparseable line is a warning, so
+#: without it a 1 MiB file of one-character lines answers with ~175 000 of
+#: them -- and the report repeats each -- a 14 MB response to a 1 MiB request.
+_MAX_PARSE_WARNINGS = 1_000
+
 #: ``[{folder-guid}_{principal-sid}]``. The separator is an underscore and SIDs
 #: contain hyphens and digits only, so the split is unambiguous from the right.
 _REDIRECTION_SECTION = re.compile(
@@ -319,7 +324,17 @@ def parse_fdeploy(text: str) -> FdeployDocument:
     the serializer emits CRLF, which is what R3 measured throughout both
     native files.
     """
-    if len(text.encode("utf-8")) > _MAX_FDEPLOY_SIZE:
+    # Measured in the wire's own units -- UTF-16LE plus its BOM -- so a file
+    # `decode_fdeploy` accepted is never refused here. A UTF-8 measure would
+    # count BMP non-ASCII at three bytes where the file spends two, refusing a
+    # valid ~700 KB file as "exceeds 1048576 bytes". Encoding strictly also
+    # turns an unpaired surrogate in a caller's `str` into an `FdeployError`
+    # rather than a bare `UnicodeEncodeError`.
+    try:
+        native_size = len(_UTF16LE_BOM) + len(text.encode("utf-16-le"))
+    except UnicodeEncodeError as error:
+        raise FdeployError("fdeploy text contains an unpaired surrogate") from error
+    if native_size > _MAX_FDEPLOY_SIZE:
         raise FdeployError(f"fdeploy exceeds {_MAX_FDEPLOY_SIZE} bytes")
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -330,6 +345,15 @@ def parse_fdeploy(text: str) -> FdeployDocument:
 
     sections: list[FdeploySection] = []
     warnings: list[str] = []
+    unlisted_warnings = 0
+
+    def warn(message: str) -> None:
+        nonlocal unlisted_warnings
+        if len(warnings) < _MAX_PARSE_WARNINGS:
+            warnings.append(message)
+        else:
+            unlisted_warnings += 1
+
     preamble: list[str] = []
     current: str | None = None
     current_lines: list[str] = []
@@ -361,14 +385,14 @@ def parse_fdeploy(text: str) -> FdeployDocument:
                 raise FdeployError(f"section count exceeds {_MAX_SECTIONS}")
             name = header.group("name").strip()
             if not name:
-                warnings.append("Encountered section header with empty name")
+                warn("Encountered section header with empty name")
             current = name
             current_lines = [line]
             continue
         if current is None:
             preamble.append(line)
             if stripped:
-                warnings.append(f"Line outside any section: {stripped}")
+                warn(f"Line outside any section: {stripped}")
             continue
         current_lines.append(line)
         if not stripped:
@@ -383,9 +407,11 @@ def parse_fdeploy(text: str) -> FdeployDocument:
             entries.append((key.strip(), value.strip()))
         else:
             unknown.append(stripped)
-            warnings.append(f"Unparseable line in section '{current}': {stripped}")
+            warn(f"Unparseable line in section '{current}': {stripped}")
 
     flush()
+    if unlisted_warnings:
+        warnings.append(f"{unlisted_warnings} further parse warning(s) are not listed")
 
     return FdeployDocument(
         sections=tuple(sections),
@@ -704,6 +730,12 @@ def diff_fdeploy(
     both. That is a deliberate asymmetry -- a diff keyed on identity has no
     second slot for the same identity -- and the validator is where the file's
     own inconsistency is meant to be read.
+
+    The diff is scoped to redirection rows. The ``[version]`` value, the
+    ``[Folder_Redirection]`` listing and sections this module does not claim
+    are outside the key, and a change in a row's other entries reports the row
+    ``modified`` with ``FullPath`` and ``Flags`` possibly unchanged: compare
+    the two parses for those.
     """
     old_map = {(r.folder_guid.casefold(), r.principal.casefold()): r for r in old.redirections()}
     new_map = {(r.folder_guid.casefold(), r.principal.casefold()): r for r in new.redirections()}

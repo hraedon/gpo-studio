@@ -4837,8 +4837,9 @@ def _fdeploy_limitations() -> list[dict[str, str]]:
 
     None is conditional on the query: every parse and every diff is missing
     the same `Flags` decode, was measured against the same single native
-    capture, and is offered read-only for the same reason, so all three are
-    returned for every call rather than computed from the document.
+    capture, names its folders from the same documented table, and is offered
+    read-only for the same reason, so all four are returned for every call
+    rather than computed from the document.
     """
     return [
         {
