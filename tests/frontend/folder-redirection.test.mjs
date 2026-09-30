@@ -167,3 +167,35 @@ test("escapes every native value in a diff", () => {
   expect(html).not.toContain("<script>");
   expect(html).toContain("&lt;script&gt;");
 });
+
+test("counts sections in words and labels every cell for the stacked narrow layout", () => {
+  const one = renderDocument(DOCUMENT, "policy.ini");
+  expect(one).toContain("1 redirection section<");
+  expect(one).not.toContain("section(s)");
+  const two = renderDocument(
+    {
+      ...DOCUMENT,
+      redirections: [...DOCUMENT.redirections, ...DOCUMENT.redirections],
+    },
+    "policy.ini",
+  );
+  expect(two).toContain("2 redirection sections<");
+  for (const label of ["Folder", "Principal", "Full path", "Flags (raw)"]) {
+    expect(one).toContain(`data-label="${label}"`);
+  }
+});
+
+test("offers path breaks only between components and adds no characters", () => {
+  const path = "\\\\zz-server\\share\\%USERNAME%\\Documents";
+  const html = renderDocument(
+    {
+      ...DOCUMENT,
+      redirections: [{ ...DOCUMENT.redirections[0], full_path: path }],
+    },
+    "policy.ini",
+  );
+  const cell = html.match(/data-label="Full path">(.*?)<\/td>/)[1];
+  expect(cell).toContain("\\<wbr>share\\<wbr>");
+  expect(cell).not.toMatch(/[^\\/]<wbr>/);
+  expect(cell.replaceAll("<wbr>", "")).toBe(path);
+});

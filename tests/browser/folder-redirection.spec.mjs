@@ -159,7 +159,7 @@ test("recognises the native empty marker", async ({ page }) => {
     "Empty marker file",
   );
   await expect(page.locator(".fdeploy-document")).toContainText(
-    "0 redirection section(s)",
+    "0 redirection sections",
   );
 });
 

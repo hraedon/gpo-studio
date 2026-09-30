@@ -51,4 +51,16 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{max-height:cal
 .fdeploy-change-values dl{margin:0}
 .fdeploy-change-values dt{font-size:12px;color:var(--muted)}
 .fdeploy-change-values dd{margin:2px 0 10px;white-space:pre-wrap}
-@media(max-width:600px){.fdeploy-change-values{grid-template-columns:1fr}}
+#folder-redirection-results th:nth-child(1){width:26%}
+#folder-redirection-results th:nth-child(2){width:18%}
+#folder-redirection-results th:nth-child(3){width:44%}
+#folder-redirection-results th:nth-child(4){width:12%}
+@media(max-width:600px){
+.fdeploy-change-values{grid-template-columns:1fr}
+/* Stack each section as labelled rows: a sideways-scrolling table hid the path and flags columns. */
+#folder-redirection-results table{min-width:0;table-layout:auto}
+#folder-redirection-results thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+#folder-redirection-results :is(tbody,tr,td){display:block}
+#folder-redirection-results tr+tr{border-top:1px solid var(--line)}
+#folder-redirection-results td::before{content:attr(data-label);display:block;font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+}

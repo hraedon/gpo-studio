@@ -38,6 +38,20 @@ function fieldValue(value) {
   return escapeHtml(value);
 }
 
+function pathValue(value) {
+  // Offer a line break after each separator so a long UNC path wraps between
+  // components rather than mid-name. <wbr> adds no character: copied text and
+  // textContent are the stored value exactly.
+  const html = fieldValue(value);
+  return typeof value === "string" && value !== ""
+    ? html.replace(/[\\/]/g, "$&<wbr>")
+    : html;
+}
+
+function plural(count, noun) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 function renderDiagnostics(body) {
   const warnings = body.parse_warnings
     .map((warning) => `<li>${escapeHtml(warning)}</li>`)
@@ -58,7 +72,7 @@ export function renderDocument(body, filename, label = "Current file") {
   const rows = body.redirections
     .map(
       (rule) =>
-        `<tr><td>${folderLabel(rule.folder_name, rule.folder_guid)}</td><td class="mono">${escapeHtml(rule.principal)}</td><td class="mono">${fieldValue(rule.full_path)}</td><td class="mono">${fieldValue(rule.flags_text)}</td></tr>`,
+        `<tr><td data-label="Folder">${folderLabel(rule.folder_name, rule.folder_guid)}</td><td class="mono" data-label="Principal">${escapeHtml(rule.principal)}</td><td class="mono" data-label="Full path">${pathValue(rule.full_path)}</td><td class="mono" data-label="Flags (raw)">${fieldValue(rule.flags_text)}</td></tr>`,
     )
     .join("");
   const folders = body.folders
@@ -69,7 +83,7 @@ export function renderDocument(body, filename, label = "Current file") {
     .join("");
   return `<section class="fdeploy-document">
     <h3>${escapeHtml(label)}: ${escapeHtml(filename)}</h3>
-    <p>${body.is_marker ? "Empty marker file" : `Version: ${escapeHtml(body.version ?? "Absent")}`} · ${body.redirections.length} redirection section(s)</p>
+    <p>${body.is_marker ? "Empty marker file" : `Version: ${escapeHtml(body.version ?? "Absent")}`} · ${plural(body.redirections.length, "redirection section")}</p>
     ${renderDiagnostics(body)}
     ${rows ? `<div class="table-card"><table><caption>Redirection sections</caption><thead><tr><th scope="col">Folder</th><th scope="col">Principal</th><th scope="col">Full path</th><th scope="col">Flags (raw)</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="table-empty">No redirection sections in this file.</p>'}
     ${folders ? `<details><summary>Folder-to-principal map</summary><ul>${folders}</ul></details>` : ""}
@@ -85,11 +99,11 @@ export function renderComparison(body, identicalBytes) {
         <p class="mono">${escapeHtml(change.folder_guid)}<br>Principal: ${escapeHtml(change.principal)}</p>
         <div class="fdeploy-change-values">
           <section><h5>Earlier file</h5><dl>
-            <dt>Full path</dt><dd class="mono">${fieldValue(change.old_full_path)}</dd>
+            <dt>Full path</dt><dd class="mono">${pathValue(change.old_full_path)}</dd>
             <dt>Flags (raw)</dt><dd class="mono">${fieldValue(change.old_flags_text)}</dd>
           </dl></section>
           <section><h5>Current file</h5><dl>
-            <dt>Full path</dt><dd class="mono">${fieldValue(change.new_full_path)}</dd>
+            <dt>Full path</dt><dd class="mono">${pathValue(change.new_full_path)}</dd>
             <dt>Flags (raw)</dt><dd class="mono">${fieldValue(change.new_flags_text)}</dd>
           </dl></section>
         </div>
