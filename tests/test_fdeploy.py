@@ -15,6 +15,7 @@ have to be deliberately changed.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 from pathlib import Path
@@ -466,3 +467,62 @@ def test_a_section_header_with_an_empty_name_is_warned_about() -> None:
     document = parse_fdeploy("[]\nkey=value\n")
     assert any("empty name" in w for w in document.parse_warnings)
     assert document.sections[0].name == ""
+
+
+def test_a_non_canonical_section_round_trips_from_its_own_lines() -> None:
+    """The rebuild must come from the stored lines, not from a tidy re-render.
+
+    The native capture's lines happen to equal what rebuilding from `entries`
+    would produce, so it cannot tell the two apart. Spacing Windows never
+    writes can: dropping `section.lines` would print `key=value` here.
+    """
+    text = "[s]\r\n  key = value  \r\n\tother=1\r\n"
+    document = parse_fdeploy(text)
+    assert document.sections[0].lines == ("[s]", "  key = value  ", "\tother=1")
+    assert format_fdeploy(document) == text
+
+
+def test_the_serializer_never_hands_back_the_parsed_input() -> None:
+    """`format(parse(t)) == t` must be a claim about the parse, not `t == t`."""
+    document = parse_fdeploy(_policy_bytes().decode("utf-16"))
+    rebuilt = format_fdeploy(document)
+    tampered = dataclasses.replace(document, raw_text="this text is not the document\r\n")
+    assert format_fdeploy(tampered) == rebuilt
+    assert "not the document" not in format_fdeploy(tampered)
+
+
+def test_the_size_ceiling_is_measured_in_the_file_s_own_bytes() -> None:
+    """A file `decode_fdeploy` accepted must never be refused as oversized.
+
+    Measuring text as UTF-8 counted each BMP non-ASCII character at three
+    bytes where the file spends two, so a valid ~700 KB file of CJK text was
+    refused as exceeding 1 MiB.
+    """
+    head = "[version]\r\nversion=100\r\n[s]\r\nk="
+    filler = (1024 * 1024 - 2) // 2 - len(head) - 2
+    text = head + "文" * filler + "\r\n"
+    data = b"\xff\xfe" + text.encode("utf-16-le")
+    assert len(data) == 1024 * 1024
+    assert read_fdeploy(data).sections[1].entries[0][0] == "k"
+    with pytest.raises(FdeployError, match="exceeds"):
+        decode_fdeploy(data + "文".encode("utf-16-le"))
+    with pytest.raises(FdeployError, match="exceeds"):
+        parse_fdeploy(text + "x")
+
+
+def test_an_unpaired_surrogate_is_an_fdeploy_error_not_a_crash() -> None:
+    for text in ("\ud800", "a\udfff", "[s]\nk=\udc00\n"):
+        with pytest.raises(FdeployError, match="unpaired surrogate"):
+            parse_fdeploy(text)
+
+
+def test_parse_warnings_are_capped_and_counted() -> None:
+    """One warning per junk line would make the answer proportional to the input."""
+    document = parse_fdeploy("[s]\n" + "junk\n" * 3_000)
+    warnings = document.parse_warnings
+    assert len(warnings) == 1_001
+    assert warnings[-1] == "2000 further parse warning(s) are not listed"
+    report = list(fdeploy_report_lines(document))
+    assert sum(line.startswith("Parse warning:") for line in report) == 1_001
+    # Every junk line is still preserved verbatim; only the complaint list is bounded.
+    assert format_fdeploy(document) == "[s]\r\n" + "junk\r\n" * 3_000
