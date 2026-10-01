@@ -64,3 +64,7 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{max-height:cal
 #folder-redirection-results tr+tr{border-top:1px solid var(--line)}
 #folder-redirection-results td::before{content:attr(data-label);display:block;font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
 }
+
+/* Keep every dialog's close button beside its title. With wrapping allowed, a title wider than a
+   390 px dialog pushed the × onto its own line under the heading; the title shrinks and wraps instead. */
+.dialog-head{flex-wrap:nowrap;align-items:flex-start}.dialog-head>div:first-child{flex:1 1 auto}.dialog-head>.icon{flex:none}
