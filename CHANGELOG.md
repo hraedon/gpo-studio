@@ -9,648 +9,649 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
-- Added a Folder Redirection browser panel for reviewing native `fdeploy` files
-  and comparing earlier/current copies through the existing API. It preserves
-  uploaded bytes, shows raw flags and both files' structural diagnostics, and
-  distinguishes an empty redirection diff from identical file bytes. File
-  selections are bounded to 1 MiB each; changing files or closing the panel
-  prevents pending responses from restoring stale results. The panel retains
+- Added a Folder Redirection browser panel that reviews native `fdeploy` files
+  and compares an earlier copy with a current one, through the existing API. It
+  preserves the uploaded bytes, shows raw flags and both files' structural
+  diagnostics, and distinguishes an empty redirection diff from identical file
+  bytes. Each selected file is limited to 1 MiB. Changing files or closing the
+  panel stops pending responses from restoring stale results. The panel keeps
   the reader's single-capture evidence limits; WI-066 and WI-068 remain open.
 
-- A second-opinion read of the fdeploy reader before it merged found four things
-  worth keeping the record of, because three were self-inflicted. It was **not**
-  cross-lineage, which the first version of this entry claimed: the reviewer was
-  a Claude subagent, the same lineage as the author, so it is a second opinion
-  and carries none of the independence a cross-lineage review is cited for. The
-  defects it found are real either way; the provenance claim was not. A `Flags`
-  value of more than 4300 digits reached `int()`, which refuses that conversion
-  and raises a bare `ValueError` -- a 10 KB request returned 500 from a handler
-  whose own docstring says this surface is never a server fault; the digit
-  pattern is bounded now. `is_marker` was "no sections", so a file of prose was
-  reported as the empty marker GPMC writes, validated clean, and described in a
-  report line that asserted Windows wrote it -- three untrue statements about a
-  native artifact, now one honest one. `validate_fdeploy` was quadratic and its
-  result unbounded: one in-cap document took 4.19s and produced a 5.4MB answer,
-  and takes 0.045s for a capped one now.
-  The fourth is the useful one. `format_fdeploy` returned its input whenever a
-  reparse matched, so `format(parse(t)) == t` was `t == t` and both round-trip
-  tests passed against a parser mutated to return no sections at all -- exactly
-  the self-consistency AGENTS.md rejects, in a test whose docstring cited
-  WI-064 to claim otherwise. The serializer now always rebuilds from the parsed
-  document, which is why the document carries the file's preamble and each
-  section's verbatim lines; the same mutation now fails twelve tests.
+- Fixed four defects in the fdeploy reader, found by a second-opinion review
+  before it merged; three of them were introduced by the author. The review was
+  **not** cross-lineage, although the first version of this entry said so: the
+  reviewer was a Claude subagent, the same lineage as the author, so it carries
+  none of the independence a cross-lineage review is cited for. The defects are
+  real either way.
+  - A `Flags` value longer than 4300 digits reached `int()`, which refuses that
+    conversion and raises a bare `ValueError`. A 10 KB request returned 500 from
+    a handler whose docstring says this surface never produces a server fault.
+    The digit pattern is now bounded.
+  - `is_marker` meant "no sections", so a file of prose was reported as the
+    empty marker GPMC writes, validated clean, and described in a report line
+    that said Windows wrote it: three false statements about a native artifact.
+    It now makes one accurate statement.
+  - `validate_fdeploy` was quadratic and its result unbounded. One document
+    within the size cap took 4.19 s and produced a 5.4 MB answer; a capped
+    document now takes 0.045 s.
+  - `format_fdeploy` returned its input whenever a reparse matched, so
+    `format(parse(t)) == t` reduced to `t == t`. Both round-trip tests passed
+    against a parser mutated to return no sections at all. That is the
+    self-consistency check AGENTS.md rejects, in a test whose docstring cited
+    WI-064 to claim otherwise. The serializer now always rebuilds from the
+    parsed document, which is why the document carries the file's preamble and
+    each section's verbatim lines. The same mutation now fails twelve tests.
 
-- WI-069: the estate repair that blocks the 22nd lane is an item now, not a
-  paragraph. It had no number while three open items (WI-063, WI-064, WI-065)
-  waited on the estate run it blocks, and the only account of the failure was
-  one paragraph in the WI-062 batch note that four other documents pointed
-  back at. `docs/plan-033/estate-clock-dns-repair.md` adds the capture plan and
-  `scripts/plan-033/collect-dc-clock-dns.ps1` the read-only collector -- three
-  phases, LDAP node state and replication metadata rather than resolver
-  answers, the scavenging and aging settings as configured rather than as
-  remembered. Neither was run: this host has no lab credential capability
-  provisioned, so the transport is unavailable from it.
-  It also records the step nobody took. That the DC-locator records were
-  *deleted* was concluded through a resolver, and absent, tombstoned and
-  present-but-unserved are one symptom from there and three different findings
-  over LDAP -- the third being plausible on exactly the machine whose clock has
-  just jumped. The account may still be right; the step between symptom and
-  mechanism was never taken, and it is one read.
+- WI-069 now tracks the estate repair that blocks the 22nd lane. It previously
+  had no number, while three open items (WI-063, WI-064, WI-065) waited on the
+  estate run it blocks, and the only account of the failure was one paragraph
+  in the WI-062 batch note that four other documents pointed to.
+  `docs/plan-033/estate-clock-dns-repair.md` adds the capture plan, and
+  `scripts/plan-033/collect-dc-clock-dns.ps1` adds a three-phase, read-only
+  collector. It reads LDAP node state and replication metadata rather than
+  resolver answers, and the scavenging and aging settings as configured rather
+  than as remembered. Neither has been run: this host has no lab credential
+  capability provisioned, so the transport is unavailable from it.
+  The item also records a step that was skipped. The conclusion that the
+  DC-locator records were *deleted* came from a resolver. Through a resolver,
+  absent, tombstoned and present-but-unserved records look the same; over LDAP
+  they are three different findings, and the third is plausible on exactly the
+  machine whose clock has just jumped. The account may still be right, but the
+  step from symptom to mechanism was never taken, and it is one read.
 
-- Plan 034 WP-4 is ruled: Folder Redirection is a **read target**, with the
-  writer deferred behind R12
+- Plan 034 WP-4 is decided: Folder Redirection is a **read target**, and the
+  writer is deferred behind R12
   ([the decision](docs/scope-decision-2026-09-11-folder-redirection.md)). The
-  read half is `src/gpo_studio/fdeploy.py` -- a strict UTF-16LE/BOM codec, a
-  lossless parse, structural validation, review rendering and a diff keyed on
-  `(folder GUID, principal)` -- reachable at
-  `POST /api/folder-redirection/fdeploy`. Before this, `fdeploy1.ini` reached
-  an operator as a 458-byte SHA-256 in the unmodeled-file inventory, and the
-  module named `folder_redirection.py` addressed neither it nor the marker
+  read half is `src/gpo_studio/fdeploy.py`: a strict UTF-16LE/BOM codec, a
+  lossless parse, structural validation, review rendering, and a diff keyed on
+  `(folder GUID, principal)`. It is reachable at
+  `POST /api/folder-redirection/fdeploy`. Before this, an operator saw
+  `fdeploy1.ini` only as a 458-byte SHA-256 in the unmodeled-file inventory, and
+  the module named `folder_redirection.py` addressed neither it nor the marker
   beside it.
-  Four limits ride in the module and in every response rather than in a
-  document: `Flags` is carried as the integer Windows wrote and **no bit is
-  named** -- one capture is one observation of a ten-bit word (WI-066); one
-  capture is also one shape, so multi-folder and multi-principal documents are
-  unmeasured; twelve of the thirteen folder names are documented Windows
-  constants no lane has measured, and an unrecognised GUID reports null rather
-  than a guess; and there is no writer. No lane has read this artifact in either direction, so the banked
-  R3 capture is doing a lane's job: the reader is tested against bytes
-  hash-bound to what GPMC wrote, which is stronger than a round trip through
-  our own output and weaker than a verdict.
+  Four limits are carried in the module and in every response, not only in
+  documentation:
+  - `Flags` is carried as the integer Windows wrote, and **no bit is named**.
+    One capture is one observation of a ten-bit word (WI-066).
+  - One capture is also one shape, so multi-folder and multi-principal
+    documents are unmeasured.
+  - Twelve of the thirteen folder names are documented Windows constants that
+    no lane has measured. An unrecognised GUID reports null rather than a guess.
+  - There is no writer.
+
+  No lane has read this artifact in either direction, so the banked R3 capture
+  stands in for one: the reader is tested against bytes hash-bound to what GPMC
+  wrote. That is stronger than a round trip through Studio's own output and
+  weaker than a verdict.
   The parse reaches no `GPO`, so an imported backup's reports and diffs are
-  unchanged -- that field lands in `model.py`, which two live verdicts bind
+  unchanged. That field would land in `model.py`, which two live verdicts bind
   (WI-068, filed against the batch that owes WI-063 through WI-065).
 - WI-067: the R3 fixture's provenance called
-  `{FDD39AD0-238F-46AF-ADB4-6C85480369C7}` the Folder Redirection CSE GUID. It
-  keys the redirected *folder*; the CSE GUID is
-  `{25537BA6-77A8-11D2-9B6C-0000F8080861}`, which is what R6's census counted
-  and which appears in neither captured file. The repository already
-  contradicted itself two paragraphs apart and nothing reconciled it because no
-  code read the file. The constant is renamed and the provenance record carries
-  a dated correction rather than a silent rewrite. The item is closed after
-  checking the upstream R3 envelope: it never carried the mistaken note. It
-  records the CSE GUID in `ad.gPCUserExtensionNames` and the folder GUID in
-  `fdeploy.entries.1.key`; the false label was introduced only by this
-  repository's derived provenance note.
+  `{FDD39AD0-238F-46AF-ADB4-6C85480369C7}` the Folder Redirection CSE GUID. That
+  GUID keys the redirected *folder*. The CSE GUID is
+  `{25537BA6-77A8-11D2-9B6C-0000F8080861}`, which R6's census counted and which
+  appears in neither captured file. The repository contradicted itself two
+  paragraphs apart, and nothing caught it because no code read the file. The
+  constant is renamed, and the provenance record carries a dated correction
+  instead of a silent rewrite. Closed after checking the upstream R3 envelope,
+  which never carried the mistake: it records the CSE GUID in
+  `ad.gPCUserExtensionNames` and the folder GUID in `fdeploy.entries.1.key`. The
+  false label came only from this repository's derived provenance note.
 
-- Plan 034 WP-3: `policy_families.py` is reachable. `POST /api/security-template/
-  policy-families` renders the account, audit, user-rights and security-options
-  families as a `GptTmpl.inf` -- text for reading, UTF-16LE/BOM/CRLF bytes for
-  writing -- in the emission direction its member and DC lanes certified
-  (21/21 each at `4e27f27`) and no further. It does not parse a template back:
-  that direction reaches its oracle only through a GPMC snap-in and no lane
-  certifies it. Every response carries the three limits the lane did not reach
-  -- `/configure` is never invoked, one tranche of values was measured, and
-  GPME editing is unmeasured -- and a member-server render omits the Kerberos
-  section, which is what the lane's finalizer requires. The second layer to
-  leave the unproven-draft set after `rsop.py`, and the first from Plan 025,
-  whose three other modules remain in it.
+- Plan 034 WP-3: `policy_families.py` is reachable.
+  `POST /api/security-template/policy-families` renders the account, audit,
+  user-rights and security-options families as a `GptTmpl.inf`: text for
+  reading, UTF-16LE/BOM/CRLF bytes for writing. It covers only the emission
+  direction that its member and DC lanes certified (21/21 each at `4e27f27`).
+  It does not parse a template back, because that direction reaches its oracle
+  only through a GPMC snap-in and no lane certifies it. Every response carries
+  the three limits the lane did not reach: `/configure` is never invoked, one
+  tranche of values was measured, and GPME editing is unmeasured. A
+  member-server render omits the Kerberos section, as the lane's finalizer
+  requires. This is the second layer to leave the unproven-draft set, after
+  `rsop.py`, and the first from Plan 025, whose three other modules remain in
+  it.
   The composition lives in `api.py` because the serializers, their codec and
-  the candidate builder are all in the verdicts' bound file set;
+  the candidate builder are all in the verdicts' bound file set.
   `tests/test_policy_family_surface.py` holds it equal to the certified
-  builder's in both scopes rather than letting a second composition drift.
-- WI-066: R3 answered one of the four questions it was designed to answer. Its
-  request authors two folders -- Documents in Basic with three non-default
-  options, and Pictures in Advanced with two groups at defaults, the second
-  existing expressly so the first could be read against it. Step 4 was never
+  builder's in both scopes, so a second composition cannot drift.
+- WI-066: R3 answered one of the four questions it was designed to answer. The
+  request authors two folders: Documents in Basic mode with three non-default
+  options, and Pictures in Advanced mode with two groups at defaults, the
+  second there so the first could be read against it. Step 4 was never
   authored, so the banked capture is one folder, one principal and one
   `Flags=1021`: nine bits set against four modelled booleans, with no control.
-  Nothing was misrecorded -- the result was entered against the scope-changing
-  question R3 was asked, which it answers emphatically, and the binding table
-  had no column for what a capture did not settle. R3's row now says. R12 is
-  step 4 re-requested, plus a third folder that makes one flag bit derivable
-  rather than merely constrained; it is a console session, not a lane. Checked
+  Nothing was misrecorded. The result was entered against the scope-changing
+  question R3 was asked, which it answers decisively, and the binding table had
+  no column for what a capture did not settle. R3's row now records that. R12
+  re-requests step 4 and adds a third folder that makes one flag bit derivable
+  rather than only constrained; it is a console session, not a lane. Checked
   while filing: R3 is the only request whose claim is narrower than its body.
 - Plan 034 WP-4: the Folder Redirection scope brief
-  (`docs/scope-brief-2026-09-11-folder-redirection.md`). Not a ruling -- the
-  plan says this one is a decision, and the brief assembles what it needs
-  without taking it. Zero estate time. It ran the offline discriminator the
-  survey asked for and nobody had: an advanced policy with three group rules
-  produces one registry tuple, carrying neither the group SIDs nor the four
-  option flags that R3 shows Windows encoding as `Flags=1021`, so
+  (`docs/scope-brief-2026-09-11-folder-redirection.md`). It is not a ruling:
+  the plan makes this a decision, and the brief gathers what the decision needs
+  without making it. It used no estate time. It ran the offline discriminator
+  the survey asked for and no one had run: an advanced policy with three group
+  rules produces one registry tuple, carrying neither the group SIDs nor the
+  four option flags that R3 shows Windows encoding as `Flags=1021`. So
   `to_registry_settings()` is not a Folder Redirection writer at any level of
   detail. The CSE appears in 0 of the same 26 production GPOs that ruled
-  Software Installation out -- but the two costs that made *that* ruling easy
+  Software Installation out, but the two costs that made *that* ruling easy
   are absent here: this capture is already taken, and `fdeploy1.ini` is a
   458-byte UTF-16LE INI whose oracle is `Backup-GPO`, not an undocumented
-  binary. Recommendation: read target, write deferred rather than refused.
-  `tests/test_folder_redirection_scope.py` pins the code facts and fails when a
-  ruling is acted on.
-- The "Security template" panel: one dialog reaching both Plan 034 WP-3
-  surfaces, switched by a mode selector, with `limitations` rendered **above**
-  the answer as the RSOP panel does. Thin on purpose -- families arrive as JSON
-  and only `scope` is a field. The `scope` control is hidden for object
-  security, which has no such distinction, and an empty validation list renders
-  with WI-055's ruling beside it rather than as a bare "no issues". Seven
-  browser tests including an axe scan of the open dialog, which the
+  binary. Recommendation: read target, with writing deferred rather than
+  refused. `tests/test_folder_redirection_scope.py` pins the code facts and
+  fails when a ruling is acted on.
+- Added the "Security template" panel: one dialog for both Plan 034 WP-3
+  surfaces, switched by a mode selector. Like the RSOP panel, it renders
+  `limitations` **above** the answer. It is kept thin: families are entered as
+  JSON, and only `scope` is a form field. The `scope` control is hidden for
+  object security, which has no such distinction. An empty validation list is
+  shown with WI-055's ruling beside it, not as a bare "no issues". Seven
+  browser tests, including an axe scan of the open dialog, which the
   workspace-wide scan cannot reach because it runs with every dialog closed.
 - `POST /api/security-template/policy-families` now declares
   `empty_sections_unmeasured` when a family renders as a bare section header.
-  `UserRightsFamily` and `SecurityOptionsFamily` emit their section
-  unconditionally while the object-security families omit theirs when empty;
-  the two disagree, every section in the certified candidate carried entries,
-  and only the non-empty behaviour is measured. Conditional on what the render
-  produced, which is an exact property of the answer rather than a guess about
-  the caller.
-- `docs/plan-033/bound-source-cost.md`: what each file costs to edit, in lanes
-  that must be re-run, generated from the live verdicts by
-  `scripts/plan-033/report-bound-source-cost.py` and guarded by
-  `tests/test_bound_source_cost.py`. The information was always complete and
-  never readable -- spread across twenty-one packs -- so pricing a change meant
-  opening all of them. `oracle_evidence.py` and `psdirect.ps1` cost the whole
-  estate; `model.py`, `export.py` and `validation.py` cost two lanes each; the
-  rest of `src/gpo_studio/` costs nothing, which is a statement about coverage
-  rather than about quality. Linked from AGENTS.md, where the next session
-  reads it before editing.
-- Plan 034 WP-3: `object_security.py` is reachable. `POST /api/security-template/
-  object-security` renders registry-key, file-system and service security as a
-  `GptTmpl.inf`, for the three families its lane certified (18/18 at
-  `f5cad577`, propagation codes 0/1/2 and startup codes 2/3/4) and in the
-  emission direction only. Restricted groups are not renderable: no lane has
-  read that serializer. Four limits ride on every response, including
-  `acl_content_is_not_judged` -- WI-055's ruling, surfaced where a caller reads
-  the answer rather than left as an empty `issues` list that looks like
-  approval.
+  `UserRightsFamily` and `SecurityOptionsFamily` always emit their section,
+  while the object-security families omit theirs when empty. The two disagree,
+  every section in the certified candidate had entries, and only the non-empty
+  behaviour is measured. The limit is declared only when the render produced a
+  bare header, so it is an exact property of the answer, not a guess about the
+  caller.
+- Added `docs/plan-033/bound-source-cost.md`, which lists for each file the
+  lanes that must be re-run if it is edited.
+  `scripts/plan-033/report-bound-source-cost.py` generates it from the live
+  verdicts, and `tests/test_bound_source_cost.py` guards it. The information
+  was always complete but spread across twenty-one packs, so pricing a change
+  meant opening all of them. `oracle_evidence.py` and `psdirect.ps1` cost the
+  whole estate; `model.py`, `export.py` and `validation.py` cost two lanes
+  each; the rest of `src/gpo_studio/` costs nothing, which describes lane
+  coverage, not code quality. AGENTS.md links it so the next session reads it
+  before editing.
+- Plan 034 WP-3: `object_security.py` is reachable.
+  `POST /api/security-template/object-security` renders registry-key,
+  file-system and service security as a `GptTmpl.inf`. It covers only the
+  three families its lane certified (18/18 at `f5cad577`, propagation codes
+  0/1/2 and startup codes 2/3/4), and only the emission direction. Restricted
+  groups cannot be rendered, because no lane has read that serializer. Every
+  response carries four limits, including `acl_content_is_not_judged`
+  (WI-055's ruling), shown where a caller reads the answer instead of as an
+  empty `issues` list that looks like approval.
 - WI-064: the restricted-groups writer emits `S-1-5-32-544__Members` where
-  Windows exports `*S-1-5-32-544__Members`, starring every SID in the entry's
-  value and not the one in its key. The parser strips a leading star, so Studio
+  Windows exports `*S-1-5-32-544__Members`; it stars every SID in the entry's
+  value but not the one in its key. The parser strips a leading star, so Studio
   read its own output back into the model that produced it and the round trip
   stayed clean. Filed, not fixed: the module is bound by its verdict.
 - WI-065: `SystemServicesFamily.validate` reports `unparseable_service_sddl`
-  when `raw_sddl` is set and `security_descriptor` is `None` -- but that field
-  is only populated by `from_template`, so a directly built model is called
-  malformed for having gone unparsed. Validating the object-security lane's own
-  candidate yields three such errors for a descriptor Windows accepted. The
-  surface parses on construction as a workaround; the check itself is filed
-  against the same batch.
-- WI-063: eight `run-*-oracle.sh` lane runners are committed with CRLF and no
-  longer parse under `bash`. Filed rather than fixed: all sixteen affected
-  files are hash-bound by the WI-062 batch, so renormalizing them fails the
-  live-harness binding for 19 of the 21 banked verdicts and costs an estate
-  requalification, which the estate owes anyway for its 22nd lane.
-  `tests/test_lane_runner_line_endings.py` holds the line until then. The
-  mechanism is `-text` in `.gitattributes`, which pins committed bytes in both
-  directions and so removes the worktree/index disagreement WI-059's guard
-  detects; `text eol=lf` -- already used for every `src/gpo_studio/*.py` in the
-  same file -- pins LF and keeps the guard.
+  when `raw_sddl` is set and `security_descriptor` is `None`. Only
+  `from_template` populates that field, so a directly built model is reported
+  as malformed just because it was never parsed. Validating the object-security
+  lane's own candidate gives three such errors for a descriptor Windows
+  accepted. As a workaround the surface parses on construction; the check
+  itself is filed against the same batch.
+- WI-063: eight `run-*-oracle.sh` lane runners are committed with CRLF line
+  endings and no longer parse under `bash`. Filed, not fixed: all sixteen
+  affected files are hash-bound by the WI-062 batch, so renormalizing them
+  would break the live-harness binding for 19 of the 21 banked verdicts and
+  cost an estate requalification. The estate owes one anyway for its 22nd
+  lane. `tests/test_lane_runner_line_endings.py` holds the line until then.
+  The cause is `-text` in `.gitattributes`, which pins committed bytes in both
+  directions and so removes the worktree/index disagreement that WI-059's
+  guard detects. `text eol=lf`, already used for every `src/gpo_studio/*.py`
+  in the same file, pins LF and keeps the guard.
 - WI-061: revision snapshots no longer each carry a full copy of the retained
   native XML. Schema v4 stores each distinct document once
-  (`retained_documents`, keyed by the SHA-256 of the decoded bytes) with
-  per-snapshot references, rehydrating at every store read so no consumer of
-  the API observes the encoding; a v3 workspace migrates in place, and
-  deleting the last holder collects its documents. The bound
-  Scripts/publication qualifications are re-earned by this batch.
+  (`retained_documents`, keyed by the SHA-256 of the decoded bytes), with
+  references from each snapshot. Every store read rehydrates the documents, so
+  no API consumer sees the encoding. A v3 workspace migrates in place, and
+  deleting the last snapshot that holds a document removes it. This batch
+  re-earns the bound Scripts and publication qualifications.
 - WI-062: evidence packs no longer bank byte copies of controller-side bound
-  source. Verdicts record `(commit, path, sha256)` for every bound file
-  (schema version 2), `harness_matches_source` covers the guest-deployed
-  half, WP-0's manifest carries the orchestrator files in `source.bound`,
-  and `test_committed_evidence.py` re-derives recorded digests from git at
-  each verdict's own commit. Historical packs and tags are untouched. The
-  requalification batch banked WP-0 plus 20 schema-version-2 verdicts at one
-  frozen harness; the computer group-deny lane is pending the estate repair
+  source. Verdicts (schema version 2) record `(commit, path, sha256)` for every
+  bound file. `harness_matches_source` covers the half deployed to the guest,
+  WP-0's manifest lists the orchestrator files in `source.bound`, and
+  `test_committed_evidence.py` re-derives recorded digests from git at each
+  verdict's own commit. Historical packs and tags are untouched. The
+  requalification batch banked WP-0 plus 20 schema-version-2 verdicts on one
+  frozen harness. The computer group-deny lane is pending the estate repair
   its batch note describes. See [the decision](docs/plan-033/bound-source-manifest.md)
   and [the batch](docs/plan-033/wi062-batch.md).
-- WI-061 (part): `GET /api/gpos` and `GET /api/starter-gpos` no longer carry
-  WI-060's retained native XML in every row -- rows report
-  `has_backup_inventory` and the detail endpoint serves the snapshot. The
+- WI-061 (part): rows from `GET /api/gpos` and `GET /api/starter-gpos` no
+  longer include WI-060's retained native XML. Rows report
+  `has_backup_inventory`, and the detail endpoint serves the snapshot. The
   workbench refetches the list on load and after every mutation. The
   per-revision copies of the same bytes remain open.
-- Retained inventory paths are now deduplicated exactly rather than
-  case-insensitively: `read_backup` keys its file map case-sensitively and fed
-  its own output back through the validator, which could refuse a capture the
+- Retained inventory paths are now deduplicated exactly, not
+  case-insensitively. `read_backup` keys its file map case-sensitively, and
+  feeding its own output back through the validator could refuse a capture the
   importer had just produced. Reports also state that native names and values
   are reproduced verbatim from the source domain.
-- WI-060: native backup imports retain the original XML documents and a complete
-  payload file inventory. Plain-text reports expose imported native settings,
-  including unmodeled Scripts commands, as an explicitly historical snapshot.
-  Payload bytes still require the original backup. The regression compares
-  27 Windows-produced backups; the two affected qualifications each passed
+- WI-060: native backup imports keep the original XML documents and a complete
+  payload file inventory. Plain-text reports show imported native settings,
+  including unmodeled Scripts commands, explicitly as a historical snapshot.
+  Payload bytes still require the original backup. The regression compares 27
+  Windows-produced backups, and the two affected qualifications each passed
   21/21 on fresh clean-source runs. See
   [the measured scope and evidence](docs/plan-033/backup-report-fidelity.md).
-- WI-059: every oracle finalizer now refuses working-tree/index/HEAD byte
-  drift before writing verdicts or tags, including with `--no-tag`. All 21
-  live lane verdicts and WP-0 were requalified in one frozen estate batch;
-  exact captures and historical records are preserved. See
+- WI-059: every oracle finalizer now refuses working-tree/index/HEAD byte drift
+  before writing verdicts or tags, including with `--no-tag`. All 21 live lane
+  verdicts and WP-0 were requalified in one frozen estate batch. Exact captures
+  and historical records are preserved. See
   [the completed batch](docs/plan-033/wi059-harness-batch.md).
 - WI-028: measured `SearchedSOM` persistence in the client's RSoP WMI namespace
-  after verified OU deletion and policy refresh. The investigation documents
+  after a verified OU deletion and policy refresh. The investigation documents
   a scoped-use strategy for future SOM assertions; current lanes do not grade
-  these historical rows. See [the findings](docs/plan-033/wi028-searched-som-investigation.md).
+  these historical rows. See
+  [the findings](docs/plan-033/wi028-searched-som-investigation.md).
 - Plan 034: the unsurfaced policy-family serializers now feed a repeatable
-  Windows WP-3 lane. Native validation found and corrected `AuditDSAccess`
-  and rejected two speculative Kerberos fields, which were removed. Final
-  member/DC runs each pass 21 checks with retained raw evidence and source
-  bindings. The lane records DC role and retains failure evidence. See
+  Windows WP-3 lane. Native validation found and corrected `AuditDSAccess` and
+  rejected two speculative Kerberos fields, which were removed. Final member
+  and DC runs each pass 21 checks, with retained raw evidence and source
+  bindings. The lane records the DC role and retains failure evidence. See
   [the results](docs/plan-033/wp3-policy-family-results.md).
-- Plan 034 object-security serializer lane passed 19/19 checks on the clean
-  member server, with exact six registry/file and three service rows retained
-  in the evidence pack. ACL application and content suitability remain outside
-  scope under WI-055. See [the results](docs/plan-033/object-security-results.md).
-- Plan 034 Scripts metadata lane passed 21/21 checks for Import-GPO,
-  Get-GPOReport, and Backup-GPO rebackup. Script payload execution remains
-  outside scope.
-- Artifact-store scope is now explicit: EICAR marker and secret heuristics are
-  local checks, executable publication requires a future verified signer path,
-  duplicate arrivals append provenance without replacing the canonical row,
-  and publication eligibility remains read-only. See
+- Plan 034: the object-security serializer lane passed 19/19 checks on the
+  clean member server, retaining the exact six registry/file rows and three
+  service rows in the evidence pack. ACL application and content suitability
+  remain out of scope under WI-055. See
+  [the results](docs/plan-033/object-security-results.md).
+- Plan 034: the Scripts metadata lane passed 21/21 checks for Import-GPO,
+  Get-GPOReport and Backup-GPO rebackup. Script payload execution remains out
+  of scope.
+- Artifact-store scope is now explicit: the EICAR marker and secret heuristics
+  are local checks; executable publication requires a future verified signer
+  path; duplicate arrivals append provenance without replacing the canonical
+  row; and publication eligibility remains read-only. See
   [the scope ruling](docs/plan-033/artifact-store-scope.md).
 - Plain-text GPO reports now count all 21 typed preference families per scope,
-  including drives, services, scheduled tasks, and immediate tasks. Native
-  backup fixtures cover these counts; this is not full Get-GPOReport parity.
-- Publication planning now marks preserved CSE metadata/files as unsupported
-  for SYSVOL targets and fails validation, instead of silently omitting them.
-  The regression uses the qualified native Scripts rebackup. Generated scripts
-  remain review-only and refuse all unverified operations.
+  including drives, services, scheduled tasks and immediate tasks. Native
+  backup fixtures cover these counts. This is not full Get-GPOReport parity.
+- Publication planning now marks preserved CSE metadata and files as
+  unsupported for SYSVOL targets and fails validation, instead of silently
+  omitting them. The regression uses the qualified native Scripts rebackup.
+  Generated scripts remain review-only and refuse all unverified operations.
 - Windows frontend formatting checks now accept checkout line endings without
-  reformatting the source. NetSecurity availability and isolated firewall
-  GPO authoring/readback were measured; the network model remains unverified.
-- RSOP prediction answers the two sides separately (WI-032). Each GPO row
-  carries `computer_status` and `user_status`, and a result answers
-  `computer_applied_gpos` / `user_applied_gpos`. Promoting the WP-9 lane's
+  reformatting the source. NetSecurity availability and isolated firewall GPO
+  authoring and readback were measured; the network model remains unverified.
+- RSOP prediction answers each side separately (WI-032). Each GPO row carries
+  `computer_status` and `user_status`, and a result reports
+  `computer_applied_gpos` and `user_applied_gpos`. Promoting the WP-9 lane's
   applied-set comparison from advisory to gated found a real over-report on its
-  first run — the model reported a GPO applied to a side it carried nothing
-  for, which Windows omits — corrected and re-certified across thirteen RSOP
+  first run: the model reported a GPO as applied to a side it carried nothing
+  for, which Windows omits. Corrected and re-certified across thirteen RSOP
   runs.
-- `slow_link`, `safe_mode`, `simulate_slow_link` and `simulate_safe_mode` are
-  removed from the RSOP model and API (WI-036). They were accepted and never
-  read; the request models now refuse unknown keys, so a caller sending one
-  gets a 422 rather than a prediction that silently ignored it.
-- `object_security.validate()` deliberately does not judge ACL content, now
-  recorded as a ruling rather than left as silence (WI-055), and
-  `certification.py` is deleted as superseded (WI-056). The RSOP surface's
-  `limitations` array is consequently empty: all three limitations it carried
-  have been closed by fixing what they disclosed.
-- Plan 034: publication-plan completeness now has a repeatable Windows lane,
-  which passed 21/21 on the clean member server. It compares the plan's own
-  account of what it would write against the SYSVOL tree and extension-list
-  attributes Windows produces from the same content — the comparison that found
-  WI-057 and the only one that could, since a round trip never asks what a
-  third party would have had to write. The lane measures the plan, not a
-  publication: nothing writes to SYSVOL or AD, and the operation allowlist
-  stays empty. See
+- Removed `slow_link`, `safe_mode`, `simulate_slow_link` and
+  `simulate_safe_mode` from the RSOP model and API (WI-036). They were accepted
+  and never read. The request models now refuse unknown keys, so a caller who
+  sends one gets a 422 instead of a prediction that silently ignored it.
+- `object_security.validate()` does not judge ACL content, and that is now a
+  recorded ruling (WI-055) rather than an unexplained gap. `certification.py`
+  is deleted as superseded (WI-056). The RSOP surface's `limitations` array is
+  therefore empty: each of the three limitations it carried was closed by
+  fixing what it disclosed.
+- Plan 034: publication-plan completeness has a repeatable Windows lane, which
+  passed 21/21 on the clean member server. It compares the plan's own account
+  of what it would write with the SYSVOL tree and extension-list attributes
+  Windows produces from the same content. That comparison found WI-057, and
+  only it could have: a round trip never asks what a third party would have
+  had to write. The lane measures the plan, not a publication. Nothing writes
+  to SYSVOL or AD, and the operation allowlist stays empty. See
   [the results](docs/plan-033/publication-completeness-results.md).
 - Publication plans now register the client-side extensions their SYSVOL
-  content requires, and publish a GPO's comment. Both gaps were measured
-  against Windows rather than reasoned (WI-057, WI-058): without the extension
-  lists a plan produced a GPO whose files were all correct and which applied
-  nothing. The values come from the exporter's measured vocabulary rather than
-  being restated, and content that cannot be honestly registered — an
-  unverified GPP family, or a SYSVOL-only target that cannot reach a directory
-  attribute — is refused rather than guessed. The planner remains unsurfaced
-  and review-only, and the fix itself is not yet Windows-verified.
+  content requires, and publish a GPO's comment (WI-057, WI-058). Both gaps
+  were measured against Windows, not reasoned: without the extension lists, a
+  plan produced a GPO whose files were all correct and which applied nothing.
+  The values come from the exporter's measured vocabulary instead of being
+  restated. Content that cannot be registered accurately (an unverified GPP
+  family, or a SYSVOL-only target that cannot reach a directory attribute) is
+  refused rather than guessed. The planner remains unsurfaced and review-only,
+  and the fix itself is not yet Windows-verified.
 
-> Post-1.0 development has added considerably more to `src/` than it has added
-> to the operator-facing product. Entries below distinguish **surfaced**
-> capabilities (reachable from the API or browser application) from **domain
+> Post-1.0 development has added much more to `src/` than to the
+> operator-facing product. The entries below mark **surfaced** capabilities
+> (reachable from the API or browser application) separately from **domain
 > layers** (implemented and unit-tested, reachable from neither). No post-1.0
-> capability is Windows-verified except where an explicit Plan 033 workpackage
-> is cited.
+> capability is Windows-verified except where an entry cites a Plan 033
+> workpackage.
 >
-> As of 2026-07-29 the unsurfaced domain layers are further classified as
-> **unproven drafts, not assets awaiting wiring** — a claim about correctness,
-> not only reach. Every layer an external oracle has examined has needed
+> As of 2026-07-29 the unsurfaced domain layers are classed as **unproven
+> drafts, not assets awaiting wiring**. That is a claim about correctness, not
+> only reach: every layer an external oracle has examined has needed
 > correction. See [`docs/domain-layer-status.md`](docs/domain-layer-status.md).
 
 ### Added
 
-- Plan 023: scope-of-management, delegation, WMI-filter, and loopback support
-  — **surfaced**. `som.py`, `delegation.py`, `wmi_filter.py`, and
+- Plan 023: scope of management, delegation, WMI filters and loopback,
+  **surfaced**. `som.py`, `delegation.py`, `wmi_filter.py` and
   `ad_discovery.py` back new API endpoints for GPO links, loopback validation
-  and description, AD discovery script generation/ingest
+  and description, AD discovery script generation and ingest
   (`/api/discovery/*`), and effective-rights evaluation. Discovery generates
-  PowerShell and parses its JSON output; it performs no network I/O of its
-  own, preserving the offline-first charter.
-- Plan 024: full GPP adapter coverage — **surfaced**. `gpp_adapters.py`
-  extends the 1.0 Groups/Registry slice across the in-box preference families
-  through `gpp.py`, `canonical.py`, and `import_export.py`.
-- Plan 029: RSOP prediction — **certified in twelve measured regions, then
+  PowerShell and parses its JSON output. It does no network I/O itself, so the
+  offline-first charter holds.
+- Plan 024: full GPP adapter coverage, **surfaced**. `gpp_adapters.py` extends
+  the 1.0 Groups/Registry slice across the in-box preference families through
+  `gpp.py`, `canonical.py` and `import_export.py`.
+- Plan 029: RSOP prediction, **certified in twelve measured regions, then
   surfaced** (WI-030, 2026-08-06). `POST /api/rsop/compute` predicts the
   effective policy for a computer/user pair over a topology supplied in the
-  request body; `POST /api/rsop/compare` computes two and reports where the
-  effective settings differ. A thin browser panel ("RSOP prediction" in the
-  rail) covers `compute` only: the target as form fields, the topology as JSON,
-  no builder — the workspace holds draft policies rather than an estate to build
-  a topology from.
-  The twelve certifying scenarios ran against a real Windows 11 26200 client
-  and cover LSDOU ordering, link order, inheritance and its blocking,
+  request body. `POST /api/rsop/compare` computes two predictions and reports
+  where the effective settings differ. A thin browser panel ("RSOP prediction"
+  in the rail) covers `compute` only: the target is entered as form fields and
+  the topology as JSON, with no builder, because the workspace holds draft
+  policies rather than an estate to build a topology from.
+  The twelve certifying scenarios ran against a real Windows 11 26200 client.
+  They cover LSDOU ordering, link order, inheritance and its blocking,
   enforcement, disabled links and sides, security filtering with denies on both
-  Apply and Read, user scope, and loopback merge and replace; they are
-  enumerated in `docs/capability-matrix.md`, which also states what is **not**
-  certified — including WI-049's two filter cells, which the surface exposes and
-  which reasoning rather than measurement settled. Two limitations are announced in every response rather than left
-  in the docs: `gpo_status_is_not_per_side` (WI-032 — the applied-GPO status
-  collapses to "applied on at least one side" and cannot answer the two sides
-  separately) and, when the caller sets one of the fields,
+  Apply and Read, user scope, and loopback merge and replace.
+  `docs/capability-matrix.md` lists them and states what is **not** certified,
+  including WI-049's two filter cells, which the surface exposes and which were
+  settled by reasoning rather than measurement. Every response announces two
+  limitations instead of leaving them to the docs: `gpo_status_is_not_per_side`
+  (WI-032: applied-GPO status collapses to "applied on at least one side" and
+  cannot answer for each side) and, when the caller sets one of the fields,
   `slow_link_and_safe_mode_are_not_evaluated` (WI-036). This is the first
-  post-1.0 layer to complete both halves of the exit condition in
+  post-1.0 layer to meet both halves of the exit condition in
   `docs/domain-layer-status.md`.
-- Plans 025–028, 030–032: domain layers — **not surfaced**. Security settings
+- Plans 025–028, 030–032: domain layers, **not surfaced**. Security settings
   (`security_template.py`, `object_security.py`, `network_security.py`,
   `policy_families.py`), script and managed-artifact policy
   (`script_policy.py`, `artifact_store.py`), software installation and folder
   redirection (`software_install.py`, `folder_redirection.py`), GPMC lifecycle
   and interop (`lifecycle.py`, `gpmc_interop.py`), controlled publication
-  (`publication.py`, `publisher.py`), certification (`certification.py`), and
-  hosted control plane (`hosting.py`) are implemented and unit-tested, but are
-  reachable from no API endpoint, UI module, or export path. They are not
-  operator capabilities and are excluded from the 1.0 contract; see
+  (`publication.py`, `publisher.py`), certification (`certification.py`) and
+  the hosted control plane (`hosting.py`) are implemented and unit-tested, but
+  no API endpoint, UI module or export path reaches them. They are not operator
+  capabilities and are excluded from the 1.0 contract; see
   `docs/capability-matrix.md`. The publication modules are pure and emit no
-  writes — the web process still never writes to AD or SYSVOL — and
-  `hosting.py` does not make a hosted mode available.
-- Plan 033 WP-0: Windows external-oracle evidence contract, owning-boundary
-  matrix, frozen environment spec, conservative XML normalizer v1, fixture
-  recipe schema, and the two-phase harness — `run-evidence.ps1` captures
-  genuine raw evidence on the domain-joined host and
+  writes, so the web process still never writes to AD or SYSVOL. `hosting.py`
+  does not make a hosted mode available.
+- Plan 033 WP-0: the Windows external-oracle evidence contract,
+  owning-boundary matrix, frozen environment spec, conservative XML normalizer
+  v1, fixture recipe schema, and the two-phase harness. `run-evidence.ps1`
+  captures raw evidence on the domain-joined host, and
   `finalize_oracle_run.py` is the single authority for source provenance,
-  normalization, and comparison binding. Certified pass on a clean tree with a
-  full integrity pack: harness scripts, recipe, and orchestrator are hashed
-  input artifacts bound to the recorded commit, every artifact rehashes
-  intact, and cleanup is confirmed by an independent LDAPS re-query.
-- Plan 033 WP-1A: native-origin GPMC corpus, authoring guide, and genuine
-  GPMC-authored canary fixtures.
-- Plan 033 remediation scenario corpus — **validation infrastructure, not a
+  normalization and comparison binding. Certified pass on a clean tree with a
+  full integrity pack: harness scripts, recipe and orchestrator are hashed
+  input artifacts bound to the recorded commit, every artifact rehashes intact,
+  and an independent LDAPS re-query confirms cleanup.
+- Plan 033 WP-1A: native-origin GPMC corpus, authoring guide, and canary
+  fixtures authored in GPMC itself.
+- Plan 033 remediation scenario corpus: **validation infrastructure, not a
   capability**. Thirteen provenance-graded scenarios across four families
   (gpp-services for WI-022, security-template areas for Plan 025/WP-3,
   rsop-topology for Plan 029/WP-6, ilt-os for WI-023) under
-  `tests/fixtures/scenarios/`, a machine-readable test-platform registry
-  (`platforms.json`) extending `docs/plan-033/environment-spec.md`, and the
-  `remediation_corpus.py` loader that enforces referential integrity,
-  readiness honesty (no `ready` claim on an unqualified platform), and
+  `tests/fixtures/scenarios/`; a machine-readable test-platform registry
+  (`platforms.json`) extending `docs/plan-033/environment-spec.md`; and the
+  `remediation_corpus.py` loader, which enforces referential integrity,
+  readiness honesty (no `ready` claim on an unqualified platform) and
   sha256-pinned native-capture anchors. Executable WI-022 characterization
-  probes pin today's parse/writer divergence and flip when the fix lands.
-  The corpus records expected Windows behavior for the Plans 025–032
-  remediation program; nothing in it is oracle-executed yet and no
-  capability claim changes.
+  probes pin today's parse/writer divergence and flip when the fix lands. The
+  corpus records expected Windows behaviour for the Plans 025–032 remediation
+  programme. Nothing in it is oracle-executed yet, and no capability claim
+  changes.
 - WI-022 corrects the GPP Services typed model and wire shape against the
-  genuine GPMC capture: native recovery names and omission semantics,
+  native GPMC capture: native recovery names and omission semantics,
   `thirdFailure`, exact delay preservation, and captured extension metadata.
-  It also covers the complete MS-GPPREF startup, service-action, and failure-
-  action vocabularies plus the protocol-defined restart/program fields, GPMC
-  report comparison, and a new WP-1B Services candidate. Its first Windows
-  Server 2025 writer run passed, but the later manual capture invalidated the
-  delay semantics; WI-024 corrected and recertified the candidate in clean-
-  source run `wp1b-writer-20260730164352-5286`. Services is not endpoint-
-  applied or authorable through the browser/API.
+  It also covers the complete MS-GPPREF startup, service-action and
+  failure-action vocabularies, the protocol-defined restart/program fields,
+  GPMC report comparison, and a new WP-1B Services candidate. Its first Windows
+  Server 2025 writer run passed, but a later manual capture invalidated the
+  delay semantics. WI-024 corrected and recertified the candidate in
+  clean-source run `wp1b-writer-20260730164352-5286`. Services is not
+  endpoint-applied, and cannot be authored through the browser or API.
 - WI-024 uses a dedicated GPMC Services recovery capture to correct the
   remaining wire assumptions: GPMC emits `RUNCMD`/`REBOOT`, millisecond
-  restart-service and restart-computer delays, boolean `append=1`, and omits
-  `serviceAction` for No change. It also confirms `program`, `args`,
-  `restartMessage`, `accountName`, and `interact`. The corrected isolated and
+  restart-service and restart-computer delays, and boolean `append=1`, and
+  omits `serviceAction` for No change. It also confirms `program`, `args`,
+  `restartMessage`, `accountName` and `interact`. The corrected isolated and
   mixed Services candidates pass the full WP-1B Windows writer lane.
 - WI-023 surfaces the modern `FilterOs` family-token limitation as a preflight
   warning and in Studio bundle manifests: `WINTHRESHOLDSRV` cannot distinguish
   Server 2016/2019/2022/2025, and `WINTHRESHOLD` cannot distinguish Windows 10
   from Windows 11. Imported OS criteria are shown read-only in the browser and
-  survive edits instead of being silently dropped; build-specific targeting
-  directs operators to WMI or registry predicates.
+  survive edits instead of being silently dropped. For build-specific
+  targeting, operators are directed to WMI or registry predicates.
 
 - Plan 033 WP-2: deterministic native GPMC backup emission with distinct
-  backup/GPO identities, v2 `Backup.xml`, native `DomainSysvol/GPO` paths,
+  backup and GPO identities, v2 `Backup.xml`, native `DomainSysvol/GPO` paths,
   verified Registry and GPP extension profiles, and a Windows Server 2025
   `Import-GPO`/re-backup/cleanup oracle lane. Native GPP output is now a strict
-  allowlist: Drive Maps, Local Users and Groups, Scheduled Tasks, and Services
-  are emitted; GPP Registry and uncaptured families must use the Studio bundle
+  allowlist: Drive Maps, Local Users and Groups, Scheduled Tasks and Services
+  are emitted. GPP Registry and uncaptured families must use the Studio bundle
   until their native extension metadata is independently verified. Services
-  extension metadata is capture-backed and its Studio-origin candidate passes
-  `Import-GPO`, GPMC report comparison, and `Backup-GPO` semantic comparison.
+  extension metadata is capture-backed, and its Studio-origin candidate passes
+  `Import-GPO`, GPMC report comparison and `Backup-GPO` semantic comparison.
 - Plan 021 WP-1: authoritative GPMC capability inventory
-  (`docs/plan-021/capability-inventory.md`) — a versioned, pre-gate matrix of
-  GPMC lifecycle/scope/report surfaces, principal-bearing fields, every in-box
-  CSE and editor by GUID/side/storage/OS/deprecation/management-API, the GPP
-  item/action/option space, and the complete ILT predicate AST. Each row is
-  classified (`verified-rw` … `unknown`) and linked to Microsoft documentation
-  and lab evidence. No row is `verified-rw` without Windows and endpoint
-  evidence.
+  (`docs/plan-021/capability-inventory.md`). A versioned, pre-gate matrix of
+  GPMC lifecycle, scope and report surfaces; principal-bearing fields; every
+  in-box CSE and editor by GUID, side, storage, OS, deprecation and management
+  API; the GPP item/action/option space; and the complete ILT predicate AST.
+  Each row is classified (`verified-rw` … `unknown`) and linked to Microsoft
+  documentation and lab evidence. No row is `verified-rw` without Windows and
+  endpoint evidence.
 - Plan 021 WP-4: reference estates and evidence schema
-  (`docs/plan-021/reference-estates-and-evidence.md`) — the provisional Windows
+  (`docs/plan-021/reference-estates-and-evidence.md`): the provisional Windows
   target matrix (WS2019/2022/2025 + Win11; Win10 behind an ESU decision), the
   ADMX/ADML licensing classification rules, the redaction contract enforced by
   the identifier gate, the versioned evidence-pack JSON schema, and the
   negative/downgrade fixture requirements.
 - Plan 021 WP-4: public matrix generator (`scripts/generate_public_matrix.py`
-  and `src/gpo_studio/evidence.py`) — loads versioned evidence packs, refuses
-  to derive claims from packs whose redaction or licensing gates are
-  unsatisfied, and derives a public capability matrix containing only claims
+  and `src/gpo_studio/evidence.py`). It loads versioned evidence packs, refuses
+  to derive claims from packs whose redaction or licensing gates are not
+  satisfied, and derives a public capability matrix containing only claims
   backed by passing evidence. A `verified-rw` claim requires both a passing
-  Windows-side and a passing endpoint record.
+  Windows-side record and a passing endpoint record.
 
 ### Changed
 
-- WI-049 (corpus half): the Plan 033 RSOP corpus now carries a row for each of
-  the three filtering regions the model answers by reasoning rather than by
-  measurement — a read deny naming the user resolved on the computer side, an
-  Apply deny naming the computer resolved on the user side, and a deny that
+- WI-049 (corpus half): the Plan 033 RSOP corpus now has a row for each of the
+  three filtering regions the model answers by reasoning rather than
+  measurement: a read deny naming the user, resolved on the computer side; an
+  Apply deny naming the computer, resolved on the user side; and a deny that
   matches through a group rather than by name. They are filter edits on two
-  scenarios the lanes already run, not a session of their own, and each takes
-  the top link order so a wrong answer costs the predicted *winner* rather than
-  one absent value.
+  scenarios the lanes already run, not a session of their own. Each takes the
+  top link order, so a wrong answer costs the predicted *winner* rather than one
+  absent value.
 
-  **Measured on the estate 2026-09-06, and all three agreed with the model** —
-  `rsop-observe-20260906184434-8187` and
-  `rsop-user-observe-20260906185345-9222`. A user-named read deny left the GPO
-  applying on the computer side, a computer-named Apply deny left it applying on
-  the user side, and a group-matched deny blocked. The API's
-  `answer_rests_on_a_reasoned_cell` limitation is **removed** with them: it
-  existed only while those cells were unmeasured, and a payload calling a
-  measured answer reasoned is the same defect as a matrix that says `failed`
-  while supported. **Operator-visible**: a caller who was reading that code will
-  stop seeing it. What remains unmeasured is a deny matched through a
-  *computer's* group, which now has its own item (WI-054) rather than a
-  paragraph inside a closed one.
-- The browser application supports a dark colour theme — **surfaced**. Every
-  colour in `studio.css` now flows through a design token, and a
-  `data-theme` attribute on `<html>` selects the palette: `Auto` follows the
-  operating system, with an explicit Dark/Light override persisted per
-  browser. The bootstrap (`static/js/theme.js`) is a classic head script so
-  the resolved theme lands before first paint under the `script-src 'self'`
-  CSP. The dark palette is held to the same automated accessibility bar as
-  the light one by a browser test that runs the axe scan under it. A choice
-  made in one tab reaches the application's other tabs through a `storage`
-  listener rather than leaving them on a stale palette until reload, and
-  engines that ship only the deprecated `MediaQueryList.addListener`
-  (Safari 13 and earlier) still follow the system while the mode is `Auto`.
-- Wide policy tables keep their row actions reachable: the actions cell is
-  sticky against the right edge of the scrolling table card, so Edit /
-  Comment / Delete no longer disappear behind a horizontal scroll nobody is
-  told about. Placeholders are styled distinctly from values — and now at a
-  contrast ratio that clears WCAG AA against the light canvas, which the
-  first colour did not — and secondary buttons gained a quiet hover state.
-  On narrow viewports the rail's footer is shown rather than hidden, so the
-  workspace status it carries is not desktop-only.
+  **Measured on the estate on 2026-09-06; all three agreed with the model**
+  (`rsop-observe-20260906184434-8187` and
+  `rsop-user-observe-20260906185345-9222`). A user-named read deny left the GPO
+  applying on the computer side, a computer-named Apply deny left it applying
+  on the user side, and a group-matched deny blocked. The API's
+  `answer_rests_on_a_reasoned_cell` limitation is **removed** with them. It
+  existed only while those cells were unmeasured; calling a measured answer
+  reasoned would be the same defect as a matrix that says `failed` for a
+  supported capability. **Operator-visible**: callers reading that code will
+  stop seeing it. Still unmeasured: a deny matched through a *computer's*
+  group, which now has its own item (WI-054).
+- The browser application has a dark colour theme, **surfaced**. Every colour
+  in `studio.css` now goes through a design token, and a `data-theme`
+  attribute on `<html>` selects the palette. `Auto` follows the operating
+  system; an explicit Dark or Light choice is saved per browser. The bootstrap
+  (`static/js/theme.js`) is a classic head script, so the theme is resolved
+  before first paint under the `script-src 'self'` CSP. A browser test runs the
+  axe scan under the dark palette, holding it to the same accessibility bar as
+  the light one. A choice made in one tab reaches the application's other tabs
+  through a `storage` listener instead of waiting for a reload. Engines that
+  ship only the deprecated `MediaQueryList.addListener` (Safari 13 and
+  earlier) still follow the system while the mode is `Auto`.
+- Wide policy tables keep their row actions reachable: the actions cell sticks
+  to the right edge of the scrolling table card, so Edit, Comment and Delete
+  no longer disappear behind an unsignalled horizontal scroll. Placeholders are
+  styled differently from values, at a contrast ratio that meets WCAG AA
+  against the light canvas (the first colour chosen did not). Secondary buttons
+  have a quiet hover state. On narrow viewports the rail's footer is shown, not
+  hidden, so its workspace status is not desktop-only.
 - Plan 033: lane verdicts now check what they claim to check. An adversarial
   review round (three reviewers, hazard-scoped, one cross-lineage) found that
   WP-2 and WP-3 graded themselves against the copy of `expected.json` the guest
-  returned rather than the candidate the controller built — which also made two
-  of WP-2's named checks structurally unfalsifiable — and that WP-1B, the lane
-  that qualified the estate, had no environment gate at all. Both lanes now take
-  `--candidate-root` and carry a `candidate_delivered_intact` check; WP-1B gates
-  on `FROZEN_ENVIRONMENT` like the others. Every run now owns a private
-  directory tree on the guest, so concurrent runs on one guest can no longer
-  select each other's evidence; `cleanup_succeeded` means the GPO was removed or
-  an independent enumeration shows nothing by that name; orphaned GPOs are
-  reaped and the reap is recorded; and two fail-open defaults
+  returned instead of the candidate the controller built. That also made two of
+  WP-2's named checks structurally unfalsifiable. It also found that WP-1B, the
+  lane that qualified the estate, had no environment gate at all. Both lanes now
+  take `--candidate-root` and have a `candidate_delivered_intact` check, and
+  WP-1B gates on `FROZEN_ENVIRONMENT` like the others. Every run now owns a
+  private directory tree on the guest, so concurrent runs on one guest can no
+  longer pick up each other's evidence. `cleanup_succeeded` means the GPO was
+  removed, or an independent enumeration shows nothing by that name. Orphaned
+  GPOs are reaped and the reap is recorded. Two fail-open defaults
   (`native_shape_findings` absent, `check_git=False`) are closed.
 - Plan 033: **every evidence lane now runs against the disposable evidence
   estate over PowerShell Direct, and the SSH transport is retired.** WP-0, WP-2
   and WP-3 were ported alongside WP-1B and the endpoint lane, each with its own
   qualification run on the estate (recorded in the Qualified environments table
   in `docs/plan-033/environment-spec.md`, with committed verdicts and evidence
-  tags). WP-0's certification, whose commit had been orphaned by a squash merge,
-  is re-earned on a commit that resolves. Lane finalizers now check the recorded
-  environment against `FROZEN_ENVIRONMENT` rather than private copies of the
-  profile; WP-2 had not been checking its environment at all, and WP-3's copy
-  had drifted into pinning an exact PowerShell servicing revision and gating on
-  an LGPO hash the 2026-07-29 re-freeze had already removed.
-- Plan 022 closed — REVIEW AND REFINE gate passed 2026-07-25
+  tags). WP-0's certification, whose commit had been orphaned by a squash
+  merge, is re-earned on a commit that resolves. Lane finalizers now check the
+  recorded environment against `FROZEN_ENVIRONMENT` instead of private copies
+  of the profile. WP-2 had not been checking its environment at all, and WP-3's
+  copy had drifted into pinning an exact PowerShell servicing revision and
+  gating on an LGPO hash that the 2026-07-29 re-freeze had already removed.
+- Plan 022 closed: the REVIEW AND REFINE gate passed on 2026-07-25
   (`docs/plan-022/gate-decision-2026-07-25.md`), with ADMX parser fixes and
   code hardening.
 - Adopted `ruff` 0.16 and its expanded default rule set.
 - Documentation: corrected the recorded status of Plans 021 and 023–032, which
-  claimed `proposed (post-1.0)` while their implementations were already
+  said `proposed (post-1.0)` although their implementations were already
   committed. Each now records whether its domain layer is surfaced and whether
-  it carries Windows evidence. The capability matrix and README gained an
-  explicit inventory of landed-but-unreachable modules, so the matrix again
-  matches what `src/` contains.
-- Documentation: closed out pre-release status language in `SECURITY.md` and
-  Plans 017/019/020, wrote the 1.0.x support/compatibility/deprecation
+  it has Windows evidence. The capability matrix and README gained an explicit
+  inventory of landed-but-unreachable modules, so the matrix again matches what
+  `src/` contains.
+- Documentation: removed pre-release status language from `SECURITY.md` and
+  Plans 017/019/020, wrote the 1.0.x support, compatibility and deprecation
   policy, and refined Plan 021 with a provisional target matrix, corpus
-  licensing/redaction rules, and a pre-review spike boundary.
+  licensing and redaction rules, and a pre-review spike boundary.
 - Risk-based coverage floors now include `src/gpo_studio/evidence.py` (90%).
-- The static safety gate now scopes forbidden-import categories to the **web
-  process** — the modules transitively reachable from `api.py` — which is what
-  the charter actually constrains, rather than to the `src/` directory. A
-  category exemption may be granted to lab or release tooling that never runs
-  in a request path, and `scripts/check_safety.py` fails if an exempt module
-  ever becomes reachable from `api.py`, so an exemption cannot silently widen
-  into a charter breach.
+- The static safety gate now applies forbidden-import categories to the **web
+  process** (the modules reachable from `api.py`, directly or transitively),
+  which is what the charter constrains, instead of to the whole `src/`
+  directory. Lab or release tooling that never runs in a request path may be
+  granted a category exemption. `scripts/check_safety.py` fails if an exempt
+  module ever becomes reachable from `api.py`, so an exemption cannot quietly
+  widen into a charter breach.
 
 ### Removed
 
 - `scripts/windows-oracle/remote-run.ps1`, the scheduled-task launcher, and
-  every lane's SSH branch. The launcher existed only to obtain a logon token an
-  SSH non-interactive session cannot provide, and it took the credential as a
-  `schtasks /RP` argument — transient, but decodable by a privileged observer on
-  the host for as long as the task existed. PowerShell Direct carries the
-  credential through the hypervisor and needs no launcher, so removing it is a
-  security improvement rather than cleanup. Certifications produced on the
-  retired transport are not retracted, but their evidence packs can no longer be
-  re-verified in this tree, and `build_harness_inputs` reports that explicitly
+  every lane's SSH branch. The launcher existed only to get a logon token that
+  a non-interactive SSH session cannot provide. It took the credential as a
+  `schtasks /RP` argument, which was transient but decodable by a privileged
+  observer on the host for as long as the task existed. PowerShell Direct
+  carries the credential through the hypervisor and needs no launcher, so the
+  removal is a security improvement. Certifications produced on the retired
+  transport are not retracted, but their evidence packs can no longer be
+  re-verified in this tree. `build_harness_inputs` reports that explicitly
   instead of defaulting to a file set that no longer exists.
 
 ### Fixed
 
 - WI-037: a lane's staging step removed every directory under the guest's
-  output root, so the next run deleted exactly the evidence a human needed to
-  explain why the last one failed. The three shared-root drivers now retain the
-  newest five run directories and sweep the guest's `scripts` directory, which
-  staging owns. Preserving run directories makes the "newest output directory"
-  fallback unsafe in a new way — it would pull the *previous* run's observation
-  and the finalizer would grade it as this one's — so the fallback now requires
-  an observation-bearing directory created since a guest-side clock reading
-  taken immediately before the observation, and refuses anything but exactly one
-  match. The endpoint lane's `verify` phase was writing to a fixed path for the
-  same reason and is per-invocation now. Lab tooling; no operator-facing change.
+  output root, so each run deleted the evidence a person needed to explain why
+  the previous one failed. The three shared-root drivers now keep the newest
+  five run directories and sweep the guest's `scripts` directory, which staging
+  owns. Keeping run directories made the "newest output directory" fallback
+  unsafe in a new way: it could pull the *previous* run's observation, and the
+  finalizer would grade it as the current one. The fallback now requires an
+  observation-bearing directory created after a guest-side clock reading taken
+  just before the observation, and refuses anything but exactly one match. For
+  the same reason, the endpoint lane's `verify` phase no longer writes to a
+  fixed path; it is per-invocation. Lab tooling; no operator-facing change.
   **Closed**: fourteen runs re-certified the affected lanes on 2026-09-06, and
-  the retention was confirmed on the guests rather than inferred — the previous
+  the retention was confirmed on the guests rather than inferred: the previous
   run's observation survived where the old staging would have deleted it. The
-  first run also found a defect in the fix itself: `$(verify_endpoint)` ran the
-  phase in a subshell, so its idempotency flag never reached the driver's shell
-  and the EXIT trap repeated the whole post-teardown verification.
+  first run also found a defect in the fix: `$(verify_endpoint)` ran the phase
+  in a subshell, so its idempotency flag never reached the driver's shell, and
+  the EXIT trap repeated the whole post-teardown verification.
 - WI-025 (code half): the WP-1B and endpoint lane verdicts named the candidate
-  artifacts they were graded against and hashed none of them, asserting a
-  comparison nobody could re-check. Both finalizers now record SHA-256 for every
-  file under `--candidate-root`, and refuse a run whose candidate root is
-  missing a required artifact rather than recording a shorter block that still
-  looks complete. WP-6B's implementation is the model. **Closed** by
+  artifacts they were graded against but hashed none of them, so nobody could
+  re-check the comparison. Both finalizers now record a SHA-256 for every file
+  under `--candidate-root`. They refuse a run whose candidate root is missing a
+  required artifact, instead of recording a shorter block that still looks
+  complete. WP-6B's implementation is the model. **Closed** by
   `wp1b-writer-20260906183513-1195` (7/7, fifteen candidate hashes) and
   `endpoint-observe-20260906185837-7523`, both committed with their blocks
   populated.
-- WI-053: the endpoint lane's only committed certification escaped every
-  evidence gate since 2026-08-03 because its filename matched neither prefix
-  the coverage guard globs for — WI-037 changed two files it binds and every
-  RSOP verdict went red while it stayed silent. The re-certification is
-  promoted under a covered name and mapped in `LANE_VERDICTS`, and the guard is
-  widened so every JSON in an evidence directory is either verdict-named or
-  named with a reason in `NON_VERDICT_EVIDENCE_FILES` — a verdict can no longer
-  escape by being named unusually. A control fails if the pattern ever stops
-  matching the endpoint certification again. Lab tooling; no operator-facing
-  change.
+- WI-053: from 2026-08-03 the endpoint lane's only committed certification
+  escaped every evidence gate, because its filename matched neither prefix the
+  coverage guard globs for. When WI-037 changed two files it binds, every RSOP
+  verdict went red while this one stayed silent. The re-certification is
+  promoted under a covered name and mapped in `LANE_VERDICTS`. The guard now
+  requires every JSON file in an evidence directory to be either verdict-named
+  or listed with a reason in `NON_VERDICT_EVIDENCE_FILES`, so an unusually
+  named verdict can no longer escape. A control test fails if the pattern stops
+  matching the endpoint certification. Lab tooling; no operator-facing change.
 - WI-051: the publisher's separation-of-duties control existed only on the
-  path that constructs an approval through `approve_request` — the gates took
-  no principal at all, `decided_by` was hardcoded empty, and a
-  directly-constructed self-approved request (the shape persistence produces
-  when it rehydrates state) passed with zero validation issues. The gates now
-  take a required `actor`, populate `decided_by` from it, and run a
-  `separation_of_duties_gate` that re-derives the requester/approver
-  comparison through `hosting.can_self_approve` and refuses a self-approved
-  request, a publishing actor who approved it, or a missing principal.
+  path that builds an approval through `approve_request`. The gates took no
+  principal at all, `decided_by` was hardcoded empty, and a directly built
+  self-approved request (the shape persistence produces when it rehydrates
+  state) passed with zero validation issues. The gates now take a required
+  `actor`, fill `decided_by` from it, and run a `separation_of_duties_gate`
+  that re-derives the requester/approver comparison through
+  `hosting.can_self_approve`. It refuses a self-approved request, a publishing
+  actor who approved the request, or a missing principal.
   `ApprovalRequest.validate()` carries the same check structurally, and
-  `_approval_gate`'s four previously untested refusal branches are tested.
+  `_approval_gate`'s four previously untested refusal branches now have tests.
   Domain layer; no operator-facing change.
-- WI-052: `profiles_for_actor` matched an actor against a profile *id* —
+- WI-052: `profiles_for_actor` matched an actor against a profile *id*, so
   `effective_capabilities("p1")` returned profile `p1`'s capabilities for
-  nobody, while a real principal got nothing. `PublisherProfile` now carries a
-  `principals` field and `profiles_for_actor` resolves against it; a profile
-  granted to nobody matches nobody, with a validation warning so the
-  configuration is visible. Domain layer; no operator-facing change.
-- WI-054: the corpus's nesting rows all put the disposable group in the USER's
-  token, so the model's answer about a membership in a CLIENT'S machine token
-  was unit-tested and estate-untouched while the API accepted that input from
-  callers. A new computer-scope scenario authors an APPLY deny whose only
-  identity is a group the client's computer account joins; the lane reboots the
-  client so the machine token carries it (a machine token is minted at boot,
-  and there is no lighter refresh); the observation half corroborates the
-  membership from the machine token and from the directory independently; and
-  the computer finalizer gained the user lane's token gate. Measured the same
-  day: the model said blocked, Windows agreed
-  (`rsop-observe-20260906221638-4687`), and the twelve other runs from the
-  same tree re-certified the lanes the change retired. The first run found
-  that the reboot makes boot-time policy processing a second applier, which
-  the observe half now records as `boot_applied_values` instead of mis-reading
-  as unattributable residue. The dead `reaches_reasoned_cell` disclosure left
-  in the builder by WI-049's closure went out in the same change. Lab tooling;
-  no operator-facing change.
+  nobody in particular, while a real principal got nothing. `PublisherProfile`
+  now has a `principals` field, and `profiles_for_actor` resolves against it.
+  A profile granted to nobody matches nobody and raises a validation warning,
+  so the configuration is visible. Domain layer; no operator-facing change.
+- WI-054: every nesting row in the corpus put the disposable group in the
+  USER's token, so the model's answer about a group in a CLIENT's machine token
+  was unit-tested but never run on the estate, although the API accepted that
+  input. A new computer-scope scenario authors an APPLY deny whose only
+  identity is a group the client's computer account joins. The lane reboots
+  the client so the machine token carries the membership (a machine token is
+  minted at boot, and nothing lighter refreshes it). The observation half
+  confirms the membership from the machine token and, independently, from the
+  directory, and the computer finalizer gained the user lane's token gate.
+  Measured the same day: the model said blocked and Windows agreed
+  (`rsop-observe-20260906221638-4687`), and twelve other runs from the same
+  tree re-certified the lanes the change retired. The first run found that the
+  reboot makes boot-time policy processing a second applier; the observe half
+  now records this as `boot_applied_values` instead of misreading it as
+  unattributable residue. The same change removed the dead
+  `reaches_reasoned_cell` disclosure that WI-049's closure left in the builder.
+  Lab tooling; no operator-facing change.
 
 - The topbar action links (`Policy report`, `Review PowerShell`,
-  `GPMC backup`) rendered in default link blue: `a.button` never received an
-  ink colour, only real `<button>` elements did. Long GPO names also wrapped
-  the topbar inside its fixed 114px height, folding the action labels onto
-  two lines; the bar now grows instead and action labels never wrap.
-- WI-044: a GPO carrying a **deny** security filter advertised its PowerShell
-  plan and Studio export bundle as available and then refused both downloads
-  with HTTP 422. WI-041's refusal is correct and is unchanged; what was missing
-  was that `artifact_capabilities` derived availability from `validate_gpo`,
-  which has no deny rule. The condition now lives once, in
-  `export.plan_refusal()`, which both the export path and the capability
-  payload consult — so the operator is told up front, with the reason, instead
-  of discovering it by pressing a button. **Surfaced** (API + browser
-  application).
-- WI-046: the same defect as WI-044, one capability entry along — a GPO
-  carrying a **GPP Registry** preference advertised `gpmc_export` as available
-  and then refused the native backup with `unsupported_native_gpp_extension`.
-  Native backup covers four GPP families and `Registry` is not one of them,
-  while neither `validate_gpo` nor the preserved-content count could see it.
+  `GPMC backup`) rendered in default link blue, because `a.button` never got
+  an ink colour; only real `<button>` elements did. Long GPO names also wrapped
+  the topbar inside its fixed 114px height, folding the action labels onto two
+  lines. The bar now grows instead, and action labels never wrap.
+- WI-044: a GPO with a **deny** security filter advertised its PowerShell plan
+  and Studio export bundle as available, then refused both downloads with HTTP
+  422. WI-041's refusal is correct and unchanged. The problem was that
+  `artifact_capabilities` derived availability from `validate_gpo`, which has
+  no deny rule. The condition now lives in one place, `export.plan_refusal()`,
+  which both the export path and the capability payload consult, so the
+  operator is told up front, with the reason, before pressing a button.
+  **Surfaced** (API and browser application).
+- WI-046: the same defect as WI-044 in the next capability entry. A GPO with a
+  **GPP Registry** preference advertised `gpmc_export` as available, then
+  refused the native backup with `unsupported_native_gpp_extension`. Native
+  backup covers four GPP families and `Registry` is not one of them, but
+  neither `validate_gpo` nor the preserved-content count could see that.
   `export.native_backup_refusal()` now derives the advertisement by running the
-  refusing code rather than restating its conditions. **Surfaced** (API +
+  refusing code instead of restating its conditions. **Surfaced** (API and
   browser application).
-- WI-045: a committed lane verdict binds its harness files by SHA-256, and no
+- WI-045: a committed lane verdict binds its harness files by SHA-256, but no
   test checked that those hashes still matched the tree. The RSOP verdicts had
-  twice been re-run for exactly this reason, both times caught by a person
-  rather than by CI. Live certifications are now hash-checked against the
-  working tree, with deliberately retained history enumerated in
-  `RETIRED_VERDICTS` and a control that fails if a retired verdict still
-  matches — so the exemption list cannot be used to silence the check. Lab
-  tooling; no operator-facing change.
+  twice been re-run for exactly this reason, and both times a person caught it,
+  not CI. Live certifications are now hash-checked against the working tree.
+  Retained history is listed in `RETIRED_VERDICTS`, and a control test fails if
+  a retired verdict still matches, so the exemption list cannot be used to
+  silence the check. Lab tooling; no operator-facing change.
 - `jsonschema` was declared only as a uv dependency group, so `uv sync`
-  installed it locally while CI's `pip install -e '.[dev]'` did not, and the
+  installed it locally but CI's `pip install -e '.[dev]'` did not, and the
   Plan 033 WP-1A fixture tests failed on CI with `ModuleNotFoundError`. It is
-  now declared in the `dev` extra and the duplicate group was removed, leaving
-  one source of truth for development dependencies.
-- `oracle_evidence.py` imports `subprocess` to shell out to `git` for evidence
-  provenance, which violated the static safety gate's blanket ban and broke
-  the `static-safety` CI job. The module is lab tooling and is unreachable
-  from the web process; it is now covered by a reachability-enforced exemption
-  rather than by weakening the ban.
+  now in the `dev` extra and the duplicate group is gone, leaving one source of
+  truth for development dependencies.
+- `oracle_evidence.py` imports `subprocess` to run `git` for evidence
+  provenance, which broke the static safety gate's blanket ban and the
+  `static-safety` CI job. The module is lab tooling and the web process cannot
+  reach it, so it now has a reachability-enforced exemption instead of the ban
+  being weakened.
 
 ## [1.0.0] - 2026-07-18
 

@@ -1,18 +1,19 @@
 # Architecture and trust boundaries
 
-## Decision: offline drafts first
+## Design: offline drafts, separate publication
 
-A GPMC-like editor naturally tempts a design where a long-running web service
-holds Domain Admin credentials. That is an unnecessarily large blast radius.
-GPO Studio instead separates three concerns:
+GPO Studio keeps three concerns apart, so that no long-running web service
+needs to hold Domain Admin credentials:
 
-1. **Authoring** is unprivileged and local. Drafts are ordinary structured data.
-2. **Review** operates on immutable revisions and deterministic artifacts.
-3. **Publication** is a replaceable adapter that is absent from the web process.
+1. **Authoring** is local and unprivileged. Drafts are ordinary structured
+   data.
+2. **Review** works on immutable revisions and deterministic artifacts.
+3. **Publication** is a replaceable adapter. It is not part of the web process.
 
 The v0.1 adapter is an exported PowerShell plan. A future enterprise adapter
-should be a short-lived Windows worker using delegated rights, signed inputs,
-approval tokens, and an allow-listed command vocabulary—not arbitrary shell.
+should be a short-lived Windows worker that uses delegated rights, signed
+inputs, approval tokens and an allow-listed command vocabulary. It must not run
+arbitrary shell.
 
 ## Components
 
@@ -36,24 +37,23 @@ approval tokens, and an allow-listed command vocabulary—not arbitrary shell.
                                       └─────────────────────────────┘
 ```
 
-The core does not import FastAPI. The web layer may be replaced by a CLI,
-desktop shell, or automation API without changing policy serialization.
+The domain core does not import FastAPI. A CLI, desktop shell or automation API
+could replace the web layer without changing policy serialization.
 
 ## Mutation contract
 
-Every mutation includes:
+Every mutation carries:
 
-- `expected_revision`: compare-and-swap protection against lost updates;
-- `actor`: the claimed local operator identity (authentication is deployment
-  scope in v0.1);
-- `reason`: a required human-readable audit note.
+- `expected_revision`: compare-and-swap protection against lost updates.
+- `actor`: the local operator identity as claimed by the caller. In v0.1,
+  authentication is left to the deployment.
+- `reason`: a required, human-readable audit note.
 
-On success the store creates a complete immutable snapshot at revision `N+1`.
-Restore never rewrites history: it copies an old snapshot into a new revision.
+On success the store writes a complete immutable snapshot as revision `N+1`.
+Restore never rewrites history; it copies an old snapshot into a new revision.
 
-For a multi-user deployment, actor must come from trusted authentication
-middleware rather than request JSON. That is intentionally listed as a gate in
-the roadmap.
+A multi-user deployment must take `actor` from trusted authentication
+middleware, not from request JSON. The roadmap lists this as a gate.
 
 ## Registry policy fidelity
 
@@ -61,21 +61,20 @@ the roadmap.
 
 - header `PReg` and little-endian version `1`;
 - UTF-16LE bracketed records;
-- type and data-size DWORD fields;
-- standard numeric, string, binary, and multi-string encodings;
-- conventional `**del.<name>` value deletion marker.
+- DWORD type and data-size fields;
+- standard numeric, string, binary and multi-string encodings;
+- the conventional `**del.<name>` value-deletion marker.
 
-Serialization sorts by `(key, value name)`, making equivalent drafts produce
-byte-for-byte identical policy files. The ZIP also has fixed entry timestamps
-and ordering. Determinism enables review hashes and signatures later.
+Records are sorted by `(key, value name)`, so equivalent drafts produce
+byte-identical policy files. ZIP entries have fixed timestamps and order. This
+determinism is what makes review hashes and later signatures possible.
 
-## Deliberate non-claims
+## What the design does not claim
 
-- A staged link is intent, not proof that the target exists or that the
-  operator may modify it.
-- A Registry.pol file is not a complete GPMC backup. The bundle is a GPO Studio
-  publication artifact and is labeled as such.
-- GPO-side enablement and link ordering do not simulate per-object RSoP.
-- WMI/security filtering and loopback require evaluation context; they should
-  be displayed with caveats when implemented.
-
+- A staged link records intent. It does not prove that the target exists or
+  that the operator may modify it.
+- A `Registry.pol` file is not a complete GPMC backup. The bundle is a GPO
+  Studio publication artifact and is labelled as one.
+- GPO-side enablement and link order do not simulate per-object RSoP.
+- WMI filtering, security filtering and loopback depend on evaluation context.
+  When implemented, they should be shown with caveats.

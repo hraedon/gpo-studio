@@ -1,33 +1,32 @@
 # Intune migration planner
 
-Status: feasibility assessment and recommended design  
-Decision: appropriate and high-value, if framed as migration planning rather
-than automatic GPO-to-Intune translation
+Status: feasibility assessment and recommended design. Nothing here is built.
+Decision: worth building, as migration planning, not as automatic GPO-to-Intune
+translation.
 
-## Executive recommendation
+## Recommendation
 
-Add an **Intune Migration Planner** to GPO Studio, but do not build or market a
+Add an **Intune Migration Planner** to GPO Studio. Do not build or market a
 generic GPO-to-Intune transpiler.
 
-Microsoft Intune already provides Group Policy Analytics. It imports GPO report
-XML, reports MDM support, identifies ready/unsupported/deprecated settings, and
-can create a Settings Catalog policy from supported settings. Microsoft calls
-the migration best effort, notes that some settings map to alternatives, routes
-some settings such as Firewall and AppLocker to Endpoint Security instead, and
-acknowledges that some migrations fail because values or required child settings
-do not line up.
+Microsoft Intune already has Group Policy Analytics. It imports GPO report XML,
+reports MDM support, flags ready, unsupported, and deprecated settings, and can
+create a Settings Catalog policy from the supported ones. Microsoft calls the
+migration best effort. It maps some settings to alternatives, routes some (such
+as Firewall and AppLocker) to Endpoint Security instead, and acknowledges that
+some migrations fail because values or required child settings do not line up.
 
-GPO Studio should integrate with that evidence rather than try to permanently
-reverse-engineer Microsoft's changing private mapping catalogue.
+GPO Studio should use that evidence rather than try to reverse-engineer
+Microsoft's private, changing mapping catalogue.
 
-The differentiated product question is:
+The question the planner answers:
 
 > Given the policy intent that actually reaches this device/user cohort today,
 > what modern-management configuration would reproduce the required outcome,
 > what cannot be reproduced, how should it be assigned, and how can we cut over
 > without conflicting policy or losing evidence?
 
-That is broader, more useful, and more honest than “convert this GPO.”
+"Convert this GPO" answers less of that and claims more than it can deliver.
 
 Microsoft references:
 
@@ -36,30 +35,29 @@ Microsoft references:
 - [Cloud-native endpoint planning](https://learn.microsoft.com/en-us/intune/solutions/cloud-native-endpoints/planning-guide)
 - [Settings Catalog](https://learn.microsoft.com/en-us/intune/device-configuration/settings-catalog/)
 
-## Why a literal converter is the wrong abstraction
+## Why not a literal converter
 
 ### 1. Microsoft owns the freshest mapping
 
-Intune's mapping changes as Settings Catalog and CSP coverage change. Group
-Policy Analytics automatically updates its MDM-support result when Microsoft
-updates the mapping. A bundled Studio lookup table would immediately acquire a
-freshness and false-confidence problem.
+Intune's mapping changes as Settings Catalog and CSP coverage change, and Group
+Policy Analytics updates its MDM-support result automatically when it does. A
+lookup table bundled with Studio would go stale and give false confidence.
 
-Studio can independently map settings when it has strong public identifiers
-(for example, an exact Policy CSP/ADMX mapping), but Microsoft tenant analysis
-should be treated as the strongest current mapping evidence where available.
+Studio can map settings itself when it has strong public identifiers (for
+example, an exact Policy CSP/ADMX mapping). Where a Microsoft tenant analysis is
+available, treat it as the strongest current mapping evidence.
 
-Current Microsoft Analytics coverage and limitations must be recorded alongside
-each imported result. Microsoft currently documents parsing for Policy,
-PassportForWork, BitLocker, Firewall, and AppLocker CSPs plus Group Policy
-Preferences, and notes that some non-ADMX analysis is accurate only for English
-source settings. These are service capabilities, not timeless Studio constants;
-the connector/importer records the documentation/service version and date.
+Record Microsoft Analytics' current coverage and limitations with each imported
+result. Microsoft currently documents parsing for the Policy, PassportForWork,
+BitLocker, Firewall, and AppLocker CSPs plus Group Policy Preferences, and notes
+that some non-ADMX analysis is accurate only for English source settings. These
+are properties of the service at a point in time, not Studio constants, so the
+connector or importer records the documentation/service version and date.
 
-### 2. GPO boundaries are historical packaging, not necessarily good Intune design
+### 2. GPO boundaries are historical packaging
 
 A GPO may mix security settings, preferences, scripts, software, printers,
-certificates, and user/device policy. Intune may represent those through:
+certificates, and user and device policy. In Intune these may become:
 
 - Settings Catalog;
 - Endpoint Security policies;
@@ -69,60 +67,59 @@ certificates, and user/device policy. Intune may represent those through:
 - scripts/remediations;
 - Wi-Fi, VPN, certificate, update, enrollment, or other dedicated workloads;
 - a documented manual replacement process;
-- no modern equivalent because the original requirement is obsolete.
+- nothing, because the original requirement is obsolete.
 
-One GPO can therefore become several Intune objects, while settings from many
-GPOs may belong in one coherent modern baseline. Preserving one-to-one policy
-packaging would preserve accidental complexity and increase conflict risk.
+So one GPO can become several Intune objects, and settings from many GPOs may
+belong in one modern baseline. Keeping one-to-one packaging would carry over
+accidental complexity and raise conflict risk.
 
 ### 3. OU links do not translate to Intune assignments
 
-GPO application is built from site/domain/OU links, inheritance, enforcement,
-link order, security filtering, WMI filtering, loopback, and CSE-specific
-targeting. Intune configuration is assigned to Microsoft Entra user/device
-groups and can be refined with supported assignment filters.
+GPO application comes from site/domain/OU links, inheritance, enforcement, link
+order, security filtering, WMI filtering, loopback, and CSE-specific targeting.
+Intune assigns configuration to Microsoft Entra user or device groups, refined
+with supported assignment filters.
 
-An OU is useful source evidence, but it is not an Intune assignment primitive.
-The migration must explicitly choose or create the Entra group/filter model and
-compare its resulting membership with the current AD/GPO cohort.
+An OU is useful source evidence but is not an Intune assignment primitive. The
+migration must explicitly choose or create the Entra group/filter model and
+compare its membership with the current AD/GPO cohort.
 
-Microsoft recommends separating user and device group targeting and using
-filters to refine the selected group. It also warns against mixed user/device
+Microsoft recommends targeting user and device groups separately and using
+filters to refine the selected group, and warns against mixed user/device
 include/exclude patterns:
 [Intune assignment performance recommendations](https://learn.microsoft.com/en-us/intune/fundamentals/filters/performance-recommendations).
 
 ### 4. GPO precedence and Intune conflicts differ
 
-Intune configuration profiles do not recreate site/domain/OU precedence. When
-multiple configuration policies set different values, Intune reports a
-conflict that must be resolved. The planner should flatten known GPO precedence
-into a deliberate desired value for each target cohort, not generate layers of
-contradictory profiles and hope that GPO ordering semantics survive.
+Intune configuration profiles have no site/domain/OU precedence. When several
+configuration policies set different values, Intune reports a conflict that
+someone must resolve. The planner flattens known GPO precedence into one chosen
+desired value per target cohort. It must not generate layers of contradictory
+profiles in the hope that GPO ordering survives.
 
 Reference:
 [Intune policy conflict behavior](https://learn.microsoft.com/en-us/intune/device-configuration/troubleshoot-device-profiles).
 
-### 5. Coexistence is itself a migration problem
+### 5. Coexistence needs its own plan
 
-During transition, a hybrid/co-managed endpoint may receive both GPO and MDM
-configuration. `MDMWinsOverGP` only applies to settings in Policy CSP and not to
-equivalent settings exposed through other CSPs such as Defender. Microsoft
-recommends avoiding duplicate configuration outside that bounded behavior
-because the result can be a race with no guaranteed winner.
+During transition, a hybrid or co-managed endpoint may receive both GPO and MDM
+configuration. `MDMWinsOverGP` applies only to settings in Policy CSP, not to
+equivalent settings exposed through other CSPs such as Defender. Outside that
+scope, Microsoft recommends avoiding duplicate configuration, because the
+result can be a race with no guaranteed winner.
 
 Reference:
 [ControlPolicyConflict Policy CSP](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-controlpolicyconflict).
 
-The planner must therefore produce a cutover sequence, not merely destination
-JSON.
+So the planner must produce a cutover sequence, not just destination JSON.
 
-## Recommended unit of planning
+## Unit of planning
 
-Support three related entry points while making their roles explicit.
+There are three entry points, each with a defined role.
 
 ### Per GPO: readiness and provenance
 
-Useful for:
+Good for:
 
 - owner-facing assessment;
 - mapping every configured source setting;
@@ -130,7 +127,7 @@ Useful for:
 - identifying deprecated, unsupported, and workload-rerouted settings;
 - tracking which source objects can eventually be retired.
 
-Not sufficient for:
+Not enough for:
 
 - determining the value that actually wins at a target;
 - designing assignments;
@@ -139,20 +136,20 @@ Not sufficient for:
 
 ### Per OU/SOM: topology-derived intent
 
-Useful for:
+Good for:
 
 - computing inherited GPO order and conflicts;
 - identifying Computer/User settings declared at a location;
 - exposing enforced links, block inheritance, and loopback caveats;
 - starting a mapping from AD organizational structure to target populations.
 
-Still not a final Intune design because users/devices, security filters, WMI,
-sites, and runtime state can divide one OU into multiple cohorts.
+Still not a final Intune design: users and devices, security filters, WMI,
+sites, and runtime state can split one OU into several cohorts.
 
-### Per cohort: recommended migration plan
+### Per cohort: the migration plan
 
-This should be the primary output. A cohort is an explicit set or rule for
-users/devices that share:
+This is the primary output. A cohort is an explicit set of, or rule for, users
+or devices that share:
 
 - the same resolved desired setting values;
 - the same user/device scope;
@@ -167,16 +164,16 @@ Examples:
   behavior;
 - finance users on corporate Windows devices, expressed as a user group plus a
   supported Windows/corporate-device assignment filter;
-- legacy devices that must remain on GPO because a required behavior has no MDM
+- legacy devices that must stay on GPO because a required behavior has no MDM
   equivalent.
 
-The planner may begin with a selected GPO or OU, but it should normalize the
-answer into cohorts, desired intent, destination workloads, and assignments.
+The planner may start from a selected GPO or OU, but it normalizes the answer
+into cohorts, desired intent, destination workloads, and assignments.
 
 ## Mapping model
 
-Separate **disposition**, **equivalence**, and **evidence strength**. A single
-“supported: yes/no” field is too lossy.
+Record **disposition**, **equivalence**, and **evidence strength** separately.
+A single "supported: yes/no" field loses too much.
 
 ### Disposition
 
@@ -203,7 +200,7 @@ Separate **disposition**, **equivalence**, and **evidence strength**. A single
 
 ### Evidence strength
 
-From strongest to weakest:
+Strongest first:
 
 1. Current Microsoft Group Policy Analytics result from the target tenant.
 2. Current target-tenant Settings Catalog/CSP definition with exact stable
@@ -214,8 +211,9 @@ From strongest to weakest:
 6. Name/registry/description similarity candidate requiring review.
 7. No evidence.
 
-Heuristics may suggest candidates but can never produce `exact`, automatically
-enter a deployable artifact, or count as confirmed migration support.
+Heuristics may suggest candidates. They can never produce `exact`, put a
+mapping into a deployable artifact on their own, or count as confirmed
+migration support.
 
 Every mapping record includes:
 
@@ -230,7 +228,7 @@ Every mapping record includes:
 
 ## Destination workload routing
 
-The first decision is often the workload, not the setting ID.
+Often the first decision is the workload, not the setting ID.
 
 | Source intent | Preferred destination investigation |
 |---|---|
@@ -245,13 +243,13 @@ The first decision is often the workload, not the setting ID.
 | User preferences | Prefer retirement or user choice unless a current requirement justifies enforcement |
 | Legacy domain-only behavior | Retain GPO, replace architecture, or declare no equivalent |
 
-This routing must remain extensible and tenant/license aware. A feature existing
-in Intune does not prove that the target tenant is licensed, configured, or
-operationally ready to use it.
+Routing must stay extensible and aware of the tenant and its licenses. A
+feature existing in Intune does not prove that the target tenant is licensed,
+configured, or operationally ready to use it.
 
 ## Scope translation
 
-Scope planning is a first-class artifact with membership evidence.
+The scope plan is its own artifact, backed by membership evidence.
 
 ### Inputs
 
@@ -294,9 +292,9 @@ For each proposed assignment, report:
 - whether the group is maintained manually, dynamically, by synchronization,
   or by an external identity process.
 
-No proposed assignment is `verified` until the target membership has been
-compared. Creating one Entra group per OU should be presented as one option,
-not the default architecture.
+No proposed assignment is `verified` until its target membership has been
+compared. One Entra group per OU is one option to present, not the default
+architecture.
 
 ## Intune tenant integration modes
 
@@ -307,8 +305,8 @@ No Microsoft Graph or tenant access.
 Inputs:
 
 - GPO Studio/gpo-lens estate;
-- optionally exported Intune Group Policy Analytics CSV/report;
-- optionally exported Settings Catalog policy JSON and tenant inventory;
+- optionally, an exported Intune Group Policy Analytics CSV/report;
+- optionally, exported Settings Catalog policy JSON and tenant inventory;
 - pinned public CSP/ADMX mapping packs with provenance and expiry.
 
 Outputs:
@@ -319,32 +317,31 @@ Outputs:
 - migration gaps and cutover plan;
 - GPO XML/report export ready for manual Intune analysis.
 
-This mode is appropriate for air-gapped planning and should remain useful even
-when no tenant connector is ever configured.
+This mode suits air-gapped planning and must stay useful even if no tenant
+connector is ever configured.
 
 Settings Catalog currently supports exporting and importing policy JSON through
-the Intune admin center. Studio may ingest a tenant export as evidence, but it
-must preserve the export metadata and must not assume every generated object is
-accepted by that import path without validation in the destination tenant.
+the Intune admin center. Studio may ingest a tenant export as evidence. It must
+keep the export metadata, and must not assume the import path accepts every
+generated object until that object is validated in the destination tenant.
 
 ### Mode B — connected read-only
 
-Use a separately configured Microsoft Graph connector with least-privilege read
-permissions and an active Intune tenant/license.
+A separately configured Microsoft Graph connector with least-privilege read
+permissions and an active Intune tenant and license.
 
-Read:
+Reads:
 
 - current Settings Catalog definitions and applicability;
 - existing Intune configuration/endpoint-security policies where supported;
 - assignments, groups/filters, scope tags, and policy conflicts where available;
-- Group Policy Analytics migration reports already present in the tenant;
+- Group Policy Analytics migration reports already in the tenant;
 - target catalogue/API version and national-cloud availability.
 
-The relevant Settings Catalog and Group Policy Analytics Graph surfaces are
-currently documented under Microsoft Graph `/beta`, which Microsoft says is
-subject to more frequent change. The connector must version-pin, cache evidence,
-feature-detect, and degrade cleanly rather than making a beta API a core/offline
-dependency.
+Microsoft currently documents the relevant Settings Catalog and Group Policy
+Analytics Graph surfaces under `/beta`, which it says changes more often. The
+connector must pin versions, cache evidence, feature-detect, and degrade
+cleanly. A beta API must not become a core or offline dependency.
 
 References:
 
@@ -353,45 +350,47 @@ References:
 
 ### Mode C — proposal export
 
-Generate a reviewable, deterministic migration package:
+Generates a reviewable, deterministic migration package:
 
 - source/effective-intent evidence;
 - destination object proposals split by workload;
 - stable setting-definition IDs and values where verified;
-- proposed assignments but no live group creation;
+- proposed assignments, but no live group creation;
 - prerequisites, dependencies, license assumptions, and manual steps;
 - coexistence/cutover/rollback/verification runbook;
 - source and destination semantic assertions.
 
-Do not label arbitrary JSON as an Intune-importable policy unless it conforms to
-a Microsoft-supported import format and has passed target-tenant validation.
-Graph request previews should be labeled as API proposals.
+Do not label JSON as an Intune-importable policy unless it conforms to a
+Microsoft-supported import format and has passed target-tenant validation.
+Label Graph request previews as API proposals.
 
 ### Mode D — managed Intune publication
 
-This is optional and later. It requires the same discipline as AD publication:
+Optional, and later. It needs the same discipline as AD publication
+([`live-publication.md`](live-publication.md)):
 
 - authenticated author/reviewer/approver roles;
 - exact signed desired state and target tenant;
 - expected-state compare-and-swap against existing policy/assignment versions;
-- separate least-privilege Graph application/service identity;
-- typed allow-listed Graph operations, never arbitrary requests;
-- create-unassigned first, read back, then assign after separate review;
+- a separate least-privilege Graph application/service identity;
+- typed, allow-listed Graph operations, never arbitrary requests;
+- create unassigned first, read back, then assign after a separate review;
 - canary groups, monitoring, rollback, evidence, and audit;
 - independent feature flags for policy creation, assignment, group/filter
   creation, update, and deletion.
 
-Intune writes do not belong in the AD Windows publisher. They are a separate
-cloud trust boundary and connector/profile.
+Intune writes do not belong in the AD Windows publisher. They cross a separate
+cloud trust boundary and need their own connector and profile.
 
 ## Migration plan output
 
-For a GPO, OU, or cohort, generate one coherent report.
+For a GPO, OU, or cohort, generate one report with these sections.
 
 ### 1. Executive readiness
 
 - settings considered, effective, overridden, unknown, and excluded;
-- readiness by disposition and evidence strength, not a single inflated percent;
+- readiness by disposition and evidence strength, not a single inflated
+  percentage;
 - target cohorts and estimated membership;
 - destination workloads and object count;
 - critical blockers and manual redesigns;
@@ -412,8 +411,8 @@ One row per source intent:
 
 ### 3. Destination policy architecture
 
-Proposed policies grouped by purpose and workload, not blindly by source GPO.
-Show duplicate/overlap/conflict analysis against existing Intune policies.
+Proposed policies grouped by purpose and workload, not by source GPO, with
+duplicate/overlap/conflict analysis against existing Intune policies.
 
 ### 4. Assignment plan
 
@@ -422,13 +421,13 @@ scope, assignment limitations, owner, and lifecycle.
 
 ### 5. Coexistence and cutover plan
 
-For each cohort/wave:
+For each cohort or wave:
 
 1. Confirm enrollment, licensing, prerequisites, and target membership.
 2. Deploy unassigned or canary Intune objects.
 3. Validate target values and endpoint behavior.
 4. Remove or narrow the corresponding GPO scope in the correct order.
-5. Avoid relying on `MDMWinsOverGP` outside its documented Policy CSP scope.
+5. Do not rely on `MDMWinsOverGP` outside its documented Policy CSP scope.
 6. Monitor Intune conflicts, GPO application, endpoint state, and user impact.
 7. Advance, pause, or restore the prior GPO scope based on explicit gates.
 8. Retire the source GPO only after every dependent cohort is migrated or
@@ -467,15 +466,15 @@ For each cohort/wave:
 
 ### Phase 1 — local migration assessment
 
-- Add migration-plan domain model and confidence taxonomy.
+- Add the migration-plan domain model and confidence taxonomy.
 - Export per-GPO report XML for manual Group Policy Analytics import.
 - Import Microsoft's exported readiness CSV/report and correlate settings.
 - Add curated workload routing and public CSP mapping packs with timestamps.
 - Produce per-GPO setting ledgers and readiness reports.
 - No tenant connector and no Intune writes.
 
-This is the best first slice: it reuses Microsoft's mapping, remains local-first,
-and immediately adds better source evidence and explanation.
+Start here: it reuses Microsoft's mapping, stays local-first, and immediately
+adds better source evidence and explanation.
 
 ### Phase 2 — OU/cohort intent planner
 
@@ -485,7 +484,7 @@ and immediately adds better source evidence and explanation.
 - Design proposed Entra group/filter assignments and membership import/diff.
 - Produce policy decomposition, coexistence, cutover, and verification plans.
 
-This is the primary differentiator.
+This phase is what distinguishes the planner from Microsoft's own tooling.
 
 ### Phase 3 — read-only tenant connector
 
@@ -494,24 +493,24 @@ This is the primary differentiator.
   assignments, groups, filters, applicability, and scope tags where supported.
 - Diff proposed policies against existing Intune configuration across workloads.
 - Cache every tenant-derived mapping as versioned evidence.
-- Degrade to imported/offline evidence if beta surfaces change.
+- Fall back to imported/offline evidence if beta surfaces change.
 
 ### Phase 4 — proposal generation and lab validation
 
 - Generate deterministic Settings Catalog/Endpoint Security Graph proposals.
 - Validate setting instances against the target tenant without assigning them.
-- Create only in a lab/test tenant under approval.
-- Add Windows client application/removal/coexistence test matrix.
+- Create objects only in a lab/test tenant, under approval.
+- Add a Windows client application/removal/coexistence test matrix.
 - Correlate observed Intune results with source semantic assertions.
 
 ### Phase 5 — controlled Intune publication
 
 - Separate cloud publisher trust boundary and signed jobs.
 - Create unassigned policies first.
-- Require separate assignment approval and canary wave.
+- Require separate assignment approval and a canary wave.
 - Monitor per-setting/device results and source GPO removal.
-- Support verified rollback and an honest partial/manual outcome.
-- Expand workload by workload, never via a generic Graph proxy.
+- Support verified rollback and an explicit partial/manual outcome.
+- Expand one workload at a time, never through a generic Graph proxy.
 
 ## Acceptance criteria for the first release
 
@@ -522,7 +521,8 @@ This is the primary differentiator.
 - Every source setting appears exactly once in the ledger, including unknown,
   overridden, deprecated, unsupported, and excluded settings.
 - Evidence source and freshness are visible for every mapping.
-- Heuristic matches are clearly review-required and cannot become `exact`.
+- Heuristic matches are clearly marked review-required and cannot become
+  `exact`.
 - Output routes Firewall/AppLocker-like cases away from generic migration when
   current Microsoft evidence says another workload is appropriate.
 - Per-GPO reports never claim assignment equivalence.
@@ -530,46 +530,46 @@ This is the primary differentiator.
   cohort/assignment design section.
 - The output contains a coexistence and GPO-removal sequence.
 - The feature works without an Intune tenant or network connection.
-- No Graph write permission or managed Intune creation exists in the first
-  release.
+- The first release has no Graph write permission and no managed Intune
+  creation.
 
-## Security and privacy considerations
+## Security and privacy
 
 - GPO reports reveal security posture, scripts, paths, principals, and internal
-  structure. Upload to Microsoft Group Policy Analytics is an explicit user
-  action with clear tenant/data-handling notice; offline mode uploads nothing.
+  structure. Uploading to Microsoft Group Policy Analytics is an explicit user
+  action with a clear tenant/data-handling notice. Offline mode uploads nothing.
 - Graph tokens are stored only by a connector-grade credential facility, never
   in workspace JSON, bundles, logs, or browser storage.
-- Default connected permission is read-only. Read/write consent is a separate
-  installation and approval event.
-- Imported mappings and reports are untrusted input with size, encoding, CSV
-  formula-injection, archive, XML, and identifier validation.
+- The default connected permission is read-only. Read/write consent is a
+  separate installation and approval event.
+- Imported mappings and reports are untrusted input. Validate size, encoding,
+  CSV formula injection, archives, XML, and identifiers.
 - Tenant IDs, policy IDs, groups, and assignment membership are sensitive estate
-  data with access controls, retention, redaction, and provenance.
-- Suggested scripts/remediations cannot be used as an escape hatch for every
-  unsupported setting; executable content has a separate threat model and
+  data and need access controls, retention, redaction, and provenance.
+- Suggested scripts/remediations must not become an escape hatch for every
+  unsupported setting. Executable content has a separate threat model and
   approval class.
-- An optional model may explain mappings but cannot establish equivalence,
+- An optional model may explain mappings. It cannot establish equivalence,
   choose assignments, approve, or produce deployable operations.
 
-## Final product position
+## Naming and entry points
 
-The capability should be named and described as:
+Name and describe the capability as:
 
 > **Intune Migration Planner** — Analyze GPO intent and scope, incorporate
 > Microsoft's current migration evidence, design modern Intune policies and
 > assignments, expose gaps and semantic differences, and produce a verified
 > staged cutover plan.
 
-Avoid names such as “Convert to Intune” or promises of automatic parity.
+Avoid names such as "Convert to Intune" and any promise of automatic parity.
 
-The best experience begins wherever the operator is working:
+Offer it wherever the operator is working:
 
 - **On a GPO:** “Assess modern-management options.”
 - **On an OU/SOM:** “Plan migration for this scope.”
 - **On a resultant/cohort view:** “Design Intune target state.”
 - **Across the estate:** “Build a migration campaign.”
 
-This fits the maximalist GPO Studio vision extremely well. It uses the existing
-normalized model, topology, conflict, provenance, policy, approval, environment,
-and verification work instead of building a disconnected conversion wizard.
+It builds on Studio's existing normalized model, topology, conflict,
+provenance, policy, approval, environment, and verification work rather than
+standing apart as a conversion wizard.

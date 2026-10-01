@@ -1,18 +1,21 @@
-# Plan 033 WP-6 — the RSOP oracle: what it needs, measured first
+# Plan 033 WP-6 — the RSOP oracle: design from measurement
 
-Status: scoped, not built. Written 2026-08-03 after the estate qualification
-round, in the same spirit as `endpoint-lane-design.md`: probe the estate before
-designing against it, because the obvious plan was wrong last time and it is
-wrong this time too.
+Status: scoped, not built, as of 2026-08-03 when this was written after the
+estate qualification round. The lanes have since been built and run; see
+[WP-6B results](wp6b-results.md) (computer scope) and
+[WP-9 results](wp9-results.md) (user scope). This document records the design
+and the measurements it rests on. As with
+[`endpoint-lane-design.md`](endpoint-lane-design.md), the estate was probed
+before designing against it.
 
-WP-6 is the lane that compares `rsop.py`'s predictions against what Windows
-actually resolves. That module is 575 lines, has a full typed surface
-(`RsopTarget` / `RsopQuery` / `RsopResult` / `RsopDiff`), is reachable from no
-API endpoint, and **has never been compared to Windows once**. It is the largest
-standing unverified claim in the project, and `docs/capability-matrix.md` already
-says so.
+WP-6 is the lane that compares `rsop.py`'s predictions with what Windows
+resolves. At the time of writing, that module was 575 lines with a full typed
+surface (`RsopTarget` / `RsopQuery` / `RsopResult` / `RsopDiff`), was reachable
+from no API endpoint, and had **never been compared to Windows**. It was the
+largest standing unverified claim in the project, and
+`docs/capability-matrix.md` said so.
 
-## What the estate actually offers — measured, not assumed
+## What the estate offers
 
 Probed on `LabCL01` (the client guest) over PowerShell Direct as `LAB\claude`:
 
@@ -25,192 +28,185 @@ Probed on `LabCL01` (the client guest) over PowerShell Direct as `LAB\claude`:
 | `gpresult.exe /x <file> /f /scope:computer` | exit 0, **230,218 bytes**, root `Rsop`, namespace `http://www.microsoft.com/GroupPolicy/Rsop` |
 | `[adsisearcher]` | available |
 
-Three of those change the design.
+Three results change the design.
 
-**1. The registry's stated oracle is not available.** `platforms.json` describes
-the `rsop-endpoint` lane's oracle as "`gpresult /x` **and
+**1. The registry's stated oracle is not available.** `platforms.json`
+describes the `rsop-endpoint` lane's oracle as "`gpresult /x` **and
 `Get-GPResultantSetOfPolicy`**". The client has no `GroupPolicy` module, and
-RSAT is a Feature-on-Demand whose source is on the internet — which an estate
-with no egress cannot reach. That is the isolation invariant working, not a gap
-to fix. The lane must be built on `gpresult.exe` alone, or drive
-`Get-GPResultantSetOfPolicy` from `LabMS01` across the private switch (untested;
-see open questions).
+RSAT is a Feature-on-Demand whose source is on the internet, which the estate
+cannot reach. That is the isolation invariant working, not a gap to fix. Build
+the lane on `gpresult.exe` alone, or drive `Get-GPResultantSetOfPolicy` from
+`LabMS01` across the private switch (untested; see open question 1).
 
-**2. `gpresult /x` fails silently, and it is the same trap this repo has hit
-twice.** Without `/scope:computer` it exits **0**, writes **no file**, and
-reports that the invoking account has no RSoP data — true, because the brokered
-account has never logged on interactively to the client. A lane that trusted the
-exit code would proceed to parse a file that does not exist, or worse, parse a
-*stale* one from a previous run and certify it.
+**2. `gpresult /x` fails silently.** Without `/scope:computer` it exits **0**,
+writes **no file**, and reports that the invoking account has no RSoP data.
+That is true: the brokered account has never logged on interactively to the
+client. A lane that trusted the exit code would go on to parse a file that does
+not exist, or a stale one from a previous run, and certify it.
 
-This is the `gpupdate.exe` lesson again (a native exe sets `$LASTEXITCODE`
-without throwing, so an empty `catch` never fires) and the `Compress-Archive`
-lesson again (an operation that reports success while silently dropping
-content). The rule this lane must encode: **for every native exe, assert on the
-artifact, never on the exit code.** Capture stdout, require the file to exist,
-require it to parse, and require its `ComputerResults` to name the GPO the run
-applied.
+This repo has hit the same trap twice before: `gpupdate.exe` (a native exe sets
+`$LASTEXITCODE` without throwing, so an empty `catch` never fires) and
+`Compress-Archive` (it reports success while silently dropping content).
 
-**3. The computer-scope half is reachable today with inbox tools only.**
-`/scope:computer` produces a genuine `Rsop` document naming the applied GPOs.
-`[adsisearcher]` works, so the LDAP `tokenGroups` collection WP-6 requires for
-the computer token — and which `platforms.json` explicitly demands *instead of*
-an interactive `whoami /groups` — is available without RSAT.
+**Rule: for every native exe, assert on the artifact, never on the exit code.**
+Capture stdout, require the file to exist, require it to parse, and require its
+`ComputerResults` to name the GPO the run applied.
+
+**3. Computer scope is reachable with inbox tools only.** `/scope:computer`
+produces a real `Rsop` document naming the applied GPOs. `[adsisearcher]`
+works, so the LDAP `tokenGroups` collection that WP-6 requires for the computer
+token is available without RSAT. (`platforms.json` explicitly demands that
+collection instead of an interactive `whoami /groups`.)
 
 ## The tranche
 
-### WP-6A — reconcile `platforms.json` with reality (do this first; it is nearly free)
+### WP-6A — reconcile `platforms.json` with reality (do this first)
 
-The corpus has 13 scenarios: 5 ready, **8 blocked**. Every one of the 8 is
-blocked on a platform qualification **this session delivered**:
+The corpus has 13 scenarios: 5 ready and **8 blocked**. All 8 are blocked on a
+platform qualification that this session delivered:
 
 | Blocked scenarios | Blocked on | Status now |
 |---|---|---|
 | `lsdou-precedence`, `security-filtering`, `disabled-block-enforced`, `wmi-loopback-slowlink` | `client-win11` *pending-qualification* | Qualified — `endpoint-observe-20260803142424-3050`, a real 26200 client |
 | `group-membership`, `regkeys-filesecurity`, `services-area`, `codec-edge-cases` | `member-ws2025-disposable` *pending-qualification* | Qualified — `wp3-security-template-20260803230220-2450` on exactly that host |
 
-`platforms.json` still says `client-win11` is "still not yet tested, so no
-certification depends on it" and that the disposable member server "lands within
-the planned estate". Both are now false. `dc-ws2025` still describes
+`platforms.json` still said `client-win11` was "still not yet tested, so no
+certification depends on it", and that the disposable member server "lands
+within the planned estate". Both were false. `dc-ws2025` still described
 `mvmcitest01` and the `ad.hraedon.com` forest.
 
-**This is the fourth recurrence of one failure mode in this project**: plan
-status lines said `proposed` while implemented; the capability matrix said
-`failed` while supported; `environment-spec.md` cited an orphaned commit; now
-the platform registry says `pending` while qualified. AGENTS.md already carries
-*"a landed domain layer is not a capability"* and *"plan status lines update with
-the code"*. It needs a third: **a qualification is not real until the registry
-that gates work on it says so.** Worth a test that fails when
-`platforms.json` and `environment-spec.md` disagree about a host's status —
-otherwise this recurs a fifth time.
+This was the fourth time one failure mode recurred. Plan status lines said
+`proposed` while implemented; the capability matrix said `failed` while
+supported; `environment-spec.md` cited an orphaned commit; and now the platform
+registry said `pending` while qualified. AGENTS.md already carried "a landed
+domain layer is not a capability" and "plan status lines update with the code".
+The proposed third rule: **a qualification is not real until the registry that
+gates work on it says so.** Add a test that fails when `platforms.json` and
+`environment-spec.md` disagree about a host's status.
 
-Note the ordering trap: `gpresult`, `whoami` and `secedit` are marked
-"rides the client-win11 qualification" / needs an OS pin. They unblock as a
-consequence of WP-6A, but `lgpo` stays `pending-qualification` — **not because
-the tool was ruled out** (it was ruled *in*, see WP-5 below) but because
-qualification is restored by execution, and no lane executes it yet. WP-6A must
-not sweep `lgpo` up with the others; it is the one row whose status is correct
-as written.
+**Do not sweep `lgpo` up with the others.** `gpresult`, `whoami` and `secedit`
+are marked "rides the client-win11 qualification" or need an OS pin, and they
+unblock as a consequence of WP-6A. `lgpo` stays `pending-qualification`. The
+tool was ruled in (see WP-5 below), but qualification is restored by
+execution, and no lane executes it yet. Its row is correct as written.
 
 ### WP-6B — the computer-scope RSOP lane
 
-Build on the two-guest endpoint lane, which already applies real policy to
-`LabCL01`, waits on CSE evidence rather than a timer, and separates *lane
-failure* from *inconclusive control* from *finding*. Reuse all of it.
+Build on the two-guest endpoint lane. It already applies real policy to
+`LabCL01`, waits on CSE evidence rather than a timer, and separates lane
+failure from inconclusive control from finding. Reuse all of it.
 
-1. Author a disposable topology on `LabMS01` — OU, GPOs, links, order,
-   enforcement, block-inheritance, security filtering. `build-endpoint-candidate.py`
-   is the model. **No pre-existing lab GPOs**, per WP-6.
-2. Compute the prediction with `rsop.py` on the controller, *before* applying
-   anything. Commit it as an input artifact so the prediction cannot be
-   retrofitted to the observation.
-3. Apply, settle on CSE evidence, then capture `gpresult /x … /f /scope:computer`
-   with artifact-based assertions as above.
-4. Parse the `Rsop` namespace into the same shape `rsop.py` emits, and diff.
-5. Three outcomes, never collapsed: prediction matches; prediction wrong (a
-   finding about Studio); experiment did not run (inconclusive).
+1. Author a disposable topology on `LabMS01`: OU, GPOs, links, order,
+   enforcement, block-inheritance, security filtering.
+   `build-endpoint-candidate.py` is the model. **No pre-existing lab GPOs**, per
+   WP-6.
+2. Compute the prediction with `rsop.py` on the controller **before** applying
+   anything. Commit it as an input artifact so the prediction cannot be fitted
+   to the observation afterwards.
+3. Apply, settle on CSE evidence, then capture
+   `gpresult /x … /f /scope:computer` with the artifact-based assertions above.
+4. Parse the `Rsop` namespace into the shape `rsop.py` emits, and diff.
+5. Keep three outcomes separate: the prediction matches; the prediction is
+   wrong (a finding about Studio); the experiment did not run (inconclusive).
 
-The four already-authored `rsop-topology` scenarios are the candidate set —
-they exist, they encode the questions, and they unblock at WP-6A.
+The candidate set is the four already-authored `rsop-topology` scenarios. They
+encode the questions and unblock at WP-6A.
 
-**Carry the vocabulary-control lesson across.** The endpoint lane needed a
-hand-written native control row, because a candidate that legitimately fails to
-apply is indistinguishable in the evidence from a real defect. An RSOP lane needs
-the same: at least one row whose winning GPO is decided by a mechanism Studio
-does not model, so "Studio predicted wrong" can be told apart from "nothing
-applied".
+**Include a vocabulary control.** The endpoint lane needed a hand-written
+native control row, because a candidate that legitimately fails to apply looks
+the same in the evidence as a real defect. The RSOP lane needs at least one row
+whose winning GPO is decided by a mechanism Studio does not model, so that
+"Studio predicted wrong" can be told apart from "nothing applied".
 
-### WP-6C — user scope is a scope decision, not a task
+### WP-6C — user scope is a scope decision
 
-**Ruled 2026-08-03: WP-6 is computer-scope-only, and user scope becomes its own
-follow-up work package — now `WP-9` in `plans/033`.** An interactive logon on a
-disposable estate was explicitly approved, so the constraint that forced this
-split is a sequencing constraint, not a permanent one.
+**Ruled 2026-08-03: WP-6 is computer-scope-only. User scope becomes its own
+work package, now `WP-9` in `plans/033`.** An interactive logon on a
+disposable estate was explicitly approved, so this split is a sequencing
+constraint, not a permanent one.
 
-The user half needs an interactive logon on the client, which the estate has
-never had and which PowerShell Direct does not provide. Computer scope exercises
-link order, enforcement, block-inheritance and security filtering — the whole of
-`rsop.py`'s interesting surface — and loopback/user-side is a second lane's worth
-of work that should not gate the first result.
+The user half needs an interactive logon on the client. The estate had never
+had one, and PowerShell Direct does not provide one. Computer scope exercises
+link order, enforcement, block-inheritance and security filtering, which is
+most of `rsop.py`'s interesting surface. Loopback and user-side are a second
+lane's worth of work and should not gate the first result.
 
-What this ruling obliges, and what it must not be allowed to blur:
+What the ruling requires:
 
-- WP-6's acceptance no longer mentions loopback or user-side winners; those
-  criteria moved to WP-9 rather than being dropped. A criterion that is deleted
-  instead of relocated is how an unverified claim becomes a silent one.
+- WP-6's acceptance no longer mentions loopback or user-side winners. Those
+  criteria moved to WP-9; they were not dropped. A deleted criterion is how an
+  unverified claim becomes a silent one.
 - `docs/capability-matrix.md` must say **computer-scope-only** against every
   `rsop.py` capability WP-6 certifies. "RSOP validated" without the qualifier
   would overclaim by half.
-- Loopback is the specific casualty. `rsop.py` models merge and replace; nothing
-  in WP-6 touches either. Until WP-9 runs, loopback stays an unverified claim and
-  the matrix must show it as one.
+- Loopback stays an unverified claim until WP-9 runs, and the matrix must show
+  it as one. `rsop.py` models merge and replace; nothing in WP-6 touches
+  either.
 
 WP-9 gets the interactive logon: script an autologon on `LabCL01` and take a
-dedicated checkpoint, so the logged-on state is reproducible rather than a
-hand-made condition. `Get-GPResultantSetOfPolicy -User` from `LabMS01` remains
-the second oracle to try (open question 1), but it is a bonus, not the plan —
-the estate has already taught this project not to design against an untested
-transport.
+dedicated checkpoint, so the logged-on state is reproducible rather than set up
+by hand. `Get-GPResultantSetOfPolicy -User` from `LabMS01` remains a second
+oracle to try (open question 1), but it is a bonus, not the plan. Do not design
+against an untested transport.
 
-## Adjacent, and cheaper than it looks
+## Related work
 
-**WP-3 expansion is unblocked.** Four security-template scenarios were waiting on
-a disposable member server that now exists and is qualified. The lane already
-runs there. Expanding it to the services / regkeys / filestore / group_mgmt areas
-needs no new infrastructure — and `security_template.py` is the one domain layer
-already *proven* wrong on the wire, so this is where a lane is most likely to
-find something.
+**WP-3 expansion is unblocked.** Four security-template scenarios were waiting
+on a disposable member server, which now exists and is qualified. The lane
+already runs there. Expanding it to the services / regkeys / filestore /
+group_mgmt areas needs no new infrastructure. `security_template.py` is the one
+domain layer already proven wrong on the wire, so it is where a lane is most
+likely to find something.
 
-**WP-5 keeps both legs — LGPO is approved on the estate.** The lane requires
-`LGPO.exe`; the estate has none and cannot fetch it. The recommendation here was
-to narrow WP-5 to its domain-GPO-processing leg; **the owner ruled on 2026-08-03
-that LGPO.exe on the estate is acceptable**, so the lane keeps its LGPO leg and
-the binary is pushed in over `psdirect`.
+**WP-5 keeps both legs: LGPO is approved on the estate.** The lane requires
+`LGPO.exe`; the estate has none and cannot fetch it. This document recommended
+narrowing WP-5 to its domain-GPO-processing leg. **The owner ruled on
+2026-08-03 that LGPO.exe on the estate is acceptable**, so the lane keeps its
+LGPO leg and the binary is pushed in over `psdirect`.
 
-That ruling is about *this* estate, and the reasoning should be recorded rather
-than assumed: the lab guests are disposable, checkpoint-backed and deliberately
-isolated, so an external Microsoft binary is a controlled addition to a
-throwaway machine — not a change to the isolation invariant, which is about
-*egress*, not about what is deliberately placed inside.
+The ruling applies to this estate only. The lab guests are disposable,
+checkpoint-backed and isolated, so an external Microsoft binary is a controlled
+addition to a throwaway machine. The isolation invariant is about egress, not
+about what is deliberately placed inside.
 
-The conditions that make it defensible, all of which WP-5 must implement:
+WP-5 must implement all of these conditions:
 
 1. **Hash-pin on the way in and verify on the guest.** The transfer is the
-   trust boundary. `environment-spec.md` already records
-   `lgpo_sha256 = 0c97f295…` from the mvmcitest01 era; WP-5 must verify the
-   binary it actually pushes against a pin, not merely record what arrived.
-   Recording a hash of whatever showed up is provenance theatre.
-2. **Stage it outside the golden checkpoints.** Push post-restore, so no
+   trust boundary. `environment-spec.md` records `lgpo_sha256 = 0c97f295…`
+   from the mvmcitest01 era. WP-5 must verify the binary it pushes against a
+   pin, not just record the hash of whatever arrived; recording alone is not
+   verification.
+2. **Stage it outside the golden checkpoints.** Push it after restore, so no
    `domain-joined` checkpoint carries the binary and the estate stays
    reproducible from clean media.
-3. **Restore `lgpo` to qualified in `platforms.json` when — and only when — the
-   lane genuinely executes it.** The 2026-07-29 de-gating exists precisely
-   because a `pass` was being gated on a binary no lane ran; WP-5 is the lane
-   that earns the qualification back, and it earns it by execution.
+3. **Restore `lgpo` to qualified in `platforms.json` only when the lane
+   executes it.** The 2026-07-29 de-gating exists because a `pass` was being
+   gated on a binary no lane ran. WP-5 earns the qualification back by
+   execution.
 
-The domain leg is still the one that matters most — it tests Studio's output
-reaching a client through SYSVOL — and WP-5's acceptance already requires both.
-That stays unchanged.
+The domain leg matters most, because it tests Studio's output reaching a client
+through SYSVOL. WP-5's acceptance requires both legs; that is unchanged.
 
 **WI-025** (WP-1B candidate artifacts not hash-bound) applies to the endpoint
-lane too — it already takes `--candidate-root`, so it never had the
+lane too. That lane already takes `--candidate-root`, so it never had the
 guest-supplied-expectation defect, but it records no candidate hashes either.
 Same fix, one re-certification run for both.
 
-## Open questions, deliberately not guessed
+## Open questions (not guessed)
 
 1. Can `LabMS01` reach `LabCL01` over the private switch for RPC/WMI? Domain
-   join proves guest-to-guest works, but `Get-GPResultantSetOfPolicy -Computer`
-   needs specific firewall state on a client SKU. Untested. If it works, WP-6C
-   gets easier and the lane gains a second independent oracle.
+   join proves guest-to-guest traffic works, but
+   `Get-GPResultantSetOfPolicy -Computer` needs specific firewall state on a
+   client SKU. Untested. If it works, WP-6C gets easier and the lane gains a
+   second independent oracle.
 2. Does `gpresult /x` on this build emit the extension data `rsop.py` predicts,
-   or only the winning-GPO list? The 230 KB document was not parsed in detail —
+   or only the winning-GPO list? The 230 KB document was not parsed in detail;
    only its root, namespace and GPO names were read.
 3. Is `rsop.py`'s output shape close enough to the `Rsop` schema to diff without
    a lossy adapter? If the adapter has to make choices, those choices are part
    of what is being tested and must be reviewable.
 
 Expect this lane to rewrite what it touches. Every domain layer an external
-oracle has examined has needed correction; WP-1B changed four shipped 1.0
-modules. WP-6 should be scoped as *"find out whether `rsop.py` is right"*, not
-*"validate `rsop.py`"*.
+oracle has examined has needed correction, and WP-1B changed four shipped 1.0
+modules. Scope WP-6 as "find out whether `rsop.py` is right", not "validate
+`rsop.py`".

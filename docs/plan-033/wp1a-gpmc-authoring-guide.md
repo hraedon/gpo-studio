@@ -1,11 +1,13 @@
 # WP-1A GPMC Editor Authoring Guide
 
-Three canary GPOs must be authored entirely through the Group Policy
-Management Editor (gpme.msc) GUI — no direct SYSVOL writes, no ADSI
-extension updates.  Close and reopen each item before saving.  Then
-run `Backup-GPO` and transfer the result.
+Author three canary GPOs entirely in the Group Policy Management Editor
+(gpme.msc) GUI. Do not write to SYSVOL directly or update extensions through
+ADSI. Close and reopen each item before saving. Then run `Backup-GPO` and
+transfer the result.
 
-Host: mvmcitest01 (WS2025 build 26100, ad.hraedon.com)
+Host: mvmcitest01 (WS2025 build 26100, ad.hraedon.com). This shared host was
+retired as an evidence host on 2026-08-03; see
+[environment-spec.md](environment-spec.md#the-retired-shared-host).
 Identity: svc-da (domain admin, via scheduled task or interactive RDP)
 
 ## Canary 1: Drive Maps (user scope)
@@ -23,13 +25,13 @@ Create three drive items:
 | 2 | Replace | P: | `\\filesrv\projects` | Projects | No | Yes | Remove when unapplied ✓ (GPMC enforces Replace) |
 | 3 | Delete | X: | (none) | (none) | No | Yes | (all defaults) |
 
-**GPMC constraint:** "Remove when unapplied" forces action to Replace
-and disables "Apply once." These two options are mutually exclusive.
+**GPMC constraint:** "Remove when unapplied" forces the action to Replace
+and disables "Apply once". The two options are mutually exclusive.
 
 For item 1, add Item-Level Targeting → **FilterRunOnce** (Run once).
 
-After creating each item, close its properties dialog, then reopen it
-to verify GPMC persisted the values.  Save the GPO.
+After creating each item, close its properties dialog, then reopen it to
+check that GPMC kept the values. Save the GPO.
 
 **Verify before backup:**
 - Right-click the GPO → Get-GPOReport shows Drive Maps ExtensionData
@@ -50,10 +52,10 @@ Create two group items (right-click → New → Local Group):
 | 1 | Update | Administrators (built-in) | Managed by GPO Studio | No | No | ADD: HRAENET\svc-gpolens, ADD: HRAENET\lab-admins | (all defaults) |
 | 2 | Replace | Power Users (built-in) | (empty) | Yes | Yes | ADD: HRAENET\dev-team | Remove when unapplied ✓, Stop on error ✓ |
 
-To add members: click **Add** in the Members section, enter the
-principal name, and resolve it.  GPMC will fill in the SID.
+To add members, click **Add** in the Members section, enter the principal
+name, and resolve it. GPMC fills in the SID.
 
-Close and reopen each item.  Save the GPO.
+Close and reopen each item. Save the GPO.
 
 **Verify before backup:**
 - Get-GPOReport shows Local Users and Groups ExtensionData with both
@@ -95,7 +97,7 @@ Right-click → New → **Immediate Task (At least Windows 7)**.
 | (Actions tab) | Start a program: `C:\Windows\System32\cmd.exe`, arguments `/c echo init` |
 | Common tab | (all defaults) |
 
-Close and reopen each item.  Save the GPO.
+Close and reopen each item. Save the GPO.
 
 **Verify before backup:**
 - Get-GPOReport shows Scheduled Tasks ExtensionData with both items.
@@ -117,24 +119,24 @@ foreach ($name in @('WI01A-DriveMaps-GPMC', 'WI01A-LocalGroups-GPMC', 'WI01A-Sch
 }
 ```
 
-Transfer `C:\Temp\gpp-gpmc-native` to the dev machine.  The agent will
-run the recorded sanitizer, validate GPMC recognition (gpreport.xml
-ExtensionData + non-zero side versions), and produce repository fixtures
-with semantic manifests.
+Transfer `C:\Temp\gpp-gpmc-native` to the dev machine. The agent runs the
+recorded sanitizer, validates GPMC recognition (gpreport.xml ExtensionData
+plus non-zero side versions), and produces repository fixtures with semantic
+manifests.
 
 ## What the agent verifies after transfer
 
-1. gpreport.xml contains ExtensionData for the preference CSE with
-   typed settings (this is the authoritative GPMC-recognition check).
+1. gpreport.xml contains ExtensionData for the preference CSE with typed
+   settings. This is the authoritative GPMC-recognition check.
 2. Side version numbers (User.DsaVersion / Computer.DsaVersion) are
    non-zero and consistent with GPT.ini.
-3. The GPP XML shapes are what GPMC actually emits (confirming or
-   correcting the TaskV2 finding from the synthetic diagnostics).
+3. The GPP XML shapes are what GPMC emits. This confirms or corrects the
+   TaskV2 finding from the synthetic diagnostics.
 
-**Note on Backup.xml "Unknown Extension":** Backup-GPO labels the GPP
+**"Unknown Extension" in Backup.xml is expected.** Backup-GPO labels the GPP
 CSE ({F15C46CD-82A0-4C2D-A210-5D0D3182A418}) as "Unknown Extension" in
-Backup.xml for BOTH genuine and synthetic captures. This is Backup-GPO's
-generic display name for filesystem-collected extensions without a
-registered friendly name — it does NOT indicate that GPMC failed to
-recognize the preference extension. The authoritative recognition
-evidence is gpreport.xml ExtensionData + non-zero side versions.
+Backup.xml for both GPMC-authored and synthetic captures. It is Backup-GPO's
+generic display name for filesystem-collected extensions with no registered
+friendly name. It does not mean GPMC failed to recognize the preference
+extension. Use gpreport.xml ExtensionData plus non-zero side versions as the
+recognition evidence.

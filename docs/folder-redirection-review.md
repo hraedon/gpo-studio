@@ -1,42 +1,64 @@
 # Reviewing Folder Redirection files
 
-Open **Folder Redirection** in the workspace sidebar. Choose a **Current file**,
-then **Review files**. To compare two copies, also select an **Earlier file**.
-The comparison runs from earlier to current.
+The Folder Redirection panel reads a native `fdeploy` file, or compares an
+earlier copy with a current one. It only inspects and compares. It does not
+author or publish policy.
 
-Use the native `fdeploy1.ini` from a backup's `User/Documents & Settings`
-directory. The adjacent `fdeploy.ini` is usually an empty marker; the panel
-recognises the marker captured by R3. Keep the original UTF-16LE encoding,
-byte-order mark and line endings. Each file must be at most 1 MiB. Renaming a
-text file to `.ini` does not convert its encoding.
+## Review or compare files
 
-Selected bytes are sent to the Studio server's existing review API. The panel
-does not save them into a GPO or the workspace. It offers inspection and
-comparison, with no authoring or publication action. Changing a selection or
-closing the panel clears the previous result; reopening clears the selections.
+1. Open **Folder Redirection** in the workspace sidebar.
+2. Choose a **Current file**. To compare, also choose an **Earlier file**.
+   The comparison runs from earlier to current.
+3. Select **Review files**.
 
-The result starts with the reader's evidence limits. Each file then shows its
-version, parsing warnings, structural issues, redirection sections and raw
-flags. Expand **Folder-to-principal map** or **Full file report** to inspect the
-other retained observations. Unknown folder identifiers stay visible as GUIDs.
-Raw flags are not translated into options: the capture needed to establish
-their meaning is still outstanding (WI-066/R12).
+Changing a selection or closing the panel clears the previous result.
+Reopening the panel clears the selections.
 
-The comparison matches redirection sections by folder GUID and principal and
-shows added, removed and modified sections. It displays earlier/current paths
-and raw flags. Additional entries within a redirection section can also cause
-a modification; their values are in the full file reports. Repeated identities
-compare using the last section, so the panel also displays each file's duplicate
-warnings and all parsed sections.
+## Which file to use
 
-An empty comparison means no redirection-section changes were detected.
-Version, folder-map, unrelated-section and formatting changes are outside that
-comparison. The panel separately reports whether the complete file bytes are
-identical, so an empty comparison of different files is explicit.
+- Use the native `fdeploy1.ini` from a backup's `User/Documents & Settings`
+  directory. The `fdeploy.ini` next to it is usually an empty marker; the panel
+  recognises the marker captured by R3.
+- Keep the original UTF-16LE encoding, byte-order mark and line endings.
+  Renaming a text file to `.ini` does not convert its encoding.
+- Each file must be 1 MiB or smaller.
 
-This interface uses `POST /api/folder-redirection/fdeploy` to inspect each file
-and `POST /api/folder-redirection/fdeploy/diff` to compare them. The reader is
-tested against one native Windows capture, with no repeatable Windows lane
-behind it. Adding the panel does not expand that evidence. Integration with
-imported GPO reports and workspace diffs remains WI-068; see the
+The panel sends the selected bytes to the Studio server's existing review API.
+It does not save them into a GPO or the workspace.
+
+## Reading the result
+
+The result starts with the reader's evidence limits. Then, for each file, it
+shows the version, parsing warnings, structural issues, redirection sections
+and raw flags. Expand **Folder-to-principal map** or **Full file report** to
+see the rest of what the reader kept.
+
+- Unknown folder identifiers are shown as GUIDs.
+- Raw flags are not translated into options. The capture needed to establish
+  what they mean is still outstanding (WI-066/R12).
+
+## Reading a comparison
+
+The comparison matches redirection sections by folder GUID and principal, and
+lists added, removed and modified sections with their earlier and current
+paths and raw flags.
+
+- A section can also show as modified because of other entries inside it. Their
+  values are in the full file reports.
+- If an identity appears more than once, the comparison uses the last section.
+  The panel therefore also shows each file's duplicate warnings and all parsed
+  sections.
+- An empty comparison means no redirection-section changes were found. Changes
+  to the version, folder map, unrelated sections or formatting are outside the
+  comparison. The panel reports separately whether the complete file bytes are
+  identical, so you can tell when two different files produced an empty
+  comparison.
+
+## Evidence and limits
+
+The panel calls `POST /api/folder-redirection/fdeploy` to inspect each file and
+`POST /api/folder-redirection/fdeploy/diff` to compare them. The reader is
+tested against one native Windows capture, and no repeatable Windows lane backs
+it. The panel does not add to that evidence. Integration with imported GPO
+reports and workspace diffs is still open as WI-068; see the
 [read-target decision](scope-decision-2026-09-11-folder-redirection.md).
