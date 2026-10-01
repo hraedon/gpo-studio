@@ -152,14 +152,32 @@ def test_resolve_identifiers_strict_returns_empty_frozenset_when_unset(
 def test_resolve_identifiers_non_strict_returns_none_when_unset(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Default mode fail-opens: a missing denylist is None, so the caller no-ops.
+    """Default mode on a non-public repo: a missing denylist is None, so the caller no-ops.
 
-    A fresh clone or fork without the secret must not be bricked.
+    A fresh clone or fork of a private-until-review repo without the secret must
+    not be bricked. (On a public repo the same condition is an error; see
+    test_resolve_identifiers_non_strict_raises_when_unset_on_a_public_repo.)
     """
     monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
     monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
+    monkeypatch.setattr(_mod, "_declares_public", lambda: False)
     result = _mod._resolve_identifiers(strict=False)
     assert result is None
+
+
+def test_resolve_identifiers_non_strict_raises_when_unset_on_a_public_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Default mode on a PUBLIC repo fails closed: a missing denylist is a GateError.
+
+    Skipping there exits 0 having scanned nothing -- the hook-side twin of the
+    silent pass --strict closes in CI.
+    """
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
+    monkeypatch.setattr(_mod, "_declares_public", lambda: True)
+    with pytest.raises(_mod.GateError):
+        _mod._resolve_identifiers(strict=False)
 
 
 def test_resolve_identifiers_reads_denylist_file_fallback(
@@ -208,12 +226,25 @@ def test_main_strict_exits_nonzero_without_denylist(
 def test_main_non_strict_exits_zero_without_denylist(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Default mode: no denylist no-ops (exit 0), so a fresh clone is not bricked."""
+    """Default mode, non-public repo: no denylist no-ops (exit 0); a fresh clone is not bricked."""
     monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
     monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
     monkeypatch.setattr(_mod, "collect_tracked_paths", lambda: [])
+    monkeypatch.setattr(_mod, "_declares_public", lambda: False)
     rc = _mod.main([])
     assert rc == 0
+
+
+def test_main_non_strict_exits_nonzero_without_denylist_on_a_public_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Default mode, PUBLIC repo: no denylist is exit 1, not a silent skip."""
+    monkeypatch.delenv("GPO_STUDIO_FORBIDDEN_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(_mod, "_DENYLIST_FILE_CANDIDATES", ())
+    monkeypatch.setattr(_mod, "collect_tracked_paths", lambda: [])
+    monkeypatch.setattr(_mod, "_declares_public", lambda: True)
+    rc = _mod.main([])
+    assert rc == 1
 
 
 def test_strict_ignores_denylist_file_fallback(
