@@ -24,6 +24,8 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
+      - name: Gate contract (publication visibility is a closed set)
+        run: python3 tests/test_identifier_gate_visibility.py
       - name: Check for committed work-domain identifiers
         env:
           GPO_STUDIO_FORBIDDEN_IDENTIFIERS: ${{ secrets.GPO_STUDIO_FORBIDDEN_IDENTIFIERS }}
