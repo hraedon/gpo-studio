@@ -63,7 +63,7 @@ function renderDiagnostics(body) {
     )
     .join("");
   if (!warnings && !issues) {
-    return '<p class="rsop-note">No structural issues reported. This does not establish how Windows applies the policy.</p>';
+    return '<p class="rsop-note">No structural issues found. This does not show how Windows applies the policy.</p>';
   }
   return `<div class="rsop-warnings"><strong>File warnings and structural issues</strong><ul>${warnings}${issues}</ul></div>`;
 }
@@ -111,7 +111,7 @@ export function renderComparison(body, identicalBytes) {
     )
     .join("");
   return `<section class="fdeploy-comparison"><h3>Redirection changes</h3>
-    <p class="rsop-note">Compares redirection sections by folder GUID and principal. Repeated identities use the last section; read both files' warnings below. Changes to version, the folder map, other sections and formatting are outside this comparison. Additional entries within a redirection section can also cause a change; inspect the full file reports for those values.</p>
+    <p class="rsop-note">Redirection sections are matched by folder GUID and principal. If a pair appears more than once, the last section is used; see both files' warnings below. Changes to the version, the folder map, other sections and formatting are outside this comparison. Other entries inside a redirection section can also show up as a change; check the full file reports for their values.</p>
     <p>${identicalBytes ? "The files are byte-identical." : "The file bytes differ."}</p>
     ${rows || '<p class="table-empty">No redirection-section changes detected.</p>'}
   </section>`;
