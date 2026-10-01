@@ -10,6 +10,7 @@ import {initBrowser,loadBrowser} from './browser.mjs';
 import {initStarter} from './starter.mjs';
 import {initRsop} from './rsop.mjs';
 import {initSecurityTemplate} from './security-template.mjs';
+import {initFolderRedirection} from './folder-redirection.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -224,6 +225,7 @@ initBrowser();
 initStarter();
 initRsop();
 initSecurityTemplate();
+initFolderRedirection();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 loadList().then(()=>setAppStatus("")).catch(error=>{

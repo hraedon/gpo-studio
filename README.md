@@ -91,6 +91,11 @@ toward promotion.
 [Plan 034](plans/034-post-1.0-layer-reconciliation.md) is the programme that
 turns them into capabilities or into explicit out-of-scope rulings.
 
+The **Folder Redirection** sidebar panel can review a native `fdeploy` file
+or compare an earlier copy with a current one. It shows raw flags, structural
+issues and the reader's limits, using the banked R3 capture; it does not author
+or apply policy. See [the file review guide](docs/folder-redirection-review.md).
+
 ## Run it
 
 Installing a release on Windows? Use the

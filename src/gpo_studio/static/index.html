@@ -65,6 +65,7 @@
       <button class="full" id="open-starter-gpos">Starter GPOs</button>
       <button class="full" id="open-rsop">RSOP prediction</button>
       <button class="full" id="open-security-template">Security template</button>
+      <button class="full" id="open-folder-redirection">Folder Redirection</button>
       <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span><span class="dot"></span> Offline authoring mode</span><button id="theme-toggle" type="button" aria-label="Colour theme: automatic">Auto</button></footer>
@@ -440,6 +441,21 @@
 }'>{}</textarea><small>The families for the selected mode, as JSON. Restricted groups are not renderable: no lane has read that serializer (WI-064).</small></label>
       <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Render</button></div>
       <div id="security-template-results" class="rsop-results"></div>
+    </form>
+  </dialog>
+
+  <dialog id="folder-redirection-dialog" class="wide" aria-labelledby="folder-redirection-dialog-title">
+    <form id="folder-redirection-form">
+      <div class="dialog-head"><div><p class="eyebrow">Folder Redirection</p><h2 id="folder-redirection-dialog-title">Review native policy files</h2></div><button type="button" class="icon" data-close-folder-redirection aria-label="Close">&times;</button></div>
+      <p class="rsop-note">Choose a native <code>fdeploy1.ini</code> policy or <code>fdeploy.ini</code> marker from a local backup's <code>User/Documents &amp; Settings</code> folder. Files are read by this Studio server for review and are not saved into the workspace. This review does not edit or apply policy.</p>
+      <div class="grid two compact">
+        <label>Current file<input type="file" name="current_file" accept=".ini" required aria-describedby="folder-redirection-file-help"></label>
+        <label>Earlier file (optional)<input type="file" name="earlier_file" accept=".ini" aria-describedby="folder-redirection-file-help"></label>
+      </div>
+      <p id="folder-redirection-file-help" class="rsop-note">Native UTF-16LE files with a byte-order mark; up to 1 MiB each. Add an earlier file to compare redirection sections. Flags are shown as stored; their option meanings are not known.</p>
+      <div class="dialog-actions"><button type="button" data-close-folder-redirection>Close</button><button class="primary" type="submit" id="folder-redirection-submit">Review files</button></div>
+      <p id="folder-redirection-status" role="status" aria-live="polite"></p>
+      <div id="folder-redirection-results" class="rsop-results" aria-busy="false"></div>
     </form>
   </dialog>
 
