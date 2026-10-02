@@ -27,23 +27,44 @@
 # The shared canonical denylist holds work-domain identifiers only; homelab/lab
 # identifiers are deliberately NOT in it — lab topology is allowed in public
 # repos (docs/publication-review.md). Multi-word entries must be double-quoted.
-# The script fail-opens with no denylist so a fresh clone is not bricked; CI
-# passes --strict to fail closed. This hook omits --strict for the same reason.
+# With no denylist the script refuses a public declaration but remains a no-op
+# for private-until-review. GATE_ALLOW_NO_DENYLIST=1 is the only bypass.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-python_bin="$repo_root/.venv/bin/python"
-[ -x "$python_bin" ] || python_bin="$(command -v python3 || command -v python || true)"
-
-# No interpreter is the same situation as no denylist: the local hook is a
-# convenience and CI is the hard gate, so say so and let the commit through
-# rather than bricking a clone that has not been set up yet. Without this,
-# `set -e` turns an empty $python_bin into a failed exec and every commit is
-# refused with no explanation.
-if [ -z "$python_bin" ]; then
-  echo "gpo-studio pre-commit: identifier gate INACTIVE - no Python interpreter found." >&2
-  echo "  Create the project venv (uv sync) or install python3 to enable it. Allowing commit." >&2
+no_denylist=1
+denylist="${GPO_STUDIO_FORBIDDEN_IDENTIFIERS:-}"
+if [ -n "${denylist//[[:space:]]/}" ]; then
+  no_denylist=0
+else
+  for candidate in \
+    "$repo_root/.identifiers-denylist.local" \
+    "${HOME:-}/.config/agent-suite/forbidden-identifiers"; do
+    if [ -f "$candidate" ]; then
+      denylist="$(cat "$candidate")"
+      if [ -n "${denylist//[[:space:]]/}" ]; then
+        no_denylist=0
+        break
+      fi
+    fi
+  done
+fi
+if [ "$no_denylist" -eq 1 ] && [ "${GATE_ALLOW_NO_DENYLIST:-}" = "1" ]; then
+  echo "gpo-studio pre-commit: WARNING: identifier gate BYPASSED (GATE_ALLOW_NO_DENYLIST=1) -- no denylist, staged content was NOT scanned." >&2
   exit 0
 fi
 
-exec "$python_bin" "$repo_root/scripts/check_committed_identifiers.py" --staged
+python_bin="$repo_root/.venv/bin/python"
+[ -x "$python_bin" ] || python_bin="$(command -v python3 || command -v python || true)"
+
+if [ -z "$python_bin" ]; then
+  echo "gpo-studio pre-commit: FATAL: no Python interpreter found; the identifier gate cannot run." >&2
+  exit 1
+fi
+
+status=0
+"$python_bin" "$repo_root/scripts/check_committed_identifiers.py" --staged || status=$?
+if [ "$status" -ne 0 ] && [ "$no_denylist" -eq 1 ]; then
+  echo "gpo-studio pre-commit: fix: configure GPO_STUDIO_FORBIDDEN_IDENTIFIERS; to bypass once, GATE_ALLOW_NO_DENYLIST=1 (warned)." >&2
+fi
+exit "$status"
