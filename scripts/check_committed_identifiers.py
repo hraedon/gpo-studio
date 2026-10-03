@@ -77,11 +77,13 @@ MIN_IDENTIFIER_LENGTH = 4
 # matches all of those forms; see _phrase_pattern.
 _PHRASE_SEPARATOR = r"[\s._\-]+"
 _BINARY_SNIFF_LEN = 8192
-# Dirs skipped by the identifier scan: .venv is build output. The always-on
-# guard below handles root-level samples/ (which holds real identifier-bearing
-# data); nested directories named samples/ (e.g. tests/samples/) are legitimate
-# code dirs and SHOULD be scanned.
-_SKIP_DIRS = frozenset({".venv"})
+# Nothing is skipped by PATH. What is scanned is decided by git tracked-ness:
+# every tracked (or staged) file is scanned. .venv used to be skipped as build
+# output, which let a force-added token file under it pass; a tracked file under
+# any .venv/ is now refused outright (leaked_tracked_files). Nested directories
+# named samples/ (e.g. tests/samples/) are legitimate code dirs and ARE scanned;
+# only the root-level guarded dirs below are refused.
+_VENV_DIR = ".venv"
 # Root-level gitignored data dirs that must never contain a tracked file. The
 # guard matches the first path component so a legitimate nested code dir named
 # ``samples`` (e.g. ``tests/samples/``) is not a false positive.
@@ -332,9 +334,9 @@ def _run_git(args: list[str]) -> str:
 def _paths_from_git(args: list[str]) -> list[Path]:
     """Run a NUL-delimited git path command and return Paths.
 
-    No filtering is applied here — the always-on samples/ guard needs to see
-    every tracked path so it can detect a force-add. The identifier scan
-    filters out _SKIP_DIRS separately.
+    No filtering is applied here or later: the always-on guards need to see every
+    tracked path so they can detect a force-add, and the identifier scan reads
+    every tracked path (no path-based skip).
     """
     paths: list[Path] = []
     for raw in _run_git(args).split("\0"):
@@ -403,12 +405,17 @@ def print_report(violations: list[Violation]) -> None:
 
 
 def leaked_tracked_files(paths: list[Path], guarded: frozenset[str]) -> list[Path]:
-    """Tracked files whose root component is a guarded (gitignored) data dir.
+    """Tracked paths refused by the always-on guard.
 
-    Matches only the first path component so a nested code directory that happens
-    to be named ``samples`` (e.g. ``tests/samples/``) is not a false positive.
+    Guarded data dirs match only the first component, so a nested code directory
+    named ``samples`` is legitimate. Anything under a ``.venv/`` directory at
+    any depth is refused; a file merely named ``.venv`` is scanned normally.
     """
-    return [p for p in paths if p.parts and p.parts[0] in guarded]
+    return [
+        p
+        for p in paths
+        if (p.parts and p.parts[0] in guarded) or _VENV_DIR in p.parts[:-1]
+    ]
 
 
 def _load_denylist_file(path: Path) -> str:
@@ -1043,8 +1050,8 @@ def _run(args: argparse.Namespace) -> int:
 
     paths = collect_staged_paths() if args.staged else collect_tracked_paths()
 
-    # 1. Always-on: no tracked file under a guarded (gitignored) data dir. This
-    #    catches a ``git add -f samples/...`` leak regardless of secret config.
+    # 1. Always-on: no tracked path under a guarded data dir or any .venv/ dir.
+    #    This catches ``git add -f`` leaks regardless of denylist configuration.
     leaked = leaked_tracked_files(paths, _GUARDED_DIRS)
     if leaked:
         print("Tracked files under a gitignored data directory detected:", file=sys.stderr)
@@ -1053,7 +1060,8 @@ def _run(args: argparse.Namespace) -> int:
         print(
             "\nThese paths are gitignored by convention (samples/ holds real "
             "identifier-bearing data — hostnames, service accounts, principal "
-            "handles). Remove them from the index: git rm --cached -r <path>.",
+            "handles), or live under .venv/ and are never source. Remove them "
+            "from the index: git rm --cached -r <path>.",
             file=sys.stderr,
         )
         return 1
@@ -1067,7 +1075,7 @@ def _run(args: argparse.Namespace) -> int:
     if not identifiers:
         return 1
 
-    scan_paths = [p for p in paths if not any(part in _SKIP_DIRS for part in p.parts)]
+    scan_paths = paths  # tracked-ness decides; no path-based skip (see _VENV_DIR)
     unreadable: list[Path] = []
     # --staged judges the index blobs (what the commit records), never the worktree.
     scan = _scan_index_snapshot if args.staged else scan_files
