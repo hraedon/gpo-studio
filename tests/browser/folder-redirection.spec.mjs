@@ -69,6 +69,15 @@ test("reviews native R3 bytes and exposes the evidence limits @smoke", async ({
   );
   await expect(results).toContainText("flags_not_decoded");
   await expect(results).toContainText("single_capture_only");
+  const limits = results.locator(".rsop-limitations");
+  await expect(
+    limits.getByText(
+      "The Flags number is shown exactly as stored. What each option bit means has not been measured yet.",
+    ),
+  ).toBeVisible();
+  // The API's codes sit in a collapsed "Technical detail" section.
+  await expect(limits.locator("details")).not.toHaveAttribute("open");
+  await expect(limits.getByText("flags_not_decoded")).toBeHidden();
   const html = await results.innerHTML();
   expect(html.indexOf("single_capture_only")).toBeLessThan(
     html.indexOf("<table>"),

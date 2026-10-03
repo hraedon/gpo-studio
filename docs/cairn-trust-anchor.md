@@ -2,13 +2,15 @@
 
 Status: **Phase 1 implemented** (Plan 022, WI-005).
 
-Cairn is the suite's cryptographic provenance instrument. This document describes
-the trust-anchor format, the custody model, and the offline bootstrap procedure
-for verifying evidence-pack provenance in GPO Studio's public matrix generator.
+Cairn is the suite's cryptographic provenance tool. GPO Studio's public matrix
+generator uses it to verify who produced an evidence pack. This page covers the
+trust-anchor and signature formats, who holds which key, and how to set up
+signing and verification offline.
 
 ## Separation of concerns
 
-Evidence packs have two independent gates:
+An evidence pack must pass two independent gates before it can be used as
+release evidence:
 
 - **Signature (eligibility):** a valid detached Ed25519 signature over the
   pack's `canonical_pack_hash` proves *who gathered* the pack and that the pack
@@ -19,14 +21,13 @@ Evidence packs have two independent gates:
   `endpoint` record for the same (capability, estate). A signed pack with no
   passing evidence produces no `verified-rw` claims.
 
-These gates are mechanically independent. The signature check does not inspect
-records, and the derivation check does not inspect the signature. Both must
-pass for a pack to be used as release evidence.
+The signature check does not inspect records, and the derivation check does not
+inspect the signature.
 
 ## Trust-anchor format
 
-A trust anchor is a JSON file that carries a single public key, its identifier,
-and the algorithm:
+A trust anchor is a JSON file holding one public key, its identifier, and the
+algorithm:
 
 ```json
 {
@@ -36,19 +37,18 @@ and the algorithm:
 }
 ```
 
-`key_id` is a free-form string that identifies the key. The same `key_id` must
-appear in the matching sidecar signature. `algorithm` is always `Ed25519` in
+`key_id` is a free-form string naming the key. The matching sidecar signature
+must carry the same `key_id`. `algorithm` is always `Ed25519` in
 Phase 1. `public_key` is the raw 32-byte public key encoded with standard
 Base64.
 
-Trust anchors are loaded by `gpo_studio.provenance.load_trust_anchor` and passed
-to `verify_provenance_signature` alongside the pack hash and the detached
-signature.
+Load a trust anchor with `gpo_studio.provenance.load_trust_anchor` and pass it to
+`verify_provenance_signature` with the pack hash and the detached signature.
 
 ## Sidecar signature format
 
-The evidence-pack JSON schema is not modified to include the signature. Instead,
-each pack has a detached sidecar `.sig` file with this JSON format:
+The signature is not part of the evidence-pack JSON schema. Each pack has a
+detached sidecar `.sig` file in this JSON format:
 
 ```json
 {
@@ -65,15 +65,14 @@ and write sidecars.
 
 ## Custody model
 
-The private key **never ships with the pack producer**. It is held by the
-operator who controls the cairn signing identity. The public key is the only
-key material that is distributed to verification tooling such as the public
-matrix generator.
+- The private key **never ships with the pack producer**. The operator who
+  controls the cairn signing identity holds it, in an offline or HSM-backed
+  store.
+- Only the public key is distributed to verification tooling. The matrix
+  generator only ever loads the public trust anchor.
 
-This separation prevents a self-attesting gate: if the pack producer also held
-the verification key, it could sign its own unverified packs and claim
-release-eligibility. The operator maintains the signing key in an offline or
-HSM-backed store; the matrix generator only ever loads the public trust anchor.
+This prevents a self-attesting gate. A pack producer that held the signing key
+could sign its own unverified packs and claim release eligibility.
 
 ## Offline bootstrap procedure
 
@@ -139,16 +138,17 @@ uv run python scripts/generate_public_matrix.py \
     --matrix
 ```
 
-The CLI refuses packs without a valid signature unless `--allow-unsigned` is
-given, which stamps the output `DRAFT` and must not be used as release evidence.
-The signability gate (`redaction_verified && licensing_complete`) and the
-signature gate remain independent checks inside the generator.
+The CLI refuses a pack without a valid signature. `--allow-unsigned` overrides
+this but stamps the output `DRAFT`; never use that output as release evidence.
+Inside the generator, the signability gate
+(`redaction_verified && licensing_complete`) and the signature gate are separate
+checks.
 
 ## Rotation and revocation
 
-A new keypair generates a new `key_id`. Operators can rotate by publishing a new
-trust anchor and signing future packs with the new key. The verifier loads the
-current anchor or a set of anchors and selects the one matching the sidecar's
-`key_id`. Revocation is a matter of removing the anchor from the verifier's
-configuration; because verification is offline, no online revocation protocol is
-required.
+- **Rotate:** generate a new keypair with a new `key_id`, publish its trust
+  anchor, and sign future packs with the new key. The verifier loads the current
+  anchor, or a set of anchors, and picks the one matching the sidecar's
+  `key_id`.
+- **Revoke:** remove the anchor from the verifier's configuration. Verification
+  is offline, so there is no online revocation protocol.

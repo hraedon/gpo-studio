@@ -1,8 +1,8 @@
 # Import resource limits
 
-GPO Studio treats imported policy data as untrusted. The limits below are
-enforced before imported content is committed to the workspace. Exceeding a
-limit rejects the import; limits are not truncation targets.
+GPO Studio treats imported policy data as untrusted and checks these limits
+before committing anything to the workspace. An import that exceeds a limit is
+rejected, not truncated.
 
 | Input | Limit |
 | --- | ---: |
@@ -44,12 +44,14 @@ limit rejects the import; limits are not truncation targets.
 | WMI catalogue file | 50 MiB |
 | Workspace-backup metadata sidecar | 64 KiB |
 
-`REG_DWORD` values must be between 0 and 2^32-1. `REG_QWORD` values must be
-between 0 and 2^64-1. XML entity declarations are rejected rather than
-expanded.
+Also enforced:
 
-These are safety ceilings, not recommended operating sizes. Imports near a
-ceiling can take longer and consume proportionally more memory. Operators
-should stage GPMC backups and migration tables only in the configured inbox;
-the inbox workflow remains a preview feature until it is exposed directly in
-the UI.
+- `REG_DWORD` values must be between 0 and 2^32-1.
+- `REG_QWORD` values must be between 0 and 2^64-1.
+- XML entity declarations are rejected, not expanded.
+
+These are safety ceilings, not recommended sizes. An import near a ceiling
+takes longer and uses proportionally more memory.
+
+Stage GPMC backups and migration tables only in the configured inbox. The inbox
+workflow stays a preview feature until the UI exposes it directly.

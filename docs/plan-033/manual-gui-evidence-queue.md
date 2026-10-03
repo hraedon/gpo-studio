@@ -1,22 +1,20 @@
 # Plan 033 manual and GUI evidence queue
 
-Status: active 2026-07-30. This is the consolidated operator queue for work
-that cannot be completed through the automated Linux-to-Windows harness. A
-checked box means evidence was captured, not merely that the UI was opened.
+Status: active 2026-07-30. This is the operator queue for evidence the
+automated Linux-to-Windows harness cannot collect. A checked box means evidence
+was captured, not that the UI was opened.
 
-Access-path note (2026-09-05): the "RDP to `mvmcitest01`" path named below is
-retired. Lab captures now go through the transactional console driver
-(windows-console-driver, estate windows 2–6); live-domain reads ran from the
-admin workstation; the R11 live import ran over WinRM to the DC.
-
-Results note (2026-09-06): this document stays the **checkbox tracker and the
-statement of staging/cleanup discipline**. It is deliberately not the results
-register — that is the binding table in
+This document tracks the checkboxes and states the staging and cleanup rules.
+It is not the results register. For results, see the binding table in
 [`../manual-evidence-requests.md`](../manual-evidence-requests.md#where-each-result-lives),
 which names a record and a fixture per request, and
 [`../plans-025-032-oracle-survey.md`](../plans-025-032-oracle-survey.md) §5.0,
-which says what each result settled per module. Two documents restating the
-same results is how they come to disagree; this one points instead.
+which says what each result settled per module (note added 2026-09-06).
+
+**Access path (2026-09-05).** The "RDP to `mvmcitest01`" path named below is
+retired. Lab captures now go through the transactional console driver
+(windows-console-driver, estate windows 2–6). Live-domain reads ran from the
+admin workstation, and the R11 live import ran over WinRM to the DC.
 
 ## Safety rules
 
@@ -77,17 +75,17 @@ Expected questions answered by this one capture:
 - How are `restartComputerDelay` and `restartMessage` represented?
 - Does current GPMC emit `accountName` and `interact` for Local System?
 
-Capture result (2026-07-30): all questions settled. GPMC emitted `RUNCMD`,
+**Capture result (2026-07-30): all questions settled.** GPMC emitted `RUNCMD`,
 `REBOOT`, `program`, `args`, `append="1"`, `restartMessage`,
 `accountName="LocalSystem"`, and `interact="1"`. Seven minutes became
 `restartServiceDelay="420000"`; three minutes became
 `restartComputerDelay="180000"`, proving both restart delays are milliseconds.
-No change omitted `serviceAction`. The sanitized fixture is
+Choosing No change omitted `serviceAction`. The sanitized fixture is
 `tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC/`. Brokered cleanup
 removed the disposable GPO and a strict `Get-GPO -All` re-query returned zero
-matching objects. Because these observations invalidate the accepted WI-022
-delay and literal assumptions, WI-024 tracks the correction and clean WP-1B
-recertification rather than reopening the completed item.
+matching objects. These observations invalidated the accepted WI-022 delay and
+literal assumptions. WI-024 tracks the correction and the clean WP-1B
+recertification; WI-022 was not reopened.
 
 ## WI-023: endpoint family collision
 
@@ -109,15 +107,15 @@ automated accessibility coverage are also automated.
 - [~] Optional but valuable: identify a similarly disposable Windows 10 and
   Windows 11 pair so the `WINTHRESHOLD` client collision can receive the same
   endpoint proof.
-  **Half done, 2026-08-03, and it needed no operator action.** The evidence
-  estate's client *is* a disposable Windows 11 (Enterprise, 26200), so the
-  two-guest endpoint lane settled the Windows 11 side by itself:
-  `WINTHRESHOLD` applied, `WINTHRESHOLDSRV` did not, each authored both by
-  Studio and by hand. See `wp1a-corpus-matrix.md` and finding `OS-VOCABULARY`
-  in `wp1b-evidence/endpoint-result-phase4-estate.json`.
-  What remains is only the Windows **10** side — i.e. that one `WINTHRESHOLD`
-  filter matches *both* client generations, rather than having silently moved.
-  That needs a Windows 10 guest the estate does not have, so it stays queued.
+  **Half done, 2026-08-03, with no operator action.** The evidence estate's
+  client is a disposable Windows 11 (Enterprise, 26200), so the two-guest
+  endpoint lane settled the Windows 11 side: `WINTHRESHOLD` applied and
+  `WINTHRESHOLDSRV` did not, each authored both by Studio and by hand. See
+  `wp1a-corpus-matrix.md` and finding `OS-VOCABULARY` in
+  `wp1b-evidence/endpoint-result-phase4-estate.json`.
+  The Windows **10** side remains: showing that one `WINTHRESHOLD` filter
+  matches both client generations. That needs a Windows 10 guest, which the
+  estate does not have, so it stays queued.
 
 ## Workflow gates
 

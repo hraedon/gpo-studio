@@ -1,10 +1,23 @@
 # Security policy
 
+## Reporting a vulnerability
+
+Report vulnerabilities privately. Do not open a public issue.
+
+1. Open a private report from the repository's GitHub **Security** tab. Include
+   a description, reproduction steps and your assessment of the impact.
+2. You will get an acknowledgement within 72 hours.
+3. You will get a fix or mitigation plan within 14 days.
+4. Coordinated disclosure follows once a fix is released.
+
+Include the commit hash and Python version. Attach any proof of concept as a
+file rather than pasting it inline. Upgrade to the latest release before
+reporting.
+
 ## Supported versions
 
-The current stable release line is `1.0.x`. Security fixes land on `main` and
-ship as the next `1.0.x` patch release; only the latest patch release in the
-line is supported.
+The stable line is `1.0.x`. Security fixes land on `main` and ship in the next
+`1.0.x` patch. Only the latest patch is supported.
 
 | Version | Supported |
 |---------|-----------|
@@ -12,33 +25,18 @@ line is supported.
 | Older 1.0.x patches    | No — upgrade to the latest patch |
 | < 1.0 (dev builds, release candidates) | No |
 
-### Compatibility and deprecation policy for the 1.0 line
+### Compatibility and deprecation in 1.0.x
 
-- `1.0.x` patch releases contain fixes only: no workspace schema migrations,
-  no export or bundle format changes, and no removal of documented CLI or
-  API surface.
-- Workspace databases and exported artifacts produced by any `1.0.x` release
-  are readable by every later `1.0.x` release.
-- Deprecations are announced in the changelog at least one minor release
-  before removal, with the replacement named. Nothing is deprecated-and-
-  removed within the `1.0.x` line itself.
+- `1.0.x` patches contain fixes only. They add no workspace schema migrations,
+  change no export or bundle format, and remove no documented CLI or API
+  surface.
+- Every later `1.0.x` release can read workspace databases and exported
+  artifacts produced by any earlier `1.0.x` release.
+- A deprecation is announced in the changelog, naming the replacement, at
+  least one minor release before removal. Nothing is both deprecated and
+  removed within `1.0.x`.
 
-Upgrade to the latest release before reporting an issue.
-
-## Reporting a vulnerability
-
-Report security vulnerabilities privately. Do not open a public issue.
-
-1. Open a private report through GitHub's repository Security tab with a
-   description, reproduction steps, and impact assessment.
-2. You will receive an acknowledgement within 72 hours.
-3. A fix or mitigation plan will be communicated within 14 days.
-4. Coordinated disclosure follows after a fix is released.
-
-Include the commit hash and Python version in your report. If you have a
-proof of concept, attach it rather than pasting inline.
-
-## Threat boundary summary
+## Trust boundary
 
 ```text
 browser → local API → SQLite draft + immutable revisions
@@ -46,34 +44,33 @@ browser → local API → SQLite draft + immutable revisions
                         └─ export.zip → administrator review → AD publication
 ```
 
-The web process has **no** LDAP client, SMB client, GroupPolicy remoting, or
-SYSVOL write path. Publication requires a separate human action: an operator
-reviews the exported artifacts and PowerShell plan, then applies them using
-delegated GPO permissions on a Windows host.
+The web process has **no** LDAP client, SMB client, GroupPolicy remoting or
+SYSVOL write path. Publication is a separate human action: an operator reviews
+the exported artifacts and PowerShell plan, then applies them from a Windows
+host using delegated GPO permissions.
 
-This boundary is structural, not configurable. There is no feature flag,
-environment variable, or API endpoint that enables direct AD/SYSVOL writes
-from the web process. See [`docs/architecture.md`](docs/architecture.md) for
-the component and trust-boundary diagram, and
-[`docs/publisher-threat-model.md`](docs/publisher-threat-model.md) for the
-optional managed-publication threat model.
+This boundary cannot be configured away. No feature flag, environment variable
+or API endpoint lets the web process write to AD or SYSVOL. See
+[`docs/architecture.md`](docs/architecture.md) for components and trust
+boundaries, and [`docs/publisher-threat-model.md`](docs/publisher-threat-model.md)
+for the optional managed-publication threat model.
 
-## Deployment security model
+## Deployment model
 
-GPO Studio is designed for a single-operator, loopback-only deployment.
+GPO Studio is built for one operator on loopback.
 
-- **Default bind:** `127.0.0.1:8765`. The server listens on loopback only.
-- **No authentication.** Actor identity is claimed (untrusted) from the
-  request body. It must never be treated as authenticated audit identity.
-- **No TLS.** The web process does not terminate HTTPS. Use a reverse proxy
-  for any non-loopback deployment.
-- **No multi-user concurrency guarantees.** Optimistic concurrency
-  (`expected_revision`) prevents lost updates but does not isolate users.
+- **Default bind:** `127.0.0.1:8765`, loopback only.
+- **No authentication.** The actor identity comes from the request body and
+  is not verified. Never treat it as an authenticated audit identity.
+- **No TLS.** The web process does not terminate HTTPS. Put a reverse proxy in
+  front of any non-loopback deployment.
+- **No multi-user isolation.** Optimistic concurrency (`expected_revision`)
+  prevents lost updates but does not isolate users from each other.
 
 ### Non-loopback binding
 
-Binding to a non-loopback address requires the environment variable
-`GPO_STUDIO_UNSAFE_BIND=1`. Without it, the CLI refuses to start:
+The CLI refuses to bind a non-loopback address unless
+`GPO_STUDIO_UNSAFE_BIND=1` is set:
 
 ```text
 error: non-loopback bind address '0.0.0.0' requires GPO_STUDIO_UNSAFE_BIND=1.
@@ -81,81 +78,78 @@ The web server has no authentication; binding to a non-loopback address
 exposes it to the network.
 ```
 
-This is a deliberate fail-closed gate. If you set this variable, you are
-responsible for placing the process behind an authenticated reverse proxy
-with TLS and network access controls.
+If you set the variable, you are responsible for putting the process behind an
+authenticated reverse proxy with TLS and network access controls.
 
-### Additional runtime hardening
+### Runtime hardening
 
-- Host header and mutation Origin validation to reduce DNS-rebinding abuse.
-- Content-Security-Policy, `X-Content-Type-Options`, conservative referrer
-  policy, and cache controls on API and artifact responses.
+- Host header and mutation Origin validation, to reduce DNS-rebinding abuse.
+- Content-Security-Policy, `X-Content-Type-Options`, a conservative referrer
+  policy and cache controls on API and artifact responses.
 - Structured local logs with request ID, operation, GPO GUID, revision,
-  outcome, and duration. Policy values, SIDs, paths, and request bodies are
-  never logged.
-- `/api/health` exposes no sensitive configuration detail.
+  outcome and duration. Policy values, SIDs, paths and request bodies are never
+  logged.
+- `/api/health` exposes no sensitive configuration.
 
-## Known security considerations
+## Specific controls
 
 ### cpassword
 
 `cpassword` attributes (legacy AES-256-encrypted passwords in GPP XML) are
-structurally detected and rejected at every boundary: GPMC backup import,
-Studio bundle export, GPMC backup export, and authoring. The detector checks
-for the attribute name in any XML element, including namespace-qualified
-variants (e.g. `x:cpassword`) and mixed-case forms. There is no configuration
-that permits cpassword through.
+detected and rejected at every boundary: GPMC backup import, Studio bundle
+export, GPMC backup export and authoring. The detector matches the attribute
+name on any XML element, including namespace-qualified (`x:cpassword`) and
+mixed-case forms. No setting lets a `cpassword` through.
 
 ### Identifier gate
 
 Fixtures are synthetic. The repository must never contain real domain names,
-paths, SIDs, GPO names, or export data. This is enforced mechanically by a
-pre-commit identifier gate (`scripts/install-git-hooks.sh`) and a CI
-`identifier-gate` job. Homelab and lab identifiers are allowed; work-domain
-identifiers are not. The gate is a required CI check.
+paths, SIDs, GPO names or export data. A pre-commit identifier gate
+(`scripts/install-git-hooks.sh`) and the required CI `identifier-gate` job
+enforce this. Homelab and lab identifiers are allowed; work-domain identifiers
+are not.
 
-### XML and untrusted input
+### Untrusted input
 
 Imported policy data (GPMC backups, estate snapshots, ADMX/ADML files,
-migration tables, GPP XML) is treated as untrusted. Guards include:
+migration tables, GPP XML) is treated as untrusted:
 
-- XML entity declarations rejected rather than expanded (billion-laughs
+- XML entity declarations are rejected, not expanded (billion-laughs
   protection).
-- Bounded element count, depth, text/attribute length, and total file size
-  on every parser. See [`docs/import-resource-limits.md`](docs/import-resource-limits.md)
-  for the full limit table.
-- Symlink rejection and race-resistant directory/file handling on POSIX
-  (openat) and Windows (NtOpenFile with RootDirectory walk and identity
-  verification).
-- Path-traversal guards on all archive and inbox import paths.
-- Request body size streaming enforcement (10 MiB ceiling).
+- Every parser bounds element count, depth, text and attribute length, and
+  total file size. The full table is in
+  [`docs/import-resource-limits.md`](docs/import-resource-limits.md).
+- Symlinks are rejected, and directory and file handling resists races on
+  POSIX (`openat`) and Windows (`NtOpenFile` with a `RootDirectory` walk and
+  identity verification).
+- Every archive and inbox import path has a path-traversal guard.
+- Request bodies are size-checked while streaming, with a 10 MiB ceiling.
 
 ### Immutable revisions
 
 Every mutation creates an immutable revision with actor and reason. Revisions
-are append-only; restore copies an old snapshot into a new revision rather
-than rewriting history. Optimistic concurrency (`expected_revision`) prevents
-lost updates from concurrent edits.
+are append-only: restore copies an old snapshot into a new revision instead of
+rewriting history. Optimistic concurrency (`expected_revision`) prevents lost
+updates from concurrent edits.
 
 ### PowerShell plan
 
-The generated `apply.ps1` is a human-reviewable publication plan, not a
-transactional deployment engine. It is validated through a closed allowlist
-that checks required structure, assignment ordering, command shapes, pipes,
-semicolons, backticks, dangerous aliases, and case-insensitive cmdlet
-spelling. The plan requires the `GroupPolicy` PowerShell module and delegated
-GPO rights on the target Windows host.
+The generated `apply.ps1` is a plan for a human to review. It is not a
+transactional deployment engine. A closed allowlist validates it, checking
+required structure, assignment order, command shapes, pipes, semicolons,
+backticks, dangerous aliases and cmdlet spelling (case-insensitive). Running it
+needs the `GroupPolicy` PowerShell module and delegated GPO rights on the
+target Windows host.
 
 ## References
 
-- [`docs/architecture.md`](docs/architecture.md) — component and trust-boundary
-  diagram, mutation contract, deliberate non-claims.
-- [`docs/publisher-threat-model.md`](docs/publisher-threat-model.md) —
-  optional managed-publication threat model, principal threats, and required
-  mitigations.
-- [`docs/capability-matrix.md`](docs/capability-matrix.md) — capability
-  states, per-action fidelity, and known limitations.
-- [`docs/import-resource-limits.md`](docs/import-resource-limits.md) — full
-  table of enforced input limits.
-- [`docs/workspace-recovery.md`](docs/workspace-recovery.md) — backup,
-  restore, and integrity check procedures.
+- [`docs/architecture.md`](docs/architecture.md): components, trust
+  boundaries, the mutation contract, and what the design does not claim.
+- [`docs/publisher-threat-model.md`](docs/publisher-threat-model.md): the
+  optional managed-publication threat model and its required mitigations.
+- [`docs/capability-matrix.md`](docs/capability-matrix.md): capability states,
+  per-action fidelity and known limitations.
+- [`docs/import-resource-limits.md`](docs/import-resource-limits.md): every
+  enforced input limit.
+- [`docs/workspace-recovery.md`](docs/workspace-recovery.md): backup, restore
+  and integrity checks.

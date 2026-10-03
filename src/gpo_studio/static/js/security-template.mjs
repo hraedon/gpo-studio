@@ -68,7 +68,7 @@ export function parseFamilies(text, mode) {
 
 export function renderIssues(issues) {
   if (!issues || !issues.length) {
-    return '<div class="table-empty">No validation issue. On object security this is a ruling rather than approval — ACL content is deliberately unjudged.</div>';
+    return '<div class="table-empty">No validation issues. For object security this is not approval of the access granted: GPO Studio does not judge ACL content (WI-055).</div>';
   }
   const rows = issues
     .map(
@@ -85,7 +85,7 @@ export function renderTemplate(body) {
     "<h3>Validation</h3>",
     renderIssues(body.issues),
     "<h3>GptTmpl.inf</h3>",
-    '<p class="rsop-note">Text, for reading. The bytes Windows consumes are UTF-16LE with a byte-order mark and CRLF endings; the endpoint returns those as <code>inf_base64</code>.</p>',
+    '<p class="rsop-note">Shown as text for reading. Windows reads the file as UTF-16LE with a byte-order mark and CRLF line endings; the API returns those bytes as <code>inf_base64</code>.</p>',
     `<pre class="mono inf-output">${escapeHtml(body.inf_text)}</pre>`,
   ]
     .filter(Boolean)
@@ -111,7 +111,7 @@ export function openSecurityTemplate() {
   const form = $("#security-template-form");
   clearFormErrors(form);
   $("#security-template-results").innerHTML =
-    '<div class="table-empty">Describe the families, then render.</div>';
+    '<div class="table-empty">Enter the families, then select Render.</div>';
   $("#security-template-dialog").showModal();
 }
 

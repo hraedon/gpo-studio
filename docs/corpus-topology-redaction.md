@@ -1,17 +1,17 @@
 # Corpus topology redaction guidelines
 
-Plan 022 WP-1 requires a representative ADMX/ADML corpus that models general
-production patterns without mirroring any specific real Active Directory
-estate. These guidelines define what "representative" means and how corpus
-authors keep the fixtures redacted.
+Plan 022 WP-1 requires a representative ADMX/ADML test corpus: one that models
+common production patterns without mirroring any real Active Directory estate.
+Follow these rules when adding or editing fixtures under
+`tests/fixtures/corpus/`.
 
 ## Representative patterns
 
-A representative corpus captures the *shape* and *semantics* that occur across
-many real deployments, while redacting the *structure* of any one domain. It is
-not a sanitized clone of a reference estate. Instead, it invents synthetic
-namespaces, categories, policy counts, CSE orderings, and policy combinations
-that are plausible in general but do not match any production environment.
+A representative corpus keeps the shape and semantics seen across many real
+deployments, but not the structure of any one domain. Do not build it by
+sanitizing a copy of a reference estate. Invent namespaces, categories, policy
+counts, CSE orderings, and policy combinations that are plausible but match no
+production environment.
 
 ## What must be reshaped
 
@@ -32,13 +32,13 @@ Corpus authors MUST invent these properties from scratch for every corpus file:
 - **Registry paths and value names**: use synthetic roots such as
   `Software\Policies\TestLab\...` and never real product, site, or host paths.
 - **Namespaces**: declare synthetic target namespaces such as
-  `Synthetic.Policies.*` or `TestLab.Policies.*`. Use `using` references to other
-  synthetic namespaces, not to real vendor namespaces unless the fixture is
-  explicitly testing cross-vendor collision.
+  `Synthetic.Policies.*` or `TestLab.Policies.*`. `using` references point to
+  other synthetic namespaces. Reference a real vendor namespace only in a
+  fixture that explicitly tests cross-vendor collision.
 
 ## What can be preserved
 
-These properties reflect universal ADMX/ADML mechanics and may be preserved:
+These are universal ADMX/ADML mechanics and may be kept as they are:
 
 - **Individual policy semantics**: account lockout, audit, Windows Update,
   Defender, user desktop, and network policies are representative as long as
@@ -97,6 +97,6 @@ The corpus exercises namespaces with `using` references, supported-on
 definitions, category ancestry, every supported presentation control type,
 `enabledValue`/`disabledValue` with decimal/string/longDecimal/delete forms,
 `enabledList`/`disabledList`, `explicitValue` lists, and `class="Both"`
-policies. It deliberately avoids `deleteKey` and supersedence constructs until
-those ADMX features are modeled by the parser, so that the "parses without
-silent loss" gate remains closed for every fixture in the directory.
+policies. It leaves out `deleteKey` and supersedence constructs until the parser
+models them, so that every fixture in the directory still passes the "parses
+without silent loss" check.

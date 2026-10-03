@@ -115,7 +115,7 @@ export function initGpp(){
     notice.id="gpp-ilt-limitation";
     notice.className="issue-banner";
     notice.setAttribute("role","note");
-    notice.textContent="Browser ILT limitation: new predicates are combined with AND only. Imported OR, grouped, or unsupported expressions remain read-only and are preserved.";
+    notice.textContent="Targeting predicates you add here are combined with AND. Imported OR, grouped or unsupported expressions are kept as they are and can't be edited here.";
     scopeRow.insertAdjacentElement("afterend",notice);
   }
   $$(".gpp-scope-row .chip").forEach(chip=>chip.onclick=()=>{$$(".gpp-scope-row .chip").forEach(x=>{x.classList.toggle("active",x===chip);x.setAttribute("aria-pressed",String(x===chip))});state.gppScope=chip.dataset.gppScope;renderGpp()});
@@ -178,7 +178,7 @@ async function submitGppGroup(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
-  if($("#gpp-ilt-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item contains ILT predicates that cannot be edited in the browser. They will be preserved on save. Continue?"))return;
+  if($("#gpp-ilt-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item has targeting predicates that can't be edited here. Saving keeps them unchanged. Continue?"))return;
   const partialMember=[...$("#gpp-members-list").querySelectorAll(".gpp-row")].find(row=>row.querySelector('[data-field=name]').value.trim()&&!row.querySelector('[data-field=sid]').value.trim());
   if(partialMember){showFormErrors(f,{issues:[{message:"Each member with a name must also have a SID."}]});return}
   const group={name:f.name.value.trim(),sid:f.sid.value.trim(),action:f.action.value,description:f.description.value.trim(),remove_all_users:f.remove_all_users.checked,remove_all_groups:f.remove_all_groups.checked,members:collectMembers(),ilt_filter:collectIlt("gpp-ilt-list")};
@@ -303,7 +303,7 @@ async function submitGppRegistry(event){
   event.preventDefault();
   if(event.submitter&&event.submitter.value==="cancel"){event.currentTarget.closest("dialog").close();return}
   const f=event.currentTarget,scope=f.scope.value;
-  if($("#gpp-ilt-registry-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item contains ILT predicates that cannot be edited in the browser. They will be preserved on save. Continue?"))return;
+  if($("#gpp-ilt-registry-list").querySelectorAll('.gpp-row[data-readonly="true"]').length&&!confirm("This item has targeting predicates that can't be edited here. Saving keeps them unchanged. Continue?"))return;
   const value=collectValue();
   if(!value){showFormErrors(f,{issues:[{message:"A registry value is required."}]});return}
   if(!value.default&&String(value.value).trim()&&!value.name.trim()&&value.registry_type){showFormErrors(f,{issues:[{message:"Each value with data must also have a name."}]});return}
@@ -337,16 +337,16 @@ function addPredicateRow(listId,previewId,predicate=null){
   typeSel.onchange=update;
   valueInput.oninput=()=>updateIltPreview(listId,previewId);
   negateBox.onchange=()=>updateIltPreview(listId,previewId);
-  if(predicate&&predicate.unknown){row.dataset.readonly="true";row.dataset.unknownPredicate=predicate.raw;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value="[unsupported predicate]";row.title="Unknown ILT predicate — preserved on save, cannot be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unknown — preserved on save";row.appendChild(warn)}
-  else if(predicate&&ILT_TYPES.includes(predicate.type)&&predicate.bool_op==="OR"){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="ILT predicate with OR combination — preserved on save, cannot be edited in browser";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ OR — preserved on save";row.appendChild(warn)}
+  if(predicate&&predicate.unknown){row.dataset.readonly="true";row.dataset.unknownPredicate=predicate.raw;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value="[unsupported predicate]";row.title="Unknown predicate: kept on save, can't be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ Unknown — preserved on save";row.appendChild(warn)}
+  else if(predicate&&ILT_TYPES.includes(predicate.type)&&predicate.bool_op==="OR"){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.title="Predicate joined with OR: kept on save, can't be edited here";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent="⚠ OR — preserved on save";row.appendChild(warn)}
   else if(predicate&&ILT_TYPES.includes(predicate.type)){typeSel.value=predicate.type;valueInput.value=predicate.value;negateBox.checked=predicate.negate;row.dataset.unknownAttrs=predicate.unknown_attrs?JSON.stringify(predicate.unknown_attrs):""}
-  else if(predicate){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);const unsupportedOption=document.createElement("option");unsupportedOption.value=predicate.type;unsupportedOption.textContent=predicate.type==="os"?"Operating system":predicate.type;typeSel.appendChild(unsupportedOption);typeSel.value=predicate.type;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;const criteria=predicate.os_criteria;valueInput.value=criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:predicate.value;negateBox.checked=predicate.negate;const operatorWarning=iltOperatorWarning(predicate);row.title=operatorWarning||"Unsupported ILT predicate type — preserved on save, cannot be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent=operatorWarning||"Unsupported — preserved on save";row.appendChild(warn)}
+  else if(predicate){row.dataset.readonly="true";row.dataset.preservedPredicate=JSON.stringify(predicate);const unsupportedOption=document.createElement("option");unsupportedOption.value=predicate.type;unsupportedOption.textContent=predicate.type==="os"?"Operating system":predicate.type;typeSel.appendChild(unsupportedOption);typeSel.value=predicate.type;typeSel.disabled=true;valueInput.disabled=true;negateBox.disabled=true;const criteria=predicate.os_criteria;valueInput.value=criteria?`${criteria.os_class}/${criteria.version}/${criteria.product_type}/${criteria.edition}/${criteria.service_pack}`:predicate.value;negateBox.checked=predicate.negate;const operatorWarning=iltOperatorWarning(predicate);row.title=operatorWarning||"Unsupported predicate type: kept on save, can't be edited";const warn=document.createElement("span");warn.className="gpp-readonly-warn";warn.textContent=operatorWarning||"Unsupported — preserved on save";row.appendChild(warn)}
   update();
   const removeButton=row.querySelector("button");
   if(row.dataset.readonly==="true"){
     removeButton.disabled=true;
-    removeButton.setAttribute("aria-label","Preserved imported predicate cannot be removed in the browser");
-    removeButton.title="Read-only imported predicates are preserved and cannot be removed in the browser";
+    removeButton.setAttribute("aria-label","This imported predicate is kept and can't be removed here");
+    removeButton.title="Imported read-only predicates are kept and can't be removed here";
   }else{
     removeButton.setAttribute("aria-label","Remove ILT predicate");
     removeButton.onclick=()=>{row.remove();updateIltPreview(listId,previewId)};

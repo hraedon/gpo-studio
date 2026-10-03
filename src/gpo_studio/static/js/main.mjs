@@ -177,7 +177,7 @@ $$('[data-export-kind]').forEach(link=>link.addEventListener("click",event=>{
   addReviewRow(summary,"Review model SHA-256",state.reviewHash||"unavailable");
   addReviewRow(summary,"Preserved extension files",state.artifactCapabilities.preserved_content?.file_count||0);
   const issues=$("#export-review-issues");
-  issues.textContent=blocked?(capability.reason||`Download blocked by ${errors.length} validation error(s). Resolve the Preflight findings first.`):"Validation permits this download. Review the identity and digests before continuing.";
+  issues.textContent=blocked?(capability.reason||`${errors.length} validation error(s) block this download. Fix the Preflight findings first.`):"No validation error blocks this download. Check the policy and digests before you continue.";
   issues.className=`review-issues ${blocked?"error-summary":"status-message"}`;
   pendingExportUrl=link.href;
   $("#export-review-download").disabled=blocked;
@@ -194,12 +194,12 @@ $("#export-review-download").onclick=()=>{
 $("#import-gpmc").onclick=async()=>{
   const form=$("#gpmc-import-form");
   form.reset();clearFormErrors(form);
-  $("#gpmc-import-preview").textContent="Checking safe inbox capability…";
+  $("#gpmc-import-preview").textContent="Checking the import inbox…";
   $("#gpmc-import-submit").disabled=true;
   $("#gpmc-import-dialog").showModal();
   try{
     const info=(await api("/api/imports/capabilities")).gpmc_backup;
-    $("#gpmc-import-preview").textContent=info.inbox_configured?"Import inbox is configured. This path will be resolved relative to it.":"No import inbox is configured. Configure GPO_STUDIO_INBOX_DIR before using this browser workflow.";
+    $("#gpmc-import-preview").textContent=info.inbox_configured?"Import inbox found. The path you enter is read relative to it.":"No import inbox is configured. Set GPO_STUDIO_INBOX_DIR to import backups from here.";
     $("#gpmc-import-submit").disabled=!info.inbox_configured;
     $("#gpmc-import-submit").textContent="Import backup";
   }catch(error){showFormErrors(form,error)}

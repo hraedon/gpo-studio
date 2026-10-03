@@ -1,30 +1,40 @@
 # Open work items
 
-Numbered `WI-nnn` items that are **open**. Closed ones are not listed here —
-they are recorded in `CHANGELOG.md` and in the plan or design doc that closed
-them, which is where their evidence lives.
+This is the register of numbered work items (`WI-nnn`). Check it to find out what is
+still open.
 
-This register exists because there wasn't one. WI numbers were being minted in
-commit messages, plan documents, design notes and source comments, with no place
-that answered "what is still open?". WI-025 was written down in
-`plan-033/rsop-oracle-design.md` in July and found again in August only because
-someone re-read that paragraph — it had never been anywhere a person would look
-for outstanding work. A number that exists in exactly one prose paragraph is a
-note, not a work item.
+- **Open right now**, below, lists every open item.
+- Every item's body follows in filing order, closed items included. Closed items stay
+  because how a defect hid is usually the useful part. The evidence for a closure lives in
+  `CHANGELOG.md` and in the plan or design doc that closed the item.
 
-**Adding one:** take the next free number (grep for `WI-0` across the repo,
-including source comments), add a row here, and say what would close it. An item
-whose closing condition is not stated cannot be closed, only forgotten.
+The register exists because WI numbers used to be minted in commit messages, plans, design
+notes and source comments, with nowhere that listed open work. WI-025 was written into
+`plan-033/rsop-oracle-design.md` in July and found again in August only because someone
+re-read that paragraph. Record every WI number here; a number that appears in only one
+prose paragraph gets lost.
+
+**To add an item:**
+
+1. Take the next free number. Grep the whole repo for `WI-0`, including source comments.
+2. Add a `## WI-nnn — title` section after the last item, with an `**Opened:**` line and a
+   `**Status:** open.` line, and add it to the list below.
+3. Say what closes it. An item without a closing condition can't be closed, only forgotten.
+
+**To close an item:** in the same change, update its status line
+(`**Status:** closed <date>. <why>`) and remove it from the list below. A full closure can
+also be an all-caps banner (`**CLOSED**`, `**FIXED AND CLOSED**`); write a partial closure
+in ordinary case. `tests/test_work_items_register.py` fails if an item says neither open
+nor closed, says both, or disagrees with the list.
 
 ## Open right now
 
-Regenerated whenever this file changes; `test_the_open_index_matches_the_register` fails if it drifts. The bodies below are kept in filing order, closed ones included, because how an item hid is usually the instructive part.
-
+Update this list in the same change as any status line;
+`test_the_open_index_matches_the_register` fails if it drifts.
 
 **6 open.**
 
 - [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
-
 - [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 - [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - the check conflates unparsed with unparseable.
@@ -2273,14 +2283,13 @@ directory cleanup checks passed. See [the completed batch](plan-033/wi059-harnes
 
 ## Not yet numbered
 
-Open question 1 from `plan-033/rsop-oracle-design.md` — whether `LabMS01` can
-reach `LabCL01` over the private switch for RPC/WMI — remains untested, and
-**WP-9 did not need it either**. It was carried as the possible second oracle
-for user scope, on the assumption that the user side would have to be captured
-from the member server. It does not: `gpresult /x /f /scope:user /user
-<principal>` on the client itself produces a `UserResults` document for a
-principal signed in at the console, measured 2026-08-04. The question can stay
-closed unless something needs RPC/WMI for its own sake.
+Open question 1 from `plan-033/rsop-oracle-design.md` is whether `LabMS01` can reach
+`LabCL01` over the private switch for RPC/WMI. It is still untested, and **WP-9 did not
+need it either**. It was carried as a possible second oracle for user scope, on the
+assumption that user-side results would have to be captured from the member server. They
+don't: on the client itself, `gpresult /x /f /scope:user /user <principal>` produces a
+`UserResults` document for a principal signed in at the console (measured 2026-08-04).
+Leave the question closed unless something needs RPC/WMI for its own sake.
 
 
 ## WI-060 — imported native settings disappear from the policy report
@@ -2397,102 +2406,101 @@ requalifies the estate. This belongs to the next batch that does that anyway.
 **Opened:** 2026-09-11 (review of PR #72).
 **Status:** open.
 
-Sixteen controller-side harness files changed line endings in `f5cad577`:
-eight `run-*-oracle.sh` and eight `finalize_*_run.py`. The Python half is
-harmless — CPython reads universal newlines — but a `bash` script whose lines
-end in CR is not a `bash` script. All eight fail `bash -n` with
-`syntax error near unexpected token $'{\r'`, and the documented way to start a
-lane is `bash scripts/windows-oracle/run-wp3-oracle.sh`
-(`wp3-policy-family-results.md`, `tranche-2026-09-06-batch2-runbook.md`). On
-`main` all ten runners parse; on this branch two do.
+**What is wrong.** Commit `f5cad577` changed the line endings of sixteen controller-side
+harness files to CRLF: eight `run-*-oracle.sh` and eight `finalize_*_run.py`. The Python
+files still work, because CPython reads universal newlines. The bash scripts do not. All
+eight fail `bash -n` with `syntax error near unexpected token $'{\r'`, and the documented
+way to start a lane is `bash scripts/windows-oracle/run-wp3-oracle.sh`
+(`wp3-policy-family-results.md`, `tranche-2026-09-06-batch2-runbook.md`). On `main` all
+ten runners parse; on this branch two do.
 
-**How it hid.** This is WI-059's failure mode, returning through the door
-WI-059's own fix opened. `assert_bound_source_bytes` refuses to finalize when
-worktree, index and HEAD disagree — which is exactly how a Windows-side CRLF
-edit announces itself, *when the path is declared `text eol=lf`*. Under
-`-text` there is no normalization to disagree with: the CRLF working tree and
-the CRLF blob agree perfectly, `git status` is clean, and the check passes
-because there is genuinely no drift left to find. The bytes simply changed.
+**How it hid.** This is WI-059's failure mode, returning through WI-059's own fix.
+`assert_bound_source_bytes` refuses to finalize when worktree, index and HEAD disagree,
+which is how a Windows-side CRLF edit shows up when the path is declared `text eol=lf`.
+These paths are declared `-text`, so git does no normalization. The CRLF working tree
+matches the CRLF blob, `git status` is clean, and the check passes because there is no
+drift to find. The bytes changed anyway.
 
-`.gitattributes` says why `-text` is there: "Without these rules a Windows
-checkout smudges each file to CRLF and every binding fails — so pin the bytes
-rather than the platform." The goal was to pin LF. `-text` pins *whatever is
-committed*, in both directions; `text eol=lf` pins LF and is what the same
-file already uses for every `src/gpo_studio/*.py` it binds — which is why
-`oracle_evidence.py` (`text eol=lf`) stayed LF through the same session that
-flipped `finalize_wp3_run.py` (`-text`). One rule keeps the guard; the other
-trades it away for the same stated benefit. `scripts/plan-033/build-*.py`
-carries the same `-text` rule and is still LF, which is luck, not a control.
+**Why the attribute is wrong.** `.gitattributes` gives the reason for `-text`: "Without
+these rules a Windows checkout smudges each file to CRLF and every binding fails — so pin
+the bytes rather than the platform." The goal was to pin LF.
 
-**Why this is not a one-line fix.** All sixteen files are hash-bound by the
-WI-062 batch. Renormalizing them to LF changes their tree digests, and
-`test_a_live_verdict_still_binds_the_harness_that_ships` then fails for 19 of
-the 21 banked verdicts — everything except WP-0 and WP-1B, whose two runners
-were already LF. The fix therefore costs a full estate requalification, and
-the estate owes one anyway for the 22nd lane (computer group-deny, blocked on
-the clock/DNS failure in `wi062-batch.md`). This belongs to that batch, for
-the same reason WI-062 belonged to the previous one.
+- `-text` pins whatever is committed, in either direction.
+- `text eol=lf` pins LF. The same file already uses it for every `src/gpo_studio/*.py` it
+  binds, which is why `oracle_evidence.py` (`text eol=lf`) stayed LF in the same session
+  that flipped `finalize_wp3_run.py` (`-text`).
 
-**Closes when:** `scripts/windows-oracle/**` and `scripts/plan-033/build-*.py`
-are declared `text eol=lf` rather than `-text`, the sixteen files are
-renormalized, every `run-*-oracle.sh` passes `bash -n`, and the lanes are
-re-run so their verdicts bind the renormalized bytes.
-`tests/test_lane_runner_line_endings.py` holds the line until then: its
-exemption list names exactly these sixteen files and fails if a
-seventeenth joins them — or if one of the sixteen is quietly fixed without the
-requalification that makes its verdict honest again.
+`scripts/plan-033/build-*.py` has the same `-text` rule. It is still LF by luck; nothing
+enforces it.
+
+**Why it is not a one-line fix.** The WI-062 batch hash-binds all sixteen files.
+Renormalizing them to LF changes their tree digests, and
+`test_a_live_verdict_still_binds_the_harness_that_ships` then fails for 19 of the 21
+banked verdicts (all except WP-0 and WP-1B, whose two runners were already LF). So the fix
+costs a full estate requalification. The estate owes one anyway for the 22nd lane
+(computer group-deny), which is blocked on the clock/DNS failure in `wi062-batch.md` and
+tracked as WI-069. This fix belongs in that batch, for the same reason WI-062 belonged in
+the previous one.
+
+**Closes when:**
+
+- `scripts/windows-oracle/**` and `scripts/plan-033/build-*.py` are declared
+  `text eol=lf` instead of `-text`;
+- the sixteen files are renormalized and every `run-*-oracle.sh` passes `bash -n`;
+- the lanes are re-run so their verdicts bind the renormalized bytes.
+
+**Pinning test:** `tests/test_lane_runner_line_endings.py`. Its exemption list names
+exactly these sixteen files. It fails if a seventeenth file joins them, or if one of the
+sixteen is fixed without the requalification that makes its verdict valid again.
 
 ## WI-064 — the restricted-groups writer emits a bare SID where Windows emits a star-SID
 
 **Opened:** 2026-09-11 (scoping the WP-3 object-security surface).
 **Status:** open.
 
-`RestrictedGroupsFamily.to_template_entries()` writes the `[Group Membership]`
-key as `S-1-5-32-544__Members`. Windows writes `*S-1-5-32-544__Members`, which
-is what the R4 export in
-[`wp3-expansion-design.md`](plan-033/wp3-expansion-design.md) shows: an entry
-authored as `Administrators__Members` came back as
-`*S-1-5-32-544__Members`. Under MS-GPSB the principal in that key is a *name*
-unless it is star-prefixed, so what Studio emits does not name the group it
-means — it names a group called "S-1-5-32-544".
+**What is wrong.** `RestrictedGroupsFamily.to_template_entries()` writes the
+`[Group Membership]` key as `S-1-5-32-544__Members`. Windows writes
+`*S-1-5-32-544__Members`. The R4 export in
+[`wp3-expansion-design.md`](plan-033/wp3-expansion-design.md) shows this: an entry
+authored as `Administrators__Members` came back as `*S-1-5-32-544__Members`. Under
+MS-GPSB the principal in that key is a *name* unless it has a star prefix, so Studio's key
+names a group called "S-1-5-32-544", not the Administrators group.
 
-**The writer disagrees with itself**, which is the part that makes this
-unambiguous rather than a reading of the spec. `_format_member_list` writes
-every member as `*{sid}`. The same family, in the same call, stars the SIDs in
-the value and not the SID in the key.
+**Evidence that it is a bug, not a reading of the spec.** The writer disagrees with
+itself. In the same call, `_format_member_list` writes every member as `*{sid}`: the
+family stars the SIDs in the value and not the SID in the key.
 
-**How it hid.** `_parse_group_key` strips a leading `*` if there is one, so the
-reader accepts both forms and Studio parses its own output back into exactly
-the model that produced it. The round trip is clean, the unit tests pass, and
-the artifact is wrong — which is the failure
-`decode_security_template`'s own docstring names as the reason it decodes the
-wire contract strictly rather than "allowing an internally consistent
-parse/format round trip to hide an invalid artifact". The same trap, one
-module over, in the direction nothing was looking.
+**How it hid.** `_parse_group_key` strips a leading `*` if present, so the reader accepts
+both forms and parses Studio's output back into the model that produced it. The round trip
+is clean and the unit tests pass, but the artifact is wrong. `decode_security_template`'s
+docstring names this exact risk as the reason it decodes the wire contract strictly
+("allowing an internally consistent parse/format round trip to hide an invalid artifact").
+The same trap exists one module over.
 
-**No lane would have caught it either**, and that is the more useful half. The
-object-security lane's candidate carries Registry Keys, File Security and
-Service General Setting; it has no `[Group Membership]` rows at all. The WP-3
-policy-family candidate *does*, but hand-writes them
-(`*S-1-5-32-551__Members = *S-1-5-32-544`) as a comparator control — so
-`secedit` has validated the native key shape while never once seeing the
-serializer that is supposed to produce it. That is verbatim the defect the WP-3
-lane was corrected for in `wp3-policy-family-results.md`: "Previously it
-handwrote the INF sections and could pass while those serializers emitted
-different keys." It was fixed for the policy families and not for this one.
+**No lane would have caught it.** The object-security lane's candidate carries Registry
+Keys, File Security and Service General Setting, and no `[Group Membership]` rows. The
+WP-3 policy-family candidate has such rows but writes them by hand
+(`*S-1-5-32-551__Members = *S-1-5-32-544`) as a comparator control. So `secedit` has
+validated the native key shape without ever seeing output from the serializer meant to
+produce it. `wp3-policy-family-results.md` records the WP-3 lane being corrected for the
+same defect: "Previously it handwrote the INF sections and could pass while those
+serializers emitted different keys." That fix covered the policy families, not this one.
 
-**Not fixed here.** `object_security.py` is bound by the live object-security
-verdict (`object-security-20260905191252-4253`), so the one-line correction
-expires it and costs an estate run — the same accounting as WI-063 and the
-same batch. Filing it does not make restricted groups safe to surface in the
-meantime: `POST /api/security-template/object-security` deliberately omits the
-family, and says so in its response.
+**Not fixed yet.** The live object-security verdict
+(`object-security-20260905191252-4253`) binds `object_security.py`, so the one-line
+correction expires it and costs an estate run. It goes in the same batch as WI-063.
+Until then restricted groups are not safe to surface: `POST
+/api/security-template/object-security` omits the family on purpose and says so in its
+response.
 
-**Closes when:** the key is emitted in star form, the object-security
-candidate carries `[Group Membership]` rows built by
-`RestrictedGroupsFamily` rather than by hand, and a re-run certifies that
-Windows accepts and re-exports them. A fix without the candidate rows would
-leave the family exactly where it is now — written by a serializer no oracle
+**Closes when:**
+
+- the key is emitted in star form;
+- the object-security candidate carries `[Group Membership]` rows built by
+  `RestrictedGroupsFamily`, not by hand;
+- a re-run certifies that Windows accepts and re-exports them.
+
+Without the candidate rows, a fix would leave the family written by a serializer no oracle
 has read.
 
 ## WI-065 — "could not be parsed" is reported for SDDL nothing tried to parse
@@ -2501,101 +2509,96 @@ has read.
 surface's first test run, not by reading).
 **Status:** open.
 
-`SystemServicesFamily.validate` raises `unparseable_service_sddl` when
-`raw_sddl` is set and `security_descriptor is None`. But `security_descriptor`
-is populated in exactly one place — `from_template`, via `_try_parse_sddl` — so
-on any model built any other way the field is `None` because nothing tried, not
-because something failed. The check conflates *unparsed* with *unparseable*,
-and reports the second.
+**What is wrong.** `SystemServicesFamily.validate` raises `unparseable_service_sddl` when
+`raw_sddl` is set and `security_descriptor is None`. Only `from_template` populates
+`security_descriptor` (via `_try_parse_sddl`). On a model built any other way the field is
+`None` because nothing tried to parse it, not because parsing failed. The check treats
+*unparsed* as *unparseable* and reports the second.
 
-**The lane's own candidate trips it.** `build-object-security-candidate.py`
-constructs `ServiceSecurity(service_name=…, startup_mode=…, raw_sddl=…)` with
-no descriptor, so validating the certified candidate yields three
-`unparseable_service_sddl` errors for
-`D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)` — a descriptor Windows accepted and
-re-exported byte for byte in `object-security-20260905191252-4253`, and which
-`parse_sddl` reads without complaint. The builder never calls `validate`, which
-is why this survived a certified run: the lane measures the bytes, and the
-validator is on a path the lane does not walk.
+**Evidence: the lane's own candidate trips it.** `build-object-security-candidate.py`
+builds `ServiceSecurity(service_name=…, startup_mode=…, raw_sddl=…)` with no descriptor.
+Validating the certified candidate gives three `unparseable_service_sddl` errors for
+`D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)`. Windows accepted and re-exported that
+descriptor byte for byte in `object-security-20260905191252-4253`, and `parse_sddl` reads
+it without complaint. The builder never calls `validate`, so a certified run did not
+notice: the lane measures the bytes, and the validator is not on its path.
 
-Its neighbours do not have the check at all —
-`RegistrySecurityFamily.validate` and `FileSystemSecurityFamily.validate` judge
-path and propagation only — so the defect is one family wide and reads as an
-oversight in the other two rather than a decision.
+The neighbouring families have no such check. `RegistrySecurityFamily.validate` and
+`FileSystemSecurityFamily.validate` judge only path and propagation. The defect affects
+one family and looks like an oversight rather than a decision.
 
-**Worked around at the surface, not fixed.**
-`POST /api/security-template/object-security` parses `raw_sddl` when it builds
-the models, which is what `from_template` does and what leaves the check
-meaning what it says; emitted bytes are unaffected because `_resolve_sddl`
-prefers the raw form. `object_security.py` is bound by the live verdict, so
-correcting the check itself expires it and costs an estate run — the same
-accounting as WI-063 and WI-064, and the same batch.
+**Worked around at the surface, not fixed.** `POST /api/security-template/object-security`
+parses `raw_sddl` when it builds the models, as `from_template` does, so the check means
+what it says on that path. Emitted bytes are unaffected because `_resolve_sddl` prefers
+the raw form. The live verdict binds `object_security.py`, so correcting the check itself
+expires it and costs an estate run. It goes in the same batch as WI-063 and WI-064.
 
-**Closes when:** `validate` distinguishes "not parsed" from "parsed and
-failed" — by parsing on demand, or by a field that records the attempt — the
-candidate builder's services carry descriptors, and a re-run re-earns the
-verdict. `test_object_security_surface.py` asserts the present behaviour and
-fails when the check is corrected, which is the prompt to re-run the lane.
+**Closes when:**
+
+- `validate` tells "not parsed" from "parsed and failed", either by parsing on demand or
+  by a field that records the attempt;
+- the candidate builder's services carry descriptors;
+- a re-run re-earns the verdict.
+
+**Pinning test:** `test_object_security_surface.py` asserts the current behaviour and
+fails when the check is corrected. That failure is the prompt to re-run the lane.
 
 ## WI-066 — R3 answered one of the four questions it was designed to answer
 
 **Opened:** 2026-09-11 (reviewing the WP-4 brief's own reasoning).
 **Status:** open.
 
-R3's request lists four things that "fall out of the same file": which file the
-CSE reads, how each folder is keyed, how the four option flags are encoded, and
-how multiple group rules are represented. Its steps author two folders to get
-them — Documents in Basic with three options set away from default, and
-Pictures in Advanced with two groups and options left at default, the second
-existing expressly "so we can tell a default encoding from the non-default
-one".
+**What is missing.** R3's request lists four things that "fall out of the same file":
 
-**Step 4 was never authored.** The banked capture is three sections and four
-entries: one folder, one principal (`s-1-1-0`, Everyone), one `Flags=1021`.
-Question 1 is settled. Question 2 is seen once. Questions 3 and 4 are open.
+1. which file the CSE reads;
+2. how each folder is keyed;
+3. how the four option flags are encoded;
+4. how multiple group rules are represented.
 
-**How it hid.** Nothing was misrecorded and nothing lied. The result was
-entered against the question R3 was *asked* — "is Folder Redirection in
-`fdeploy.ini` rather than `User Shell Folders`?" — which it answers
-emphatically, and which was the scope-changing half. The three secondary
-questions were in the request body rather than in the claim, so a capture that
-answered a quarter of the request closed it looking complete. The binding table
-recorded what it settled and had no column for what it did not.
+Its steps author two folders to get them: Documents in Basic with three options set away
+from default, and Pictures in Advanced with two groups and options left at default. The
+second folder exists "so we can tell a default encoding from the non-default one".
 
-That is a gap in the request/result contract, not in anyone's diligence:
-**a request that enumerates four questions needs its result row to answer four,
-or to say which it skipped.** R3's row now does.
+**Step 4 was never authored.** The banked capture has three sections and four entries: one
+folder, one principal (`s-1-1-0`, Everyone), one `Flags=1021`. Question 1 is settled.
+Question 2 is seen once. Questions 3 and 4 are open.
 
-**Why it matters now.** `Flags=1021` is `0b1111111101` — nine bits set against
-the four booleans `folder_redirection.py` models. One observation of a bitfield
-attributes no bit to any option, and the control that would have made it
-readable is the step that was skipped. Any Folder Redirection writer built on
-this capture would be inferring a bit layout from one point.
-`object_security.py`'s propagation codes were wrong on all three values until
-R4 measured them; this is the same guess with more bits.
+**How it hid.** Nothing was misrecorded. The result was entered against the question R3
+was *asked*: "is Folder Redirection in `fdeploy.ini` rather than `User Shell Folders`?"
+The capture answers that clearly, and it was the half that changed scope. The other three
+questions were in the request body, not the claim, so a capture that answered a quarter of
+the request closed it and looked complete. The binding table recorded what the capture
+settled and had no column for what it did not. Rule: when a request lists several
+questions, its result row must answer each one or say which it skipped. R3's row now does.
 
-**Closes when:** R12 is captured — one GPMC session on LabMS01, no lane, no
-harness change — and the result row for it answers questions 3 and 4 or names
-what it still does not. The brief
-[`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md)
-is what consumes it, and is written to be revised rather than replaced.
+**Why it matters.** `Flags=1021` is `0b1111111101`: nine bits set, against the four
+booleans `folder_redirection.py` models. One observation of a bitfield attributes no bit
+to any option, and the skipped step was the control that would have made it readable. A
+Folder Redirection writer built on this capture would be inferring a bit layout from one
+data point. `object_security.py`'s propagation codes were wrong on all three values until
+R4 measured them; this is the same kind of guess with more bits.
 
-**Checked, rather than left as a worry.** Two other requests enumerate
-questions in their body — R2 asks three and R12 asks two. R2's row answers all
-three explicitly (BOM, CRLF, no `[Policy]` section); R12 is this item's own
-follow-up and states both. **R3 is the only one whose claim is narrower than
-its request**, so this is a single instance rather than a pattern, and the
-corrected row closes it without needing a new control.
+**Checked: R3 is the only instance.** Two other requests list questions in their body. R2
+asks three, and its row answers all three explicitly (BOM, CRLF, no `[Policy]` section).
+R12 asks two; it is this item's follow-up and states both. R3 is the only request whose
+claim is narrower than the request, and its corrected row closes that without a new
+control.
 
-**Updated 2026-09-11:** the ruling this item informs was taken —
-[`scope-decision-2026-09-11-folder-redirection.md`](scope-decision-2026-09-11-folder-redirection.md),
-read target with the writer deferred — and the read half landed as
-`src/gpo_studio/fdeploy.py`. That does not close this item; it narrows it. The
-reader carries `Flags` as the integer Windows wrote and names no bit, and
-`tests/test_fdeploy.py::test_flags_is_carried_and_never_decoded_into_options`
-is the test R12 has to make someone deliberately change. What still owes a
-capture is unchanged: questions 3 and 4, and the writer that cannot be built
-without them.
+**Update, 2026-09-11.** The ruling this item informs was taken:
+[`scope-decision-2026-09-11-folder-redirection.md`](scope-decision-2026-09-11-folder-redirection.md)
+(read target, writer deferred). The read half landed as `src/gpo_studio/fdeploy.py`. That
+narrows this item but does not close it. The reader carries `Flags` as the integer Windows
+wrote and names no bit. Questions 3 and 4 still need a capture, and the writer can't be
+built without them.
+
+**Closes when:** R12 is captured (one GPMC session on LabMS01; no lane, no harness change)
+and its result row answers questions 3 and 4 or names what it still does not answer. The
+brief [`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md)
+consumes the result and should be revised, not replaced.
+
+**Pinning test:**
+`tests/test_fdeploy.py::test_flags_is_carried_and_never_decoded_into_options`. R12 has to
+make someone change it on purpose.
 
 ## WI-067 — the fixture calls a folder GUID the CSE GUID
 
@@ -2653,100 +2656,99 @@ note there that does not exist.
 **Opened:** 2026-09-11 (landing the Plan 034 WP-4 read ruling).
 **Status:** open.
 
-`fdeploy.py` reads the artifact and renders it, and
-`POST /api/folder-redirection/fdeploy` is where an operator reaches that. What
-does **not** happen is the part the scope brief asked for by name: an imported
-backup's `fdeploy1.ini` still appears in `policy_report` as a line in
-"Unmodeled extension files (metadata only)" — a path, a size and a SHA-256 —
-and appears in no diff at all.
+**What is missing.** `fdeploy.py` reads and renders the artifact, and operators reach it
+through `POST /api/folder-redirection/fdeploy`. The part the scope brief asked for by name
+is not done. In an imported backup, `fdeploy1.ini` still appears in `policy_report` only
+as a line under "Unmodeled extension files (metadata only)" (a path, a size and a
+SHA-256), and it appears in no diff.
 
-**Why it stopped there.** The `backup_inventory` precedent is the whole recipe:
-`read_backup` captures, a field on `GPO` carries it, `policy_report` renders
-it, `canonical.review_model_dict` folds it in, `diff_gpos` compares it. Every
-step is in a file bound by nothing except one — the field goes on `GPO`, in
-`model.py`, which the publication and scripts-metadata verdicts bind. Adding it
-expires two verdicts that are honest today, and
-`test_a_live_verdict_still_binds_the_harness_that_ships` goes red until the
-estate re-runs. The estate cannot re-run: the batch that owes WI-063, WI-064
-and WI-065 is itself blocked on the clock/DNS failure in
-[`wi062-batch.md`](plan-033/wi062-batch.md).
+**What the fix looks like.** Follow the `backup_inventory` precedent: `read_backup`
+captures it, a field on `GPO` carries it, `policy_report` renders it,
+`canonical.review_model_dict` folds it in, and `diff_gpos` compares it.
 
-So this is WI-048's ordering argument applied honestly rather than a shortcut:
-the behaviour that *could* go in an unbound file did (the parser, the
-validator, the renderer, the diff function, the endpoint), and only the two
-lines that cannot are deferred.
+**Why it stopped there.** Every one of those steps is in an unbound file except one: the
+field goes on `GPO`, in `model.py`, which the publication and scripts-metadata verdicts
+bind. Adding it expires two verdicts that are valid today, and
+`test_a_live_verdict_still_binds_the_harness_that_ships` fails until the estate re-runs.
+The estate can't re-run yet: the batch that owes WI-063, WI-064 and WI-065 is blocked on
+the clock/DNS failure in [`wi062-batch.md`](plan-033/wi062-batch.md) (WI-069). Following
+WI-048's ordering, everything that could go into unbound files did (the parser, validator,
+renderer, diff function and endpoint). Only the two lines that can't are deferred.
 
-**Closes when:** `GPO` carries the parsed document, `read_backup` populates it
-from `User/Documents & Settings/fdeploy1.ini`, `policy_report` renders it
-through `fdeploy_report_lines`, `diff_gpos` compares it through
-`diff_fdeploy`, `review_model_dict` folds it in (and `policy_semantic_dict`
-does **not** — this is import provenance, the same split
-`test_backup_report_inventory.py` pins for `backup_inventory`), and the
-publication and scripts-metadata lanes are re-run on the batch that already
-owes three items. `tests/test_fdeploy_surface.py` holds the endpoint's
-composition equal to the module's in the meantime, which is the same workaround
-the two WP-3 surfaces used the same week.
+**Closes when:**
+
+- `GPO` carries the parsed document, and `read_backup` populates it from
+  `User/Documents & Settings/fdeploy1.ini`;
+- `policy_report` renders it through `fdeploy_report_lines`;
+- `diff_gpos` compares it through `diff_fdeploy`;
+- `review_model_dict` folds it in, and `policy_semantic_dict` does **not**, because this is
+  import provenance (the same split `test_backup_report_inventory.py` pins for
+  `backup_inventory`);
+- the publication and scripts-metadata lanes are re-run, in the batch that already owes
+  three items.
+
+**Pinning test:** `tests/test_fdeploy_surface.py` holds the endpoint's composition equal
+to the module's until then. The two WP-3 surfaces used the same workaround the same week.
 
 ## WI-069 — the estate repair the batch owes has no number and no plan
 
 **Opened:** 2026-09-11 (looking for the item that tracks the WI-062 blocker).
 **Status:** open.
 
-The computer group-deny lane's verdict sits in `PENDING_REQUALIFICATION` and
-its reason is "the estate repair described in the batch note". That repair has
-never been an item. It is one paragraph in
-[`wi062-batch.md`](plan-033/wi062-batch.md), and `environment-spec.md`,
-`CHANGELOG.md`, WI-062's closure and WI-063's body each point back to it.
+**What is missing.** The computer group-deny lane's verdict is in
+`PENDING_REQUALIFICATION`, with the reason "the estate repair described in the batch
+note". That repair was never an item. It is one paragraph in
+[`wi062-batch.md`](plan-033/wi062-batch.md), which `environment-spec.md`, `CHANGELOG.md`,
+WI-062's closure and WI-063's body all point back to. AGENTS.md warns that a WI number in
+a single prose paragraph gets lost; this one had no number at all.
 
-That is the failure AGENTS.md names in the sentence above this register:
-**a WI number in one prose paragraph is a note, not a work item** — except this
-was worse, because it had no number at all. It also blocks three open items:
-WI-063 says the estate "owes one anyway", and WI-064 and WI-065 each say the
-fix "costs an estate run" -- and the run all three are waiting on is waiting
-on this.
+**What it blocks.** WI-063, WI-064 and WI-065 each need an estate run (WI-063: the estate
+"owes one anyway"; WI-064 and WI-065: the fix "costs an estate run"). That run is waiting
+on this repair.
 
-**What was unknown at filing.** Reverting to `estate-current-20260905` gives a
-~6-day Kerberos skew; setting the DC forward to real time works for minutes and
-then removes every dynamic DC-locator record domain-wide, host A records
-included. Reproduced four times with scavenging disabled, per-zone aging
-disabled, lockout threshold zero and records force-re-registered. The mechanism
-was not identified, three attempts are archived on the controller, and **no log
-from those attempts is committed**. The later controlled experiment below is a
-separate baseline generation, not a record of those failures.
+**The failure, as known at filing.**
 
-**The step that was skipped.** Nothing established that the records were
-deleted rather than unserved. Absent, tombstoned, and present-but-unserved are
-one symptom through a resolver and three different findings over LDAP, and the
-third is plausible precisely on a DC whose clock has just jumped. That is one
-read-only query.
+- Reverting to `estate-current-20260905` leaves a ~6-day Kerberos skew.
+- Setting the DC forward to real time works for minutes, then every dynamic DC-locator
+  record disappears domain-wide, host A records included.
+- This reproduced four times with scavenging disabled, per-zone aging disabled, lockout
+  threshold zero, and records force-re-registered.
+- The mechanism was not identified. Three attempts are archived on the controller, and
+  **no log from those attempts is committed**. The later controlled experiment below used
+  a separate baseline generation and is not a record of those failures.
 
-**The plan and the collector are written**, offline, in
-[`estate-clock-dns-repair.md`](plan-033/estate-clock-dns-repair.md):
-`scripts/plan-033/collect-dc-clock-dns.ps1` takes a three-phase read-only
-capture (before / after-jump / broken) covering the LDAP node state,
-replication metadata for the locator records, the scavenging and aging settings
-as configured rather than as remembered, and the DNS/W32Time/Netlogon events.
-It writes nothing. It was not run: this host has neither
-`cred:lab-hyperv-control` nor `cred:lab-guest-bootstrap` provisioned, so the
-transport is unavailable here.
+**The step that was skipped.** Nothing established whether the records were deleted or
+just not served. Through a resolver, absent, tombstoned and present-but-unserved look the
+same; over LDAP they are three different findings. The third is plausible on a DC whose
+clock has just jumped. One read-only query would tell them apart.
 
-**Progress, 2026-09-25:** an [instrumented restore/jump experiment](plan-033/dns-deletion-experiment-20260925.md)
-on the newer, clock-seeded 2026-09-20 baseline found the DNS record set intact
-for 92 minutes after the jump and after separate NetLogon restart and `dsregdns`
-gestures. DNS debug logging saw no delete packets; directory auditing saw no
-writes to the DNS partitions. This exonerates the jump and those two gestures
-**on that generation**, not the old `estate-current-20260905` failure or the
-member activity the group-deny lane performs. The three-phase collector above
-has still not observed the old failure. The next discriminating step is the
-group-deny lane retry on the newer baseline with its DC-locator canary; its
-verdict remains `PENDING_REQUALIFICATION`, so this item remains open.
+**The plan and collector are written** (offline), in
+[`estate-clock-dns-repair.md`](plan-033/estate-clock-dns-repair.md).
+`scripts/plan-033/collect-dc-clock-dns.ps1` takes a read-only capture in three phases
+(before, after the jump, broken). It covers LDAP node state, replication metadata for the
+locator records, the scavenging and aging settings as actually configured, and the
+DNS/W32Time/Netlogon events. It writes nothing. It has not been run: this host has neither
+`cred:lab-hyperv-control` nor `cred:lab-guest-bootstrap` provisioned, so the transport is
+unavailable here.
 
-**Two debts, not one.** The lane needs an estate it can run on; the record
-needs a mechanism. The document names two paths to the first that do not
-require the second — re-anchoring the client at boot rather than disabling
-time-sync, or re-baselining the estate at real time so no jump ever happens.
+**Progress, 2026-09-25.** An
+[instrumented restore/jump experiment](plan-033/dns-deletion-experiment-20260925.md) on
+the newer, clock-seeded 2026-09-20 baseline found the DNS record set intact for 92 minutes
+after the jump, and after separate NetLogon restart and `dsregdns` steps. DNS debug
+logging saw no delete packets, and directory auditing saw no writes to the DNS partitions.
+This clears the jump and those two steps **on that baseline only**. It does not explain the
+old `estate-current-20260905` failure or the member activity the group-deny lane performs.
+The three-phase collector has still not observed the old failure.
+
+**Next step:** retry the group-deny lane on the newer baseline with its DC-locator canary.
+Its verdict is still `PENDING_REQUALIFICATION`, so this item stays open.
+
+**There are two debts.** The lane needs an estate it can run on, and the record needs a
+mechanism. The repair doc names two ways to pay the first without the second: re-anchor
+the client's clock at boot instead of disabling time sync, or re-baseline the estate at
+real time so no jump happens.
 
 **Closes when:** the group-deny lane runs and its verdict leaves
-`PENDING_REQUALIFICATION`, **and** the note says which of the two debts was
-paid — the mechanism identified, or the lane unblocked around it. Closing it by
-doing one silently is how this became a paragraph in the first place.
+`PENDING_REQUALIFICATION`, **and** this entry says which debt was paid: the mechanism
+identified, or the lane unblocked around it. Don't close it by paying one debt without
+saying so; that is how this became an unnumbered paragraph.
