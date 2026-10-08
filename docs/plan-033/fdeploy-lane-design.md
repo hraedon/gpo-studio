@@ -138,14 +138,23 @@ The steps run in this order:
 6. Run `Backup-GPO`. Read the re-exported `fdeploy1.ini` and `fdeploy.ini`
    into `result.json` as base64 plus SHA-256. The whole backup directory is
    also pulled.
-7. Remove the GPO **by its owned GUID only**, with retries and backoff, then
-   re-query that GUID until the directory says it was not found. Exact-name
-   removal is used only when `New-GPO` succeeded but returned no GUID. A GPO
-   found later under a registered name with a different GUID is foreign: it is
-   reported in `foreign_residue` and the run-level `residue`, never removed, and
-   it fails the run. Only a not-found answer counts as absence. Access denied,
-   or any other lookup error, propagates as a cleanup failure. The final sweep
-   follows the same rules.
+7. Remove the GPO **by its owned GUID only**, with retries and backoff.
+   Exact-name removal is used only when `New-GPO` succeeded but returned no
+   GUID. A GPO found later under a registered name with a different GUID is
+   foreign: it is reported in `foreign_residue` and the run-level `residue`,
+   never removed, and it fails the run.
+
+   **Absence is never inferred from an exception.** A thrown GUID lookup proves
+   nothing: "The network path was not found" (0x80070035) reads like a missing
+   GPO. Absence is established positively, from a `Get-GPO -All` that
+   **succeeded**, returned a non-empty list, lists the Default Domain Policy
+   (`{31B2F340-016D-11D2-945F-00C04FB984F9}`, present in every domain), and
+   does not list the owned GUID. If the enumeration fails or is incomplete,
+   cleanup fails. Every enumeration in the script goes through that one
+   checked function. This covers the collision check, removal, the absence
+   check, the residue check, the final sweep and the end-state scan. The
+   end-state scan also looks up every owned GUID, so a renamed survivor cannot
+   escape a scan by name prefix.
 
 Case directories in the candidate are `c1` to `c4`, and the run id is
 `fd-<stamp>-<n>` under `C:\gpo-studio\fd\<stamp>\o`. This is because Windows
@@ -256,22 +265,24 @@ regression test in `tests/test_fdeploy_lane.py`.
 | Finding | Fix | Regression test |
 |---|---|---|
 | **High.** Cleanup removed every exact-name match even when the owned GUID was known. A foreign GPO created under the name after removal was deleted, and the guest exited 0 | Remove and confirm by owned GUID only. A different GUID under the registered name becomes `foreign_residue`/`residue`, is never removed, and fails the run (`no_foreign_residue`) | `test_a_foreign_gpo_under_a_registered_name_is_reported_never_deleted` (mode `name-reused`) |
-| GUID lookups swallowed every exception, so access denied read as confirmed absence. A renamed survivor passed | Only a not-found answer counts as absence (`Test-NotFound`). Anything else propagates as a cleanup failure | `test_a_lookup_failure_after_removal_is_not_absence`, `test_a_renamed_owned_gpo_whose_lookup_fails_fails_cleanup` |
+| GUID lookups swallowed every exception, so access denied read as confirmed absence. A renamed survivor passed | First fix (`258c195`): count only a "not found" answer as absence. The re-review broke that too: a COMException for ERROR_BAD_NETPATH says "not found" and left the renamed GPO alive with every flag true. Final fix: no exception decides absence. Absence is a complete, checked enumeration without the owned GUID, and a failed or incomplete enumeration fails cleanup | `test_a_network_not_found_error_on_the_guid_lookup_is_not_absence` (the re-review's COMException probe), `test_a_gpo_that_cannot_be_removed_is_never_reported_absent`, `test_an_enumeration_that_fails_or_is_incomplete_fails_cleanup` (fails, empty, no control GPO), `test_guid_lookup_errors_cannot_decide_absence`, `test_the_guest_never_infers_absence_from_an_exception` |
 | `bkupInfo.xml` was checked only for existence. An empty or foreign one passed 28/28 | `import_readiness` parses it, requires all four identity fields, and requires agreement with the manifest. The finalizer also reconciles them with the owned GPO, the reported backup ID, the domain and the target name | `test_an_empty_bkup_info_fails`, `test_a_bkup_info_naming_another_gpo_and_backup_fails`, `test_backup_metadata_must_name_the_owned_gpo_in_every_field`, `test_a_bkup_info_missing_any_identity_field_fails` |
 | The backup's `gpreport.xml` was compared by rendering only; its GUID came through `read_backup` alone | The fresh report's full identity test (GUID, name, domain) now applies to it too | `test_the_backup_report_must_name_the_owned_gpo`, `test_a_backup_report_with_no_name_or_domain_fails` |
 
-Run against `379e59b`'s guest script, the three guest probes all exit 0. In
-`name-reused` the foreign GPO is deleted, and in `renamed-and-query-fails` the
-renamed survivor is reported absent. Against this commit, all three exit 1,
-and the foreign GPO survives.
+Run against `379e59b`'s guest script, the original guest probes all exit 0.
+In `name-reused` the foreign GPO is deleted, and in `renamed-and-query-fails`
+the renamed survivor is reported absent.
 
-**One assumption to watch.** `Test-NotFound` recognizes a missing GPO by
-`CategoryInfo.Category = ObjectNotFound`, by a `FullyQualifiedErrorId`
-containing `NotFound`, or by a message containing "not found". The exact error
-`Get-GPO -Guid` raises for a deleted GPO on LabMS01 is believed to be "A GPO
-with ID {…} was not found in the … domain", but this repository has not banked
-it. If none of the three tests matches, cleanup reports failure, which fails
-safe. The next run will show it in the case's `error`.
+Run against `258c195`'s guest script, `renamed-network-error` exits 0 with
+the renamed GPO still alive. `enum-empty` and `enum-no-control` also exit 0,
+because an empty or partial enumeration counted as absence. Against this
+commit, a GPO that cannot be removed is never reported absent, and an
+enumeration that fails or is incomplete fails cleanup.
+
+**What the control GPO assumes.** The Default Domain Policy's GUID is fixed
+by Windows for every domain. If an operator ever deleted or recreated it, the
+enumeration check would fail, and every run would fail cleanup. That fails
+safe, and the case's `error` names the cause.
 
 ## What a pass would and would not mean
 

@@ -76,8 +76,7 @@ function Flatten($value) {
 }
 
 function Assert-NameFree([string]$name) {
-    $collisions = @(Get-GPO -All -Domain $Domain -ErrorAction Stop |
-        Where-Object { $_.DisplayName -eq $name })
+    $collisions = @(Get-AllGpos | Where-Object { $_.DisplayName -eq $name })
     if ($collisions.Count -ne 0) { throw "disposable target already exists: $name" }
 }
 
@@ -131,10 +130,28 @@ function Get-FdeployFiles([string]$settingsDir) {
 #   and the run fails.
 # * Only when New-GPO succeeded but its response was lost (no GUID ever
 #   returned) does removal fall back to the exact, run-unique registered name.
-# * Only a not-found answer counts as absence. Any other lookup failure (access
-#   denied, a directory error) propagates and fails cleanup.
+# * Absence is never inferred from an exception. A GUID lookup that throws
+#   says nothing about whether the GPO exists ("network path not found" reads
+#   like "GPO not found"). Absence is established positively: a full
+#   enumeration that SUCCEEDED, is non-empty, contains the domain's control
+#   GPO, and does not contain the owned GUID. If the enumeration fails or is
+#   incomplete, cleanup fails.
 $registered = [ordered]@{}
 $removalAttempts = 5
+
+#: Every domain has the Default Domain Policy under this well-known GUID. An
+#: enumeration that does not list it did not enumerate the domain.
+$controlGpoId = '31b2f340-016d-11d2-945f-00c04fb984f9'
+
+# All GPOs in the domain, or a throw. Never a partial answer.
+function Get-AllGpos {
+    $all = @(Get-GPO -All -Domain $Domain -ErrorAction Stop)
+    if ($all.Count -eq 0) { throw 'GPO enumeration returned nothing; absence cannot be established' }
+    if (@($all | Where-Object { "$($_.Id)" -eq $controlGpoId }).Count -ne 1) {
+        throw 'GPO enumeration does not list the Default Domain Policy; absence cannot be established'
+    }
+    return $all
+}
 
 function Register-Target([string]$name) {
     if (-not $name.StartsWith("$prefix-")) { throw "refusing to register a name outside this run: $name" }
@@ -147,55 +164,37 @@ function Set-Owned([string]$name, $id) {
     $registered[$name] = "$id"
 }
 
-function Test-NotFound($errorRecord) {
-    $fqid = "$($errorRecord.FullyQualifiedErrorId)"
-    $message = "$($errorRecord.Exception.Message)"
-    return ("$($errorRecord.CategoryInfo.Category)" -eq 'ObjectNotFound') -or
-        ($fqid -like '*NotFound*') -or ($message -match 'was not found|not found')
-}
-
-# The GPO with this GUID, or $null when the directory says it does not exist.
-# Every other failure is rethrown: it is not evidence of absence.
-function Get-OwnedById([string]$id) {
-    try {
-        return (Get-GPO -Guid $id -Domain $Domain -ErrorAction Stop)
-    } catch {
-        if (Test-NotFound $_) { return $null }
-        throw "lookup of ${id} failed: $($_.Exception.Message)"
-    }
-}
-
-function Get-ByName([string]$name) {
-    return @(Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object { $_.DisplayName -eq $name })
+# GUIDs of this registration's GPOs present in one complete enumeration: the
+# owned GUID if it is listed, or -- only when no GUID was ever returned -- every
+# GPO holding the registered name.
+function Get-Present([string]$name) {
+    $id = $registered[$name]
+    $all = @(Get-AllGpos)
+    if ($id) { return @($all | Where-Object { "$($_.Id)" -eq $id } | ForEach-Object { "$($_.Id)" }) }
+    return @($all | Where-Object { $_.DisplayName -eq $name } | ForEach-Object { "$($_.Id)" })
 }
 
 function Test-Absent([string]$name) {
-    $id = $registered[$name]
-    if ($id) { return ($null -eq (Get-OwnedById $id)) }
-    return (@(Get-ByName $name).Count -eq 0)
+    return (@(Get-Present $name).Count -eq 0)
 }
 
 # GUIDs of GPOs holding a registered name other than the owned one.
 function Get-ForeignResidue([string]$name) {
     $id = $registered[$name]
     if (-not $id) { return @() }
-    return @(Get-ByName $name | Where-Object { "$($_.Id)" -ne $id } | ForEach-Object { "$($_.Id)" })
+    return @(Get-AllGpos | Where-Object { $_.DisplayName -eq $name -and "$($_.Id)" -ne $id } |
+        ForEach-Object { "$($_.Id)" })
 }
 
 # Remove the run's GPO -- by owned GUID when known, else by the registered
-# name -- retrying, and return $true only once a re-query confirms absence.
+# name -- retrying, and return $true only once a complete enumeration no
+# longer lists it.
 function Remove-Registered([string]$name) {
     if (-not $registered.Contains($name)) { return $true }
-    $id = $registered[$name]
     $lastError = $null
     for ($attempt = 1; $attempt -le $removalAttempts; $attempt++) {
-        if ($id) {
-            if ($null -eq (Get-OwnedById $id)) { return $true }
-            $targets = @($id)
-        } else {
-            $targets = @(Get-ByName $name | ForEach-Object { "$($_.Id)" })
-            if ($targets.Count -eq 0) { return $true }
-        }
+        $targets = @(Get-Present $name)
+        if ($targets.Count -eq 0) { return $true }
         foreach ($t in $targets) {
             try { Remove-GPO -Guid $t -Domain $Domain -Confirm:$false -ErrorAction Stop | Out-Null }
             catch { $lastError = "$($_.Exception.Message)" }
@@ -334,8 +333,13 @@ try {
         try { [void](Remove-Registered $name) } catch { Add-Error "sweep: $($_.Exception.Message)" }
     }
     try {
-        $remaining = @(Get-GPO -All -Domain $Domain -ErrorAction Stop |
-            Where-Object { $_.DisplayName -like "$prefix-*" })
+        # One complete enumeration decides the end state: anything under this
+        # run's prefix, and any GPO this run owned whatever it is now called (a
+        # renamed survivor escapes a name scan, not a GUID one).
+        $ownedIds = @($registered.Values | Where-Object { $_ })
+        $remaining = @(Get-AllGpos | Where-Object {
+            $_.DisplayName -like "$prefix-*" -or $ownedIds -contains "$($_.Id)"
+        })
         $result.residue = @($remaining | ForEach-Object { "$($_.Id) $($_.DisplayName)" })
         $result.cleanup_state_restored = $remaining.Count -eq 0
         if ($remaining.Count -ne 0) { Add-Error "residue left under ${prefix}: $($result.residue -join ', ')" }

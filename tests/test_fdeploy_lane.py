@@ -1190,10 +1190,17 @@ def test_the_guest_removes_only_what_it_registered_and_owns() -> None:
     assert chunk.startswith("$owned = New-GPO")
     assert chunk.index("Set-Owned $target $ownedId") < chunk.index("Import-GPO")
     # Removal by name happens only on the branch where no GUID is known.
+    # Removal targets come from Get-Present, whose owned-GUID branch returns
+    # before the name match is ever consulted.
+    present = script[script.index("function Get-Present"):]
+    present = present[: present.index("\n}\n")]
+    by_id = 'if ($id) { return @($all | Where-Object { "$($_.Id)" -eq $id }'
+    by_name = "return @($all | Where-Object { $_.DisplayName -eq $name }"
+    assert by_id in present and by_name in present
+    assert present.index(by_id) < present.index(by_name)
     removal = script[script.index("function Remove-Registered"):]
     removal = removal[: removal.index("\n}\n")]
-    by_id, _, by_name = removal.partition("} else {")
-    assert "Get-ByName" not in by_id and "Get-ByName" in by_name
+    assert "$targets = @(Get-Present $name)" in removal and "DisplayName" not in removal
 
 
 #: In-memory Group Policy and AD cmdlets. Functions shadow cmdlets in
@@ -1208,7 +1215,10 @@ $global:Thrown = $false
 $global:Deleted = @()
 $global:Reused = $false
 $global:RenamedGuid = $null
+$global:Backed = $false
+$global:Store['31b2f340-016d-11d2-945f-00c04fb984f9'] = 'Default Domain Policy'
 $global:Store["$([guid]::NewGuid())"] = 'unrelated-gpo'
+$global:BadNetPath = 'The network path was not found.'
 function Import-Module { [CmdletBinding()] param([Parameter(Position = 0)]$Name) }
 function New-GPO {
     [CmdletBinding()] param([string]$Name, [string]$Domain)
@@ -1230,7 +1240,16 @@ function Get-GPO {
             $global:Reused = $true
             $global:Store['11111111-2222-3333-4444-555555555555'] = $global:Deleted[0]
         }
-        return @($global:Store.Keys | ForEach-Object {
+        # enum-*: the enumeration itself fails, comes back empty, or comes
+        # back without the domain's control GPO, once something was removed.
+        $afterDelete = $global:Deleted.Count -gt 0
+        if ($Mode -eq 'enum-fails' -and $afterDelete) { throw 'directory enumeration failed' }
+        if ($Mode -eq 'enum-empty' -and $afterDelete) { return @() }
+        $keys = @($global:Store.Keys)
+        if ($Mode -eq 'enum-no-control' -and $afterDelete) {
+            $keys = @($keys | Where-Object { $_ -ne '31b2f340-016d-11d2-945f-00c04fb984f9' })
+        }
+        return @($keys | ForEach-Object {
             [pscustomobject]@{ Id = [guid]$_; DisplayName = $global:Store[$_]; Path = "cn={$_}" } })
     }
     $k = "$Guid"
@@ -1238,6 +1257,12 @@ function Get-GPO {
     if (($Mode -eq 'guid-query-fails' -and $gone) -or
         ($Mode -eq 'renamed-and-query-fails' -and $global:RenamedGuid -eq $k)) {
         throw 'directory query failed: access denied'
+    }
+    # The 258c195 review's probe: a COMException for ERROR_BAD_NETPATH
+    # (0x80070035) whose message says "not found" about something else.
+    if (($Mode -eq 'renamed-network-error' -and $global:RenamedGuid -eq $k) -or
+        ($Mode -eq 'remove-network-error' -and $global:Deleted.Count -eq 0 -and $global:Backed)) {
+        throw [System.Runtime.InteropServices.COMException]::new($global:BadNetPath, -2147024843)
     }
     if (-not $global:Store.Contains($k)) { throw "A GPO with ID {$k} was not found in lab.test." }
     [pscustomobject]@{ Id = [guid]$k; DisplayName = $global:Store[$k]; Path = "cn={$k}" }
@@ -1248,6 +1273,9 @@ function Remove-GPO {
     if ($global:RemoveFailures[$k] -gt 0) {
         $global:RemoveFailures[$k]--
         throw 'transient failure'
+    }
+    if ($Mode -eq 'remove-network-error') {
+        throw [System.Runtime.InteropServices.COMException]::new($global:BadNetPath, -2147024843)
     }
     if (-not $global:Store.Contains($k)) { throw "A GPO with ID {$k} was not found in lab.test." }
     $global:Deleted += $global:Store[$k]
@@ -1276,10 +1304,12 @@ function Backup-GPO {
     [CmdletBinding()] param($Guid, $Domain, $Path)
     # renamed-and-query-fails: the owned GPO is renamed and its GUID becomes
     # unreadable (access denied) before cleanup.
-    if ($Mode -eq 'renamed-and-query-fails' -and -not $global:RenamedGuid) {
+    $renames = @('renamed-and-query-fails', 'renamed-network-error')
+    if ($Mode -in $renames -and -not $global:RenamedGuid) {
         $global:RenamedGuid = "$Guid"
         $global:Store["$Guid"] = 'renamed-owned-gpo'
     }
+    $global:Backed = $true
     $id = [guid]::NewGuid()
     New-Item -ItemType Directory -Force -Path (Join-Path $Path "{$id}") | Out-Null
     [pscustomobject]@{ Id = $id; GpoId = $Guid }
@@ -1340,11 +1370,16 @@ def _listed(value: object) -> list[Any]:
     return list(value) if isinstance(value, list) else [value]
 
 
+#: What the mocked domain holds before the run: the control GPO every domain
+#: has, and one unrelated GPO the run must never touch.
+_FOUND = ["Default Domain Policy", "unrelated-gpo"]
+
+
 def test_the_mocked_guest_run_leaves_only_what_it_found(tmp_path: Path) -> None:
     """The control: a clean run removes every GPO it made and nothing else."""
     state = _run_mocked_guest(tmp_path, "normal")
     assert state["status"] == 0
-    assert _listed(state["remaining"]) == ["unrelated-gpo"]
+    assert _listed(state["remaining"]) == _FOUND
     result = state["result"]
     assert set(result) == FINALIZER._RESULT_KEYS
     assert result["schema_version"] == FINALIZER._RESULT_SCHEMA_VERSION
@@ -1363,14 +1398,14 @@ def test_the_mocked_guest_run_leaves_only_what_it_found(tmp_path: Path) -> None:
 
 def test_a_transient_removal_failure_is_retried(tmp_path: Path) -> None:
     state = _run_mocked_guest(tmp_path, "remove-fails-once")
-    assert _listed(state["remaining"]) == ["unrelated-gpo"]
+    assert _listed(state["remaining"]) == _FOUND
     assert state["status"] == 0
     assert state["result"]["cleanup_state_restored"] is True
 
 
 def test_a_gpo_created_without_a_returned_id_is_removed_by_name(tmp_path: Path) -> None:
     state = _run_mocked_guest(tmp_path, "create-then-throw")
-    assert _listed(state["remaining"]) == ["unrelated-gpo"]
+    assert _listed(state["remaining"]) == _FOUND
     assert state["status"] == 1  # the case still fails honestly
     first = state["result"]["cases"][0]
     assert first["import_succeeded"] is False
@@ -1398,22 +1433,84 @@ def test_a_foreign_gpo_under_a_registered_name_is_reported_never_deleted(tmp_pat
     assert state["status"] == 1
 
 
-def test_a_lookup_failure_after_removal_is_not_absence(tmp_path: Path) -> None:
-    """Review finding 2: only not-found counts; access denied fails cleanup."""
-    state = _run_mocked_guest(tmp_path, "guid-query-fails")
-    first = state["result"]["cases"][0]
+def _reported_absent_but_alive(state: dict[str, Any]) -> list[str]:
+    """Cases whose GPO the guest called gone while the domain still holds it."""
+    alive = set(_listed(state["remaining"]))
+    # The renamed-* modes rename the first case's GPO; it is alive under that name.
+    renamed_alive = "renamed-owned-gpo" in alive
+    return [
+        c["target_name"] for index, c in enumerate(state["result"]["cases"])
+        if c["absence_confirmed"] is True
+        and (c["target_name"] in alive or (index == 0 and renamed_alive))
+    ]
+
+
+@pytest.mark.parametrize("mode", ["guid-query-fails", "renamed-and-query-fails"])
+def test_guid_lookup_errors_cannot_decide_absence(tmp_path: Path, mode: str) -> None:
+    """Absence comes from a complete enumeration, so a failing GUID lookup is moot.
+
+    The owned GPO -- even renamed -- is removed by its GUID and confirmed gone
+    by enumeration; nothing is left and nothing is misreported.
+    """
+    state = _run_mocked_guest(tmp_path, mode)
+    assert _listed(state["remaining"]) == _FOUND
+    assert state["status"] == 0
+    assert _reported_absent_but_alive(state) == []
+    assert all(c["cleanup_succeeded"] and c["absence_confirmed"]
+               for c in state["result"]["cases"])
+
+
+def test_a_network_not_found_error_on_the_guid_lookup_is_not_absence(tmp_path: Path) -> None:
+    """The 258c195 review's probe: COMException 0x80070035 on the renamed GPO's lookup.
+
+    Against 258c195 the renamed GPO survived while cleanup, absence and the end
+    state all read true. Now the GUID lookup is never asked about absence: the
+    renamed GPO is removed by its GUID and enumeration confirms it.
+    """
+    state = _run_mocked_guest(tmp_path, "renamed-network-error")
+    assert "renamed-owned-gpo" not in _listed(state["remaining"])
+    assert _listed(state["remaining"]) == _FOUND
+    assert _reported_absent_but_alive(state) == []
+    assert state["status"] == 0
+
+
+def test_a_gpo_that_cannot_be_removed_is_never_reported_absent(tmp_path: Path) -> None:
+    """Remove-GPO and the GUID lookup both fail with 'network path not found'."""
+    state = _run_mocked_guest(tmp_path, "remove-network-error")
+    result = state["result"]
+    first = result["cases"][0]
+    assert first["target_name"] in _listed(state["remaining"])
     assert first["cleanup_succeeded"] is False
     assert first["absence_confirmed"] is False
-    assert "access denied" in first["error"]
+    assert "network path was not found" in first["error"]
+    assert result["cleanup_state_restored"] is False
+    assert first["target_name"] in " ".join(_listed(result["residue"]))
+    assert _reported_absent_but_alive(state) == []
     assert state["status"] == 1
 
 
-def test_a_renamed_owned_gpo_whose_lookup_fails_fails_cleanup(tmp_path: Path) -> None:
-    """Review finding 2: the reviewer's renamed-and-unreadable survivor."""
-    state = _run_mocked_guest(tmp_path, "renamed-and-query-fails")
-    first = state["result"]["cases"][0]
-    assert "renamed-owned-gpo" in _listed(state["remaining"])
-    assert first["cleanup_succeeded"] is False
+@pytest.mark.parametrize("mode", ["enum-fails", "enum-empty", "enum-no-control"])
+def test_an_enumeration_that_fails_or_is_incomplete_fails_cleanup(
+    tmp_path: Path, mode: str
+) -> None:
+    """Absence needs a complete enumeration; without one, cleanup fails."""
+    state = _run_mocked_guest(tmp_path, mode)
+    result = state["result"]
+    first = result["cases"][0]
     assert first["absence_confirmed"] is False
-    assert "access denied" in first["error"]
+    assert first["cleanup_succeeded"] is False
+    assert result["cleanup_state_restored"] is False
     assert state["status"] == 1
+
+
+def test_the_guest_never_infers_absence_from_an_exception() -> None:
+    script = GUEST_PATH.read_text(encoding="utf-8")
+    code = "\n".join(line.split("#", 1)[0] for line in script.splitlines())
+    assert "Test-NotFound" not in code
+    assert "not found" not in code.casefold() and "notfound" not in code.casefold()
+    cleanup = code[code.index("$registered = "):code.index("function Add-RecordError")]
+    assert "Get-GPO -Guid" not in cleanup
+    # Every enumeration goes through the checked one, final scan included.
+    assert script.count("Get-GPO -All") == 1
+    assert "Get-GPO -All -Domain $Domain -ErrorAction Stop" in script
+    assert "$controlGpoId = '31b2f340-016d-11d2-945f-00c04fb984f9'" in script
