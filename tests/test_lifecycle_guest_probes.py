@@ -130,7 +130,7 @@ def _run_probe(tmp_path: Path, setup: str) -> dict[str, object]:
     return dict(json.loads(completed.stdout.strip().splitlines()[-1]))
 
 
-_RUN_ID = re.compile(r"^lifecycle-(20261008000000-4321-[0-9a-f]{16})$")
+_RUN_ID = re.compile(r"^lifecycle-(\d{14}-\d{4}-[0-9a-f]{16})$")
 
 
 def _prefix(report: dict[str, object]) -> str:
