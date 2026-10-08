@@ -17,7 +17,9 @@ Current version: `1.0.0`.
     `gpmc_backup_bundle(gpo, scripts=...)` and `native_backup_refusal`
     unchanged. `.../preview` returns both INI texts read out of the same ZIP,
     its SHA-256, warnings and limitations. A test holds the endpoint's bytes
-    equal to the R10 lane builder's for the certified request. Shapes the lane
+    equal to the R10 lane builder's for the certified request, and a second
+    holds its INI files equal to the banked native GPMC capture. A preview
+    response that arrives after an edit, reopen or close is discarded. Shapes the lane
     did not measure are refused with 422 and a code, not warned about:
     user-side scripts (WI-071), shutdown/logon/logoff, PowerShell run last or
     unordered, a GPO with registry or preference content, and a GPO with a
@@ -33,7 +35,9 @@ Current version: `1.0.0`.
     `measured`, `unmeasured` or `refused`. `measured` is exactly the step kinds
     the publication-completeness lane grades, derived from its builder and
     finalizer by a test; `refused` is read off `validate_publication_plan`.
-    Nothing writes, and `publisher.py` stays unreachable. A "Publication
+    An `update_extension_lists` step is `measured` only when every family/side
+    it registers is one the lane imported, otherwise `unmeasured` with a
+    `coverage_reason` naming the families. Nothing writes, and `publisher.py` stays unreachable. A "Publication
     preview" button beside the export actions opens the plan grouped by SYSVOL
     and Active Directory, with coverage badges, limitations on top, and a
     banner saying nothing here writes.

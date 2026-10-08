@@ -78,13 +78,17 @@ it acts, each with a coverage badge:
 
 - **Measured**: the publication-completeness lane grades this kind of step
   against what Windows produces after `Import-GPO`: `update_gpt_ini`,
-  `write_registry_pol`, `update_extension_lists`, and `copy_gpp_xml` for the
-  two preference families the lane imported (computer Services, user Drives).
+  `write_registry_pol`, and `copy_gpp_xml` for the two preference families
+  the lane imported (computer Services, user Drives). `update_extension_lists`
+  is measured only when every registration the list carries is one the lane
+  imported: registry settings on either side, computer Services, user Drives.
   Under "Files the plan does not write", `GPO.cmt` is marked measured when the
   policy has no description: the lane checked that Windows writes none.
 - **Unmeasured**: no lane covers it. This includes links, security filtering
   and the WMI filter association (`Import-GPO` restores none of them),
-  `write_gpo_comment`, other preference families, and every rollback step.
+  `write_gpo_comment`, other preference families, an extension list that
+  registers any other family or side (its extra entries and their order were
+  never compared; the step names the families), and every rollback step.
 - **Refused**: the planner will not publish this policy. The reasons are
   listed above the steps, and are the same errors `validate_publication_plan`
   reports.

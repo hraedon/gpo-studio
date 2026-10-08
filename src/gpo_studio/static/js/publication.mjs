@@ -65,6 +65,7 @@ export function renderStep(step) {
   return `<li class="publication-step" data-coverage="${escapeHtml(step.coverage)}">
     <div class="publication-step-head">${coverageBadge(step.coverage)} <span class="mono">${escapeHtml(step.operation)}</span></div>
     <p>${escapeHtml(step.detail)}</p>
+    ${step.coverage_reason ? `<p class="publication-coverage-reason">${escapeHtml(step.coverage_reason)}</p>` : ""}
     ${stepFacts(step)}
   </li>`;
 }

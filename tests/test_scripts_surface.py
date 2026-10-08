@@ -22,6 +22,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import json
+import re
 import runpy
 import zipfile
 from collections.abc import Iterator
@@ -38,6 +40,9 @@ from gpo_studio.store import WorkspaceStore
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = REPO_ROOT / "scripts" / "plan-033" / "build-scripts-backup-candidate.py"
+#: The native GPMC capture (Windows Server 2025) the R10 lane's builder is
+#: asserted against byte for byte. Read here independently of the builder.
+NATIVE_CAPTURES = REPO_ROOT / "tests" / "fixtures" / "native-scripts-gpmc"
 
 #: The builder is a script, not an importable module; the policy-family surface
 #: test reaches its builder the same way.
@@ -122,6 +127,68 @@ def test_the_certified_request_returns_the_lane_builders_bytes(
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/zip"
     assert response.content == _BUILDER_SYMBOLS["build_bundle"]()
+
+
+def _banked_native_bytes(transcript_name: str) -> bytes:
+    """The bytes Windows wrote, rebuilt from the banked capture transcript.
+
+    The reconstruction is the one `provenance.json` documents (BOM, then the
+    content with LF transcribed back to CRLF, as UTF-16LE), and its length is
+    checked against both the transcript header and the provenance record's
+    measured byte count, so neither the transcript nor this helper can drift
+    alone.
+    """
+    provenance = json.loads((NATIVE_CAPTURES / "provenance.json").read_text(encoding="utf-8"))
+    measured = provenance["files"][transcript_name]["measured_total_bytes"]
+    transcript = (NATIVE_CAPTURES / transcript_name).read_text(encoding="ascii")
+    header, counters, content = transcript.split("\n", 2)
+    assert header == "first 4 bytes: FF FE 0D 00"
+    size = re.search(r"size: (\d+) bytes", counters)
+    assert size is not None and int(size.group(1)) == measured
+    native = b"\xff\xfe" + content.replace("\n", "\r\n").encode("utf-16-le")
+    assert len(native) == measured
+    return native
+
+
+#: Backup-relative path of each Scripts file -> its banked capture transcript.
+_CAPTURED_FILES = {
+    "Machine/Scripts/scripts.ini": "scripts.ini.txt",
+    "Machine/Scripts/psscripts.ini": "psscripts.ini.txt",
+}
+
+
+def test_the_certified_request_returns_the_bytes_windows_wrote(
+    store: WorkspaceStore, client: TestClient
+) -> None:
+    """Bind the endpoint to the measurement, not only to the shared serializer.
+
+    The builder-equality test above proves the request maps onto the certified
+    call, but both sides run the same `export.py` serializer, so a drift in it
+    (an extra leading blank line, say) moves both and passes. These bytes come
+    from the native GPMC capture instead: the download's INI files and the
+    preview's must equal what Windows wrote for this entry shape.
+    """
+    gpo = _candidate_gpo(store)
+    download = client.post(ROUTE.format(guid=gpo.guid), json=CERTIFIED_REQUEST)
+    assert download.status_code == 200, download.text
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        members = {
+            name.split("/DomainSysvol/GPO/", 1)[1]: archive.read(name)
+            for name in archive.namelist()
+            if "/Scripts/" in name and not name.endswith("/")
+        }
+    preview = client.post(ROUTE.format(guid=gpo.guid) + "/preview", json=CERTIFIED_REQUEST)
+    assert preview.status_code == 200, preview.text
+    previewed = {item["path"]: item for item in preview.json()["files"]}
+
+    assert set(members) == set(_CAPTURED_FILES)
+    assert set(previewed) == set(_CAPTURED_FILES)
+    for path, transcript_name in _CAPTURED_FILES.items():
+        native = _banked_native_bytes(transcript_name)
+        assert members[path] == native, path
+        assert previewed[path]["sha256"] == hashlib.sha256(native).hexdigest(), path
+        assert previewed[path]["size"] == len(native), path
+        assert b"\xff\xfe" + previewed[path]["text"].encode("utf-16-le") == native, path
 
 
 def test_the_preview_reads_the_same_bytes_the_download_returns(

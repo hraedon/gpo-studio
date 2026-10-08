@@ -64,6 +64,13 @@ from .delegation import (
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
 from .export import (
+    _GPP_EXTENSION_PROFILES,
+    _REGISTRY_CSE_GUID,
+    _REGISTRY_MACHINE_TOOL_GUID,
+    _REGISTRY_USER_TOOL_GUID,
+    _SCRIPTS_CSE_GUID,
+    _SCRIPTS_TOOL_GUID,
+    _ZERO_GUID,
     export_bundle,
     extension_registration,
     gpmc_backup_bundle,
@@ -5547,7 +5554,10 @@ def _scripts_export_capability(
 # them. `measured` is narrower than "the planner emits this kind": the lane
 # imported one Services (computer) and one Drives (user) preference, so a
 # `copy_gpp_xml` step for any other family is `unmeasured` even though export
-# knows its extension pair.
+# knows its extension pair. The same holds for `update_extension_lists`: a list
+# that registers any family/side beyond the candidate's (registry on both
+# sides, computer Services, user Drives) is `unmeasured`, with a reason naming
+# the families, because its extra entries and their order were never compared.
 #
 # Refused steps are read off `validate_publication_plan`: a step whose
 # operation is the `check` of an error the validator reports is `refused`.
@@ -5575,8 +5585,40 @@ _PUBLICATION_MEASURED_GPP_FAMILIES: frozenset[tuple[str, str]] = frozenset({
     ("Machine", "Services"),
     ("User", "Drives"),
 })
+#: `(side directory, extension family)` registrations the candidate's
+#: extension lists carried, and so the only ones whose entries -- and order --
+#: the lane compared with what Windows wrote. "Registry" is the registry.pol
+#: pair; a GPP family is named as `_GPP_EXTENSION_PROFILES` names it.
+_PUBLICATION_MEASURED_EXTENSION_FAMILIES: frozenset[tuple[str, str]] = frozenset({
+    ("Machine", "Registry"),
+    ("Machine", "Services"),
+    ("User", "Registry"),
+    ("User", "Drives"),
+})
 #: Where each absence-measured step would write, for the absence claim.
 _PUBLICATION_ABSENCE_PATHS: dict[str, str] = {"write_gpo_comment": "GPO.cmt"}
+#: The side directory each extension-list attribute belongs to.
+_EXTENSION_ATTRIBUTE_SIDES: dict[str, str] = {
+    "gPCMachineExtensionNames": "Machine",
+    "gPCUserExtensionNames": "User",
+}
+#: The family each GUID an extension list can carry registers, from export's
+#: own vocabulary. The zero GUID only opens the GPP aggregation group, whose
+#: other members are the families' tool halves, so it names no family.
+_EXTENSION_GUID_FAMILIES: dict[str, str] = {
+    _REGISTRY_CSE_GUID: "Registry",
+    _REGISTRY_MACHINE_TOOL_GUID: "Registry",
+    _REGISTRY_USER_TOOL_GUID: "Registry",
+    _SCRIPTS_CSE_GUID: "Scripts",
+    _SCRIPTS_TOOL_GUID: "Scripts",
+    **{
+        guid.upper(): family
+        for family, pair in _GPP_EXTENSION_PROFILES.items()
+        for guid in pair
+    },
+}
+_EXTENSION_LIST_SHAPE = re.compile(r"(?:\[(?:\{[0-9A-Fa-f-]{36}\})+\])+")
+_EXTENSION_GUID = re.compile(r"\{[0-9A-Fa-f-]{36}\}")
 
 StepCoverage = Literal["measured", "unmeasured", "refused"]
 
@@ -5592,6 +5634,10 @@ class PublicationStepResponse(BaseModel):
     directory_attribute: str | None
     directory_value: str | None
     coverage: StepCoverage
+    #: Why a step is `unmeasured`, where that is narrower than its operation
+    #: (a preference family or extension registration the lane never
+    #: imported); `None` otherwise.
+    coverage_reason: str | None
 
 
 class PublicationIssueResponse(BaseModel):
@@ -5686,27 +5732,73 @@ def _gpp_family_of(sysvol_path: str | None) -> tuple[str, str] | None:
     return parts[0], parts[2]
 
 
+def extension_list_families(
+    attribute: str | None, value: str | None
+) -> frozenset[tuple[str, str]] | None:
+    """`(side directory, family)` registrations an extension-list value carries.
+
+    Read off the value the step would write, not re-derived from the GPO, so
+    coverage grades the plan's own claim. `None` when the attribute is not an
+    extension list or the value is not a list of bracketed GUID groups; a GUID
+    export's vocabulary does not know is named by the GUID itself, which no
+    measured set contains.
+    """
+    side = _EXTENSION_ATTRIBUTE_SIDES.get(attribute or "")
+    if side is None or not value or _EXTENSION_LIST_SHAPE.fullmatch(value) is None:
+        return None
+    families: set[tuple[str, str]] = set()
+    for token in _EXTENSION_GUID.findall(value):
+        guid = token.upper()
+        if guid == _ZERO_GUID:
+            continue
+        families.add((side, _EXTENSION_GUID_FAMILIES.get(guid, guid)))
+    return frozenset(families)
+
+
 def publication_step_coverage(
     step: PublicationStep, refused_checks: frozenset[str]
-) -> StepCoverage:
-    """Whether the completeness lane measured *step*, or the planner refused it."""
+) -> tuple[StepCoverage, str | None]:
+    """Whether the completeness lane measured *step*, or the planner refused it.
+
+    Returns the mark and, for an `unmeasured` step whose operation the lane
+    does grade, the reason this instance falls outside what it graded.
+    """
     if step.operation in refused_checks:
-        return "refused"
+        return "refused", None
     if step.operation not in _PUBLICATION_MEASURED_OPERATIONS:
-        return "unmeasured"
-    if step.operation == "copy_gpp_xml" and (
-        _gpp_family_of(step.sysvol_path) not in _PUBLICATION_MEASURED_GPP_FAMILIES
-    ):
-        return "unmeasured"
+        return "unmeasured", None
+    if step.operation == "copy_gpp_xml":
+        family = _gpp_family_of(step.sysvol_path)
+        if family not in _PUBLICATION_MEASURED_GPP_FAMILIES:
+            named = " ".join(family) if family else (step.sysvol_path or "this file")
+            return "unmeasured", (
+                f"The publication-completeness lane imported no {named} preference."
+            )
     if step.operation == "update_gpt_ini" and step.version_half is None:
         # The lane grades the half a plan declares; a plan that declares none
         # asserted nothing the lane could grade.
-        return "unmeasured"
-    return "measured"
+        return "unmeasured", "The plan declares no GPT.INI version half to grade."
+    if step.operation == "update_extension_lists":
+        # The lane compared the candidate's exact lists with Windows'. A list
+        # that registers any other family carries entries -- and an ordering
+        # among them -- that no run compared, so the operation being graded
+        # is not enough.
+        carried = extension_list_families(step.directory_attribute, step.directory_value)
+        if carried is None:
+            return "unmeasured", "The step's extension-list value could not be read."
+        unmeasured = sorted(carried - _PUBLICATION_MEASURED_EXTENSION_FAMILIES)
+        if unmeasured:
+            named = ", ".join(" ".join(pair) for pair in unmeasured)
+            return "unmeasured", (
+                f"This list registers {named}, which the publication-completeness "
+                "lane never imported, so these entries and their order were not "
+                "compared with Windows."
+            )
+    return "measured", None
 
 
 def _publication_step_response(
-    step: PublicationStep, coverage: StepCoverage
+    step: PublicationStep, coverage: StepCoverage, reason: str | None = None
 ) -> dict[str, Any]:
     return {
         "step_id": step.step_id,
@@ -5719,6 +5811,7 @@ def _publication_step_response(
         "directory_attribute": step.directory_attribute,
         "directory_value": step.directory_value,
         "coverage": coverage,
+        "coverage_reason": reason,
     }
 
 
@@ -5762,7 +5855,7 @@ def publication_plan_preview(
         "requires_enhanced_approval": plan.requires_enhanced_approval,
         "refused": bool(refused_checks),
         "steps": [
-            _publication_step_response(step, publication_step_coverage(step, refused_checks))
+            _publication_step_response(step, *publication_step_coverage(step, refused_checks))
             for step in plan.steps
         ],
         "rollback_steps": [

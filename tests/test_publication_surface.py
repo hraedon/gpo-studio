@@ -145,6 +145,49 @@ def test_measured_preference_families_equal_the_candidates() -> None:
     assert families == api._PUBLICATION_MEASURED_GPP_FAMILIES
 
 
+def test_measured_extension_families_equal_the_lists_the_finalizer_grades() -> None:
+    """The extension-list registrations the lane compared, read off `expected.json`.
+
+    The finalizer grades `machine_extension_names` / `user_extension_names`
+    for exact equality with what Windows wrote, and the builder fills them
+    from the certified plan's own `update_extension_lists` steps. Whatever
+    families those two values register are the measured ones; nothing else.
+    """
+    graded = _expected_keys_the_finalizer_grades()
+    expectation = _BUILDER_SYMBOLS["_expectation"](_CANDIDATE, _CERTIFIED_PLAN)
+    families: set[tuple[str, str]] = set()
+    for attribute, key in _BUILDER_SYMBOLS["_EXTENSION_ATTRIBUTES"].items():
+        assert key in graded
+        carried = api.extension_list_families(attribute, expectation[key])
+        assert carried, (attribute, expectation[key])
+        families |= carried
+    assert families == api._PUBLICATION_MEASURED_EXTENSION_FAMILIES
+
+
+def test_extension_list_families_reads_every_guid_export_can_register() -> None:
+    """No registration export can write is silently dropped by the reader."""
+    from gpo_studio import export
+
+    for family, pair in export._GPP_EXTENSION_PROFILES.items():
+        value = "".join(
+            f"[{export._ZERO_GUID}{pair[1]}]" if index == 0 else f"[{pair[0]}{pair[1]}]"
+            for index in range(2)
+        )
+        assert api.extension_list_families("gPCUserExtensionNames", value) == {
+            ("User", family)
+        }
+    scripts = f"[{export._SCRIPTS_CSE_GUID}{export._SCRIPTS_TOOL_GUID}]"
+    assert api.extension_list_families("gPCMachineExtensionNames", scripts) == {
+        ("Machine", "Scripts")
+    }
+    unknown = "[{00000000-0000-0000-0000-0000000000AB}{00000000-0000-0000-0000-0000000000CD}]"
+    carried = api.extension_list_families("gPCMachineExtensionNames", unknown)
+    assert carried is not None
+    assert not carried & api._PUBLICATION_MEASURED_EXTENSION_FAMILIES
+    assert api.extension_list_families("gPCMachineExtensionNames", "not a list") is None
+    assert api.extension_list_families("displayName", scripts) is None
+
+
 # --------------------------------------------------------------------------
 # The endpoint
 # --------------------------------------------------------------------------
@@ -295,6 +338,68 @@ def test_an_unmeasured_preference_family_is_unmeasured(
         "User/Preferences/Drives/Drives.xml": "measured",
     }
     assert body["refused"] is False
+
+
+def _extension_steps(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        step["directory_attribute"]: step
+        for step in body["steps"]
+        if step["operation"] == "update_extension_lists"
+    }
+
+
+def test_an_unimported_family_makes_its_extension_list_unmeasured(
+    store: WorkspaceStore, client: TestClient
+) -> None:
+    """Computer Groups adds Groups GUIDs, and a new order, to the machine list.
+
+    The lane compared only the candidate's lists, so the machine list is no
+    longer one it measured; the user list is unchanged and still is.
+    """
+    gpo = _create(
+        store,
+        _CANDIDATE,
+        gpp_collections=(
+            *_CANDIDATE.gpp_collections,
+            GppCollection(scope="computer", groups=(GppGroup(name="SyntheticGroup"),)),
+        ),
+    )
+    body = _get(client, gpo.guid)
+    lists = _extension_steps(body)
+    machine = lists["gPCMachineExtensionNames"]
+    assert machine["coverage"] == "unmeasured"
+    assert "Machine Groups" in machine["coverage_reason"]
+    assert "Services" not in machine["coverage_reason"]
+    assert lists["gPCUserExtensionNames"]["coverage"] == "measured"
+    assert lists["gPCUserExtensionNames"]["coverage_reason"] is None
+    assert body["refused"] is False
+
+
+def test_a_measured_family_on_the_other_side_is_unmeasured(
+    store: WorkspaceStore, client: TestClient
+) -> None:
+    """Drives was measured user-side only; a computer-side Drives list was not."""
+    gpo = _create(
+        store,
+        _CANDIDATE,
+        gpp_collections=(
+            *_CANDIDATE.gpp_collections,
+            GppCollection(scope="computer", drives=_CANDIDATE.gpp_collections[1].drives),
+        ),
+    )
+    lists = _extension_steps(_get(client, gpo.guid))
+    machine = lists["gPCMachineExtensionNames"]
+    assert machine["coverage"] == "unmeasured"
+    assert "Machine Drives" in machine["coverage_reason"]
+    assert lists["gPCUserExtensionNames"]["coverage"] == "measured"
+
+
+def test_the_certified_candidate_has_no_coverage_reasons(
+    store: WorkspaceStore, client: TestClient
+) -> None:
+    gpo = _create(store, _CANDIDATE)
+    body = _get(client, gpo.guid)
+    assert [step["coverage_reason"] for step in body["steps"]] == [None] * len(body["steps"])
 
 
 def _refused_checks(gpo: GPO, target: str) -> set[str]:

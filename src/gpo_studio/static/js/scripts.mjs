@@ -142,6 +142,16 @@ export function filenameFrom(disposition, fallback) {
 
 let rows = emptyRows();
 
+// Bumped by every edit, by reopening and by closing the dialog. A preview
+// response is shown only if no bump happened while it was in flight: a late
+// response describes rows that are gone, and showing it would put one set of
+// contents and digest beside a Download that builds from another.
+let generation = 0;
+
+function cancelPendingPreview() {
+  generation += 1;
+}
+
 function rowsPath() {
   return `/api/gpos/${encodeURIComponent(state.current.guid)}/gpmc-backup-with-scripts`;
 }
@@ -157,6 +167,7 @@ function redraw(focusSelector) {
 }
 
 function invalidateResults() {
+  cancelPendingPreview();
   $("#scripts-results").replaceChildren();
   $("#scripts-status").textContent = "";
 }
@@ -195,11 +206,22 @@ export function openScripts() {
 
 async function preview(form) {
   const body = buildScriptsRequest(rows);
+  cancelPendingPreview();
+  const mine = generation;
   $("#scripts-status").textContent = "Building preview…";
-  const result = await api(`${rowsPath()}/preview`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  let result;
+  try {
+    result = await api(`${rowsPath()}/preview`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    // A refusal of rows that have since changed is no more current than a
+    // preview of them would be.
+    if (mine !== generation) return;
+    throw error;
+  }
+  if (mine !== generation) return;
   $("#scripts-results").innerHTML = renderScriptsPreview(result);
   $("#scripts-status").textContent =
     "Preview ready. Review the limits above the file contents.";
@@ -246,6 +268,7 @@ export function initScripts() {
   form.querySelectorAll("[data-close-scripts]").forEach((button) => {
     button.onclick = () => dialog.close();
   });
+  dialog.addEventListener("close", cancelPendingPreview);
   $("#scripts-add-legacy").onclick = () => {
     rows.legacy = [...rows.legacy, { command: "", parameters: "" }];
     invalidateResults();

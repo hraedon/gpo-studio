@@ -23,6 +23,7 @@ function step(overrides) {
     directory_attribute: null,
     directory_value: null,
     coverage: "measured",
+    coverage_reason: null,
     ...overrides,
   };
 }
@@ -128,6 +129,26 @@ describe("coverage badges", () => {
   test("escapes plan text", () => {
     const html = renderStep(step({ detail: "<script>x</script>" }));
     expect(html).not.toContain("<script>");
+  });
+
+  test("an unmeasured step says why, and a measured one says nothing extra", () => {
+    const reason =
+      "This list registers Machine Groups, which the lane never imported.";
+    const html = renderStep(
+      step({
+        operation: "update_extension_lists",
+        coverage: "unmeasured",
+        coverage_reason: reason,
+      }),
+    );
+    expect(html).toContain("Unmeasured");
+    expect(html).toContain(reason);
+    expect(renderStep(PLAN.steps[2])).not.toContain(
+      "publication-coverage-reason",
+    );
+    expect(
+      renderStep(step({ coverage: "unmeasured", coverage_reason: "<b>x</b>" })),
+    ).not.toContain("<b>");
   });
 });
 
