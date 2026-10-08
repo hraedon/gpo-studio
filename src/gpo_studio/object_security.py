@@ -359,14 +359,18 @@ class RestrictedGroupsFamily:
     def to_template_entries(self) -> dict[str, dict[str, str]]:
         if not self.groups:
             return {}
+        # The group in the key is starred, exactly as each member in the value
+        # is: under MS-GPSB an unstarred principal there is a *name*, so
+        # ``S-1-5-32-544__Members`` would name a group called "S-1-5-32-544".
+        # Windows exports ``*S-1-5-32-544__Members`` (R4); WI-064.
         entries: dict[str, str] = {}
         for group in self.groups:
             if group.members:
-                entries[f"{group.group_sid}__Members"] = _format_member_list(
+                entries[f"*{group.group_sid}__Members"] = _format_member_list(
                     group.members
                 )
             if group.member_of:
-                entries[f"{group.group_sid}__Memberof"] = _format_member_list(
+                entries[f"*{group.group_sid}__Memberof"] = _format_member_list(
                     group.member_of
                 )
         if not entries:
@@ -385,6 +389,20 @@ class ServiceSecurity:
     startup_mode: StartupMode | None = None
     raw_sddl: str = ""
     security_descriptor: SecurityDescriptor | None = None
+
+
+def _service_descriptor(svc: ServiceSecurity) -> SecurityDescriptor | None:
+    """The service's descriptor, parsing ``raw_sddl`` if nothing has yet.
+
+    ``security_descriptor`` is ``None`` both when parsing failed and when
+    nothing tried: only ``from_template`` populates it, so a model built
+    directly carries ``None`` beside a perfectly valid ``raw_sddl``.  Reading
+    the field alone reported *unparsed* as *unparseable* (WI-065); parsing on
+    demand tells the two apart.
+    """
+    if svc.security_descriptor is not None:
+        return svc.security_descriptor
+    return _try_parse_sddl(svc.raw_sddl)
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,7 +428,7 @@ class SystemServicesFamily:
                         "SystemServicesFamily",
                     )
                 )
-            if svc.raw_sddl and svc.security_descriptor is None:
+            if svc.raw_sddl and _service_descriptor(svc) is None:
                 issues.append(
                     ValidationIssue(
                         "error",
@@ -658,9 +676,12 @@ def _service_risk(svc: ServiceSecurity) -> RiskLevel:
         if is_critical:
             return "high"
         return "low"
-    if svc.security_descriptor is not None and is_critical:
+    # Same distinction as `validate` (WI-065): an unparsed descriptor is still
+    # an ACL change, so it is parsed here rather than read as absent.
+    has_descriptor = _service_descriptor(svc) is not None
+    if has_descriptor and is_critical:
         return "high"
-    if svc.security_descriptor is not None:
+    if has_descriptor:
         return "medium"
     return "low"
 

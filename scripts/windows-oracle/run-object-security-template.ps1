@@ -60,7 +60,12 @@ $result = [ordered]@{
 try {
     $result.validate_exit_code = Invoke-Secedit 'validate' @('/validate', $candidateCopy)
     if ($result.validate_exit_code -ne 0) { throw 'secedit /validate failed' }
-    $areas = @('regkeys', 'filestore', 'services')
+    # group_mgmt carries the [Group Membership] rows RestrictedGroupsFamily
+    # writes (WI-064). secedit imports and exports only the areas it is asked
+    # for, so without it those rows never reach the database and their absence
+    # from the export would read as a defect in the candidate (WP-3, 2026-08-04).
+    # This is a temporary database: nothing is configured either way.
+    $areas = @('regkeys', 'filestore', 'services', 'group_mgmt')
     $importArgs = @('/import', '/db', $databasePath, '/cfg', $candidateCopy,
         '/overwrite', '/areas') + $areas +
         @('/log', (Join-Path $commandDir 'import.log'), '/quiet')

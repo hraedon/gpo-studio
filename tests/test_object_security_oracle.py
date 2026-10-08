@@ -32,6 +32,14 @@ _operations_match = cast(Callable[[Mapping[str, Any]], bool], _FINALIZER["_opera
 _member_server_environment = cast(
     Callable[[object], bool], _FINALIZER["_member_server_environment"]
 )
+_template_group_membership = cast(
+    Callable[..., dict[tuple[str, str], tuple[str, ...]]],
+    _FINALIZER["_template_group_membership"],
+)
+_expected_group_membership = cast(
+    Callable[[object], dict[tuple[str, str], tuple[str, ...]]],
+    _FINALIZER["_expected_group_membership"],
+)
 
 _SDDL = "D:PAR(A;OICI;FA;;;BA)"
 
@@ -134,7 +142,7 @@ def _operation(name: str, *arguments: str) -> dict[str, object]:
 
 def test_operations_require_exact_non_applying_areas() -> None:
     database = r"C:\runs\object-security-1\temporary-security-database.sdb"
-    areas = ("/areas", "regkeys", "filestore", "services")
+    areas = ("/areas", "regkeys", "filestore", "services", "group_mgmt")
     result = {
         "invoked_operations": [
             _operation("validate", r"C:\runs\object-security-1\candidate.inf"),
@@ -203,7 +211,7 @@ def test_guest_harness_never_configures_security_policy() -> None:
         / "run-object-security-template.ps1"
     ).read_text(encoding="ascii")
     assert "/configure" not in harness.casefold()
-    assert "'regkeys', 'filestore', 'services'" in harness
+    assert "'regkeys', 'filestore', 'services', 'group_mgmt'" in harness
     assert "-ErrorAction Stop" in harness
     assert "<enumeration-failed>" in harness
     assert "cleanup enumeration:" in harness
@@ -252,6 +260,14 @@ def _evidence_pack(tmp_path: Path) -> tuple[Path, Path]:
         lines.extend(("", f"[{section}]"))
         for ordinal, setting in enumerate(settings, start=1):
             lines.append(f'{ordinal}="{setting["target"]}", {setting["code"]}, "{setting["sddl"]}"')
+    # Windows' shape for these rows (WP-3 export): `key = value`, starred on
+    # both sides. Members are written in reverse here because the export is
+    # free to reorder a principal list, and the comparison must not care.
+    lines.extend(("", "[Group Membership]"))
+    for group in expected["group_membership"]:
+        suffix = "Members" if group["relation"] == "members" else "Memberof"
+        members = ",".join(f"*{sid}" for sid in reversed(group["member_sids"]))
+        lines.append(f"*{group['group_sid']}__{suffix} = {members}")
     (run_dir / "exported.inf").write_bytes(encode_security_template("\n".join(lines) + "\n"))
     shutil.copy2(candidate / "candidate.inf", run_dir / "candidate.inf")
     shutil.copy2(candidate / "expected.json", run_dir / "expected.json")
@@ -283,6 +299,7 @@ def _evidence_pack(tmp_path: Path) -> tuple[Path, Path]:
                 "regkeys",
                 "filestore",
                 "services",
+                "group_mgmt",
                 "/log",
                 r"C:\runs\import.log",
                 "/quiet",
@@ -297,6 +314,7 @@ def _evidence_pack(tmp_path: Path) -> tuple[Path, Path]:
                 "regkeys",
                 "filestore",
                 "services",
+                "group_mgmt",
                 "/log",
                 r"C:\runs\export.log",
                 "/quiet",
@@ -374,6 +392,7 @@ def test_complete_synthetic_evidence_pack_passes(
         "operation",
         "command_artifact",
         "dirty",
+        "areas_without_group_mgmt",
     ],
 )
 def test_evidence_pack_corruption_cannot_pass(
@@ -398,7 +417,165 @@ def test_evidence_pack_corruption_cannot_pass(
         result["invoked_operations"][1]["arguments"].append("/configure")
     elif corruption == "command_artifact":
         (run_dir / "commands" / "export.stderr.txt").unlink()
+    elif corruption == "areas_without_group_mgmt":
+        for operation in result["invoked_operations"][1:]:
+            operation["arguments"].remove("group_mgmt")
     result_path.write_text(json.dumps(result), encoding="utf-8")
 
     verdict = _run_main(monkeypatch, candidate, run_dir, dirty=corruption == "dirty")
     assert verdict["passed"] is False
+
+
+# ---------------------------------------------------------------------------
+# WI-064: [Group Membership] rows built by RestrictedGroupsFamily
+# ---------------------------------------------------------------------------
+
+
+def _replace_group_section(path: Path, section: str) -> None:
+    """Rewrite `path` with its `[Group Membership]` section replaced (or dropped)."""
+    from gpo_studio.security_template import decode_security_template
+
+    text = decode_security_template(path.read_bytes()).replace("\r\n", "\n")
+    head, _, _tail = text.partition("\n[Group Membership]\n")
+    path.write_bytes(encode_security_template(head.rstrip("\n") + "\n" + section))
+
+
+def test_candidate_group_key_must_be_star_sid(tmp_path: Path) -> None:
+    """The bare-SID key WI-064 fixed is unparseable on Studio's side, not tolerated.
+
+    `RestrictedGroupsFamily.from_template` strips a leading star, which is how
+    the defect hid behind a clean round trip; the finalizer must not.
+    """
+    path = tmp_path / "candidate.inf"
+    _write_template(path, "[Group Membership]\nS-1-5-32-544__Members = *S-1-5-32-551\n")
+    with pytest.raises(ValueError, match="starred SID"):
+        _template_group_membership(path, exported=False)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "*S-1-5-32-544__Members = S-1-5-32-551",
+        "*S-1-5-32-544__Members = Administrator",
+        "*S-1-5-32-544__Members =",
+        "*S-1-5-32-544__Members = *S-1-5-32-551,*S-1-5-32-551",
+        "*S-1-5-32-544__Owners = *S-1-5-32-551",
+    ],
+)
+def test_export_group_rows_are_read_strictly(tmp_path: Path, line: str) -> None:
+    path = tmp_path / "exported.inf"
+    _write_template(path, f"[Group Membership]\n{line}\n")
+    with pytest.raises(ValueError):
+        _template_group_membership(path, exported=True)
+
+
+def test_export_group_rows_compare_members_as_a_set_and_fold_case(tmp_path: Path) -> None:
+    path = tmp_path / "exported.inf"
+    _write_template(
+        path,
+        "[Group Membership]\n"
+        "*S-1-5-32-555__members = *S-1-5-32-551, *S-1-5-32-544\n"
+        "*S-1-5-32-555__MemberOf = *S-1-5-32-545\n",
+    )
+    assert _template_group_membership(path, exported=True) == {
+        ("s-1-5-32-555", "members"): ("s-1-5-32-544", "s-1-5-32-551"),
+        ("s-1-5-32-555", "memberof"): ("s-1-5-32-545",),
+    }
+
+
+def test_a_template_without_group_membership_yields_no_rows(tmp_path: Path) -> None:
+    path = tmp_path / "exported.inf"
+    _write_template(path, '[Registry Keys]\n1="a", 0, "D:"\n')
+    assert _template_group_membership(path, exported=True) == {}
+
+
+def test_expected_v1_still_reads_object_rows_but_cannot_certify_groups() -> None:
+    """Banked v1 packs stay re-gradable; a new run must carry Group Membership."""
+    setting = {
+        "section": "Registry Keys",
+        "target": r"MACHINE\SOFTWARE\StudioLab\A",
+        "code": 0,
+        "sddl": _SDDL,
+    }
+    v1 = {"schema_version": 1, "settings": [setting]}
+    assert len(_expected_rows(v1)) == 1
+    with pytest.raises(ValueError, match="schema_version 2"):
+        _expected_group_membership(v1)
+    with pytest.raises(ValueError, match="schema_version"):
+        _expected_rows({"schema_version": 2, "settings": [setting]})
+
+
+@pytest.mark.parametrize(
+    "group",
+    [
+        {"group_sid": "Administrators", "relation": "members", "member_sids": ["S-1-5-32-544"]},
+        {"group_sid": "S-1-5-32-544", "relation": "owners", "member_sids": ["S-1-5-32-544"]},
+        {"group_sid": "S-1-5-32-544", "relation": "members", "member_sids": []},
+        {"group_sid": "S-1-5-32-544", "relation": "members", "member_sids": ["*S-1-5-32-1"]},
+        {"group_sid": "S-1-5-32-544", "relation": "members"},
+    ],
+)
+def test_expected_group_membership_schema_is_strict(group: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        _expected_group_membership(
+            {"schema_version": 2, "settings": [], "group_membership": [group]}
+        )
+
+
+@pytest.mark.parametrize(
+    "export_section",
+    [
+        # Windows dropped a relation.
+        "[Group Membership]\n*S-1-5-32-551__Members = *S-1-5-32-544\n"
+        "*S-1-5-32-555__Members = *S-1-5-32-544,*S-1-5-32-551\n",
+        # Windows added a member.
+        "[Group Membership]\n*S-1-5-32-551__Members = *S-1-5-32-544,*S-1-5-32-545\n"
+        "*S-1-5-32-555__Members = *S-1-5-32-544,*S-1-5-32-551\n"
+        "*S-1-5-32-555__Memberof = *S-1-5-32-545\n",
+        # Windows exported nothing for the area.
+        "",
+    ],
+    ids=["dropped-relation", "added-member", "absent-section"],
+)
+def test_a_group_membership_export_difference_fails_the_lane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, export_section: str
+) -> None:
+    candidate, run_dir = _evidence_pack(tmp_path)
+    _replace_group_section(run_dir / "exported.inf", export_section)
+    verdict = _run_main(monkeypatch, candidate, run_dir)
+    assert verdict["passed"] is False
+    assert verdict["checks"]["windows_export_group_membership_exact"] is False
+    assert verdict["checks"]["windows_export_exact"] is True
+    assert verdict["group_membership_export_differences"]
+
+
+def test_a_bare_sid_candidate_fails_the_lane(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The WI-064 defect, replayed through the whole finalizer."""
+    candidate, run_dir = _evidence_pack(tmp_path)
+    for root in (candidate, run_dir):
+        _replace_group_section(
+            root / "candidate.inf",
+            "[Group Membership]\nS-1-5-32-551__Members = *S-1-5-32-544\n"
+            "S-1-5-32-555__Members = *S-1-5-32-544,*S-1-5-32-551\n"
+            "S-1-5-32-555__Memberof = *S-1-5-32-545\n",
+        )
+    verdict = _run_main(monkeypatch, candidate, run_dir)
+    assert verdict["passed"] is False
+    assert verdict["checks"]["candidate_group_membership_exact"] is False
+    assert "starred SID" in verdict["comparison_error"]
+
+
+def test_a_v1_expectation_cannot_pass_a_new_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate, run_dir = _evidence_pack(tmp_path)
+    for root in (candidate, run_dir):
+        expected = json.loads((root / "expected.json").read_text(encoding="utf-8"))
+        del expected["group_membership"]
+        expected["schema_version"] = 1
+        (root / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
+    verdict = _run_main(monkeypatch, candidate, run_dir)
+    assert verdict["passed"] is False
+    assert verdict["checks"]["expected_schema_supported"] is False
