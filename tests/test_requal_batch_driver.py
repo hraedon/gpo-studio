@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -180,18 +183,18 @@ def test_a_symlinked_batch_dir_into_the_repository_is_refused(tmp_path: Path) ->
     assert not (clone / "batch").exists()
 
 
-def _lane_table() -> list[tuple[str, str, str]]:
-    """(name, runner, environment) rows of the driver's LANES array, in order."""
+def _lane_table() -> list[tuple[str, str, int, str]]:
+    """(name, runner, budget, environment) rows of the driver's LANES array, in order."""
     text = DRIVER.read_text(encoding="utf-8")
     start = text.index("LANES=(")
     block = text[start : text.index("\n)\n", start)]
-    rows: list[tuple[str, str, str]] = []
+    rows: list[tuple[str, str, int, str]] = []
     for line in block.splitlines()[1:]:
         line = line.strip()
         if not line.startswith('"'):
             continue
-        name, runner, environment = line.strip('"').split("|", 2)
-        rows.append((name, runner, environment))
+        name, runner, budget, environment = line.strip('"').split("|", 3)
+        rows.append((name, runner, int(budget), environment))
     return rows
 
 
@@ -200,11 +203,11 @@ def test_every_lane_runner_in_the_repository_is_in_the_batch() -> None:
     runners = {
         path.name for path in (REPO_ROOT / "scripts" / "windows-oracle").glob("run-*-oracle.sh")
     }
-    assert runners == {runner for _, runner, _ in _lane_table()}
+    assert runners == {runner for _, runner, _, _ in _lane_table()}
 
 
 def test_the_post_batch_lanes_run_on_the_member_server() -> None:
-    table = {name: (runner, env) for name, runner, env in _lane_table()}
+    table = {name: (runner, env) for name, runner, _, env in _lane_table()}
     for name, runner in (
         ("lifecycle", "run-lifecycle-oracle.sh"),
         ("report-parity", "run-report-parity-oracle.sh"),
@@ -228,3 +231,153 @@ def test_the_post_batch_lanes_reach_their_runners(tmp_path: Path) -> None:
     for lane, line in zip(lanes, lines, strict=True):
         assert "GPO_STUDIO_LAB_GUEST=LabMS01" in line, lane
         assert f"run-{lane}-oracle.sh" in line, lane
+
+
+# --- the per-lane watchdog ---------------------------------------------------
+
+
+def test_every_lane_budget_covers_its_runners_guest_bounds() -> None:
+    """A budget the lane's own legitimate guest work can exceed kills good runs.
+
+    Each budget must hold every explicit guest bound the runner sets, summed,
+    plus half an hour for builders, transport and the finalizer.
+    """
+    for name, runner, budget, _ in _lane_table():
+        text = (REPO_ROOT / "scripts" / "windows-oracle" / runner).read_text(encoding="utf-8")
+        bounds = sum(int(n) for n in re.findall(r"-TimeoutSeconds\s+(\d+)", text))
+        assert budget >= bounds + 1800, (
+            f"{name}: budget {budget}s < {bounds}s of guest bounds + 1800s"
+        )
+
+
+def _alive(pid: int) -> bool:
+    """True if `pid` is a live process (a zombie is not)."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False
+    return stat.rsplit(")", 1)[1].split()[0] != "Z"
+
+
+def _hanging_acb(tmp_path: Path) -> Path:
+    """A fake acb whose FIRST invocation builds a process tree and hangs.
+
+    The tree holds a plain child, a grandchild under a parent that ignores
+    SIGTERM (so only the KILL fallback can end either), and a child that left
+    the process group with its own setsid -- the three ways a lane's pwsh
+    descendants could outlive a kill aimed at the wrong target. Later
+    invocations exit 0, so the test can see the batch continue.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    acb = bin_dir / "acb"
+    acb.write_text(
+        "#!/usr/bin/env bash\n"
+        'n=$(cat "$FAKE_COUNT" 2>/dev/null || echo 0)\n'
+        'echo $((n + 1)) > "$FAKE_COUNT"\n'
+        'printf \'%s\\n\' "$*" >> "$FAKE_ACB_LOG"\n'
+        "if [[ $n -eq 0 ]]; then\n"
+        '    sleep 300 & echo $! >> "$FAKE_PIDS"\n'
+        "    bash -c 'trap \"\" TERM; sleep 300 & echo $! >> \"$FAKE_PIDS\"; wait' &\n"
+        '    echo $! >> "$FAKE_PIDS"\n'
+        '    setsid sleep 300 & echo $! >> "$FAKE_PIDS"\n'
+        '    echo $$ >> "$FAKE_PIDS"\n'
+        "    wait\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    acb.chmod(0o755)
+    return bin_dir
+
+
+def test_a_lane_over_budget_is_killed_with_its_whole_tree_and_the_batch_continues(
+    tmp_path: Path,
+) -> None:
+    clone = _clone(tmp_path)
+    pids_file = tmp_path / "pids"
+    env = {
+        **os.environ,
+        "PATH": f"{_hanging_acb(tmp_path)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+        "FAKE_COUNT": str(tmp_path / "count"),
+        "FAKE_PIDS": str(pids_file),
+        "GPO_STUDIO_LANE_BUDGET_SECONDS": "3",
+        "GPO_STUDIO_LANE_KILL_GRACE_SECONDS": "2",
+    }
+    started = time.monotonic()
+    result = subprocess.run(
+        [
+            "bash",
+            str(clone / "scripts/plan-033/run-requal-batch.sh"),
+            str(tmp_path / "batch"),
+            "wp1b",
+            "wp2",
+        ],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    elapsed = time.monotonic() - started
+    pids = [int(p) for p in pids_file.read_text().split()]
+    deadline = time.monotonic() + 10
+    while any(_alive(p) for p in pids) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    survivors = [p for p in pids if _alive(p)]
+    for p in survivors:  # never leak a sleeper past the test, even on failure
+        os.kill(p, signal.SIGKILL)
+
+    assert result.returncode == 1, result.stderr
+    assert elapsed < 60, f"the watchdog took {elapsed:.0f}s to end a 3s lane"
+    rows = [
+        json.loads(line) for line in (tmp_path / "batch/progress.jsonl").read_text().splitlines()
+    ]
+    assert [(r["name"], r["exit_status"], r["timed_out"], r["budget_seconds"]) for r in rows] == [
+        ("wp1b", 124, True, 3),
+        ("wp2", 0, False, 3),
+    ]
+    assert "wp1b TIMED OUT" in result.stdout
+    assert "=== watchdog: lane budget exhausted" in (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert len(pids) == 5
+    assert not survivors, "the watchdog left part of the lane's tree running"
+
+
+def test_a_lane_that_exits_124_itself_is_not_recorded_as_a_watchdog_kill(
+    tmp_path: Path,
+) -> None:
+    """psdirect exits 124 on its own deadline; that is a lane failure, not a kill."""
+    clone = _clone(tmp_path)
+    result = _run(clone, _fake_acb(tmp_path, 124), tmp_path, "wp1b")
+    assert result.returncode == 1, result.stderr
+    rows = [
+        json.loads(line) for line in (tmp_path / "batch/progress.jsonl").read_text().splitlines()
+    ]
+    assert [(r["exit_status"], r["timed_out"]) for r in rows] == [(124, False)]
+    assert "TIMED OUT" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "knob", ["GPO_STUDIO_LANE_BUDGET_SECONDS", "GPO_STUDIO_LANE_KILL_GRACE_SECONDS"]
+)
+def test_a_malformed_watchdog_override_is_refused(tmp_path: Path, knob: str) -> None:
+    clone = _clone(tmp_path)
+    env = {
+        **os.environ,
+        "PATH": f"{_fake_acb(tmp_path, 0)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+        knob: "10m",
+    }
+    result = subprocess.run(
+        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(tmp_path / "b"), "wp1b"],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert knob in result.stderr
+    assert not (tmp_path / "acb.log").exists()

@@ -18,6 +18,12 @@
 # With no lane names, every lane in LANES runs. The tree must be clean: a
 # verdict minted from a dirty tree is refused by its finalizer anyway, and
 # failing here costs no estate time.
+#
+# Each lane runs under a wall-clock budget (the LANES table; override all with
+# GPO_STUDIO_LANE_BUDGET_SECONDS). A lane that exceeds it has its whole process
+# tree killed -- acb, the runner, every pwsh beneath it, and the finalizer --
+# and is recorded with exit_status 124 and timed_out true; the batch moves on
+# to the next lane. Nothing is retried.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,37 +37,46 @@ DC="${GPO_STUDIO_LAB_DC:-LabDC01}"
 CLIENT="${GPO_STUDIO_LAB_CLIENT:-LabCL01}"
 RSOP_USER="${GPO_STUDIO_RSOP_USER:-}"
 
-# name | runner | environment (space-separated KEY=VALUE, expanded at run time)
+# name | runner | budget | environment (space-separated KEY=VALUE, expanded at run time)
+#
+# budget: the lane's wall-clock limit in seconds, covering the runner AND its
+# finalizer. It is a backstop, not a schedule: every transport call inside a
+# lane is bounded by psdirect.ps1 already, so a lane reaches its budget only
+# when something no inner bound covers has wedged (a builder, a finalizer, a
+# wait loop). Each is at least the sum of the runner's explicit guest
+# -TimeoutSeconds plus half an hour, rounded up -- generous by design: the
+# longest lane of the last batch took 190 s, and report-parity alone allows its
+# guest work 3600 s. GPO_STUDIO_LANE_BUDGET_SECONDS overrides every selected lane.
 LANES=(
-    "wp0|run-windows-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "wp1b|run-wp1b-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "wp2|run-wp2-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "wp3-member|run-wp3-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER GPO_STUDIO_WP3_KERBEROS=0"
-    "wp3-dc|run-wp3-oracle.sh|GPO_STUDIO_LAB_GUEST=$DC GPO_STUDIO_WP3_KERBEROS=1"
-    "object-security|run-object-security-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "scripts-metadata|run-scripts-backup-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "publication|run-publication-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "wp0|run-windows-oracle.sh|2400|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "wp1b|run-wp1b-oracle.sh|3600|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "wp2|run-wp2-oracle.sh|2400|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "wp3-member|run-wp3-oracle.sh|2400|GPO_STUDIO_LAB_GUEST=$MEMBER GPO_STUDIO_WP3_KERBEROS=0"
+    "wp3-dc|run-wp3-oracle.sh|2400|GPO_STUDIO_LAB_GUEST=$DC GPO_STUDIO_WP3_KERBEROS=1"
+    "object-security|run-object-security-oracle.sh|2400|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "scripts-metadata|run-scripts-backup-oracle.sh|2400|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "publication|run-publication-oracle.sh|2400|GPO_STUDIO_LAB_GUEST=$MEMBER"
     # Plan 034 lanes banked after the first batch (BANKED_AFTER_THE_BATCH): each
     # runs on the member server alone.
-    "lifecycle|run-lifecycle-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "report-parity|run-report-parity-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "firewall|run-firewall-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "fdeploy|run-fdeploy-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
-    "endpoint|run-endpoint-oracle.sh|GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "lsdou-precedence|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=lsdou-precedence GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "disabled-block-enforced|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=disabled-block-enforced GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "wmi-filtering|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=wmi-filtering GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "wmi-filtering-error|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=wmi-filtering-error GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "computer-security-filtering|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=computer-security-filtering GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "computer-security-filtering-deny-read|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=computer-security-filtering-deny-read GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "loopback-merge|run-rsop-user-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=loopback-merge GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "loopback-replace|run-rsop-user-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=loopback-replace GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "user-side-disabled|run-rsop-user-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=user-side-disabled GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "user-security-filtering|run-rsop-user-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=user-security-filtering GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "user-security-filtering-deny|run-rsop-user-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=user-security-filtering-deny GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
-    "user-security-filtering-read-deny|run-rsop-user-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=user-security-filtering-read-deny GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "lifecycle|run-lifecycle-oracle.sh|3600|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "report-parity|run-report-parity-oracle.sh|7200|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "firewall|run-firewall-oracle.sh|3600|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "fdeploy|run-fdeploy-oracle.sh|3600|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "endpoint|run-endpoint-oracle.sh|9000|GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "lsdou-precedence|run-rsop-oracle.sh|10800|GPO_STUDIO_RSOP_SCENARIO=lsdou-precedence GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "disabled-block-enforced|run-rsop-oracle.sh|10800|GPO_STUDIO_RSOP_SCENARIO=disabled-block-enforced GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "wmi-filtering|run-rsop-oracle.sh|10800|GPO_STUDIO_RSOP_SCENARIO=wmi-filtering GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "wmi-filtering-error|run-rsop-oracle.sh|10800|GPO_STUDIO_RSOP_SCENARIO=wmi-filtering-error GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "computer-security-filtering|run-rsop-oracle.sh|10800|GPO_STUDIO_RSOP_SCENARIO=computer-security-filtering GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "computer-security-filtering-deny-read|run-rsop-oracle.sh|10800|GPO_STUDIO_RSOP_SCENARIO=computer-security-filtering-deny-read GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "loopback-merge|run-rsop-user-oracle.sh|12600|GPO_STUDIO_RSOP_SCENARIO=loopback-merge GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "loopback-replace|run-rsop-user-oracle.sh|12600|GPO_STUDIO_RSOP_SCENARIO=loopback-replace GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "user-side-disabled|run-rsop-user-oracle.sh|12600|GPO_STUDIO_RSOP_SCENARIO=user-side-disabled GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "user-security-filtering|run-rsop-user-oracle.sh|12600|GPO_STUDIO_RSOP_SCENARIO=user-security-filtering GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "user-security-filtering-deny|run-rsop-user-oracle.sh|12600|GPO_STUDIO_RSOP_SCENARIO=user-security-filtering-deny GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "user-security-filtering-read-deny|run-rsop-user-oracle.sh|12600|GPO_STUDIO_RSOP_SCENARIO=user-security-filtering-read-deny GPO_STUDIO_RSOP_USER=$RSOP_USER GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
     # Last on purpose: the one lane that reboots the client mid-run (WI-069).
-    "computer-security-filtering-group-deny|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=computer-security-filtering-group-deny GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
+    "computer-security-filtering-group-deny|run-rsop-oracle.sh|10800|GPO_STUDIO_RSOP_SCENARIO=computer-security-filtering-group-deny GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
 )
 
 cd "$REPO_ROOT"
@@ -104,9 +119,84 @@ selected() {
     return 1
 }
 
+for knob in GPO_STUDIO_LANE_BUDGET_SECONDS GPO_STUDIO_LANE_KILL_GRACE_SECONDS; do
+    if [[ -n "${!knob:-}" && ! "${!knob}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "refusing: $knob must be a positive integer" >&2
+        exit 2
+    fi
+done
+# Seconds between SIGTERM and SIGKILL when a lane is out of budget.
+LANE_KILL_GRACE="${GPO_STUDIO_LANE_KILL_GRACE_SECONDS:-15}"
+# A lane that runs out of budget is recorded with this status (timeout(1)'s).
+TIMED_OUT_STATUS=124
+
+# Every process below $1, depth first. Collected BEFORE any signal is sent:
+# once a parent dies its children are re-parented and the walk loses them.
+descendants() {
+    local child
+    for child in $(pgrep -P "$1" 2>/dev/null); do
+        echo "$child"
+        descendants "$child"
+    done
+}
+
+# Kill a lane's whole tree: its process group (the lane runs as the leader of
+# a new session, so acb, bash, the runner, every pwsh and every child share
+# it) and, for anything that left the group with its own setsid, every
+# descendant found by walking the tree. TERM first, KILL after the grace.
+kill_lane() {
+    local leader=$1 pids pid _
+    pids="$(descendants "$leader")"
+    kill -TERM -- "-$leader" 2>/dev/null
+    for pid in $pids; do kill -TERM "$pid" 2>/dev/null; done
+    for _ in $(seq 1 "$LANE_KILL_GRACE"); do
+        local alive=0
+        kill -0 -- "-$leader" 2>/dev/null && alive=1
+        for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive=1; done
+        [[ $alive -eq 0 ]] && return 0
+        sleep 1
+    done
+    pids="$pids $(descendants "$leader")"
+    kill -KILL -- "-$leader" 2>/dev/null
+    for pid in $pids; do kill -KILL "$pid" 2>/dev/null; done
+    return 0
+}
+
+# run_bounded <deadline-epoch> <log> <command...>
+# Run the command as a new session leader, appending to <log>. Returns its
+# status, or TIMED_OUT_STATUS after killing its whole tree at the deadline --
+# and then sets WATCHDOG_FIRED, because a lane may exit 124 on its own (a
+# psdirect deadline does) and that is a failure, not a watchdog kill.
+run_bounded() {
+    local deadline=$1 log=$2 pid
+    shift 2
+    if (( $(date +%s) >= deadline )); then
+        echo "=== watchdog: no budget left to start: $*" >>"$log"
+        WATCHDOG_FIRED=1
+        return "$TIMED_OUT_STATUS"
+    fi
+    # No job control in this script, so the background child is not a group
+    # leader and setsid makes it one without forking: $! IS the new group.
+    setsid "$@" >>"$log" 2>&1 </dev/null &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( $(date +%s) >= deadline )); then
+            echo "=== watchdog: lane budget exhausted; killing process group $pid" >>"$log"
+            kill_lane "$pid"
+            wait "$pid" 2>/dev/null
+            WATCHDOG_FIRED=1
+            return "$TIMED_OUT_STATUS"
+        fi
+        sleep 1
+    done
+    wait "$pid"
+}
+
+set +m
 for row in "${LANES[@]}"; do
-    IFS='|' read -r name runner envs <<<"$row"
+    IFS='|' read -r name runner budget envs <<<"$row"
     selected "$name" || continue
+    budget="${GPO_STUDIO_LANE_BUDGET_SECONDS:-$budget}"
     if [[ "$envs" == *"GPO_STUDIO_RSOP_USER="* && -z "$RSOP_USER" ]]; then
         echo "refusing $name: GPO_STUDIO_RSOP_USER is required for this lane" >&2
         exit 2
@@ -117,16 +207,23 @@ for row in "${LANES[@]}"; do
     fi
     log="$BATCH_DIR/logs/$name.log"
     started="$(date -u +%Y-%m-%dT%H:%M:%S.%6N+00:00)"
-    echo "=== $name ($runner) started $started"
+    echo "=== $name ($runner) started $started, budget ${budget}s"
+    # One deadline for the runner and its finalizer together.
+    deadline=$(( $(date +%s) + budget ))
+    : >"$log"
+    WATCHDOG_FIRED=0
     set +e
     # shellcheck disable=SC2086 # the lane's KEY=VALUE pairs split on purpose
     # The lane's environment is set INSIDE the acb exec, so what the runner
     # sees is exactly this table plus acb's credential variables.
     # `env -u` first: a computer-scope lane must not inherit the principal the
     # user lanes need, and its candidate builder refuses one it was handed.
-    acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \
+    # A lane is never retried: it authors policy, and a second run is the
+    # operator's decision.
+    run_bounded "$deadline" "$log" \
+        acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \
         env -u GPO_STUDIO_RSOP_USER TMPDIR="$TMPDIR" $envs \
-        bash "scripts/windows-oracle/$runner" >"$log" 2>&1
+        bash "scripts/windows-oracle/$runner"
     status=$?
     # run-windows-oracle.sh (WP-0) stops at the run directory and prints the
     # finalizer command instead of running it; every other runner finalizes
@@ -134,24 +231,28 @@ for row in "${LANES[@]}"; do
     # as a by-hand run.
     next="$(sed -n 's/^NEXT: //p' "$log" | tail -1)"
     if [[ $status -eq 0 && -n "$next" ]]; then
-        set +e
-        bash -c "$next" >>"$log" 2>&1
+        run_bounded "$deadline" "$log" bash -c "$next"
         status=$?
-        set -e
     fi
     set -e
+    timed_out=$WATCHDOG_FIRED
     completed="$(date -u +%Y-%m-%dT%H:%M:%S.%6N+00:00)"
     run_dir="$(sed -n 's/^LOCAL_RUN_DIR=//p' "$log" | tail -1)"
-    python3 - "$PROGRESS" "$name" "$runner" "$COMMIT" "$started" "$completed" "$status" "$run_dir" <<'PY'
+    python3 - "$PROGRESS" "$name" "$runner" "$COMMIT" "$started" "$completed" "$status" "$run_dir" \
+        "$budget" "$timed_out" <<'PY'
 import json, sys
-path, name, runner, commit, started, completed, status, run_dir = sys.argv[1:]
+path, name, runner, commit, started, completed, status, run_dir, budget, timed_out = sys.argv[1:]
 with open(path, "a", encoding="utf-8") as fh:
     fh.write(json.dumps({
         "name": name, "runner": runner, "commit": commit,
         "started_utc": started, "completed_utc": completed,
         "exit_status": int(status), "local_run_dir": run_dir or None,
+        "budget_seconds": int(budget), "timed_out": timed_out == "1",
     }) + "\n")
 PY
+    if [[ $timed_out -eq 1 ]]; then
+        echo "=== $name TIMED OUT after its ${budget}s budget; its process tree was killed"
+    fi
     echo "=== $name exit=$status run_dir=${run_dir:-<none>}"
     ran=$((ran + 1))
     [[ $status -eq 0 ]] || failures=$((failures + 1))
