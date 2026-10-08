@@ -4,9 +4,11 @@ Every Windows-produced backup in the corpus carries the ``gpreport.xml`` that
 ``Backup-GPO`` wrote beside it. Each is imported through the public endpoint,
 and Studio's typed model is inventoried and compared with that report. Every
 divergence is either absent or one of the named ``KNOWN_DIVERGENCES``, and the
-set of known divergences per backup is pinned below, so fixing WI-072 or
-WI-073 (or regressing anything else) fails here until the pin and the
-report-parity lane are updated together (WI-048).
+set of known divergences per backup is pinned below, so any change in what a
+backup shows fails here until the pin and the report-parity lane are updated
+together (WI-048). WI-072 and WI-073 were pinned this way until they were
+fixed; their three backups now pin full equality, and their allowances are
+gone, so a regression of either is an unexplained divergence.
 """
 
 from __future__ import annotations
@@ -75,14 +77,10 @@ EXPECTED_KNOWN: dict[str, frozenset[str]] = {
     "tests/fixtures/native-gpp-gpmc/WI01A-MixedCSE-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-NestedILT-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-OS-ILT": frozenset(),
-    "tests/fixtures/native-gpp-gpmc/WI01A-Power-GPMC": frozenset(
-        {"adapter-root-unknowns-dropped"}
-    ),
+    "tests/fixtures/native-gpp-gpmc/WI01A-Power-GPMC": frozenset(),  # WI-072 fixed
     "tests/fixtures/native-gpp-gpmc/WI01A-Printers-GPMC": frozenset(),
-    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasks-GPMC": frozenset({"scheduled-task-order"}),
-    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasksFull-GPMC": frozenset(
-        {"scheduled-task-order"}
-    ),
+    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasks-GPMC": frozenset(),  # WI-073 fixed
+    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasksFull-GPMC": frozenset(),  # WI-073 fixed
     "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-Shortcuts-GPMC": frozenset(),
@@ -188,25 +186,34 @@ def test_the_lane_helper_imports_what_the_endpoint_imports(
 
 
 # ---------------------------------------------------------------------------
-# Work items pinned by the corpus (WI-048): fixing one must update the pin
+# Work items the corpus pinned (WI-048), now fixed: the pins are full equality
 # ---------------------------------------------------------------------------
 
 
-def test_wi072_power_plan_is_retained_but_not_written() -> None:
+def test_wi072_the_retained_power_plan_is_written() -> None:
     gpo = studio_gpo_from_backup(NATIVE / "WI01A-Power-GPMC")
     collection = gpo.gpp_collections[0]
     assert collection.power_options == ()
     assert any("GlobalPowerOptionsV2" in c for c in collection.power_options_unknown_children)
-    assert studio_inventory(gpo).families == ()
+    windows = windows_inventory(_gpreport(NATIVE / "WI01A-Power-GPMC"))
+    ours = studio_inventory(gpo).family("user", "PowerOptionsSettings")
+    assert [i.element for i in ours] == ["GlobalPowerOptionsV2"]
+    assert ours == windows.family("user", "PowerOptionsSettings")
 
 
-def test_wi073_scheduled_and_immediate_tasks_lose_their_interleaving() -> None:
-    gpo = studio_gpo_from_backup(NATIVE / "WI01A-SchedTasks-GPMC")
-    windows = windows_inventory(_gpreport(NATIVE / "WI01A-SchedTasks-GPMC"))
-    theirs = [i.element for i in windows.family("computer", "ScheduledTasksSettings")]
-    ours = [i.element for i in studio_inventory(gpo).family("computer", "ScheduledTasksSettings")]
-    assert theirs == ["TaskV2", "ImmediateTaskV2", "TaskV2"]
-    assert ours == ["TaskV2", "TaskV2", "ImmediateTaskV2"]
+@pytest.mark.parametrize("case", ["WI01A-SchedTasks-GPMC", "WI01A-SchedTasksFull-GPMC"])
+def test_wi073_scheduled_and_immediate_tasks_keep_their_interleaving(case: str) -> None:
+    gpo = studio_gpo_from_backup(NATIVE / case)
+    windows = windows_inventory(_gpreport(NATIVE / case))
+    theirs = windows.family("computer", "ScheduledTasksSettings")
+    assert [i.element for i in theirs][:3] == ["TaskV2", "ImmediateTaskV2", "TaskV2"]
+    assert studio_inventory(gpo).family("computer", "ScheduledTasksSettings") == theirs
+
+
+def test_no_known_divergence_names_a_fixed_work_item() -> None:
+    names = {known.name for known in KNOWN_DIVERGENCES}
+    assert not names & {"adapter-root-unknowns-dropped", "scheduled-task-order"}
+    assert not {known.work_item for known in KNOWN_DIVERGENCES} & {"WI-072", "WI-073"}
 
 
 def test_every_known_defect_names_a_registered_work_item() -> None:
@@ -450,31 +457,21 @@ def _order(windows: tuple[InventoryItem, ...], studio: tuple[InventoryItem, ...]
     )
 
 
-def test_the_task_order_matcher_takes_only_the_stable_partition() -> None:
-    task_order = known_divergence("scheduled-task-order")
-    # WI-073 exactly: immediate tasks moved after the scheduled ones.
-    assert task_order.matches(_order((_T1, _I1, _T2), (_T1, _T2, _I1)), ())
-    # The reviewer's mutation: scheduled tasks reversed within their type.
-    assert not task_order.matches(_order((_T1, _I1, _T2), (_T2, _T1, _I1)), ())
-    assert not task_order.matches(_order((_T1, _T2), (_T2, _T1)), ())
-    # Immediate tasks moved first is not the model's order either.
-    assert not task_order.matches(_order((_T1, _I1, _T2), (_I1, _T1, _T2)), ())
-    # No sequences, other families and other kinds never match.
-    assert not task_order.matches(_order((), ()), ())
-    assert not task_order.matches(_order((_T1, _I1, _T2), (_T1, _T2, _I1), "LugsSettings"), ())
-    assert not task_order.matches(
-        Divergence("computer", "ScheduledTasksSettings", "missing_in_studio", _T1), ()
-    )
-
-
-def test_reordering_within_a_task_type_stays_unexplained() -> None:
+@pytest.mark.parametrize(
+    "studio_order",
+    [
+        (_T1, _T2, _I1),  # the WI-073 regression: written grouped
+        (_T2, _T1, _I1),  # reordered within a task type
+        (_I1, _T1, _T2),  # immediate tasks moved first
+    ],
+)
+def test_any_task_reordering_is_unexplained(studio_order: tuple[InventoryItem, ...]) -> None:
+    """WI-073 is fixed: no task order is known any more, the partition included."""
     windows = _inv(_T1, _I1, _T2, family="ScheduledTasksSettings")
-    studio = _inv(_T2, _T1, _I1, family="ScheduledTasksSettings")
+    studio = _inv(*studio_order, family="ScheduledTasksSettings")
     known, unexplained = classify(compare(windows, studio))
     assert known == {} and [d.kind for d in unexplained] == ["order"]
-    partitioned = _inv(_T1, _T2, _I1, family="ScheduledTasksSettings")
-    known, unexplained = classify(compare(windows, partitioned))
-    assert set(known) == {"scheduled-task-order"} and unexplained == ()
+    assert _order((_T1, _I1, _T2), studio_order).windows_order == (_T1, _I1, _T2)
 
 
 def test_registry_data_is_not_stripped() -> None:
@@ -509,14 +506,13 @@ def test_report_identity_reads_guid_domain_and_name() -> None:
         report_identity(b"<Other/>")
 
 
-def test_the_power_matcher_names_only_the_global_power_plan() -> None:
-    power = known_divergence("adapter-root-unknowns-dropped")
+def test_a_dropped_power_plan_is_unexplained() -> None:
+    """WI-072 is fixed: a missing GlobalPowerOptionsV2 is no longer known."""
     plan = InventoryItem("GlobalPowerOptionsV2", name="p")
-    scheme = InventoryItem("PowerScheme", name="p")
-    family = "PowerOptionsSettings"
-    assert power.matches(Divergence("user", family, "missing_in_studio", plan), ())
-    assert not power.matches(Divergence("user", family, "missing_in_studio", scheme), ())
-    assert not power.matches(Divergence("user", family, "extra_in_studio", plan), ())
+    windows = _inv(plan, family="PowerOptionsSettings")
+    known, unexplained = classify(compare(windows, Inventory(families=())))
+    assert known == {}
+    assert [(d.kind, d.item) for d in unexplained] == [("missing_in_studio", plan)]
 
 
 def _drive(name: str, **fields: str) -> InventoryItem:

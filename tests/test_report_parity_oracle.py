@@ -514,8 +514,12 @@ def test_the_simulated_run_passes_every_check(
     assert all(checks.values()), {k: v for k, v in checks.items() if not v}
     assert verdict["passed"] is True and verdict["checks_complete"] is True
     assert verdict["comparison_error"] is None
-    power = verdict["comparison"]["cases"]["native-WI01A-Power-GPMC"]
-    assert power["known"]["adapter-root-unknowns-dropped"]["work_item"] == "WI-072"
+    # WI-072 and WI-073 are fixed: their cases carry no divergence at all.
+    for case_id in BUILDER.MUST_AGREE_CASE_IDS:
+        case = verdict["comparison"]["cases"][case_id]
+        assert case["known"] == {} and case["unexplained"] == [], case_id
+        assert all(family["equal"] for family in case["families"]), case_id
+    assert checks["fixed_work_item_cases_agree_exactly"] is True
 
 
 def _edit_report(run: Path, case_id: str, edit: Any) -> None:
@@ -763,7 +767,7 @@ def test_whitespace_padding_an_authored_string_fails(
 
 
 # ---------------------------------------------------------------------------
-# Review finding 4: WI-073 absorbs only the scheduled/immediate partition
+# Review finding 4: a task reordering is never absorbed (WI-073 is now fixed)
 # ---------------------------------------------------------------------------
 
 
@@ -782,6 +786,111 @@ def test_reordering_scheduled_tasks_within_their_type_fails(candidate: Path) -> 
     checks, summary = FINALIZER.grade_case(inventory_from_json(fresh), case)
     assert checks["no_unexplained_divergence"] is False
     assert any("order" in line for line in summary["unexplained"])
+
+
+# ---------------------------------------------------------------------------
+# WI-072 and WI-073 are fixed: a regression of either fails the lane
+# ---------------------------------------------------------------------------
+
+
+def _case(candidate: Path, case_id: str) -> dict[str, Any]:
+    return next(c for c in _expected(candidate)["cases"] if c["case_id"] == case_id)
+
+
+def _with_studio_family(
+    case: dict[str, Any], side: str, family: str, edit: Any
+) -> dict[str, Any]:
+    """The case with one family of Studio's inventory edited, as a regression would."""
+    studio = json.loads(json.dumps(case["studio_inventory"]))
+    for entry in studio["families"]:
+        if entry["side"] == side and entry["family"] == family:
+            entry["items"] = edit(entry["items"])
+    studio["families"] = [entry for entry in studio["families"] if entry["items"]]
+    return dict(case, studio_inventory=studio)
+
+
+def test_the_must_agree_cases_are_the_formerly_divergent_ones() -> None:
+    assert {
+        "native-WI01A-Power-GPMC",
+        "native-WI01A-SchedTasks-GPMC",
+        "native-WI01A-SchedTasksFull-GPMC",
+    } == BUILDER.MUST_AGREE_CASE_IDS
+    assert set(BUILDER.REQUIRED_CASE_IDS) >= BUILDER.MUST_AGREE_CASE_IDS
+
+
+@pytest.mark.parametrize(
+    "case_id", ["native-WI01A-SchedTasks-GPMC", "native-WI01A-SchedTasksFull-GPMC"]
+)
+def test_a_wi073_regression_fails_the_case(candidate: Path, case_id: str) -> None:
+    """Studio writing tasks grouped again (the old stable partition) is unexplained."""
+    case = _case(candidate, case_id)
+    assert case["expected_known"] == []
+    fresh = inventory_from_json(case["backup_report_inventory"])
+    checks, _ = FINALIZER.grade_case(fresh, case)
+    assert all(checks.values()) and FINALIZER.agrees_exactly(fresh, case)
+
+    def partition(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        immediate = [i for i in items if i["element"] == "ImmediateTaskV2"]
+        return [i for i in items if i["element"] != "ImmediateTaskV2"] + immediate
+
+    regressed = _with_studio_family(case, "computer", "ScheduledTasksSettings", partition)
+    checks, summary = FINALIZER.grade_case(fresh, regressed)
+    assert checks["no_unexplained_divergence"] is False
+    assert any(": order:" in line for line in summary["unexplained"])
+    assert FINALIZER.agrees_exactly(fresh, regressed) is False
+
+
+def test_a_wi072_regression_fails_the_case(candidate: Path) -> None:
+    """Studio dropping the retained power plan again is unexplained."""
+    case = _case(candidate, "native-WI01A-Power-GPMC")
+    fresh = inventory_from_json(case["backup_report_inventory"])
+    assert FINALIZER.agrees_exactly(fresh, case)
+    regressed = _with_studio_family(
+        case, "user", "PowerOptionsSettings",
+        lambda items: [i for i in items if i["element"] != "GlobalPowerOptionsV2"],
+    )
+    checks, summary = FINALIZER.grade_case(fresh, regressed)
+    assert checks["no_unexplained_divergence"] is False
+    assert any("GlobalPowerOptionsV2" in line for line in summary["unexplained"])
+    assert FINALIZER.agrees_exactly(fresh, regressed) is False
+
+
+def test_a_must_agree_case_cannot_pass_by_being_re_allowed(candidate: Path) -> None:
+    """Even an equal comparison fails if the expectation names a divergence for it."""
+    case = _case(candidate, "native-WI01A-Power-GPMC")
+    fresh = inventory_from_json(case["backup_report_inventory"])
+    assert FINALIZER.agrees_exactly(fresh, dict(case, expected_known=["anything"])) is False
+
+
+def test_the_builder_refuses_a_known_divergence_on_a_must_agree_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = BUILDER.classify
+
+    def reallowed(result: Any) -> Any:
+        known, unexplained = real(result)
+        if any(f.family == "PowerOptionsSettings" for f in result.families):
+            return {"adapter-root-unknowns-dropped": ()}, unexplained
+        return known, unexplained
+
+    monkeypatch.setattr(BUILDER, "classify", reallowed)
+    with pytest.raises(ValueError, match="native-WI01A-Power-GPMC: must agree"):
+        BUILDER.build(tmp_path)
+
+
+def test_a_fresh_report_disagreeing_on_a_fixed_case_fails_the_run(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def drop_plan(root: ET.Element) -> None:
+        for parent in root.iter():
+            for child in list(parent):
+                if child.tag.rsplit("}", 1)[-1] == "GlobalPowerOptionsV2":
+                    parent.remove(child)
+
+    _edit_report(run, "native-WI01A-Power-GPMC", drop_plan)
+    checks = _finalize(run, candidate, monkeypatch)
+    assert checks["fixed_work_item_cases_agree_exactly"] is False
+    assert checks["every_case_studio_matches_fresh_report"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -948,8 +1057,10 @@ def test_a_report_path_cannot_escape_the_run(tmp_path: Path) -> None:
 def test_grade_case_requires_the_known_set_exactly(candidate: Path) -> None:
     """A known divergence that vanishes is a change too: the pin must move."""
     case = next(
-        c for c in _expected(candidate)["cases"] if c["case_id"] == "native-WI01A-Power-GPMC"
+        c for c in _expected(candidate)["cases"]
+        if c["case_id"] == "evidence-wi059-20260908-wp1b-drives-user-rebackup"
     )
+    assert case["expected_known"] == ["legacy-studio-drive-name"]
     fresh = inventory_from_json(case["backup_report_inventory"])
     checks, _ = FINALIZER.grade_case(fresh, case)
     assert all(checks.values())

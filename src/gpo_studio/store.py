@@ -153,6 +153,19 @@ def _gpp_collection(data: dict[str, Any]) -> GppCollection:
     return gpp_collection_from_dict(data)
 
 
+def _keep_document_position[T: (GppGroup, GppRegistry)](edited: T, existing: T) -> T:
+    """An edit replaces an item's content, not its place in the document.
+
+    The API's item payloads carry no ``document_position`` (WI-073), so an
+    edited item inherits the slot of the item it replaces. A new item has no
+    slot and is written after every positioned item (see ``gpp.py``,
+    "Document order").
+    """
+    if edited.document_position is not None:
+        return edited
+    return replace(edited, document_position=existing.document_position)
+
+
 def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
     guid = gpo.guid
     new_collections: list[GppCollection] = []
@@ -1454,7 +1467,7 @@ class WorkspaceStore:
                 groups_list = list(existing.groups)
                 try:
                     gi = next(i for i, x in enumerate(groups_list) if x.id == group.id)
-                    groups_list[gi] = group
+                    groups_list[gi] = _keep_document_position(group, groups_list[gi])
                 except StopIteration:
                     if must_exist:
                         raise NotFoundError(
@@ -1549,7 +1562,7 @@ class WorkspaceStore:
                 items_list = list(existing.registry)
                 try:
                     ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
-                    items_list[ri] = registry
+                    items_list[ri] = _keep_document_position(registry, items_list[ri])
                 except StopIteration:
                     if must_exist:
                         raise NotFoundError(

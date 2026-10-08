@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 import xml.etree.ElementTree as ET
+from collections import Counter
 from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
@@ -446,6 +447,9 @@ class GppGroup:
     unknown_props_attrs: tuple[tuple[str, str], ...] = ()
     unknown_props_children: tuple[str, ...] = ()
     unknown_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-073). See
+    #: :func:`gpp_document_order`. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,6 +478,9 @@ class GppRegistry:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_props_children: tuple[str, ...] = ()
     unknown_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072). See
+    #: :func:`gpp_document_order`. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,6 +500,11 @@ class GppCollection:
     ``source_files`` must call :func:`mark_edited` first; otherwise
     :func:`serialize_gpp` would return stale bytes that do not reflect
     the mutation.
+
+    Document order (WI-072/073) is NOT ephemeral: each typed item's
+    ``document_position`` and ``root_unknown_positions`` are persisted, so a
+    reloaded collection writes its files in the imported order with the
+    retained root content in place. See "Document order" below.
     """
 
     scope: GppScope
@@ -562,6 +574,16 @@ class GppCollection:
     immediate_tasks: tuple[GppImmediateTask, ...] = field(default_factory=tuple)
     immediate_tasks_unknown_attrs: tuple[tuple[str, str], ...] = ()
     immediate_tasks_unknown_children: tuple[str, ...] = ()
+    #: Where each retained root unknown child sat in its source document, as
+    #: ``(family, positions)`` with ``positions`` parallel to
+    #: ``<family>_unknown_children`` (WI-072). Families: ``groups``,
+    #: ``registry`` and every adapter key. A family absent here, or whose
+    #: positions no longer match its unknown children one for one, has its
+    #: unknown children written where Studio always put them (after the typed
+    #: items; in Groups.xml, after the groups). Persisted.
+    root_unknown_positions: tuple[tuple[str, tuple[int, ...]], ...] = field(
+        default=(), compare=False
+    )
     source_files: tuple[tuple[str, bytes], ...] = ()
 
 
@@ -710,14 +732,12 @@ def _serialize_group(group: GppGroup) -> ET.Element:
 
 
 def serialize_gpp_groups(collection: GppCollection) -> bytes:
-    """Serialize Groups from a GppCollection to GPP XML bytes."""
-    root = ET.Element(_ns("Groups"))
-    root.set("clsid", _GROUPS_CLSID)
-    _apply_unknown_attrs(root, collection.groups_unknown_attrs)
-    for group in collection.groups:
-        root.append(_serialize_group(group))
-    _append_unknown_children(root, collection.groups_unknown_children, "Groups root")
-    return _xml_declaration(ET.tostring(root, encoding="utf-8"))
+    """Serialize the ``groups`` family (and its root unknowns) to GPP XML bytes.
+
+    Local users, which share Groups.xml, are not included; :func:`serialize_gpp`
+    writes the whole file.
+    """
+    return _serialize_gpp_file(collection, _GROUPS_FILE, ("groups",))
 
 
 def _registry_wire_value(value: GppRegistryValue) -> str:
@@ -844,17 +864,274 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
 
 def serialize_gpp_registry(collection: GppCollection) -> bytes:
     """Serialize Registry from a GppCollection to GPP XML bytes."""
-    root = ET.Element(_ns("RegistrySettings"))
-    root.set("clsid", _REGISTRY_SETTINGS_CLSID)
-    _apply_unknown_attrs(root, collection.registry_unknown_attrs)
-    for reg in collection.registry:
-        root.append(_serialize_registry(reg))
-    _append_unknown_children(root, collection.registry_unknown_children, "RegistrySettings root")
+    return _serialize_gpp_file(collection, _REGISTRY_FILE, ("registry",))
+
+
+# ---------------------------------------------------------------------------
+# Document order (WI-072, WI-073)
+# ---------------------------------------------------------------------------
+#
+# GPP processes a file's items in document order. Two files hold more than one
+# typed family under one root -- Groups.xml (<Group>, <User>) and
+# ScheduledTasks.xml (<Task>/<TaskV2>, <ImmediateTaskV2>) -- and the model keeps
+# each family in its own list. Any root may also hold children the model does
+# not type, retained verbatim as that family's root unknown children (Power
+# Options' <GlobalPowerOptionsV2>, for one).
+#
+# Order is kept as SLOTS rather than one merged list, so the per-family fields,
+# the API and every existing caller stay as they are:
+#
+# * Import records each typed item's index among its root's children as its
+#   ``document_position``, and each root unknown child's index in
+#   ``GppCollection.root_unknown_positions``.
+# * Within a family the LIST is authoritative. The family's recorded positions
+#   are the slots it holds in the document, and its positioned items fill them
+#   in list order. Reordering a family therefore swaps its items between its
+#   own slots without moving any past another family's items, and deleting an
+#   item frees its slot.
+# * An item without a position that sits between positioned items of its
+#   family is written straight after its list predecessor (straight before the
+#   first positioned item when it leads the list).
+# * Items without a position after their family's last positioned item -- an
+#   item added through the API, or anything stored before positions existed --
+#   are written after every positioned entry, in the order Studio always wrote
+#   them: each family in the file's family order, then the root unknown
+#   children. In Groups.xml the root unknowns come straight after the groups,
+#   before the users, as 1.0 wrote them.
+#
+# With no recorded position anywhere this is exactly the order Studio wrote
+# before 1.1, so a collection built by an existing caller, or loaded from an
+# older workspace, is written as it always was -- except that adapter root
+# unknowns, which used to be dropped (WI-072), are now written.
+
+_GROUPS_FILE = "Groups/Groups.xml"
+_REGISTRY_FILE = "Registry/Registry.xml"
+
+#: A token naming one root child: ``(family, index)`` for the index-th item of
+#: a typed family, or ``("unknown", index)`` for the file's index-th retained
+#: root unknown child (after de-duplication, see `_file_unknown_children`).
+DocumentToken = tuple[str, int]
+_UNKNOWN = "unknown"
+_SortKey = tuple[int, int, int, int, int]
+
+
+def _gpp_file_families() -> dict[str, tuple[str, ...]]:
+    """Each GPP file and the typed families its root holds, in writing order."""
+    from .gpp_adapters import ADAPTER_FILE_PATHS, ADAPTER_KEYS
+
+    families: dict[str, list[str]] = {_GROUPS_FILE: ["groups"], _REGISTRY_FILE: ["registry"]}
+    for key in ADAPTER_KEYS:
+        families.setdefault(ADAPTER_FILE_PATHS[key], []).append(key)
+    return {path: tuple(keys) for path, keys in families.items()}
+
+
+def _family_items(collection: GppCollection, key: str) -> tuple[Any, ...]:
+    items: tuple[Any, ...] = getattr(collection, key)
+    return items
+
+
+def _family_has_content(collection: GppCollection, key: str) -> bool:
+    return bool(
+        _family_items(collection, key)
+        or getattr(collection, f"{key}_unknown_attrs")
+        or getattr(collection, f"{key}_unknown_children")
+    )
+
+
+def _checked_position(value: object, context: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise GppError(f"Invalid document position {value!r} in {context}")
+    return value
+
+
+def _file_unknown_children(
+    collection: GppCollection, families: tuple[str, ...]
+) -> list[tuple[str, int | None]]:
+    """The file's root unknown children, each once, with its recorded position.
+
+    Families sharing a root each capture the root's unknown children on import
+    (Groups.xml fills both ``groups_unknown_children`` and
+    ``local_users_unknown_children``), so the copies are de-duplicated: the
+    first family's list is taken whole, and a later family contributes only an
+    entry it holds more times than any earlier family did.
+    """
+    recorded = dict(collection.root_unknown_positions)
+    seen: Counter[str] = Counter()
+    out: list[tuple[str, int | None]] = []
+    for key in families:
+        raws: tuple[str, ...] = getattr(collection, f"{key}_unknown_children")
+        positions = recorded.get(key)
+        usable = positions is not None and len(positions) == len(raws)
+        local: Counter[str] = Counter()
+        for index, raw in enumerate(raws):
+            local[raw] += 1
+            if local[raw] <= seen[raw]:
+                continue
+            position = (
+                _checked_position(positions[index], f"{key} root unknowns")
+                if usable and positions is not None
+                else None
+            )
+            out.append((raw, position))
+        seen |= local
+    return out
+
+
+def _family_sort_keys(
+    items: tuple[Any, ...], rank: int, key: str
+) -> list[_SortKey]:
+    """Sort keys for one family's items, per the rules above."""
+    positions = [
+        _checked_position(getattr(item, "document_position", None), f"{key} item")
+        for item in items
+    ]
+    positioned = [index for index, position in enumerate(positions) if position is not None]
+    if not positioned:
+        return [(1, rank, index, 0, 0) for index in range(len(items))]
+    slots = sorted(position for position in positions if position is not None)
+    effective = dict(zip(positioned, slots, strict=True))
+    first, last = positioned[0], positioned[-1]
+    keys: list[_SortKey] = []
+    anchor, sub = slots[0], 0
+    for index in range(len(items)):
+        if index in effective:
+            anchor, sub = effective[index], 0
+            keys.append((0, anchor, 0, rank, index))
+        elif index < first:
+            keys.append((0, slots[0], index - first, rank, index))
+        elif index > last:
+            keys.append((1, rank, index, 0, 0))
+        else:
+            sub += 1
+            keys.append((0, anchor, sub, rank, index))
+    return keys
+
+
+def _ordered_tokens(
+    collection: GppCollection,
+    path: str,
+    families: tuple[str, ...],
+    *,
+    recorded: bool = True,
+) -> list[DocumentToken]:
+    """The root children of *path*, in the order they are written.
+
+    ``recorded=False`` ignores every recorded position, giving the order Studio
+    wrote before positions existed.
+    """
+    # Unpositioned entries keep the pre-1.1 order: families in file order, the
+    # root unknowns last -- except in Groups.xml, where 1.0 wrote the groups'
+    # root unknowns between the groups and the users.
+    buckets: list[str] = list(families)
+    buckets.insert(1 if path == _GROUPS_FILE else len(buckets), _UNKNOWN)
+    rank = {bucket: index for index, bucket in enumerate(buckets)}
+    entries: list[tuple[_SortKey, DocumentToken]] = []
+    for key in families:
+        items = _family_items(collection, key)
+        if not recorded:
+            items = tuple(replace(item, document_position=None) for item in items)
+        for index, sort_key in enumerate(_family_sort_keys(items, rank[key], key)):
+            entries.append((sort_key, (key, index)))
+    for index, (_raw, position) in enumerate(_file_unknown_children(collection, families)):
+        unknown_key: _SortKey = (
+            (1, rank[_UNKNOWN], index, 0, 0)
+            if position is None or not recorded
+            else (0, position, 0, rank[_UNKNOWN], index)
+        )
+        entries.append((unknown_key, (_UNKNOWN, index)))
+    entries.sort(key=lambda entry: entry[0])
+    return [token for _key, token in entries]
+
+
+def _gpp_files_with_content(collection: GppCollection) -> list[tuple[str, tuple[str, ...]]]:
+    """The files :func:`serialize_gpp` writes, in the order it always wrote them."""
+    from .gpp_adapters import ADAPTER_FILE_PATHS, ADAPTER_KEYS
+
+    families = _gpp_file_families()
+    order: list[str] = []
+    if _family_has_content(collection, "groups"):
+        order.append(_GROUPS_FILE)
+    if _family_has_content(collection, "registry"):
+        order.append(_REGISTRY_FILE)
+    for key in ADAPTER_KEYS:
+        path = ADAPTER_FILE_PATHS[key]
+        if path not in order and _family_has_content(collection, key):
+            order.append(path)
+    return [(path, families[path]) for path in order]
+
+
+def gpp_document_order(
+    collection: GppCollection, *, recorded: bool = True
+) -> dict[str, tuple[DocumentToken, ...]]:
+    """Each file :func:`serialize_gpp` writes, mapped to its root children in order.
+
+    The order the serializer uses, as tokens (see `DocumentToken`).
+    ``recorded=False`` gives the order Studio wrote before document positions
+    existed, which is what an unpositioned collection still gets.
+    """
+    return {
+        path: tuple(_ordered_tokens(collection, path, families, recorded=recorded))
+        for path, families in _gpp_files_with_content(collection)
+    }
+
+
+def _root_identity(path: str, first_key: str) -> tuple[str, str]:
+    if path == _GROUPS_FILE:
+        return "Groups", _GROUPS_CLSID
+    if path == _REGISTRY_FILE:
+        return "RegistrySettings", _REGISTRY_SETTINGS_CLSID
+    from .gpp_adapters import _ADAPTER_META
+
+    root_tag, root_clsid, _, _ = _ADAPTER_META[first_key]
+    return root_tag, root_clsid
+
+
+def _family_elements(collection: GppCollection, key: str) -> list[ET.Element]:
+    if key == "groups":
+        return [_serialize_group(group) for group in collection.groups]
+    if key == "registry":
+        return [_serialize_registry(reg) for reg in collection.registry]
+    from .gpp_adapters import _build_adapter_root
+
+    return list(_build_adapter_root(key, _family_items(collection, key), collection.scope))
+
+
+def _serialize_gpp_file(
+    collection: GppCollection, path: str, families: tuple[str, ...]
+) -> bytes:
+    """Write one GPP file: root attributes, then every root child in document order."""
+    root_tag, root_clsid = _root_identity(path, families[0])
+    root = ET.Element(_ns(root_tag))
+    root.set("clsid", root_clsid)
+    for family_index, key in enumerate(families):
+        for name, value in getattr(collection, f"{key}_unknown_attrs"):
+            # Families sharing a root each captured its attributes on import;
+            # the first family's copy wins.
+            if family_index == 0 or name not in root.attrib:
+                root.set(name, value)
+    elements: dict[str, list[ET.Element]] = {
+        key: _family_elements(collection, key) for key in families
+    }
+    unknowns: list[ET.Element] = []
+    for raw, _position in _file_unknown_children(collection, families):
+        try:
+            unknowns.append(_bounded_parse(raw.encode("utf-8")))
+        except GppError as error:
+            raise GppError(f"Corrupted unknown XML in {root_tag} root: {error}") from error
+    elements[_UNKNOWN] = unknowns
+    for family, index in _ordered_tokens(collection, path, families):
+        root.append(elements[family][index])
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
 def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
-    """Return a dict mapping filename to XML bytes for all non-empty sections."""
+    """Return a dict mapping filename to XML bytes for all non-empty sections.
+
+    Every file keeps its root's retained unknown attributes and children, and
+    every root child is written in document order (see the section above).
+    """
     if collection.source_files:
         return dict(collection.source_files)
     if (
@@ -865,79 +1142,10 @@ def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
         raise GppError(
             "GppCollection.local_groups is deprecated; use the canonical groups field"
         )
-    files: dict[str, bytes] = {}
-    has_groups = (
-        collection.groups
-        or collection.groups_unknown_attrs
-        or collection.groups_unknown_children
-    )
-    has_registry = (
-        collection.registry
-        or collection.registry_unknown_attrs
-        or collection.registry_unknown_children
-    )
-    if has_groups:
-        files["Groups/Groups.xml"] = serialize_gpp_groups(collection)
-    if has_registry:
-        files["Registry/Registry.xml"] = serialize_gpp_registry(collection)
-    _serialize_adapter_files(collection, files)
-    return files
-
-
-def _serialize_adapter_files(
-    collection: GppCollection, files: dict[str, bytes]
-) -> None:
-    """Serialize low-artifact adapter sections into the files dict.
-
-    Adapters that share a file path (per MS-GPPREF: local_users + local_groups
-    → Groups\\Groups.xml, scheduled_tasks + immediate_tasks →
-    ScheduledTasks\\ScheduledTasks.xml) are merged into a single root element.
-    """
-    from .gpp_adapters import (
-        ADAPTER_FILE_PATHS,
-        ADAPTER_KEYS,
-        _build_adapter_root,
-    )
-
-    # Group non-empty adapters by file path, preserving ADAPTER_KEYS order.
-    file_to_keys: dict[str, list[str]] = {}
-    for key in ADAPTER_KEYS:
-        items = getattr(collection, key)
-        unknown_attrs = getattr(collection, f"{key}_unknown_attrs")
-        unknown_children = getattr(collection, f"{key}_unknown_children")
-        if not items and not unknown_attrs and not unknown_children:
-            continue
-        file_path = ADAPTER_FILE_PATHS[key]
-        file_to_keys.setdefault(file_path, []).append(key)
-
-    for file_path, keys in file_to_keys.items():
-        if file_path in files:
-            # File already exists (e.g. from serialize_gpp_groups); parse the
-            # existing root and append adapter children into it.
-            existing_root = _bounded_parse(files[file_path])
-            for key in keys:
-                items = getattr(collection, key)
-                adapter_root = _build_adapter_root(key, items, collection.scope)
-                for child in adapter_root:
-                    existing_root.append(child)
-            files[file_path] = _xml_declaration(
-                ET.tostring(existing_root, encoding="utf-8")
-            )
-        else:
-            # Build a merged root from all adapters sharing this file path.
-            first_key = keys[0]
-            first_items = getattr(collection, first_key)
-            merged_root = _build_adapter_root(
-                first_key, first_items, collection.scope
-            )
-            for key in keys[1:]:
-                items = getattr(collection, key)
-                adapter_root = _build_adapter_root(key, items, collection.scope)
-                for child in adapter_root:
-                    merged_root.append(child)
-            files[file_path] = _xml_declaration(
-                ET.tostring(merged_root, encoding="utf-8")
-            )
+    return {
+        path: _serialize_gpp_file(collection, path, families)
+        for path, families in _gpp_files_with_content(collection)
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1272,7 +1480,7 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
                     root, _REGISTRY_SETTINGS_ROOT_KNOWN_CHILDREN
                 )
     adapter_data: dict[str, Any] = _parse_adapter_files(files)
-    return GppCollection(
+    collection = GppCollection(
         scope=scope, groups=groups, registry=registry,
         groups_unknown_attrs=groups_unknown_attrs,
         groups_unknown_children=groups_unknown_children,
@@ -1280,6 +1488,79 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
         registry_unknown_children=registry_unknown_children,
         source_files=tuple(sorted(files.items())),
         **adapter_data,
+    )
+    return _record_document_positions(collection, files)
+
+
+def _family_element_names(key: str) -> frozenset[str]:
+    """The root child element names that are one family's typed items."""
+    if key == "groups":
+        return frozenset({"Group"})
+    if key == "registry":
+        return frozenset({"Registry"})
+    from .gpp_adapters import _ADAPTER_META, _ROOT_KNOWN_CHILDREN
+
+    if key == "local_users":
+        return frozenset({"User"})
+    if key == "scheduled_tasks":
+        return frozenset({"Task", "TaskV2"})
+    if key == "immediate_tasks":
+        return frozenset({"ImmediateTaskV2"})
+    return _ROOT_KNOWN_CHILDREN[_ADAPTER_META[key][0]]
+
+
+def _record_document_positions(
+    collection: GppCollection, files: dict[str, bytes]
+) -> GppCollection:
+    """Record where each typed item and root unknown child sat (WI-072/073).
+
+    A position is the child's index among its root's element children. The
+    typed parsers read their elements in document order, one item per element
+    (a legacy multi-value <Registry> yields one item per <Properties>, all of
+    which share the element's position), so the k-th item of a family is the
+    k-th matching child. If a count ever disagrees, nothing is recorded for
+    that family, which writes it in the pre-1.1 order rather than guess.
+    """
+    file_families = _gpp_file_families()
+    changes: dict[str, Any] = {}
+    unknown_positions: dict[str, tuple[int, ...]] = {}
+    for filename, content in files.items():
+        normalized = filename.replace("\\", "/")
+        path = next((p for p in file_families if normalized.endswith(p)), None)
+        if path is None:
+            continue
+        children = list(_bounded_parse(content))
+        typed: set[str] = set()
+        for key in file_families[path]:
+            names = _family_element_names(key)
+            typed |= names
+            items = _family_items(collection, key)
+            slots: list[int] = []
+            for index, child in enumerate(children):
+                if _local_name(child.tag) not in names:
+                    continue
+                count = (
+                    max(1, len(_findall_local(child, "Properties")))
+                    if key == "registry" else 1
+                )
+                slots.extend([index] * count)
+            if len(slots) == len(items):
+                changes[key] = tuple(
+                    replace(item, document_position=slot)
+                    for item, slot in zip(items, slots, strict=True)
+                )
+        unknown_slots = tuple(
+            index for index, child in enumerate(children)
+            if _local_name(child.tag) not in typed
+        )
+        for key in file_families[path]:
+            retained = getattr(collection, f"{key}_unknown_children")
+            if retained and len(retained) == len(unknown_slots):
+                unknown_positions[key] = unknown_slots
+    return replace(
+        collection,
+        root_unknown_positions=tuple(sorted(unknown_positions.items())),
+        **changes,
     )
 
 
@@ -1560,6 +1841,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                     list(g.unknown_props_children) if g.unknown_props_children else []
                 ),
                 "unknown_children": list(g.unknown_children) if g.unknown_children else [],
+                "document_position": g.document_position,
             }
             for g in collection.groups
         ],
@@ -1586,6 +1868,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 ),
                 "unknown_children": list(r.unknown_children) if r.unknown_children else [],
                 "id": r.id,
+                "document_position": r.document_position,
             }
             for r in collection.registry
         ],
@@ -1606,6 +1889,10 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
             if collection.registry_unknown_children else []
         ),
         **_adapters_to_dict(collection),
+        "root_unknown_positions": [
+            [family, list(positions)]
+            for family, positions in collection.root_unknown_positions
+        ],
     }
 
 
@@ -1775,6 +2062,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             ),
             unknown_props_children=tuple(g.get("unknown_props_children", [])),
             unknown_children=tuple(g.get("unknown_children", [])),
+            document_position=_position_from_dict(
+                g.get("document_position"), f"group {g.get('name', '')!r}"
+            ),
         )
         for g in raw_groups
     )
@@ -1845,6 +2135,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 unknown_attrs=new_elem_attrs,
                 unknown_props_children=elem_unknown_props_children,
                 unknown_children=elem_unknown_children,
+                document_position=_position_from_dict(
+                    r.get("document_position"), f"registry {r.get('key', '')!r}"
+                ),
             ))
         else:
             old_values = r.get("values", [])
@@ -1901,6 +2194,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     unknown_attrs=v_elem_attrs,
                     unknown_props_children=v_props_children,
                     unknown_children=v_elem_children,
+                    document_position=_position_from_dict(
+                        r.get("document_position"), f"registry {r.get('key', '')!r}"
+                    ),
                 ))
     registry_tuple = tuple(_upgrade_stored_registry(r) for r in registry)
     for r in registry_tuple:
@@ -1925,7 +2221,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             f"registry value {r.value.name!r}",
         )
 
-    return GppCollection(
+    collection = GppCollection(
         scope=scope, groups=groups, registry=registry_tuple,
         groups_unknown_attrs=tuple(
             (str(k), str(v))
@@ -1939,6 +2235,61 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         registry_unknown_children=tuple(data.get("registry_unknown_children", [])),
         **_adapters_from_dict(data),
     )
+    return replace(
+        collection,
+        root_unknown_positions=_root_unknown_positions_from_dict(
+            data.get("root_unknown_positions"), collection
+        ),
+    )
+
+
+def _position_from_dict(value: object, context: str) -> int | None:
+    """Load a stored ``document_position``. Absent (stored before 1.1) is ``None``."""
+    return _checked_position(value, context)
+
+
+def _root_unknown_positions_from_dict(
+    data: object, collection: GppCollection
+) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    """Load ``root_unknown_positions``; absent (stored before 1.1) is empty.
+
+    Accepts the ``[[family, [positions]], ...]`` form both
+    :func:`gpp_collection_to_dict` and the workspace snapshot (``asdict``)
+    write. A family Studio does not have, a position that is not a
+    non-negative integer, a family listed twice, or a positions list that does
+    not match its unknown children one for one is refused: each is a stored
+    order Studio could not honour, and guessing would change processing order.
+    """
+    if data is None:
+        return ()
+    if not isinstance(data, (list, tuple)):
+        raise GppError("root_unknown_positions must be a list of [family, positions] pairs")
+    families = {key for keys in _gpp_file_families().values() for key in keys}
+    loaded: dict[str, tuple[int, ...]] = {}
+    for entry in data:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            raise GppError("root_unknown_positions must be a list of [family, positions] pairs")
+        family, positions = entry
+        if not isinstance(family, str) or family not in families:
+            raise GppError(f"root_unknown_positions names an unknown family {family!r}")
+        if family in loaded:
+            raise GppError(f"root_unknown_positions lists {family!r} twice")
+        if not isinstance(positions, (list, tuple)):
+            raise GppError(f"root_unknown_positions for {family!r} must be a list")
+        checked: list[int] = []
+        for position in positions:
+            value = _checked_position(position, f"{family} root unknowns")
+            if value is None:
+                raise GppError(f"root_unknown_positions for {family!r} holds a null position")
+            checked.append(value)
+        retained = getattr(collection, f"{family}_unknown_children")
+        if len(checked) != len(retained):
+            raise GppError(
+                f"root_unknown_positions for {family!r} has {len(checked)} entries "
+                f"for {len(retained)} retained root unknown children"
+            )
+        loaded[family] = tuple(checked)
+    return tuple(sorted(loaded.items()))
 
 
 def _adapter_item_from_dict(
@@ -1994,6 +2345,11 @@ def _adapter_item_from_dict(
             )
         elif f.name == "unknown_children":
             kwargs[f.name] = tuple(item_data.get("unknown_children", []))
+        elif f.name == "document_position":
+            # Absent in anything stored before 1.1: no recorded slot.
+            kwargs[f.name] = _position_from_dict(
+                item_data.get("document_position"), f"{adapter_cls.__name__} item"
+            )
         else:
             if adapter_cls.__name__ == "GppScheduledTask" and f.name == "element_variant":
                 kwargs[f.name] = item_data.get(f.name, "Task")

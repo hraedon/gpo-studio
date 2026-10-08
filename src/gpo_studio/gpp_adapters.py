@@ -533,6 +533,9 @@ class GppEnvironment:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -550,6 +553,9 @@ class GppIniFile:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -570,6 +576,9 @@ class GppRegionalOptions:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,6 +596,9 @@ class GppPowerOptions:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -603,6 +615,9 @@ class GppDevice:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -621,6 +636,9 @@ class GppFolderOptions:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -639,6 +657,9 @@ class GppDataSource:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -657,6 +678,9 @@ class GppDrive:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -676,6 +700,9 @@ class GppFile:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -694,6 +721,9 @@ class GppFolder:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -711,6 +741,9 @@ class GppNetworkShare:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -729,6 +762,9 @@ class GppPrinter:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -750,6 +786,9 @@ class GppShortcut:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -767,6 +806,9 @@ class GppApplication:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -811,6 +853,9 @@ class GppService:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -837,6 +882,9 @@ class GppLocalUser:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -896,6 +944,9 @@ class GppScheduledTask:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
     element_variant: Literal["Task", "TaskV2"] = "TaskV2"
 
 
@@ -922,6 +973,9 @@ class GppImmediateTask:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072/073). See
+    #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 # ---------------------------------------------------------------------------

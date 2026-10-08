@@ -712,27 +712,6 @@ def _legacy_drive_name(divergence: Divergence, siblings: tuple[Divergence, ...])
     )
 
 
-_IMMEDIATE_TASK_ELEMENTS = frozenset({"ImmediateTask", "ImmediateTaskV2"})
-
-
-def _task_partition_order(divergence: Divergence, siblings: tuple[Divergence, ...]) -> bool:
-    """WI-073 exactly: Studio's order is Windows' order, stably partitioned.
-
-    The model holds scheduled and immediate tasks in two lists and writes the
-    scheduled list first, each list in its captured order. Only that
-    permutation is the known defect; any other reordering -- including within
-    one task type -- is a new divergence and stays unexplained.
-    """
-    del siblings
-    if divergence.family != "ScheduledTasksSettings" or divergence.kind != "order":
-        return False
-    theirs = divergence.windows_order
-    partitioned = tuple(i for i in theirs if i.element not in _IMMEDIATE_TASK_ELEMENTS) + tuple(
-        i for i in theirs if i.element in _IMMEDIATE_TASK_ELEMENTS
-    )
-    return bool(theirs) and partitioned != theirs and divergence.studio_order == partitioned
-
-
 KNOWN_DIVERGENCES: tuple[KnownDivergence, ...] = (
     KnownDivergence(
         name="admx-policy-rendering",
@@ -765,29 +744,14 @@ KNOWN_DIVERGENCES: tuple[KnownDivergence, ...] = (
         work_item=None,
         matches=_legacy_drive_name,
     ),
-    KnownDivergence(
-        name="adapter-root-unknowns-dropped",
-        description=(
-            "Power Options' GlobalPowerOptionsV2 (the Windows 7+ power plan) is "
-            "retained in the model as an unknown root child, but serialize_gpp "
-            "rebuilds adapter roots from typed items only, so any edit drops it. "
-            "The fix is in gpp.py, which two lanes bind."
-        ),
-        work_item="WI-072",
-        matches=_is("PowerOptionsSettings", "missing_in_studio", "GlobalPowerOptionsV2"),
-    ),
-    KnownDivergence(
-        name="scheduled-task-order",
-        description=(
-            "ScheduledTasks.xml interleaves TaskV2 and ImmediateTaskV2 items; "
-            "the model holds them in two lists and serialize_gpp writes all "
-            "scheduled tasks before all immediate tasks, so document order "
-            "(processing order) changes. The fix is in the bound model."
-        ),
-        work_item="WI-073",
-        matches=_task_partition_order,
-    ),
 )
+
+# WI-072 (adapter root unknowns dropped on write) and WI-073 (scheduled and
+# immediate tasks written grouped) were accepted here as known divergences
+# until 1.1.0. Both are fixed in gpp.py, so neither is named any more: a
+# missing <GlobalPowerOptionsV2> or a reordered ScheduledTasks.xml is an
+# unexplained divergence, which fails the offline differ, the candidate
+# builder and the lane.
 
 _KNOWN_BY_NAME = {known.name: known for known in KNOWN_DIVERGENCES}
 

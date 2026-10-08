@@ -6,7 +6,14 @@ import hashlib
 from dataclasses import asdict, fields
 from typing import Any
 
-from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegistryValue
+from .gpp import (
+    GppCollection,
+    GppGroup,
+    GppGroupMember,
+    GppRegistry,
+    GppRegistryValue,
+    gpp_document_order,
+)
 from .ilt import IltFilter, IltPredicate
 from .model import GPO, GPOLink, RegistrySetting
 
@@ -247,6 +254,16 @@ def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
         result[f"{key}_unknown_children"] = list(
             getattr(collection, f"{key}_unknown_children")
         )
+    # Document order across families and root unknowns (WI-072/073). Recorded
+    # positions are bookkeeping; what is semantic is the order they produce,
+    # and only where it differs from the order an unpositioned collection gets
+    # -- so every hash computed before positions existed is unchanged.
+    recorded = gpp_document_order(collection)
+    if recorded != gpp_document_order(collection, recorded=False):
+        result["document_order"] = {
+            path: [list(token) for token in tokens]
+            for path, tokens in sorted(recorded.items())
+        }
     return result
 
 
@@ -254,11 +271,13 @@ def _semantic_adapter_item(item: Any) -> dict[str, Any]:
     """Build a canonical dict for a low-artifact adapter item.
 
     Excludes ``id`` (editor-internal) and ``common`` (processing directive)
-    to match the existing group/registry semantic dict convention.
+    to match the existing group/registry semantic dict convention, and
+    ``document_position`` (the collection's ``document_order`` carries the
+    order it produces).
     """
     d: dict[str, Any] = {}
     for f in fields(type(item)):
-        if f.name in ("id", "common"):
+        if f.name in ("id", "common", "document_position"):
             continue
         value = getattr(item, f.name)
         if f.name == "ilt_filter":

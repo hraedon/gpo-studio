@@ -156,6 +156,21 @@ REQUIRED_CASE_IDS: tuple[str, ...] = (
     "evidence-backup-report-20260908-scripts-metadata-rebackup",
 )
 
+#: Cases that must agree with Windows with NO divergence at all, known or
+#: otherwise. Until 1.1.0 each passed only on a pinned work-item divergence:
+#: WI-072 on Power Options (the GlobalPowerOptionsV2 power plan was retained on
+#: import and dropped on write) and WI-073 on both scheduled-task captures
+#: (TaskV2 and ImmediateTaskV2 were written grouped, not interleaved). Both are
+#: fixed in gpp.py and their allowances are gone from KNOWN_DIVERGENCES, so a
+#: regression is already unexplained. This pin also stops one from passing by
+#: being re-allowed as "known": the builder refuses, and the finalizer, which
+#: rebuilds this candidate byte for byte, cannot pass a candidate it refuses.
+MUST_AGREE_CASE_IDS: frozenset[str] = frozenset({
+    "native-WI01A-Power-GPMC",
+    "native-WI01A-SchedTasks-GPMC",
+    "native-WI01A-SchedTasksFull-GPMC",
+})
+
 
 def corpus(repo: Path = REPO_ROOT) -> list[tuple[str, Path]]:
     """(case id, backup directory) for every Windows-produced backup.
@@ -325,6 +340,11 @@ def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:
                 raise ValueError(
                     f"{case_id}: offline divergence nothing names: "
                     + "; ".join(d.describe() for d in unexplained)
+                )
+            if case_id in MUST_AGREE_CASE_IDS and known:
+                raise ValueError(
+                    f"{case_id}: must agree with Windows exactly (WI-072/WI-073), "
+                    f"but shows known divergence(s) {sorted(known)}"
                 )
             cases.append({
                 "case_id": case_id,

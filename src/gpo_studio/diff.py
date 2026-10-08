@@ -18,7 +18,7 @@ from .fdeploy import (
     diff_fdeploy,
     redirections_equal,
 )
-from .gpp import GppCollection, GppGroup, GppRegistry
+from .gpp import GppCollection, GppGroup, GppRegistry, gpp_document_order
 from .ilt import IltFilter
 from .model import (
     GPO,
@@ -687,6 +687,9 @@ def _gpp_collection_equal(a: GppCollection, b: GppCollection) -> bool:
         and a.immediate_tasks == b.immediate_tasks
         and a.immediate_tasks_unknown_attrs == b.immediate_tasks_unknown_attrs
         and a.immediate_tasks_unknown_children == b.immediate_tasks_unknown_children
+        # Document order across families and retained root children
+        # (WI-072/073): recorded positions are outside ==, the order is not.
+        and gpp_document_order(a) == gpp_document_order(b)
     )
 
 

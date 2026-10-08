@@ -46,8 +46,11 @@ FINALIZER = runpy.run_path(str(ROOT / "scripts/windows-oracle/finalize_report_pa
 RUN_ID = "report-parity-20261008104512-7480"
 COMMIT = "a1c280b8a1ec31b03397437dc2e6d947022b4857"
 
-#: The cases whose accepted divergences are Studio defects, and the work item
-#: each one waits on. A fix that removes one must move this pin with a re-run.
+#: The cases whose accepted divergences were Studio defects in THIS banked
+#: verdict, and the work item each waited on. WI-072 and WI-073 are fixed in
+#: code (fixed pending requalification): the shipping builder and finalizer now
+#: require these cases to agree exactly, so this pack no longer rebuilds or
+#: re-grades, and this pin moves to {} when the requalification run is banked.
 OPEN_DEFECTS = {
     "native-WI01A-Power-GPMC": {"adapter-root-unknowns-dropped": "WI-072"},
     "native-WI01A-SchedTasks-GPMC": {"scheduled-task-order": "WI-073"},
