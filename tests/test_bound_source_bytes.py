@@ -96,7 +96,10 @@ def test_discovery_covers_every_finalizer_and_its_declared_paths() -> None:
     lanes = SYMBOLS["bound_source_paths"](ROOT)
     finalizers = {p.name for p in (ROOT / "scripts/windows-oracle").glob("finalize_*.py")}
     assert set(lanes) == finalizers
-    assert len(lanes) == 10
+    # Set equality above is the coverage claim; the floor stops discovery
+    # from silently shrinking to a subset that still matches itself.
+    assert len(lanes) >= 11
+    assert "scripts/windows-oracle/run-firewall-policy.ps1" in lanes["finalize_firewall_run.py"]
     for name, paths in lanes.items():
         assert paths, name
         assert all((ROOT / p).is_file() for p in paths), name
