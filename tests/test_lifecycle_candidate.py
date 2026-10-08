@@ -101,7 +101,7 @@ def test_the_wmi_existence_warning_is_part_of_the_claim() -> None:
     """The lane's source links a filter, so the plans must raise the warning."""
     operations = _module()["expectation"]()["operations"]
     for op, claims in operations.items():
-        flagged = any("not checked" in w for w in claims["warnings"])
+        flagged = any("WMI filter" in w and "not checked" in w for w in claims["warnings"])
         assert flagged is (SCOPE_SURVIVAL[op]["wmi_association"] == "kept"), op
 
 
@@ -110,3 +110,16 @@ def test_the_synthetic_identity_carries_no_estate_identifier(tmp_path: Path) -> 
     text = (tmp_path / "out/expected.json").read_text(encoding="utf-8").casefold()
     for marker in ("labdomain", "labdc", "labms", "hraedon"):
         assert marker not in text
+
+
+def test_the_creating_operations_carry_the_target_absence_precondition() -> None:
+    """Review finding 9: -CreateIfNeeded imports into an existing GPO of that name.
+
+    The expectation exposes the precondition so the finalizer can require the
+    guest to have measured it.
+    """
+    operations = _module()["expectation"]()["operations"]
+    for op, claims in operations.items():
+        creating = claims["target_identity"] == "windows_assigned"
+        assert claims["requires_target_absent"] is creating, op
+        assert bool(claims["preconditions"]) is creating, op

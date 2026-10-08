@@ -87,6 +87,11 @@ def _plan_claims(operation: WindowsOperation) -> dict[str, object]:
         "cmdlet": plan.cmdlet,
         "target_identity": plan.target_identity,
         "plan_names_target_guid": bool(plan.target_gpo_guid),
+        # -CreateIfNeeded imports into an existing GPO of the same name, so the
+        # creating operations' claims hold only if the target name is free.
+        # The finalizer requires the guest to have measured that it was.
+        "requires_target_absent": plan.requires_target_absent,
+        "preconditions": list(plan.preconditions),
         "survival": {p.dimension: p.survival for p in plan.scope},
         "warnings": list(plan.warnings),
     }

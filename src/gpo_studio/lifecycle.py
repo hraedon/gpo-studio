@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, assert_never, get_args
@@ -505,6 +505,14 @@ class RestorePlan:
     scope: tuple[ScopePrediction, ...] = ()
     #: What the plan could not check and the operator must.
     warnings: tuple[str, ...] = ()
+    #: True when the operation is only what this plan says it is if no GPO of
+    #: ``target_name`` exists when it runs. ``Import-GPO -CreateIfNeeded``
+    #: imports INTO an existing GPO of that name (``import_into_existing``
+    #: semantics: the target's GUID, DACL, WMI link and links), so a plan
+    #: promising a Windows-assigned identity holds only under this condition.
+    requires_target_absent: bool = False
+    #: Conditions that must hold when the cmdlet runs, in words.
+    preconditions: tuple[str, ...] = ()
 
     def validate(self) -> tuple[ValidationIssue, ...]:
         issues: list[ValidationIssue] = []
@@ -596,12 +604,37 @@ def _scope_and_warnings(
     return scope, tuple(warnings)
 
 
+def _refuse_existing_target(
+    manifest: BackupManifest,
+    mode: WindowsOperation,
+    target_name: str,
+    existing_gpo_names: Collection[str] | None,
+) -> None:
+    taken = target_name.casefold() == manifest.gpo_display_name.casefold()
+    if existing_gpo_names is not None:
+        taken = taken or target_name.casefold() in {n.casefold() for n in existing_gpo_names}
+    if target_name and taken:
+        raise ValidationError(
+            [
+                ValidationIssue(
+                    "error",
+                    "target_name_exists",
+                    f"A GPO named {target_name!r} exists; {mode} would not create a new GPO "
+                    "(Import-GPO -CreateIfNeeded imports into it). Use import_into_existing "
+                    "or another name.",
+                    "target_name",
+                )
+            ]
+        )
+
+
 def generate_restore_plan(
     manifest: BackupManifest,
     mode: RestoreMode,
     target_gpo_guid: str = "",
     target_name: str = "",
     target_domain: str = "",
+    existing_gpo_names: Collection[str] | None = None,
 ) -> RestorePlan:
     """Plan one same-domain lifecycle operation over a backup.
 
@@ -616,6 +649,16 @@ def generate_restore_plan(
 
     Cross-domain plans are refused (ruling 2026-10-07): ``target_domain``
     defaults to the backup's domain and must equal it.
+
+    The creating modes (``import_as_new``, ``copy``, ``copy_with_acl``)
+    require that no GPO named ``target_name`` exists: ``Import-GPO
+    -CreateIfNeeded`` would otherwise import into it, and the plan's promised
+    identity and survival would be wrong. The plan states that precondition
+    (``requires_target_absent``). It refuses a target named like the backup's
+    own GPO, which exists in the same domain unless it was deleted (and then
+    ``restore_in_place`` is the operation), and it refuses any name in
+    ``existing_gpo_names`` when the caller supplies the domain's names. Without
+    them, the absence is stated as unchecked.
 
     Raises :class:`ValidationError` if the resulting plan has error-severity
     issues.
@@ -639,13 +682,26 @@ def generate_restore_plan(
     name = target_name
     scope: tuple[ScopePrediction, ...] = ()
     warnings: tuple[str, ...] = ()
+    requires_absent = False
+    preconditions: tuple[str, ...] = ()
     match mode:
         case "restore_in_place":
             target_guid = target_gpo_guid or manifest.gpo_guid
             name = target_name or manifest.gpo_display_name
             scope, warnings = _scope_and_warnings(manifest, mode)
-        case "import_into_existing" | "import_as_new" | "copy" | "copy_with_acl":
+        case "import_into_existing":
             scope, warnings = _scope_and_warnings(manifest, mode)
+        case "import_as_new" | "copy" | "copy_with_acl":
+            scope, warnings = _scope_and_warnings(manifest, mode)
+            requires_absent = True
+            _refuse_existing_target(manifest, mode, name, existing_gpo_names)
+            preconditions = (
+                f"no GPO named {name!r} exists in {domain!r} when {cmdlet_for(mode).split()[0]} "
+                "runs; if one does, the result is that GPO (import_into_existing "
+                "semantics for Import-GPO -CreateIfNeeded), not a new one",
+            )
+            if existing_gpo_names is None:
+                warnings = (*warnings, f"absence of a GPO named {name!r} is not checked")
         case "import_to_draft":
             target_guid = ""
             name = target_name or manifest.gpo_display_name
@@ -663,6 +719,8 @@ def generate_restore_plan(
         target_name=name,
         scope=scope,
         warnings=warnings,
+        requires_target_absent=requires_absent,
+        preconditions=preconditions,
     )
     errors = [issue for issue in plan.validate() if issue.severity == "error"]
     if errors:

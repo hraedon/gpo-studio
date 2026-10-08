@@ -604,7 +604,7 @@ def test_a_wmi_link_is_flagged_as_unchecked_not_as_a_conflict() -> None:
     assert not any("WMI" in w for w in no_filter.warnings)
     # import_as_new is predicted to lose the link, so existence is moot.
     imported = generate_restore_plan(manifest, "import_as_new", target_name="T")
-    assert not any("not checked" in w for w in imported.warnings)
+    assert not any("WMI" in w for w in imported.warnings)
 
 
 def test_a_cross_domain_plan_is_refused_by_the_ruling() -> None:
@@ -622,3 +622,52 @@ def test_the_index_matches_guids_regardless_of_braces_and_case() -> None:
     index = BackupIndex(backups=(_manifest(),))
     assert index.get_backup("aaaaaaaa-0000-0000-0000-000000000001") is not None
     assert index.backups_for_gpo(_GUID.strip("{}").upper()) != ()
+
+
+# ---------------------------------------------------------------------------
+# Review finding 9: the creating modes hold only if the target name is free
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["import_as_new", "copy", "copy_with_acl"])
+def test_creating_modes_state_the_target_absence_precondition(mode: RestoreMode) -> None:
+    plan = generate_restore_plan(_manifest(), mode, target_name="New")
+    assert plan.requires_target_absent is True
+    assert plan.preconditions and "no GPO named 'New'" in plan.preconditions[0]
+    assert any("absence of a GPO named 'New' is not checked" in w for w in plan.warnings)
+
+
+@pytest.mark.parametrize("mode", ["restore_in_place", "import_into_existing", "import_to_draft"])
+def test_other_modes_carry_no_absence_precondition(mode: RestoreMode) -> None:
+    kwargs = {"target_gpo_guid": "{99999999-8888-7777-6666-555555555555}"}
+    plan = generate_restore_plan(
+        _manifest(), mode, **(kwargs if mode == "import_into_existing" else {})
+    )
+    assert plan.requires_target_absent is False
+    assert plan.preconditions == ()
+
+
+@pytest.mark.parametrize("mode", ["import_as_new", "copy", "copy_with_acl"])
+def test_a_target_named_like_the_backups_own_gpo_is_refused(mode: RestoreMode) -> None:
+    """The reviewer's case: -CreateIfNeeded onto the source's existing name.
+
+    Import-GPO would import into that GPO, so the promised Windows-assigned
+    identity and default DACL would be false.
+    """
+    with pytest.raises(ValidationError) as excinfo:
+        generate_restore_plan(_manifest(), mode, target_name="test policy")
+    assert excinfo.value.issues[0].code == "target_name_exists"
+
+
+def test_a_target_name_the_caller_reports_as_taken_is_refused() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        generate_restore_plan(
+            _manifest(), "import_as_new", target_name="Taken",
+            existing_gpo_names={"TAKEN", "Other"},
+        )
+    assert excinfo.value.issues[0].code == "target_name_exists"
+    free = generate_restore_plan(
+        _manifest(), "import_as_new", target_name="Free", existing_gpo_names={"Taken"}
+    )
+    assert free.requires_target_absent is True
+    assert not any("not checked" in w and "Free" in w for w in free.warnings)
