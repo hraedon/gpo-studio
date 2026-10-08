@@ -234,7 +234,12 @@ that case's checks and names the error.
 - `gPCUserExtensionNames` after `Import-GPO`.
 - The encoding facts of Windows' bytes, and `byte_differences` for both files.
 
-### Unmeasured, said out loud
+### Unmeasured before the first run (historical)
+
+> **Measured since (2026-10-08, `fd-20261008102559-9746` at `6b76fad`):** `Import-GPO`
+> accepted the skeleton and kept both files byte for byte, and `Backup-GPO` re-exported
+> them unchanged, in all four cases. The items below are kept as the pre-run record; the
+> first two are now answered. See [the results](fdeploy-results.md).
 
 - **Whether `Import-GPO` keeps the bytes.** The probe never imported anything.
   The Folder Redirection backup entry names `FRValidateSettings` as a
