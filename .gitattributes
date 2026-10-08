@@ -117,3 +117,8 @@ src/gpo_studio/fdeploy.py text eol=lf
 src/gpo_studio/fdeploy_parity.py text eol=lf
 src/gpo_studio/safe_io.py text eol=lf
 tests/fixtures/native-folder-redirection-gpmc/** text eol=lf
+
+# The release gate reads the evidence manifest and report as raw bytes and refuses CR
+# (rule ascii), so a Windows checkout must not smudge them to CRLF.
+docs/release-evidence-*.md text eol=lf
+docs/release-evidence-report-*.json text eol=lf

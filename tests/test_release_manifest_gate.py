@@ -164,9 +164,14 @@ def test_the_committed_draft_holds_the_contract_and_is_refused_only_as_a_draft(
         "docs/release-evidence-1.1.0.md",
     )
     assert problems == []
-    assert gate.manifest_problems(
-        (REPO_ROOT / "docs" / "release-evidence-1.1.0.md").read_bytes(), "1.1.0", report["status"]
-    ) == []
+    assert (
+        gate.manifest_problems(
+            (REPO_ROOT / "docs" / "release-evidence-1.1.0.md").read_bytes(),
+            "1.1.0",
+            report["status"],
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -542,7 +547,7 @@ BYPASS_PROBES = [
     "## [S](https://example.invalid)tatus\n\nDRAFT",
     "## S[tatus](https://example.invalid)\n\nDRAFT",
     "## Sta[t](https://example.invalid)us\n\nDRAFT",
-    "## [Status](https://example.invalid \"title\")\n\nDRAFT",
+    '## [Status](https://example.invalid "title")\n\nDRAFT',
     "## [Status](<https://example.invalid>)\n\nDRAFT",
     # round 4: entity-encoded invisible characters
     "> **Sta&#8203;tus:** DRAFT",
@@ -860,3 +865,22 @@ def test_publish_checks_the_built_distributions_before_anything_is_attested() ->
     check = publish.index('--wheel "${WHEELS[0]}" --sdist "${SDISTS[0]}"')
     attest = publish.index("actions/attest-build-provenance")
     assert build < check < attest
+
+
+def test_the_release_evidence_files_are_pinned_lf() -> None:
+    """A Windows checkout must not smudge the gate's inputs to CRLF (rule ascii refuses CR)."""
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    paths = ["docs/release-evidence-1.1.0.md", "docs/release-evidence-report-1.1.0.json"]
+    out = subprocess.run(
+        ["git", "check-attr", "text", "eol", "--", *paths],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    for path in paths:
+        assert f"{path}: text: set" in out, out
+        assert f"{path}: eol: lf" in out, out
