@@ -4,8 +4,8 @@
 # Measures what each GPMC lifecycle operation does to the scope around a GPO's
 # settings -- GUID, security filtering, WMI filter association, links,
 # description -- so the controller can grade gpo_studio.lifecycle's
-# SCOPE_SURVIVAL predictions against it. This script never sees those
-# predictions; it only authors, operates, and reads back.
+# survival predictions against it. This script never sees those predictions;
+# it only authors, operates, and reads back.
 #
 # AUTHORING IS NATIVE, DELIBERATELY. The source GPO is made with New-GPO and
 # Set-GPRegistryValue, not imported from a Studio backup, so a Studio writer
@@ -15,6 +15,10 @@
 #
 # ## Sequence
 #
+#   0. OWNERSHIP GUARD, before any mutation: every name this run will create is
+#      generated up front and the directory is asked whether any of them already
+#      exists. If one does, the run aborts having created nothing, and cleanup
+#      deletes nothing -- an object this run did not create is never touched.
 #   1. Disposable OU tree (parent + 'src-link' + 'tgt-link'), two disposable
 #      security groups, two WMI filters, and a CONTROL GPO left at New-GPO
 #      defaults (its DACL is what "defaulted" means for a new GPO).
@@ -27,11 +31,20 @@
 #      carries the real backup back to the controller.
 #   5. Operations, each read back afterwards, in the order the controller's
 #      expectation names: Copy-GPO; Copy-GPO -CopyAcl; Import-GPO
-#      -CreateIfNeeded (new name); Import-GPO into the pre-existing target;
-#      then PERTURB the source in every dimension and Restore-GPO it. Copies go
-#      first because Copy-GPO reads the live source, which must still be as it
-#      was backed up.
-#   6. Remove everything created, then re-query each object for ABSENCE.
+#      -CreateIfNeeded (new name, absence re-checked immediately before);
+#      Import-GPO into the pre-existing target; then PERTURB the source in
+#      every dimension and Restore-GPO it. Copies go first because Copy-GPO
+#      reads the live source, which must still be as it was backed up.
+#   6. Remove everything this run created, then re-query each object for
+#      ABSENCE by its exact generated name.
+#
+# ## Intent is recorded BEFORE each create
+#
+# A create can commit on the server and still throw on the way back (a lost
+# response). So every object is entered in the intent inventory before the
+# command that creates it, under the exact unique name this run generated, and
+# cleanup and the residual check look each one up by that name. The ownership
+# guard is what makes "has this run's exact name" mean "this run created it".
 #
 # ## Blast radius
 #
@@ -65,13 +78,28 @@ $prefix = "zz-studio-lifecycle-$stamp"
 # so Set-GPPermission -TargetName cannot resolve a different principal.
 $short = '{0:D6}' -f (Get-Random -Minimum 0 -Maximum 999999)
 
+# Every name this run can create, generated before anything is created.
+$names = [ordered]@{
+    gpo_control       = "$prefix-control"
+    gpo_source        = "$prefix-source"
+    gpo_target        = "$prefix-target"
+    gpo_copy          = "$prefix-copy"
+    gpo_copy_with_acl = "$prefix-copy_with_acl"
+    gpo_import_as_new = "$prefix-imported"
+    group_src         = "zzlc-$short-src"
+    group_tgt         = "zzlc-$short-tgt"
+    wmi_src           = "$prefix-src-wmi"
+    wmi_tgt           = "$prefix-tgt-wmi"
+}
+
 $operationNames = @('copy', 'copy_with_acl', 'import_as_new', 'import_into_existing', 'restore_in_place')
 $operations = [ordered]@{}
 foreach ($name in $operationNames) {
     $operations[$name] = [ordered]@{
         succeeded         = $false
         error             = $null
-        target_preexisted = ($name -eq 'import_into_existing' -or $name -eq 'restore_in_place')
+        # Measured immediately before the operation, never assumed.
+        target_preexisted = $null
         target_before     = $null
         target_after      = $null
     }
@@ -88,6 +116,7 @@ $result = [ordered]@{
     schema_version         = 1
     run_id                 = $runId
     domain                 = $Domain
+    ownership_established  = $false
     fixture                = $null
     backup                 = $null
     control_state          = $null
@@ -148,22 +177,43 @@ function Wait-ForAdObject {
     return $false
 }
 
-# Get-GPO throws GpoNotFound for a missing GPO. Absence is reported as $true;
-# any other failure is re-thrown, for the same reason as above.
-function Test-GpoAbsent {
+# Does any directory object match this LDAP filter under this base? Used for
+# names that are unique but whose DN this run does not control (sAMAccountName,
+# msWMI-Name).
+function Test-AdFilterMatches {
+    param([string]$LdapFilter, [string]$SearchBase)
+    return (@(Get-ADObject -LDAPFilter $LdapFilter -SearchBase $SearchBase -Server $dc `
+                -ErrorAction Stop).Count -gt 0)
+}
+
+# Get-GPO throws GpoNotFound for a missing GPO. $null means absent; any other
+# failure is re-thrown, for the same reason as above.
+function Find-GpoByName {
+    param([string]$Name)
+    try {
+        return Get-GPO -Name $Name -Domain $Domain -Server $dc -ErrorAction Stop
+    } catch {
+        if ("$($_.Exception.Message)" -match 'not found|does not exist|GpoNotFound') { return $null }
+        throw
+    }
+}
+function Find-GpoById {
     param([guid]$Id)
     try {
-        $null = Get-GPO -Guid $Id -Domain $Domain -Server $dc -ErrorAction Stop
-        return $false
+        return Get-GPO -Guid $Id -Domain $Domain -Server $dc -ErrorAction Stop
     } catch {
-        if ("$($_.Exception.Message)" -match 'not found|does not exist|GpoNotFound') { return $true }
+        if ("$($_.Exception.Message)" -match 'not found|does not exist|GpoNotFound') { return $null }
         throw
     }
 }
 
-function Register-Gpo {
-    param([string]$Role, $Gpo)
-    $script:created.gpos += [ordered]@{ role = $Role; name = [string]$Gpo.DisplayName; id = [string]$Gpo.Id }
+# Intent first, then the create. The entry is a reference: filling in the id
+# after the create updates the inventory in place.
+function Register-GpoIntent {
+    param([string]$Role, [string]$Name)
+    $entry = [ordered]@{ role = $Role; name = $Name; id = $null }
+    $script:created.gpos += $entry
+    return $entry
 }
 
 function New-LaneWmiFilter {
@@ -177,6 +227,7 @@ function New-LaneWmiFilter {
     $namespace = 'root\CIMv2'
     $parm2 = "1;3;$($namespace.Length);$($query.Length);WQL;$namespace;$query;"
     $now = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss') + '.000000-000'
+    $script:created.wmi_filters += "CN=$filterId,$somPath"
     New-ADObject -Name $filterId -Type 'msWMI-Som' -Path $somPath -Server $dc `
         -OtherAttributes @{
             'msWMI-Name'         = $Name
@@ -187,7 +238,6 @@ function New-LaneWmiFilter {
             'msWMI-ChangeDate'   = $now
             'msWMI-CreationDate' = $now
         } -ErrorAction Stop
-    $script:created.wmi_filters += "CN=$filterId,$somPath"
     return $filterId
 }
 
@@ -211,8 +261,9 @@ function Set-SecurityFilter {
 function New-AuthoredGpo {
     param([string]$Role, [string]$Name, [string]$Description, [string]$Value,
           [string]$LinkDn, [string]$FilterId, [string]$GroupName)
+    $entry = Register-GpoIntent -Role $Role -Name $Name
     $gpo = New-GPO -Name $Name -Comment $Description -Domain $Domain -Server $dc -ErrorAction Stop
-    Register-Gpo -Role $Role -Gpo $gpo
+    $entry.id = ([string]$gpo.Id).ToLowerInvariant()
     Set-GPRegistryValue -Guid $gpo.Id -Domain $Domain -Server $dc -Key $PolicyKey `
         -ValueName $ValueName -Type String -Value $Value -ErrorAction Stop | Out-Null
     New-GPLink -Guid $gpo.Id -Target $LinkDn -LinkEnabled Yes -Domain $Domain -Server $dc `
@@ -232,9 +283,14 @@ function Read-ScopeState {
     $ad = Get-ADObject -Identity $gpoDn -Server $dc -Properties gPCWQLFilter, gPCFileSysPath `
         -ErrorAction Stop
     $wql = [string](Flatten $ad.gPCWQLFilter)
+    # An absent association is ''. A present one that does not parse is $null,
+    # never '': the controller must not read "could not parse" as "no filter".
     $filterId = ''
-    $match = [regex]::Match($wql, '^\[[^;]*;(\{[0-9A-Fa-f-]+\});\d+\]$')
-    if ($match.Success) { $filterId = $match.Groups[1].Value.ToLowerInvariant() }
+    if ($wql) {
+        $filterId = $null
+        $match = [regex]::Match($wql, '^\[[^;]*;(\{[0-9A-Fa-f-]+\});\d+\]$')
+        if ($match.Success) { $filterId = $match.Groups[1].Value.ToLowerInvariant() }
+    }
     $sysvol = [string](Flatten $ad.gPCFileSysPath)
 
     $settingsValue = ''
@@ -313,21 +369,40 @@ try {
     $domainDn = (Get-ADDomain -Server $Domain).DistinguishedName
     $somPath = "CN=SOM,CN=WMIPolicy,CN=System,$domainDn"
 
-    $collisions = @(Get-GPO -All -Domain $Domain -Server $dc -ErrorAction Stop |
-        Where-Object { $_.DisplayName -like "$prefix*" })
-    if ($collisions.Count -ne 0) { throw 'disposable names already exist' }
-
     $parentDn = "OU=$prefix,$domainDn"
     $ouSourceDn = "OU=src-link,$parentDn"
     $ouTargetDn = "OU=tgt-link,$parentDn"
+
+    # --- 0. Ownership guard ---------------------------------------------------
+    $collisions = @()
+    foreach ($key in @($names.Keys)) {
+        if ($key.StartsWith('gpo_') -and (Find-GpoByName -Name $names[$key])) { $collisions += "GPO '$($names[$key])'" }
+    }
+    if (Test-AdObjectExists -Identity $parentDn -Server $dc) { $collisions += "OU '$parentDn'" }
+    foreach ($key in 'group_src', 'group_tgt') {
+        if (Test-AdFilterMatches -LdapFilter "(sAMAccountName=$($names[$key]))" -SearchBase $domainDn) {
+            $collisions += "account '$($names[$key])'"
+        }
+    }
+    foreach ($key in 'wmi_src', 'wmi_tgt') {
+        if (Test-AdFilterMatches -LdapFilter "(msWMI-Name=$($names[$key]))" -SearchBase $somPath) {
+            $collisions += "WMI filter '$($names[$key])'"
+        }
+    }
+    if ($collisions.Count -ne 0) {
+        throw "ownership guard: $($collisions -join ', ') already exist; nothing was created and nothing will be deleted"
+    }
+    $result.ownership_established = $true
+
+    # --- 1. Fixtures ----------------------------------------------------------
+    $created.ous += $parentDn
     New-ADOrganizationalUnit -Name $prefix -Path $domainDn -Server $dc `
         -ProtectedFromAccidentalDeletion:$false -ErrorAction Stop
-    $created.ous += $parentDn
     if (-not (Wait-ForAdObject -Identity $parentDn -Server $dc)) { throw "OU not readable: $parentDn" }
     foreach ($child in 'src-link', 'tgt-link') {
+        $created.ous += "OU=$child,$parentDn"
         New-ADOrganizationalUnit -Name $child -Path $parentDn -Server $dc `
             -ProtectedFromAccidentalDeletion:$false -ErrorAction Stop
-        $created.ous += "OU=$child,$parentDn"
         if (-not (Wait-ForAdObject -Identity "OU=$child,$parentDn" -Server $dc)) {
             throw "OU not readable: OU=$child,$parentDn"
         }
@@ -336,47 +411,51 @@ try {
 
     $groupSids = @{}
     foreach ($side in 'src', 'tgt') {
-        $groupName = "zzlc-$short-$side"
-        New-ADGroup -Name $groupName -SamAccountName $groupName -GroupScope Global `
-            -GroupCategory Security -Path $parentDn -Server $dc -ErrorAction Stop
+        $groupName = $names["group_$side"]
         $groupDn = "CN=$groupName,$parentDn"
         $created.groups += $groupDn
+        New-ADGroup -Name $groupName -SamAccountName $groupName -GroupScope Global `
+            -GroupCategory Security -Path $parentDn -Server $dc -ErrorAction Stop
         if (-not (Wait-ForAdObject -Identity $groupDn -Server $dc)) { throw "group not readable: $groupDn" }
         $groupSids[$side] = [string](Get-ADGroup -Identity $groupDn -Server $dc -ErrorAction Stop).SID.Value
     }
-    $sourceFilter = New-LaneWmiFilter -Name "$prefix-src-wmi"
-    $targetFilter = New-LaneWmiFilter -Name "$prefix-tgt-wmi"
+    $sourceFilter = New-LaneWmiFilter -Name $names.wmi_src
+    $targetFilter = New-LaneWmiFilter -Name $names.wmi_tgt
 
     $fixture = [ordered]@{
-        stamp                 = $stamp
-        policy_key            = $PolicyKey
-        value_name            = $ValueName
-        source_value          = "source-$stamp"
-        target_value          = "target-$stamp"
-        perturbed_value       = "perturbed-$stamp"
-        source_description    = "Studio lifecycle lane source $stamp"
-        target_description    = "Studio lifecycle lane target $stamp"
-        perturbed_description = "Studio lifecycle lane perturbed $stamp"
-        ou_parent_dn          = $parentDn
-        ou_source_dn          = $ouSourceDn
-        ou_target_dn          = $ouTargetDn
-        source_group_sid      = $groupSids['src']
-        target_group_sid      = $groupSids['tgt']
-        source_wmi_filter_id  = $sourceFilter.ToLowerInvariant()
-        target_wmi_filter_id  = $targetFilter.ToLowerInvariant()
+        stamp                  = $stamp
+        policy_key             = $PolicyKey
+        value_name             = $ValueName
+        source_value           = "source-$stamp"
+        target_value           = "target-$stamp"
+        perturbed_value        = "perturbed-$stamp"
+        source_description     = "Studio lifecycle lane source $stamp"
+        target_description     = "Studio lifecycle lane target $stamp"
+        perturbed_description  = "Studio lifecycle lane perturbed $stamp"
+        ou_parent_dn           = $parentDn
+        ou_source_dn           = $ouSourceDn
+        ou_target_dn           = $ouTargetDn
+        source_group_sid       = $groupSids['src']
+        target_group_sid       = $groupSids['tgt']
+        source_wmi_filter_id   = $sourceFilter.ToLowerInvariant()
+        target_wmi_filter_id   = $targetFilter.ToLowerInvariant()
+        source_wmi_filter_name = $names.wmi_src
+        target_wmi_filter_name = $names.wmi_tgt
+        import_as_new_name     = $names.gpo_import_as_new
     }
     $result.fixture = $fixture
 
-    $control = New-GPO -Name "$prefix-control" -Domain $Domain -Server $dc -ErrorAction Stop
-    Register-Gpo -Role 'control' -Gpo $control
+    $controlEntry = Register-GpoIntent -Role 'control' -Name $names.gpo_control
+    $control = New-GPO -Name $names.gpo_control -Domain $Domain -Server $dc -ErrorAction Stop
+    $controlEntry.id = ([string]$control.Id).ToLowerInvariant()
     $result.control_state = Read-ScopeState -Id $control.Id
 
-    $source = New-AuthoredGpo -Role 'source' -Name "$prefix-source" `
+    $source = New-AuthoredGpo -Role 'source' -Name $names.gpo_source `
         -Description $fixture.source_description -Value $fixture.source_value `
-        -LinkDn $ouSourceDn -FilterId $sourceFilter -GroupName "zzlc-$short-src"
-    $target = New-AuthoredGpo -Role 'target' -Name "$prefix-target" `
+        -LinkDn $ouSourceDn -FilterId $sourceFilter -GroupName $names.group_src
+    $target = New-AuthoredGpo -Role 'target' -Name $names.gpo_target `
         -Description $fixture.target_description -Value $fixture.target_value `
-        -LinkDn $ouTargetDn -FilterId $targetFilter -GroupName "zzlc-$short-tgt"
+        -LinkDn $ouTargetDn -FilterId $targetFilter -GroupName $names.group_tgt
     $result.source_baseline = Read-ScopeState -Id $source.Id
     $result.target_baseline = Read-ScopeState -Id $target.Id
 
@@ -397,7 +476,10 @@ try {
         try {
             Initialize-CommandArtifacts $name
             $stderr = Join-Path $commands "$name.stderr.txt"
-            $targetName = "$prefix-$name"
+            $targetName = $names["gpo_$name"]
+            $op.target_preexisted = [bool](Find-GpoByName -Name $targetName)
+            if ($op.target_preexisted) { throw "copy target '$targetName' exists" }
+            $entry = Register-GpoIntent -Role $name -Name $targetName
             if ($name -eq 'copy_with_acl') {
                 $copy = Copy-GPO -SourceGuid $source.Id -TargetName $targetName -CopyAcl `
                     -SourceDomain $Domain -TargetDomain $Domain `
@@ -407,7 +489,7 @@ try {
                     -SourceDomain $Domain -TargetDomain $Domain `
                     -SourceDomainController $dc -TargetDomainController $dc -ErrorAction Stop 2> $stderr
             }
-            Register-Gpo -Role $name -Gpo $copy
+            $entry.id = ([string]$copy.Id).ToLowerInvariant()
             Save-CommandOutput $name $copy
             $op.target_after = Read-ScopeState -Id $copy.Id
             $op.succeeded = $true
@@ -417,13 +499,20 @@ try {
     }
 
     # --- Import-GPO -CreateIfNeeded, to a name that does not exist ----------
+    # -CreateIfNeeded imports INTO a GPO of that name if one exists, which is
+    # import_into_existing, not import_as_new. Absence is the operation's
+    # precondition, so it is measured immediately before and the import is
+    # refused (and the record says so) if it does not hold.
     $op = $operations['import_as_new']
     try {
         Initialize-CommandArtifacts 'import_as_new'
-        $imported = Import-GPO -BackupId $backupId -Path $backupRoot -TargetName "$prefix-imported" `
+        $op.target_preexisted = [bool](Find-GpoByName -Name $names.gpo_import_as_new)
+        if ($op.target_preexisted) { throw "import_as_new target '$($names.gpo_import_as_new)' exists" }
+        $entry = Register-GpoIntent -Role 'import_as_new' -Name $names.gpo_import_as_new
+        $imported = Import-GPO -BackupId $backupId -Path $backupRoot -TargetName $names.gpo_import_as_new `
             -CreateIfNeeded -Domain $Domain -Server $dc -Confirm:$false -ErrorAction Stop `
             2> (Join-Path $commands 'import_as_new.stderr.txt')
-        Register-Gpo -Role 'import_as_new' -Gpo $imported
+        $entry.id = ([string]$imported.Id).ToLowerInvariant()
         Save-CommandOutput 'import_as_new' $imported
         $op.target_after = Read-ScopeState -Id $imported.Id
         $op.succeeded = $true
@@ -435,6 +524,7 @@ try {
     $op = $operations['import_into_existing']
     try {
         Initialize-CommandArtifacts 'import_into_existing'
+        $op.target_preexisted = [bool](Find-GpoById -Id $target.Id)
         $op.target_before = Read-ScopeState -Id $target.Id
         $out = Import-GPO -BackupId $backupId -Path $backupRoot -TargetGuid $target.Id `
             -Domain $Domain -Server $dc -Confirm:$false -ErrorAction Stop `
@@ -453,6 +543,7 @@ try {
     $op = $operations['restore_in_place']
     try {
         Initialize-CommandArtifacts 'restore_in_place'
+        $op.target_preexisted = [bool](Find-GpoById -Id $source.Id)
         Set-GPRegistryValue -Guid $source.Id -Domain $Domain -Server $dc -Key $PolicyKey `
             -ValueName $ValueName -Type String -Value $fixture.perturbed_value -ErrorAction Stop | Out-Null
         $live = Get-GPO -Guid $source.Id -Domain $Domain -Server $dc -ErrorAction Stop
@@ -462,12 +553,15 @@ try {
         New-GPLink -Guid $source.Id -Target $ouTargetDn -LinkEnabled Yes -Domain $Domain -Server $dc `
             -ErrorAction Stop | Out-Null
         Set-WmiAssociation -Id $source.Id -FilterId $targetFilter
-        Set-GPPermission -Guid $source.Id -Domain $Domain -Server $dc -TargetName "zzlc-$short-src" `
+        Set-GPPermission -Guid $source.Id -Domain $Domain -Server $dc -TargetName $names.group_src `
             -TargetType Group -PermissionLevel None -Replace -ErrorAction Stop | Out-Null
-        Set-GPPermission -Guid $source.Id -Domain $Domain -Server $dc -TargetName "zzlc-$short-tgt" `
+        Set-GPPermission -Guid $source.Id -Domain $Domain -Server $dc -TargetName $names.group_tgt `
             -TargetType Group -PermissionLevel GpoApply -ErrorAction Stop | Out-Null
-        $op.target_before = Read-ScopeState -Id $source.Id
-        $result.restore_perturbed = $op.target_before
+        # One read, recorded twice: the controller verifies the perturbation
+        # and grades the restore against the SAME snapshot, and checks that.
+        $perturbed = Read-ScopeState -Id $source.Id
+        $op.target_before = $perturbed
+        $result.restore_perturbed = $perturbed
 
         $out = Restore-GPO -BackupId $backupId -Path $backupRoot -Domain $Domain -Server $dc `
             -Confirm:$false -ErrorAction Stop 2> (Join-Path $commands 'restore_in_place.stderr.txt')
@@ -488,9 +582,29 @@ try {
         surviving_groups      = @()
         surviving_ous         = @()
     }
-    $ownIds = @($created.gpos | ForEach-Object { [guid]$_.id })
 
-    if ($dc) {
+    if (-not $result.ownership_established) {
+        # Nothing was created (the guard runs before the first create), so
+        # there is nothing to remove -- and deleting by name now could only
+        # touch objects this run does not own.
+        if (@($created.ous).Count + @($created.groups).Count + @($created.wmi_filters).Count +
+            @($created.gpos).Count -ne 0) {
+            $problems += 'intent inventory is non-empty although ownership was never established'
+        }
+    } else {
+        # Resolve every intended GPO by its exact generated name, so one that
+        # was committed but whose create threw is still found.
+        foreach ($gpo in $created.gpos) {
+            if ($gpo.id) { continue }
+            try {
+                $found = Find-GpoByName -Name $gpo.name
+                if ($found) { $gpo.id = ([string]$found.Id).ToLowerInvariant() }
+            } catch {
+                $problems += "could not resolve $($gpo.name): $($_.Exception.Message)"
+            }
+        }
+        $ownIds = @($created.gpos | Where-Object { $_.id } | ForEach-Object { [guid]$_.id })
+
         # Links first, explicitly: Remove-GPO is not relied on to unlink.
         foreach ($scope in $linkScopes) {
             try {
@@ -506,11 +620,10 @@ try {
             }
         }
 
-        # GPOs by recorded id, then anything else carrying this run's prefix (a
-        # command that created a GPO and then threw leaves no recorded id).
         foreach ($gpo in $created.gpos) {
+            if (-not $gpo.id) { continue }
             try {
-                if (-not (Test-GpoAbsent -Id ([guid]$gpo.id))) {
+                if (Find-GpoById -Id ([guid]$gpo.id)) {
                     Remove-GPO -Guid ([guid]$gpo.id) -Domain $Domain -Server $dc -Confirm:$false `
                         -ErrorAction Stop | Out-Null
                 }
@@ -518,19 +631,13 @@ try {
                 $problems += "GPO delete failed for $($gpo.name): $($_.Exception.Message)"
             }
         }
-        try {
-            foreach ($stray in @(Get-GPO -All -Domain $Domain -Server $dc -ErrorAction Stop |
-                    Where-Object { $_.DisplayName -like "$prefix*" })) {
-                Remove-GPO -Guid $stray.Id -Domain $Domain -Server $dc -Confirm:$false -ErrorAction Stop | Out-Null
-            }
-        } catch {
-            $problems += "stray GPO sweep failed: $($_.Exception.Message)"
-        }
 
         # WMI filters after the GPOs that referenced them.
         foreach ($filterDn in $created.wmi_filters) {
             try {
-                Remove-ADObject -Identity $filterDn -Server $dc -Confirm:$false -ErrorAction Stop
+                if (Test-AdObjectExists -Identity $filterDn -Server $dc) {
+                    Remove-ADObject -Identity $filterDn -Server $dc -Confirm:$false -ErrorAction Stop
+                }
             } catch {
                 $problems += "WMI filter delete failed for ${filterDn}: $($_.Exception.Message)"
             }
@@ -540,7 +647,9 @@ try {
         # check exists to find.
         foreach ($groupDn in $created.groups) {
             try {
-                Remove-ADGroup -Identity $groupDn -Server $dc -Confirm:$false -ErrorAction Stop
+                if (Test-AdObjectExists -Identity $groupDn -Server $dc) {
+                    Remove-ADGroup -Identity $groupDn -Server $dc -Confirm:$false -ErrorAction Stop
+                }
             } catch {
                 $problems += "group delete failed for ${groupDn}: $($_.Exception.Message)"
             }
@@ -549,28 +658,26 @@ try {
         [array]::Reverse($reversed)
         foreach ($ouDn in $reversed) {
             try {
-                Remove-ADOrganizationalUnit -Identity $ouDn -Server $dc -Recursive:$false `
-                    -Confirm:$false -ErrorAction Stop
+                if (Test-AdObjectExists -Identity $ouDn -Server $dc) {
+                    Remove-ADOrganizationalUnit -Identity $ouDn -Server $dc -Recursive:$false `
+                        -Confirm:$false -ErrorAction Stop
+                }
             } catch {
                 $problems += "OU delete failed for ${ouDn}: $($_.Exception.Message)"
             }
         }
 
-        # Prove the teardown by re-query; "we issued the delete" is not cleanup.
+        # Prove the teardown by re-query, by id AND by exact name; "we issued
+        # the delete" is not cleanup.
         foreach ($gpo in $created.gpos) {
             try {
-                if (-not (Test-GpoAbsent -Id ([guid]$gpo.id))) { $residual.surviving_gpos += [string]$gpo.name }
+                $byName = Find-GpoByName -Name $gpo.name
+                $byId = $null
+                if ($gpo.id) { $byId = Find-GpoById -Id ([guid]$gpo.id) }
+                if ($byName -or $byId) { $residual.surviving_gpos += [string]$gpo.name }
             } catch {
                 $problems += "could not confirm $($gpo.name) was deleted: $($_.Exception.Message)"
             }
-        }
-        try {
-            foreach ($stray in @(Get-GPO -All -Domain $Domain -Server $dc -ErrorAction Stop |
-                    Where-Object { $_.DisplayName -like "$prefix*" })) {
-                $residual.surviving_gpos += [string]$stray.DisplayName
-            }
-        } catch {
-            $problems += "could not sweep for surviving GPOs: $($_.Exception.Message)"
         }
         foreach ($filterDn in $created.wmi_filters) {
             try {
@@ -589,26 +696,22 @@ try {
         }
         # The domain root is the one scope outside the disposable tree; read its
         # raw gPLink rather than infer from the GPOs being gone.
-        if ($domainDn) {
-            try {
-                $rootLinks = [string](Flatten (Get-ADObject -Identity $domainDn -Properties gPLink `
-                            -Server $dc -ErrorAction Stop).gPLink)
-                foreach ($id in $ownIds) {
-                    if ($rootLinks -match [regex]::Escape("$id")) { $residual.surviving_links += "$id @ $domainDn" }
-                }
-            } catch {
-                $problems += "could not re-query links at ${domainDn}: $($_.Exception.Message)"
+        try {
+            $rootLinks = [string](Flatten (Get-ADObject -Identity $domainDn -Properties gPLink `
+                        -Server $dc -ErrorAction Stop).gPLink)
+            foreach ($id in $ownIds) {
+                if ($rootLinks -match [regex]::Escape("$id")) { $residual.surviving_links += "$id @ $domainDn" }
             }
+        } catch {
+            $problems += "could not re-query links at ${domainDn}: $($_.Exception.Message)"
         }
-    } else {
-        $problems += 'no domain controller resolved; nothing was created and nothing could be verified'
     }
 
     $survivors = 0
     foreach ($key in @($residual.Keys)) { $survivors += @($residual[$key]).Count }
     $result.cleanup = [ordered]@{ problems = @($problems); residual = $residual }
-    $result.cleanup_state_restored = ($null -ne $dc) -and ($survivors -eq 0)
-    $result.cleanup_succeeded = $result.cleanup_state_restored -and (@($problems).Count -eq 0)
+    $result.cleanup_state_restored = ($survivors -eq 0) -and (@($problems).Count -eq 0)
+    $result.cleanup_succeeded = $result.cleanup_state_restored
     $json = $result | ConvertTo-Json -Depth 10
     Set-Content -LiteralPath (Join-Path $work 'result.json') -Value $json -Encoding UTF8
 }
