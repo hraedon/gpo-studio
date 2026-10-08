@@ -56,8 +56,8 @@ captures and the 11 WI-059 native rebackups), through the public
 | Finding | Disposition |
 |---|---|
 | Studio named preference items differently from GPME: a drive `M` for `M:`; files, folders and printers by full path instead of the leaf; shortcuts `""` instead of the shortcut path's leaf | **Fixed** in `gpp_adapters.py` (unbound). All 16 GPMC captures now match in every modeled family |
-| Power Options' `GlobalPowerOptionsV2` is retained in the model, but `serialize_gpp` never re-emits adapter root unknowns | **WI-072**. The fix is in `gpp.py`, which two lanes bind |
-| `TaskV2` and `ImmediateTaskV2` lose their interleaving, because the model holds them in two lists | **WI-073**. The fix is in the bound model. The allowance accepts only the stable partition (scheduled tasks first, then immediate, each in its original order); any other reordering stays unexplained |
+| Power Options' `GlobalPowerOptionsV2` is retained in the model, but `serialize_gpp` never re-emits adapter root unknowns | **WI-072**. Accepted as a known divergence by the certifying run. *Later:* fixed in `gpp.py` (every root writes its retained content in place); the allowance is removed and the case must agree exactly (see below) |
+| `TaskV2` and `ImmediateTaskV2` lose their interleaving, because the model holds them in two lists | **WI-073**. The certifying run's allowance accepted only the stable partition. *Later:* fixed in `gpp.py` (document positions on every typed item); the allowance is removed, so any reordering is unexplained, and both cases must agree exactly |
 | Two WI-059 rebackups name a drive `P`. An older Studio writer wrote that, and Windows keeps names verbatim | Named: `legacy-studio-drive-name`. Matched only as a complete `P`/`P:` pair of otherwise identical items |
 | Scripts appear in the report but are not typed settings in Studio | Named exclusion: `scripts-not-modeled` |
 
@@ -66,6 +66,16 @@ Every known divergence is pinned per backup in
 regression that adds one, fails until the pin and the lane move together
 (WI-048). A divergence that matches no entry is unexplained, and an unexplained
 divergence fails both the test and the candidate builder.
+
+**Fixed work items must agree exactly.** The three cases that passed the
+certifying run only on WI-072 (`native-WI01A-Power-GPMC`) or WI-073
+(`native-WI01A-SchedTasks-GPMC`, `native-WI01A-SchedTasksFull-GPMC`) are
+pinned in the builder's `MUST_AGREE_CASE_IDS`. The builder refuses a candidate
+in which any of them shows a known divergence, and the finalizer's
+`fixed_work_item_cases_agree_exactly` check requires each to be in the run with
+an empty expected-known list and an inventory equal to Windows' fresh report.
+Since the allowances are gone from `KNOWN_DIVERGENCES`, a regression is
+already unexplained; the pin also stops one from passing by being re-allowed.
 
 ## The lane
 
@@ -158,7 +168,9 @@ pushes it.
   Options, Data Sources, Network Shares, Applications, GPP Registry) are reported
   under `unobserved:<path>` instead of a guessed report type.
 - `Groups.xml` interleaving `Group` and `User` items has the same shape as
-  WI-073, but no capture shows it.
+  WI-073, but no capture shows it. The fix covers it, and
+  `tests/test_gpp_document_order.py` tests it offline; no Windows report has
+  measured it.
 - The registry order claim rests on the corpus: in the `wp0` rebackup the report
   lists values in `Registry.pol` order, which is not alphabetical. The authored
   case re-measures it on a file Windows wrote.

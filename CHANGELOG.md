@@ -77,6 +77,15 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
   refused with `text_not_xml_writable`. A 1.0 workspace holding such text still
   opens and lists; that GPO's exports are refused until the named fields are
   edited.
+- **Preference document order is recorded from 1.1.0 imports onward**
+  (WI-072, WI-073). A GPO imported by 1.0.0 has no recorded order, so it keeps
+  writing what 1.0.0 wrote: scheduled tasks before immediate tasks and groups
+  before local users, whatever order the source file had. Re-import the backup
+  with 1.1.0 to recover the source's processing order. Root content 1.0.0
+  retained but never wrote (Power Options' `GlobalPowerOptionsV2`, an adapter
+  root's attributes) is now written for those GPOs too, so their exported
+  files gain it. Review digests of stored GPOs are unchanged: the canonical
+  form carries document order only where it differs from the grouped order.
 - **Do not run 1.0.0's `workspace check` on a backup** (WI-074). It writes into
   the checked file, and the backup can then no longer be restored. Verify a
   pre-upgrade backup by restoring it to a throwaway path and checking that
@@ -569,6 +578,47 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 Operator-facing:
 
+- *New in this draft:* **GPP files keep their document order and retained root
+  content after an edit, fixed and awaiting requalification (WI-072,
+  WI-073).** Found by the report-parity offline differ, which re-renders the
+  typed model as Studio writes it after any edit. Two defects:
+  - WI-072: `serialize_gpp` rebuilt every adapter file from its typed items
+    alone, so content the import retained at the root was dropped on the
+    first edit. The native Power Options capture's `GlobalPowerOptionsV2`
+    (the Windows 7+ power plan) was lost this way, and so was any adapter
+    root's unknown attribute (a root-level `disabled="1"`, say) or child
+    element (a printer kind or folder option Studio does not type). Every
+    family now writes them: Groups and Registry already did; the eighteen
+    adapter families did not.
+  - WI-073: `ScheduledTasks.xml` interleaves `TaskV2` and `ImmediateTaskV2`,
+    and `Groups.xml` can interleave `Group` and `User`. The model holds each
+    family in its own list and wrote them grouped, so an edited GPO changed
+    the order Windows processes its items. Both native scheduled-task
+    captures showed it. No other GPP file holds more than one typed family.
+
+  The model keeps its per-family lists and API. Import now records each typed
+  item's index among its root's children (`document_position`) and each
+  retained root child's (`GppCollection.root_unknown_positions`), and
+  `serialize_gpp` writes every root child in that order. Within a family the
+  list stays authoritative: reordering a family swaps its items between the
+  family's own slots, deleting an item frees its slot, and an item inserted
+  between positioned items follows its list predecessor. An item with no
+  recorded position, such as a group added through the API or anything stored
+  before 1.1.0, is written after every positioned item in the order Studio
+  always used, so a collection without positions writes the same bytes as
+  before. An API edit keeps the edited item's slot. Positions are persisted in
+  the workspace snapshot; a stored order that cannot be honoured (an unknown
+  family, a non-integer position, a count that does not match) is refused on
+  load. Both the canonical digest and the GPO diff compare the resulting order,
+  not the recorded numbers, so digests of stored GPOs do not move.
+  Covered by `tests/test_gpp_document_order.py` (the native Power and
+  scheduled-task captures edited, deleted from, reordered and added to; an
+  interleaved `Groups.xml` through the store's group endpoints; every family's
+  root unknowns in place; a workspace reopen; data in the pre-1.1 shape;
+  Hypothesis properties over random interleavings). The report-parity lane
+  now requires its three formerly divergent cases to agree with Windows
+  exactly (see Evidence). Both items close when the requalification run banks.
+
 - *New in this draft (batch 2):* **GPP Registry native export, fixed and awaiting batch-2 requalification
   (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
   Registry item, narrowing the 1.0 contract the capability matrix still
@@ -1006,7 +1056,14 @@ is a capability by itself; see Added for what an operator can reach.
   - WI-072 (the power plan is dropped on write) and WI-073 (scheduled and
     immediate task interleaving is lost on write) stay open. The verdict
     accepts them only as pinned known divergences, on the three cases that
-    show them.
+    show them. *Later:* both are fixed in `gpp.py` (see Fixed) and wait on
+    the requalification run. Their allowances are removed from
+    `report_parity.KNOWN_DIVERGENCES`, the candidate builder pins the three
+    cases in `MUST_AGREE_CASE_IDS`, and the finalizer's new
+    `fixed_work_item_cases_agree_exactly` check requires each to be in the run
+    and equal to Windows' fresh report with no divergence of any kind. A
+    regression now fails the lane. The banked pack no longer rebuilds under
+    the changed builder until the requalification replaces it.
   - The pack replaces the first banked pass, which was at `1a31feb`. PR #94's
     Windows CI showed the candidate builder sorted `Path` objects, whose
     order is case-insensitive on Windows, so the archive's bytes depended on

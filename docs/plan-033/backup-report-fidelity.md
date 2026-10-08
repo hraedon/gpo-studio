@@ -71,7 +71,8 @@ Studio's typed import of all 27 backups with a fresh `Get-GPOReport -ReportType
 Xml` on Windows, plus one GPO authored on the guest:
 `report-parity-20261008104512-7480`, 25/25 at `a1c280b`. It covers item
 identity and order for the families the corpus exercises, and pins WI-072 and
-WI-073 as known divergences. See [the results](report-parity-results.md) for
+WI-073 as known divergences (both since fixed in code, pending
+requalification). See [the results](report-parity-results.md) for
 its scope and exclusions.
 
 ## Affected Windows qualifications

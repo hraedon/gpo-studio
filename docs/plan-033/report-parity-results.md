@@ -106,7 +106,10 @@ The `yes` in Plan 034 is scoped to **the families Studio models that this
 corpus exercises**: registry policy (`REG_SZ` and `REG_DWORD`), Drive Maps,
 Environment, Files, Folders, Ini Files, Local Users and Groups, Printers,
 Scheduled Tasks (membership, not interleaving order; see WI-073), Services and
-Shortcuts.
+Shortcuts. *Later (2026-10-08):* WI-072 and WI-073 are fixed in code and wait
+on the requalification run, which re-runs this lane with Power Options and the
+interleaving order required to agree exactly; until it banks, this verdict's
+scope stands as written.
 
 Not covered, and not claimed:
 
@@ -160,8 +163,16 @@ The descriptor is outside every inventory compared here.
 ## Divergences still open
 
 Two Studio defects are accepted by this verdict **only** as pinned known
-divergences on the cases that show them. They are not fixed, and the lane is
-not evidence that they are harmless.
+divergences on the cases that show them. They are not fixed at this verdict's
+commit, and the lane is not evidence that they are harmless.
+
+*Later (2026-10-08):* both are fixed in `gpp.py` (fixed pending
+requalification). The allowances are removed from `KNOWN_DIVERGENCES`, the
+builder pins the three cases in `MUST_AGREE_CASE_IDS`, and the finalizer's
+`fixed_work_item_cases_agree_exactly` check requires them to agree with
+Windows exactly, so the requalification run must show c10, c12 and c13 with no
+divergence at all. This banked pack no longer rebuilds under the changed
+builder; it is replaced when that run banks.
 
 - **[WI-072](../work-items.md#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained)**
   (c10). Import retains Power Options' `GlobalPowerOptionsV2` item, but

@@ -153,7 +153,10 @@ What these runs do **not** certify:
 - **Power Options** is not certified. Its only case passes on a pinned known
   divergence, WI-072 (the power plan is dropped on write). WI-073 (scheduled
   and immediate task interleaving is lost on write) is also open and accepted
-  only as a pinned divergence. Seven Studio preference families have no
+  only as a pinned divergence. Both are fixed in code (fixed pending
+  requalification) and are certified only when the requalification's
+  report-parity run, which now requires their cases to agree exactly, banks.
+  Seven Studio preference families have no
   capture and are not claimed, and ADMX policy rendering, Scripts, links,
   security filtering and WMI filters are named exclusions of the report-parity
   lane.

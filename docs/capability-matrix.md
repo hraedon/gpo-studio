@@ -438,7 +438,8 @@ remain historical records for their original revisions.
   `report-parity-20261008104512-7480`, 25/25, over 27 backups. This is a
   post-1.0 certification and does not widen the 1.0 contract row above. See
   [the reconciled entry](#backuppy--reportpy-plan-034-wp-2--report-parity-windows-verified-for-the-families-the-corpus-exercises)
-  for its scope, exclusions and the two open defects (WI-072, WI-073).
+  for its scope, exclusions and the two defects it pinned (WI-072, WI-073; both
+  fixed in code since, pending requalification).
 
 ### GPMC backup export — supported subset
 
@@ -974,11 +975,14 @@ capture (Regional Options, Devices, Folder Options, Data Sources, Network
 Shares, Applications, GPP Registry). Other registry types and deletion entries
 have no case. Preference `Properties` beyond the action, ADMX `<Policy>`
 rendering, Scripts, and links, security filtering and WMI filters are named
-exclusions. Two defects remain open and are accepted only as pinned known
-divergences: [WI-072](work-items.md#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained)
+exclusions. The verdict accepted two defects only as pinned known divergences:
+[WI-072](work-items.md#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained)
 (Power Options' power plan is dropped on write) and
 [WI-073](work-items.md#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written)
-(scheduled and immediate task interleaving is lost on write). See
+(scheduled and immediate task interleaving is lost on write). Both are fixed in
+code and stay open until the requalification run banks; the lane now requires
+their three cases to agree with Windows exactly, and Power Options and task
+interleaving become certified only when that run passes. See
 [the results](plan-033/report-parity-results.md).
 
 ### `fdeploy.py` (Plan 027 / Plan 034 WP-4) — a certified reader, reachable at `/api/folder-redirection/fdeploy`

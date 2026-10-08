@@ -36,8 +36,8 @@ Update this list in the same change as any status line;
 
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-075](#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not) - closes when the 1.1.0 requalification passes every lane at the batch-2 commit.
-- [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - one ordered task list in the bound model; costs two lanes.
-- [WI-072](#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained) - pass root unknowns through `gpp.py`; costs two lanes.
+- [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - fixed in code (document positions); closes when the requalification run banks.
+- [WI-072](#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained) - fixed in code (every root writes its retained content); closes when the requalification run banks.
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 
@@ -3059,7 +3059,8 @@ computer-side shutdown script has a banked verdict.
 ## WI-072 — serialize_gpp drops adapter root content the model retained
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
-**Status:** open.
+**Status:** open (fixed in code on `fix/gpp-order-and-root-retention`, pending
+requalification; see the 2026-10-08 entry at the end of this item).
 
 **What is wrong.** A GPMC-authored Power Options file holds a `GlobalPowerOptionsV2`
 item (the Windows 7+ power plan). Studio's power adapter models only the XP-era
@@ -3090,10 +3091,29 @@ on Windows and accepted it on that case only, as a known divergence.
 children, the `WI01A-Power-GPMC` pin becomes full equality, and the publication and
 scripts-metadata lanes have re-run on the changed `gpp.py`.
 
+**2026-10-08 — fixed in code; the runs are not banked.** `serialize_gpp` now writes
+every GPP file through one path (`_serialize_gpp_file`) that applies the root's
+retained unknown attributes and places its retained unknown children, for all twenty
+families: Groups and Registry, which already wrote them, and the eighteen adapter
+families, which did not. Families that share a root (Groups.xml, ScheduledTasks.xml)
+each capture its unknowns on import, so the copies are written once. Each retained
+child goes back where it was: import records its index among the root's children in
+`GppCollection.root_unknown_positions` (persisted; see WI-073 for the order rules).
+The `WI01A-Power-GPMC` pin is full equality in `tests/test_report_parity.py`, the
+`adapter-root-unknowns-dropped` allowance is gone from `KNOWN_DIVERGENCES`, and the
+report-parity builder pins the case in `MUST_AGREE_CASE_IDS`, which the finalizer's
+`fixed_work_item_cases_agree_exactly` check enforces. `tests/test_gpp_document_order.py`
+covers the native capture after an edit and every family's root unknowns in place;
+each of its regression tests fails on the code before the fix. This item closes when
+the requalification runs of every lane binding the changed files bank: fdeploy,
+firewall, publication, report-parity and scripts-metadata (`gpp.py` and
+`canonical.py` in `plan-033/bound-source-cost.md`).
+
 ## WI-073 — scheduled and immediate tasks lose their interleaving when the model is written
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
-**Status:** open.
+**Status:** open (fixed in code on `fix/gpp-order-and-root-retention`, pending
+requalification; see the 2026-10-08 entry at the end of this item).
 
 **What is wrong.** `ScheduledTasks.xml` is one ordered list in which `TaskV2` and
 `ImmediateTaskV2` items interleave. The model splits them into
@@ -3117,6 +3137,33 @@ captures and accepted it on those two cases only, as a known divergence.
 **Closes when:** a written model keeps the captured order for both native scheduled-task
 captures (their pins become full equality), a test covers an interleaved `Groups.xml`, and
 the lanes binding the changed files have re-run.
+
+**2026-10-08 — fixed in code; the runs are not banked.** Design: an explicit position
+on each item, not one merged list. One list would have replaced
+`scheduled_tasks`/`immediate_tasks` and `groups`/`local_users` in the model, the
+workspace snapshot, the canonical form, the diff and the API; a position key changes
+none of them. Every typed preference item gains `document_position` (its index among
+its root's children, recorded on import, persisted, outside `==`), and
+`gpp.gpp_document_order` merges each file's families and retained root children by it.
+Within a family the list stays authoritative: its recorded positions are the slots it
+holds, filled in list order, so reordering a family swaps its items between its own
+slots, deleting one frees its slot, and an item inserted between positioned items
+follows its list predecessor. An item without a position after its family's last
+positioned item (a group added through the API, anything stored before this change)
+is written after every positioned entry in the order Studio always used, so a
+collection with no positions writes exactly the bytes it wrote before. An API edit
+keeps the edited item's slot (`store._keep_document_position`). The canonical digest
+and the diff compare the resulting order, and only where it differs from the grouped
+order, so stored GPOs keep their digests. No other GPP file holds more than one typed
+family (`Task` and `TaskV2` already share one list).
+
+Both native scheduled-task pins are full equality, an interleaved `Groups.xml` is
+covered (`tests/test_gpp_document_order.py`, through the store's group edit, add and
+reorder and a workspace reopen), Hypothesis properties cover random interleavings of
+both shared files, and the `scheduled-task-order` allowance is gone: any reordering
+of `ScheduledTasksSettings` is unexplained, and the report-parity builder and finalizer
+require both cases to agree exactly. This item closes when the requalification run of
+the lanes binding the changed files banks.
 
 ## WI-074 — `workspace check` changes the backup it was asked to verify
 
