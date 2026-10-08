@@ -196,12 +196,23 @@ def test_only_the_measured_som_filter_path_parses(
     assert parse_wmi_filter_reference(text) == expected
 
 
-def test_a_wmi_filter_element_with_children_counts_as_a_filter(tmp_path: Path) -> None:
-    target = _with_backup_xml(
-        tmp_path,
-        lambda data: data.replace(b"<WMIFilter/>", b"<WMIFilter><Name>x</Name></WMIFilter>"),
-    )
-    assert manifest_from_backup(read_backup(target)).has_wmi_filter is True
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        b"<WMIFilter><Name>x</Name></WMIFilter>",
+        # Sol's round-5 nested-child case: source text, target in a child.
+        b'<WMIFilter>MSFT_SomFilter.ID="{51625ca7-650b-4921-8f04-175ecaa343a1}",'
+        b'Domain="X"<Unexpected>other</Unexpected></WMIFilter>',
+        b"<WMIFilter>a</WMIFilter><WMIFilterName>n<Extra/></WMIFilterName>",
+    ],
+)
+def test_a_wmi_element_with_child_elements_is_refused(
+    tmp_path: Path, replacement: bytes
+) -> None:
+    """Windows writes WMIFilter / WMIFilterName as text; a child competes with it."""
+    target = _with_backup_xml(tmp_path, lambda data: data.replace(b"<WMIFilter/>", replacement))
+    with pytest.raises(BackupError, match="child elements"):
+        manifest_from_backup(read_backup(target))
 
 
 def test_a_disabled_side_in_a_native_backup_maps_to_the_gpo_status(tmp_path: Path) -> None:
@@ -756,3 +767,46 @@ def test_a_listed_historical_name_is_refused() -> None:
             manifest, "import_as_new", target_name=manifest.gpo_display_name,
             existing_gpo_names=[manifest.gpo_display_name.upper()],
         )
+
+
+_SRC_REF = 'MSFT_SomFilter.ID="{51625ca7-650b-4921-8f04-175ecaa343a1}",Domain="SYNTHETIC.TEST"'
+_TGT_REF = 'MSFT_SomFilter.ID="{61625ca7-650b-4921-8f04-175ecaa343a1}",Domain="SYNTHETIC.TEST"'
+
+
+@pytest.mark.parametrize(
+    "case,replacement",
+    [
+        # Re-review 5: target-then-source passed (last wins); the reverse failed.
+        ("two_wmi_filters",
+         f"<WMIFilter>{_TGT_REF}</WMIFilter><WMIFilter>{_SRC_REF}</WMIFilter>"),
+        ("two_wmi_filter_names",
+         f"<WMIFilter>{_SRC_REF}</WMIFilter>"
+         "<WMIFilterName>target</WMIFilterName><WMIFilterName>source</WMIFilterName>"),
+        ("name_without_filter", "<WMIFilterName>source</WMIFilterName>"),
+    ],
+)
+def test_conflicting_single_valued_wmi_elements_are_refused(
+    tmp_path: Path, case: str, replacement: str
+) -> None:
+    target = _with_backup_xml(
+        tmp_path, lambda data: data.replace(b"<WMIFilter/>", replacement.encode())
+    )
+    with pytest.raises(BackupError, match="WMIFilter"):
+        manifest_from_backup(read_backup(target))
+
+
+def test_a_second_core_settings_element_is_refused() -> None:
+    gpo = read_backup(_NATIVE / "WI01A-DriveMaps-GPMC").gpos[0]
+    assert gpo.backup_inventory is not None
+    xml = (
+        b"<GroupPolicyBackupScheme><GroupPolicyCoreSettings/>"
+        b"<GroupPolicyCoreSettings/></GroupPolicyBackupScheme>"
+    )
+    broken = replace(
+        gpo,
+        backup_inventory=replace(
+            gpo.backup_inventory, backup_xml_base64=base64.b64encode(xml).decode("ascii")
+        ),
+    )
+    with pytest.raises(BackupError, match="2 GroupPolicyCoreSettings"):
+        manifest_from_backup(_backup(broken))

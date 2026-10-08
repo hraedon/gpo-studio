@@ -389,25 +389,38 @@ def _wmi_filter_reference(backup_xml: bytes) -> _WmiLink:
 
     An empty element means no filter, as in every backup without one. Anything
     else (text or children) counts as a filter link and is kept verbatim.
+
+    Each of these is single-valued in what Windows writes. A second
+    ``GroupPolicyCoreSettings``, ``WMIFilter`` or ``WMIFilterName`` is
+    refused rather than resolved first- or last-wins (re-review 5): which one
+    Windows would honour is unmeasured, so neither answer is evidence.
     """
     root = _safe_parse(backup_xml)
-    for elem in root.iter():
-        if _local_name(elem.tag) != "GroupPolicyCoreSettings":
-            continue
-        reference: str | None = None
-        present = False
-        name = ""
-        for child in elem:
-            local = _local_name(child.tag)
-            if local == "WMIFilter":
-                reference = (child.text or "").strip()
-                present = bool(reference) or len(child) > 0
-            elif local == "WMIFilterName":
-                name = (child.text or "").strip()
-        if reference is None:
-            return _WmiLink()
-        return _WmiLink(present, reference, name)
-    raise BackupError("Backup.xml has no GroupPolicyCoreSettings")
+    cores = [elem for elem in root.iter() if _local_name(elem.tag) == "GroupPolicyCoreSettings"]
+    if not cores:
+        raise BackupError("Backup.xml has no GroupPolicyCoreSettings")
+    if len(cores) > 1:
+        raise BackupError(f"Backup.xml has {len(cores)} GroupPolicyCoreSettings elements")
+    filters = [child for child in cores[0] if _local_name(child.tag) == "WMIFilter"]
+    names = [child for child in cores[0] if _local_name(child.tag) == "WMIFilterName"]
+    for label, found in (("WMIFilter", filters), ("WMIFilterName", names)):
+        if len(found) > 1:
+            raise BackupError(
+                f"Backup.xml GroupPolicyCoreSettings has {len(found)} {label} elements"
+            )
+    for elem in (*filters, *names):
+        if len(elem) > 0:
+            # Windows writes these as text (CDATA). A child element beside the
+            # text is a second, competing value the reader would have to pick
+            # between (re-review 5's nested-child case).
+            raise BackupError(f"Backup.xml {_local_name(elem.tag)} has child elements")
+    if not filters:
+        if names:
+            raise BackupError("Backup.xml has a WMIFilterName without a WMIFilter")
+        return _WmiLink()
+    reference = (filters[0].text or "").strip()
+    name = (names[0].text or "").strip() if names else ""
+    return _WmiLink(bool(reference), reference, name)
 
 
 def manifest_from_backup(backup: GpmcBackup) -> BackupManifest:
