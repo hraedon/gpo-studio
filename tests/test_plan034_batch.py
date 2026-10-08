@@ -146,8 +146,30 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
     assert "zz-studio" in collector
 
 
+#: Lane verdicts banked AFTER the batch, by lanes the batch did not run, each
+#: with its own certifying run.
+#:
+#: Enumerated with a reason, never pattern-matched: the test below exists to
+#: catch an unretired stale binding or a missing registration, and a lane that
+#: postdates the batch is neither, but only when someone names it here. A
+#: verdict joins the live set beside the batch only by being named here.
+BANKED_AFTER_THE_BATCH: frozenset[str] = frozenset({
+    # The same-domain lifecycle lane did not exist when the batch froze
+    # `263f196`. Its first verdict, `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
+    # at `3513052`, was banked the same day.
+    "wp7-evidence/lifecycle/verification.json",
+    # report-parity-20261008104512-7480 at a1c280b (Plan 034 WP-2 items 2-3).
+    "wp2-evidence/report-parity/verification.json",
+    # The firewall lane (WI-076) did not exist when the batch froze either. Its
+    # first verdict, `firewall-20261008094055-2092337` at `a6e0002`, was banked
+    # the same day.
+    "wp3-evidence/firewall-20261008/firewall/verification.json",
+})
+
+
 def test_the_batch_is_the_live_set() -> None:
-    """21 batch verdicts plus the successor are live; nothing else, nothing pending."""
+    """21 batch verdicts plus the successor are live, beside the lanes banked
+    after the batch; nothing else, nothing pending."""
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 21
@@ -155,11 +177,16 @@ def test_the_batch_is_the_live_set() -> None:
     assert (batch_verdicts | successor) <= set(registry["LANE_VERDICTS"])
     assert STALE_OBJECT_SECURITY in registry["RETIRED_VERDICTS"]
     assert set(registry["PENDING_REQUALIFICATION"]) == set()
-    expected_live = (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor
+    assert BANKED_AFTER_THE_BATCH.issubset(registry["LANE_VERDICTS"])
+    assert not BANKED_AFTER_THE_BATCH & (batch_verdicts | successor)
+    expected_live = (
+        (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor | BANKED_AFTER_THE_BATCH
+    )
     assert set(registry["LIVE_VERDICTS"]) == expected_live, (
         "The live set must be exactly this batch's verdicts with the successor in "
-        "place of the stale object-security run; anything else is either an "
-        "unretired stale binding or a missing registration."
+        "place of the stale object-security run, plus BANKED_AFTER_THE_BATCH; "
+        "anything else is either an unretired stale binding or a missing "
+        "registration."
     )
     for run in BATCH["successors"]:
         assert registry["LANE_VERDICTS"][run["replaces"]] == registry["LANE_VERDICTS"][

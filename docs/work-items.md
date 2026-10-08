@@ -32,8 +32,11 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**2 open.**
+**5 open.**
 
+- [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - measure GPME display with Studio's tool GUID, or register the firewall one in a requalifying batch.
+- [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - one ordered task list in the bound model; costs two lanes.
+- [WI-072](#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained) - pass root unknowns through `gpp.py`; costs two lanes.
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 
@@ -3026,6 +3029,67 @@ and this item records the proposal instead.
 confirmed already correct), and a lane covering a user-side logon script and a
 computer-side shutdown script has a banked verdict.
 
+## WI-072 — serialize_gpp drops adapter root content the model retained
+
+**Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
+**Status:** open.
+
+**What is wrong.** A GPMC-authored Power Options file holds a `GlobalPowerOptionsV2`
+item (the Windows 7+ power plan). Studio's power adapter models only the XP-era
+`PowerScheme`, so the import keeps the item as an unknown root child in
+`GppCollection.power_options_unknown_children`. That is retention, and it is correct.
+`serialize_gpp` then rebuilds every adapter file from typed items alone
+(`_serialize_adapter_files` calls `_build_adapter_root(key, items, scope)` and never sees
+the collection's root unknowns), so the first edit that clears the retained source bytes
+silently drops the power plan. Windows' report of the capture lists it; Studio's
+inventory of the same model does not.
+
+**How it hid.** An unedited import exports its retained source bytes verbatim, so every
+round trip test was clean. The report-parity differ re-renders the typed model with the
+source bytes removed, which is the state after any edit.
+
+**Why it is not fixed here.** The caller that must pass the root unknowns is in `gpp.py`,
+which the publication and scripts-metadata verdicts bind. `_build_adapter_root` in
+`gpp_adapters.py` (unbound) cannot reach them. The same omission affects every adapter
+root's unknown attributes and children; only Power Options is observed.
+
+**Pinned by** `tests/test_report_parity.py::test_wi072_power_plan_is_retained_but_not_written`
+and the `adapter-root-unknowns-dropped` entry in `EXPECTED_KNOWN` for `WI01A-Power-GPMC`.
+The lane's certifying run `report-parity-20261008104512-7480` (2026-10-08) confirmed it
+on Windows and accepted it on that case only, as a known divergence.
+`tests/test_report_parity_evidence.py` pins it there.
+
+**Closes when:** `serialize_gpp` re-emits each adapter root's unknown attributes and
+children, the `WI01A-Power-GPMC` pin becomes full equality, and the publication and
+scripts-metadata lanes have re-run on the changed `gpp.py`.
+
+## WI-073 — scheduled and immediate tasks lose their interleaving when the model is written
+
+**Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
+**Status:** open.
+
+**What is wrong.** `ScheduledTasks.xml` is one ordered list in which `TaskV2` and
+`ImmediateTaskV2` items interleave. The model splits them into
+`GppCollection.scheduled_tasks` and `GppCollection.immediate_tasks`, and `serialize_gpp`
+writes all scheduled tasks and then all immediate tasks. GPP processes items in document
+order, so writing an edited GPO changes processing order. Both native scheduled-task
+captures show it (`TaskV2, ImmediateTaskV2, TaskV2` becomes `TaskV2, TaskV2,
+ImmediateTaskV2`). `Groups.xml` has the same shape (`groups` and `local_users` are separate
+lists) but no capture interleaves them yet.
+
+**Why it is not fixed here.** Preserving the order needs either one ordered list or an
+explicit position on each item, in `GppCollection` (`gpp.py`), which two lanes bind, plus
+the merge in `_serialize_adapter_files`.
+
+**Pinned by** `tests/test_report_parity.py::test_wi073_scheduled_and_immediate_tasks_lose_their_interleaving`
+and the `scheduled-task-order` entries in `EXPECTED_KNOWN`. The lane's certifying run
+`report-parity-20261008104512-7480` (2026-10-08) confirmed it on Windows for both
+captures and accepted it on those two cases only, as a known divergence.
+`tests/test_report_parity_evidence.py` pins it there.
+
+**Closes when:** a written model keeps the captured order for both native scheduled-task
+captures (their pins become full equality), a test covers an interleaved `Groups.xml`, and
+the lanes binding the changed files have re-run.
 
 ## WI-074 — `workspace check` changes the backup it was asked to verify
 
@@ -3062,3 +3126,78 @@ and a 1.1.0-labelled wheel of this tree.
 backup's bytes, a live workspace's bytes and the backup's directory unchanged,
 and a 1.0.0-written backup still restores after a check) and
 `tests/test_release_upgrade_from_1_0_0.py::test_known_issue_1_0_0_check_full_invalidated_a_backup`.
+
+
+## WI-076 — firewall codec needs a write lane before a surface
+
+**Opened:** 2026-10-07 (Plan 034 firewall-only operator ruling).
+**Status:** closed 2026-10-08. The lane certified the codec
+(`firewall-20261008094055-2092337`), `/api/network-security/firewall/render`
+and `/api/gpos/{guid}/firewall-policy` reach it, and `network_security.py`'s
+firewall half is explicit re-exports with its tests adapted. The tool-GUID
+proposal was resolved by measurement rather than an export edit: the write leg
+held with `D02B1F72`, so `export.py` is unchanged, and the one open question,
+GPME display, is WI-077.
+
+`firewall_policy.py` is grounded in the native WS2025 tranche dated 2026-10-08,
+not yet in a verified Studio-origin Windows write/import lane. The two-leg lane
+is built; an exploratory Windows run passed 36/36 at a superseded commit,
+and the certifying run is pending. The legacy firewall half of
+`network_security.py` stays compatible until that lane certifies the replacement.
+
+**2026-10-08 — the lane half is done.** `firewall-20261008094055-2092337`
+(36/36, `a6e0002`) is banked under `docs/plan-033/wp3-evidence/firewall-20261008/`
+and live; see [the firewall results](plan-033/firewall-results.md). Windows
+returned Studio's Registry.pol byte for byte after `Import-GPO`, with the
+unchanged exporter registering `D02B1F72` rather than `B05566AC`; GPMC's report
+rendered the firewall extension for both. That tool-GUID question moves to
+WI-077.
+
+**2026-10-08 — closed.** The same day the surface landed: `POST
+/api/network-security/firewall/render` (its output for the certified request is
+held equal to the lane builder's) and `GET /api/gpos/{guid}/firewall-policy`
+(its decode of the banked native fixture is held equal to the finalizer's
+parse). `network_security.py`'s legacy `FirewallRule`/`FirewallPolicy`/
+`FirewallProtocol` were removed and the codec's classes re-exported under
+explicit names; `assess_network_security` reads profile `enabled` values, and
+its own tests, the only consumer, were adapted.
+IPsec, Public Key, wired and wireless are out of scope for 1.x.
+
+**Closes when:** a rerunnable, candidate/source/hash-bound firewall writer lane
+certifies Studio-origin machine policy against independent Windows readback,
+then an operator surface reaches that certified codec and the legacy firewall
+facade is replaced with compatible explicit re-exports/adapted callers. Register
+the capability only after both steps. The measured B05566AC tool registration
+proposal must be resolved with the export adapter; any bound export edit must
+requalify its publication/scripts-metadata lanes in that session.
+
+The [codec and lane design](plan-033/firewall-codec.md) records exact wire facts,
+refusals, named cmdlet normalizations and required write-leg assertions.
+
+## WI-077 — the firewall export registers the Administrative Templates tool GUID
+
+**Opened:** 2026-10-08 (firewall lane certifying run, `firewall-20261008094055-2092337`).
+**Status:** open.
+
+Native firewall authoring writes `gPCMachineExtensionNames`
+`[{35378EAC-…}{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}]`, the Registry
+client-side extension with the firewall snap-in's tool GUID. Studio's
+`export.py` registers every machine Registry.pol as
+`[{35378EAC-…}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]`, the Administrative
+Templates tool GUID, and the firewall lane's write leg imported exactly that.
+Import, byte-identical Registry.pol, cmdlet readback and GPMC's report all held
+with `D02B1F72`, and GPMC rendered the firewall extension for both legs. What
+nobody measured is whether the Group Policy Management Editor shows the
+imported rules under its Windows Defender Firewall node, and edits them there,
+when only `D02B1F72` is registered.
+
+Changing the registration means editing `export.py`, which the publication,
+scripts-metadata and firewall lanes all bind, so it waits for a batch that
+re-runs all three. Every firewall surface response carries
+`gpme_display_unmeasured` until then.
+
+**Closes when:** either a GPME observation of a Studio-imported firewall GPO
+shows the rules displayed and editable with `D02B1F72` alone (and the
+limitation is narrowed to say so), or `export.py` registers `B05566AC` for
+firewall keys in a batch that requalifies the publication, scripts-metadata and
+firewall lanes and the GPME observation is made on that output.

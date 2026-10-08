@@ -1,0 +1,496 @@
+﻿{
+    "schema_version":  1,
+    "run_id":  "lifecycle-20261008093248-2000-c76d10eb3f2849fe",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "ownership_established":  true,
+    "fixture":  {
+                    "stamp":  "20261008093248-2000-c76d10eb3f2849fe",
+                    "policy_key":  "HKLM\\Software\\Policies\\StudioLab",
+                    "value_name":  "LifecycleMarker",
+                    "source_value":  "source-20261008093248-2000-c76d10eb3f2849fe",
+                    "target_value":  "target-20261008093248-2000-c76d10eb3f2849fe",
+                    "perturbed_value":  "perturbed-20261008093248-2000-c76d10eb3f2849fe",
+                    "source_description":  "Studio lifecycle lane source 20261008093248-2000-c76d10eb3f2849fe",
+                    "target_description":  "Studio lifecycle lane target 20261008093248-2000-c76d10eb3f2849fe",
+                    "perturbed_description":  "Studio lifecycle lane perturbed 20261008093248-2000-c76d10eb3f2849fe",
+                    "ou_parent_dn":  "OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev",
+                    "ou_source_dn":  "OU=src-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev",
+                    "ou_target_dn":  "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev",
+                    "source_group_sid":  "S-1-5-21-343068944-2904821402-3322616572-2611",
+                    "target_group_sid":  "S-1-5-21-343068944-2904821402-3322616572-2612",
+                    "source_wmi_filter_id":  "{39b2ba78-17af-4954-95c1-7b21773c44e0}",
+                    "target_wmi_filter_id":  "{a82436d1-4327-4c51-b7ad-c43b828fd7c1}",
+                    "source_wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-src-wmi",
+                    "target_wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tgt-wmi",
+                    "source_group_name":  "zzlc-482543-src",
+                    "target_group_name":  "zzlc-482543-tgt",
+                    "domain_dn":  "DC=ad,DC=labdomain,DC=dev",
+                    "ownership_marker":  "gpo-studio-lifecycle:lifecycle-20261008093248-2000-c76d10eb3f2849fe:b64a83e0-7e70-4476-9c2b-b2e18142a07f"
+                },
+    "backup":  {
+                   "backup_id":  "{F7EBFA41-B1F0-4325-81CB-9D471A080C86}",
+                   "source_gpo_id":  "deca063b-39dd-431f-b5cd-fab1896dd62f",
+                   "relative_path":  "backup"
+               },
+    "control_state":  {
+                          "gpo_id":  "c8a86161-d4ba-4e22-aaae-a5deb6782404",
+                          "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-control",
+                          "description":  "",
+                          "gpo_status":  "AllSettingsEnabled",
+                          "settings_value":  "",
+                          "gpc_wql_filter":  "",
+                          "wmi_filter_id":  "",
+                          "wmi_filter_name":  "",
+                          "links":  [
+
+                                    ],
+                          "permissions":  [
+                                              "S-1-5-11|GpoApply|False",
+                                              "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                              "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                              "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                              "S-1-5-9|GpoRead|False"
+                                          ],
+                          "permission_names":  [
+                                                   "Authenticated Users|GpoApply|False|inherited=False",
+                                                   "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                   "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                   "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                   "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False"
+                                               ],
+                          "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPLORC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)",
+                          "gpo_cmt_present":  false
+                      },
+    "source_baseline":  {
+                            "gpo_id":  "deca063b-39dd-431f-b5cd-fab1896dd62f",
+                            "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-source",
+                            "description":  "Studio lifecycle lane source 20261008093248-2000-c76d10eb3f2849fe",
+                            "gpo_status":  "AllSettingsEnabled",
+                            "settings_value":  "source-20261008093248-2000-c76d10eb3f2849fe",
+                            "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{39b2ba78-17af-4954-95c1-7b21773c44e0};0]",
+                            "wmi_filter_id":  "{39b2ba78-17af-4954-95c1-7b21773c44e0}",
+                            "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-src-wmi",
+                            "links":  [
+                                          "OU=src-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                                      ],
+                            "permissions":  [
+                                                "S-1-5-11|GpoRead|False",
+                                                "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                "S-1-5-21-343068944-2904821402-3322616572-2611|GpoApply|False",
+                                                "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                "S-1-5-9|GpoRead|False"
+                                            ],
+                            "permission_names":  [
+                                                     "Authenticated Users|GpoRead|False|inherited=False",
+                                                     "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                     "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                     "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                     "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                     "zzlc-482543-src|GpoApply|False|inherited=False"
+                                                 ],
+                            "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2611)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2611)",
+                            "gpo_cmt_present":  true
+                        },
+    "target_baseline":  {
+                            "gpo_id":  "d1cd249a-ac88-4762-986d-ad2ff323fcf8",
+                            "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-target",
+                            "description":  "Studio lifecycle lane target 20261008093248-2000-c76d10eb3f2849fe",
+                            "gpo_status":  "AllSettingsEnabled",
+                            "settings_value":  "target-20261008093248-2000-c76d10eb3f2849fe",
+                            "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{a82436d1-4327-4c51-b7ad-c43b828fd7c1};0]",
+                            "wmi_filter_id":  "{a82436d1-4327-4c51-b7ad-c43b828fd7c1}",
+                            "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tgt-wmi",
+                            "links":  [
+                                          "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                                      ],
+                            "permissions":  [
+                                                "S-1-5-11|GpoRead|False",
+                                                "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                "S-1-5-21-343068944-2904821402-3322616572-2612|GpoApply|False",
+                                                "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                "S-1-5-9|GpoRead|False"
+                                            ],
+                            "permission_names":  [
+                                                     "Authenticated Users|GpoRead|False|inherited=False",
+                                                     "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                     "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                     "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                     "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                     "zzlc-482543-tgt|GpoApply|False|inherited=False"
+                                                 ],
+                            "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2612)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2612)",
+                            "gpo_cmt_present":  true
+                        },
+    "restore_perturbed":  {
+                              "gpo_id":  "deca063b-39dd-431f-b5cd-fab1896dd62f",
+                              "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-source",
+                              "description":  "Studio lifecycle lane perturbed 20261008093248-2000-c76d10eb3f2849fe",
+                              "gpo_status":  "AllSettingsEnabled",
+                              "settings_value":  "perturbed-20261008093248-2000-c76d10eb3f2849fe",
+                              "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{a82436d1-4327-4c51-b7ad-c43b828fd7c1};0]",
+                              "wmi_filter_id":  "{a82436d1-4327-4c51-b7ad-c43b828fd7c1}",
+                              "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tgt-wmi",
+                              "links":  [
+                                            "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                                        ],
+                              "permissions":  [
+                                                  "S-1-5-11|GpoRead|False",
+                                                  "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                  "S-1-5-21-343068944-2904821402-3322616572-2612|GpoApply|False",
+                                                  "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                  "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                  "S-1-5-9|GpoRead|False"
+                                              ],
+                              "permission_names":  [
+                                                       "Authenticated Users|GpoRead|False|inherited=False",
+                                                       "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                       "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                       "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                       "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                       "zzlc-482543-tgt|GpoApply|False|inherited=False"
+                                                   ],
+                              "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2612)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2612)",
+                              "gpo_cmt_present":  true
+                          },
+    "operations":  {
+                       "copy":  {
+                                    "succeeded":  true,
+                                    "error":  null,
+                                    "target_preexisted":  false,
+                                    "target_before":  null,
+                                    "target_after":  {
+                                                         "gpo_id":  "5898a487-2fff-491f-8f51-879ecb60ca07",
+                                                         "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-copy-a069e895866d4aef",
+                                                         "description":  "Studio lifecycle lane source 20261008093248-2000-c76d10eb3f2849fe",
+                                                         "gpo_status":  "AllSettingsEnabled",
+                                                         "settings_value":  "source-20261008093248-2000-c76d10eb3f2849fe",
+                                                         "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{39b2ba78-17af-4954-95c1-7b21773c44e0};0]",
+                                                         "wmi_filter_id":  "{39b2ba78-17af-4954-95c1-7b21773c44e0}",
+                                                         "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-src-wmi",
+                                                         "links":  [
+
+                                                                   ],
+                                                         "permissions":  [
+                                                                             "S-1-5-11|GpoApply|False",
+                                                                             "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                                             "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                                             "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                                             "S-1-5-9|GpoRead|False"
+                                                                         ],
+                                                         "permission_names":  [
+                                                                                  "Authenticated Users|GpoApply|False|inherited=False",
+                                                                                  "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                  "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                  "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                                                  "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False"
+                                                                              ],
+                                                         "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPLORC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)",
+                                                         "gpo_cmt_present":  true
+                                                     }
+                                },
+                       "copy_with_acl":  {
+                                             "succeeded":  true,
+                                             "error":  null,
+                                             "target_preexisted":  false,
+                                             "target_before":  null,
+                                             "target_after":  {
+                                                                  "gpo_id":  "4bb43e60-7326-4242-a72f-1fc7c1378838",
+                                                                  "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-copy_with_acl-28660cd576024be9",
+                                                                  "description":  "Studio lifecycle lane source 20261008093248-2000-c76d10eb3f2849fe",
+                                                                  "gpo_status":  "AllSettingsEnabled",
+                                                                  "settings_value":  "source-20261008093248-2000-c76d10eb3f2849fe",
+                                                                  "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{39b2ba78-17af-4954-95c1-7b21773c44e0};0]",
+                                                                  "wmi_filter_id":  "{39b2ba78-17af-4954-95c1-7b21773c44e0}",
+                                                                  "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-src-wmi",
+                                                                  "links":  [
+
+                                                                            ],
+                                                                  "permissions":  [
+                                                                                      "S-1-5-11|GpoRead|False",
+                                                                                      "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                                                      "S-1-5-21-343068944-2904821402-3322616572-2611|GpoApply|False",
+                                                                                      "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                                                      "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                                                      "S-1-5-9|GpoRead|False"
+                                                                                  ],
+                                                                  "permission_names":  [
+                                                                                           "Authenticated Users|GpoRead|False|inherited=False",
+                                                                                           "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                           "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                           "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                                                           "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                           "zzlc-482543-src|GpoApply|False|inherited=False"
+                                                                                       ],
+                                                                  "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2611)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2611)",
+                                                                  "gpo_cmt_present":  true
+                                                              }
+                                         },
+                       "import_as_new":  {
+                                             "succeeded":  true,
+                                             "error":  null,
+                                             "target_preexisted":  false,
+                                             "target_before":  null,
+                                             "target_after":  {
+                                                                  "gpo_id":  "ba183c02-ad75-4b3f-873b-88e56c138fa7",
+                                                                  "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-imported-0e19dacd1080438e",
+                                                                  "description":  "Studio lifecycle lane source 20261008093248-2000-c76d10eb3f2849fe",
+                                                                  "gpo_status":  "AllSettingsEnabled",
+                                                                  "settings_value":  "source-20261008093248-2000-c76d10eb3f2849fe",
+                                                                  "gpc_wql_filter":  "",
+                                                                  "wmi_filter_id":  "",
+                                                                  "wmi_filter_name":  "",
+                                                                  "links":  [
+
+                                                                            ],
+                                                                  "permissions":  [
+                                                                                      "S-1-5-11|GpoApply|False",
+                                                                                      "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                                                      "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                                                      "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                                                      "S-1-5-9|GpoRead|False"
+                                                                                  ],
+                                                                  "permission_names":  [
+                                                                                           "Authenticated Users|GpoApply|False|inherited=False",
+                                                                                           "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                           "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                           "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                                                           "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False"
+                                                                                       ],
+                                                                  "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPLORC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)",
+                                                                  "gpo_cmt_present":  true
+                                                              }
+                                         },
+                       "import_into_existing":  {
+                                                    "succeeded":  true,
+                                                    "error":  null,
+                                                    "target_preexisted":  true,
+                                                    "target_before":  {
+                                                                          "gpo_id":  "d1cd249a-ac88-4762-986d-ad2ff323fcf8",
+                                                                          "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-target",
+                                                                          "description":  "Studio lifecycle lane target 20261008093248-2000-c76d10eb3f2849fe",
+                                                                          "gpo_status":  "AllSettingsEnabled",
+                                                                          "settings_value":  "target-20261008093248-2000-c76d10eb3f2849fe",
+                                                                          "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{a82436d1-4327-4c51-b7ad-c43b828fd7c1};0]",
+                                                                          "wmi_filter_id":  "{a82436d1-4327-4c51-b7ad-c43b828fd7c1}",
+                                                                          "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tgt-wmi",
+                                                                          "links":  [
+                                                                                        "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                                                                                    ],
+                                                                          "permissions":  [
+                                                                                              "S-1-5-11|GpoRead|False",
+                                                                                              "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                                                              "S-1-5-21-343068944-2904821402-3322616572-2612|GpoApply|False",
+                                                                                              "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                                                              "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                                                              "S-1-5-9|GpoRead|False"
+                                                                                          ],
+                                                                          "permission_names":  [
+                                                                                                   "Authenticated Users|GpoRead|False|inherited=False",
+                                                                                                   "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                                   "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                                   "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                                                                   "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                                   "zzlc-482543-tgt|GpoApply|False|inherited=False"
+                                                                                               ],
+                                                                          "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2612)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2612)",
+                                                                          "gpo_cmt_present":  true
+                                                                      },
+                                                    "target_after":  {
+                                                                         "gpo_id":  "d1cd249a-ac88-4762-986d-ad2ff323fcf8",
+                                                                         "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-target",
+                                                                         "description":  "Studio lifecycle lane source 20261008093248-2000-c76d10eb3f2849fe",
+                                                                         "gpo_status":  "AllSettingsEnabled",
+                                                                         "settings_value":  "source-20261008093248-2000-c76d10eb3f2849fe",
+                                                                         "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{a82436d1-4327-4c51-b7ad-c43b828fd7c1};0]",
+                                                                         "wmi_filter_id":  "{a82436d1-4327-4c51-b7ad-c43b828fd7c1}",
+                                                                         "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tgt-wmi",
+                                                                         "links":  [
+                                                                                       "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                                                                                   ],
+                                                                         "permissions":  [
+                                                                                             "S-1-5-11|GpoRead|False",
+                                                                                             "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                                                             "S-1-5-21-343068944-2904821402-3322616572-2612|GpoApply|False",
+                                                                                             "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                                                             "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                                                             "S-1-5-9|GpoRead|False"
+                                                                                         ],
+                                                                         "permission_names":  [
+                                                                                                  "Authenticated Users|GpoRead|False|inherited=False",
+                                                                                                  "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                                  "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                                  "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                                                                  "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                                  "zzlc-482543-tgt|GpoApply|False|inherited=False"
+                                                                                              ],
+                                                                         "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2612)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2612)",
+                                                                         "gpo_cmt_present":  true
+                                                                     }
+                                                },
+                       "restore_in_place":  {
+                                                "succeeded":  true,
+                                                "error":  null,
+                                                "target_preexisted":  true,
+                                                "target_before":  {
+                                                                      "gpo_id":  "deca063b-39dd-431f-b5cd-fab1896dd62f",
+                                                                      "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-source",
+                                                                      "description":  "Studio lifecycle lane perturbed 20261008093248-2000-c76d10eb3f2849fe",
+                                                                      "gpo_status":  "AllSettingsEnabled",
+                                                                      "settings_value":  "perturbed-20261008093248-2000-c76d10eb3f2849fe",
+                                                                      "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{a82436d1-4327-4c51-b7ad-c43b828fd7c1};0]",
+                                                                      "wmi_filter_id":  "{a82436d1-4327-4c51-b7ad-c43b828fd7c1}",
+                                                                      "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tgt-wmi",
+                                                                      "links":  [
+                                                                                    "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                                                                                ],
+                                                                      "permissions":  [
+                                                                                          "S-1-5-11|GpoRead|False",
+                                                                                          "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                                                          "S-1-5-21-343068944-2904821402-3322616572-2612|GpoApply|False",
+                                                                                          "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                                                          "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                                                          "S-1-5-9|GpoRead|False"
+                                                                                      ],
+                                                                      "permission_names":  [
+                                                                                               "Authenticated Users|GpoRead|False|inherited=False",
+                                                                                               "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                               "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                               "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                                                               "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                               "zzlc-482543-tgt|GpoApply|False|inherited=False"
+                                                                                           ],
+                                                                      "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2612)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2612)",
+                                                                      "gpo_cmt_present":  true
+                                                                  },
+                                                "target_after":  {
+                                                                     "gpo_id":  "deca063b-39dd-431f-b5cd-fab1896dd62f",
+                                                                     "display_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-source",
+                                                                     "description":  "Studio lifecycle lane source 20261008093248-2000-c76d10eb3f2849fe",
+                                                                     "gpo_status":  "AllSettingsEnabled",
+                                                                     "settings_value":  "source-20261008093248-2000-c76d10eb3f2849fe",
+                                                                     "gpc_wql_filter":  "[AD.LABDOMAIN.DEV;{39b2ba78-17af-4954-95c1-7b21773c44e0};0]",
+                                                                     "wmi_filter_id":  "{39b2ba78-17af-4954-95c1-7b21773c44e0}",
+                                                                     "wmi_filter_name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-src-wmi",
+                                                                     "links":  [
+                                                                                   "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                                                                               ],
+                                                                     "permissions":  [
+                                                                                         "S-1-5-11|GpoRead|False",
+                                                                                         "S-1-5-18|GpoEditDeleteModifySecurity|False",
+                                                                                         "S-1-5-21-343068944-2904821402-3322616572-2611|GpoApply|False",
+                                                                                         "S-1-5-21-343068944-2904821402-3322616572-512|GpoEditDeleteModifySecurity|False",
+                                                                                         "S-1-5-21-343068944-2904821402-3322616572-519|GpoEditDeleteModifySecurity|False",
+                                                                                         "S-1-5-9|GpoRead|False"
+                                                                                     ],
+                                                                     "permission_names":  [
+                                                                                              "Authenticated Users|GpoRead|False|inherited=False",
+                                                                                              "Domain Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                              "Enterprise Admins|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                              "ENTERPRISE DOMAIN CONTROLLERS|GpoRead|False|inherited=False",
+                                                                                              "SYSTEM|GpoEditDeleteModifySecurity|False|inherited=False",
+                                                                                              "zzlc-482543-src|GpoApply|False|inherited=False"
+                                                                                          ],
+                                                                     "dacl_sddl":  "O:DAG:DAD:PAI(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPRC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-343068944-2904821402-3322616572-519)(A;CI;LCRPRC;;;S-1-5-21-343068944-2904821402-3322616572-2611)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;S-1-5-21-343068944-2904821402-3322616572-2611)",
+                                                                     "gpo_cmt_present":  true
+                                                                 }
+                                            }
+                   },
+    "created":  {
+                    "ous":  [
+                                "OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev",
+                                "OU=src-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev",
+                                "OU=tgt-link,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                            ],
+                    "groups":  [
+                                   "CN=zzlc-482543-src,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev",
+                                   "CN=zzlc-482543-tgt,OU=zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe,DC=ad,DC=labdomain,DC=dev"
+                               ],
+                    "wmi_filters":  [
+                                        "CN={39b2ba78-17af-4954-95c1-7b21773c44e0},CN=SOM,CN=WMIPolicy,CN=System,DC=ad,DC=labdomain,DC=dev",
+                                        "CN={a82436d1-4327-4c51-b7ad-c43b828fd7c1},CN=SOM,CN=WMIPolicy,CN=System,DC=ad,DC=labdomain,DC=dev"
+                                    ],
+                    "gpos":  [
+                                 {
+                                     "role":  "control",
+                                     "name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-control",
+                                     "id":  "c8a86161-d4ba-4e22-aaae-a5deb6782404",
+                                     "owned":  true,
+                                     "creation_evidence":  null
+                                 },
+                                 {
+                                     "role":  "source",
+                                     "name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-source",
+                                     "id":  "deca063b-39dd-431f-b5cd-fab1896dd62f",
+                                     "owned":  true,
+                                     "creation_evidence":  null
+                                 },
+                                 {
+                                     "role":  "target",
+                                     "name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-target",
+                                     "id":  "d1cd249a-ac88-4762-986d-ad2ff323fcf8",
+                                     "owned":  true,
+                                     "creation_evidence":  null
+                                 },
+                                 {
+                                     "role":  "copy",
+                                     "name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-copy-a069e895866d4aef",
+                                     "id":  "5898a487-2fff-491f-8f51-879ecb60ca07",
+                                     "owned":  true,
+                                     "creation_evidence":  "in_snapshot=False;when_created_utc=2026-10-08T09:32:46Z;dc_start_utc=2026-10-08T09:32:46Z"
+                                 },
+                                 {
+                                     "role":  "copy_with_acl",
+                                     "name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-copy_with_acl-28660cd576024be9",
+                                     "id":  "4bb43e60-7326-4242-a72f-1fc7c1378838",
+                                     "owned":  true,
+                                     "creation_evidence":  "in_snapshot=False;when_created_utc=2026-10-08T09:32:46Z;dc_start_utc=2026-10-08T09:32:46Z"
+                                 },
+                                 {
+                                     "role":  "import_as_new",
+                                     "name":  "zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-imported-0e19dacd1080438e",
+                                     "id":  "ba183c02-ad75-4b3f-873b-88e56c138fa7",
+                                     "owned":  true,
+                                     "creation_evidence":  "in_snapshot=False;when_created_utc=2026-10-08T09:32:47Z;dc_start_utc=2026-10-08T09:32:47Z"
+                                 }
+                             ]
+                },
+    "cleanup":  {
+                    "problems":  [
+
+                                 ],
+                    "residual":  {
+                                     "surviving_gpos":  [
+
+                                                        ],
+                                     "surviving_links":  [
+
+                                                         ],
+                                     "surviving_wmi_filters":  [
+
+                                                               ],
+                                     "surviving_groups":  [
+
+                                                          ],
+                                     "surviving_ous":  [
+
+                                                       ]
+                                 }
+                },
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "computer_system_domain_role":  3,
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33438",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US",
+                        "computer_system_name":  "LABMS01",
+                        "computer_system_domain":  "ad.labdomain.dev"
+                    },
+    "error":  null
+}

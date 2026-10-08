@@ -127,10 +127,45 @@ that test. See [`bound-source-cost.md`](plan-033/bound-source-cost.md).
 The batch re-earns existing lanes. It does not by itself move any module to
 `yes`.
 
+## Lanes banked after the batch
+
+Three new lanes were certified on 2026-10-08 and banked with their evidence
+packs. `tests/test_committed_evidence.py`, which the release now requires on
+the tagged commit, holds every live verdict to the source bytes it binds. All
+three ran on the estate member server LabMS01 (Windows Server 2025, build
+26100, Windows PowerShell 5.1).
+
+| Lane | Certifying run | Commit | What it certifies |
+|---|---|---|---|
+| firewall | `firewall-20261008094055-2092337` (36/36) | `a6e0002` | `firewall_policy.py` for one measured tranche: the 13 rule shapes and the Domain and Private profile literals. Read leg: rules authored with `New-NetFirewallRule -PolicyStore` parse with zero unrecognised records and equal the authored policy. Write leg: `Import-GPO` of Studio's backup returns Studio's Registry.pol byte for byte. [Results](plan-033/firewall-results.md) |
+| lifecycle (same-domain) | `lifecycle-20261008093248-2000-c76d10eb3f2849fe` (all 30 cells) | `3513052` | `lifecycle.SCOPE_SURVIVAL`: five GPMC operations by six scope dimensions, each agreeing with what Windows did, plus the five plan-identity claims and the backup bridge. One topology. [Results](plan-033/lifecycle-results.md) |
+| report-parity | `report-parity-20261008104512-7480` (25/25, 27/27 cases) | `a1c280b` | `backup.py` / `report.py` over the existing import and plain-text report surfaces, for registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Printers, Scheduled Tasks, Services and Shortcuts. [Results](plan-033/report-parity-results.md) |
+
+What these runs do **not** certify:
+
+- **Power Options** is not certified. Its only case passes on a pinned known
+  divergence, WI-072 (the power plan is dropped on write). WI-073 (scheduled
+  and immediate task interleaving is lost on write) is also open and accepted
+  only as a pinned divergence. Seven Studio preference families have no
+  capture and are not claimed, and ADMX policy rendering, Scripts, links,
+  security filtering and WMI filters are named exclusions of the report-parity
+  lane.
+- **Firewall:** PolicyStore readback, not endpoint application; one build;
+  values outside the tranche are refused; GPME display is unmeasured, and
+  Studio registers a different tool GUID from native authoring (WI-077).
+  IPsec, Public Key, wired and wireless policy are out of scope for 1.x.
+- **Lifecycle:** one topology (one source, one target, one member server, one
+  DC). A deleted GPO's restore, multi-DC replication, `Import-GPO -TargetName`
+  into an existing GPO, deny ACEs and the WMI filter object are unmeasured.
+  The cross-domain half is out of scope until the estate has a second domain
+  or a trust.
+
 ## Plan 034 module exits
 
-State as of 2026-10-08, after the Scripts and publication surfaces merged, from
-the [Plan 034 status line](../plans/034-post-1.0-layer-reconciliation.md) and the
+State as of 2026-10-08, after the Scripts, publication, firewall and
+restore-plan surfaces and the report-parity lane merged, matching the
+[capability matrix](capability-matrix.md), the
+[Plan 034 status line](../plans/034-post-1.0-layer-reconciliation.md) and the
 [rulings](direction-2026-10-07-plan-034-completion.md). The last column says
 what 1.1.0 may claim. It is filled in at the release cut and may only say
 "capability" for a row whose lane **and** surface both exist.
@@ -142,10 +177,10 @@ what 1.1.0 may claim. It is filled in at the release cut and may only say
 | `security_template.py` | exits through its consumers | bound by three live verdicts | via the two endpoints above | no standalone claim; reading GPME-authored `GptTmpl.inf` is out of scope |
 | `publication.py` | `yes` | publication completeness (21/21 at `263f196`) | `GET /api/gpos/{guid}/publication-plan` and the Publication preview panel (review-only) | capability: review-only preview; steps marked `measured`, `unmeasured` or `refused`; nothing writes |
 | `script_policy.py` | `yes` | Scripts metadata (20/20 at `263f196`) | `POST /api/gpos/{guid}/gpmc-backup-with-scripts` (+ `/preview`) and the Scripts panel | capability: the measured shape only; unmeasured shapes refused with 422 |
-| `fdeploy.py` | lane, or the writer stays deferred (WI-066) | **open** | read surface exists (`POST /api/folder-redirection/fdeploy`, browser panel); no lane | to be resolved; no writer either way |
-| `network_security.py` | firewall: codec, lane, surface; the rest out of scope | firewall lane **open** (ruled out if no verdict by about 2026-10-24) | none | to be resolved; IPsec, Public Key, wired and wireless are not claimed |
-| `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | **open** | none | to be resolved; cross-domain is not claimed |
-| `backup.py` / `report.py` | report-parity lane for modelled families | **open** | none | to be resolved |
+| `fdeploy.py` | lane, or the writer stays deferred (WI-066) | **open** (the one open exit at this draft) | read surface exists (`POST /api/folder-redirection/fdeploy`, browser panel); no lane, so capture-backed (R3) | to be resolved; `Flags` decoding and the writer stay deferred under WI-066 either way |
+| `network_security.py` / `firewall_policy.py` | firewall: codec, lane, surface; the rest out of scope | firewall (`firewall-20261008094055-2092337`, 36/36 at `a6e0002`) | `POST /api/network-security/firewall/render`, `GET /api/gpos/{guid}/firewall-policy` | capability: the measured tranche only, everything else refused; IPsec, Public Key, wired and wireless are not claimed |
+| `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | same-domain lifecycle (`lifecycle-20261008093248-2000-c76d10eb3f2849fe`, 30/30 cells at `3513052`) | `POST /api/lifecycle/restore-plan` (review only) | capability: same-domain restore plans over GPOs imported from a Windows backup; cross-domain is refused and not claimed |
+| `backup.py` / `report.py` | report-parity lane for modelled families | report-parity (`report-parity-20261008104512-7480`, 25/25 at `a1c280b`) | existing backup import and plain-text report | capability: report parity for the families listed above; Power Options and the uncaptured families are not claimed |
 | `artifact_store.py` | deleted | n/a | n/a | not shipped |
 | `software_install.py` | deleted | n/a | n/a | not shipped |
 | `folder_redirection.py` | deleted (superseded by `fdeploy.py`) | n/a | n/a | not shipped |
@@ -252,8 +287,12 @@ data. Each is pinned by a test:
   capability, whatever its lane says.
 - **Out of scope for 1.x:** IPsec, Public Key, wired and wireless policy;
   cross-domain lifecycle; delivering script or executable payloads; writing
-  Software Installation; a Folder Redirection writer unless WI-066 is answered;
-  `publisher.py` and `hosting.py` as capabilities.
+  Software Installation; a Folder Redirection writer and `Flags` decoding
+  unless WI-066 is answered; `publisher.py` and `hosting.py` as capabilities.
+- **Not certified within certified lanes:** Power Options report parity
+  (WI-072), task interleaving on write (WI-073), the seven uncaptured
+  preference families, firewall values outside the measured tranche, and the
+  lifecycle cases listed under the banked lanes above.
 - **Deployment profile unchanged:** one operator on loopback, no
   authentication, no TLS, no hosted or multi-user mode. The `actor` on each
   revision is claimed, not authenticated.

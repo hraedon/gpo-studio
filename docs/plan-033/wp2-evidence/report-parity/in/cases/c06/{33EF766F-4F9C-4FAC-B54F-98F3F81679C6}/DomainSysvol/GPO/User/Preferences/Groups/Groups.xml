@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}"><Group clsid="{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}" name="dev-team" image="0" userContext="0" removePolicy="0" changed="2026-07-26 17:42:06" uid="{5DC5C290-D240-4D21-91AA-527199A653AD}"><Properties action="C" description="" deleteAllUsers="0" userAction="REMOVE" deleteAllGroups="0" removeAccounts="0" groupName="dev-team"><Members><Member name="HRAENET\ünïcode-test-group" action="ADD" sid="S-1-5-21-0000000000-0000000000-0000000000-4675"/></Members></Properties><Filters><FilterGroup bool="AND" not="0" name="HRAENET\Domain Users" sid="S-1-5-21-0000000000-0000000000-0000000000-513" userContext="1" primaryGroup="0" localGroup="0"/><FilterRunOnce hidden="1" not="0" bool="AND" id="{96AFCD0C-EA2A-4ECD-BB76-284E9A8FB23C}"/>
+		</Filters></Group>
+</Groups>
