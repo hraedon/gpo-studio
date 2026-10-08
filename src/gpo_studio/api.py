@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
+from starlette.routing import Match
 from starlette.types import Scope
 
 from . import __version__
@@ -1962,33 +1963,48 @@ def _is_loopback_host(host: str) -> bool:
 #: body FastAPI could not parse) nothing about what the surface could never
 #: have answered. Every refusal path in this module builds its body through
 #: `_error_body`, which adds `limitations` beside the error for a registered
-#: route. Matching is by path template, not by `scope["route"]`, because the
-#: middleware refuses before routing has happened. The firewall surface
-#: registers itself where it is defined.
+#: route. The route is the one the router matched (`scope["route"]`) or, for
+#: the middleware, which refuses before routing, the one the router would
+#: match (`_routed_template`). The firewall surface registers itself where it
+#: is defined.
 _ROUTE_LIMITATIONS: dict[str, Callable[[], list[dict[str, str]]]] = {}
 
 
-def _route_limitations(path: str) -> list[dict[str, str]] | None:
+def _routed_template(scope: Scope) -> str | None:
+    """The path template of the route the router picks (or picked) for *scope*.
+
+    A matched route is in the scope once routing has run; that is the answer.
+    Before routing (the middleware refusals) the router's own choice is
+    replayed: `Route.matches` over `app.routes` in order, the first full match
+    winning and otherwise the first partial (path matched, method not, which
+    the router answers with 405). This uses the decoded ASGI path and root-path
+    handling the router uses. Re-parsing `request.url` would not: a decoded
+    `?` or `#` in the path becomes a URL delimiter there (Sol, PR 96).
+    """
+    matched = scope.get("route")
+    if matched is not None:
+        template = getattr(matched, "path", None)
+        return template if isinstance(template, str) else None
+    if scope.get("type") != "http":
+        return None
+    partial: str | None = None
     for route in app.routes:
+        match, _child = route.matches(scope)
         template = getattr(route, "path", None)
-        regex = getattr(route, "path_regex", None)
-        if (
-            isinstance(template, str)
-            and template in _ROUTE_LIMITATIONS
-            and regex is not None
-            and regex.match(path)
-        ):
-            return _ROUTE_LIMITATIONS[template]()
-    return None
+        if match is Match.FULL:
+            return template if isinstance(template, str) else None
+        if match is Match.PARTIAL and partial is None and isinstance(template, str):
+            partial = template
+    return partial
 
 
 def _error_body(
     request: Request, detail: Any, *, key: str = "error"
 ) -> dict[str, Any]:
     body: dict[str, Any] = {key: detail}
-    limitations = _route_limitations(request.url.path)
-    if limitations is not None:
-        body["limitations"] = limitations
+    template = _routed_template(request.scope)
+    if template is not None and template in _ROUTE_LIMITATIONS:
+        body["limitations"] = _ROUTE_LIMITATIONS[template]()
     return body
 
 

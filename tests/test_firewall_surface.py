@@ -619,3 +619,55 @@ def test_a_non_json_body_is_a_422_not_a_500(
     inputs = [issue.get("input") for issue in body["error"]["issues"]]
     assert "<1 bytes, not JSON>" in inputs
     assert ("limitations" in body) is limited
+
+
+# --------------------------------------------------------------------------
+# Limitations follow the router's own path, not a re-parsed URL (Sol, third pass)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def safe_client(store: WorkspaceStore, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.setenv("GPO_STUDIO_UNSAFE_BIND", "0")
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
+        yield test_client
+
+
+@pytest.mark.parametrize("encoded", ["%3F", "%23", "%09"])
+def test_an_unmatched_encoded_suffix_gains_no_limitations(
+    safe_client: TestClient, encoded: str
+) -> None:
+    """`render%3Fextra` routes nowhere; it must not borrow the firewall's body."""
+    path = f"/api/network-security/firewall/render{encoded}extra"
+    response = safe_client.get(path)
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+    refused = safe_client.post(path, json={}, headers={"origin": "null"})
+    assert refused.status_code == 403
+    assert refused.json() == {"error": {"message": "Origin not allowed"}}
+
+
+@pytest.mark.parametrize("encoded", ["%3F", "%23"])
+def test_a_matching_encoded_guid_keeps_the_limitations(
+    safe_client: TestClient, encoded: str
+) -> None:
+    """`/api/gpos/missing%3Fx/firewall-policy` routes to the decode endpoint."""
+    path = f"/api/gpos/missing{encoded}x/firewall-policy"
+    response = safe_client.get(path)
+    assert response.status_code == 404
+    assert _limitation_codes(response.json()) == EVERY_RESPONSE_LIMITATIONS
+    # Refused by the origin middleware before routing; the router would still
+    # pick the decode route (method mismatch is a partial match).
+    refused = safe_client.post(path, json={}, headers={"origin": "null"})
+    assert refused.status_code == 403
+    assert _limitation_codes(refused.json()) == EVERY_RESPONSE_LIMITATIONS
+
+
+def test_a_letter_encoded_in_a_firewall_segment_still_routes_there(
+    safe_client: TestClient,
+) -> None:
+    response = safe_client.post(
+        "/api/network-security/firewall/rend%65r", json={}, headers={"origin": "null"}
+    )
+    assert response.status_code == 403
+    assert _limitation_codes(response.json()) == EVERY_RESPONSE_LIMITATIONS
