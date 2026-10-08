@@ -38,13 +38,19 @@
 #   6. Remove everything this run created, then re-query each object for
 #      ABSENCE by its exact generated name.
 #
-# ## Intent is recorded BEFORE each create
+# ## Intent is recorded BEFORE each create; ownership is PROVEN, not assumed
 #
 # A create can commit on the server and still throw on the way back (a lost
 # response). So every object is entered in the intent inventory before the
-# command that creates it, under the exact unique name this run generated, and
-# cleanup and the residual check look each one up by that name. The ownership
-# guard is what makes "has this run's exact name" mean "this run created it".
+# command that creates it, under the exact unique name this run generated.
+#
+# Intent is not ownership: another creator can take a name between the guard
+# and the create, and then this run's create throws "already exists". So
+# nothing is deleted on the strength of its name. Directory objects (OUs,
+# groups, WMI filters) carry a run-unique MARKER set by the create call itself
+# (description / msWMI-Parm1), and cleanup deletes one only if the marker it
+# reads back is this run's. A GPO is owned only if its create returned it; a GPO
+# found under an intended name after a failed create is reported, not deleted.
 #
 # ## Blast radius
 #
@@ -77,6 +83,9 @@ $prefix = "zz-studio-lifecycle-$stamp"
 # sAMAccountName must stay short; the name and the account name are kept equal
 # so Set-GPPermission -TargetName cannot resolve a different principal.
 $short = '{0:D6}' -f (Get-Random -Minimum 0 -Maximum 999999)
+# Set on every directory object by the call that creates it; cleanup deletes
+# only objects that carry it.
+$marker = "gpo-studio-lifecycle:$runId:$([guid]::NewGuid())"
 
 # Every name this run can create, generated before anything is created.
 $names = [ordered]@{
@@ -207,11 +216,27 @@ function Find-GpoById {
     }
 }
 
+# 'absent', 'ours' (carries this run's marker) or 'foreign'. Absence is decided
+# as in Test-AdObjectExists; any other failure is re-thrown.
+function Get-AdOwnership {
+    param([string]$Identity, [string]$Attribute)
+    try {
+        $object = Get-ADObject -Identity $Identity -Server $dc -Properties $Attribute -ErrorAction Stop
+    } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+        return 'absent'
+    } catch {
+        if ("$($_.Exception.Message)" -match 'not found|does not exist') { return 'absent' }
+        throw
+    }
+    if ([string](Flatten $object.$Attribute) -eq $marker) { return 'ours' }
+    return 'foreign'
+}
+
 # Intent first, then the create. The entry is a reference: filling in the id
 # after the create updates the inventory in place.
 function Register-GpoIntent {
     param([string]$Role, [string]$Name)
-    $entry = [ordered]@{ role = $Role; name = $Name; id = $null }
+    $entry = [ordered]@{ role = $Role; name = $Name; id = $null; owned = $false }
     $script:created.gpos += $entry
     return $entry
 }
@@ -231,7 +256,7 @@ function New-LaneWmiFilter {
     New-ADObject -Name $filterId -Type 'msWMI-Som' -Path $somPath -Server $dc `
         -OtherAttributes @{
             'msWMI-Name'         = $Name
-            'msWMI-Parm1'        = 'Studio lifecycle lane, disposable'
+            'msWMI-Parm1'        = $marker
             'msWMI-Parm2'        = $parm2
             'msWMI-ID'           = $filterId
             'msWMI-Author'       = "$($env:USERNAME)@$Domain"
@@ -264,6 +289,7 @@ function New-AuthoredGpo {
     $entry = Register-GpoIntent -Role $Role -Name $Name
     $gpo = New-GPO -Name $Name -Comment $Description -Domain $Domain -Server $dc -ErrorAction Stop
     $entry.id = ([string]$gpo.Id).ToLowerInvariant()
+    $entry.owned = $true
     Set-GPRegistryValue -Guid $gpo.Id -Domain $Domain -Server $dc -Key $PolicyKey `
         -ValueName $ValueName -Type String -Value $Value -ErrorAction Stop | Out-Null
     New-GPLink -Guid $gpo.Id -Target $LinkDn -LinkEnabled Yes -Domain $Domain -Server $dc `
@@ -397,12 +423,12 @@ try {
     # --- 1. Fixtures ----------------------------------------------------------
     $created.ous += $parentDn
     New-ADOrganizationalUnit -Name $prefix -Path $domainDn -Server $dc `
-        -ProtectedFromAccidentalDeletion:$false -ErrorAction Stop
+        -ProtectedFromAccidentalDeletion:$false -Description $marker -ErrorAction Stop
     if (-not (Wait-ForAdObject -Identity $parentDn -Server $dc)) { throw "OU not readable: $parentDn" }
     foreach ($child in 'src-link', 'tgt-link') {
         $created.ous += "OU=$child,$parentDn"
         New-ADOrganizationalUnit -Name $child -Path $parentDn -Server $dc `
-            -ProtectedFromAccidentalDeletion:$false -ErrorAction Stop
+            -ProtectedFromAccidentalDeletion:$false -Description $marker -ErrorAction Stop
         if (-not (Wait-ForAdObject -Identity "OU=$child,$parentDn" -Server $dc)) {
             throw "OU not readable: OU=$child,$parentDn"
         }
@@ -415,7 +441,7 @@ try {
         $groupDn = "CN=$groupName,$parentDn"
         $created.groups += $groupDn
         New-ADGroup -Name $groupName -SamAccountName $groupName -GroupScope Global `
-            -GroupCategory Security -Path $parentDn -Server $dc -ErrorAction Stop
+            -GroupCategory Security -Path $parentDn -Description $marker -Server $dc -ErrorAction Stop
         if (-not (Wait-ForAdObject -Identity $groupDn -Server $dc)) { throw "group not readable: $groupDn" }
         $groupSids[$side] = [string](Get-ADGroup -Identity $groupDn -Server $dc -ErrorAction Stop).SID.Value
     }
@@ -442,12 +468,17 @@ try {
         source_wmi_filter_name = $names.wmi_src
         target_wmi_filter_name = $names.wmi_tgt
         import_as_new_name     = $names.gpo_import_as_new
+        source_group_name      = $names.group_src
+        target_group_name      = $names.group_tgt
+        domain_dn              = $domainDn
+        ownership_marker       = $marker
     }
     $result.fixture = $fixture
 
     $controlEntry = Register-GpoIntent -Role 'control' -Name $names.gpo_control
     $control = New-GPO -Name $names.gpo_control -Domain $Domain -Server $dc -ErrorAction Stop
     $controlEntry.id = ([string]$control.Id).ToLowerInvariant()
+    $controlEntry.owned = $true
     $result.control_state = Read-ScopeState -Id $control.Id
 
     $source = New-AuthoredGpo -Role 'source' -Name $names.gpo_source `
@@ -490,6 +521,7 @@ try {
                     -SourceDomainController $dc -TargetDomainController $dc -ErrorAction Stop 2> $stderr
             }
             $entry.id = ([string]$copy.Id).ToLowerInvariant()
+            $entry.owned = $true
             Save-CommandOutput $name $copy
             $op.target_after = Read-ScopeState -Id $copy.Id
             $op.succeeded = $true
@@ -513,6 +545,7 @@ try {
             -CreateIfNeeded -Domain $Domain -Server $dc -Confirm:$false -ErrorAction Stop `
             2> (Join-Path $commands 'import_as_new.stderr.txt')
         $entry.id = ([string]$imported.Id).ToLowerInvariant()
+        $entry.owned = $true
         Save-CommandOutput 'import_as_new' $imported
         $op.target_after = Read-ScopeState -Id $imported.Id
         $op.succeeded = $true
@@ -592,18 +625,21 @@ try {
             $problems += 'intent inventory is non-empty although ownership was never established'
         }
     } else {
-        # Resolve every intended GPO by its exact generated name, so one that
-        # was committed but whose create threw is still found.
+        # A GPO is this run's only if its create returned it (owned, with the
+        # id Windows gave it). A GPO that exists under an intended name whose
+        # create THREW is not provably ours -- another creator may have won the
+        # name after the guard -- so it is reported and left in place.
         foreach ($gpo in $created.gpos) {
-            if ($gpo.id) { continue }
+            if ($gpo.owned) { continue }
             try {
-                $found = Find-GpoByName -Name $gpo.name
-                if ($found) { $gpo.id = ([string]$found.Id).ToLowerInvariant() }
+                if (Find-GpoByName -Name $gpo.name) {
+                    $problems += "GPO '$($gpo.name)' exists but its create failed; ownership unproven, left in place"
+                }
             } catch {
-                $problems += "could not resolve $($gpo.name): $($_.Exception.Message)"
+                $problems += "could not look up $($gpo.name): $($_.Exception.Message)"
             }
         }
-        $ownIds = @($created.gpos | Where-Object { $_.id } | ForEach-Object { [guid]$_.id })
+        $ownIds = @($created.gpos | Where-Object { $_.owned } | ForEach-Object { [guid]$_.id })
 
         # Links first, explicitly: Remove-GPO is not relied on to unlink.
         foreach ($scope in $linkScopes) {
@@ -621,7 +657,7 @@ try {
         }
 
         foreach ($gpo in $created.gpos) {
-            if (-not $gpo.id) { continue }
+            if (-not $gpo.owned) { continue }
             try {
                 if (Find-GpoById -Id ([guid]$gpo.id)) {
                     Remove-GPO -Guid ([guid]$gpo.id) -Domain $Domain -Server $dc -Confirm:$false `
@@ -632,67 +668,57 @@ try {
             }
         }
 
-        # WMI filters after the GPOs that referenced them.
-        foreach ($filterDn in $created.wmi_filters) {
-            try {
-                if (Test-AdObjectExists -Identity $filterDn -Server $dc) {
-                    Remove-ADObject -Identity $filterDn -Server $dc -Confirm:$false -ErrorAction Stop
-                }
-            } catch {
-                $problems += "WMI filter delete failed for ${filterDn}: $($_.Exception.Message)"
-            }
-        }
-        # Groups live in the parent OU, so they go before it. No -Recursive
-        # anywhere: a recursive delete would hide the leftovers the residual
-        # check exists to find.
-        foreach ($groupDn in $created.groups) {
-            try {
-                if (Test-AdObjectExists -Identity $groupDn -Server $dc) {
-                    Remove-ADGroup -Identity $groupDn -Server $dc -Confirm:$false -ErrorAction Stop
-                }
-            } catch {
-                $problems += "group delete failed for ${groupDn}: $($_.Exception.Message)"
-            }
-        }
+        # Directory objects carry this run's marker from their create call, so
+        # each is deleted only if the marker read back now is ours. That holds
+        # for a create that committed and then threw (ours: removed) and for a
+        # name another creator took after the guard (foreign: left, reported).
+        # WMI filters after the GPOs that referenced them; groups before the OU
+        # that holds them. No recursive delete anywhere: one would hide
+        # the leftovers the residual check exists to find.
+        $teardown = @()
+        foreach ($filterDn in $created.wmi_filters) { $teardown += , @('wmi', $filterDn, 'msWMI-Parm1') }
+        foreach ($groupDn in $created.groups) { $teardown += , @('group', $groupDn, 'description') }
         $reversed = @($created.ous)
         [array]::Reverse($reversed)
-        foreach ($ouDn in $reversed) {
+        foreach ($ouDn in $reversed) { $teardown += , @('ou', $ouDn, 'description') }
+        foreach ($item in $teardown) {
+            $kind, $dn, $attribute = $item
             try {
-                if (Test-AdObjectExists -Identity $ouDn -Server $dc) {
-                    Remove-ADOrganizationalUnit -Identity $ouDn -Server $dc -Recursive:$false `
-                        -Confirm:$false -ErrorAction Stop
+                $ownership = Get-AdOwnership -Identity $dn -Attribute $attribute
+                if ($ownership -eq 'foreign') {
+                    $problems += "$kind '$dn' exists without this run's marker; not created by this run, left in place"
+                } elseif ($ownership -eq 'ours') {
+                    switch ($kind) {
+                        'wmi' { Remove-ADObject -Identity $dn -Server $dc -Confirm:$false -ErrorAction Stop }
+                        'group' { Remove-ADGroup -Identity $dn -Server $dc -Confirm:$false -ErrorAction Stop }
+                        'ou' {
+                            Remove-ADOrganizationalUnit -Identity $dn -Server $dc -Recursive:$false `
+                                -Confirm:$false -ErrorAction Stop
+                        }
+                    }
                 }
             } catch {
-                $problems += "OU delete failed for ${ouDn}: $($_.Exception.Message)"
+                $problems += "$kind delete failed for ${dn}: $($_.Exception.Message)"
             }
         }
 
-        # Prove the teardown by re-query, by id AND by exact name; "we issued
-        # the delete" is not cleanup.
+        # Prove the teardown by re-query; "we issued the delete" is not cleanup.
         foreach ($gpo in $created.gpos) {
+            if (-not $gpo.owned) { continue }
             try {
-                $byName = Find-GpoByName -Name $gpo.name
-                $byId = $null
-                if ($gpo.id) { $byId = Find-GpoById -Id ([guid]$gpo.id) }
-                if ($byName -or $byId) { $residual.surviving_gpos += [string]$gpo.name }
+                if (Find-GpoById -Id ([guid]$gpo.id)) { $residual.surviving_gpos += [string]$gpo.name }
             } catch {
                 $problems += "could not confirm $($gpo.name) was deleted: $($_.Exception.Message)"
             }
         }
-        foreach ($filterDn in $created.wmi_filters) {
+        $categories = @{ wmi = 'surviving_wmi_filters'; group = 'surviving_groups'; ou = 'surviving_ous' }
+        foreach ($item in $teardown) {
+            $kind, $dn, $attribute = $item
             try {
-                if (Test-AdObjectExists -Identity $filterDn -Server $dc) { $residual.surviving_wmi_filters += $filterDn }
-            } catch { $problems += "could not re-query ${filterDn}: $($_.Exception.Message)" }
-        }
-        foreach ($groupDn in $created.groups) {
-            try {
-                if (Test-AdObjectExists -Identity $groupDn -Server $dc) { $residual.surviving_groups += $groupDn }
-            } catch { $problems += "could not re-query ${groupDn}: $($_.Exception.Message)" }
-        }
-        foreach ($ouDn in $created.ous) {
-            try {
-                if (Test-AdObjectExists -Identity $ouDn -Server $dc) { $residual.surviving_ous += $ouDn }
-            } catch { $problems += "could not re-query ${ouDn}: $($_.Exception.Message)" }
+                if ((Get-AdOwnership -Identity $dn -Attribute $attribute) -eq 'ours') {
+                    $residual[$categories[$kind]] += $dn
+                }
+            } catch { $problems += "could not re-query ${dn}: $($_.Exception.Message)" }
         }
         # The domain root is the one scope outside the disposable tree; read its
         # raw gPLink rather than infer from the GPOs being gone.

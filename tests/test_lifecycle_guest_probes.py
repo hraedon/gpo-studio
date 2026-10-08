@@ -48,13 +48,15 @@ function Get-ADDomain { param($Server) return [pscustomobject]@{ PDCEmulator = '
 function Get-ADObject { param($Identity, $Server, $ErrorAction, $Properties, $LDAPFilter, $SearchBase)
     if ($LDAPFilter) { return @() }
     if ($Identity -eq 'DC=synthetic,DC=test') { return [pscustomobject]@{ gPLink = '' } }
-    if ($global:ad.ContainsKey($Identity)) { return [pscustomobject]@{ DistinguishedName = $Identity } }
+    if ($global:ad.ContainsKey($Identity)) {
+        $v = $global:ad[$Identity]; $m = if ($v -is [hashtable]) { $v.marker } else { '' }
+        return [pscustomobject]@{ DistinguishedName = $Identity; description = $m; 'msWMI-Parm1' = $m } }
     throw [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]::new('not found') }
-function New-ADOrganizationalUnit { param($Name, $Path, $Server, $ProtectedFromAccidentalDeletion, $ErrorAction) $global:ad["OU=$Name,$Path"] = 'ou' }
-function New-ADGroup { param($Name, $SamAccountName, $GroupScope, $GroupCategory, $Path, $Server, $ErrorAction) $global:ad["CN=$Name,$Path"] = 'group' }
+function New-ADOrganizationalUnit { param($Name, $Path, $Server, $ProtectedFromAccidentalDeletion, $Description, $ErrorAction) $global:ad["OU=$Name,$Path"] = @{ kind = 'ou'; marker = $Description } }
+function New-ADGroup { param($Name, $SamAccountName, $GroupScope, $GroupCategory, $Path, $Description, $Server, $ErrorAction) $global:ad["CN=$Name,$Path"] = @{ kind = 'group'; marker = $Description } }
 function Get-ADGroup { param($Identity, $Server, $ErrorAction) return [pscustomobject]@{ SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1101' } } }
 function New-ADObject { param($Name, $Type, $Path, $Server, $OtherAttributes, $ErrorAction)
-    $global:ad["CN=$Name,$Path"] = 'wmi'
+    $global:ad["CN=$Name,$Path"] = @{ kind = 'wmi'; marker = $OtherAttributes['msWMI-Parm1'] }
     if ($global:commitThenThrow -eq 'wmi') { throw 'synthetic: response lost after the server committed the WMI filter' } }
 function Remove-ADObject { param($Identity, $Server, $Confirm, $ErrorAction)
     if ($global:failRemoveWmi) { return }
@@ -152,15 +154,68 @@ def test_guest_probe_a_committed_wmi_filter_that_survives_is_reported(tmp_path: 
     assert report["cleanup_succeeded"] is False
 
 
-def test_guest_probe_a_committed_gpo_whose_create_threw_is_cleaned(tmp_path: Path) -> None:
-    """The control GPO commits and its create throws: found by exact name, removed."""
+def test_guest_probe_a_gpo_whose_create_threw_is_reported_not_deleted(tmp_path: Path) -> None:
+    """Re-review P1: a GPO under an intended name whose create THREW is not provably ours.
+
+    It may have been committed by this run (lost response) or by another
+    creator that won the name after the guard; a GPO carries no marker the
+    create could set without changing a measured dimension, so it is left in
+    place and the run fails loudly instead of deleting it.
+    """
     report = _run_probe(tmp_path, "$global:commitThenThrow = 'gpo'\n")
     created = report["created"]
     assert isinstance(created, dict)
     gpos = created["gpos"]
     gpos = gpos if isinstance(gpos, list) else [gpos]
-    assert [g["role"] for g in gpos] == ["control"]
-    assert gpos[0]["id"]
-    assert report["gpos_left"] == []
+    assert [(g["role"], g["owned"]) for g in gpos] == [("control", False)]
+    assert report["gpos_left"] == ["zz-studio-lifecycle-20261008000000-4321-control"]
     assert report["ad_left"] == []
-    assert report["cleanup_succeeded"] is True
+    assert report["cleanup_succeeded"] is False
+    cleanup = report["cleanup"]
+    assert isinstance(cleanup, dict)
+    assert any("ownership unproven" in p for p in cleanup["problems"])
+
+
+_FOREIGN_OU_RACE = r"""function New-ADOrganizationalUnit { param($Name, $Path, $Server, $ProtectedFromAccidentalDeletion, $Description, $ErrorAction)
+    $global:ad["OU=$Name,$Path"] = 'foreign-ou'
+    throw 'synthetic: another creator won after the absence check; object already exists' }
+"""
+
+
+def test_guest_probe_a_name_won_by_another_creator_is_not_deleted(tmp_path: Path) -> None:
+    """Re-review P1 (Sol's ownership_race): intent alone is not ownership.
+
+    The parent OU is taken by someone else between the guard and the create;
+    this run's create throws. The foreign OU carries no marker of this run, so
+    cleanup leaves it and reports the run as not cleanly torn down.
+    """
+    report = _run_probe(tmp_path, _FOREIGN_OU_RACE)
+    parent = "OU=zz-studio-lifecycle-20261008000000-4321,DC=synthetic,DC=test"
+    assert report["deleted"] == []
+    assert report["ad_left"] == [parent]
+    assert report["cleanup_succeeded"] is False
+    cleanup = report["cleanup"]
+    assert isinstance(cleanup, dict)
+    assert any("without this run's marker" in p for p in cleanup["problems"])
+    assert cleanup["residual"]["surviving_ous"] == []
+
+
+_FOREIGN_WMI_RACE = r"""function New-ADObject { param($Name, $Type, $Path, $Server, $OtherAttributes, $ErrorAction)
+    $global:ad["CN=$Name,$Path"] = @{ kind = 'wmi'; marker = 'someone else' }
+    throw 'synthetic: object already exists' }
+"""
+
+
+def test_guest_probe_a_foreign_wmi_filter_is_not_deleted(tmp_path: Path) -> None:
+    report = _run_probe(tmp_path, _FOREIGN_WMI_RACE)
+    ad_left = report["ad_left"]
+    assert isinstance(ad_left, list) and len(ad_left) == 1
+    assert str(ad_left[0]).startswith("CN={")
+    assert not any(str(d).startswith("CN={") for d in report["deleted"])  # type: ignore[union-attr]
+    assert report["cleanup_succeeded"] is False
+
+
+def test_guest_probe_objects_carrying_the_runs_marker_are_removed(tmp_path: Path) -> None:
+    """The control for the two race probes: a clean early failure tears down fully."""
+    report = _run_probe(tmp_path, "$global:commitThenThrow = 'gpo'\n")
+    assert report["ad_left"] == []
