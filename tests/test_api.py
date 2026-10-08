@@ -767,6 +767,35 @@ def test_gpmc_backup_rejected_with_cse_metadata(tmp_path) -> None:
         assert resp.json()["error"]["issues"][0]["code"] == "unknown_cse_content"
 
 
+def test_gpmc_export_capability_agrees_with_route_for_empty_cse_entry(tmp_path) -> None:
+    """A preserved extension entry listing no files is refused AND advertised so.
+
+    The capability used to ask the preserved FILE count, which is 0 for such an
+    entry, so it reported `enabled: true` for a GPO whose download then refused
+    with `unknown_cse_content`. It must report disabled, with the route's reason.
+    """
+    from gpo_studio.model import CseMetadataEntry
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    with TestClient(app) as client:
+        gpo = store.create_gpo(
+            "Empty CSE entry", identity="tester", reason="test",
+            cse_metadata=(CseMetadataEntry(guid="{unknown-guid}", side="machine"),),
+        )
+        assert gpo.cse_metadata and not gpo.cse_metadata[0].files
+        payload = client.get(f"/api/gpos/{gpo.guid}").json()
+        download = client.get(f"/api/gpos/{gpo.guid}/gpmc-backup")
+    assert download.status_code == 422
+    refusal = download.json()["error"]["issues"][0]
+    assert refusal["code"] == "unknown_cse_content"
+    capabilities = payload["artifact_capabilities"]
+    assert capabilities["preserved_content"]["file_count"] == 0
+    for kind in ("gpmc_export", "scripts_export"):
+        assert capabilities[kind]["enabled"] is False, kind
+        assert capabilities[kind]["reason"] == refusal["message"], kind
+
+
 def test_three_way_diff_identical(tmp_path) -> None:
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store

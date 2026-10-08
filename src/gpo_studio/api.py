@@ -1844,6 +1844,7 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # so the same refusal takes the bundle with it.
     plan_blocked = plan_refusal(gpo)
     plan_reason = plan_blocked.message if plan_blocked is not None else ""
+    unknown_cse = _unknown_cse_refusal(gpo)
     # WI-046. Same class as WI-044, one capability along: the GMPC backup path
     # refuses GPP families outside `_GPP_EXTENSION_PROFILES` (Registry was among
     # them until batch 2 measured its pair; an unmeasured GPP Registry item
@@ -1868,16 +1869,15 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
                 "reason": plan_reason,
             },
             "gpmc_export": {
-                "enabled": not blocked and preserved_files == 0 and backup_blocked is None,
+                "enabled": not blocked and unknown_cse is None and backup_blocked is None,
                 "format": "zip",
                 # Preserved content is checked first because it is the more
                 # specific answer: such a GPO is refused for a reason the
-                # backup path never reaches.
-                "reason": (
-                    "Preserved extension content cannot be emitted as a GPMC backup."
-                    if preserved_files
-                    else backup_reason
-                ),
+                # backup path never reaches. Asked of `_unknown_cse_refusal`,
+                # the route's own check, rather than of `preserved_files`: an
+                # extension entry that inventories no file has a file count of
+                # 0 and was advertised as enabled while the route refused it.
+                "reason": unknown_cse.message if unknown_cse is not None else backup_reason,
             },
             "powershell_plan": {
                 "enabled": not blocked and plan_blocked is None,
@@ -1887,7 +1887,7 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
             "scripts_export": _scripts_export_capability(
                 gpo,
                 blocked=blocked,
-                preserved_files=preserved_files,
+                unknown_cse=unknown_cse,
                 backup_reason=backup_reason,
             ),
             "policy_report": {"enabled": True, "format": "text"},
@@ -3730,21 +3730,34 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     return _gpo_payload(gpo, request)
 
 
+def _unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
+    """Why preserved extension content refuses a GPMC backup, or ``None``.
+
+    Shared by the two GPMC-backup routes and by the `gpmc_export` and
+    `scripts_export` capabilities, so the advertisement and the refusal are
+    the same check with the same message. It refuses on ANY preserved
+    extension entry, not on the preserved file count, so an entry that
+    inventories no file is refused too.
+    """
+    if not gpo.cse_metadata:
+        return None
+    return ValidationIssue(
+        severity="error",
+        code="unknown_cse_content",
+        message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
+        path="cse_metadata",
+    )
+
+
 @app.get("/api/gpos/{guid}/gpmc-backup")
 def gpmc_backup(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    if gpo.cse_metadata:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="unknown_cse_content",
-                message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
-                path="cse_metadata",
-            )
-        ])
+    unknown_cse = _unknown_cse_refusal(gpo)
+    if unknown_cse is not None:
+        raise ValidationError([unknown_cse])
     backup_id = native_backup_id(gpo)
     fname = f"{_safe_filename(backup_id.strip('{}'))}-gpmc-backup.zip"
     headers = {
@@ -5592,15 +5605,9 @@ def _scripts_export(
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    if gpo.cse_metadata:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="unknown_cse_content",
-                message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
-                path="cse_metadata",
-            )
-        ])
+    unknown_cse = _unknown_cse_refusal(gpo)
+    if unknown_cse is not None:
+        raise ValidationError([unknown_cse])
     refusals = _scripts_gpo_refusals(gpo) + _scripts_request_refusals(body)
     if refusals:
         raise ValidationError(refusals)
@@ -5687,7 +5694,11 @@ def gpmc_backup_with_scripts_preview(
 
 
 def _scripts_export_capability(
-    gpo: GPO, *, blocked: bool, preserved_files: int, backup_reason: str
+    gpo: GPO,
+    *,
+    blocked: bool,
+    unknown_cse: ValidationIssue | None,
+    backup_reason: str,
 ) -> dict[str, Any]:
     """The `scripts_export` artifact capability, from the endpoint's own checks.
 
@@ -5698,10 +5709,11 @@ def _scripts_export_capability(
     reason = ""
     if blocked:
         reason = "Validation errors block this artifact."
-    elif preserved_files or gpo.cse_metadata:
-        # `gpo.cse_metadata`, not only the file count: the route refuses any
-        # preserved extension entry, including one that inventories no file.
-        reason = "Preserved extension content cannot be emitted as a GPMC backup."
+    elif unknown_cse is not None:
+        # The route's own check (`_unknown_cse_refusal`), so the reason is the
+        # one the route gives, and an extension entry that inventories no file
+        # is refused here as it is there.
+        reason = unknown_cse.message
     elif backup_reason:
         reason = backup_reason
     else:
