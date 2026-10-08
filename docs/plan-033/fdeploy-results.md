@@ -1,9 +1,12 @@
 # fdeploy lane results
 
-**Current qualification (2026-10-08):** `fd-20261008102559-9746`, 29/29, on
-clean commit `6b76fad177183999cab7b2bdf35d16baf8fed014`
+**Current qualification (2026-10-08):** `fd-20261008121347-3151`, 29/29, on
+clean commit `df713ef6eb86152e3e1e5ecf1e55f21dd5c64540`
 ([evidence](wp4-evidence/fdeploy/verification.json)), tagged
-`evidence/fd-20261008102559-9746`. This is the lane's first certification.
+`evidence/fd-20261008121347-3151`. It replaced, at the same path, the lane's
+first certification, `fd-20261008102559-9746` at `6b76fad` (see
+[History](#history)). The candidate is byte-identical to that run's; only the
+harness files that build and deliver it changed.
 
 The lane, and the reasoning behind each assertion, are in
 [the lane design](fdeploy-lane-design.md). This page records what the
@@ -140,6 +143,27 @@ the pair the probe measured.
 - **Review of `6b76fad`.** GPT Sol passed the hardened lane ("fit to bank")
   before the certifying run. Two earlier rounds had failed it. The verdict
   gained one check, `no_foreign_residue`, between the two runs.
+- **First certification, `fd-20261008102559-9746` at `6b76fad` (2026-10-08),
+  29/29.** Banked and live until PR #98's Windows CI showed that its candidate
+  did not rebuild on a Windows checkout. The builder sorted `Path` objects,
+  which compare case-insensitively on Windows, so the archive's member order
+  (`bkupInfo.xml` against `DomainSysvol/`) depended on the controller's OS:
+  the defect report-parity's builder had first. The builder now sorts on
+  ordinal path components (`8cb1bc2`), with Windows-ordered regression tests.
+  On Linux the rebuilt candidate stayed byte-identical, but the builder is
+  bound, so that verdict stopped binding the shipping tree. Its pack is in
+  git history and its tag, `evidence/fd-20261008102559-9746`, is preserved.
+- **Two refusals at `8cb1bc2`: "run root exists".** The re-run refused twice
+  before touching a GPO. Since `258c195` the driver had set
+  `GUEST_ROOT="C:\gpo-studio\fd\$STAMP"`; inside double quotes bash reads
+  `\$` as a literal dollar, so every run's guest root was the constant
+  `C:\gpo-studio\fd$STAMP`. The `6b76fad` run created it, and every later run
+  collided with it; the driver's PREPARE guard refused, as designed. The
+  driver now writes `fd\\$STAMP` (`df713ef`), and a test evaluates the
+  driver's path lines in bash and requires a fresh root per run. The stale
+  guest directory was removed. Neither refusal produced a verdict.
+- **Current certification, `fd-20261008121347-3151` at `df713ef`.** 29/29 on
+  a clean tree, with the same candidate bytes as `6b76fad`'s run.
 
 ## Re-run
 

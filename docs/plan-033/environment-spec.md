@@ -25,10 +25,13 @@ batch (WI-069). One verdict was superseded the same hour: `8b1a5b4` changed
 run is the successor `object-security-20261008082348-9729` at
 `1fb3f56ac7431e0044c69c32edc4350b2ab84151`.
 
-The fdeploy lane is newer than the batch. Its first certification,
-`fd-20261008102559-9746` (29/29) at
-`6b76fad177183999cab7b2bdf35d16baf8fed014`, ran on the same member server and
-frozen profile; see [the fdeploy results](fdeploy-results.md).
+The fdeploy lane is newer than the batch. Its current certification,
+`fd-20261008121347-3151` (29/29) at
+`df713ef6eb86152e3e1e5ecf1e55f21dd5c64540`, ran on the same member server and
+frozen profile. It replaced the lane's first certification,
+`fd-20261008102559-9746` at `6b76fad`, which stopped binding when the
+builder's archive order and the driver's guest root were fixed; see
+[the fdeploy results](fdeploy-results.md).
 
 The estate ran at real time on its 2026-09-20 clock-seeded baselines, with no
 forward clock jump. The client's checkpoints and the DC's domain-joined
@@ -70,7 +73,7 @@ produced a verdict.
 | scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `scripts-r10-20261008074828-8492` (`pass`) |
 | publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `publication-completeness-20261008074904-1047` (`pass`) |
 | report-parity | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `report-parity-20261008104512-7480` (`pass`) |
-| fdeploy | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `fd-20261008102559-9746` (`pass`) |
+| fdeploy | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `fd-20261008121347-3151` (`pass`) |
 | endpoint | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `endpoint-observe-20261008075004-5187` (`pass`) |
 | lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `rsop-observe-20261008075254-6590` (`pass`) |
 | disabled-block-enforced | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `rsop-observe-20261008075447-5315` (`pass`) |
@@ -88,8 +91,8 @@ produced a verdict.
 
 Object security binds the successor revision
 (`1fb3f56ac7431e0044c69c32edc4350b2ab84151`) and the fdeploy lane, which the
-batch never ran, binds its own first certification at
-`6b76fad177183999cab7b2bdf35d16baf8fed014`; every other row binds
+batch never ran, binds its own current certification at
+`df713ef6eb86152e3e1e5ecf1e55f21dd5c64540`; every other row binds
 `263f19640529d469c2a54c18b43d228db5378279`. The shared byte guard and finalizer
 inputs are part of the recorded evidence.
 

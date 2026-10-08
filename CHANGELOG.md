@@ -46,6 +46,25 @@ Current version: `1.0.0`.
     `registry_pol.py` or `xml_safety.py` now costs three lanes. See
     [the results](docs/plan-033/report-parity-results.md).
 
+- Re-banked the fdeploy lane: `fd-20261008121347-3151`, 29/29 on clean commit
+  `df713ef`, now holds `docs/plan-033/wp4-evidence/fdeploy/` in place of
+  `fd-20261008102559-9746` (below), with byte-identical candidate bytes. Two
+  harness defects were fixed first, and both edited bound files:
+  - The candidate builder sorted `Path` objects, which compare
+    case-insensitively on Windows, so the archive's member order depended on
+    the controller's OS (PR #98's Windows CI). It now sorts on ordinal path
+    components, as the report-parity builder does, with Windows-ordered
+    regression tests. The evidence tests hold the archive's exact hash on
+    POSIX and its members (names, order, timestamps, compression, attributes,
+    bytes) everywhere.
+  - The driver's guest root was `C:\gpo-studio\fd\$STAMP` inside double
+    quotes, so bash expanded it to the constant `C:\gpo-studio\fd$STAMP`. Every
+    run after the first collided with it, and the estate re-run refused twice
+    with "run root exists". The driver now writes `fd\\$STAMP`, and a test
+    evaluates its path lines in bash and requires a fresh root per run.
+  The old pack is in git history and its tag is preserved. See
+  [the results' history](docs/plan-033/fdeploy-results.md#history).
+
 - Banked the fdeploy lane's certifying run, `fd-20261008102559-9746`: 29/29 on
   clean commit `6b76fad`, on the estate member server (WS2025 26100, Windows
   PowerShell 5.1). It ran four cases: R3's GPMC-written `fdeploy1.ini` verbatim

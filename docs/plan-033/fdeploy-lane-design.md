@@ -1,14 +1,18 @@
 # fdeploy lane design
 
-Status: **certified 2026-10-08 by `fd-20261008102559-9746` (29/29, clean
-commit `6b76fad`); see [the results](fdeploy-results.md).** That run is the
+Status: **certified 2026-10-08 by `fd-20261008121347-3151` (29/29, clean
+commit `df713ef`); see [the results](fdeploy-results.md).** That run is the
 lane's live verdict, banked under `wp4-evidence/fdeploy/`. An earlier
 exploratory pass at `379e59b` (28/28) showed the same measurements, but the
 cross-lineage review of that commit failed it on four findings, all about the
 harness rather than the measurement. Each is fixed here with a regression test
 (see [Review hardening](#review-hardening-2026-10-08)). The hardening edited
 the guest, the builder and the finalizer, which that pass binds, so it is
-history and certifies nothing.
+history and certifies nothing. The first certification,
+`fd-20261008102559-9746` at `6b76fad`, stopped binding when two harness
+defects that Windows CI and the estate found after it were fixed (the
+builder's platform-dependent archive order and the driver's escaped
+`$STAMP`); [the results](fdeploy-results.md#history) record both.
 
 This is the exit the [2026-10-07 direction](../direction-2026-10-07-plan-034-completion.md)
 set for `fdeploy.py`: "banked R3 bytes go through `Import-GPO`, then
@@ -236,7 +240,7 @@ that case's checks and names the error.
 
 ### Unmeasured before the first run (historical)
 
-> **Measured since (2026-10-08, `fd-20261008102559-9746` at `6b76fad`):** `Import-GPO`
+> **Measured since (2026-10-08, `fd-20261008121347-3151` at `df713ef`):** `Import-GPO`
 > accepted the skeleton and kept both files byte for byte, and `Backup-GPO` re-exported
 > them unchanged, in all four cases. The items below are kept as the pre-run record; the
 > first two are now answered. See [the results](fdeploy-results.md).

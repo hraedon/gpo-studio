@@ -2705,8 +2705,9 @@ rendering per case as data for this item and asserts none of it. The first run (
 
 **Update, 2026-10-08: the reader is certified; this item is the writer's.** The
 re-run after review hardening, `fd-20261008102559-9746` (29/29, clean commit `6b76fad`),
-is banked under `docs/plan-033/wp4-evidence/fdeploy/` and live; see
-[the fdeploy results](plan-033/fdeploy-results.md). It supersedes the `379e59b` pass,
+was banked under `docs/plan-033/wp4-evidence/fdeploy/`; after two harness fixes it was
+replaced there by `fd-20261008121347-3151` (29/29, clean commit `df713ef`, same candidate
+bytes), which is live; see [the fdeploy results](plan-033/fdeploy-results.md). Both supersede the `379e59b` pass,
 which binds pre-hardening source and was never banked. For Flags 1021 (R3 verbatim), 1020,
 1023 and 3069, Windows kept the bytes through `Import-GPO` and `Backup-GPO`, and Studio's
 reader agreed with Windows' report on folder, principal and destination. That is the read

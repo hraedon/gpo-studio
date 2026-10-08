@@ -154,8 +154,9 @@ BANKED_AFTER_THE_BATCH: frozenset[str] = frozenset({
     # report-parity-20261008104512-7480 at a1c280b (Plan 034 WP-2 items 2-3).
     "wp2-evidence/report-parity/verification.json",
     # The fdeploy lane (Plan 034 WP-4) did not exist when the batch froze
-    # `263f196`. Its first verdict, `fd-20261008102559-9746` at `6b76fad`, was
-    # banked the same day.
+    # `263f196`. Its current verdict, `fd-20261008121347-3151` at `df713ef`,
+    # was banked the same day (replacing `fd-20261008102559-9746` at
+    # `6b76fad`, which stopped binding after two harness fixes).
     "wp4-evidence/fdeploy/verification.json",
 })
 

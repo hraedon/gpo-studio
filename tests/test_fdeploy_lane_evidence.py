@@ -1,6 +1,6 @@
-"""The fdeploy lane's certifying run, banked: `fd-20261008102559-9746`.
+"""The fdeploy lane's certifying run, banked: `fd-20261008121347-3151`.
 
-One lane on its own commit (`6b76fad`), banked the way the firewall lane and
+One lane on its own commit (`df713ef`), banked the way the firewall lane and
 the Plan 034 object-security successor were: the controller's local run
 directory verbatim, plus `controller-candidate/` (the builder's output) and
 `controller.log`. The generic gates in `test_committed_evidence.py` cover the
@@ -51,13 +51,13 @@ ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "docs/plan-033/wp4-evidence/fdeploy"
 CANDIDATE = PACK / "controller-candidate"
 VERDICT_PATH = "wp4-evidence/fdeploy/verification.json"
-RUN_ID = "fd-20261008102559-9746"
-COMMIT = "6b76fad177183999cab7b2bdf35d16baf8fed014"
+RUN_ID = "fd-20261008121347-3151"
+COMMIT = "df713ef6eb86152e3e1e5ecf1e55f21dd5c64540"
 #: The exploratory pass that preceded the review hardening. History only: it
 #: binds the guest, builder and finalizer as they were before the four review
 #: fixes, and it was never banked or registered.
 SUPERSEDED_EXPLORATORY_COMMIT = "379e59b"
-CONTROLLER_LOG_SHA256 = "5421e76b81a8aa94657897a1ce727b700c204a735bc6de0ebd3d962d3909300a"
+CONTROLLER_LOG_SHA256 = "c1fca57b0b7c71edac58a546742a1b4b5be8046ca3687e45fa552c5532dd2bb4"
 SETTINGS = "DomainSysvol/GPO/User/Documents & Settings"
 FDEPLOY_FILES = ("fdeploy1.ini", "fdeploy.ini")
 USER_EXTENSION_PAIR = (

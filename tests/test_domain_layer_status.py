@@ -55,7 +55,7 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 #: out-of-scope ruling, and `folder_redirection.py` because R3 showed it read
 #: the wrong artifact. Its successor `fdeploy.py` then met both halves of the
 #: exit for the read target: the fdeploy lane certified the reader
-#: (`fd-20261008102559-9746`), and `/api/folder-redirection/fdeploy` was
+#: (`fd-20261008121347-3151`), and `/api/folder-redirection/fdeploy` was
 #: already mounted. The deferred writer (WI-066) is a recorded ruling, not an
 #: unexamined layer.
 DOMAIN_LAYER_PLANS: tuple[str, ...] = (

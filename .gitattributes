@@ -83,7 +83,7 @@ docs/plan-033/*-evidence/plan034-20261008/** -text -whitespace
 docs/plan-033/*-evidence/plan034-rerun-20261008/** -text -whitespace
 docs/plan-033/plan034-cleanup/** -text -whitespace
 
-# The fdeploy lane's certifying run (6b76fad, 2026-10-08): the controller's
+# The fdeploy lane's certifying run (df713ef, 2026-10-08): the controller's
 # local run directory verbatim plus controller-candidate/ and controller.log.
 # fdeploy1.ini/fdeploy.ini are UTF-16LE and the report XML and command streams
 # keep Windows' bytes; the verdict's artifact and candidate SHA-256s cover them.

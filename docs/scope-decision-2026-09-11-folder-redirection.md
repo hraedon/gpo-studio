@@ -20,7 +20,7 @@ because Plan 034 now requires every module it lists to leave either at `yes` or
 with a recorded ruling. Nothing imported it outside its own tests.
 
 **2026-10-08 — the read target is lane-certified.** The fdeploy lane's run
-`fd-20261008102559-9746` (29/29, commit `6b76fad`) certified the reader for R3's
+`fd-20261008121347-3151` (29/29, commit `df713ef`) certified the reader for R3's
 bytes and three `Flags`-only variants. Windows kept the bytes through
 `Import-GPO` and `Backup-GPO`, and `read_backup` agreed with `Get-GPOReport` row
 for row. See [the results](plan-033/fdeploy-results.md). The first bullet under

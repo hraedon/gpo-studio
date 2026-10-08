@@ -16,7 +16,7 @@ now either superseded by a capability or ruled out:
   reader on the R3 capture alone, Plan 034 WP-4 recorded that as an
   exception, and the lane closed it:
   1. **Lane.** The fdeploy lane certified the reader on a clean member server:
-     `fd-20261008102559-9746` (29/29, commit `6b76fad`, 2026-10-08). For R3's
+     `fd-20261008121347-3151` (29/29, commit `df713ef`, 2026-10-08). For R3's
      bytes and three `Flags`-only variants, `Import-GPO` and `Backup-GPO` keep
      `fdeploy1.ini` byte for byte, and `read_backup` over Windows' own backup
      agrees with Windows' `Get-GPOReport` rendering row for row. See

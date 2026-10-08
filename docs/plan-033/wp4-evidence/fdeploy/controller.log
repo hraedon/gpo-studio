@@ -5,58 +5,58 @@ cases=4
   r3-flags-1020: flags=1020 verbatim_r3=False fdeploy1_sha256=dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b
   r3-flags-1023: flags=1023 verbatim_r3=False fdeploy1_sha256=6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb
   r3-flags-3069: flags=3069 verbatim_r3=False fdeploy1_sha256=863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b
-LOCAL_RUN_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-run-20261008102541-2107743
-CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102541-2107743
+LOCAL_RUN_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-run-20261008121330-2146540
+CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008121330-2146540
 {
   "artifacts": {
-    "backups/c1/manifest.xml": "23a2c951f6cd6589eaa29180ef2f6b277a4fbb90d515f4430b7f11fd948cce8e",
-    "backups/c1/{EAA25FE0-3042-469F-A541-5D444D177FFC}/Backup.xml": "f6d255a719cdce94635c4d52876e041e9828e5119d0a06486cb996fc18189d93",
-    "backups/c1/{EAA25FE0-3042-469F-A541-5D444D177FFC}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
-    "backups/c1/{EAA25FE0-3042-469F-A541-5D444D177FFC}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
-    "backups/c1/{EAA25FE0-3042-469F-A541-5D444D177FFC}/bkupInfo.xml": "f3562a220e191e0869af3970e56036e79175dab7c15ac306d0a8c705341c291c",
-    "backups/c1/{EAA25FE0-3042-469F-A541-5D444D177FFC}/gpreport.xml": "1f42475117d635a89a30a6b345d8d3e0a84c756e1beedce4df78dd0fa82fdf30",
-    "backups/c2/manifest.xml": "81c045b71677df8b052e462440193a6cbad55acb3075b60e80849cab1368cd30",
-    "backups/c2/{87CA8061-A0B7-4AD2-804C-A14BE24B50FF}/Backup.xml": "ca3f1d77b727fce7722c67c44ac4d3c162a9d4bd542796025119b7660a4391e3",
-    "backups/c2/{87CA8061-A0B7-4AD2-804C-A14BE24B50FF}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
-    "backups/c2/{87CA8061-A0B7-4AD2-804C-A14BE24B50FF}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
-    "backups/c2/{87CA8061-A0B7-4AD2-804C-A14BE24B50FF}/bkupInfo.xml": "cf9746e8848aeed7aa53aaefe7166c91e7f2c3127ca555086c45e3f2f10c2126",
-    "backups/c2/{87CA8061-A0B7-4AD2-804C-A14BE24B50FF}/gpreport.xml": "332dd86d0902896812e008dfce09d92be7e09336e79838c0a1d47047653d839e",
-    "backups/c3/manifest.xml": "0a482ab934352d576518f1fb7aac2ff3535d4b6b62f5ba2c0055b36be1e52944",
-    "backups/c3/{E447600D-D28A-4B0C-8D45-8A7EE4F04512}/Backup.xml": "6190e528269ead159d2d09f72022c558bc54b2b4585a8dc52213c63ff1c6faf8",
-    "backups/c3/{E447600D-D28A-4B0C-8D45-8A7EE4F04512}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
-    "backups/c3/{E447600D-D28A-4B0C-8D45-8A7EE4F04512}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
-    "backups/c3/{E447600D-D28A-4B0C-8D45-8A7EE4F04512}/bkupInfo.xml": "a741a48e41b88486e70b73a25df7dc80c32318cf0c3afcc2b742976b4c94c867",
-    "backups/c3/{E447600D-D28A-4B0C-8D45-8A7EE4F04512}/gpreport.xml": "5e950ad601490a8280f9967704485b960287172af29a9bfebf6f6be7e34ba1fa",
-    "backups/c4/manifest.xml": "67d0025e6900dc28c98c1a048757cece62ceca63d794494064018406f306b19a",
-    "backups/c4/{4EA16E11-53D7-4118-A335-B1D5538AF761}/Backup.xml": "e7d32710da154c82d6265a7779967183206a7ab880f4c6496bcdd028c62d9fcc",
-    "backups/c4/{4EA16E11-53D7-4118-A335-B1D5538AF761}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
-    "backups/c4/{4EA16E11-53D7-4118-A335-B1D5538AF761}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
-    "backups/c4/{4EA16E11-53D7-4118-A335-B1D5538AF761}/bkupInfo.xml": "3f0a3e90afa7dd3878b87fccb0915276f7b6d5af439e3f6732293ab41c678cab",
-    "backups/c4/{4EA16E11-53D7-4118-A335-B1D5538AF761}/gpreport.xml": "c9a21c6cbf4022a86e14cf71b7dfe7f68515f25f615ea249925e8394dba07205",
+    "backups/c1/manifest.xml": "47e19d639a9abd2fbd6231b4a8053935a09e5ce69ea324974cf46d3811acb3d8",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/Backup.xml": "77649e2f44f75df8260ceff5943f85b5f294656d214a32b04bf3aedf98692b78",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/bkupInfo.xml": "c9e9116f2a4766f2d162f6e7dd82b7b99ee806f3ab85b3c27ece3a40ad24dcda",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/gpreport.xml": "873ae2fb73c6a0d6b9bfc3878918fe07c934af9bcc6b64c368ade1ba4b4108f6",
+    "backups/c2/manifest.xml": "1dd12a1678699f2082f33ef8d0bf88093388413bd1d4a776352589c76bf9da78",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/Backup.xml": "4911d1e54ba8ba8b6502bba1f2554968b3c98e1df8fe0626124fd7f95b789262",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/bkupInfo.xml": "ce08298d7da19ab89a6415e22894f8c04f8b2017d800f8a226a64c325e26b7e1",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/gpreport.xml": "14744b1f9b29bc07cae2dd8a87aca93739dcfb108bb70cbe7b2c5f03e6d496f3",
+    "backups/c3/manifest.xml": "ea0ad574dcbf28fe3a3ae07a476f548e35f635d3e9c6682b101f66164d2b8c62",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/Backup.xml": "4b22f0bf070ae83601e249d4ceb5f9068d2466b06e94c016fe2267cf18820bbb",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/bkupInfo.xml": "5696bb5cb9721831584cd035d5bd0528b28118f30142b567d2847667c896fa8a",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/gpreport.xml": "c66e516dffa7942a58c285f4a8bb921d2f33d2fa5cd025f23cc70a0a7b2ceb2a",
+    "backups/c4/manifest.xml": "8274ae10914341a608342dbb010c22085fa0a9469cafb2e3102c8de688df1e5e",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/Backup.xml": "1ab4df380ef3fa653e9407c05cd6595599bd23279d4076b044546e7105489f9b",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/bkupInfo.xml": "9cb0b5b330d72323c3fd33361ad6ec368f7d3244124d69b6120b8c6dbb6c00d6",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/gpreport.xml": "71dbc348a737e2e731d30fc7008c7ad57215e9c894aa704514ab67a558b2400e",
     "builder.stdout.txt": "cbe4d30822505176baa9a81821c47004e2f2e62c975e116587f8c697aa9a9132",
     "candidate.zip": "f21b681b14b8fd1a12e9abfd0da125016a2c453df2f63f3d0243fb5e10a94934",
     "commands/c1/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c1/backup.stdout.txt": "692fb63280889461fad4ad0a85e642c7ad0bcca5d18b064ea33951eba058179d",
+    "commands/c1/backup.stdout.txt": "a3cec7f29aa4eb401f8d9ff8944756cd06f2c7b1c4e3595af46053596d4e24cb",
     "commands/c1/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c1/import.stdout.txt": "dec4c7d46d1fe53b5377c7d8a2c5e3d7643f41d3f02d34d8a087f14178b718f3",
+    "commands/c1/import.stdout.txt": "96ce04008d2e81a18edd889800d6b20ec19c5e7f7724ec7f4e2acd76246353c4",
     "commands/c1/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/c1/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/c2/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c2/backup.stdout.txt": "fb75268c83383ca1526fa646ed931d0d812cd8d9c60df3e9a9c8aa8d3c889b0f",
+    "commands/c2/backup.stdout.txt": "323a951bb6efdddac474608a58334c54002e99e97f197f53c1221c26a93f0363",
     "commands/c2/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c2/import.stdout.txt": "59d8cefd134362a9983fea3152e7f0c55a86e155857a1899778768565eb7f7a1",
+    "commands/c2/import.stdout.txt": "f43bec0af4cb1ac1d319051834a17281863f27cc8ed7ff687ce7b03d6cd697fe",
     "commands/c2/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/c2/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/c3/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c3/backup.stdout.txt": "b7592cd593c5b5bbf7e38e6e24ba4b2a6a9f15fd6b1ace9c85d3c18a090e5762",
+    "commands/c3/backup.stdout.txt": "00918496d954084cd565f0a60d1302e2b2e0a1fa66de84373f63637a6b4e6758",
     "commands/c3/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c3/import.stdout.txt": "6f6ee82f2e789e0363f0cd03c7664156a39ae862e2ba1e2ffd2163de715f49e3",
+    "commands/c3/import.stdout.txt": "dfeb8ca5d0ab27313e2490968b1591b4617f536a000f0024c282e5e59e61edc1",
     "commands/c3/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/c3/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/c4/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c4/backup.stdout.txt": "60d91907b8fac9a6d72d5f5c76059045a330c32836cf327e3557803406fe18d1",
+    "commands/c4/backup.stdout.txt": "c10ac83132c5922af8b1c7e477e1dd60c5a4a52ceb12819ea84410cfd57771c9",
     "commands/c4/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "commands/c4/import.stdout.txt": "0075d71a908a9ec415bee8b07e89d52c8f0438589563a77fb498ea955f50bdbf",
+    "commands/c4/import.stdout.txt": "7e37314dece8ad14dbfa1a17b12ee374dcbe0a930d3aac1e4eabe79bb3fd0c7c",
     "commands/c4/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "commands/c4/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "deployed/run-fdeploy-lane.ps1": "39795c16903585cb825423eeb4846d064fab6d546268d3090d4ea26980b161bd",
@@ -80,11 +80,11 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
     "input/cases/c4/{1AF21B71-65B2-5F02-B0F3-A69C417770AE}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
     "input/cases/c4/{1AF21B71-65B2-5F02-B0F3-A69C417770AE}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
     "input/cases/c4/{1AF21B71-65B2-5F02-B0F3-A69C417770AE}/bkupInfo.xml": "5070a8c41356162c58aaaa36e3a8b6a3e76f767fee71397cfe0d6728ad8ff481",
-    "reports/c1.xml": "c2114bb8a46cdf4ab718fbfa788de57b86c08db894210b88585bd43b396f9699",
-    "reports/c2.xml": "8df8ce6eef1e02621a55ea69cb17bec0abbd0deb6ebf8ff0520eeb54c0383a43",
-    "reports/c3.xml": "48e82a4fa9922fe62a5803b11b13b06c67eeab17cd01d8e471d324c95ae68915",
-    "reports/c4.xml": "3447ed4ed0ac74adf1b6d39bcace531f9a8590f0bace6ffa3af3d4c8d1be689c",
-    "result.json": "7ccff7a1af3ee9383455c0527af0ce528a429c7fbc075416b3e1df0afc33657b"
+    "reports/c1.xml": "a245e0cc4bcc29449951c33f42395c8484f16cea85c03e73374daa64aab1b368",
+    "reports/c2.xml": "fb7fd466013a8de2e3f81e6c1ce517a0d5c157d5f12938058ae395b869f8d8d1",
+    "reports/c3.xml": "0e37244b37b94aaf2d6c01f3cd2392724c97e0f2f8cfd20f488c4a5ce92f4cde",
+    "reports/c4.xml": "97f7cc213c6efcdb4a93a9fa30353b023bcdca202eabd2ea70681eca69a10015",
+    "result.json": "a64fef63dff36e14e59c651140f9ad17f2414e35484e59a1e6fa8df6d58cc18b"
   },
   "candidate": {
     "builder.stdout.txt": "cbe4d30822505176baa9a81821c47004e2f2e62c975e116587f8c697aa9a9132",
@@ -212,10 +212,10 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
         },
         "reader_report_differences": [],
         "rebackup_info": {
-          "GPODisplayName": "zz-studio-fd-fd-20261008102559-9746-2",
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-2",
           "GPODomain": "AD.LABDOMAIN.DEV",
-          "GPOGuid": "{b18650e1-c3a9-430c-8a3e-9b0855805d82}",
-          "ID": "{87CA8061-A0B7-4AD2-804C-A14BE24B50FF}"
+          "GPOGuid": "{94bcec8c-38e1-4700-a374-5a66f7dd920f}",
+          "ID": "{8B960122-96DB-44B7-8B91-F778AAA7F0EA}"
         },
         "rebackup_report": {
           "computer_side_extensions": 0,
@@ -373,10 +373,10 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
         },
         "reader_report_differences": [],
         "rebackup_info": {
-          "GPODisplayName": "zz-studio-fd-fd-20261008102559-9746-1",
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-1",
           "GPODomain": "AD.LABDOMAIN.DEV",
-          "GPOGuid": "{4bd308d2-7168-4d40-aaa2-bce4852235d5}",
-          "ID": "{EAA25FE0-3042-469F-A541-5D444D177FFC}"
+          "GPOGuid": "{3ab44605-1ecb-4620-9279-7c14586e8733}",
+          "ID": "{196C57C5-E474-4AF0-AEB0-2569E631F0CD}"
         },
         "rebackup_report": {
           "computer_side_extensions": 0,
@@ -534,10 +534,10 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
         },
         "reader_report_differences": [],
         "rebackup_info": {
-          "GPODisplayName": "zz-studio-fd-fd-20261008102559-9746-3",
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-3",
           "GPODomain": "AD.LABDOMAIN.DEV",
-          "GPOGuid": "{279b3f8d-f0ad-4d7d-9789-4ccab613f514}",
-          "ID": "{E447600D-D28A-4B0C-8D45-8A7EE4F04512}"
+          "GPOGuid": "{f0f140ec-0be9-4daa-ba17-c58ca1dd385a}",
+          "ID": "{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}"
         },
         "rebackup_report": {
           "computer_side_extensions": 0,
@@ -695,10 +695,10 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
         },
         "reader_report_differences": [],
         "rebackup_info": {
-          "GPODisplayName": "zz-studio-fd-fd-20261008102559-9746-4",
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-4",
           "GPODomain": "AD.LABDOMAIN.DEV",
-          "GPOGuid": "{d397e151-469a-4745-9a38-9b6607f6ec80}",
-          "ID": "{4EA16E11-53D7-4118-A335-B1D5538AF761}"
+          "GPOGuid": "{1cf0f69f-61bc-4565-9795-79371fd80c8f}",
+          "ID": "{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}"
         },
         "rebackup_report": {
           "computer_side_extensions": 0,
@@ -801,18 +801,18 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
     "Windows option rendering per Flags value (WI-066 data)",
     "gPCUserExtensionNames after Import-GPO"
   ],
-  "run_id": "fd-20261008102559-9746",
+  "run_id": "fd-20261008121347-3151",
   "schema_version": 2,
   "source": {
     "banked_copies": [
       "run-fdeploy-lane.ps1"
     ],
-    "commit": "6b76fad177183999cab7b2bdf35d16baf8fed014",
+    "commit": "df713ef6eb86152e3e1e5ecf1e55f21dd5c64540",
     "dirty": false,
     "files": {
       "backup.py": "cbe374ad0e2a00baa96353940f87ffc1ce43746eb23f84e023dea54859556f0d",
       "backup_inventory.py": "d28a9638f51df8ca15353b2843cb2326e22b7514c42751318321311e684c4440",
-      "build-fdeploy-candidate.py": "7f428baa86d220ea8e64fa43cd4f39074975e3b21b08dca5aae30f0950dda1f0",
+      "build-fdeploy-candidate.py": "f702921e512ab2081d20f84071679620354b887f624b17538fa330ae53b9e365",
       "fdeploy.py": "20507fe4d70bba8e69e19120a6b6c03ab9d564d58bfa2727ce3636a3e6766a8f",
       "fdeploy_parity.py": "ed0709d41133d7a3d197b15bfa25c9c55e2b21edeff8cca4c2540c7f6a02bb99",
       "finalize_fdeploy_run.py": "a63e6337f60193292e088bd3510afab74d630c5e4e312f4f424cc4abd79a55be",
@@ -824,7 +824,7 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
       "r3-fdeploy1.ini.txt": "a00d2b50af85f5e8121a7f4971b3a1ec41fb29d3841a892514eac23edafedba9",
       "r3-provenance.json": "f08676d3c35d801c8b93d4e119b277f712700a1cf6bab915f6360f421eceec82",
       "run-fdeploy-lane.ps1": "39795c16903585cb825423eeb4846d064fab6d546268d3090d4ea26980b161bd",
-      "run-fdeploy-oracle.sh": "af5cb54b95b487b923d16f07ebf132ac5914ba587f1af912a93b8514b6c5d696",
+      "run-fdeploy-oracle.sh": "2a1ae67d39ecc8cc1b43676c73ab292570c9821e730e6fbaf5b1ae70ed69adbc",
       "safe_io.py": "a7d065b43c3191a841c30555fc751ed0e6d3eb17c8a9246fb7eaecd430fccdd4",
       "xml_safety.py": "8f9a65060cd904c081d06023324990504674e49b603630f1696f32fa269cfb53"
     },
@@ -850,4 +850,4 @@ CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008102
   },
   "transport": "psdirect"
 }
-EVIDENCE_TAG=created evidence/fd-20261008102559-9746 at 6b76fad17718 — push it: git push origin evidence/fd-20261008102559-9746
+EVIDENCE_TAG=created evidence/fd-20261008121347-3151 at df713ef6eb86 — push it: git push origin evidence/fd-20261008121347-3151
