@@ -16,6 +16,8 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 SYNTHETIC_SID = "S-1-5-21-0000000000-0000000000-0000000000"
 
 
@@ -124,7 +126,7 @@ def sanitize(source: Path, destination: Path) -> None:
         "WS2025 member server build 26100. capture.json, Get-GPOReport XML and Backup-GPO.",
         "capture_date": "2026-10-08",
         "capture_script": str(script),
-        "capture_script_sha256": sha256(script.read_bytes()),
+        "capture_script_sha256": sha256((REPO_ROOT / script).read_bytes()),
         "sanitizer": "scripts/plan-033/sanitize-firewall-fixtures.py",
         "sanitisation": "Domain, DC, domain account, GPO, domain GUID, backup GUID and run "
         "identities replaced with synthetic values. Domain SID prefixes replaced "

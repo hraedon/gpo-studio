@@ -420,7 +420,7 @@ def grade(
             links = [
                 node
                 for node in report.iter()
-                if node.tag.rsplit("}", 1)[-1] == "LinksTo" and len(node)
+                if node.tag.rsplit("}", 1)[-1] == "LinksTo"
             ]
             checks["gpos_never_linked"] &= not links
             extensions = [

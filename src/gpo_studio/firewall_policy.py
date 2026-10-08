@@ -150,6 +150,87 @@ class FirewallParseResult:
     issues: tuple[ValidationIssue, ...] = ()
 
 
+def _require_type(
+    value: object,
+    kind: type,
+    path: str,
+    *,
+    optional: bool = False,
+    code: str = "invalid_field_type",
+) -> None:
+    if optional and value is None:
+        return
+    if type(value) is not kind:
+        raise FirewallValidationError(
+            (
+                _issue(
+                    code, f"{path} must be {kind.__name__}" + (" or None" if optional else ""), path
+                ),
+            )
+        )
+
+
+def _rule_field_types(rule: FirewallRule) -> None:
+    """Check every field before iteration, string operations or wire dispatch."""
+    _require_type(rule, FirewallRule, "rule")
+    for name in ("rule_id", "name", "direction", "action"):
+        _require_type(getattr(rule, name), str, name)
+    for name in (
+        "local_port",
+        "icmp4",
+        "local_address",
+        "program",
+        "service",
+        "interface_type",
+        "description",
+        "group",
+        "remote_machine",
+        "security",
+    ):
+        _require_type(getattr(rule, name), str, name, optional=True)
+    _require_type(rule.enabled, bool, "enabled", code="invalid_active")
+    _require_type(rule.edge_traversal, bool, "edge_traversal", optional=True)
+    _require_type(rule.protocol, int, "protocol", optional=True, code="unmeasured_protocol")
+    _require_type(rule.remote_port, int, "remote_port", optional=True)
+    _require_type(rule.remote_port_range, tuple, "remote_port_range", optional=True)
+    if rule.remote_port_range is not None:
+        if len(rule.remote_port_range) != 2:
+            _fail("invalid_remote_range", "Range requires exactly two ports")
+        for value in rule.remote_port_range:
+            _require_type(value, int, "remote_port_range")
+    for name in ("profiles", "remote_addresses"):
+        values = getattr(rule, name)
+        _require_type(values, tuple, name)
+        for value in values:
+            _require_type(value, str, name)
+    _require_type(rule.unknown_tokens, tuple, "unknown_tokens")
+    for token in rule.unknown_tokens:
+        _require_type(token, UnknownFirewallToken, "unknown_tokens")
+        _require_type(token.position, int, "unknown_tokens.position")
+        _require_type(token.text, str, "unknown_tokens.text")
+
+
+def _policy_field_types(policy: FirewallPolicy) -> None:
+    _require_type(policy, FirewallPolicy, "FirewallPolicy")
+    _require_type(policy.policy_version, int, "policy_version", optional=True)
+    for profile in ("domain", "private", "public"):
+        settings = getattr(policy, profile)
+        _require_type(settings, FirewallProfileSettings, profile)
+        for name in (
+            "enabled",
+            "disable_notifications",
+            "log_dropped_packets",
+            "log_successful_connections",
+        ):
+            _require_type(getattr(settings, name), bool, f"{profile}.{name}", optional=True)
+        for name in ("default_inbound_action", "default_outbound_action", "log_file_path"):
+            _require_type(getattr(settings, name), str, f"{profile}.{name}", optional=True)
+        _require_type(settings.log_file_size_kb, int, f"{profile}.log_file_size_kb", optional=True)
+    _require_type(policy.rules, tuple, "rules")
+    for rule in policy.rules:
+        _rule_field_types(rule)
+
+
 def _safe_text(value: str, field_name: str) -> str:
     if not value or any(c in value for c in "|\0\r\n"):
         _fail("invalid_text", f"{field_name} must be nonempty and contain no wire delimiters")
@@ -217,6 +298,7 @@ def _rule_form(tokens: list[str]) -> tuple[str, ...]:
 
 
 def _rule_tokens(rule: FirewallRule) -> list[str]:
+    _rule_field_types(rule)
     if rule.unknown_tokens:
         _fail(
             "unknown_tokens",
@@ -251,7 +333,11 @@ def _rule_tokens(rule: FirewallRule) -> list[str]:
         if rule.local_port in ("RPC", "RPC-EPMap"):
             if rule.protocol != 6:
                 _fail("keyword_protocol", "Measured RPC keywords require TCP")
-        elif not re.fullmatch(r"[0-9]+", rule.local_port) or not 1 <= int(rule.local_port) <= 65535:
+        elif (
+            not re.fullmatch(r"[0-9]+", rule.local_port)
+            or len(rule.local_port.lstrip("0")) > 5
+            or not 1 <= int(rule.local_port.lstrip("0") or "0") <= 65535
+        ):
             _fail("unmeasured_local_port", "Only a single port, RPC or RPC-EPMap is measured")
         tokens.append(f"LPort={rule.local_port}")
     if (
@@ -401,6 +487,7 @@ def _profile_records(
 
 def to_registry_settings(policy: FirewallPolicy) -> list[RegistrySetting]:
     """Emit measured machine policy, refusing unsupported wire features."""
+    _policy_field_types(policy)
     result: list[RegistrySetting] = []
     if policy.policy_version is not None:
         if type(policy.policy_version) is not int or policy.policy_version != 545:

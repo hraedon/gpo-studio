@@ -7,7 +7,7 @@ import hashlib
 import json
 import runpy
 import xml.etree.ElementTree as ET
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
 
 import pytest
@@ -520,14 +520,25 @@ def test_capture_provenance_hashes_extensions_and_normalizations() -> None:
         ET.fromstring(path.read_bytes())
 
 
-def test_sanitizer_reproduces_fixture_without_raw_inbox(tmp_path: Path) -> None:
+@pytest.mark.parametrize("elsewhere", [False, True])
+def test_sanitizer_reproduces_fixture_without_raw_inbox(
+    tmp_path: Path, monkeypatch, elsewhere
+) -> None:
     # Idempotent synthetic input exercises binary preservation, XML validity,
     # stable hashing and the no-overwrite guard without depending on raw data.
     module = runpy.run_path(str(ROOT / "scripts/plan-033/sanitize-firewall-fixtures.py"))
+    if elsewhere:
+        monkeypatch.chdir(tmp_path)
     module["sanitize"](FIXTURE, tmp_path / "copy")
     assert (tmp_path / "copy/Registry.pol").read_bytes() == native_bytes()
     copied = json.loads((tmp_path / "copy/capture.json").read_text(encoding="utf-8-sig"))
     assert copied["target_name"] == "zz-studio-firewall-native"
+    provenance = json.loads((tmp_path / "copy/provenance.json").read_text())
+    assert provenance["capture_script"] == "scripts/plan-033/capture-firewall-native.ps1"
+    assert (
+        provenance["capture_script_sha256"]
+        == hashlib.sha256((ROOT / provenance["capture_script"]).read_bytes()).hexdigest()
+    )
     with pytest.raises(ValueError, match="must not already exist"):
         module["sanitize"](FIXTURE, tmp_path / "copy")
 
@@ -627,3 +638,82 @@ def test_sanitizer_refuses_identity_bearing_pol(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="contains estate identifiers"):
         module["sanitize"](source, tmp_path / "sanitized")
     assert not (tmp_path / "sanitized").exists()
+
+
+@pytest.mark.parametrize("field", [f.name for f in fields(FirewallRule)])
+def test_every_rule_field_rejects_nonconforming_runtime_type(field: str) -> None:
+    rule = replace(expected_policy().rules[0], **{field: object()})
+    policy = FirewallPolicy(policy_version=545, rules=(rule,))
+    issues = rule.validate()
+    assert issues and issues[0].severity == "error"
+    assert policy.validate() == issues
+    with pytest.raises(FirewallValidationError) as error:
+        to_registry_settings(policy)
+    assert error.value.issues == issues
+
+
+@pytest.mark.parametrize("field", [f.name for f in fields(FirewallPolicy)])
+def test_every_policy_field_rejects_nonconforming_runtime_type(field: str) -> None:
+    policy = replace(expected_policy(), **{field: object()})
+    issues = policy.validate()
+    assert issues and issues[0].severity == "error"
+    with pytest.raises(FirewallValidationError) as error:
+        to_registry_settings(policy)
+    assert error.value.issues == issues
+
+
+@pytest.mark.parametrize("profile", ["domain", "private", "public"])
+@pytest.mark.parametrize("field", [f.name for f in fields(FirewallProfileSettings)])
+def test_every_profile_field_rejects_nonconforming_runtime_type(profile: str, field: str) -> None:
+    settings = replace(FirewallProfileSettings(), **{field: object()})
+    policy = FirewallPolicy(policy_version=545, **{profile: settings})
+    issues = policy.validate()
+    assert issues and issues[0].path == f"{profile}.{field}"
+    with pytest.raises(FirewallValidationError) as error:
+        to_registry_settings(policy)
+    assert error.value.issues == issues
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"rule_id": 7},
+        {"name": 7},
+        {"local_port": 65001},
+        {"remote_port_range": [1, 2, 3]},
+        {"remote_port_range": ()},
+        {"remote_port_range": (1,)},
+        {"remote_port_range": (1, 2, 3)},
+        {"remote_port_range": (1, "2")},
+        {"remote_port_range": (True, 2)},
+        {"protocol": True},
+        {"remote_port": True},
+        {"enabled": 1},
+        {"edge_traversal": 1},
+        {"profiles": None},
+        {"profiles": ["domain"]},
+        {"profiles": (1,)},
+        {"remote_addresses": (1,)},
+        {"unknown_tokens": (1,)},
+        {"unknown_tokens": (UnknownFirewallToken("1", "Future=x"),)},
+        {"unknown_tokens": (UnknownFirewallToken(1, 7),)},
+        {"local_port": "9" * 5000},
+    ],
+)
+def test_reviewer_runtime_type_and_container_probes_return_issues(change) -> None:
+    rule = replace(expected_policy().rules[0], **change)
+    issues = rule.validate()
+    assert issues
+    policy = FirewallPolicy(policy_version=545, rules=(rule,))
+    assert policy.validate() == issues
+    with pytest.raises(FirewallValidationError) as error:
+        to_registry_settings(policy)
+    assert error.value.issues == issues
+
+
+@pytest.mark.parametrize("change", [{"rules": (1,)}, {"rules": []}, {"policy_version": True}])
+def test_runtime_policy_container_probes_return_issues(change) -> None:
+    policy = replace(expected_policy(), **change)
+    assert policy.validate()
+    with pytest.raises(FirewallValidationError):
+        to_registry_settings(policy)

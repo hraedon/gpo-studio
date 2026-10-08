@@ -73,8 +73,11 @@ order may vary; emitted family order is RA4 then RA6.
 Unknown rule tokens retain positions and text, including repeats, but cannot be
 emitted. Unknown registry records are returned separately and callers must
 retain or explicitly review them. Invalid known records raise
-`FirewallValidationError` with `ValidationIssue` codes. Without PolicyVersion,
-firewall records are retained as unrecognised legacy input, with the named
+`FirewallValidationError` with `ValidationIssue` codes. All policy, profile,
+rule and nested tuple fields are type-checked before wire operations;
+`validate()` returns issues for runtime values that bypass annotations, and
+`to_registry_settings()` raises `FirewallValidationError` for them. Without
+PolicyVersion, firewall records are retained as unrecognised legacy input, with the named
 `firewall_legacy_without_policy_version` issue and an empty policy; legacy
 Administrative Templates settings therefore do not crash this parser.
 The capture does not establish arbitrary-value Windows acceptance, and the
@@ -84,6 +87,9 @@ Windows' file order is root, Domain profile, rules, Private profile; profile
 values retain authoring order. Studio's existing Registry.pol serializer sorts
 by key/value name. Tests compare every emitted record byte-for-byte against the
 native file slices, and the complete sorted record set against native records.
+The candidate archive test independently compares its Machine Registry.pol
+slices with native slices after explicit candidate identity/payload substitutions;
+it does not derive expectations from builder output or codec serialization.
 Whole-file equality holds when emitted record chunks are placed in native order;
 the sorted whole-file bytes intentionally differ. No bound serializer was edited.
 
@@ -127,9 +133,10 @@ the terminal separator; other runs' GPOs are untouched. It never links either GP
 zero unrecognised Windows records/tokens, complete parsed policy equality,
 record-set equality with per-record **original byte** equality, complete cmdlet
 readback on both legs, every write rule ID and absence of extras. It names each
-of the six normalizations as a separate check in each leg. Scoped operation
-logs, no links, unchanged PersistentStore, cleanup, LabMS01 member role, frozen
-environment, deployed script hashes, delivery of both archive and authoring JSON,
+of the six normalizations as a separate check in each leg; tests perturb every
+readback field separately, including all four authenticated-bypass fields. Scoped
+operation logs, no links (any LinksTo element, including an empty one, fails),
+unchanged PersistentStore, cleanup, LabMS01 member role, frozen environment, deployed script hashes, delivery of both archive and authoring JSON,
 no harness error and clean bound source are also required. Missing data fails
 closed. Expected data never travels to the guest. The verdict hashes every
 candidate file and raw artifact and binds the lane files, codec and publication

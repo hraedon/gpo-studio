@@ -128,7 +128,7 @@ function Get-LaneObservation($leg, $id, $store, $legResult) {
     } | Out-Null
     $reportText = [string](Get-Content -LiteralPath $reportPath -Raw)
     $report = [xml]$reportText
-    $legResult.report_links_to_count = @($report.SelectNodes("//*[local-name()='LinksTo']/*")).Count
+    $legResult.report_links_to_count = @($report.SelectNodes("//*[local-name()='LinksTo']")).Count
     $legResult.report_xml = $reportText
 }
 
@@ -218,7 +218,7 @@ try {
         } catch {
             $cleanupOk = $false
             $result.error = (@($result.error, "cleanup: $($_.Exception.Message)") |
-                Where-Object { $null -ne $_ }) -join '; '
+                Where-Object { -not [string]::IsNullOrEmpty($_) }) -join '; '
         }
     }
     try {
@@ -236,7 +236,7 @@ try {
         $result.cleanup_verified = $cleanupOk -and $result.cleanup_remaining.Count -eq 0
     } catch {
         $result.error = (@($result.error, "verification: $($_.Exception.Message)") |
-            Where-Object { $null -ne $_ }) -join '; '
+            Where-Object { -not [string]::IsNullOrEmpty($_) }) -join '; '
     }
     $result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $work 'result.json') -Encoding UTF8
     Write-Output $work

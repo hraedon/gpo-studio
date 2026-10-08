@@ -28,6 +28,19 @@ FINALIZER = runpy.run_path(str(FINALIZER_PATH))
 BUILDER = runpy.run_path(str(ROOT / "scripts/plan-033/build-firewall-candidate.py"))
 
 
+NORMALIZATION_FIELDS = [
+    ("icmpv4-port-filter-rpc", "local_port"),
+    ("rpc-endpoint-map-spelling", "local_port"),
+    ("wired-interface-spelling", "interface_type"),
+    ("authenticated-bypass-action", "action"),
+    ("authenticated-bypass-action", "authentication"),
+    ("authenticated-bypass-action", "override_block_rules"),
+    ("authenticated-bypass-action", "remote_machine"),
+    ("ipv4-subnet-mask-form", "remote_address"),
+    ("local-subnet-family-expansion", "remote_address"),
+]
+
+
 @pytest.fixture
 def evidence(tmp_path: Path):
     candidate, run = tmp_path / "candidate", tmp_path / "run"
@@ -136,6 +149,18 @@ def test_reviewer_write_pol_probes_fail(evidence, raw) -> None:
     checks = grade(evidence)
     assert checks["write_parsed_policy_equals_expected_policy"] is False
     assert checks["write_registry_pol_equals_candidate_bytes"] is False
+
+
+def test_reviewer_token_mutated_write_leg_fails_grading(evidence) -> None:
+    raw = base64.b64decode(evidence[0]["write_leg"]["registry_pol_base64"])
+    original = "LPort=65001|".encode("utf-16le")
+    assert original in raw
+    raw = raw.replace(original, "LPort=65099|".encode("utf-16le"))
+    evidence[0]["write_leg"]["registry_pol_base64"] = base64.b64encode(raw).decode()
+    checks = grade(evidence)
+    assert checks["write_parsed_policy_equals_expected_policy"] is False
+    assert checks["write_registry_pol_equals_candidate_bytes"] is False
+    assert not all(checks.values())
 
 
 def test_write_leg_requires_exact_candidate_order_even_for_equal_policy(evidence) -> None:
@@ -295,12 +320,15 @@ def test_each_named_check_can_fail(evidence, check, mutation) -> None:
 
 
 @pytest.mark.parametrize("leg", ["read", "write"])
-@pytest.mark.parametrize("normalization", FINALIZER["NORMALIZATIONS"])
-def test_every_named_normalization_fails_independently(evidence, leg, normalization) -> None:
+@pytest.mark.parametrize(
+    "normalization,field",
+    NORMALIZATION_FIELDS,
+)
+def test_every_named_normalization_fails_independently(evidence, leg, normalization, field) -> None:
     result, expected, _, _ = evidence
     norm = next(n for n in expected["normalizations"] if n["name"] == normalization)
     row = next(r for r in result[leg + "_leg"]["rules_readback"] if r["name"] == norm["rule_id"])
-    row[next(iter(norm["readback"]))] = "synthetic-wrong-readback"
+    row[field] = "synthetic-wrong-readback"
     assert grade(evidence)[leg + "_normalization_" + normalization] is False
 
 
@@ -458,7 +486,8 @@ def test_driver_binding_and_controller_only_expectation() -> None:
         assert (ROOT / path).is_file()
         if name in FINALIZER["DEPLOYED_FILES"]:
             assert name in driver
-        assert b"\r\n" not in (ROOT / path).read_bytes() if "firewall" in name else True
+        if "firewall" in name:
+            assert b"\r\n" not in (ROOT / path).read_bytes()
     pushes = [line for line in driver.splitlines() if "-LocalPath" in line]
     assert pushes and not any("expected.json" in line for line in pushes)
     guest = (ROOT / FINALIZER["DEPLOYED_FILES"]["run-firewall-policy.ps1"]).read_text()
@@ -810,3 +839,96 @@ if 'Get-ChildItem' in command:
 
     ids = [re.search(r"-RunId '([^']+)'", commands[i])[1] for i in [guest, *cleanup]]
     assert len(set(ids)) == 1
+
+
+@pytest.mark.parametrize("leg", ["read", "write"])
+@pytest.mark.parametrize(
+    "xml",
+    [
+        "<GPO><LinksTo/></GPO>",
+        '<GPO xmlns="urn:synthetic"><LinksTo/></GPO>',
+        "<GPO><LinksTo><SOMPath>synthetic</SOMPath></LinksTo></GPO>",
+    ],
+)
+def test_any_links_to_element_fails_even_when_guest_count_is_zero(evidence, leg, xml) -> None:
+    evidence[0][leg + "_leg"]["report_links_to_count"] = 0
+    evidence[0][leg + "_leg"]["report_xml"] = xml
+    assert grade(evidence)["gpos_never_linked"] is False
+
+
+def test_guest_error_join_and_links_count_use_actual_harness_expressions(tmp_path: Path) -> None:
+    import shutil
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell unavailable")
+    script = tmp_path / "expressions-test.ps1"
+    script.write_text(r"""
+param([string]$Harness)
+$ErrorActionPreference = 'Stop'
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $Harness, [ref]$null, [ref]$errors)
+if ($errors.Count) { throw 'parser errors' }
+$assignments = $ast.FindAll({param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst]
+}, $true)
+$joins = @($assignments | Where-Object {
+    $_.Left.Extent.Text -eq '$result.error' -and $_.Right.Extent.Text -like '*-join*'
+})
+if ($joins.Count -ne 2) { throw 'expected both cleanup and verification joins' }
+$joined = @()
+foreach ($assignment in $joins) {
+    foreach ($initial in @($null, '', 'prior failure')) {
+        $result = @{error = $initial}
+        $_ = [pscustomobject]@{Exception = [pscustomobject]@{Message = 'synthetic failure'}}
+        # Execute only the actual error assignment, with no policy operations.
+        . ([scriptblock]::Create($assignment.Extent.Text))
+        $joined += $result.error
+    }
+}
+$count = @($assignments | Where-Object {
+    $_.Left.Extent.Text -eq '$legResult.report_links_to_count'
+})
+if ($count.Count -ne 1) { throw 'expected links count assignment' }
+$counts = @()
+foreach ($xml in @('<GPO/>', '<GPO><LinksTo/></GPO>',
+                  '<GPO xmlns="urn:synthetic"><LinksTo/></GPO>',
+                  '<GPO><LinksTo><SOMPath>synthetic</SOMPath></LinksTo></GPO>')) {
+    $report = [xml]$xml
+    $legResult = @{}
+    . ([scriptblock]::Create($count[0].Extent.Text))
+    $counts += $legResult.report_links_to_count
+}
+@{joined = $joined; counts = $counts} | ConvertTo-Json
+""")
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "-Harness",
+            str(ROOT / FINALIZER["DEPLOYED_FILES"]["run-firewall-policy.ps1"]),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["joined"] == [
+        "cleanup: synthetic failure",
+        "cleanup: synthetic failure",
+        "prior failure; cleanup: synthetic failure",
+        "verification: synthetic failure",
+        "verification: synthetic failure",
+        "prior failure; verification: synthetic failure",
+    ]
+    assert result["counts"] == [0, 1, 1, 1]
+
+
+def test_normalization_probes_cover_every_expected_field(evidence) -> None:
+    expected = evidence[1]
+    assert set(NORMALIZATION_FIELDS) == {
+        (norm["name"], field) for norm in expected["normalizations"] for field in norm["readback"]
+    }
