@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -197,6 +199,82 @@ def test_a_second_status_line_is_refused(tmp_path: Path) -> None:
         gate.check(root, "v1.1.0")
 
 
+# Each of these sat beside a valid approval line. The first three are the
+# bypasses the 2026-10-08 Sol review demonstrated against the prefix match.
+@pytest.mark.parametrize(
+    "second",
+    [
+        " > **Status:** DRAFT",
+        "> **STATUS:** DRAFT",
+        "    > **Status:** DRAFT",
+        "Status: draft",
+        "**Status**: draft",
+        "> **Status** : draft",
+        "> > **status:** draft",
+        "## Status",
+        "> **Sta​tus:** DRAFT",
+        "> **Status：** DRAFT",
+        "_Status:_ draft",
+    ],
+)
+def test_any_second_status_declaration_is_refused(tmp_path: Path, second: str) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", gate.APPROVED, extra=second + "\n")
+    with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
+        gate.check(root, "v1.1.0")
+
+
+@pytest.mark.parametrize(
+    "hidden",
+    [
+        # Sol's third bypass: the only approval in an example block, the real
+        # (draft) status indented so the old prefix match missed it.
+        "```\n> **Status:** approved for release\n```",
+        "~~~markdown\n> **Status:** DRAFT\n~~~",
+        "```yaml\nstatus: draft\n```",
+        "<!-- > **Status:** DRAFT -->",
+        "<!--\n> **Status:** DRAFT\n-->",
+        "```\nunterminated fence",
+        "<!-- unterminated comment",
+    ],
+)
+def test_status_lines_in_code_blocks_or_comments_are_refused(tmp_path: Path, hidden: str) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", gate.APPROVED, extra=hidden + "\n")
+    with pytest.raises(gate.ReleaseGateError, match="code block or HTML comment"):
+        gate.check(root, "v1.1.0")
+
+
+def test_an_approval_only_inside_a_fence_does_not_approve(tmp_path: Path) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(
+        root,
+        "1.1.0",
+        "    > **Status:** DRAFT",
+        extra="```\n> **Status:** approved for release\n```\n",
+    )
+    with pytest.raises(gate.ReleaseGateError):
+        gate.check(root, "v1.1.0")
+
+
+def test_an_approval_only_inside_a_comment_does_not_approve(tmp_path: Path) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", "<!--\n> **Status:** approved for release\n-->")
+    with pytest.raises(gate.ReleaseGateError):
+        gate.check(root, "v1.1.0")
+
+
+def test_prose_that_mentions_status_is_not_a_declaration(tmp_path: Path) -> None:
+    root = _root(tmp_path, "1.1.0")
+    prose = (
+        "The gate reads the status line above.\n"
+        "status line changes are recorded in the changelog.\n"
+        "```\nprint('no declaration here')\n```\n"
+    )
+    _manifest(root, "1.1.0", gate.APPROVED, extra=prose)
+    assert gate.check(root, "v1.1.0").version == "1.1.0"
+
+
 def test_the_title_must_name_the_version(tmp_path: Path) -> None:
     root = _root(tmp_path, "1.1.0")
     _manifest(root, "1.1.0", gate.APPROVED, title="# Release evidence manifest — GPO Studio 1.0.0")
@@ -270,7 +348,7 @@ def test_release_workflow_no_longer_greps_the_unversioned_manifest() -> None:
     text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     assert "grep -q '^> " not in text
     assert "cp docs/release-evidence.md" not in text
-    assert text.count("python scripts/check_release_manifest.py") == 2
+    assert text.count("python scripts/check_release_manifest.py") == 3
 
 
 def test_publish_needs_identity_ci_identifier_gate_and_verify() -> None:
@@ -304,3 +382,112 @@ def test_called_workflows_accept_workflow_call_and_keep_their_jobs() -> None:
         gate_workflow
     )
     assert "--strict" in gate_workflow
+
+
+# --- the remote tag still names the built commit -------------------------------
+
+
+def _git(cwd: Path, *args: str) -> str:
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Release Gate Test",
+        "GIT_AUTHOR_EMAIL": "gate@example.invalid",
+        "GIT_COMMITTER_NAME": "Release Gate Test",
+        "GIT_COMMITTER_EMAIL": "gate@example.invalid",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+    command = [
+        "git",
+        "-c",
+        "core.hooksPath=" + os.devnull,
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "tag.gpgsign=false",
+        *args,
+    ]
+    result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+@pytest.fixture
+def tagged_remote(tmp_path: Path) -> tuple[Path, str, str]:
+    """A clone whose ``origin`` is a local bare repository with two commits."""
+    remote = tmp_path / "remote.git"
+    remote.mkdir()
+    _git(remote, "init", "--bare", "-q")
+    work = tmp_path / "work"
+    work.mkdir()
+    _git(work, "init", "-q")
+    _git(work, "remote", "add", "origin", str(remote))
+    (work / "f").write_text("a", encoding="utf-8")
+    _git(work, "add", "f")
+    _git(work, "commit", "-q", "-m", "a")
+    first = _git(work, "rev-parse", "HEAD")
+    (work / "f").write_text("b", encoding="utf-8")
+    _git(work, "commit", "-q", "-am", "b")
+    second = _git(work, "rev-parse", "HEAD")
+    _git(work, "push", "-q", "origin", "HEAD:refs/heads/main")
+    return work, first, second
+
+
+@pytest.mark.parametrize("annotated", [True, False])
+def test_the_remote_tag_must_peel_to_the_built_commit(
+    tagged_remote: tuple[Path, str, str], annotated: bool
+) -> None:
+    work, first, second = tagged_remote
+    if annotated:
+        _git(work, "tag", "-a", "-m", "release", "v1.1.0", first)
+    else:
+        _git(work, "tag", "v1.1.0", first)
+    _git(work, "push", "-q", "origin", "refs/tags/v1.1.0")
+    gate.verify_remote_tag(work, "origin", "v1.1.0", first)
+
+    # Sol's reproduction: the tag is moved to another commit after the run began.
+    if annotated:
+        _git(work, "tag", "-f", "-a", "-m", "moved", "v1.1.0", second)
+    else:
+        _git(work, "tag", "-f", "v1.1.0", second)
+    _git(work, "push", "-q", "-f", "origin", "refs/tags/v1.1.0")
+    with pytest.raises(gate.ReleaseGateError, match="tag moved"):
+        gate.verify_remote_tag(work, "origin", "v1.1.0", first)
+    gate.verify_remote_tag(work, "origin", "v1.1.0", second)
+
+
+def test_a_missing_remote_tag_or_unreadable_remote_fails_closed(
+    tagged_remote: tuple[Path, str, str],
+) -> None:
+    work, first, _second = tagged_remote
+    with pytest.raises(gate.ReleaseGateError, match="has no refs/tags/v1.1.0"):
+        gate.verify_remote_tag(work, "origin", "v1.1.0", first)
+    with pytest.raises(gate.ReleaseGateError, match="ls-remote failed"):
+        gate.verify_remote_tag(work, "no-such-remote", "v1.1.0", first)
+    with pytest.raises(gate.ReleaseGateError, match="not a full SHA-1"):
+        gate.verify_remote_tag(work, "origin", "v1.1.0", first[:12])
+
+
+def test_main_runs_the_remote_tag_check_when_asked(
+    tagged_remote: tuple[Path, str, str], tmp_path: Path
+) -> None:
+    work, first, second = tagged_remote
+    root = _root(tmp_path / "manifest-root", "1.1.0")
+    _manifest(root, "1.1.0", gate.APPROVED)
+    _git(work, "tag", "v1.1.0", second)
+    _git(work, "push", "-q", "origin", "refs/tags/v1.1.0")
+    remote = str(tmp_path / "remote.git")
+    base = ["--tag", "v1.1.0", "--root", str(root), "--remote", remote]
+    assert gate.main([*base, "--remote-tag-sha", second]) == 0
+    assert gate.main([*base, "--remote-tag-sha", first]) == 1
+
+
+def test_publish_checks_the_remote_tag_immediately_before_creating_the_release() -> None:
+    text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    publish = _job_block(text, "publish")
+    check = publish.index('--remote-tag-sha "${GITHUB_SHA}"')
+    create = publish.index('gh release create "$GITHUB_REF_NAME"')
+    assert check < create
+    assert publish[check:create].count("- name:") == 1, (
+        "the tag check must be the step right before publication"
+    )
+    assert '--remote-tag-sha "${GITHUB_SHA}"' in _job_block(text, "release-identity")

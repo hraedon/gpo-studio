@@ -59,6 +59,10 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 - **GPP Registry no longer offers native GPMC backup export.** Native GPP
   output is an allowlist of captured families (Plan 033 WP-2, WI-046). The
   Studio bundle still carries GPP Registry.
+- **Do not run 1.0.0's `workspace check` on a backup** (WI-072). It writes into
+  the checked file, and the backup can then no longer be restored. Verify a
+  pre-upgrade backup by restoring it to a throwaway path and checking that
+  copy, as the updated runbooks do.
 
 ### Added
 
@@ -447,6 +451,14 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 Operator-facing:
 
+- *New in this draft:* `gpo-studio workspace check` no longer changes the
+  database it checks (WI-072). It recorded its result in `workspace_meta`, so
+  checking a backup changed the file after its sidecar recorded the SHA-256,
+  and `workspace restore` then refused the backup with `Backup database
+  checksum mismatch`. The runbooks prescribed exactly that check before a
+  rollback. The check now opens the file read-only and leaves no side files
+  beside a backup. **1.0.0 still has the defect**, so the runbooks now verify
+  a backup by restoring a throwaway copy and checking the copy.
 - WI-044: a GPO with a **deny** security filter advertised its PowerShell plan
   and Studio export bundle as available, then refused both downloads with HTTP
   422. WI-041's refusal is correct and unchanged. The problem was that
@@ -624,11 +636,18 @@ Lab and development tooling:
   the approval string, so any later tag would have passed on 1.0.0's approval.
   `scripts/check_release_manifest.py` now requires
   `docs/release-evidence-<version>.md` and its JSON report to name the tagged
-  version, and requires exactly one status line, the right one for the tag.
-  It fails closed on anything else. Before publishing, the workflow also
-  requires every `ci.yml` job (including `test-windows`), the identifier gate
-  and the existing verify job to pass on the tagged commit, and the commit to
-  be on `main`. `tests/test_release_manifest_gate.py` pins both halves.
+  version, and requires exactly one status declaration, the right one for
+  the tag. Any line a reader could take for a status counts, whatever its case,
+  indentation, blockquote or emphasis. A status line inside a code block or
+  HTML comment is refused, so an approval cannot sit in an example block beside
+  a draft. It fails closed on anything else. Before publishing, the workflow
+  also requires every `ci.yml` job (including `test-windows`), the identifier
+  gate and the existing verify job to pass on the tagged commit, and the commit
+  to be on `main`. Immediately before `gh release create`, it requires the
+  remote tag to still peel to the commit the run built, because
+  `--verify-tag` only checks that a tag of that name exists.
+  `tests/test_release_manifest_gate.py` pins each part, including the bypasses
+  a review demonstrated against the first version.
 - The static safety gate now applies forbidden-import categories to the **web
   process** (the modules reachable from `api.py`, directly or transitively),
   which is what the charter constrains, instead of to the whole `src/`
@@ -673,7 +692,14 @@ is a capability by itself; see Added for what an operator can reach.
   a backup of it, then serving the restored pre-upgrade backup).
   `tests/test_release_upgrade_from_1_0_0.py` holds the upgrade lossless,
   re-runs 1.0.0's schema guard from the tag, and pins the three output
-  differences listed under "Upgrading from 1.0.0". The upgrade rehearsal
+  differences listed under "Upgrading from 1.0.0". Exported `Registry.pol`
+  files are decoded by a PReg reader in the test itself and compared with the
+  bytes 1.0.0 exported and the settings 1.0.0 served, so a serializer that
+  drops a record type fails (checked by mutation). The provenance pins the
+  writer: the `v1.0.0` commit, its `uv.lock` digest and a digest of the
+  installed package files, which the test re-derives from the tag. It also
+  records 1.0.0's `workspace check` invalidating a backup copy (WI-072).
+  The upgrade rehearsal
   (`scripts/rehearse_upgrade_rollback.py`), which CI and the release run
   against the built wheel, now covers this workspace as well as the synthetic
   schema-0 one. The earlier fixtures were written by this repository's own SQL.

@@ -37,6 +37,7 @@ import subprocess
 import sys
 import types
 import zipfile
+from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from gpo_studio import __version__, registry_pol
+from gpo_studio import __version__
 from gpo_studio.api import app
 from gpo_studio.schema import SCHEMA_VERSION
 from gpo_studio.store import WorkspaceStore
@@ -133,6 +134,85 @@ def _assert_superset(legacy: Any, current: Any, path: str = "") -> None:
         assert current == legacy, f"{path}: 1.0.0 served {legacy!r}, now {current!r}"
 
 
+_PREG_TYPES = {
+    "REG_SZ": 1,
+    "REG_EXPAND_SZ": 2,
+    "REG_BINARY": 3,
+    "REG_DWORD": 4,
+    "REG_MULTI_SZ": 7,
+    "REG_QWORD": 11,
+}
+
+
+def _decode_preg(data: bytes) -> list[tuple[str, str, int, bytes]]:
+    """A minimal, independent MS-GPREG ``Registry.pol`` reader.
+
+    Header ``PReg`` + version 1, then ``[key;value;type;size;data]`` records
+    whose delimiters and strings are UTF-16LE, strings NUL-terminated and
+    ``type``/``size`` little-endian DWORDs. Deliberately shares nothing with
+    ``gpo_studio.registry_pol``.
+    """
+    assert data[:8] == b"PReg\x01\x00\x00\x00", data[:8]
+
+    def char(text: str) -> bytes:
+        return text.encode("utf-16-le")
+
+    records = []
+    pos = 8
+
+    def expect(text: str) -> None:
+        nonlocal pos
+        assert data[pos : pos + 2] == char(text), (pos, data[pos : pos + 2])
+        pos += 2
+
+    def string() -> str:
+        nonlocal pos
+        end = pos
+        while data[end : end + 2] != b"\x00\x00":
+            end += 2
+            assert end < len(data), "unterminated string"
+        text = data[pos:end].decode("utf-16-le")
+        pos = end + 2
+        return text
+
+    def dword() -> int:
+        nonlocal pos
+        value = int.from_bytes(data[pos : pos + 4], "little")
+        pos += 4
+        return value
+
+    while pos < len(data):
+        expect("[")
+        key = string()
+        expect(";")
+        value_name = string()
+        expect(";")
+        kind = dword()
+        expect(";")
+        size = dword()
+        expect(";")
+        payload = data[pos : pos + size]
+        assert len(payload) == size
+        pos += size
+        expect("]")
+        records.append((key, value_name, kind, payload))
+    return records
+
+
+def _encode_value(registry_type: str, value: Any) -> bytes:
+    if registry_type in ("REG_SZ", "REG_EXPAND_SZ"):
+        return (value + "\x00").encode("utf-16-le")
+    if registry_type == "REG_MULTI_SZ":
+        return ("".join(item + "\x00" for item in value) + "\x00").encode("utf-16-le")
+    if registry_type == "REG_DWORD":
+        return int(value).to_bytes(4, "little")
+    if registry_type == "REG_QWORD":
+        return int(value).to_bytes(8, "little")
+    if registry_type == "REG_BINARY":
+        return bytes.fromhex(value)
+    raise AssertionError(registry_type)
+
+
 def _export_registry_pol(client: TestClient, guid: str) -> dict[str, bytes]:
     response = client.get(f"/api/gpos/{guid}/export.zip")
     assert response.status_code == 200, response.text
@@ -218,6 +298,13 @@ def test_a_gpo_without_preferences_keeps_its_review_digests(
 def test_exported_registry_pol_holds_exactly_the_records_1_0_0_exported(
     upgraded: tuple[Path, TestClient],
 ) -> None:
+    """Decode both sides with this file's own PReg reader, never Studio's.
+
+    The bytes 1.0.0 exported are the yardstick; record order is the only
+    permitted difference (pinned below). An earlier version compared against
+    ``serialize(parse(legacy))``, which used the code under test as its own
+    oracle: a serializer that silently dropped every REG_QWORD passed it.
+    """
     _path, client = upgraded
     for guid, entry in BASELINE.items():
         legacy = {
@@ -227,8 +314,37 @@ def test_exported_registry_pol_holds_exactly_the_records_1_0_0_exported(
         current = _export_registry_pol(client, guid)
         assert current.keys() == legacy.keys()
         for name, data in current.items():
-            # Same records; this serializer's order. See the pin below.
-            assert data == registry_pol.serialize(registry_pol.parse(legacy[name])), (guid, name)
+            assert Counter(_decode_preg(data)) == Counter(_decode_preg(legacy[name])), (guid, name)
+
+
+def test_exported_registry_pol_carries_every_setting_1_0_0_served(
+    upgraded: tuple[Path, TestClient],
+) -> None:
+    """A second, independent yardstick: the settings 1.0.0 served, encoded here."""
+    _path, client = upgraded
+    for guid, entry in BASELINE.items():
+        current = {
+            name: set(_decode_preg(data))
+            for name, data in _export_registry_pol(client, guid).items()
+        }
+        for setting in entry["detail"]["gpo"]["settings"]:
+            name = "Machine/Registry.pol" if setting["side"] == "computer" else "User/Registry.pol"
+            if setting["action"] == "delete":
+                wanted = {
+                    record
+                    for record in current[name]
+                    if record[:2] == (setting["key"], "**del." + setting["value_name"])
+                }
+                assert wanted, setting
+                continue
+            assert setting["action"] == "set", setting
+            record = (
+                setting["key"],
+                setting["value_name"],
+                _PREG_TYPES[setting["registry_type"]],
+                _encode_value(setting["registry_type"], setting["value"]),
+            )
+            assert record in current[name], setting
 
 
 def test_the_workspace_accepts_new_revisions_after_the_upgrade(
@@ -280,8 +396,8 @@ def test_pin_delete_records_now_precede_sets_within_a_key(
             if current[name] != base64.b64decode(data):
                 differing.add((guid, name))
     assert differing == {(REGISTRY_GPO, "Machine/Registry.pol")}
-    machine = registry_pol.parse(_export_registry_pol(client, REGISTRY_GPO)["Machine/Registry.pol"])
-    assert machine[0].action == "delete"
+    machine = _decode_preg(_export_registry_pol(client, REGISTRY_GPO)["Machine/Registry.pol"])
+    assert machine[0][1].startswith("**del.")
 
 
 def test_pin_preference_gpo_digests_change_with_the_canonical_form(
@@ -350,7 +466,7 @@ def test_1_0_0_restored_its_pre_upgrade_backup_and_served_it() -> None:
     assert observed == {"exit_code": 0, "served_baseline_again": True}
 
 
-def _load_v1_0_0_schema_module() -> types.ModuleType:
+def _require_full_clone() -> None:
     shallow = subprocess.run(
         ["git", "rev-parse", "--is-shallow-repository"],
         cwd=REPO_ROOT,
@@ -360,20 +476,24 @@ def _load_v1_0_0_schema_module() -> types.ModuleType:
     )
     if shallow.returncode != 0 or shallow.stdout.strip() != "false":
         pytest.skip("shallow or absent clone: the v1.0.0 tag is not fetched here")
-    source = subprocess.run(
-        ["git", "show", "v1.0.0:src/gpo_studio/schema.py"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        check=False,
+
+
+def _git_bytes(*args: str) -> bytes:
+    result = subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, check=False)
+    assert result.returncode == 0, (
+        f"git {' '.join(args)} failed in a full clone: " + result.stderr.decode()
     )
-    assert source.returncode == 0, (
-        "the v1.0.0 tag does not resolve in a full clone: " + source.stderr.decode()
-    )
+    return result.stdout
+
+
+def _load_v1_0_0_schema_module() -> types.ModuleType:
+    _require_full_clone()
+    source = _git_bytes("show", "v1.0.0:src/gpo_studio/schema.py")
     spec = importlib.util.spec_from_loader("gpo_studio_v1_0_0_schema", loader=None)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules.pop(spec.name, None)
-    exec(compile(source.stdout, "v1.0.0:src/gpo_studio/schema.py", "exec"), module.__dict__)
+    exec(compile(source, "v1.0.0:src/gpo_studio/schema.py", "exec"), module.__dict__)
     return module
 
 
@@ -414,3 +534,54 @@ def test_the_pre_upgrade_backup_restores_with_this_release_too(tmp_path: Path) -
     finally:
         store.close()
     assert _meta(target)["schema_version"] == str(SCHEMA_VERSION)
+
+
+# --- who wrote the fixture --------------------------------------------------
+
+
+def test_the_writer_is_pinned_to_the_v1_0_0_tag_its_lockfile_and_its_installed_bytes() -> None:
+    """The fixture's writer lineage, re-derived from the tag rather than trusted.
+
+    The generator refuses a source checkout that is not exactly the tag, records
+    the tag's commit and ``uv.lock`` digest, and digests the package files it
+    actually imported from the non-editable install. Here the same digest is
+    computed from the tag's ``src/gpo_studio`` tree, so the recorded install
+    must have been those bytes, not a later tree that merely reports 1.0.0.
+    """
+    writer = PROVENANCE["writer"]
+    assert writer["tag"] == "v1.0.0"
+    _require_full_clone()
+    assert _git_bytes("rev-parse", "v1.0.0^{commit}").decode().strip() == writer["commit"]
+    assert hashlib.sha256(_git_bytes("show", "v1.0.0:uv.lock")).hexdigest() == (
+        writer["uv_lock_sha256"]
+    )
+    prefix = "src/gpo_studio/"
+    names = _git_bytes("ls-tree", "-r", "--name-only", "v1.0.0", "--", prefix).decode()
+    files = {
+        name[len(prefix) :]: _git_bytes("show", f"v1.0.0:{name}")
+        for name in names.splitlines()
+    }
+    assert len(files) == writer["installed_package_files"]
+    lines = sorted(
+        f"{name}\0{hashlib.sha256(data).hexdigest()}\n" for name, data in files.items()
+    )
+    digest = hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
+    assert digest == writer["installed_source_digest"]
+
+
+def test_known_issue_1_0_0_check_full_invalidated_a_backup() -> None:
+    """WI-072, observed on a copy of the 1.0.0-written backup by 1.0.0 itself.
+
+    1.0.0's ``workspace check`` records its result in the checked file, so the
+    sidecar's SHA-256 goes stale and 1.0.0's own restore refuses the backup.
+    The runbooks therefore never run ``check`` on a backup;
+    ``tests/test_workspace_check_read_only.py`` holds this release's check to
+    read-only.
+    """
+    observed = PROVENANCE["rollback_observations"]["legacy_check_full_on_a_backup_copy"]
+    assert observed["check_exit_code"] == 0
+    assert observed["backup_sha256_changed"] is True
+    assert observed["restore_exit_code"] == 1
+    assert observed["restore_lines"] == [
+        "error: Backup database checksum mismatch \u2014 the backup may be corrupted"
+    ]

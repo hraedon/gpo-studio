@@ -164,8 +164,24 @@ $BackupFolder = Join-Path $Root "backups"
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $Backup = Join-Path $BackupFolder "workspace-$Stamp.db"
 & $App workspace backup --database $Database --output $Backup
-& $App workspace check --database $Backup --full
+# Verify the backup without touching it: restore a throwaway copy and check that.
+$Probe = Join-Path $BackupFolder "verify-$Stamp.db"
+& $App workspace restore $Backup $Probe
+& $App workspace check --database $Probe --full
+Remove-Item "$Probe*"  # the copy and its lock file
 ```
+
+The restore itself verifies the backup's SHA-256 against its sidecar, its
+schema version and its row counts; the check then proves the restored copy is
+intact. Do not continue unless both commands succeed.
+
+> **Never run `workspace check` on a backup file.** In GPO Studio 1.0.0,
+> `workspace check` writes its result into the database it checks. Run on a
+> backup, that changes the file after its `.meta.json` sidecar recorded the
+> file's SHA-256, and every later restore of that backup fails with `Backup
+> database checksum mismatch` (WI-072). 1.1.0's check is read-only, but the
+> procedures here must also work while 1.0.0 is installed, so they verify a
+> backup by restoring it to a throwaway file and checking that file instead.
 
 Keep both the `.db` file and its `.meta.json` sidecar, and copy important
 backups to a separately protected location. Restore and retention are covered
@@ -227,9 +243,13 @@ $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
 $Database = Join-Path $Root "data\gpo-studio.db"
 $Backup = Join-Path $Root "backups\workspace-YYYYMMDD-HHMMSS.db"  # your pre-upgrade backup
 & $Python -m pip install $Wheel.FullName
-& $App workspace check --database $Backup --full
 & $App workspace restore $Backup $Database --replace
+& $App workspace check --database $Database --full
 ```
+
+`workspace restore` refuses a backup whose SHA-256 no longer matches its
+sidecar, so it is the verification step for the backup. The check runs on the
+restored workspace, never on the backup.
 
 4. Start GPO Studio and confirm the health endpoint reports the earlier
    `version` and that your policies are present.

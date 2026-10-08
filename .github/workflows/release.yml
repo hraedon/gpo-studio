@@ -42,6 +42,7 @@ jobs:
           python scripts/check_release_manifest.py
           --tag "${GITHUB_REF_NAME}"
           --github-output "${GITHUB_OUTPUT}"
+          --remote-tag-sha "${GITHUB_SHA}"
       - name: Require the tagged commit to be on main
         run: |
           git fetch --no-tags origin main
@@ -219,6 +220,16 @@ jobs:
         with:
           subject-path: dist/*
           sbom-path: sbom.cdx.json
+      # Last check before publication: the remote tag must still peel to the
+      # commit this run built. `gh release create --verify-tag` only checks
+      # that a tag of that name exists, so a tag moved mid-run would otherwise
+      # receive this commit's artifacts. A narrow race remains between this
+      # step and the next; tag protection rules close it.
+      - name: Require the remote tag to still name the built commit
+        run: >-
+          python scripts/check_release_manifest.py
+          --tag "${GITHUB_REF_NAME}"
+          --remote-tag-sha "${GITHUB_SHA}"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

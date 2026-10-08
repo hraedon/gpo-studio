@@ -40,7 +40,13 @@ The publish job also requires, for the exact tagged commit:
   test, PowerShell analysis, property tests and secret scan;
 - the `identifier-gate.yml` gate, with the denylist secret passed explicitly;
 - the existing `verify` job, now on a full-history checkout;
-- the tagged commit to be reachable from `origin/main`.
+- the tagged commit to be reachable from `origin/main`;
+- immediately before `gh release create`, the remote tag to still peel to the
+  commit the run built.
+
+A status declaration is any line a reader could take for one, whatever its
+case, indentation, blockquote or emphasis. A status line inside a code block or
+HTML comment is refused outright.
 
 ## What 1.1.0 is
 
@@ -144,12 +150,16 @@ Gaps, stated rather than implied:
   1.0.0 release itself**: the `v1.0.0` tag, installed from its own lockfile,
   driven through its HTTP API by
   `scripts/generate_release_workspace_fixture.py`, with a 1.0.0-written backup
-  and sidecar. Two synthetic GPOs, 19 revisions.
+  and sidecar. Two synthetic GPOs, 19 revisions. The provenance pins the
+  writer (the `v1.0.0` commit, its `uv.lock` digest and a digest of the
+  installed package files), and the test re-derives all three from the tag.
 - `tests/test_release_upgrade_from_1_0_0.py` shows the upgrade is lossless.
   Every stored snapshot is byte-identical after migration. Every field 1.0.0
   served is served unchanged. Fields added since 1.0.0 hold only empty
-  defaults. Exported `Registry.pol` files carry exactly the records 1.0.0
-  exported, and the workspace accepts new revisions.
+  defaults. Exported `Registry.pol` files, decoded by an independent reader
+  in the test, carry exactly the records 1.0.0 exported and every setting
+  1.0.0 served. A mutation that drops REG_QWORD records fails two tests. The
+  workspace accepts new revisions.
 - Rollback is **restoring the pre-upgrade backup**, not downgrading.
   1.0.0 refuses an upgraded workspace (`Workspace schema version 4 is newer
   than this version of GPO Studio supports (1)`, exit 3) and refuses to
@@ -160,6 +170,13 @@ Gaps, stated rather than implied:
 - `scripts/rehearse_upgrade_rollback.py`, run in CI and against the exact
   release wheel, now rehearses this fixture as well as the synthetic schema-0
   one.
+- **Known issue in 1.0.0 (WI-072):** `workspace check` writes into the file
+  it checks, so checking a backup makes it unrestorable (`Backup database
+  checksum mismatch`). Observed with 1.0.0 and recorded in the fixture's
+  provenance. 1.1.0's check is read-only. The runbooks verify a backup through
+  a throwaway restored copy, which is safe under either release. The
+  documented backup, verify, upgrade and rollback steps were executed end to
+  end with the v1.0.0 wheel and a 1.1.0-labelled wheel of this tree.
 - Operator procedure: [Windows quickstart](windows-quickstart.md#upgrade-to-another-release)
   and [workspace recovery](workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change).
 

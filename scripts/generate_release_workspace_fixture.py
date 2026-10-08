@@ -11,17 +11,23 @@ It needs two installed command-line entry points:
 * ``--legacy-cli``: ``gpo-studio`` from the release being upgraded *from*, for
   example a venv built from ``git worktree add <dir> v1.0.0`` with
   ``uv sync --frozen --no-editable``;
-* ``--current-cli``: ``gpo-studio`` from the tree being released.
+* ``--current-cli``: ``gpo-studio`` from the tree being released;
+* ``--legacy-source``: the clean checkout the legacy CLI was installed from,
+  which must be exactly ``--legacy-tag`` (default ``v1.0.0``).
 
 It then records, in ``<output-dir>/provenance.json``:
 
+0. the writer: the tag's commit, the ``uv.lock`` digest, and a digest of the
+   package files the legacy CLI actually imports (refused if editable);
 1. what the legacy release served for every GPO and revision (the lossless
-   comparison baseline) and the SHA-256 of each Registry.pol it exported;
+   comparison baseline) and the bytes of each Registry.pol it exported;
 2. a legacy-written verified backup of the same workspace, with its sidecar;
 3. what the legacy release does when pointed at the workspace after the current
    release has upgraded it, and when asked to restore a backup of it;
 4. that restoring the pre-upgrade backup with the legacy release recovers a
-   workspace the legacy release can serve again.
+   workspace the legacy release can serve again;
+5. WI-072: the legacy ``workspace check --full`` changing a copy of the backup,
+   and the legacy restore then refusing it.
 
 Steps 3 and 4 are the documented rollback procedure, observed rather than
 asserted. Everything is synthetic: the policy names, domain, principals and
@@ -30,7 +36,8 @@ SIDs are invented and use the ``studio.local`` placeholder domain.
 Usage::
 
     python scripts/generate_release_workspace_fixture.py \\
-        --legacy-cli <v1.0.0-venv>/bin/gpo-studio \\
+        --legacy-source <v1.0.0-worktree> \\
+        --legacy-cli <v1.0.0-worktree>/.venv/bin/gpo-studio \\
         --current-cli .venv/bin/gpo-studio \\
         --output-dir tests/fixtures/release-1.0.0-workspace
 """
@@ -400,14 +407,93 @@ def _refusal_line(observation: dict[str, Any], tmp: Path) -> dict[str, Any]:
     }
 
 
+def installed_source_digest(files: dict[str, bytes]) -> str:
+    """One SHA-256 over ``relative/path NUL sha256 LF`` lines, sorted by path.
+
+    ``tests/test_release_upgrade_from_1_0_0.py`` computes the same digest from
+    the tag's ``src/gpo_studio`` tree, so the recorded value ties the installed
+    package that wrote the fixture to the tagged source.
+    """
+    lines = sorted(
+        f"{name}\0{hashlib.sha256(data).hexdigest()}\n" for name, data in files.items()
+    )
+    return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
+
+
+def _git_out(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _writer_provenance(cli: Path, source: Path, tag: str) -> dict[str, Any]:
+    """Pin the writer: its commit, its lockfile, and the bytes actually installed."""
+    head = _git_out(source, "rev-parse", "HEAD")
+    tagged = _git_out(source, "rev-parse", f"{tag}^{{commit}}")
+    if head != tagged:
+        raise RuntimeError(f"--legacy-source is at {head}, not {tag} ({tagged})")
+    if _git_out(source, "status", "--porcelain", "--untracked-files=no"):
+        raise RuntimeError("--legacy-source has local modifications")
+    python = cli.parent / ("python.exe" if cli.suffix == ".exe" else "python")
+    package_dir = Path(
+        subprocess.run(
+            [
+                str(python),
+                "-c",
+                "import gpo_studio, pathlib; print(pathlib.Path(gpo_studio.__file__).parent)",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    )
+    if package_dir.resolve() == (source / "src" / "gpo_studio").resolve():
+        raise RuntimeError("the legacy CLI runs an editable install; install --no-editable")
+    files = {
+        path.relative_to(package_dir).as_posix(): path.read_bytes()
+        for path in package_dir.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+    }
+    versions = subprocess.run(
+        [
+            str(python),
+            "-c",
+            "import sys, fastapi, uvicorn; "
+            "print(sys.version.split()[0], fastapi.__version__, uvicorn.__version__)",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    return {
+        "tag": tag,
+        "commit": head,
+        "uv_lock_sha256": _sha256(source / "uv.lock"),
+        "installed_package_files": len(files),
+        "installed_source_digest": installed_source_digest(files),
+        "install": "uv sync --frozen --no-editable (the tag's own lockfile)",
+        "python": versions[0],
+        "fastapi": versions[1],
+        "uvicorn": versions[2],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--legacy-cli", type=Path, required=True)
     parser.add_argument("--current-cli", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--legacy-source",
+        type=Path,
+        required=True,
+        help="the checkout the legacy CLI was installed from (e.g. a v1.0.0 worktree)",
+    )
+    parser.add_argument("--legacy-tag", default="v1.0.0")
     args = parser.parse_args()
 
     legacy_version = _version(args.legacy_cli)
+    writer = _writer_provenance(args.legacy_cli, args.legacy_source, args.legacy_tag)
     current_version = _version(args.current_cli)
 
     with tempfile.TemporaryDirectory(prefix="gpo-studio-release-fixture-") as raw_tmp:
@@ -482,6 +568,22 @@ def main() -> int:
             args.legacy_cli, "workspace", "restore", str(upgraded_backup),
             str(tmp / "restored-from-upgraded.db"),
         )
+        # Known issue (WI-072): 1.0.0's `workspace check` writes into the file it
+        # checks. Observe it on a disposable copy of the backup and sidecar.
+        probe = tmp / "check-probe" / BACKUP_NAME
+        probe.parent.mkdir()
+        shutil.copyfile(backup, probe)
+        shutil.copyfile(Path(f"{backup}.meta.json"), Path(f"{probe}.meta.json"))
+        probe_before = _sha256(probe)
+        legacy_check = _run(
+            args.legacy_cli, "workspace", "check", "--database", str(probe), "--full"
+        )
+        probe_after = _sha256(probe)
+        legacy_restore_checked = _run(
+            args.legacy_cli, "workspace", "restore", str(probe), str(tmp / "after-check.db")
+        )
+        restore_text = legacy_restore_checked["stderr"] + legacy_restore_checked["stdout"]
+
         # ...and the documented recovery: restore the pre-upgrade backup.
         rolled_back = tmp / "rolled-back.db"
         legacy_restore_preupgrade = _run(
@@ -508,6 +610,7 @@ def main() -> int:
                 "HTTP API. Generated by scripts/generate_release_workspace_fixture.py."
             ),
             "written_by_version": legacy_version,
+            "writer": writer,
             # The tree that performed the upgrade in the rollback rehearsal. Before
             # the release cut bumps __version__, it still reports the old number.
             "upgraded_by_tree_version": current_version,
@@ -525,6 +628,16 @@ def main() -> int:
                 "legacy_restore_of_pre_upgrade_backup": {
                     "exit_code": legacy_restore_preupgrade["exit_code"],
                     "served_baseline_again": True,
+                },
+                "legacy_check_full_on_a_backup_copy": {
+                    "check_exit_code": legacy_check["exit_code"],
+                    "backup_sha256_changed": probe_before != probe_after,
+                    "restore_exit_code": legacy_restore_checked["exit_code"],
+                    "restore_lines": [
+                        line.replace(str(tmp), "<tmp>")
+                        for line in restore_text.splitlines()
+                        if "checksum" in line.lower()
+                    ],
                 },
             },
         }

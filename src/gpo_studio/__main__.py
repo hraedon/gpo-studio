@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import sys
+from pathlib import Path
 
 import uvicorn
 
@@ -17,23 +19,43 @@ from .workspace_ops import (
 )
 
 
+def _open_read_only(db_path: str) -> sqlite3.Connection:
+    """Open ``db_path`` so that nothing this process does can change its bytes.
+
+    WI-072: ``workspace check`` used to record its result in the database it
+    checked. On a backup that changed the file after its sidecar recorded the
+    SHA-256, so the documented "verify, then restore" sequence ended in
+    ``Backup database checksum mismatch``. ``mode=ro`` makes SQLite refuse any
+    write, so a future edit that records again fails here instead of silently
+    invalidating backups. The server's integrity endpoint still records, on the
+    live workspace it owns.
+
+    A WAL-mode file opened read-only still gets ``-wal``/``-shm`` side files.
+    When neither exists, no connection has the database open in WAL mode (a
+    backup, or a stopped workspace), so ``immutable=1`` reads it without
+    creating them and leaves nothing beside a backup. A running server keeps
+    its side files, and then the ordinary read-only open shares its locks.
+    """
+    path = Path(db_path).resolve()
+    query = "mode=ro"
+    if not any(Path(f"{path}{suffix}").exists() for suffix in ("-wal", "-shm")):
+        query += "&immutable=1"
+    return sqlite3.connect(f"{path.as_uri()}?{query}", uri=True)
+
+
 def _cmd_workspace_check(args: argparse.Namespace) -> int:
-    import contextlib
-    import sqlite3
-
-    from .workspace_ops import record_integrity_check
-
     db_path = args.database
     if not os.path.exists(db_path):
         print(f"error: database not found: {db_path}", file=sys.stderr)
         return 1
 
-    conn = sqlite3.connect(db_path)
+    try:
+        conn = _open_read_only(db_path)
+    except sqlite3.Error as e:
+        print(f"error: integrity check failed: {e}", file=sys.stderr)
+        return 1
     try:
         result = full_integrity_check(conn) if args.full else quick_check(conn)
-        check_type = "full" if args.full else "quick"
-        with contextlib.suppress(sqlite3.Error):
-            record_integrity_check(conn, result.ok, check_type)
     except Exception as e:
         print(f"error: integrity check failed: {e}", file=sys.stderr)
         return 1
