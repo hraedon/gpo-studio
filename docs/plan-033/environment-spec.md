@@ -130,7 +130,7 @@ re-freeze: record it here first.
 | PowerShell | 5.1.26100 family, Desktop edition | Built into Windows |
 | GroupPolicy module | 1.0.0.0 (exact) | `Get-Module GroupPolicy` — **server only**, absent on the client |
 | GPMC | built-in (matched to OS build) | Server Manager feature |
-| secedit | rides the server OS build family (26100) | Built into Windows; 21/21 on member `wp3-security-template-20261008074639-3419` and DC `wp3-security-template-20261008074709-2998` (2026-10-08) |
+| secedit | rides the server OS build family (26100) | Built into Windows; 20/20 on member `wp3-security-template-20261008074639-3419` and DC `wp3-security-template-20261008074709-2998` (2026-10-08) |
 | gpresult.exe | rides the client OS build family (26200) | Built into Windows; requalified with the client 2026-10-08 |
 | LGPO.exe | **recorded, not qualified** — see below | Microsoft Security Compliance Toolkit |
 

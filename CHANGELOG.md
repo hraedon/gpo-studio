@@ -62,6 +62,45 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 ### Added
 
+- Added two Plan 034 surfaces over the lanes the
+  [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:
+  Scripts metadata (`scripts-r10-20261008074828-8492`, 20/20) and publication
+  completeness (`publication-completeness-20261008074904-1047`, 21/21), both
+  at frozen commit `263f196`. Neither surface touches a bound file: both
+  compose in `api.py`. With a current verdict and a delivery surface each,
+  `script_policy` and `publication` reach `yes` in Plan 034's table and are
+  `lane-backed and surfaced` in the capability matrix, and Plans 026 and 030
+  leave the unsurfaced domain-layer set (`publisher.py` stays out of scope for
+  1.x, code retained). See [the operator guide](docs/scripts-and-publication-preview.md).
+  - **Scripts export.** `POST /api/gpos/{guid}/gpmc-backup-with-scripts`
+    returns a GPMC backup carrying `scripts.ini`/`psscripts.ini`, built by
+    `gpmc_backup_bundle(gpo, scripts=...)` and `native_backup_refusal`
+    unchanged. `.../preview` returns both INI texts read out of the same ZIP,
+    its SHA-256, warnings and limitations. A test holds the endpoint's bytes
+    equal to the R10 lane builder's for the certified request, and a second
+    holds its INI files equal to the banked native GPMC capture. A preview
+    response that arrives after an edit, reopen or close is discarded. Shapes the lane
+    did not measure are refused with 422 and a code, not warned about:
+    user-side scripts (WI-071), shutdown/logon/logoff, PowerShell run last or
+    unordered, a GPO with registry or preference content, and a GPO with a
+    disabled side. Every response carries `payload_not_carried`,
+    `execution_unmeasured`, `gpme_editing_unmeasured` and
+    `one_entry_shape_measured` (the ZIP in `X-GPO-Studio-Limitations`). A new
+    `scripts_export` artifact capability advertises the GPO-level refusals. A
+    "Scripts" sidebar panel builds the request, previews the files with the
+    limitations above them, and downloads the backup.
+  - **Publication preview.** `GET /api/gpos/{guid}/publication-plan?target=`
+    returns the planner's steps, rollback steps, planned SYSVOL paths, payload
+    digest and validator issues, without `plan_id`, and marks every step
+    `measured`, `unmeasured` or `refused`. `measured` is exactly the step kinds
+    the publication-completeness lane grades, derived from its builder and
+    finalizer by a test; `refused` is read off `validate_publication_plan`.
+    An `update_extension_lists` step is `measured` only when every family/side
+    it registers is one the lane imported, otherwise `unmeasured` with a
+    `coverage_reason` naming the families. Nothing writes, and `publisher.py` stays unreachable. A "Publication
+    preview" button beside the export actions opens the plan grouped by SYSVOL
+    and Active Directory, with coverage badges, limitations on top, and a
+    banner saying nothing here writes.
 - Plan 023: scope of management, delegation, WMI filters and loopback,
   **surfaced**. `som.py`, `delegation.py`, `wmi_filter.py` and
   `ad_discovery.py` back new API endpoints for GPO links, loopback validation
@@ -218,8 +257,9 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
   `docs/capability-matrix.md`. The publication modules are pure and emit no
   writes, so the web process still never writes to AD or SYSVOL. `hosting.py`
   does not make a hosted mode available. *Later (state at this draft,
-  2026-10-08):* `policy_families.py` and `object_security.py` are certified
-  and surfaced (above). `artifact_store.py`, `software_install.py`,
+  2026-10-08):* `policy_families.py`, `object_security.py`,
+  `script_policy.py` and `publication.py` are lane-backed and surfaced
+  (above). `artifact_store.py`, `software_install.py`,
   `folder_redirection.py` and `certification.py` are deleted, and
   `gpmc_interop.py` is reduced to one type (see Removed). `publisher.py` and
   `hosting.py` are out of scope for 1.x. The others have open Plan 034 exits
@@ -313,8 +353,8 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
   unsupported for SYSVOL targets and fails validation, instead of silently
   omitting them. The regression uses the qualified native Scripts rebackup.
   Generated scripts remain review-only and refuse all unverified operations.
-  *Later:* the script generator is deleted (see Removed). Domain layer; the
-  planner is unsurfaced.
+  *Later:* the script generator is deleted (see Removed), and the planner is
+  now reachable read-only through the publication preview (see Added).
 - Wide policy tables keep their row actions reachable: the actions cell sticks
   to the right edge of the scrolling table card, so Edit, Comment and Delete
   no longer disappear behind an unsignalled horizontal scroll. Placeholders are
@@ -358,7 +398,8 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
   requalification**: their verdicts bind the pre-batch bytes of
   `publication.py`, `script_policy.py` and `export.py` until the estate re-runs
   them. No row moves to `yes`. *Later:* the batch requalified both lanes (see
-  Evidence). Neither module has a surface yet, so neither row is `yes`.
+  Evidence), and the Scripts export and publication preview surfaces then
+  took both rows to `yes` (see Added).
   - `publication.py` no longer generates a script. `generate_publication_script`,
     `PowerShellPublicationScript`, the empty `_WINDOWS_VERIFIED_OPERATIONS`
     allowlist and their helpers are deleted, with their tests. The script

@@ -79,8 +79,8 @@ The batch re-earns existing lanes. It does not by itself move any module to
 
 ## Plan 034 module exits
 
-State as of 2026-10-08, from the
-[Plan 034 status line](../plans/034-post-1.0-layer-reconciliation.md) and the
+State as of 2026-10-08, after the Scripts and publication surfaces merged, from
+the [Plan 034 status line](../plans/034-post-1.0-layer-reconciliation.md) and the
 [rulings](direction-2026-10-07-plan-034-completion.md). The last column says
 what 1.1.0 may claim. It is filled in at the release cut and may only say
 "capability" for a row whose lane **and** surface both exist.
@@ -90,8 +90,8 @@ what 1.1.0 may claim. It is filled in at the release cut and may only say
 | `policy_families.py` | `yes` | certified (WP-3 member and DC) | `POST /api/security-template/policy-families` | capability: emission direction only |
 | `object_security.py` | `yes` | certified (successor at `1fb3f56`) | `POST /api/security-template/object-security` | capability: registry, file-system and service security; **restricted groups are lane-certified but not surfaced** |
 | `security_template.py` | exits through its consumers | bound by three live verdicts | via the two endpoints above | no standalone claim; reading GPME-authored `GptTmpl.inf` is out of scope |
-| `publication.py` | `yes` | publication completeness | read-only publication-plan surface: **open** | to be resolved |
-| `script_policy.py` | `yes` | Scripts metadata | Scripts export surface: **open** | to be resolved |
+| `publication.py` | `yes` | publication completeness (21/21 at `263f196`) | `GET /api/gpos/{guid}/publication-plan` and the Publication preview panel (review-only) | capability: review-only preview; steps marked `measured`, `unmeasured` or `refused`; nothing writes |
+| `script_policy.py` | `yes` | Scripts metadata (20/20 at `263f196`) | `POST /api/gpos/{guid}/gpmc-backup-with-scripts` (+ `/preview`) and the Scripts panel | capability: the measured shape only; unmeasured shapes refused with 422 |
 | `fdeploy.py` | lane, or the writer stays deferred (WI-066) | **open** | read surface exists (`POST /api/folder-redirection/fdeploy`, browser panel); no lane | to be resolved; no writer either way |
 | `network_security.py` | firewall: codec, lane, surface; the rest out of scope | firewall lane **open** (ruled out if no verdict by about 2026-10-24) | none | to be resolved; IPsec, Public Key, wired and wireless are not claimed |
 | `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | **open** | none | to be resolved; cross-domain is not claimed |

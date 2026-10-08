@@ -30,8 +30,6 @@
     "rollback": "restore the pre-upgrade backup; 1.0.0 refuses a schema-4 workspace and a backup of one"
   },
   "plan_034_open_exits": [
-    "publication.py: read-only publication-plan surface",
-    "script_policy.py: Scripts export surface",
     "fdeploy.py: lane, or writer deferred under WI-066",
     "network_security.py: firewall lane and surface, or ruled out",
     "lifecycle.py: same-domain lane and restore-plan surface",
