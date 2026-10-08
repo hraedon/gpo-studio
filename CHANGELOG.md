@@ -350,7 +350,9 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
   `certification.py` are deleted, and `gpmc_interop.py` is reduced to one type
   (see Removed). `publisher.py` and `hosting.py` are out of scope for 1.x, as
   are IPsec, Public Key, wired and wireless policy and cross-domain lifecycle.
-  The fdeploy lane is the one open Plan 034 exit at this draft.
+  `fdeploy.py` is lane-backed and surfaced for its read target (see Evidence);
+  decoding `Flags` and any writer stay deferred under WI-066. No Plan 034 exit
+  is open at this draft.
 
 ### Changed
 
@@ -778,6 +780,53 @@ Lab and development tooling:
 
 Windows evidence and the lab tooling that produces it. None of these entries
 is a capability by itself; see Added for what an operator can reach.
+
+- Re-banked the fdeploy lane: `fd-20261008121347-3151`, 29/29 on clean commit
+  `df713ef`, now holds `docs/plan-033/wp4-evidence/fdeploy/` in place of
+  `fd-20261008102559-9746` (below), with byte-identical candidate bytes. Two
+  harness defects were fixed first, and both edited bound files:
+  - The candidate builder sorted `Path` objects, which compare
+    case-insensitively on Windows, so the archive's member order depended on
+    the controller's OS (PR #98's Windows CI). It now sorts on ordinal path
+    components, as the report-parity builder does, with Windows-ordered
+    regression tests. The evidence tests hold the archive's exact hash on
+    POSIX and its members (names, order, timestamps, compression, attributes,
+    bytes) everywhere.
+  - The driver's guest root was `C:\gpo-studio\fd\$STAMP` inside double
+    quotes, so bash expanded it to the constant `C:\gpo-studio\fd$STAMP`. Every
+    run after the first collided with it, and the estate re-run refused twice
+    with "run root exists". The driver now writes `fd\\$STAMP`, and a test
+    evaluates its path lines in bash and requires a fresh root per run.
+  The old pack is in git history and its tag is preserved. See
+  [the results' history](docs/plan-033/fdeploy-results.md#history).
+
+- Banked the fdeploy lane's certifying run, `fd-20261008102559-9746`: 29/29 on
+  clean commit `6b76fad`, on the estate member server (WS2025 26100, Windows
+  PowerShell 5.1). It ran four cases: R3's GPMC-written `fdeploy1.ini` verbatim
+  (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023,
+  3069). For each, `Import-GPO` put the candidate's exact bytes in SYSVOL,
+  `Backup-GPO` re-exported `fdeploy1.ini` and `fdeploy.ini` byte for byte, and
+  Studio's `read_backup` over Windows' own backup agreed with a fresh
+  `Get-GPOReport` row for row (folder, principal SID, destination). Each report
+  named the GPO the run created. `fdeploy.py` is now `lane-backed and surfaced`
+  for its read target, Plan 034's `fdeploy` row reaches `yes` for reading, and
+  Plan 027 leaves the unsurfaced domain-layer set. **Not certified:** decoding
+  `Flags`, other `Flags` values, multi-folder and multi-principal documents,
+  and any writer, which stays deferred under WI-066 until R12. Windows' option
+  rendering per `Flags` is recorded as data for WI-066 and matches the
+  2026-10-08 probe; it is not asserted. The pack is under
+  `docs/plan-033/wp4-evidence/fdeploy/`, and
+  `tests/test_fdeploy_lane_evidence.py` re-runs the shipping finalizer over it
+  and rebuilds the candidate byte for byte. See
+  [the results](docs/plan-033/fdeploy-results.md). An exploratory pass at
+  `379e59b` binds pre-review source and is recorded as history only.
+  `bound-source-cost.md` is regenerated: `model.py`, `gpp.py` and `xml_safety.py`
+  now cost three lanes, and `backup.py`, `backup_inventory.py`, `safe_io.py`,
+  `fdeploy.py` and `fdeploy_parity.py` cost one.
+  With the report-parity, firewall and lifecycle lanes also live (merged from
+  `main`), the regenerated table prices `model.py`, `gpp.py` and `xml_safety.py`
+  at five lanes, `registry_pol.py` at four, `backup.py` at three and
+  `backup_inventory.py` at two.
 
 - Banked the report-parity lane's certifying run,
   `report-parity-20261008104512-7480`: 25/25 checks on LabMS01 (Windows Server

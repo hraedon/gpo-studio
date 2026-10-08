@@ -1,0 +1,853 @@
+fdeploy-cases.zip sha256=f21b681b14b8fd1a12e9abfd0da125016a2c453df2f63f3d0243fb5e10a94934
+expected.json sha256=5785e48019994bd47e7c958427a4df51417e39a285e720fefbf0e0f530e0fefd
+cases=4
+  r3-flags-1021: flags=1021 verbatim_r3=True fdeploy1_sha256=71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800
+  r3-flags-1020: flags=1020 verbatim_r3=False fdeploy1_sha256=dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b
+  r3-flags-1023: flags=1023 verbatim_r3=False fdeploy1_sha256=6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb
+  r3-flags-3069: flags=3069 verbatim_r3=False fdeploy1_sha256=863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b
+LOCAL_RUN_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-run-20261008121330-2146540
+CANDIDATE_DIR=/home/itadmin/gpo-fd-runs/gpo-studio/fdeploy-candidate-20261008121330-2146540
+{
+  "artifacts": {
+    "backups/c1/manifest.xml": "47e19d639a9abd2fbd6231b4a8053935a09e5ce69ea324974cf46d3811acb3d8",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/Backup.xml": "77649e2f44f75df8260ceff5943f85b5f294656d214a32b04bf3aedf98692b78",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/bkupInfo.xml": "c9e9116f2a4766f2d162f6e7dd82b7b99ee806f3ab85b3c27ece3a40ad24dcda",
+    "backups/c1/{196C57C5-E474-4AF0-AEB0-2569E631F0CD}/gpreport.xml": "873ae2fb73c6a0d6b9bfc3878918fe07c934af9bcc6b64c368ade1ba4b4108f6",
+    "backups/c2/manifest.xml": "1dd12a1678699f2082f33ef8d0bf88093388413bd1d4a776352589c76bf9da78",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/Backup.xml": "4911d1e54ba8ba8b6502bba1f2554968b3c98e1df8fe0626124fd7f95b789262",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/bkupInfo.xml": "ce08298d7da19ab89a6415e22894f8c04f8b2017d800f8a226a64c325e26b7e1",
+    "backups/c2/{8B960122-96DB-44B7-8B91-F778AAA7F0EA}/gpreport.xml": "14744b1f9b29bc07cae2dd8a87aca93739dcfb108bb70cbe7b2c5f03e6d496f3",
+    "backups/c3/manifest.xml": "ea0ad574dcbf28fe3a3ae07a476f548e35f635d3e9c6682b101f66164d2b8c62",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/Backup.xml": "4b22f0bf070ae83601e249d4ceb5f9068d2466b06e94c016fe2267cf18820bbb",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/bkupInfo.xml": "5696bb5cb9721831584cd035d5bd0528b28118f30142b567d2847667c896fa8a",
+    "backups/c3/{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}/gpreport.xml": "c66e516dffa7942a58c285f4a8bb921d2f33d2fa5cd025f23cc70a0a7b2ceb2a",
+    "backups/c4/manifest.xml": "8274ae10914341a608342dbb010c22085fa0a9469cafb2e3102c8de688df1e5e",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/Backup.xml": "1ab4df380ef3fa653e9407c05cd6595599bd23279d4076b044546e7105489f9b",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/bkupInfo.xml": "9cb0b5b330d72323c3fd33361ad6ec368f7d3244124d69b6120b8c6dbb6c00d6",
+    "backups/c4/{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}/gpreport.xml": "71dbc348a737e2e731d30fc7008c7ad57215e9c894aa704514ab67a558b2400e",
+    "builder.stdout.txt": "cbe4d30822505176baa9a81821c47004e2f2e62c975e116587f8c697aa9a9132",
+    "candidate.zip": "f21b681b14b8fd1a12e9abfd0da125016a2c453df2f63f3d0243fb5e10a94934",
+    "commands/c1/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c1/backup.stdout.txt": "a3cec7f29aa4eb401f8d9ff8944756cd06f2c7b1c4e3595af46053596d4e24cb",
+    "commands/c1/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c1/import.stdout.txt": "96ce04008d2e81a18edd889800d6b20ec19c5e7f7724ec7f4e2acd76246353c4",
+    "commands/c1/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c1/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c2/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c2/backup.stdout.txt": "323a951bb6efdddac474608a58334c54002e99e97f197f53c1221c26a93f0363",
+    "commands/c2/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c2/import.stdout.txt": "f43bec0af4cb1ac1d319051834a17281863f27cc8ed7ff687ce7b03d6cd697fe",
+    "commands/c2/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c2/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c3/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c3/backup.stdout.txt": "00918496d954084cd565f0a60d1302e2b2e0a1fa66de84373f63637a6b4e6758",
+    "commands/c3/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c3/import.stdout.txt": "dfeb8ca5d0ab27313e2490968b1591b4617f536a000f0024c282e5e59e61edc1",
+    "commands/c3/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c3/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c4/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c4/backup.stdout.txt": "c10ac83132c5922af8b1c7e477e1dd60c5a4a52ceb12819ea84410cfd57771c9",
+    "commands/c4/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c4/import.stdout.txt": "7e37314dece8ad14dbfa1a17b12ee374dcbe0a930d3aac1e4eabe79bb3fd0c7c",
+    "commands/c4/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c4/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "deployed/run-fdeploy-lane.ps1": "39795c16903585cb825423eeb4846d064fab6d546268d3090d4ea26980b161bd",
+    "input/cases/c1/manifest.xml": "c1928adbee4f0edde4d2f9b5a4a7eceb1521f7c00020a5bc087433fa9c0b3bfb",
+    "input/cases/c1/{AD093115-48AC-5D4E-B5CA-F2A7675FAC29}/Backup.xml": "34ef4b66f5a94cd568a0dbc17c78f38d19acdb604177fba133c5c20975aef091",
+    "input/cases/c1/{AD093115-48AC-5D4E-B5CA-F2A7675FAC29}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "input/cases/c1/{AD093115-48AC-5D4E-B5CA-F2A7675FAC29}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+    "input/cases/c1/{AD093115-48AC-5D4E-B5CA-F2A7675FAC29}/bkupInfo.xml": "3cfb656aa1c5521c269985241613f13bc805859fa9858ef74e66549267fa4d2a",
+    "input/cases/c2/manifest.xml": "df2c199b126a5c543669f32a1c00092e9283e87ab4e916134a27ea54c016bbab",
+    "input/cases/c2/{6BBEDEBE-A82B-5173-B436-FA97B684E005}/Backup.xml": "31af79d5c92775a70e890ef855b15f73744ffd9d01d71db0fe28248b1010f023",
+    "input/cases/c2/{6BBEDEBE-A82B-5173-B436-FA97B684E005}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "input/cases/c2/{6BBEDEBE-A82B-5173-B436-FA97B684E005}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+    "input/cases/c2/{6BBEDEBE-A82B-5173-B436-FA97B684E005}/bkupInfo.xml": "e77dd14812adc8029b84cca7fc9081e7748873b18c325208874d0567aba19230",
+    "input/cases/c3/manifest.xml": "c47e62f9301528dd914b3111c93c84a1c42d4c195be76980783fdb982ca73429",
+    "input/cases/c3/{F8E47D97-5D79-5D54-ACE8-DD2F8A2FDBCF}/Backup.xml": "7be5a5ff0d386dd73e246c059df2ff9470ba97f956a4d8233bf90221af586d65",
+    "input/cases/c3/{F8E47D97-5D79-5D54-ACE8-DD2F8A2FDBCF}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "input/cases/c3/{F8E47D97-5D79-5D54-ACE8-DD2F8A2FDBCF}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+    "input/cases/c3/{F8E47D97-5D79-5D54-ACE8-DD2F8A2FDBCF}/bkupInfo.xml": "4ddfa58d157747a59cdb13addf2065d18a8c4d4f9aa02c19c8cb9300e1f0daeb",
+    "input/cases/c4/manifest.xml": "eb265de8c22d6ff35687ecff4b1eef14db405a25c2942cde098f1779d826b9fe",
+    "input/cases/c4/{1AF21B71-65B2-5F02-B0F3-A69C417770AE}/Backup.xml": "1cbcd294efa5678b5dcfe67a7d22291bc4ffa00cfc114f45f172bf75b31dc100",
+    "input/cases/c4/{1AF21B71-65B2-5F02-B0F3-A69C417770AE}/DomainSysvol/GPO/User/Documents & Settings/fdeploy.ini": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+    "input/cases/c4/{1AF21B71-65B2-5F02-B0F3-A69C417770AE}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+    "input/cases/c4/{1AF21B71-65B2-5F02-B0F3-A69C417770AE}/bkupInfo.xml": "5070a8c41356162c58aaaa36e3a8b6a3e76f767fee71397cfe0d6728ad8ff481",
+    "reports/c1.xml": "a245e0cc4bcc29449951c33f42395c8484f16cea85c03e73374daa64aab1b368",
+    "reports/c2.xml": "fb7fd466013a8de2e3f81e6c1ce517a0d5c157d5f12938058ae395b869f8d8d1",
+    "reports/c3.xml": "0e37244b37b94aaf2d6c01f3cd2392724c97e0f2f8cfd20f488c4a5ce92f4cde",
+    "reports/c4.xml": "97f7cc213c6efcdb4a93a9fa30353b023bcdca202eabd2ea70681eca69a10015",
+    "result.json": "a64fef63dff36e14e59c651140f9ad17f2414e35484e59a1e6fa8df6d58cc18b"
+  },
+  "candidate": {
+    "builder.stdout.txt": "cbe4d30822505176baa9a81821c47004e2f2e62c975e116587f8c697aa9a9132",
+    "expected.json": "5785e48019994bd47e7c958427a4df51417e39a285e720fefbf0e0f530e0fefd",
+    "fdeploy-cases.zip": "f21b681b14b8fd1a12e9abfd0da125016a2c453df2f63f3d0243fb5e10a94934"
+  },
+  "candidate_delivery": {
+    "controller_sha256": "f21b681b14b8fd1a12e9abfd0da125016a2c453df2f63f3d0243fb5e10a94934",
+    "guest_sha256": "f21b681b14b8fd1a12e9abfd0da125016a2c453df2f63f3d0243fb5e10a94934"
+  },
+  "checks": {
+    "candidate_carries_the_required_cases": true,
+    "candidate_delivered_intact": true,
+    "candidate_rebuilds_from_bound_builder": true,
+    "cleanup_state_restored": true,
+    "deployed_harness_matches_source": true,
+    "environment_matches_frozen_spec": true,
+    "every_case_fresh_report_delivered_intact": true,
+    "every_case_fresh_report_identifies_owned_gpo": true,
+    "every_case_identity_matches_candidate": true,
+    "every_case_imported": true,
+    "every_case_imported_sysvol_holds_candidate_bytes": true,
+    "every_case_rebackup_bytes_delivered_intact": true,
+    "every_case_rebackup_bytes_equal_candidate": true,
+    "every_case_rebackup_is_of_owned_gpo": true,
+    "every_case_rebackup_report_matches_fresh_report": true,
+    "every_case_studio_reader_agrees_with_windows_report": true,
+    "every_case_studio_reads_windows_rebackup": true,
+    "every_case_windows_report_renders_expected_redirections": true,
+    "every_disposable_gpo_unlinked": true,
+    "every_expected_case_ran_once": true,
+    "every_gpo_removed_and_absent": true,
+    "every_owned_gpo_is_this_runs": true,
+    "guest_exited_zero": true,
+    "harness_reported_no_error": true,
+    "member_server_host_role": true,
+    "no_foreign_residue": true,
+    "raw_command_artifacts_complete": true,
+    "result_schema_exact": true,
+    "source_tree_clean": true
+  },
+  "checks_complete": true,
+  "comparison": {
+    "cases": {
+      "r3-flags-1020": {
+        "byte_differences": {
+          "fdeploy.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            }
+          },
+          "fdeploy1.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+              "size": 458,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+              "size": 458,
+              "utf16le_bom": true
+            }
+          }
+        },
+        "checks": {
+          "fresh_report_delivered_intact": true,
+          "fresh_report_identifies_owned_gpo": true,
+          "imported_sysvol_holds_candidate_bytes": true,
+          "rebackup_bytes_delivered_intact": true,
+          "rebackup_bytes_equal_candidate": true,
+          "rebackup_is_of_owned_gpo": true,
+          "rebackup_report_matches_fresh_report": true,
+          "studio_reader_agrees_with_windows_report": true,
+          "studio_reads_windows_rebackup": true,
+          "windows_report_renders_expected_redirections": true
+        },
+        "fresh_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "false",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "false",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "false"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "reader_report_differences": [],
+        "rebackup_info": {
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-2",
+          "GPODomain": "AD.LABDOMAIN.DEV",
+          "GPOGuid": "{94bcec8c-38e1-4700-a374-5a66f7dd920f}",
+          "ID": "{8B960122-96DB-44B7-8B91-F778AAA7F0EA}"
+        },
+        "rebackup_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "false",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "false",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "false"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "recorded": {
+          "flags": 1020,
+          "matches_probe_20261008": true,
+          "user_extension_names": "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+          "windows_options": [
+            {
+              "ApplyToDownLevel": "false",
+              "ConfigurationControl": "GP",
+              "DoNotCare": "false",
+              "FollowParent": "false",
+              "GrantExclusiveRights": "false",
+              "MoveContents": "false",
+              "PolicyRemovalBehavior": "RestoreContents",
+              "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+              "RedirectToLocal": "false"
+            }
+          ]
+        },
+        "studio_claims": [
+          {
+            "flags": 1020,
+            "flags_text": "1020",
+            "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+            "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+            "principal": "s-1-1-0"
+          }
+        ],
+        "studio_findings": [],
+        "windows_encoding": {
+          "fdeploy.ini": {
+            "bom": "fffe",
+            "cr_count": 2,
+            "crlf_only": true,
+            "lf_count": 2,
+            "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+            "size": 20,
+            "utf16le_bom": true
+          },
+          "fdeploy1.ini": {
+            "bom": "fffe",
+            "cr_count": 9,
+            "crlf_only": true,
+            "lf_count": 9,
+            "sha256": "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+            "size": 458,
+            "utf16le_bom": true
+          }
+        }
+      },
+      "r3-flags-1021": {
+        "byte_differences": {
+          "fdeploy.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            }
+          },
+          "fdeploy1.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+              "size": 458,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+              "size": 458,
+              "utf16le_bom": true
+            }
+          }
+        },
+        "checks": {
+          "fresh_report_delivered_intact": true,
+          "fresh_report_identifies_owned_gpo": true,
+          "imported_sysvol_holds_candidate_bytes": true,
+          "rebackup_bytes_delivered_intact": true,
+          "rebackup_bytes_equal_candidate": true,
+          "rebackup_is_of_owned_gpo": true,
+          "rebackup_report_matches_fresh_report": true,
+          "studio_reader_agrees_with_windows_report": true,
+          "studio_reads_windows_rebackup": true,
+          "windows_report_renders_expected_redirections": true
+        },
+        "fresh_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "false",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "true",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "false"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "reader_report_differences": [],
+        "rebackup_info": {
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-1",
+          "GPODomain": "AD.LABDOMAIN.DEV",
+          "GPOGuid": "{3ab44605-1ecb-4620-9279-7c14586e8733}",
+          "ID": "{196C57C5-E474-4AF0-AEB0-2569E631F0CD}"
+        },
+        "rebackup_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "false",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "true",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "false"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "recorded": {
+          "flags": 1021,
+          "matches_probe_20261008": true,
+          "user_extension_names": "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+          "windows_options": [
+            {
+              "ApplyToDownLevel": "false",
+              "ConfigurationControl": "GP",
+              "DoNotCare": "false",
+              "FollowParent": "false",
+              "GrantExclusiveRights": "false",
+              "MoveContents": "true",
+              "PolicyRemovalBehavior": "RestoreContents",
+              "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+              "RedirectToLocal": "false"
+            }
+          ]
+        },
+        "studio_claims": [
+          {
+            "flags": 1021,
+            "flags_text": "1021",
+            "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+            "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+            "principal": "s-1-1-0"
+          }
+        ],
+        "studio_findings": [],
+        "windows_encoding": {
+          "fdeploy.ini": {
+            "bom": "fffe",
+            "cr_count": 2,
+            "crlf_only": true,
+            "lf_count": 2,
+            "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+            "size": 20,
+            "utf16le_bom": true
+          },
+          "fdeploy1.ini": {
+            "bom": "fffe",
+            "cr_count": 9,
+            "crlf_only": true,
+            "lf_count": 9,
+            "sha256": "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+            "size": 458,
+            "utf16le_bom": true
+          }
+        }
+      },
+      "r3-flags-1023": {
+        "byte_differences": {
+          "fdeploy.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            }
+          },
+          "fdeploy1.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+              "size": 458,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+              "size": 458,
+              "utf16le_bom": true
+            }
+          }
+        },
+        "checks": {
+          "fresh_report_delivered_intact": true,
+          "fresh_report_identifies_owned_gpo": true,
+          "imported_sysvol_holds_candidate_bytes": true,
+          "rebackup_bytes_delivered_intact": true,
+          "rebackup_bytes_equal_candidate": true,
+          "rebackup_is_of_owned_gpo": true,
+          "rebackup_report_matches_fresh_report": true,
+          "studio_reader_agrees_with_windows_report": true,
+          "studio_reads_windows_rebackup": true,
+          "windows_report_renders_expected_redirections": true
+        },
+        "fresh_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "true",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "true",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "false"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "reader_report_differences": [],
+        "rebackup_info": {
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-3",
+          "GPODomain": "AD.LABDOMAIN.DEV",
+          "GPOGuid": "{f0f140ec-0be9-4daa-ba17-c58ca1dd385a}",
+          "ID": "{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}"
+        },
+        "rebackup_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "true",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "true",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "false"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "recorded": {
+          "flags": 1023,
+          "matches_probe_20261008": true,
+          "user_extension_names": "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+          "windows_options": [
+            {
+              "ApplyToDownLevel": "false",
+              "ConfigurationControl": "GP",
+              "DoNotCare": "false",
+              "FollowParent": "true",
+              "GrantExclusiveRights": "false",
+              "MoveContents": "true",
+              "PolicyRemovalBehavior": "RestoreContents",
+              "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+              "RedirectToLocal": "false"
+            }
+          ]
+        },
+        "studio_claims": [
+          {
+            "flags": 1023,
+            "flags_text": "1023",
+            "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+            "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+            "principal": "s-1-1-0"
+          }
+        ],
+        "studio_findings": [],
+        "windows_encoding": {
+          "fdeploy.ini": {
+            "bom": "fffe",
+            "cr_count": 2,
+            "crlf_only": true,
+            "lf_count": 2,
+            "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+            "size": 20,
+            "utf16le_bom": true
+          },
+          "fdeploy1.ini": {
+            "bom": "fffe",
+            "cr_count": 9,
+            "crlf_only": true,
+            "lf_count": 9,
+            "sha256": "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+            "size": 458,
+            "utf16le_bom": true
+          }
+        }
+      },
+      "r3-flags-3069": {
+        "byte_differences": {
+          "fdeploy.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 2,
+              "crlf_only": true,
+              "lf_count": 2,
+              "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+              "size": 20,
+              "utf16le_bom": true
+            }
+          },
+          "fdeploy1.ini": {
+            "candidate": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+              "size": 458,
+              "utf16le_bom": true
+            },
+            "identical": true,
+            "windows": {
+              "bom": "fffe",
+              "cr_count": 9,
+              "crlf_only": true,
+              "lf_count": 9,
+              "sha256": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+              "size": 458,
+              "utf16le_bom": true
+            }
+          }
+        },
+        "checks": {
+          "fresh_report_delivered_intact": true,
+          "fresh_report_identifies_owned_gpo": true,
+          "imported_sysvol_holds_candidate_bytes": true,
+          "rebackup_bytes_delivered_intact": true,
+          "rebackup_bytes_equal_candidate": true,
+          "rebackup_is_of_owned_gpo": true,
+          "rebackup_report_matches_fresh_report": true,
+          "studio_reader_agrees_with_windows_report": true,
+          "studio_reads_windows_rebackup": true,
+          "windows_report_renders_expected_redirections": true
+        },
+        "fresh_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "false",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "true",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "true"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "reader_report_differences": [],
+        "rebackup_info": {
+          "GPODisplayName": "zz-studio-fd-fd-20261008121347-3151-4",
+          "GPODomain": "AD.LABDOMAIN.DEV",
+          "GPOGuid": "{1cf0f69f-61bc-4565-9795-79371fd80c8f}",
+          "ID": "{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}"
+        },
+        "rebackup_report": {
+          "computer_side_extensions": 0,
+          "errors": [],
+          "extension_count": 1,
+          "redirections": [
+            {
+              "destination_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+              "folder_id": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+              "options": {
+                "ApplyToDownLevel": "false",
+                "ConfigurationControl": "GP",
+                "DoNotCare": "false",
+                "FollowParent": "false",
+                "GrantExclusiveRights": "false",
+                "MoveContents": "true",
+                "PolicyRemovalBehavior": "RestoreContents",
+                "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+                "RedirectToLocal": "true"
+              },
+              "principal_name": "Everyone",
+              "principal_sid": "s-1-1-0"
+            }
+          ]
+        },
+        "recorded": {
+          "flags": 3069,
+          "matches_probe_20261008": true,
+          "user_extension_names": "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+          "windows_options": [
+            {
+              "ApplyToDownLevel": "false",
+              "ConfigurationControl": "GP",
+              "DoNotCare": "false",
+              "FollowParent": "false",
+              "GrantExclusiveRights": "false",
+              "MoveContents": "true",
+              "PolicyRemovalBehavior": "RestoreContents",
+              "PrimaryComputerEvaluation": "PrimaryComputerPolicyDisabled",
+              "RedirectToLocal": "true"
+            }
+          ]
+        },
+        "studio_claims": [
+          {
+            "flags": 3069,
+            "flags_text": "3069",
+            "folder_guid": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+            "full_path": "\\\\zz-studio-fileserver\\zzredir\\%USERNAME%\\Documents",
+            "principal": "s-1-1-0"
+          }
+        ],
+        "studio_findings": [],
+        "windows_encoding": {
+          "fdeploy.ini": {
+            "bom": "fffe",
+            "cr_count": 2,
+            "crlf_only": true,
+            "lf_count": 2,
+            "sha256": "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+            "size": 20,
+            "utf16le_bom": true
+          },
+          "fdeploy1.ini": {
+            "bom": "fffe",
+            "cr_count": 9,
+            "crlf_only": true,
+            "lf_count": 9,
+            "sha256": "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+            "size": 458,
+            "utf16le_bom": true
+          }
+        }
+      }
+    }
+  },
+  "comparison_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33438",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "excluded_flags": {
+    "0, 509, 893, 957, 989": "report renders no Folder: ExtensionData carries 'FRSettingRead failed with -2147467259'",
+    "1005, 1013, 1017, 5117": "rendered DestinationPath = FullPath in the probe; not run, to keep the lane to the values the ruling named",
+    "765, 2045": "report renders the Folder with an empty DestinationPath while the file carries FullPath"
+  },
+  "guest_status": 0,
+  "harness_error": null,
+  "passed": true,
+  "recorded_not_asserted": [
+    "Windows option rendering per Flags value (WI-066 data)",
+    "gPCUserExtensionNames after Import-GPO"
+  ],
+  "run_id": "fd-20261008121347-3151",
+  "schema_version": 2,
+  "source": {
+    "banked_copies": [
+      "run-fdeploy-lane.ps1"
+    ],
+    "commit": "df713ef6eb86152e3e1e5ecf1e55f21dd5c64540",
+    "dirty": false,
+    "files": {
+      "backup.py": "cbe374ad0e2a00baa96353940f87ffc1ce43746eb23f84e023dea54859556f0d",
+      "backup_inventory.py": "d28a9638f51df8ca15353b2843cb2326e22b7514c42751318321311e684c4440",
+      "build-fdeploy-candidate.py": "f702921e512ab2081d20f84071679620354b887f624b17538fa330ae53b9e365",
+      "fdeploy.py": "20507fe4d70bba8e69e19120a6b6c03ab9d564d58bfa2727ce3636a3e6766a8f",
+      "fdeploy_parity.py": "ed0709d41133d7a3d197b15bfa25c9c55e2b21edeff8cca4c2540c7f6a02bb99",
+      "finalize_fdeploy_run.py": "a63e6337f60193292e088bd3510afab74d630c5e4e312f4f424cc4abd79a55be",
+      "gpp.py": "09b8ed054ea3b856545908a847c2cd7361e90f9f83d43267822c06605abf5494",
+      "model.py": "a02e3958cd7d18f3e3d90f9b8da84668f73332f7a74cd8bbf87f8b09574f75ab",
+      "oracle_evidence.py": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "r3-fdeploy.ini.txt": "f031515e6d5e221d07bb2d65d3147bb51b1c5061915f4146466397ad33713a54",
+      "r3-fdeploy1.ini.txt": "a00d2b50af85f5e8121a7f4971b3a1ec41fb29d3841a892514eac23edafedba9",
+      "r3-provenance.json": "f08676d3c35d801c8b93d4e119b277f712700a1cf6bab915f6360f421eceec82",
+      "run-fdeploy-lane.ps1": "39795c16903585cb825423eeb4846d064fab6d546268d3090d4ea26980b161bd",
+      "run-fdeploy-oracle.sh": "2a1ae67d39ecc8cc1b43676c73ab292570c9821e730e6fbaf5b1ae70ed69adbc",
+      "safe_io.py": "a7d065b43c3191a841c30555fc751ed0e6d3eb17c8a9246fb7eaecd430fccdd4",
+      "xml_safety.py": "8f9a65060cd904c081d06023324990504674e49b603630f1696f32fa269cfb53"
+    },
+    "paths": {
+      "backup.py": "src/gpo_studio/backup.py",
+      "backup_inventory.py": "src/gpo_studio/backup_inventory.py",
+      "build-fdeploy-candidate.py": "scripts/plan-033/build-fdeploy-candidate.py",
+      "fdeploy.py": "src/gpo_studio/fdeploy.py",
+      "fdeploy_parity.py": "src/gpo_studio/fdeploy_parity.py",
+      "finalize_fdeploy_run.py": "scripts/windows-oracle/finalize_fdeploy_run.py",
+      "gpp.py": "src/gpo_studio/gpp.py",
+      "model.py": "src/gpo_studio/model.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "r3-fdeploy.ini.txt": "tests/fixtures/native-folder-redirection-gpmc/fdeploy.ini.txt",
+      "r3-fdeploy1.ini.txt": "tests/fixtures/native-folder-redirection-gpmc/fdeploy1.ini.txt",
+      "r3-provenance.json": "tests/fixtures/native-folder-redirection-gpmc/provenance.json",
+      "run-fdeploy-lane.ps1": "scripts/windows-oracle/run-fdeploy-lane.ps1",
+      "run-fdeploy-oracle.sh": "scripts/windows-oracle/run-fdeploy-oracle.sh",
+      "safe_io.py": "src/gpo_studio/safe_io.py",
+      "xml_safety.py": "src/gpo_studio/xml_safety.py"
+    }
+  },
+  "transport": "psdirect"
+}
+EVIDENCE_TAG=created evidence/fd-20261008121347-3151 at df713ef6eb86 — push it: git push origin evidence/fd-20261008121347-3151

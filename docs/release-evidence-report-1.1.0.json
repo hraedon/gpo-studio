@@ -35,14 +35,35 @@
       "rehearsal": "scripts/rehearse_upgrade_rollback.py",
       "rollback": "restore the pre-upgrade backup; 1.0.0 refuses a schema-4 workspace and a backup of one"
     },
-    "plan_034_open_exits": [
-      "fdeploy.py: lane, or Flags decoding and the writer stay deferred under WI-066"
-    ],
+    "plan_034_open_exits": [],
     "accessibility": {
       "automated": "frontend CI job and release verify job (axe, keyboard, focus, dark theme)",
       "hands_on_screen_reader": "not run; requirement for 1.1.0 not decided"
     },
     "lanes_banked_after_batch": [
+      {
+        "lane": "fdeploy (read target)",
+        "run_id": "fd-20261008121347-3151",
+        "checks": "29/29",
+        "commit": "df713ef",
+        "results": "docs/plan-033/fdeploy-results.md",
+        "surfaces": [
+          "POST /api/folder-redirection/fdeploy",
+          "imported backups' report and diffs",
+          "Folder Redirection review panel"
+        ],
+        "shapes": [
+          "R3 verbatim (Flags=1021)",
+          "Flags=1020",
+          "Flags=1023",
+          "Flags=3069"
+        ],
+        "not_certified": [
+          "decoding Flags (deferred under WI-066)",
+          "any writer (deferred under WI-066)",
+          "other Flags values; multi-folder and multi-principal documents"
+        ]
+      },
       {
         "lane": "firewall",
         "run_id": "firewall-20261008094055-2092337",
@@ -104,6 +125,7 @@
           "ADMX policy rendering, Scripts, links, security filtering, WMI filters"
         ]
       }
-    ]
+    ],
+    "lane_verdicts": "as banked; release requalification pending (after batch 2)"
   }
 }

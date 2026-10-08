@@ -104,6 +104,11 @@ evidence lane, **then** a delivery surface an operator can reach.
 
 ## Requalified evidence: the Plan 034 batch
 
+> Lane verdicts as banked; release requalification pending. A final
+> requalification of every lane at one commit follows batch 2, and this section
+> will cite that run. Until then each verdict below is the one banked when its
+> lane landed, not a release-level certification.
+
 The [requalification batch](plan-033/plan034-batch.md) ran on 2026-10-08:
 
 - 22 runs passed on frozen commit `263f19640529d469c2a54c18b43d228db5378279`
@@ -129,16 +134,18 @@ The batch re-earns existing lanes. It does not by itself move any module to
 
 ## Lanes banked after the batch
 
-Three new lanes were certified on 2026-10-08 and banked with their evidence
-packs. `tests/test_committed_evidence.py`, which the release now requires on
-the tagged commit, holds every live verdict to the source bytes it binds. All
-three ran on the estate member server LabMS01 (Windows Server 2025, build
-26100, Windows PowerShell 5.1).
+Four new lanes were certified on 2026-10-08 and banked with their evidence
+packs (lane verdicts as banked; release requalification pending).
+`tests/test_committed_evidence.py`, which the release now requires on the
+tagged commit, holds every live verdict to the source bytes it binds. All four
+ran on the estate member server (Windows Server 2025, build 26100, Windows
+PowerShell 5.1).
 
 | Lane | Certifying run | Commit | What it certifies |
 |---|---|---|---|
 | firewall | `firewall-20261008094055-2092337` (36/36) | `a6e0002` | `firewall_policy.py` for one measured tranche: the 13 rule shapes and the Domain and Private profile literals. Read leg: rules authored with `New-NetFirewallRule -PolicyStore` parse with zero unrecognised records and equal the authored policy. Write leg: `Import-GPO` of Studio's backup returns Studio's Registry.pol byte for byte. [Results](plan-033/firewall-results.md) |
 | lifecycle (same-domain) | `lifecycle-20261008093248-2000-c76d10eb3f2849fe` (all 30 cells) | `3513052` | `lifecycle.SCOPE_SURVIVAL`: five GPMC operations by six scope dimensions, each agreeing with what Windows did, plus the five plan-identity claims and the backup bridge. One topology. [Results](plan-033/lifecycle-results.md) |
+| fdeploy (read target) | `fd-20261008121347-3151` (29/29) | `df713ef` | `fdeploy.py`'s reader for four shapes: R3's GPMC-written `fdeploy1.ini` verbatim (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023, 3069). `Import-GPO` placed the exact bytes, `Backup-GPO` re-exported them byte for byte, and Studio's reading of Windows' own backup agreed with a fresh `Get-GPOReport` row for row (folder, principal SID, destination). [Results](plan-033/fdeploy-results.md) |
 | report-parity | `report-parity-20261008104512-7480` (25/25, 27/27 cases) | `a1c280b` | `backup.py` / `report.py` over the existing import and plain-text report surfaces, for registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Printers, Scheduled Tasks, Services and Shortcuts. [Results](plan-033/report-parity-results.md) |
 
 What these runs do **not** certify:
@@ -154,6 +161,10 @@ What these runs do **not** certify:
   values outside the tranche are refused; GPME display is unmeasured, and
   Studio registers a different tool GUID from native authoring (WI-077).
   IPsec, Public Key, wired and wireless policy are out of scope for 1.x.
+- **fdeploy:** decoding `Flags`, other `Flags` values, multi-folder and
+  multi-principal documents, and any writer. `Flags` decoding and the writer
+  stay deferred under WI-066 until R12. Windows' option rendering per `Flags`
+  is recorded as data for WI-066, not asserted.
 - **Lifecycle:** one topology (one source, one target, one member server, one
   DC). A deleted GPO's restore, multi-DC replication, `Import-GPO -TargetName`
   into an existing GPO, deny ACEs and the WMI filter object are unmeasured.
@@ -162,8 +173,8 @@ What these runs do **not** certify:
 
 ## Plan 034 module exits
 
-State as of 2026-10-08, after the Scripts, publication, firewall and
-restore-plan surfaces and the report-parity lane merged, matching the
+State as of 2026-10-08, after every Plan 034 exit landed (no exit is open),
+matching the
 [capability matrix](capability-matrix.md), the
 [Plan 034 status line](../plans/034-post-1.0-layer-reconciliation.md) and the
 [rulings](direction-2026-10-07-plan-034-completion.md). The last column says
@@ -177,7 +188,7 @@ what 1.1.0 may claim. It is filled in at the release cut and may only say
 | `security_template.py` | exits through its consumers | bound by three live verdicts | via the two endpoints above | no standalone claim; reading GPME-authored `GptTmpl.inf` is out of scope |
 | `publication.py` | `yes` | publication completeness (21/21 at `263f196`) | `GET /api/gpos/{guid}/publication-plan` and the Publication preview panel (review-only) | capability: review-only preview; steps marked `measured`, `unmeasured` or `refused`; nothing writes |
 | `script_policy.py` | `yes` | Scripts metadata (20/20 at `263f196`) | `POST /api/gpos/{guid}/gpmc-backup-with-scripts` (+ `/preview`) and the Scripts panel | capability: the measured shape only; unmeasured shapes refused with 422 |
-| `fdeploy.py` | lane, or the writer stays deferred (WI-066) | **open** (the one open exit at this draft) | read surface exists (`POST /api/folder-redirection/fdeploy`, browser panel); no lane, so capture-backed (R3) | to be resolved; `Flags` decoding and the writer stay deferred under WI-066 either way |
+| `fdeploy.py` | lane, or the writer stays deferred (WI-066) | fdeploy read lane (`fd-20261008121347-3151`, 29/29 at `df713ef`) | `POST /api/folder-redirection/fdeploy`, imported backups' report and diffs, and the Folder Redirection review panel | capability: reading the four measured shapes; `Flags` decoding and the writer stay deferred under WI-066 |
 | `network_security.py` / `firewall_policy.py` | firewall: codec, lane, surface; the rest out of scope | firewall (`firewall-20261008094055-2092337`, 36/36 at `a6e0002`) | `POST /api/network-security/firewall/render`, `GET /api/gpos/{guid}/firewall-policy` | capability: the measured tranche only, everything else refused; IPsec, Public Key, wired and wireless are not claimed |
 | `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | same-domain lifecycle (`lifecycle-20261008093248-2000-c76d10eb3f2849fe`, 30/30 cells at `3513052`) | `POST /api/lifecycle/restore-plan` (review only) | capability: same-domain restore plans over GPOs imported from a Windows backup; cross-domain is refused and not claimed |
 | `backup.py` / `report.py` | report-parity lane for modelled families | report-parity (`report-parity-20261008104512-7480`, 25/25 at `a1c280b`) | existing backup import and plain-text report | capability: report parity for the families listed above; Power Options and the uncaptured families are not claimed |
@@ -291,8 +302,9 @@ data. Each is pinned by a test:
   unless WI-066 is answered; `publisher.py` and `hosting.py` as capabilities.
 - **Not certified within certified lanes:** Power Options report parity
   (WI-072), task interleaving on write (WI-073), the seven uncaptured
-  preference families, firewall values outside the measured tranche, and the
-  lifecycle cases listed under the banked lanes above.
+  preference families, firewall values outside the measured tranche, fdeploy
+  documents beyond the four measured shapes, and the lifecycle cases listed
+  under the banked lanes above.
 - **Deployment profile unchanged:** one operator on loopback, no
   authentication, no TLS, no hosted or multi-user mode. The `actor` on each
   revision is claimed, not authenticated.
@@ -312,9 +324,9 @@ data. Each is pinned by a test:
 
 ## Remaining before approval
 
-1. Every open row above reaches its exit (`yes` or a recorded ruling), with
-   its plan status line, capability matrix entry and changelog entry in the
-   same change.
+1. Every Plan 034 row has reached its exit (done 2026-10-08). Requalify every
+   lane at one commit after batch 2 and replace the banked verdicts cited here
+   with that run's.
 2. Bump `__version__` (to `1.1.0rc1` for a candidate, or to `1.1.0`), date
    the changelog section, and update `SECURITY.md`'s supported-versions table
    and 1.x compatibility policy for the `1.1.x` line.

@@ -13,13 +13,13 @@ be re-run before the evidence is honest again.
 That is WI-048's ordering argument, and this table is what makes it
 checkable before the edit instead of after. It exists because the
 information was already complete and unreadable: spread across
-25 packs, so pricing one file meant opening all of them.
+26 packs, so pricing one file meant opening all of them.
 
 **A zero-cost file is not a safe file.** It means no lane measured it,
 which is a statement about coverage rather than about quality --- and
 for anything in `src/gpo_studio/`, usually the more interesting one.
 
-Live set: 24 lane verdicts plus WP-0. Retired and
+Live set: 25 lane verdicts plus WP-0. Retired and
 pending-requalification verdicts are excluded; they bind the commits
 they name and are not re-earned by an edit today.
 
@@ -27,25 +27,28 @@ they name and are not re-earned by an edit today.
 
 | File | Lanes | Which |
 |---|---:|---|
-| `src/gpo_studio/oracle_evidence.py` | 25 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, endpoint, firewall, lifecycle, loopback-merge, loopback-replace, lsdou-precedence, object-security, publication, report-parity, scripts-metadata, user-security-filtering, user-security-filtering-deny, user-security-filtering-read-deny, user-side-disabled, wmi-filtering, wmi-filtering-error, wp0, wp1b, wp2, wp3-dc, wp3-member |
-| `src/gpo_studio/gpp.py` | 4 | firewall, publication, report-parity, scripts-metadata |
-| `src/gpo_studio/model.py` | 4 | firewall, publication, report-parity, scripts-metadata |
+| `src/gpo_studio/oracle_evidence.py` | 26 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, endpoint, fdeploy, firewall, lifecycle, loopback-merge, loopback-replace, lsdou-precedence, object-security, publication, report-parity, scripts-metadata, user-security-filtering, user-security-filtering-deny, user-security-filtering-read-deny, user-side-disabled, wmi-filtering, wmi-filtering-error, wp0, wp1b, wp2, wp3-dc, wp3-member |
+| `src/gpo_studio/gpp.py` | 5 | fdeploy, firewall, publication, report-parity, scripts-metadata |
+| `src/gpo_studio/model.py` | 5 | fdeploy, firewall, publication, report-parity, scripts-metadata |
+| `src/gpo_studio/xml_safety.py` | 5 | fdeploy, firewall, publication, report-parity, scripts-metadata |
 | `src/gpo_studio/registry_pol.py` | 4 | firewall, publication, report-parity, scripts-metadata |
-| `src/gpo_studio/xml_safety.py` | 4 | firewall, publication, report-parity, scripts-metadata |
+| `src/gpo_studio/backup.py` | 3 | fdeploy, lifecycle, report-parity |
 | `src/gpo_studio/canonical.py` | 3 | firewall, publication, scripts-metadata |
 | `src/gpo_studio/export.py` | 3 | firewall, publication, scripts-metadata |
 | `src/gpo_studio/security_template.py` | 3 | object-security, wp3-dc, wp3-member |
 | `src/gpo_studio/validation.py` | 3 | firewall, publication, scripts-metadata |
-| `src/gpo_studio/backup.py` | 2 | lifecycle, report-parity |
+| `src/gpo_studio/backup_inventory.py` | 2 | fdeploy, report-parity |
 | `src/gpo_studio/policy_families.py` | 2 | wp3-dc, wp3-member |
 | `src/gpo_studio/publication.py` | 2 | firewall, publication |
-| `src/gpo_studio/backup_inventory.py` | 1 | report-parity |
+| `src/gpo_studio/fdeploy.py` | 1 | fdeploy |
+| `src/gpo_studio/fdeploy_parity.py` | 1 | fdeploy |
 | `src/gpo_studio/firewall_policy.py` | 1 | firewall |
 | `src/gpo_studio/gpp_adapters.py` | 1 | report-parity |
 | `src/gpo_studio/import_export.py` | 1 | report-parity |
 | `src/gpo_studio/lifecycle.py` | 1 | lifecycle |
 | `src/gpo_studio/object_security.py` | 1 | object-security |
 | `src/gpo_studio/report_parity.py` | 1 | report-parity |
+| `src/gpo_studio/safe_io.py` | 1 | fdeploy |
 | `src/gpo_studio/script_policy.py` | 1 | scripts-metadata |
 | `src/gpo_studio/sddl.py` | 1 | object-security |
 
@@ -53,7 +56,7 @@ they name and are not re-earned by an edit today.
 
 | File | Lanes | Which |
 |---|---:|---|
-| `scripts/windows-oracle/psdirect.ps1` | 25 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, endpoint, firewall, lifecycle, loopback-merge, loopback-replace, lsdou-precedence, object-security, publication, report-parity, scripts-metadata, user-security-filtering, user-security-filtering-deny, user-security-filtering-read-deny, user-side-disabled, wmi-filtering, wmi-filtering-error, wp0, wp1b, wp2, wp3-dc, wp3-member |
+| `scripts/windows-oracle/psdirect.ps1` | 26 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, endpoint, fdeploy, firewall, lifecycle, loopback-merge, loopback-replace, lsdou-precedence, object-security, publication, report-parity, scripts-metadata, user-security-filtering, user-security-filtering-deny, user-security-filtering-read-deny, user-side-disabled, wmi-filtering, wmi-filtering-error, wp0, wp1b, wp2, wp3-dc, wp3-member |
 | `scripts/plan-033/build-rsop-candidate.py` | 13 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, loopback-merge, loopback-replace, lsdou-precedence, user-security-filtering, user-security-filtering-deny, user-security-filtering-read-deny, user-side-disabled, wmi-filtering, wmi-filtering-error |
 | `scripts/windows-oracle/run-rsop-author.ps1` | 13 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, loopback-merge, loopback-replace, lsdou-precedence, user-security-filtering, user-security-filtering-deny, user-security-filtering-read-deny, user-side-disabled, wmi-filtering, wmi-filtering-error |
 | `scripts/windows-oracle/finalize_rsop_run.py` | 7 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, lsdou-precedence, wmi-filtering, wmi-filtering-error |
@@ -67,6 +70,7 @@ they name and are not re-earned by an edit today.
 | `scripts/windows-oracle/run-wp3-oracle.sh` | 2 | wp3-dc, wp3-member |
 | `scripts/windows-oracle/run-wp3-security-template.ps1` | 2 | wp3-dc, wp3-member |
 | `scripts/plan-033/build-endpoint-candidate.py` | 1 | endpoint |
+| `scripts/plan-033/build-fdeploy-candidate.py` | 1 | fdeploy |
 | `scripts/plan-033/build-firewall-candidate.py` | 1 | firewall |
 | `scripts/plan-033/build-lifecycle-candidate.py` | 1 | lifecycle |
 | `scripts/plan-033/build-object-security-candidate.py` | 1 | object-security |
@@ -77,6 +81,7 @@ they name and are not re-earned by an edit today.
 | `scripts/plan-033/build-wp2-candidate.py` | 1 | wp2 |
 | `scripts/windows-oracle/cleanup-firewall-policy.ps1` | 1 | firewall |
 | `scripts/windows-oracle/finalize_endpoint_run.py` | 1 | endpoint |
+| `scripts/windows-oracle/finalize_fdeploy_run.py` | 1 | fdeploy |
 | `scripts/windows-oracle/finalize_firewall_run.py` | 1 | firewall |
 | `scripts/windows-oracle/finalize_lifecycle_run.py` | 1 | lifecycle |
 | `scripts/windows-oracle/finalize_object_security_run.py` | 1 | object-security |
@@ -89,6 +94,8 @@ they name and are not re-earned by an edit today.
 | `scripts/windows-oracle/run-endpoint-author.ps1` | 1 | endpoint |
 | `scripts/windows-oracle/run-endpoint-observe.ps1` | 1 | endpoint |
 | `scripts/windows-oracle/run-endpoint-oracle.sh` | 1 | endpoint |
+| `scripts/windows-oracle/run-fdeploy-lane.ps1` | 1 | fdeploy |
+| `scripts/windows-oracle/run-fdeploy-oracle.sh` | 1 | fdeploy |
 | `scripts/windows-oracle/run-firewall-oracle.sh` | 1 | firewall |
 | `scripts/windows-oracle/run-firewall-policy.ps1` | 1 | firewall |
 | `scripts/windows-oracle/run-lifecycle-oracle.sh` | 1 | lifecycle |
@@ -106,6 +113,9 @@ they name and are not re-earned by an edit today.
 | `scripts/windows-oracle/run-wp1b-writer.ps1` | 1 | wp1b |
 | `scripts/windows-oracle/run-wp2-import.ps1` | 1 | wp2 |
 | `scripts/windows-oracle/run-wp2-oracle.sh` | 1 | wp2 |
+| `tests/fixtures/native-folder-redirection-gpmc/fdeploy.ini.txt` | 1 | fdeploy |
+| `tests/fixtures/native-folder-redirection-gpmc/fdeploy1.ini.txt` | 1 | fdeploy |
+| `tests/fixtures/native-folder-redirection-gpmc/provenance.json` | 1 | fdeploy |
 
 ## Bound by nothing
 
@@ -124,7 +134,6 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/diff.py`
 - `src/gpo_studio/estate.py`
 - `src/gpo_studio/evidence.py`
-- `src/gpo_studio/fdeploy.py`
 - `src/gpo_studio/gpmc_interop.py`
 - `src/gpo_studio/hosting.py`
 - `src/gpo_studio/identity.py`
@@ -141,7 +150,6 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/remediation_corpus.py`
 - `src/gpo_studio/report.py`
 - `src/gpo_studio/rsop.py`
-- `src/gpo_studio/safe_io.py`
 - `src/gpo_studio/schema.py`
 - `src/gpo_studio/settings_browser.py`
 - `src/gpo_studio/snapshot_documents.py`
