@@ -25,7 +25,9 @@ STAMP="$(date +%Y%m%d%H%M%S)-$$"
 # Short on purpose: Windows PowerShell 5.1 stops at MAX_PATH (260) and a
 # re-exported backup nests deep below the run directory. The candidate builder
 # bounds the longest guest path from these three lines (GUEST_PATH_LIMIT).
-GUEST_ROOT="C:\gpo-studio\fd\$STAMP"
+# `\\$STAMP`, not `\$STAMP`: inside double quotes bash reads `\$` as a literal
+# dollar, which made every run's root the constant `C:\gpo-studio\fd$STAMP`.
+GUEST_ROOT="C:\gpo-studio\fd\\$STAMP"
 GUEST_SCRIPTS="$GUEST_ROOT\s"
 GUEST_OUT="$GUEST_ROOT\o"
 CANDIDATE_DIR="${TMPDIR:-/tmp}/gpo-studio/fdeploy-candidate-$STAMP"

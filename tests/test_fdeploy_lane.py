@@ -1072,7 +1072,7 @@ def test_the_path_bound_is_composed_from_the_real_driver_and_guest() -> None:
     driver = DRIVER_PATH.read_text(encoding="utf-8")
     guest = GUEST_PATH.read_text(encoding="utf-8")
     assert 'STAMP="$(date +%Y%m%d%H%M%S)-$$"' in driver
-    assert f'GUEST_ROOT="{BUILDER.GUEST_ROOT_PREFIX}\\$STAMP"' in driver
+    assert f'GUEST_ROOT="{BUILDER.GUEST_ROOT_PREFIX}\\\\$STAMP"' in driver
     assert f'GUEST_OUT="$GUEST_ROOT\\{BUILDER.GUEST_OUT_LEAF}"' in driver
     assert "-OutputDir '$GUEST_OUT'" in driver
     run_id = (
@@ -1085,6 +1085,60 @@ def test_the_path_bound_is_composed_from_the_real_driver_and_guest() -> None:
     for leaf in ("input", "backups", "commands"):
         assert f"Join-Path $work '{leaf}'" in guest
     assert "Join-Path $inputRoot 'cases'" in guest
+
+
+#: The driver lines that name the guest run root, evaluated by bash itself:
+#: a source-text match cannot tell `\\$STAMP` (a separator, then the stamp)
+#: from `\$STAMP` (a literal dollar), and the latter shipped in 258c195.
+_ROOT_LINES = ("STAMP=", "GUEST_ROOT=", "GUEST_SCRIPTS=", "GUEST_OUT=", "PREPARE=")
+
+
+def _evaluated_guest_paths() -> dict[str, str]:
+    # The driver is a POSIX controller script. On a Windows runner `bash` may
+    # be the WSL launcher with no distribution (test_lane_runner_line_endings).
+    bash = shutil.which("bash")
+    if bash is None or sys.platform == "win32":
+        pytest.skip("the driver is a POSIX controller script")
+    lines = [
+        line for line in DRIVER_PATH.read_text(encoding="utf-8").splitlines()
+        if line.startswith(_ROOT_LINES)
+    ]
+    assert [line.split("=", 1)[0] + "=" for line in lines] == list(_ROOT_LINES)
+    names = [prefix.rstrip("=") for prefix in _ROOT_LINES]
+    script = "\n".join(
+        ["set -euo pipefail", *lines, *(f'printf "%s\\0" "${name}"' for name in names)]
+    )
+    out = subprocess.run([bash, "-c", script], check=True, capture_output=True).stdout
+    values = out.decode("utf-8").split("\0")[:-1]
+    return dict(zip(names, values, strict=True))
+
+
+def test_the_guest_root_is_a_fresh_directory_per_run() -> None:
+    """Evaluated, the root is the prefix, a separator, then this run's stamp.
+
+    Two invocations (two shells, so two PIDs) must name different roots, or
+    the second run's PREPARE refuses with "run root exists" -- which is how
+    the estate found the `\\$STAMP` defect.
+    """
+    first, second = _evaluated_guest_paths(), _evaluated_guest_paths()
+    for paths in (first, second):
+        stamp = paths["STAMP"]
+        assert re.fullmatch(r"\d{14}-\d{1,7}", stamp), stamp
+        root = paths["GUEST_ROOT"]
+        assert root == f"{BUILDER.GUEST_ROOT_PREFIX}\\{stamp}"
+        assert "$" not in root
+        assert paths["GUEST_SCRIPTS"] == f"{root}\\s"
+        assert paths["GUEST_OUT"] == f"{root}\\{BUILDER.GUEST_OUT_LEAF}"
+        assert f"Test-Path '{root}'" in paths["PREPARE"]
+        # The builder's worst case is this same shape with the longest stamp,
+        # so the budget it enforces covers the root the driver really uses.
+        worst = "\\".join(
+            (BUILDER.GUEST_ROOT_PREFIX, BUILDER.GUEST_STAMP_WORST, BUILDER.GUEST_OUT_LEAF)
+        )
+        assert BUILDER.GUEST_WORK_WORST.startswith(worst + "\\")
+        assert len(paths["GUEST_OUT"]) <= len(worst)
+    assert first["STAMP"] != second["STAMP"]
+    assert first["GUEST_ROOT"] != second["GUEST_ROOT"]
 
 
 def test_the_builder_refuses_a_candidate_past_the_bound(

@@ -459,7 +459,7 @@ def case_dir(case_id: str) -> str:
 
 #: The guest run directory at its longest, composed from the formats the
 #: driver and guest script use (tests/test_fdeploy_lane.py holds them equal):
-#: ``GUEST_ROOT="C:\gpo-studio\fd\$STAMP"``, ``GUEST_OUT="$GUEST_ROOT\o"``, the
+#: ``GUEST_ROOT="C:\gpo-studio\fd\\$STAMP"``, ``GUEST_OUT="$GUEST_ROOT\o"``, the
 #: stamp ``date +%Y%m%d%H%M%S`` plus ``-$$`` (a Linux PID, at most 7 digits),
 #: and the guest's ``fd-<yyyyMMddHHmmss>-<4 digits>`` run id.
 GUEST_ROOT_PREFIX = "C:\\gpo-studio\\fd"
