@@ -228,7 +228,10 @@ function Invoke-UserPolicyRefresh {
         $record = [ordered]@{
             label            = $Label
             final_state      = $state
-            last_task_result = [int]$info.LastTaskResult
+            # UInt32, not Int32: a task that never ran reports 0xFFFFFFFF, and an
+            # [int] cast of that THROWS, killing the observation it was only
+            # meant to annotate (measured 2026-10-08, batch loopback-merge).
+            last_task_result = [long]$info.LastTaskResult
             last_run_time    = "$($info.LastRunTime)"
             marker_written   = (Test-Path -LiteralPath $marker)
         }
