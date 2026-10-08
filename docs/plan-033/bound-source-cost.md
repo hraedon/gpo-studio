@@ -107,6 +107,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/estate.py`
 - `src/gpo_studio/evidence.py`
 - `src/gpo_studio/fdeploy.py`
+- `src/gpo_studio/fdeploy_parity.py`
 - `src/gpo_studio/gpmc_interop.py`
 - `src/gpo_studio/gpp_adapters.py`
 - `src/gpo_studio/hosting.py`

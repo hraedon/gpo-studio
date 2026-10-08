@@ -2690,6 +2690,17 @@ narrows this item but does not close it. The reader carries `Flags` as the integ
 wrote and names no bit. Questions 3 and 4 still need a capture, and the writer can't be
 built without them.
 
+**Update, 2026-10-08: Windows' reading of the word, bounded; the lane built.** A one-off
+probe on LabMS01 put R3's files into 15 GPOs with only `Flags` changed and took
+`Get-GPOReport` of each (capture in the evidence inbox, `fdeploy-flags-20261008`; not
+banked here). The report engine does not read `Flags` as independent option bits. Clearing
+one bit can flip several rendered options together, and some values render no folder at
+all (`FRSettingRead failed`). For 765 and 2045 it renders the folder with an empty
+`DestinationPath` even though the file carries a `FullPath`. That bounds question 3
+(interpretation) and does not answer it: what GPMC *writes* per checkbox is still R12's.
+The fdeploy lane ([design](plan-033/fdeploy-lane-design.md)) records Windows' option
+rendering per case as data for this item and asserts none of it. Built, not yet run.
+
 **Closes when:** R12 is captured (one GPMC session on LabMS01; no lane, no harness change)
 and its result row answers questions 3 and 4 or names what it still does not answer. The
 brief [`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md)
