@@ -435,3 +435,107 @@ def test_a_genuine_fork_is_still_refused_beside_an_estate_snapshot(
     assert fork_of_fork.status_code == 201, fork_of_fork.text
     response = _plan(client, fork_of_fork.json()["gpo"]["guid"], "restore_in_place")
     assert _codes(response) == {"fork_of_an_import"}
+
+
+# ---------------------------------------------------------------------------
+# Banking re-review (2026-10-08): lineage comes from immutable facts only
+# ---------------------------------------------------------------------------
+
+
+def _fork(client: TestClient, guid: str, name: str) -> dict[str, Any]:
+    response = client.post(f"/api/gpos/{guid}/fork", json={"name": name})
+    assert response.status_code == 201, response.text
+    gpo: dict[str, Any] = response.json()["gpo"]
+    return gpo
+
+
+def _patch(client: TestClient, gpo: dict[str, Any], **changes: Any) -> Any:
+    body = {
+        "expected_revision": gpo["revision"],
+        "name": gpo["name"],
+        "description": gpo["description"],
+        "domain": gpo["domain"],
+        "status": gpo["status"],
+        **changes,
+    }
+    return client.patch(f"/api/gpos/{gpo['guid']}", json=body)
+
+
+def test_a_fork_of_a_fork_stays_refused_after_its_parent_description_changes(
+    client: TestClient, imported: dict[str, Any]
+) -> None:
+    """Sol's regression: on 0f54aa1 the edit turned this 422 into a 200 that
+    named the middle draft's workspace GUID as the source GPO."""
+    middle = _fork(client, imported["guid"], "synthetic-middle")
+    child = _fork(client, middle["guid"], "synthetic-child")
+    assert _codes(_plan(client, child["guid"], "restore_in_place")) == {"fork_of_an_import"}
+    edited = _patch(client, middle, description="Synthetic changed draft description")
+    assert edited.status_code == 200, edited.text
+    for operation in WINDOWS_OPERATIONS:
+        response = _plan(client, child["guid"], operation, **VALID_TARGETS[operation])
+        assert response.status_code == 422, (operation, response.text)
+        assert _codes(response) == {"fork_of_an_import"}, operation
+
+
+#: Every field `PATCH /api/gpos/{guid}` lets an operator change, including
+#: the ones that would make a fork look like an import if current fields
+#: decided lineage: the provenance line and `archived`.
+MUTABLE_FIELD_EDITS: list[dict[str, Any]] = [
+    {"name": "renamed"},
+    {"description": "edited description"},
+    {"description": f"Imported from GPMC backup {BACKUP_ID}"},
+    {"domain": "elsewhere.test"},
+    {"status": "ready"},
+    {"status": "archived"},
+    {"description": f"Imported from GPMC backup {BACKUP_ID}", "status": "archived",
+     "name": "posing-as-the-import", "domain": DOMAIN},
+]
+
+
+@pytest.mark.parametrize("changes", MUTABLE_FIELD_EDITS, ids=lambda c: "+".join(sorted(c)))
+@pytest.mark.parametrize("edited", ["middle", "child"])
+def test_no_edit_to_any_mutable_field_makes_a_fork_plannable(
+    client: TestClient, imported: dict[str, Any], changes: dict[str, Any], edited: str
+) -> None:
+    middle = _fork(client, imported["guid"], "synthetic-middle")
+    child = _fork(client, middle["guid"], "synthetic-child")
+    target = {"middle": middle, "child": child}[edited]
+    response = _patch(client, target, **changes)
+    assert response.status_code == 200, response.text
+    for gpo in (middle, child):
+        refusal = _plan(client, gpo["guid"], "restore_in_place")
+        assert refusal.status_code == 422, refusal.text
+        assert _codes(refusal) == {"fork_of_an_import"}
+
+
+@pytest.mark.parametrize("changes", MUTABLE_FIELD_EDITS, ids=lambda c: "+".join(sorted(c)))
+def test_editing_the_import_does_not_change_which_backup_is_planned(
+    client: TestClient, imported: dict[str, Any], changes: dict[str, Any]
+) -> None:
+    """The plan describes the backup as its import recorded it in revision 1."""
+    response = _patch(client, imported, **changes)
+    if response.status_code != 200:
+        pytest.skip(f"the workspace refuses this edit to an archived import: {response.text}")
+    plan = _plan(client, imported["guid"], "restore_in_place")
+    assert plan.status_code == 200, plan.text
+    body = plan.json()
+    assert body["backup_id"] == BACKUP_ID
+    assert body["source_gpo_guid"] == SOURCE_GUID
+    assert body["target_gpo_guid"] == SOURCE_GUID
+    assert body["target_name"] == SOURCE_NAME
+    assert body["domain"] == DOMAIN
+    assert all(cell["measured"] is True for cell in body["survival"])
+
+
+def test_an_estate_snapshot_posing_as_an_import_is_refused(
+    client: TestClient, store: WorkspaceStore
+) -> None:
+    """Archived, with the provenance line, but no retained backup."""
+    store.import_baseline_gpos(
+        [GPO(guid=SOURCE_GUID, name=SOURCE_NAME, domain=DOMAIN,
+             description=f"Imported from GPMC backup {BACKUP_ID}")],
+        identity="lifecycle-test", reason="estate snapshot",
+    )
+    response = _plan(client, SOURCE_GUID, "restore_in_place")
+    assert response.status_code == 422
+    assert _codes(response) == {"not_a_windows_backup_import"}

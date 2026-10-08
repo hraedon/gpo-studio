@@ -36,8 +36,9 @@ Current version: `1.0.0`.
     `cross_domain_out_of_scope`, `one_topology_measured`,
     `deleted_gpo_restore_unmeasured` and `target_state_unchecked`. These are
     refused with 422 and a code: GPOs authored in Studio and forks of an import
-    (the lane measured Windows backups only; a fork is recognised by its parent
-    carrying the same backup, not by a GUID match), `import_into_existing`
+    (the lane measured Windows backups only). Which GPOs count as the direct
+    import of a backup is read from their own immutable revision 1 and retained
+    `Backup.xml`, never from fields an edit can change. `import_into_existing`
     by `-TargetName` (the lane used `-TargetGuid` only), cross-domain targets,
     taken target names, and malformed target arguments. The surface composes in
     `api.py` and touches no bound file.

@@ -5899,8 +5899,9 @@ def publication_plan_preview(
 # so the plan is built only for a workspace GPO that IS such a backup's
 # import: it carries the retained `Backup.xml` and the import's provenance
 # line, and its `source_guid` is the domain GPO the backup was taken from. A
-# GPO authored in Studio, or a fork of an import (whose `source_guid` is the
-# import's workspace GUID), is refused rather than planned by analogy. The
+# GPO authored in Studio, or a fork of an import, is refused rather than
+# planned by analogy. Which is which is read from the GPO's own revision 1,
+# never from fields an edit can change. The
 # WMI association is read from the retained `Backup.xml` by
 # `manifest_from_backup`, the bridge the lane checked against the real tree.
 #
@@ -6056,29 +6057,6 @@ def _lifecycle_refusal(code: str, message: str, path: str) -> ValidationError:
     return ValidationError([ValidationIssue("error", code, message, path)])
 
 
-def _is_fork_of_this_import(store: WorkspaceStore, gpo: GPO) -> bool:
-    """Is *gpo* a fork of a workspace import of the same backup?
-
-    `fork_gpo` sets `source_guid` to the parent's WORKSPACE guid and copies the
-    parent's description and retained inventory. A GUID match alone is not
-    ancestry: an estate snapshot can be stored under the domain GPO's own GUID,
-    which is also the genuine import's `source_guid` (banking review,
-    2026-10-08). So the parent must itself carry this backup: the same
-    provenance line and the same retained `Backup.xml` bytes.
-    """
-    try:
-        parent = store.get_gpo(gpo.source_guid)
-    except NotFoundError:
-        return False
-    if parent.backup_inventory is None or gpo.backup_inventory is None:
-        return False
-    return (
-        parent.description == gpo.description
-        and parent.backup_inventory.backup_xml_base64
-        == gpo.backup_inventory.backup_xml_base64
-    )
-
-
 def _unmeasured_wmi_reason(manifest: BackupManifest) -> str | None:
     """Why the WMI cell is outside what the lane measured, or `None`."""
     if not manifest.has_wmi_filter:
@@ -6104,14 +6082,39 @@ def _unmeasured_wmi_reason(manifest: BackupManifest) -> str | None:
 
 
 def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
-    """The backup a workspace GPO is the import of, or a refusal.
+    """The Windows backup a workspace GPO is the direct import of, or a refusal.
 
-    Only what the import retained is used: the provenance line for the backup
-    id, `source_guid` for the GPO the backup was taken from, and the retained
-    `Backup.xml` for the WMI association.
+    Decided only from immutable facts: the GPO's own revision 1, which no later
+    edit, restore or fork can change, and its retained `Backup.xml` bytes.
+    Never from a current description, name, status or domain, and never from
+    another GPO's fields, all of which an ordinary edit can change (banking
+    re-review, 2026-10-08: a fork of a fork passed once its parent's
+    description was edited).
+
+    `POST /api/backups/import` writes revision 1 `archived`, with the
+    provenance line naming the backup id, `source_guid` set to the Windows GPO
+    the backup was taken from, and the retained inventory. `fork_gpo` writes a
+    fork's revision 1 as a `draft` whose `source_guid` is its parent's
+    workspace GUID. An estate snapshot carries no inventory. So:
+
+    * revision 1 carries no retained backup: not a backup import;
+    * it carries one but is not the import's shape (a fork, or anything
+      derived from an import): refused as a derivative;
+    * the current retained `Backup.xml` differs from revision 1's: refused,
+      because the plan would describe bytes the import did not record.
+
+    The manifest is built from revision 1's values, so editing the GPO's
+    name or domain afterwards does not change which backup is planned over.
     """
-    provenance = _IMPORT_PROVENANCE.match(gpo.description)
-    if gpo.backup_inventory is None or provenance is None:
+    try:
+        first = gpo_from_dict(store.get_revision(gpo.guid, 1).snapshot)
+    except NotFoundError as error:
+        raise _lifecycle_refusal(
+            "not_a_windows_backup_import",
+            "This GPO has no first revision to establish that it is a backup import.",
+            "gpo_guid",
+        ) from error
+    if first.backup_inventory is None:
         raise _lifecycle_refusal(
             "not_a_windows_backup_import",
             "A restore plan is built only for a GPO imported from a backup Windows "
@@ -6119,17 +6122,26 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
             "lifecycle lane measured; a GPO authored in Studio is not one.",
             "gpo_guid",
         )
-    if not _BARE_GUID.match(gpo.source_guid):
-        raise _lifecycle_refusal(
-            "source_gpo_unknown",
-            "The imported GPO does not record the domain GPO its backup was taken from.",
-            "gpo_guid",
-        )
-    if _is_fork_of_this_import(store, gpo):
+    provenance = _IMPORT_PROVENANCE.match(first.description)
+    if (
+        first.status != "archived"
+        or provenance is None
+        or not _BARE_GUID.match(first.source_guid)
+    ):
         raise _lifecycle_refusal(
             "fork_of_an_import",
-            "This GPO was forked from a workspace import, so it is not the backup. "
-            "Plan over the import itself.",
+            "This GPO was created from a workspace GPO (a fork, or a fork of a fork), "
+            "not by importing the Windows backup, so it is not the backup. Plan over "
+            "the import itself.",
+            "gpo_guid",
+        )
+    if (
+        gpo.backup_inventory is None
+        or gpo.backup_inventory.backup_xml_base64 != first.backup_inventory.backup_xml_base64
+    ):
+        raise _lifecycle_refusal(
+            "retained_backup_changed",
+            "The GPO's retained Backup.xml is not the one its import recorded.",
             "gpo_guid",
         )
     return GpmcBackup(
@@ -6137,12 +6149,12 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
         backup_id=provenance.group(1),
         gpos=(
             BackupGpo(
-                guid=gpo.source_guid,
-                display_name=gpo.name,
-                domain=gpo.domain,
-                computer_enabled=gpo.computer_enabled,
-                user_enabled=gpo.user_enabled,
-                backup_inventory=gpo.backup_inventory,
+                guid=first.source_guid,
+                display_name=first.name,
+                domain=first.domain,
+                computer_enabled=first.computer_enabled,
+                user_enabled=first.user_enabled,
+                backup_inventory=first.backup_inventory,
             ),
         ),
     )
@@ -6155,8 +6167,8 @@ def lifecycle_restore_plan(
     """Plan one same-domain GPMC operation over an imported backup. Review only.
 
     A refusal is a 422 whose `issues` carry the code: the workspace GPO is not
-    a backup import (`not_a_windows_backup_import`, `fork_of_an_import`,
-    `source_gpo_unknown`), the target domain differs from the backup's
+    the direct import of a Windows backup (`not_a_windows_backup_import`,
+    `fork_of_an_import`, `retained_backup_changed`), the target domain differs from the backup's
     (`cross_domain_out_of_scope`), a creating operation's target name is taken
     (`target_name_exists`), or the operation's target arguments are missing or
     malformed (the planner's own codes), or `import_into_existing` names its

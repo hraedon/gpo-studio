@@ -856,9 +856,12 @@ no lane binds.
 
 **What is NOT certified, and is not claimed.** The surface plans only for a GPO
 that is the import of a Windows backup, because that is what the lane measured.
-A GPO authored in Studio, or a fork of an import, is refused with a code. A
-fork is recognised by its parent carrying the same backup, so an estate snapshot
-stored under the source GPO's GUID does not count. `import_into_existing` is
+A GPO authored in Studio, or a fork of an import, is refused with a code. Which
+GPOs are the direct import of a backup is decided from immutable facts only: the
+GPO's own revision 1, written by the backup-import path, and its retained
+`Backup.xml`. Editing a name, description, domain or status cannot turn a fork
+into an import. An estate snapshot stored under the source GPO's GUID does not
+count either. `import_into_existing` is
 planned only by `-TargetGuid`, the form the lane ran; a target name is refused
 (`import_target_name_unmeasured`). Cross-domain plans are refused (ruling
 2026-10-07). One topology was measured.
