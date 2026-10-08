@@ -946,6 +946,17 @@ RETIRED_VERDICTS.update({
     'wp3-evidence/plan034-20261008/object-security/verification.json',
 })
 
+# The report-parity lane (Plan 034 WP-2 items 2 and 3), first banked
+# 2026-10-08: `report-parity-20261008093047-3377`, 25/25 checks over all 27
+# corpus backups plus one guest-authored GPO, on LabMS01 at `1a31feb` (clean
+# tree). A manifest-form (schema 2) pack: the guest-deployed runner is banked,
+# the controller half is bound by (commit, path, sha256). It binds files no
+# other live lane binds (`report_parity.py`, `gpp_adapters.py`, `backup.py`,
+# `backup_inventory.py`, `import_export.py`), so the cost table moves with it.
+LANE_VERDICTS.update({
+    'wp2-evidence/report-parity/verification.json': 'finalize_report_parity_run.py',
+})
+
 
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
 #: estate batch owes. Enumerated, never pattern-matched, for the same reason

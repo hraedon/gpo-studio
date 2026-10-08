@@ -1,15 +1,18 @@
 # Report-parity lane design
 
-Status: **built, not yet run on the estate** (2026-10-08). The offline differ is
-green across the 27-backup Windows corpus. The lane has no verdict, so nothing
-here is Windows-verified yet. Its claims about what a fresh report contains are
-hypotheses until the first run.
+Status: **Windows-verified** (2026-10-08). The certifying run
+`report-parity-20261008093047-3377` passed 25/25 checks over all 27 corpus
+cases plus the guest-authored case, on LabMS01 at clean commit `1a31feb`.
+See [the results](report-parity-results.md). The rest of this note was written
+before that run and is kept as the design. Where it calls something a
+hypothesis about a fresh report, the run has since measured it for the
+families the corpus exercises, and only for those.
 
 This is the exit the [2026-10-07 direction](../direction-2026-10-07-plan-034-completion.md)
 set for `backup.py` and `report.py`: "a report-parity lane against a fresh
 `Get-GPOReport -ReportType Xml`, preceded by an offline differ", reaching `yes`
 for the families Studio models. It closes Plan 034 WP-2 item 3 once it has a
-passing verdict.
+passing verdict, which it has had since `report-parity-20261008093047-3377`.
 
 ## The question
 

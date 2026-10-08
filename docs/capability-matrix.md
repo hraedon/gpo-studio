@@ -409,6 +409,13 @@ remain historical records for their original revisions.
   serves the snapshot. `GET /api/gpos` rows carry only `has_backup_inventory`,
   so the retained bytes are not repeated per row. See
   [measured backup/report fidelity](plan-033/backup-report-fidelity.md).
+- **Report parity (post-1.0, 2026-10-08).** For the families the corpus
+  exercises, Studio's typed import matches a fresh `Get-GPOReport -ReportType
+  Xml` of the same backup imported on Windows:
+  `report-parity-20261008093047-3377`, 25/25, over 27 backups. This is a
+  post-1.0 certification and does not widen the 1.0 contract row above. See
+  [the reconciled entry](#backuppy--reportpy-plan-034-wp-2--report-parity-windows-verified-for-the-families-the-corpus-exercises)
+  for its scope, exclusions and the two open defects (WI-072, WI-073).
 
 ### GPMC backup export — supported subset
 
@@ -826,6 +833,41 @@ unmeasured, one GPO shape was measured, rollback was never executed, and the
 operation allowlist is still empty. Every response says so. See
 [the results](plan-033/publication-completeness-results.md) and
 [the operator guide](scripts-and-publication-preview.md).
+
+### `backup.py` / `report.py` (Plan 034 WP-2) — report parity, Windows-verified for the families the corpus exercises
+
+Reached `yes` on 2026-10-08, lane over surfaces that already existed. These
+modules were never in the unsurfaced domain-layer table. They are listed here
+because Plan 034 gave them the same exit: `yes` for the families Studio models.
+
+**Surface.** `POST /api/backups/import` and the plain-text report
+(`GET /api/gpos/{guid}/report.txt`). The report's "Settings inventory (Windows
+report families)" section prints the inventory the lane compares, through
+`report_parity.studio_inventory`.
+
+**Certification.** `report-parity-20261008093047-3377` (25/25 checks, clean
+commit `1a31feb`, LabMS01). Windows imported each of the 27 Windows-produced
+corpus backups into a fresh GPO, and the lane compared Studio's **typed**
+import (retained source bytes removed, so the result is what Studio writes
+after an edit) with a fresh `Get-GPOReport -ReportType Xml`, by side and
+report family. Registry entries are matched by key, name and rendered value.
+Preference items are matched by element, name, `uid` and action, in order. A
+GPO authored on the guest with `Set-GPRegistryValue` matched with no
+divergence at all. Families covered: registry (`REG_SZ`/`REG_DWORD`), Drive
+Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Power
+Options, Printers, Scheduled Tasks, Services and Shortcuts.
+
+**What is NOT certified, and is not claimed.** Seven Studio families have no
+capture (Regional Options, Devices, Folder Options, Data Sources, Network
+Shares, Applications, GPP Registry). Other registry types and deletion entries
+have no case. Preference `Properties` beyond the action, ADMX `<Policy>`
+rendering, Scripts, and links, security filtering and WMI filters are named
+exclusions. Two defects remain open and are accepted only as pinned known
+divergences: [WI-072](work-items.md#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained)
+(Power Options' power plan is dropped on write) and
+[WI-073](work-items.md#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written)
+(scheduled and immediate task interleaving is lost on write). See
+[the results](plan-033/report-parity-results.md).
 
 ---
 

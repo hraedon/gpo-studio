@@ -3054,6 +3054,9 @@ root's unknown attributes and children; only Power Options is observed.
 
 **Pinned by** `tests/test_report_parity.py::test_wi072_power_plan_is_retained_but_not_written`
 and the `adapter-root-unknowns-dropped` entry in `EXPECTED_KNOWN` for `WI01A-Power-GPMC`.
+The lane's certifying run `report-parity-20261008093047-3377` (2026-10-08) confirmed it
+on Windows and accepted it on that case only, as a known divergence.
+`tests/test_report_parity_evidence.py` pins it there.
 
 **Closes when:** `serialize_gpp` re-emits each adapter root's unknown attributes and
 children, the `WI01A-Power-GPMC` pin becomes full equality, and the publication and
@@ -3078,7 +3081,10 @@ explicit position on each item, in `GppCollection` (`gpp.py`), which two lanes b
 the merge in `_serialize_adapter_files`.
 
 **Pinned by** `tests/test_report_parity.py::test_wi073_scheduled_and_immediate_tasks_lose_their_interleaving`
-and the `scheduled-task-order` entries in `EXPECTED_KNOWN`.
+and the `scheduled-task-order` entries in `EXPECTED_KNOWN`. The lane's certifying run
+`report-parity-20261008093047-3377` (2026-10-08) confirmed it on Windows for both
+captures and accepted it on those two cases only, as a known divergence.
+`tests/test_report_parity_evidence.py` pins it there.
 
 **Closes when:** a written model keeps the captured order for both native scheduled-task
 captures (their pins become full equality), a test covers an interleaved `Groups.xml`, and

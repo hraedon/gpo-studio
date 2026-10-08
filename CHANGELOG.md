@@ -9,6 +9,34 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Banked the report-parity lane's certifying run,
+  `report-parity-20261008093047-3377`: 25/25 checks on LabMS01 (Windows Server
+  2025, build 26100, PowerShell 5.1) at clean commit `1a31feb`, over all 27
+  Windows-produced corpus backups plus one GPO authored on the guest. The lane
+  imports each backup with `Import-GPO`, takes a fresh `Get-GPOReport
+  -ReportType Xml`, and compares it by side and report family with Studio's
+  typed import of the same backup. With this verdict, `backup` and `report`
+  reach `yes` in Plan 034 for the families Studio models and the corpus
+  exercises: registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files,
+  Folders, Ini Files, Local Users and Groups, Power Options, Printers,
+  Scheduled Tasks, Services and Shortcuts. The surfaces are the existing
+  import and plain-text report. That closes Plan 034 WP-2 items 2 and 3.
+  - The named exclusions are ADMX `<Policy>` rendering, Scripts, scope (links,
+    security filtering, WMI filters) and preference properties beyond the
+    action. Seven Studio families have no capture and are not claimed.
+  - WI-072 (the power plan is dropped on write) and WI-073 (scheduled and
+    immediate task interleaving is lost on write) stay open. The verdict
+    accepts them only as pinned known divergences, on the three cases that
+    show them.
+  - The pack is in the manifest form, under
+    `docs/plan-033/wp2-evidence/report-parity/`. It is registered in
+    `LANE_VERDICTS`, the environment spec and `platforms.json`, and
+    `tests/test_report_parity_evidence.py` rehashes it, rebuilds its candidate
+    and re-derives every comparison. The five newly bound modules are pinned
+    `eol=lf`. The cost table is regenerated: editing `gpp.py`, `model.py`,
+    `registry_pol.py` or `xml_safety.py` now costs three lanes. See
+    [the results](docs/plan-033/report-parity-results.md).
+
 - Added two Plan 034 surfaces over the lanes the
   [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:
   Scripts metadata (`scripts-r10-20261008074828-8492`, 20/20) and publication
