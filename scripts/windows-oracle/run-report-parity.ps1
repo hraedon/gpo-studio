@@ -82,21 +82,61 @@ function Get-LinkCount([string]$reportPath) {
     return @($report.SelectNodes("//*[local-name()='LinksTo']")).Count
 }
 
-# Strict absence: the GPO must be gone by ID and by name. Get-GPO -Guid on an
-# absent GPO throws; the -All scan catches a same-named survivor.
+# Cleanup owns only what this run registered. A target name is registered
+# after the collision check and BEFORE New-GPO runs, so a GPO whose creation
+# succeeded but whose response was lost (no ID ever returned) is still found
+# and removed by its exact name. Every registered name carries this run's id;
+# nothing else is ever removed.
+$registeredNames = New-Object System.Collections.ArrayList
+$removalAttempts = 5
+
+function Register-Target([string]$name) {
+    if (-not $name.StartsWith("$prefix-")) { throw "refusing to register a name outside this run: $name" }
+    Assert-NameFree $name
+    [void]$registeredNames.Add($name)
+}
+
+function Find-Owned([string]$name, $id) {
+    $found = @()
+    if ($id) {
+        try { $found += @(Get-GPO -Guid $id -Domain $Domain -ErrorAction Stop) } catch { }
+    }
+    $found += @(Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object { $_.DisplayName -eq $name })
+    return @($found | Sort-Object { "$($_.Id)" } -Unique)
+}
+
+# Remove the run's GPO by ID and by exact registered name, retrying, and
+# return $true only once a re-query finds neither. A survivor whose name is
+# not the registered one is never removed: it is not this run's.
+function Remove-Registered([string]$name, $id) {
+    if (-not $registeredNames.Contains($name)) { return $true }
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $removalAttempts; $attempt++) {
+        $targets = @(Find-Owned $name $id)
+        if ($targets.Count -eq 0) { return $true }
+        foreach ($t in $targets) {
+            if ($t.DisplayName -ne $name) { throw "GPO $($t.Id) is not this run's ($($t.DisplayName)); not removing" }
+            try { Remove-GPO -Guid $t.Id -Domain $Domain -Confirm:$false -ErrorAction Stop | Out-Null }
+            catch { $lastError = "$($_.Exception.Message)" }
+        }
+        Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 10))
+    }
+    if (@(Find-Owned $name $id).Count -eq 0) { return $true }
+    throw "could not remove ${name} after $removalAttempts attempts: $lastError"
+}
+
 function Remove-Owned($id, [string]$name, $record) {
     try {
-        if ($id) { Remove-GPO -Guid $id -Domain $Domain -Confirm:$false -ErrorAction Stop }
-        $record.cleanup_succeeded = $true
+        $record.cleanup_succeeded = [bool](Remove-Registered $name $id)
     } catch {
         $record.error = (@($record.error, "remove: $($_.Exception.Message)") | Where-Object { $_ }) -join '; '
     }
-    $byId = $false
-    if ($id) {
-        try { Get-GPO -Guid $id -Domain $Domain -ErrorAction Stop | Out-Null; $byId = $true } catch { $byId = $false }
+    try {
+        $record.absence_confirmed = @(Find-Owned $name $id).Count -eq 0
+    } catch {
+        $record.absence_confirmed = $false
+        $record.error = (@($record.error, "absence: $($_.Exception.Message)") | Where-Object { $_ }) -join '; '
     }
-    $byName = @(Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object { $_.DisplayName -eq $name }).Count -ne 0
-    $record.absence_confirmed = (-not $byId) -and (-not $byName)
 }
 
 # Records accumulate in a list, not with += on the result array: the shape
@@ -133,7 +173,7 @@ try {
             $record.backup_id = "{$($backupId.ToString().ToUpperInvariant())}"
             $record.source_gpo_id = [string]$manifest.SelectSingleNode('/m:Backups/m:BackupInst/m:GPOGuid', $ns).InnerText.Trim()
 
-            Assert-NameFree $target
+            Register-Target $target
             $owned = New-GPO -Name $target -Domain $Domain -ErrorAction Stop
             $ownedId = $owned.Id
             $record.owned_gpo_id = "$ownedId"
@@ -180,7 +220,7 @@ try {
     }
     $ownedId = $null
     try {
-        Assert-NameFree $target
+        Register-Target $target
         $owned = New-GPO -Name $target -Domain $Domain -ErrorAction Stop
         $ownedId = $owned.Id
         $authored.owned_gpo_id = "$ownedId"
@@ -217,6 +257,11 @@ try {
     Add-Error "$($_.Exception.Message)"
 } finally {
     $result.cases = @($caseRecords.ToArray())
+    # Last sweep: anything still carrying a registered name is removed (with
+    # retries) before the state is scanned. Only registered names are touched.
+    foreach ($name in @($registeredNames.ToArray())) {
+        try { [void](Remove-Registered $name $null) } catch { Add-Error "sweep: $($_.Exception.Message)" }
+    }
     try {
         $remaining = @(Get-GPO -All -Domain $Domain -ErrorAction Stop |
             Where-Object { $_.DisplayName -like "$prefix-*" })

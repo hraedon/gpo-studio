@@ -243,6 +243,21 @@ def _plain_item(elem: ET.Element) -> InventoryItem:
     )
 
 
+def _value_text(data: ET.Element) -> str:
+    """A rendered registry value, exactly as Windows wrote it.
+
+    No whitespace is stripped: leading or trailing spaces in REG_SZ data are
+    data. A value element with children (no captured report has one) is
+    rendered as its children's exact texts joined by ``"; "``; the whitespace
+    *between* child elements is report indentation, not data, and is the only
+    text dropped.
+    """
+    children = list(data)
+    if not children:
+        return data.text or ""
+    return "; ".join(child.text or "" for child in children)
+
+
 def _report_registry_items(extension: ET.Element) -> tuple[list[InventoryItem], int]:
     items: list[InventoryItem] = []
     policies = 0
@@ -258,8 +273,7 @@ def _report_registry_items(extension: ET.Element) -> tuple[list[InventoryItem], 
                 name = _text(_child(value_elem, "Name"))
                 for data in value_elem:
                     if _local(data.tag) != "Name":
-                        texts = [t.strip() for t in data.itertext() if t.strip()]
-                        value = f"{_local(data.tag)}:{'; '.join(texts)}"
+                        value = f"{_local(data.tag)}:{_value_text(data)}"
                         break
             items.append(InventoryItem(
                 element="RegistrySetting",
@@ -268,6 +282,41 @@ def _report_registry_items(extension: ET.Element) -> tuple[list[InventoryItem], 
                 value=value,
             ))
     return items, policies
+
+
+_TYPES_NS = "http://www.microsoft.com/GroupPolicy/Types"
+
+
+@dataclass(frozen=True, slots=True)
+class ReportIdentity:
+    """Which GPO a report describes: ``Identifier``, ``Domain`` and ``Name``."""
+
+    guid: str
+    domain: str
+    name: str
+
+
+def report_identity(report_xml: bytes) -> ReportIdentity:
+    """Read the GPO a ``Get-GPOReport`` document says it describes.
+
+    The GUID is returned unbraced and casefolded; domain and name exactly.
+    """
+    root = parse_xml_bounded(
+        report_xml, max_size=_MAX_REPORT_BYTES, error_class=ReportParityError
+    )
+    if root.tag != f"{{{SETTINGS_NS}}}GPO":
+        raise ReportParityError("not a GPMC settings report")
+    ident = root.find(f"{{{SETTINGS_NS}}}Identifier")
+    guid = ident.find(f"{{{_TYPES_NS}}}Identifier") if ident is not None else None
+    domain = ident.find(f"{{{_TYPES_NS}}}Domain") if ident is not None else None
+    name = root.find(f"{{{SETTINGS_NS}}}Name")
+    if guid is None or not (guid.text or "").strip():
+        raise ReportParityError("report names no GPO identifier")
+    return ReportIdentity(
+        guid=(guid.text or "").strip().strip("{}").casefold(),
+        domain=_text(domain),
+        name=_text(name),
+    )
 
 
 def windows_inventory(report_xml: bytes) -> Inventory:
@@ -381,6 +430,10 @@ class Divergence:
     kind: DivergenceKind
     item: InventoryItem | None = None
     detail: str = ""
+    #: For ``order`` divergences: both sequences, so a matcher can tell one
+    #: specific reordering from any other.
+    windows_order: tuple[InventoryItem, ...] = ()
+    studio_order: tuple[InventoryItem, ...] = ()
 
     def describe(self) -> str:
         what = self.item.label() if self.item is not None else self.detail
@@ -443,6 +496,8 @@ def compare(windows: Inventory, studio: Inventory) -> ParityResult:
                 side, family, "order",
                 detail="windows " + ", ".join(i.label() for i in theirs)
                 + " | studio " + ", ".join(i.label() for i in ours),
+                windows_order=theirs,
+                studio_order=ours,
             ))
         if family == REGISTRY_FAMILY and admx.get(side):
             divergences.append(Divergence(
@@ -523,6 +578,27 @@ def _legacy_drive_name(divergence: Divergence, siblings: tuple[Divergence, ...])
     )
 
 
+_IMMEDIATE_TASK_ELEMENTS = frozenset({"ImmediateTask", "ImmediateTaskV2"})
+
+
+def _task_partition_order(divergence: Divergence, siblings: tuple[Divergence, ...]) -> bool:
+    """WI-073 exactly: Studio's order is Windows' order, stably partitioned.
+
+    The model holds scheduled and immediate tasks in two lists and writes the
+    scheduled list first, each list in its captured order. Only that
+    permutation is the known defect; any other reordering -- including within
+    one task type -- is a new divergence and stays unexplained.
+    """
+    del siblings
+    if divergence.family != "ScheduledTasksSettings" or divergence.kind != "order":
+        return False
+    theirs = divergence.windows_order
+    partitioned = tuple(i for i in theirs if i.element not in _IMMEDIATE_TASK_ELEMENTS) + tuple(
+        i for i in theirs if i.element in _IMMEDIATE_TASK_ELEMENTS
+    )
+    return bool(theirs) and partitioned != theirs and divergence.studio_order == partitioned
+
+
 KNOWN_DIVERGENCES: tuple[KnownDivergence, ...] = (
     KnownDivergence(
         name="admx-policy-rendering",
@@ -575,7 +651,7 @@ KNOWN_DIVERGENCES: tuple[KnownDivergence, ...] = (
             "(processing order) changes. The fix is in the bound model."
         ),
         work_item="WI-073",
-        matches=_is("ScheduledTasksSettings", "order"),
+        matches=_task_partition_order,
     ),
 )
 

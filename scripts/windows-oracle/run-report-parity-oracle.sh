@@ -56,9 +56,11 @@ cp "$BUILDER_STDOUT" "$LOCAL_DIR/"
 
 echo "LOCAL_RUN_DIR=$LOCAL_DIR"
 echo "CANDIDATE_DIR=$CANDIDATE_DIR"
+# The guest's exit status goes to the finalizer: a failed guest run is still
+# graded and banked, but it can never pass or be tagged.
 set +e
 uv run --project "$REPO_ROOT" python "$SCRIPT_DIR/finalize_report_parity_run.py" "$LOCAL_DIR" \
-    --candidate-root "$CANDIDATE_DIR" --repo-root "$REPO_ROOT"
+    --candidate-root "$CANDIDATE_DIR" --repo-root "$REPO_ROOT" --guest-status "$GUEST_STATUS"
 FINALIZER_STATUS=$?
 set -e
 if [[ $GUEST_STATUS -ne 0 ]]; then

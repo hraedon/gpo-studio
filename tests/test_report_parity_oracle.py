@@ -16,7 +16,9 @@ import json
 import shutil
 import subprocess
 import sys
+import types
 import uuid
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 from types import ModuleType
@@ -158,10 +160,25 @@ def test_the_authored_spec_matches_the_guest_script() -> None:
 # ---------------------------------------------------------------------------
 
 _AUTHORED_GUID = "6a0e5d2c-6c1b-4f43-9a55-1c8f2d7e4b10"
+_RUN_ID = "report-parity-20261008000000-1234"
+_PREFIX = f"zz-studio-rp-{_RUN_ID}"
+_DOMAIN = "lab.test"
+_SETTINGS_NS = "http://www.microsoft.com/GroupPolicy/Settings"
+_TYPES_NS = "http://www.microsoft.com/GroupPolicy/Types"
 
 
-def _authored_report(values: list[tuple[str, str, str]]) -> bytes:
-    def side(name: str, rows: list[tuple[str, str]]) -> str:
+def _identity_block(guid: str, name: str, domain: str = _DOMAIN) -> str:
+    return (
+        f'<Identifier><Identifier xmlns="{_TYPES_NS}">{{{guid.upper()}}}</Identifier>'
+        f'<Domain xmlns="{_TYPES_NS}">{domain}</Domain></Identifier><Name>{name}</Name>'
+    )
+
+
+def _authored_report(
+    values: list[tuple[str, str, str]], guid: str = _AUTHORED_GUID,
+    name: str = f"{_PREFIX}-authored",
+) -> bytes:
+    def side(scope: str, rows: list[tuple[str, str]]) -> str:
         settings = "".join(
             f"<q:RegistrySetting><q:KeyPath>{BUILDER.AUTHORED_KEY}</q:KeyPath>"
             f"<q:AdmSetting>false</q:AdmSetting><q:Value><q:Name>{n}</q:Name>{v}</q:Value>"
@@ -169,20 +186,19 @@ def _authored_report(values: list[tuple[str, str, str]]) -> bytes:
             for n, v in rows
         )
         return (
-            f"<{name}><ExtensionData><Extension "
+            f"<{scope}><ExtensionData><Extension "
             'xmlns:q="http://www.microsoft.com/GroupPolicy/Settings/Registry" '
             f'xsi:type="q:RegistrySettings">{settings}<q:Blocked>false</q:Blocked>'
-            f"</Extension><Name>Registry</Name></ExtensionData></{name}>"
+            f"</Extension><Name>Registry</Name></ExtensionData></{scope}>"
         )
 
     computer = [(n, v) for s, n, v in values if s == "computer"]
     user = [(n, v) for s, n, v in values if s == "user"]
     return (
         '<?xml version="1.0" encoding="utf-8"?>'
-        '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings" '
+        f'<GPO xmlns="{_SETTINGS_NS}" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-        '<Identifier><Identifier xmlns="http://www.microsoft.com/GroupPolicy/Types">'
-        f"{{{_AUTHORED_GUID.upper()}}}</Identifier></Identifier>"
+        + _identity_block(guid, name)
         + side("Computer", computer) + side("User", user) + "</GPO>"
     ).encode()
 
@@ -197,13 +213,17 @@ def _authored_values() -> list[tuple[str, str, str]]:
     )
 
 
-def _authored_backup(target: Path, report: bytes) -> None:
-    """A native backup of the authored GPO, as Backup-GPO would leave it."""
+def _authored_backup(target: Path, report: bytes) -> str:
+    """A native backup of the authored GPO, as Backup-GPO would leave it.
+
+    Returns the backup ID its manifest names.
+    """
     from gpo_studio.export import gpmc_backup_bundle
 
     settings = tuple(
         RegistrySetting(
-            id=f"a{i}", side=side, hive="HKLM" if side == "computer" else "HKCU",  # type: ignore[arg-type]
+            id=f"a{i}", side=side,
+            hive="HKLM" if side == "computer" else "HKCU",  # type: ignore[arg-type]
             key=BUILDER.AUTHORED_KEY, value_name=name,
             registry_type="REG_SZ" if kind == "String" else "REG_DWORD",
             value=value if kind == "String" else int(value),
@@ -215,6 +235,26 @@ def _authored_backup(target: Path, report: bytes) -> None:
         archive.extractall(target)
     (backup_root,) = [p for p in target.iterdir() if p.is_dir()]
     (backup_root / "gpreport.xml").write_bytes(report)
+    return backup_root.name
+
+
+def _as_fresh_report(capture: bytes, guid: str, name: str, domain: str = _DOMAIN) -> bytes:
+    """A capture-time report re-identified as a fresh report of the owned GPO.
+
+    Windows' fresh report of the disposable GPO carries the same settings but
+    the owned GPO's identifier, name and domain; only those three change.
+    """
+    root = ET.fromstring(capture)
+    ident = root.find(f"{{{_SETTINGS_NS}}}Identifier")
+    assert ident is not None
+    guid_elem = ident.find(f"{{{_TYPES_NS}}}Identifier")
+    domain_elem = ident.find(f"{{{_TYPES_NS}}}Domain")
+    name_elem = root.find(f"{{{_SETTINGS_NS}}}Name")
+    assert guid_elem is not None and domain_elem is not None and name_elem is not None
+    guid_elem.text = "{" + guid.upper() + "}"
+    domain_elem.text = domain
+    name_elem.text = name
+    return cast(bytes, ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
 
 def _simulated_run(candidate: Path, run: Path) -> dict[str, Any]:
@@ -226,37 +266,39 @@ def _simulated_run(candidate: Path, run: Path) -> dict[str, Any]:
     shutil.copy(candidate / "report-parity-cases.zip", run / "candidate.zip")
     (run / "builder.stdout.txt").write_text("log", encoding="utf-8")
     cases = []
-    for case in expected["cases"]:
+    for index, case in enumerate(expected["cases"], 1):
         source = ROOT / case["source"] / case["backup_id"] / "gpreport.xml"
+        owned = str(uuid.uuid5(uuid.NAMESPACE_URL, f"owned/{case['case_id']}"))
+        target = f"{_PREFIX}-{index}"
         report = run / "reports" / f"{case['case_id']}.xml"
-        shutil.copy(source, report)
+        report.write_bytes(_as_fresh_report(source.read_bytes(), owned, target))
         commands = run / "commands" / case["case_id"]
         commands.mkdir(parents=True)
         for name in ("import", "report"):
             for stream in ("stdout", "stderr"):
                 (commands / f"{name}.{stream}.txt").write_text("", encoding="utf-8")
         cases.append({
-            "case_id": case["case_id"], "target_name": "zz-studio-rp-x",
+            "case_id": case["case_id"], "target_name": target,
             "backup_id": case["backup_id"], "source_gpo_id": case["source_gpo_id"],
-            "owned_gpo_id": str(uuid.uuid4()), "import_succeeded": True,
+            "owned_gpo_id": owned, "import_succeeded": True,
             "report_file": f"reports/{case['case_id']}.xml",
             "report_sha256": FINALIZER._sha(report), "report_links_to_count": 0,
             "cleanup_succeeded": True, "absence_confirmed": True, "error": None,
         })
     authored_report = _authored_report(_authored_values())
     (run / "reports" / "authored.xml").write_bytes(authored_report)
-    _authored_backup(run / "authored-backup", authored_report)
+    backup_id = _authored_backup(run / "authored-backup", authored_report)
     commands = run / "commands" / "authored"
     commands.mkdir(parents=True)
     for name in ("set", "backup", "report"):
         for stream in ("stdout", "stderr"):
             (commands / f"{name}.{stream}.txt").write_text("", encoding="utf-8")
     result = {
-        "schema_version": 1, "run_id": "report-parity-20261008000000-1234",
-        "domain": "lab.test", "cases": cases,
+        "schema_version": 1, "run_id": _RUN_ID,
+        "domain": _DOMAIN.upper(), "cases": cases,
         "authored": {
-            "target_name": "zz-studio-rp-x-authored", "owned_gpo_id": _AUTHORED_GUID,
-            "values_set": True, "backup_succeeded": True, "backup_id": "{X}",
+            "target_name": f"{_PREFIX}-authored", "owned_gpo_id": _AUTHORED_GUID,
+            "values_set": True, "backup_succeeded": True, "backup_id": backup_id,
             "backup_dir": "authored-backup", "report_file": "reports/authored.xml",
             "report_sha256": FINALIZER._sha(run / "reports" / "authored.xml"),
             "report_links_to_count": 0, "cleanup_succeeded": True,
@@ -272,22 +314,46 @@ def _write_result(run: Path, result: dict[str, Any]) -> None:
     (run / "result.json").write_text(json.dumps(result), encoding="utf-8-sig")
 
 
-def _finalize(
-    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
-) -> dict[str, bool]:
+def _read_result(run: Path) -> dict[str, Any]:
+    return cast(dict[str, Any], json.loads((run / "result.json").read_text("utf-8-sig")))
+
+
+def _rehash(run: Path, result: dict[str, Any]) -> None:
+    """Refresh every report hash, as a forger who controls the run would."""
+    for record in [*result["cases"], result["authored"]]:
+        path = run / record["report_file"]
+        if path.is_file():
+            record["report_sha256"] = FINALIZER._sha(path)
+    _write_result(run, result)
+
+
+def _verdict(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, guest_status: int | None = 0,
+) -> dict[str, Any]:
     # Bound-source bytes are the committed tree's concern, not this test's:
     # the grading is what is under test here.
     monkeypatch.setattr(FINALIZER, "assert_bound_source_bytes", lambda *_: None)
+    # Likewise the working tree's cleanliness: git answers "clean" here, so the
+    # control can assert a full pass and each mutation is the only failure.
+    monkeypatch.setattr(FINALIZER, "subprocess", types.SimpleNamespace(run=_clean_git))
+    status = [] if guest_status is None else ["--guest-status", str(guest_status)]
     monkeypatch.setattr(sys, "argv", [
         "finalize", str(run), "--candidate-root", str(candidate),
-        "--repo-root", str(ROOT), "--no-tag",
+        "--repo-root", str(ROOT), *status, "--no-tag",
     ])
     FINALIZER.main()
-    verdict = json.loads((run / "verification.json").read_text("utf-8"))
-    checks = cast(dict[str, bool], verdict["checks"])
-    # The working tree's cleanliness is not a property of the simulated run.
-    checks.pop("source_tree_clean")
-    return checks
+    return cast(dict[str, Any], json.loads((run / "verification.json").read_text("utf-8")))
+
+
+def _clean_git(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+    stdout = "0" * 40 + "\n" if args[:2] == ["git", "rev-parse"] else ""
+    return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+
+def _finalize(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, guest_status: int = 0,
+) -> dict[str, bool]:
+    return cast(dict[str, bool], _verdict(run, candidate, monkeypatch, guest_status)["checks"])
 
 
 @pytest.fixture()
@@ -301,30 +367,365 @@ def test_the_simulated_run_passes_every_check(
     run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The control. Without it every mutation below could pass for the wrong reason."""
-    checks = _finalize(run, candidate, monkeypatch)
+    verdict = _verdict(run, candidate, monkeypatch)
+    checks = verdict["checks"]
     assert all(checks.values()), {k: v for k, v in checks.items() if not v}
-    verdict = json.loads((run / "verification.json").read_text("utf-8"))
+    assert verdict["passed"] is True and verdict["checks_complete"] is True
     assert verdict["comparison_error"] is None
     power = verdict["comparison"]["cases"]["native-WI01A-Power-GPMC"]
     assert power["known"]["adapter-root-unknowns-dropped"]["work_item"] == "WI-072"
 
 
+def _edit_report(run: Path, case_id: str, edit: Any) -> None:
+    """Apply ``edit`` to one fresh report's XML tree, then refresh its hash."""
+    report = run / "reports" / f"{case_id}.xml"
+    root = ET.fromstring(report.read_bytes())
+    edit(root)
+    report.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    _rehash(run, _read_result(run))
+
+
 def test_a_setting_missing_from_the_fresh_report_fails_the_case(
     run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    report = run / "reports" / "native-WI01A-DriveMaps-GPMC.xml"
-    text = report.read_bytes().decode("utf-16")
-    start = text.index("<q1:Drive ")
-    end = text.index("</q1:Drive>", start) + len("</q1:Drive>")
-    report.write_bytes((text[:start] + text[end:]).encode("utf-16"))
-    result = json.loads((run / "result.json").read_text("utf-8-sig"))
-    for case in result["cases"]:
-        if case["case_id"] == "native-WI01A-DriveMaps-GPMC":
-            case["report_sha256"] = FINALIZER._sha(report)
-    _write_result(run, result)
+    def drop_first_drive(root: ET.Element) -> None:
+        for container in root.iter():
+            for child in list(container):
+                if child.tag.endswith("}Drive"):
+                    container.remove(child)
+                    return
+
+    _edit_report(run, "native-WI01A-DriveMaps-GPMC", drop_first_drive)
     checks = _finalize(run, candidate, monkeypatch)
     assert checks["every_case_studio_matches_fresh_report"] is False
     assert checks["fresh_reports_delivered_intact"] is True
+
+
+# ---------------------------------------------------------------------------
+# Review finding 1: every fresh report must name the GPO the run owned
+# ---------------------------------------------------------------------------
+
+
+def test_reports_naming_another_gpo_fail_even_with_matching_settings(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's mutation: every report re-identified as an unrelated GPO."""
+    result = _read_result(run)
+    for case in result["cases"]:
+        path = run / case["report_file"]
+        path.write_bytes(_as_fresh_report(
+            path.read_bytes(), "11111111-2222-3333-4444-555555555555", "Unrelated GPO",
+        ))
+    _rehash(run, result)
+    checks = _finalize(run, candidate, monkeypatch)
+    assert checks["every_fresh_report_identifies_its_owned_gpo"] is False
+    assert checks["every_case_studio_matches_fresh_report"] is True
+
+
+@pytest.mark.parametrize(
+    "guid,name,domain",
+    [
+        ("11111111-2222-3333-4444-555555555555", None, None),   # another GPO's id
+        (None, "Some other name", None),                         # another name
+        (None, None, "other.test"),                              # another domain
+    ],
+)
+def test_each_identity_field_is_checked(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch,
+    guid: str | None, name: str | None, domain: str | None,
+) -> None:
+    case = _read_result(run)["cases"][0]
+    path = run / case["report_file"]
+    path.write_bytes(_as_fresh_report(
+        path.read_bytes(), guid or case["owned_gpo_id"], name or case["target_name"],
+        domain or _DOMAIN,
+    ))
+    _rehash(run, _read_result(run))
+    assert _finalize(run, candidate, monkeypatch)[
+        "every_fresh_report_identifies_its_owned_gpo"
+    ] is False
+
+
+def test_the_capture_time_report_replayed_as_fresh_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replaying gpreport.xml from the backup is not fresh Windows evidence."""
+    result = _read_result(run)
+    expected = {c["case_id"]: c for c in _expected(candidate)["cases"]}
+    case = result["cases"][0]
+    source = ROOT / expected[case["case_id"]]["source"] / case["backup_id"] / "gpreport.xml"
+    shutil.copy(source, run / case["report_file"])
+    _rehash(run, result)
+    assert _finalize(run, candidate, monkeypatch)[
+        "every_fresh_report_identifies_its_owned_gpo"
+    ] is False
+
+
+@pytest.mark.parametrize("owned", [None, "", "not-a-guid"])
+def test_a_missing_owned_id_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, owned: str | None,
+) -> None:
+    result = _read_result(run)
+    result["cases"][0]["owned_gpo_id"] = owned
+    _write_result(run, result)
+    checks = _finalize(run, candidate, monkeypatch)
+    assert checks["every_owned_gpo_is_this_runs"] is False
+    assert checks["every_fresh_report_identifies_its_owned_gpo"] is False
+
+
+def test_a_target_name_outside_this_run_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _read_result(run)
+    result["cases"][0]["target_name"] = "zz-studio-rp-someone-else-1"
+    _write_result(run, result)
+    assert _finalize(run, candidate, monkeypatch)["every_owned_gpo_is_this_runs"] is False
+
+
+# ---------------------------------------------------------------------------
+# Review finding 2: every expectation comes from the bound builder
+# ---------------------------------------------------------------------------
+
+
+def _forge(candidate: Path, forged: Path, mutate: Any) -> None:
+    shutil.copytree(candidate, forged)
+    expected = _expected(forged)
+    mutate(expected)
+    (forged / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
+
+
+def test_a_tampered_studio_expectation_does_not_rebuild(
+    run: Path, candidate: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forged = tmp_path / "forged"
+    _forge(candidate, forged, lambda e: e["cases"][0]["studio_inventory"].update(families=[]))
+    checks = _finalize(run, forged, monkeypatch)
+    assert checks["candidate_rebuilds_from_bound_builder"] is False
+
+
+def test_a_tampered_capture_time_expectation_does_not_rebuild(
+    run: Path, candidate: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forged = tmp_path / "forged"
+    _forge(
+        candidate, forged,
+        lambda e: e["cases"][0]["backup_report_inventory"].update(families=[]),
+    )
+    assert _finalize(run, forged, monkeypatch)["candidate_rebuilds_from_bound_builder"] is False
+
+
+def test_an_empty_authored_expectation_and_empty_authored_run_fail(
+    run: Path, candidate: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's mutation: empty spec, empty authored report and backup."""
+    forged = tmp_path / "forged"
+    _forge(
+        candidate, forged,
+        lambda e: e["authored"].update(windows_inventory={"families": [], "admx_policies": {}}),
+    )
+    empty = _authored_report([])
+    (run / "reports" / "authored.xml").write_bytes(empty)
+    shutil.rmtree(run / "authored-backup")
+    _empty_authored_backup(run / "authored-backup", empty)
+    result = _read_result(run)
+    result["authored"]["backup_id"] = next(
+        p.name for p in (run / "authored-backup").iterdir() if p.is_dir()
+    )
+    _rehash(run, result)
+    checks = _finalize(run, forged, monkeypatch)
+    assert checks["candidate_rebuilds_from_bound_builder"] is False
+    assert checks["authored_report_lists_exactly_the_authored_values"] is False
+    assert checks["authored_studio_import_equals_report"] is False
+    assert checks["authored_fresh_report_matches_backup_report"] is False
+
+
+def _empty_authored_backup(target: Path, report: bytes) -> None:
+    from gpo_studio.export import gpmc_backup_bundle
+
+    bundle = gpmc_backup_bundle(GPO(guid=_AUTHORED_GUID, name="authored"))
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        archive.extractall(target)
+    (backup_root,) = [p for p in target.iterdir() if p.is_dir()]
+    (backup_root / "gpreport.xml").write_bytes(report)
+
+
+def test_grade_authored_refuses_empty_inventories_even_when_they_agree() -> None:
+    empty = Inventory(families=())
+    spec = {"windows_inventory": empty.to_json()}
+    checks, _ = FINALIZER.grade_authored(empty, empty, empty, spec, len(BUILDER.AUTHORED_VALUES))
+    assert not any(checks.values())
+
+
+def test_a_case_dropped_from_archive_expectation_and_results_fails(
+    run: Path, candidate: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's mutation: one case removed everywhere at once."""
+    dropped = "native-WI01A-Services-GPMC"
+    forged = tmp_path / "forged"
+    _forge(candidate, forged, lambda e: e.update(
+        cases=[c for c in e["cases"] if c["case_id"] != dropped]
+    ))
+    archive = forged / "report-parity-cases.zip"
+    with zipfile.ZipFile(candidate / "report-parity-cases.zip") as source, zipfile.ZipFile(
+        archive, "w"
+    ) as target:
+        for info in source.infolist():
+            if f"/{dropped}/" not in f"/{info.filename}":
+                target.writestr(info, source.read(info))
+    shutil.copy(archive, run / "candidate.zip")
+    result = _read_result(run)
+    result["cases"] = [c for c in result["cases"] if c["case_id"] != dropped]
+    _write_result(run, result)
+    checks = _finalize(run, forged, monkeypatch)
+    assert checks["candidate_rebuilds_from_bound_builder"] is False
+    assert checks["candidate_carries_the_required_corpus"] is False
+    assert checks["every_expected_case_ran_once"] is False
+
+
+def test_the_builder_refuses_a_corpus_missing_a_required_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    full = BUILDER.corpus()
+    monkeypatch.setattr(BUILDER, "corpus", lambda repo=None: full[:-1])
+    with pytest.raises(ValueError, match="missing"):
+        BUILDER.build(tmp_path)
+
+
+def test_the_required_corpus_is_the_whole_corpus() -> None:
+    assert tuple(c for c, _ in BUILDER.corpus()) == BUILDER.REQUIRED_CASE_IDS
+    assert len(BUILDER.REQUIRED_CASE_IDS) == 27
+
+
+# ---------------------------------------------------------------------------
+# Review finding 3: registry data is compared exactly
+# ---------------------------------------------------------------------------
+
+
+def test_whitespace_padding_an_authored_string_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's mutation: '  report-parity-machine  ' in the fresh report."""
+    values = [
+        (s, n, v.replace("report-parity-machine", "  report-parity-machine  "))
+        for s, n, v in _authored_values()
+    ]
+    (run / "reports" / "authored.xml").write_bytes(_authored_report(values))
+    _rehash(run, _read_result(run))
+    checks = _finalize(run, candidate, monkeypatch)
+    assert checks["authored_report_lists_exactly_the_authored_values"] is False
+    assert checks["authored_studio_import_equals_report"] is False
+    assert checks["authored_fresh_report_matches_backup_report"] is False
+
+
+# ---------------------------------------------------------------------------
+# Review finding 4: WI-073 absorbs only the scheduled/immediate partition
+# ---------------------------------------------------------------------------
+
+
+def test_reordering_scheduled_tasks_within_their_type_fails(candidate: Path) -> None:
+    """The reviewer's mutation: two TaskV2 items swapped in Windows' order."""
+    case = next(
+        c for c in _expected(candidate)["cases"]
+        if c["case_id"] == "native-WI01A-SchedTasks-GPMC"
+    )
+    fresh = inventory_from_json(case["backup_report_inventory"]).to_json()
+    for family in cast(list[dict[str, Any]], fresh["families"]):
+        if family["family"] == "ScheduledTasksSettings" and family["side"] == "computer":
+            items = family["items"]
+            tasks = [i for i, item in enumerate(items) if item["element"] == "TaskV2"]
+            items[tasks[0]], items[tasks[1]] = items[tasks[1]], items[tasks[0]]
+    checks, summary = FINALIZER.grade_case(inventory_from_json(fresh), case)
+    assert checks["no_unexplained_divergence"] is False
+    assert any("order" in line for line in summary["unexplained"])
+
+
+# ---------------------------------------------------------------------------
+# Review finding 5: authored steps, backup id and guest exit status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("values_set", False),
+        ("backup_succeeded", False),
+        ("backup_id", None),
+        ("backup_id", "not-a-guid"),
+        ("backup_id", "{00000000-0000-0000-0000-000000000000}"),  # not the backup's id
+    ],
+)
+def test_each_authored_step_is_required(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: object,
+) -> None:
+    result = _read_result(run)
+    result["authored"][field] = value
+    _write_result(run, result)
+    assert _finalize(run, candidate, monkeypatch)["authored_steps_succeeded"] is False
+
+
+@pytest.mark.parametrize("status", [1, -1, None])
+def test_a_failed_or_unreported_guest_can_never_pass(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, status: int | None,
+) -> None:
+    verdict = _verdict(run, candidate, monkeypatch, guest_status=status)
+    assert verdict["checks"]["guest_exited_zero"] is False
+    assert verdict["passed"] is False
+
+
+def test_the_driver_hands_the_guest_status_to_the_finalizer() -> None:
+    driver = DRIVER_PATH.read_text(encoding="utf-8")
+    assert '--guest-status "$GUEST_STATUS"' in driver
+    assert driver.index("GUEST_STATUS=$?") < driver.index("finalize_report_parity_run.py")
+
+
+# ---------------------------------------------------------------------------
+# Sweep: missing data never reads as a pass
+# ---------------------------------------------------------------------------
+
+
+def test_a_verdict_missing_a_required_check_does_not_pass(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        FINALIZER, "REQUIRED_CHECKS", FINALIZER.REQUIRED_CHECKS | {"a_check_nobody_computes"}
+    )
+    verdict = _verdict(run, candidate, monkeypatch)
+    assert verdict["checks_complete"] is False
+    assert verdict["passed"] is False
+
+
+def test_every_required_check_is_computed_by_the_control(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verdict = _verdict(run, candidate, monkeypatch)
+    assert set(verdict["checks"]) == FINALIZER.REQUIRED_CHECKS
+    assert verdict["checks_complete"] is True
+
+
+@pytest.mark.parametrize(
+    "mutate,check",
+    [
+        (lambda r: r.update(cases=[]), "every_case_imported"),
+        (lambda r: r.update(cases="not a list"), "result_schema_exact"),
+        (lambda r: r.update(authored=None), "authored_steps_succeeded"),
+        (lambda r: r.pop("error"), "harness_reported_no_error"),
+        (lambda r: r["cases"][0].pop("error"), "harness_reported_no_error"),
+        (lambda r: r["cases"][0].update(report_sha256=None), "fresh_reports_delivered_intact"),
+        (lambda r: r.update(run_id=None), "every_owned_gpo_is_this_runs"),
+        (lambda r: r.update(domain=None), "every_fresh_report_identifies_its_owned_gpo"),
+        (lambda r: r["cases"][1].update(owned_gpo_id=r["cases"][0]["owned_gpo_id"]),
+         "every_owned_gpo_is_this_runs"),
+    ],
+)
+def test_missing_or_duplicated_data_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, mutate: Any, check: str,
+) -> None:
+    result = _read_result(run)
+    mutate(result)
+    _write_result(run, result)
+    verdict = _verdict(run, candidate, monkeypatch)
+    assert verdict["checks"][check] is False
+    assert verdict["passed"] is False
 
 
 def test_a_report_altered_after_hashing_fails_delivery(
@@ -384,18 +785,6 @@ def test_missing_command_output_fails(
     assert _finalize(run, candidate, monkeypatch)["raw_command_artifacts_complete"] is False
 
 
-def test_a_tampered_expectation_does_not_reproduce(
-    run: Path, candidate: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    forged = tmp_path / "forged"
-    shutil.copytree(candidate, forged)
-    expected = _expected(forged)
-    expected["cases"][0]["studio_inventory"]["families"] = []
-    (forged / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
-    checks = _finalize(run, forged, monkeypatch)
-    assert checks["expected_inventories_reproduce_from_candidate"] is False
-
-
 def test_a_deployed_script_that_differs_from_source_fails(
     run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -453,7 +842,8 @@ def test_the_finalizer_refuses_a_candidate_root_missing_a_required_file(
             if name != omitted:
                 (root / name).write_bytes(b"{}")
         monkeypatch.setattr(sys, "argv", [
-            "finalize", str(tmp_path), "--candidate-root", str(root), "--no-tag",
+            "finalize", str(tmp_path), "--candidate-root", str(root),
+            "--guest-status", "0", "--no-tag",
         ])
         assert FINALIZER.main() == 1
         assert omitted in capsys.readouterr().err
@@ -534,3 +924,167 @@ def test_the_guest_script_avoids_powershell_7_only_syntax() -> None:
         assert "??" not in code and "?." not in code, number
         assert not re.search(r"\s(&&|\|\|)\s", code), number
         assert not re.search(r"\)\s*\?\s*[^\s]", code), number
+
+
+# ---------------------------------------------------------------------------
+# Review finding 6: the guest cleans up what it created, and only that
+# ---------------------------------------------------------------------------
+
+#: In-memory Group Policy cmdlets. Functions shadow cmdlets in PowerShell's
+#: command resolution, so the real guest script runs unchanged against them.
+_MOCK_HARNESS = r"""
+param([string]$Script, [string]$Zip, [string]$Out, [string]$StatePath, [string]$Mode)
+$ErrorActionPreference = 'Stop'
+$global:Store = [ordered]@{}
+$global:RemoveFailures = @{}
+$global:Thrown = $false
+$global:Store["$([guid]::NewGuid())"] = 'unrelated-gpo'
+function New-GPO {
+    [CmdletBinding()] param([string]$Name, [string]$Domain)
+    $id = [guid]::NewGuid()
+    $global:Store["$id"] = $Name
+    if ($Mode -eq 'remove-fails-once') { $global:RemoveFailures["$id"] = 1 }
+    if ($Mode -eq 'create-then-throw' -and -not $global:Thrown) {
+        $global:Thrown = $true
+        throw 'created, but the response was lost'
+    }
+    [pscustomobject]@{ Id = $id; DisplayName = $Name }
+}
+function Get-GPO {
+    [CmdletBinding()] param([switch]$All, $Guid, [string]$Domain, [string]$Name)
+    if ($All) {
+        return @($global:Store.Keys | ForEach-Object {
+            [pscustomobject]@{ Id = [guid]$_; DisplayName = $global:Store[$_] } })
+    }
+    $k = "$Guid"
+    if (-not $global:Store.Contains($k)) { throw "GPO $k not found" }
+    [pscustomobject]@{ Id = [guid]$k; DisplayName = $global:Store[$k] }
+}
+function Remove-GPO {
+    [CmdletBinding(SupportsShouldProcess = $true)] param($Guid, [string]$Domain)
+    $k = "$Guid"
+    if ($global:RemoveFailures[$k] -gt 0) {
+        $global:RemoveFailures[$k]--
+        throw 'transient failure'
+    }
+    if (-not $global:Store.Contains($k)) { throw "GPO $k not found" }
+    $global:Store.Remove($k)
+}
+function Import-GPO {
+    [CmdletBinding(SupportsShouldProcess = $true)] param($BackupId, $Path, $TargetGuid, $Domain)
+    [pscustomobject]@{ Id = $TargetGuid }
+}
+function Get-GPOReport {
+    [CmdletBinding()] param($Guid, $Domain, $ReportType, $Path)
+    $name = $global:Store["$Guid"]
+    $settings = 'http://www.microsoft.com/GroupPolicy/Settings'
+    $types = 'http://www.microsoft.com/GroupPolicy/Types'
+    Set-Content -LiteralPath $Path -Value ("<GPO xmlns='$settings'><Identifier>" +
+        "<Identifier xmlns='$types'>{$Guid}</Identifier></Identifier>" +
+        "<Name>$name</Name></GPO>")
+}
+function Set-GPRegistryValue {
+    [CmdletBinding()] param($Guid, $Domain, $Key, $ValueName, $Type, $Value)
+}
+function Backup-GPO {
+    [CmdletBinding()] param($Guid, $Domain, $Path)
+    [pscustomobject]@{ Id = [guid]::NewGuid(); GpoId = $Guid }
+}
+function Get-CimInstance {
+    param([Parameter(Position = 0)]$ClassName)
+    [pscustomobject]@{
+        Caption = 'mock'; BuildNumber = '26100'; DomainRole = 3; Name = 'MOCK'; Domain = 'lab.test'
+    }
+}
+function Start-Sleep { param($Seconds) }
+$status = 0
+try { & $Script -CandidateZip $Zip -OutputDir $Out -Domain 'lab.test' } catch { $status = 1 }
+finally {
+    @{ status = $status; remaining = @($global:Store.Values) } | ConvertTo-Json |
+        Set-Content -LiteralPath $StatePath
+}
+"""
+
+
+def _mock_candidate(path: Path) -> None:
+    manifest = (
+        '<Backups xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest">'
+        "<BackupInst><GPOGuid>{AAAAAAAA-0000-0000-0000-000000000001}</GPOGuid>"
+        "<ID>{BBBBBBBB-0000-0000-0000-000000000001}</ID></BackupInst></Backups>"
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        for case in ("case-a", "case-b"):
+            archive.writestr(f"cases/{case}/manifest.xml", manifest)
+
+
+def _run_mocked_guest(tmp_path: Path, mode: str, script: Path = GUEST_PATH) -> dict[str, Any]:
+    pwsh = shutil.which("pwsh") or shutil.which("powershell.exe")
+    if pwsh is None:
+        pytest.skip("no PowerShell interpreter available")
+    harness = tmp_path / "harness.ps1"
+    harness.write_text(_MOCK_HARNESS, encoding="utf-8")
+    zip_path = tmp_path / "candidate.zip"
+    _mock_candidate(zip_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    state = tmp_path / "state.json"
+    subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-File", str(harness), "-Script", str(script),
+         "-Zip", str(zip_path), "-Out", str(out), "-StatePath", str(state), "-Mode", mode],
+        capture_output=True, text=True, timeout=300, check=True,
+    )
+    final = cast(dict[str, Any], json.loads(state.read_text("utf-8-sig")))
+    (run_dir,) = list(out.iterdir())
+    final["result"] = json.loads((run_dir / "result.json").read_text("utf-8-sig"))
+    return final
+
+
+def _remaining(state: dict[str, Any]) -> list[str]:
+    remaining = state["remaining"]
+    return [remaining] if isinstance(remaining, str) else list(remaining)
+
+
+def test_the_mocked_guest_run_leaves_only_what_it_found(tmp_path: Path) -> None:
+    """The control: a clean run removes every GPO it made and nothing else."""
+    state = _run_mocked_guest(tmp_path, "normal")
+    assert state["status"] == 0
+    assert _remaining(state) == ["unrelated-gpo"]
+    result = state["result"]
+    assert result["cleanup_state_restored"] is True
+    assert all(c["cleanup_succeeded"] and c["absence_confirmed"] for c in result["cases"])
+    run_id = result["run_id"]
+    for record in [*result["cases"], result["authored"]]:
+        assert record["target_name"].startswith(f"zz-studio-rp-{run_id}-")
+
+
+def test_a_transient_removal_failure_is_retried(tmp_path: Path) -> None:
+    """The reviewer's mutation: one Remove-GPO failure per GPO left a survivor."""
+    state = _run_mocked_guest(tmp_path, "remove-fails-once")
+    assert _remaining(state) == ["unrelated-gpo"]
+    assert state["status"] == 0
+    assert state["result"]["cleanup_state_restored"] is True
+
+
+def test_a_gpo_created_without_a_returned_id_is_removed_by_name(tmp_path: Path) -> None:
+    """The reviewer's mutation: New-GPO succeeded but threw; $ownedId stayed null."""
+    state = _run_mocked_guest(tmp_path, "create-then-throw")
+    assert _remaining(state) == ["unrelated-gpo"]
+    assert state["status"] == 1  # the case still fails honestly
+    first = state["result"]["cases"][0]
+    assert first["import_succeeded"] is False
+    assert first["owned_gpo_id"] is None
+    assert first["absence_confirmed"] is True
+    assert state["result"]["cleanup_state_restored"] is True
+
+
+def test_the_guest_removes_only_names_it_registered() -> None:
+    script = GUEST_PATH.read_text(encoding="utf-8")
+    register = script.index("function Register-Target")
+    assert script.index('StartsWith("$prefix-")', register) < script.index(
+        "[void]$registeredNames.Add($name)", register
+    )
+    assert "if (-not $registeredNames.Contains($name)) { return $true }" in script
+    # Registration precedes creation in both places a GPO is created.
+    assert script.count("Register-Target $target\n") == 2
+    for chunk in script.split("Register-Target $target\n")[1:]:
+        assert chunk.lstrip().startswith("$owned = New-GPO")

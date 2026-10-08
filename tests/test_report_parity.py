@@ -425,14 +425,73 @@ def test_malformed_inventory_json_is_refused(data: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_task_order_matcher_does_not_absorb_other_families() -> None:
-    task_order = known_divergence("scheduled-task-order")
-    assert task_order.matches(Divergence("computer", "ScheduledTasksSettings", "order"), ())
-    assert not task_order.matches(Divergence("computer", "LugsSettings", "order"), ())
-    item = InventoryItem("TaskV2", name="t")
-    assert not task_order.matches(
-        Divergence("computer", "ScheduledTasksSettings", "missing_in_studio", item), ()
+_T1 = InventoryItem("TaskV2", name="t1", action="U")
+_T2 = InventoryItem("TaskV2", name="t2", action="R")
+_I1 = InventoryItem("ImmediateTaskV2", name="i1", action="C")
+
+
+def _order(windows: tuple[InventoryItem, ...], studio: tuple[InventoryItem, ...],
+           family: str = "ScheduledTasksSettings") -> Divergence:
+    return Divergence(
+        "computer", family, "order", windows_order=windows, studio_order=studio,
     )
+
+
+def test_the_task_order_matcher_takes_only_the_stable_partition() -> None:
+    task_order = known_divergence("scheduled-task-order")
+    # WI-073 exactly: immediate tasks moved after the scheduled ones.
+    assert task_order.matches(_order((_T1, _I1, _T2), (_T1, _T2, _I1)), ())
+    # The reviewer's mutation: scheduled tasks reversed within their type.
+    assert not task_order.matches(_order((_T1, _I1, _T2), (_T2, _T1, _I1)), ())
+    assert not task_order.matches(_order((_T1, _T2), (_T2, _T1)), ())
+    # Immediate tasks moved first is not the model's order either.
+    assert not task_order.matches(_order((_T1, _I1, _T2), (_I1, _T1, _T2)), ())
+    # No sequences, other families and other kinds never match.
+    assert not task_order.matches(_order((), ()), ())
+    assert not task_order.matches(_order((_T1, _I1, _T2), (_T1, _T2, _I1), "LugsSettings"), ())
+    assert not task_order.matches(
+        Divergence("computer", "ScheduledTasksSettings", "missing_in_studio", _T1), ()
+    )
+
+
+def test_reordering_within_a_task_type_stays_unexplained() -> None:
+    windows = _inv(_T1, _I1, _T2, family="ScheduledTasksSettings")
+    studio = _inv(_T2, _T1, _I1, family="ScheduledTasksSettings")
+    known, unexplained = classify(compare(windows, studio))
+    assert known == {} and [d.kind for d in unexplained] == ["order"]
+    partitioned = _inv(_T1, _T2, _I1, family="ScheduledTasksSettings")
+    known, unexplained = classify(compare(windows, partitioned))
+    assert set(known) == {"scheduled-task-order"} and unexplained == ()
+
+
+def test_registry_data_is_not_stripped() -> None:
+    """Review finding 3: padding in REG_SZ data is data."""
+    body = (
+        "<RegistrySetting><KeyPath>Software\\X</KeyPath>"
+        "<Value><Name>V</Name><String>  padded  </String></Value></RegistrySetting>"
+        "<RegistrySetting><KeyPath>Software\\X</KeyPath>"
+        "<Value><Name>E</Name><String></String></Value></RegistrySetting>"
+    )
+    items = windows_inventory(_report(computer=_registry_ext(body))).family(
+        "computer", "RegistrySettings"
+    )
+    assert [i.value for i in items] == ["String:  padded  ", "String:"]
+
+
+def test_report_identity_reads_guid_domain_and_name() -> None:
+    from gpo_studio.report_parity import report_identity
+
+    report = (
+        NATIVE / "WI01A-DriveMaps-GPMC/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/gpreport.xml"
+    ).read_bytes()
+    identity = report_identity(report)
+    assert identity.guid == "f0197e25-3e19-4835-b296-3c35dc069635"
+    assert identity.name == "WI01A-DriveMaps-GPMC"
+    assert identity.domain == "ad.hraedon.com"
+    with pytest.raises(ReportParityError, match="no GPO identifier"):
+        report_identity(_report())
+    with pytest.raises(ReportParityError, match="not a GPMC settings report"):
+        report_identity(b"<Other/>")
 
 
 def test_the_power_matcher_names_only_the_global_power_plan() -> None:

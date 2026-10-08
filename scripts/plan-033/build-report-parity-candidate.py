@@ -100,6 +100,41 @@ AUTHORED_VALUES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
+#: The complete corpus, in build order. A case that disappears (a deleted
+#: fixture, a narrowed glob) must be a reviewed edit here, not a silently
+#: shorter candidate: the builder refuses to build, and the finalizer refuses a
+#: candidate that does not carry exactly these cases.
+REQUIRED_CASE_IDS: tuple[str, ...] = (
+    "native-WI01A-DriveMaps-GPMC",
+    "native-WI01A-EnvVars-GPMC",
+    "native-WI01A-Files-GPMC",
+    "native-WI01A-Folders-GPMC",
+    "native-WI01A-IniFiles-GPMC",
+    "native-WI01A-LocalGroups-GPMC",
+    "native-WI01A-MixedCSE-GPMC",
+    "native-WI01A-NestedILT-GPMC",
+    "native-WI01A-OS-ILT",
+    "native-WI01A-Power-GPMC",
+    "native-WI01A-Printers-GPMC",
+    "native-WI01A-SchedTasks-GPMC",
+    "native-WI01A-SchedTasksFull-GPMC",
+    "native-WI01A-Services-GPMC",
+    "native-WI01A-ServicesRecovery-GPMC",
+    "native-WI01A-Shortcuts-GPMC",
+    "evidence-wi059-20260908-wp0-backup",
+    "evidence-wi059-20260908-scripts-metadata-rebackup",
+    "evidence-wi059-20260908-wp1b-drives-user-rebackup",
+    "evidence-wi059-20260908-wp1b-groups-machine-rebackup",
+    "evidence-wi059-20260908-wp1b-localusers-machine-rebackup",
+    "evidence-wi059-20260908-wp1b-mixed-all-rebackup",
+    "evidence-wi059-20260908-wp1b-registry-both-rebackup",
+    "evidence-wi059-20260908-wp1b-scheduledtasks-machine-rebackup",
+    "evidence-wi059-20260908-wp1b-services-machine-rebackup",
+    "evidence-wi059-20260908-wp2-rebackup",
+    "evidence-backup-report-20260908-scripts-metadata-rebackup",
+)
+
+
 def corpus(repo: Path = REPO_ROOT) -> list[tuple[str, Path]]:
     """(case id, backup directory) for every Windows-produced backup.
 
@@ -201,6 +236,11 @@ def _zip(root: Path) -> bytes:
 
 
 def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:
+    found = tuple(case_id for case_id, _ in corpus(repo))
+    if found != REQUIRED_CASE_IDS:
+        missing = sorted(set(REQUIRED_CASE_IDS) - set(found))
+        extra = sorted(set(found) - set(REQUIRED_CASE_IDS))
+        raise ValueError(f"corpus differs from REQUIRED_CASE_IDS: missing {missing}, extra {extra}")
     cases: list[dict[str, object]] = []
     excluded: list[dict[str, str]] = []
     with tempfile.TemporaryDirectory() as tmp:
