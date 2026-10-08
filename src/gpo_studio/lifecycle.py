@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -269,10 +270,14 @@ class BackupManifest:
     comment: str = ""
     gpo_status: GpoStatus = "all_settings_enabled"
     has_wmi_filter: bool = False
-    #: The raw ``Backup.xml`` ``WMIFilter`` text. Its shape for a linked filter
-    #: has not been captured yet (every banked backup has an empty element), so
-    #: it is kept verbatim rather than parsed into a name.
+    #: The raw ``Backup.xml`` ``WMIFilter`` text, verbatim.
     wmi_filter_reference: str = ""
+    #: Parsed from ``wmi_filter_reference`` when it has the measured shape
+    #: (see :func:`parse_wmi_filter_reference`); empty otherwise.
+    wmi_filter_id: str = ""
+    wmi_filter_domain: str = ""
+    #: ``Backup.xml`` ``WMIFilterName``, written beside ``WMIFilter``.
+    wmi_filter_name: str = ""
     files: tuple[BackupFileEntry, ...] = field(default_factory=tuple)
 
     def validate(self) -> tuple[ValidationIssue, ...]:
@@ -345,23 +350,63 @@ def _gpo_status(computer_enabled: bool, user_enabled: bool) -> GpoStatus:
     return "all_disabled"
 
 
-def _wmi_filter_reference(backup_xml: bytes) -> tuple[bool, str]:
-    """Read ``GroupPolicyCoreSettings/WMIFilter`` from ``Backup.xml``.
+#: The shape Windows writes into ``Backup.xml`` ``WMIFilter`` for a linked
+#: filter -- a WMI object path, NOT the ``gPCWQLFilter`` ``[domain;{id};0]``
+#: form the directory attribute uses. Measured on WS2025 (estate lifecycle run
+#: 1, 2026-10-08)::
+#:
+#:     MSFT_SomFilter.ID="{51625ca7-...}",Domain="AD.EXAMPLE.TEST"
+#:
+#: with the DNS domain in upper case. Its sibling ``WMIFilterName`` carries the
+#: filter's ``msWMI-Name``.
+_SOM_FILTER_PATH = re.compile(
+    r'^MSFT_SomFilter\.ID="(\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}'
+    r'-[0-9A-Fa-f]{12}\})",Domain="([^"]+)"$'
+)
 
-    An empty element means no filter -- that much is observed in every banked
-    backup. Anything else (text or children) counts as a filter link, kept
-    verbatim, because the populated shape has not been captured yet.
+
+def parse_wmi_filter_reference(text: str) -> tuple[str, str] | None:
+    """``(filter id, domain)`` from a ``Backup.xml`` ``WMIFilter`` value, or ``None``.
+
+    Only the measured ``MSFT_SomFilter`` object-path shape is recognised; any
+    other text is not a reference this module can vouch for.
+    """
+    match = _SOM_FILTER_PATH.match(text.strip())
+    if match is None:
+        return None
+    return match.group(1), match.group(2)
+
+
+@dataclass(frozen=True, slots=True)
+class _WmiLink:
+    present: bool = False
+    reference: str = ""
+    name: str = ""
+
+
+def _wmi_filter_reference(backup_xml: bytes) -> _WmiLink:
+    """Read ``GroupPolicyCoreSettings/WMIFilter`` (and ``WMIFilterName``).
+
+    An empty element means no filter, as in every backup without one. Anything
+    else (text or children) counts as a filter link and is kept verbatim.
     """
     root = _safe_parse(backup_xml)
     for elem in root.iter():
         if _local_name(elem.tag) != "GroupPolicyCoreSettings":
             continue
+        reference: str | None = None
+        present = False
+        name = ""
         for child in elem:
-            if _local_name(child.tag) != "WMIFilter":
-                continue
-            text = (child.text or "").strip()
-            return (bool(text) or len(child) > 0), text
-        return False, ""
+            local = _local_name(child.tag)
+            if local == "WMIFilter":
+                reference = (child.text or "").strip()
+                present = bool(reference) or len(child) > 0
+            elif local == "WMIFilterName":
+                name = (child.text or "").strip()
+        if reference is None:
+            return _WmiLink()
+        return _WmiLink(present, reference, name)
     raise BackupError("Backup.xml has no GroupPolicyCoreSettings")
 
 
@@ -389,15 +434,14 @@ def manifest_from_backup(backup: GpmcBackup) -> BackupManifest:
             ]
         )
     gpo = backup.gpos[0]
-    has_wmi_filter = False
-    wmi_reference = ""
+    link = _WmiLink()
     files: tuple[BackupFileEntry, ...]
     if gpo.backup_inventory is not None:
         try:
             backup_xml = base64.b64decode(gpo.backup_inventory.backup_xml_base64, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise BackupError("retained Backup.xml is not valid base64") from exc
-        has_wmi_filter, wmi_reference = _wmi_filter_reference(backup_xml)
+        link = _wmi_filter_reference(backup_xml)
         files = tuple(
             BackupFileEntry(f.relative_path, f.content_hash, f.size)
             for f in gpo.backup_inventory.files
@@ -415,7 +459,8 @@ def manifest_from_backup(backup: GpmcBackup) -> BackupManifest:
             for f in extension.files
         )
         if gpo.wmi_filter is not None:
-            has_wmi_filter, wmi_reference = True, gpo.wmi_filter.name
+            link = _WmiLink(True, gpo.wmi_filter.name, gpo.wmi_filter.name)
+    parsed = parse_wmi_filter_reference(link.reference)
     manifest = BackupManifest(
         backup_id=backup.backup_id,
         gpo_guid=gpo.guid,
@@ -423,8 +468,11 @@ def manifest_from_backup(backup: GpmcBackup) -> BackupManifest:
         domain=gpo.domain,
         created_at=backup.backup_time,
         gpo_status=_gpo_status(gpo.computer_enabled, gpo.user_enabled),
-        has_wmi_filter=has_wmi_filter,
-        wmi_filter_reference=wmi_reference,
+        has_wmi_filter=link.present,
+        wmi_filter_reference=link.reference,
+        wmi_filter_id=parsed[0] if parsed else "",
+        wmi_filter_domain=parsed[1] if parsed else "",
+        wmi_filter_name=link.name,
         files=files,
     )
     errors = [issue for issue in manifest.validate() if issue.severity == "error"]

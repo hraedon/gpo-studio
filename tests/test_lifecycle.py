@@ -8,6 +8,7 @@ says why.
 from __future__ import annotations
 
 import base64
+import json
 import shutil
 from collections.abc import Callable
 from dataclasses import replace
@@ -39,6 +40,7 @@ from gpo_studio.lifecycle import (
     cmdlet_for,
     generate_restore_plan,
     manifest_from_backup,
+    parse_wmi_filter_reference,
     target_identity_for,
 )
 from gpo_studio.model import ValidationError
@@ -134,8 +136,10 @@ def _with_backup_xml(tmp_path: Path, transform: Callable[[bytes], bytes]) -> Pat
     return target
 
 
-def test_a_populated_wmi_filter_element_is_kept_verbatim(tmp_path: Path) -> None:
-    """Synthetic: the populated shape has never been captured, so no parse."""
+def test_an_unrecognised_wmi_filter_shape_is_kept_verbatim_and_not_parsed(
+    tmp_path: Path,
+) -> None:
+    """The gPCWQLFilter form is the directory attribute's, not the backup's."""
     target = _with_backup_xml(
         tmp_path,
         lambda data: data.replace(
@@ -145,6 +149,51 @@ def test_a_populated_wmi_filter_element_is_kept_verbatim(tmp_path: Path) -> None
     manifest = manifest_from_backup(read_backup(target))
     assert manifest.has_wmi_filter is True
     assert manifest.wmi_filter_reference == "[synthetic;{F};0]"
+    assert manifest.wmi_filter_id == ""
+    assert manifest.wmi_filter_domain == ""
+
+
+_MEASURED = Path(__file__).parent / "fixtures" / "lifecycle" / "backup-wmifilter-ws2025.json"
+
+
+def test_the_measured_windows_wmi_filter_reference_is_parsed(tmp_path: Path) -> None:
+    """Estate lifecycle run 1 (2026-10-08): what Backup-GPO really writes.
+
+    ``MSFT_SomFilter.ID="{id}",Domain="DOMAIN"`` with the DNS domain in upper
+    case, plus a sibling ``WMIFilterName``. The fixture sanitizes the lab
+    domain to SYNTHETIC.TEST and keeps the case.
+    """
+    measured = json.loads(_MEASURED.read_text(encoding="utf-8"))
+    target = _with_backup_xml(
+        tmp_path,
+        lambda data: data.replace(b"<WMIFilter/>", measured["core_settings_tail_xml"].encode()),
+    )
+    manifest = manifest_from_backup(read_backup(target))
+    assert manifest.has_wmi_filter is True
+    assert manifest.wmi_filter_reference == measured["wmi_filter"]
+    assert manifest.wmi_filter_id == measured["filter_id"]
+    assert manifest.wmi_filter_domain == measured["domain_as_written"] == "SYNTHETIC.TEST"
+    assert manifest.wmi_filter_name == measured["wmi_filter_name"]
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ('MSFT_SomFilter.ID="{51625ca7-650b-4921-8f04-175ecaa343a1}",Domain="SYNTHETIC.TEST"',
+         ("{51625ca7-650b-4921-8f04-175ecaa343a1}", "SYNTHETIC.TEST")),
+        ('  MSFT_SomFilter.ID="{51625CA7-650B-4921-8F04-175ECAA343A1}",Domain="x.test" ',
+         ("{51625CA7-650B-4921-8F04-175ECAA343A1}", "x.test")),
+        ("[SYNTHETIC.TEST;{51625ca7-650b-4921-8f04-175ecaa343a1};0]", None),
+        ('MSFT_SomFilter.ID="{51625ca7}",Domain="x.test"', None),
+        ('MSFT_SomFilter.ID="{51625ca7-650b-4921-8f04-175ecaa343a1}"', None),
+        ('xMSFT_SomFilter.ID="{51625ca7-650b-4921-8f04-175ecaa343a1}",Domain="x.test"', None),
+        ("", None),
+    ],
+)
+def test_only_the_measured_som_filter_path_parses(
+    text: str, expected: tuple[str, str] | None
+) -> None:
+    assert parse_wmi_filter_reference(text) == expected
 
 
 def test_a_wmi_filter_element_with_children_counts_as_a_filter(tmp_path: Path) -> None:
