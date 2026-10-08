@@ -49,10 +49,17 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 #: is out of scope for 1.x with its code retained, unreachable and not
 #: counted as a capability. A plan whose remaining modules are merely
 #: *unsurfaced*, like 025's `network_security.py`, stays in this tuple.
+#:
+#: **028 was removed on 2026-10-08** by the same route. The same-domain
+#: lifecycle lane certified `lifecycle.py`
+#: (`lifecycle-20261008093248-2000-c76d10eb3f2849fe`, all 30 survival cells
+#: agreeing), and `POST /api/lifecycle/restore-plan` then wired it. Its other
+#: module, `gpmc_interop.py`, was reduced by ruling (2026-10-07) to the one
+#: type `publication.py` imports, which is a recorded ruling rather than an
+#: unexamined layer. The cross-domain half is out of scope by the same ruling.
 DOMAIN_LAYER_PLANS: tuple[str, ...] = (
     "025",
     "027",
-    "028",
     "031",
     "032",
 )
@@ -115,6 +122,7 @@ PROMOTED_DOMAIN_LAYER_PLANS: tuple[tuple[str, str], ...] = (
     ("029", "/api/rsop/compute"),
     ("026", "/api/gpos/{guid}/gpmc-backup-with-scripts"),
     ("030", "/api/gpos/{guid}/publication-plan"),
+    ("028", "/api/lifecycle/restore-plan"),
 )
 
 

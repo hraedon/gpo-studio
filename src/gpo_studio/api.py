@@ -17,7 +17,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Literal, assert_never, cast, get_args
+from typing import Annotated, Any, Literal, assert_never, cast, get_args
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Query, Request
@@ -51,7 +51,7 @@ from .admx import (
     PolicyDefinition,
     find_policy,
 )
-from .backup import BackupError, read_backup
+from .backup import BackupError, BackupGpo, GpmcBackup, read_backup
 from .canonical import policy_semantic_sha256, review_model_sha256
 from .delegation import (
     EffectiveRights,
@@ -124,6 +124,13 @@ from .import_export import (
     collect_gpp_collections,
     extract_side_settings,
     resolve_gpo,
+)
+from .lifecycle import (
+    SCOPE_DIMENSIONS,
+    SCOPE_SURVIVAL,
+    WindowsOperation,
+    generate_restore_plan,
+    manifest_from_backup,
 )
 from .model import (
     GPO,
@@ -5869,4 +5876,277 @@ def publication_plan_preview(
         "issues": [asdict(issue) for issue in issues],
         "absences": absences,
         "limitations": _publication_limitations(),
+    }
+
+
+# --------------------------------------------------------------------------
+# Plan 034: the same-domain restore plan (review only).
+#
+# `lifecycle.generate_restore_plan` names the GPMC cmdlet an operation means,
+# whose GUID the result carries, and what happens to each part of the GPO's
+# scope. That last part is `lifecycle.SCOPE_SURVIVAL`. The module's own
+# docstring still calls the table "predictions", because `lifecycle.py` is
+# bound by the lane and cannot be edited without expiring it. The lane has
+# since measured every cell: `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
+# agreed with all 30 (docs/plan-033/lifecycle-results.md), and
+# `tests/test_lifecycle_verdict.py` holds the table equal to what that run
+# observed. That is why each cell this endpoint returns is marked measured and
+# cites the run.
+#
+# The lane measured operations over a backup Windows wrote with `Backup-GPO`,
+# so the plan is built only for a workspace GPO that IS such a backup's
+# import: it carries the retained `Backup.xml` and the import's provenance
+# line, and its `source_guid` is the domain GPO the backup was taken from. A
+# GPO authored in Studio, or a fork of an import (whose `source_guid` is the
+# import's workspace GUID), is refused rather than planned by analogy. The
+# WMI association is read from the retained `Backup.xml` by
+# `manifest_from_backup`, the bridge the lane checked against the real tree.
+#
+# Nothing executes. This module composes the plan; `lifecycle.py` stays
+# offline, and the operator runs the cmdlet.
+# --------------------------------------------------------------------------
+
+#: The certifying run the survival cells are cited from. Held equal to the
+#: banked verdict by `tests/test_lifecycle_restore_plan_surface.py`.
+LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261008093248-2000-c76d10eb3f2849fe"
+LIFECYCLE_VERDICT_COMMIT = "35130528d89761ed1e6990001d086241e5655025"
+LIFECYCLE_VERDICT_PATH = "docs/plan-033/wp7-evidence/lifecycle/verification.json"
+
+#: The provenance line `import_gpmc_backup` writes into an imported GPO's
+#: description. Archived imports are immutable, so it is still the backup's id.
+_IMPORT_PROVENANCE = re.compile(
+    r"^Imported from GPMC backup (\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}"
+    r"-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\})$"
+)
+_BARE_GUID = re.compile(
+    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
+)
+#: `BackupManifest.created_at` must be non-empty, and the workspace import
+#: does not retain `BackupTime`. The value never reaches a response.
+_UNRECORDED_BACKUP_TIME = "unrecorded"
+
+
+class LifecycleRestorePlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The workspace GPO: the import of the backup to plan over.
+    gpo_guid: str = Field(min_length=1, max_length=64)
+    operation: WindowsOperation
+    #: `Import-GPO -TargetName` / `Copy-GPO -TargetName`; required by the
+    #: creating operations, optional for `import_into_existing`.
+    target_name: str = Field(default="", max_length=255)
+    #: `Import-GPO -TargetGuid`, for `import_into_existing` only.
+    target_gpo_guid: str = Field(default="", max_length=64)
+    #: Defaults to the backup's domain; any other domain is refused.
+    target_domain: str = Field(default="", max_length=255)
+    #: The domain's CURRENT GPO names, if the caller has them. With the list,
+    #: only it decides whether a creating operation's target name is taken.
+    existing_gpo_names: list[Annotated[str, Field(max_length=255)]] | None = Field(
+        default=None, max_length=10000
+    )
+
+
+class LifecycleSurvivalCell(BaseModel):
+    dimension: str
+    survival: str
+    #: True for every cell: the lane measured all 30 (see `evidence`).
+    measured: bool
+
+
+class LifecycleEvidence(BaseModel):
+    lane: str
+    run_id: str
+    commit: str
+    verdict: str
+    cells_measured: int
+    cells_agreeing: int
+
+
+class LifecycleRestorePlanResponse(BaseModel):
+    gpo_guid: str
+    backup_id: str
+    source_gpo_guid: str
+    operation: str
+    domain: str
+    cmdlet: str
+    target_identity: str
+    #: Known in advance only for `restore_in_place` (the source) and
+    #: `import_into_existing` by GUID; Windows assigns it otherwise.
+    target_gpo_guid: str | None
+    target_name: str
+    requires_target_absent: bool
+    preconditions: list[str]
+    warnings: list[str]
+    survival: list[LifecycleSurvivalCell]
+    evidence: LifecycleEvidence
+    limitations: list[SurfaceLimitation]
+
+
+def _lifecycle_limitations() -> list[dict[str, str]]:
+    """Limits that hold for every restore plan this surface returns."""
+    return [
+        {
+            "code": "studio_executes_nothing",
+            "message": (
+                "This is a plan to review. Studio runs no cmdlet and writes nothing "
+                "to Active Directory or SYSVOL; the operator runs the named cmdlet."
+            ),
+        },
+        {
+            "code": "same_domain_only",
+            "message": (
+                "Every cell was measured with the source, the backup and the target "
+                "in one domain. A plan is only produced for the backup's own domain."
+            ),
+        },
+        {
+            "code": "cross_domain_out_of_scope",
+            "message": (
+                "Cross-domain restore, import and copy (migration tables, principal "
+                "translation, WMI filters missing from the target) are out of scope "
+                "by ruling (2026-10-07) and are refused."
+            ),
+        },
+        {
+            "code": "one_topology_measured",
+            "message": (
+                "The lane measured one source GPO and one target, on one member "
+                "server against one domain controller. Multi-DC replication, "
+                "Import-GPO -TargetName into an existing GPO, deny ACEs and the WMI "
+                "filter object itself were not measured."
+            ),
+        },
+        {
+            "code": "deleted_gpo_restore_unmeasured",
+            "message": (
+                "Restore-GPO was measured on a GPO that still existed, so links "
+                "'replaced' means the current links are left alone. Restoring a "
+                "deleted GPO was not measured, and links are not in a backup."
+            ),
+        },
+        {
+            "code": "target_state_unchecked",
+            "message": (
+                "The plan has no live domain data. Whether the WMI filter still "
+                "exists, whether the DACL's principals resolve, and whether a target "
+                "name is free (beyond the names the caller supplied) are not checked."
+            ),
+        },
+    ]
+
+
+def _lifecycle_refusal(code: str, message: str, path: str) -> ValidationError:
+    return ValidationError([ValidationIssue("error", code, message, path)])
+
+
+def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
+    """The backup a workspace GPO is the import of, or a refusal.
+
+    Only what the import retained is used: the provenance line for the backup
+    id, `source_guid` for the GPO the backup was taken from, and the retained
+    `Backup.xml` for the WMI association.
+    """
+    provenance = _IMPORT_PROVENANCE.match(gpo.description)
+    if gpo.backup_inventory is None or provenance is None:
+        raise _lifecycle_refusal(
+            "not_a_windows_backup_import",
+            "A restore plan is built only for a GPO imported from a backup Windows "
+            "wrote with Backup-GPO (POST /api/backups/import). That is the input the "
+            "lifecycle lane measured; a GPO authored in Studio is not one.",
+            "gpo_guid",
+        )
+    if not _BARE_GUID.match(gpo.source_guid):
+        raise _lifecycle_refusal(
+            "source_gpo_unknown",
+            "The imported GPO does not record the domain GPO its backup was taken from.",
+            "gpo_guid",
+        )
+    try:
+        store.get_gpo(gpo.source_guid)
+    except NotFoundError:
+        pass
+    else:
+        raise _lifecycle_refusal(
+            "fork_of_an_import",
+            "This GPO was forked from a workspace import, so it is not the backup. "
+            "Plan over the import itself.",
+            "gpo_guid",
+        )
+    return GpmcBackup(
+        backup_time=_UNRECORDED_BACKUP_TIME,
+        backup_id=provenance.group(1),
+        gpos=(
+            BackupGpo(
+                guid=gpo.source_guid,
+                display_name=gpo.name,
+                domain=gpo.domain,
+                computer_enabled=gpo.computer_enabled,
+                user_enabled=gpo.user_enabled,
+                backup_inventory=gpo.backup_inventory,
+            ),
+        ),
+    )
+
+
+@app.post("/api/lifecycle/restore-plan", response_model=LifecycleRestorePlanResponse)
+def lifecycle_restore_plan(
+    request: Request, body: LifecycleRestorePlanRequest
+) -> dict[str, Any]:
+    """Plan one same-domain GPMC operation over an imported backup. Review only.
+
+    A refusal is a 422 whose `issues` carry the code: the workspace GPO is not
+    a backup import (`not_a_windows_backup_import`, `fork_of_an_import`,
+    `source_gpo_unknown`), the target domain differs from the backup's
+    (`cross_domain_out_of_scope`), a creating operation's target name is taken
+    (`target_name_exists`), or the operation's target arguments are missing or
+    malformed (the planner's own codes). An unknown operation is a 422 from
+    request validation.
+    """
+    store = _store(request)
+    gpo = store.get_gpo(body.gpo_guid)
+    backup = _backup_for_restore_plan(store, gpo)
+    try:
+        manifest = manifest_from_backup(backup)
+    except BackupError as error:
+        # The retained Backup.xml is untrusted import content; do not reflect it.
+        raise _lifecycle_refusal(
+            "retained_backup_unreadable",
+            "The imported GPO's retained Backup.xml could not be read as one backup.",
+            "gpo_guid",
+        ) from error
+    plan = generate_restore_plan(
+        manifest,
+        body.operation,
+        target_gpo_guid=body.target_gpo_guid,
+        target_name=body.target_name,
+        target_domain=body.target_domain,
+        existing_gpo_names=body.existing_gpo_names,
+    )
+    cells = len(SCOPE_SURVIVAL) * len(SCOPE_DIMENSIONS)
+    return {
+        "gpo_guid": gpo.guid,
+        "backup_id": plan.backup_id,
+        "source_gpo_guid": plan.source_gpo_guid,
+        "operation": plan.mode,
+        "domain": plan.domain,
+        "cmdlet": plan.cmdlet,
+        "target_identity": plan.target_identity,
+        "target_gpo_guid": plan.target_gpo_guid or None,
+        "target_name": plan.target_name,
+        "requires_target_absent": plan.requires_target_absent,
+        "preconditions": list(plan.preconditions),
+        "warnings": list(plan.warnings),
+        "survival": [
+            {"dimension": cell.dimension, "survival": cell.survival, "measured": True}
+            for cell in plan.scope
+        ],
+        "evidence": {
+            "lane": "lifecycle-same-domain",
+            "run_id": LIFECYCLE_VERDICT_RUN_ID,
+            "commit": LIFECYCLE_VERDICT_COMMIT,
+            "verdict": LIFECYCLE_VERDICT_PATH,
+            "cells_measured": cells,
+            "cells_agreeing": cells,
+        },
+        "limitations": _lifecycle_limitations(),
     }

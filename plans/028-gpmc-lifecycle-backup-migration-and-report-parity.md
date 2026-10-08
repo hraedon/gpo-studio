@@ -1,10 +1,17 @@
 # Plan 028 — GPMC lifecycle, backup, migration, and report parity
 
-Status: implemented (domain layer) — **not surfaced**. `lifecycle.py` and
-`gpmc_interop.py` are landed and unit-tested but are reachable from no API
-endpoint or UI module. Note that native GPMC backup emission itself
-(in `export.py`) *is* surfaced and carries Plan 033 WP-2 Windows evidence;
-this plan's lifecycle/migration/report layer does not.
+Status: **same-domain half reconciled (2026-10-08): lane-certified and
+surfaced, review only**. `lifecycle.py` is reachable at
+`POST /api/lifecycle/restore-plan`, over the same-domain lifecycle lane's
+verdict `lifecycle-20261008093248-2000-c76d10eb3f2849fe` (all 30 survival cells
+measured and agreeing; [results](../docs/plan-033/lifecycle-results.md)).
+`gpmc_interop.py` is reduced to the one type `publication.py` imports
+(ruling 2026-10-07), so no module of this plan remains an unexamined layer.
+The cross-domain half is out of scope by ruling and is refused. Native GPMC
+backup emission itself (in `export.py`) was already surfaced with Plan 033
+WP-2 Windows evidence. This plan's wider WP list (migration, reports,
+destructive lifecycle operations) is not delivered, and nothing here executes
+a GPMC operation.
 
 **Rulings of 2026-10-07** ([Plan 034 completion](../docs/direction-2026-10-07-plan-034-completion.md)).
 `gpmc_interop.py` is reduced to `InteropIssue`, the one type `publication.py`
@@ -19,14 +26,17 @@ a `manifest_from_backup` bridge from real `Backup-GPO` output, modes named after
 the cmdlets they mean, and a `SCOPE_SURVIVAL` table of *predictions*. The
 lifecycle state machine and the duplicate migration table were deleted. A lane
 that measures every survival cell is built and had two exploratory estate runs
-on 2026-10-08. Run 2 passed, but no verdict is banked yet, so the layer is still
-not surfaced and not Windows-verified. See
+on 2026-10-08. Run 2 passed, but was not banked (pre-merge commit). **Banked
+2026-10-08:** `lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`
+certified the lane, and the restore-plan surface followed. See
 [`docs/plan-033/lifecycle-lane-design.md`](../docs/plan-033/lifecycle-lane-design.md).
 The cross-domain half is out of scope (ruling 2026-10-07).
 
-**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
-behaviour of this layer is a hypothesis about Windows until an evidence lane
-certifies it, and every layer examined so far has needed correction. See
+**Exit condition** (operator ruling 2026-07-29): a layer's wire behaviour is
+a hypothesis about Windows until an evidence lane certifies it, and only a
+lane plus a delivery surface takes it out of the unproven-draft set. The
+same-domain lifecycle half met both on 2026-10-08. Everything beyond the
+measured topology is still unproven. See
 [`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
 
 Scope: complete the core GPMC operations around the now-supported setting and

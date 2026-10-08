@@ -9,6 +9,39 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Banked the same-domain lifecycle lane and added its restore-plan surface
+  (Plan 034). Run `lifecycle-20261008093248-2000-c76d10eb3f2849fe` passed at
+  `3513052` on a clean tree, on LabMS01 (WS2025, PowerShell 5.1). All 30 cells
+  of `lifecycle.SCOPE_SURVIVAL` (five GPMC operations by six scope dimensions)
+  agreed with what Windows did, as did the five plan-identity claims and the
+  backup bridge, and cleanup was proven empty. The pack is
+  `docs/plan-033/wp7-evidence/lifecycle/`. `tests/test_lifecycle_verdict.py`
+  re-grades its raw `result.json` with the shipping finalizer and holds the
+  table equal to the observed cells. See
+  [the results](docs/plan-033/lifecycle-results.md), which also record the
+  `Backup.xml` WMI wire shape (`MSFT_SomFilter.ID="{id}",Domain="DOMAIN"` plus
+  `WMIFilterName`), the DC/member clock-skew finding from exploratory run 1,
+  and the one residual that cannot be closed from the client.
+  - **Restore plan.** `POST /api/lifecycle/restore-plan` takes a workspace GPO
+    imported from a Windows backup, an operation (`restore_in_place`,
+    `import_into_existing`, `import_as_new`, `copy`, `copy_with_acl`), the
+    target arguments and optional `existing_gpo_names`. It returns
+    `generate_restore_plan`'s plan: cmdlet, target identity,
+    `requires_target_absent`, preconditions and warnings. Each survival cell
+    is marked measured and cites the run. Every response carries six
+    limitations: `studio_executes_nothing`, `same_domain_only`,
+    `cross_domain_out_of_scope`, `one_topology_measured`,
+    `deleted_gpo_restore_unmeasured` and `target_state_unchecked`. These are
+    refused with 422 and a code: GPOs authored in Studio and forks of an import
+    (the lane measured Windows backups only), cross-domain targets, taken
+    target names, and malformed target arguments. The surface composes in
+    `api.py` and touches no bound file.
+  - `lifecycle` reaches `yes` for its same-domain half in Plan 034's table and
+    is `lane-backed and surfaced` in the capability matrix. Cross-domain stays
+    out of scope by the 2026-10-07 ruling. Plan 028 leaves the unsurfaced
+    domain-layer set: `gpmc_interop`, its other module, was reduced to the one
+    type `publication` imports.
+
 - Added two Plan 034 surfaces over the lanes the
   [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:
   Scripts metadata (`scripts-r10-20261008074828-8492`, 20/20) and publication

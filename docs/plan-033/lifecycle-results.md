@@ -58,8 +58,9 @@ correction. That includes the three the lane design named least certain:
 
 * **The description after both imports is `kept`.** After `Import-GPO`,
   `Get-GPO` reports the backup's description, which the backup carries in
-  `GPO.cmt`. The lane reads the description through `Get-GPO` and does not
-  inspect the target's SYSVOL copy of the file.
+  `GPO.cmt`. The cell is graded on `Get-GPO`'s description. The guest also
+  recorded a `GPO.cmt` in every target's SYSVOL folder afterwards, but that is
+  kept as evidence, not graded, and the pre-existing target already had one.
 * **A same-domain `Copy-GPO` keeps the WMI association**, with and without
   `-CopyAcl`.
 * **`Import-GPO -CreateIfNeeded` gives the new GPO the `New-GPO` default

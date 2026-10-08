@@ -86,7 +86,9 @@ def test_every_shipped_survival_cell_is_a_measured_cell() -> None:
 
 def test_the_committed_result_regrades_clean_under_the_shipping_finalizer() -> None:
     """From the raw guest output, not the verdict's summary of it."""
-    lane, claims, comparison = _grade(_json("result.json"), _json("controller-candidate/expected.json"))
+    lane, claims, comparison = _grade(
+        _json("result.json"), _json("controller-candidate/expected.json")
+    )
     assert sorted(name for name, ok in lane.items() if not ok) == []
     assert sorted(name for name, ok in claims.items() if not ok) == []
     assert comparison["mismatches"] == []

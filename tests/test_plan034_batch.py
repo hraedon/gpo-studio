@@ -146,8 +146,23 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
     assert "zz-studio" in collector
 
 
+#: Lane verdicts banked AFTER the batch, by lanes the batch did not run.
+#:
+#: Enumerated with a reason, never pattern-matched: the test below exists to
+#: catch an unretired stale binding or a missing registration, and a lane that
+#: postdates the batch is neither, but only when someone names it here.
+#:
+#: * The same-domain lifecycle lane did not exist when the batch froze
+#:   `263f196`. Its first verdict, `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
+#:   at `3513052`, was banked the same day.
+POST_BATCH_LANE_VERDICTS: frozenset[str] = frozenset({
+    "wp7-evidence/lifecycle/verification.json",
+})
+
+
 def test_the_batch_is_the_live_set() -> None:
-    """21 batch verdicts plus the successor are live; nothing else, nothing pending."""
+    """21 batch verdicts plus the successor are live, plus the enumerated lanes
+    banked after the batch; nothing else, nothing pending."""
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 21
@@ -155,7 +170,11 @@ def test_the_batch_is_the_live_set() -> None:
     assert (batch_verdicts | successor) <= set(registry["LANE_VERDICTS"])
     assert STALE_OBJECT_SECURITY in registry["RETIRED_VERDICTS"]
     assert set(registry["PENDING_REQUALIFICATION"]) == set()
-    expected_live = (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor
+    assert not POST_BATCH_LANE_VERDICTS & (batch_verdicts | successor)
+    assert set(registry["LANE_VERDICTS"]) >= POST_BATCH_LANE_VERDICTS
+    expected_live = (
+        (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor | POST_BATCH_LANE_VERDICTS
+    )
     assert set(registry["LIVE_VERDICTS"]) == expected_live, (
         "The live set must be exactly this batch's verdicts with the successor in "
         "place of the stale object-security run; anything else is either an "
