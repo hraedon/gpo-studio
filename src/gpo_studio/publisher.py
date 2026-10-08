@@ -441,7 +441,8 @@ _STEP_CAPABILITY_MAP: dict[str, PublisherCapability] = {
 # Deliberately absent above: the refusal operations a plan carries when it
 # cannot be published (`unsupported_cse_content`,
 # `unsupported_extension_registration`, `extension_lists_unreachable`,
-# `unsupported_side_status`, `unsupported_folder_redirection`). An
+# `unsupported_side_status`, `unsupported_folder_redirection`,
+# `unsupported_gpp_registry_shape`). An
 # unmapped operation fails the capability gate, which is the outcome those
 # steps exist to force -- mapping them would make a refusal publishable by
 # granting a capability.

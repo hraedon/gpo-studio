@@ -9,6 +9,44 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- **GPP Registry native export, fixed and awaiting batch-2 requalification
+  (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
+  Registry item, narrowing the 1.0 contract the capability matrix still
+  claimed. A native capture (2026-10-08, `tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC`)
+  measured the extension pair `[{B087BE9D-…}{BEE07A6A-…}]` on both sides and
+  the wire form, and showed Studio's reader and writer were both wrong:
+  REG_DWORD/REG_QWORD are fixed-width upper-case hex (a native DWORD did not
+  import; a QWORD was read as decimal), REG_MULTI_SZ is space-joined plus a
+  `<Values>` list, and `<Registry>`/`<Properties>` carry `status`, `image`,
+  braced upper-case `uid`, `displayDecimal` and `default` in a fixed order.
+  The writer and reader now follow the capture (pinned against the native
+  bytes in `tests/test_gpp_registry_native.py`), the pair is registered in
+  `export._GPP_EXTENSION_PROFILES` (the one source for the backup, the
+  publication planner and `EMITTED_EXTENSION_GUIDS`), and pre-batch-2 stored
+  imports are re-typed on load. Delete, REG_BINARY, key-only and default-value
+  items stay refused (`unmeasured_gpp_registry_shape`) by the export and the
+  planner until `scripts/plan-033/capture-gpp-registry-native.ps1` (revision 2)
+  measures them. The decimal and `;`-joined forms Studio wrote before batch 2
+  are refused on read.
+- **WP-1B lane:** new `gppregistry-both` candidate and GPP Registry items in
+  `mixed-all`; GPMC report markers are namespace-qualified, since Registry.pol
+  and GPP Registry both render as `RegistrySettings`. Live verdicts for the
+  wp1b, publication, scripts-metadata and object-security lanes no longer bind
+  the shipping files and need the batch-2 run.
+- **Firewall policy registers the firewall snap-in tool half.** A machine
+  Registry.pol holding only `SOFTWARE\Policies\Microsoft\WindowsFirewall`
+  keys now registers `[{35378EAC-…}{B05566AC-…}]`, as native authoring did
+  (`tests/fixtures/native-firewall-gpmc/fw-capture-20261008`), instead of the
+  Administrative Templates `{D02B1F72-…}`. Mixed firewall-and-other content is
+  unchanged: no capture records it (WI-075).
+- **Review tidy (N5–N8).** The object-security finalizer's comment no longer
+  claims a v1 pack can be re-graded to anything but failure (N5). A refused
+  native export reports every reason, cpassword first and the fdeploy refusal
+  last (N6). SID patterns in `object_security.py` and the object-security
+  finalizer are ASCII-only, so a Unicode-digit look-alike is not a SID (N7).
+  `run-requal-batch.sh` resolves `<batch-dir>` without creating it, so its
+  in-repo refusal leaves nothing behind (N8).
+
 - Added two Plan 034 surfaces over the lanes the
   [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:
   Scripts metadata (`scripts-r10-20261008074828-8492`, 20/20) and publication

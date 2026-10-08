@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -212,11 +213,41 @@ def test_gpp_groups_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:
         assert orig.description == imp.description
 
 
-def test_gpp_registry_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:
+def test_gpp_registry_unmeasured_shapes_refuse_the_gpmc_backup() -> None:
+    """The fixture carries a REG_BINARY value and a Delete item (WI-075).
+
+    The GPP Registry extension pair is measured since batch 2, so the family no
+    longer refuses as a whole; those two item shapes have no capture and still
+    do, each named.
+    """
     gpo = fixture_gpp_registry_all_actions()
     with pytest.raises(ValidationError) as exc_info:
         gpmc_backup_bundle(gpo)
-    assert exc_info.value.issues[0].code == "unsupported_native_gpp_extension"
+    codes = [issue.code for issue in exc_info.value.issues]
+    assert codes == ["unmeasured_gpp_registry_shape"]
+    message = exc_info.value.issues[0].message
+    assert "REG_BINARY" in message
+    assert "the Delete action" in message
+
+
+def test_gpp_registry_measured_shapes_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:
+    gpo = fixture_gpp_registry_all_actions()
+    collection = gpo.gpp_collections[0]
+    measured = tuple(
+        reg
+        for reg in collection.registry
+        if reg.value.action != "delete" and reg.value.registry_type != "REG_BINARY"
+    )
+    assert len(measured) == 2
+    gpo = replace(gpo, gpp_collections=(replace(collection, registry=measured),))
+    backup_dir = _extract_backup_zip(gpmc_backup_bundle(gpo), tmp_path / "gpp_registry")
+    imported = _import_backup_to_gpo(backup_dir)
+    assert len(imported.gpp_collections) == 1
+    got = imported.gpp_collections[0].registry
+    # Import assigns editor ids; everything that reaches the wire must survive.
+    assert [(r.hive, r.key, replace(r.value, id="")) for r in got] == [
+        (r.hive, r.key, r.value) for r in measured
+    ]
 
 
 def test_ilt_predicates_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:
@@ -237,10 +268,14 @@ def test_ilt_predicates_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:
 
 
 def test_comprehensive_fixture_roundtrip(tmp_path: Path) -> None:
+    """Its one GPP Registry item is a measured shape, so the backup is written."""
     gpo = fixture_comprehensive()
-    with pytest.raises(ValidationError) as exc_info:
-        gpmc_backup_bundle(gpo)
-    assert exc_info.value.issues[0].code == "unsupported_native_gpp_extension"
+    backup_dir = _extract_backup_zip(gpmc_backup_bundle(gpo), tmp_path / "comprehensive")
+    imported = _import_backup_to_gpo(backup_dir)
+    by_scope = {c.scope: c for c in imported.gpp_collections}
+    expected = next(c for c in gpo.gpp_collections if c.scope == "computer").registry
+    got = by_scope["computer"].registry
+    assert [replace(r.value, id="") for r in got] == [r.value for r in expected]
 
 
 def test_case_insensitive_key_matching() -> None:
@@ -338,7 +373,6 @@ def test_corpus_covers_all_fixture_builders() -> None:
 
 
 def test_normalize_gpo_for_comparison_strips_non_semantic_fields() -> None:
-    from dataclasses import replace
 
     gpo1 = fixture_all_registry_types()
     gpo2 = replace(

@@ -17,7 +17,7 @@ from .canonical import (
     policy_semantic_sha256,
     review_model_sha256,
 )
-from .gpp import contains_cpassword, serialize_gpp
+from .gpp import contains_cpassword, gpp_registry_unmeasured_shapes, serialize_gpp
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
 from .script_policy import PowerShellScriptEntry, ScriptEntry, ScriptPolicy
@@ -29,12 +29,22 @@ _REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 _REGISTRY_MACHINE_TOOL_GUID = "{D02B1F72-3407-48AE-BA88-E8213C6761F1}"
 _REGISTRY_USER_TOOL_GUID = "{D02B1F73-3407-48AE-BA88-E8213C6761F1}"
 _GPP_FILE_COPY_EXTENSION_GUID = "{F15C46CD-82A0-4C2D-A210-5D0D3182A418}"
+# Windows Defender Firewall snap-in: the tool half GPMC pairs with the Registry
+# CSE when the machine Registry.pol holds firewall policy. Measured 2026-10-08
+# (tests/fixtures/native-firewall-gpmc/fw-capture-20261008): a GPO whose
+# Registry.pol held only SOFTWARE\Policies\Microsoft\WindowsFirewall keys got
+# gPCMachineExtensionNames = [{35378EAC-...}{B05566AC-...}] -- no {D02B1F72-...}.
+_FIREWALL_TOOL_GUID = "{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}"
+_FIREWALL_POLICY_KEY = "software\\policies\\microsoft\\windowsfirewall"
 _ZERO_GUID = "{00000000-0000-0000-0000-000000000000}"
 _BACKUP_TIME = "1980-01-01T00:00:00"
 _NATIVE_BACKUP_NAMESPACE = UUID("9f2492d8-f0d4-45f8-91db-7fc0c86ceae8")
 
-# Pinned to genuine GPMC-authored WS2025 fixtures. Other GPP families remain
-# blocked until their extension metadata is captured.
+# (client-side extension, tool) per GPP family, keyed by the family's
+# Preferences directory. Pinned to genuine WS2025 captures; other GPP families
+# remain blocked until their extension metadata is captured. The ONE source of
+# these pairs: the native backup, the publication planner
+# (`extension_registration`) and `EMITTED_EXTENSION_GUIDS` all read this table.
 _GPP_EXTENSION_PROFILES: dict[str, tuple[str, str]] = {
     "Drives": (
         "{5794DAFD-BE60-433F-88A2-1A31939AC01F}",
@@ -43,6 +53,19 @@ _GPP_EXTENSION_PROFILES: dict[str, tuple[str, str]] = {
     "Groups": (
         "{17D89FEC-5C44-4972-B12D-241CAEF74509}",
         "{79F92669-4224-476C-9C5C-6EFB4D87DF4A}",
+    ),
+    # Measured 2026-10-08 (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC,
+    # capture.json): Set-GPPrefRegistryValue registered exactly
+    # [{B087BE9D-...}{BEE07A6A-...}] in BOTH gPCMachineExtensionNames and
+    # gPCUserExtensionNames, and Backup-GPO recorded the same lists. The
+    # cmdlet wrote no zero-GUID group; `_extension_guids` lists the tool half in
+    # one, as the GPMC editor does: the live census
+    # (tests/fixtures/live-domain-census/r06-cse-census) records a production
+    # machine list [{00000000-...}{BEE07A6A-...}]...[{B087BE9D-...}{BEE07A6A-...}].
+    # The user-side zero group is the same pattern, not separately observed.
+    "Registry": (
+        "{B087BE9D-ED37-454F-AF9C-04291E351182}",
+        "{BEE07A6A-EC9F-4659-B8C9-0B1937907C83}",
     ),
     "ScheduledTasks": (
         "{AADCED64-746C-4633-A97C-D61349046527}",
@@ -74,6 +97,7 @@ EMITTED_EXTENSION_GUIDS = frozenset({
     _REGISTRY_CSE_GUID,
     _REGISTRY_MACHINE_TOOL_GUID,
     _REGISTRY_USER_TOOL_GUID,
+    _FIREWALL_TOOL_GUID,
     _SCRIPTS_CSE_GUID,
     _SCRIPTS_TOOL_GUID,
     _ZERO_GUID,
@@ -666,11 +690,15 @@ class ExtensionRegistration:
     inert in the worst way -- every file a reviewer would check is present and
     correct. `unverified_families` names GPP families whose extension metadata
     has never been captured, for which no honest value can be produced.
+    `unmeasured_shapes` names items of a REGISTERED family whose own wire form
+    has no capture (`gpp.gpp_registry_unmeasured_shapes`): the extension list
+    can be stated, the file content cannot be vouched for.
     """
 
     machine: str
     user: str
     unverified_families: tuple[str, ...]
+    unmeasured_shapes: tuple[str, ...] = ()
 
 
 def extension_registration(
@@ -698,6 +726,7 @@ def extension_registration(
         values[side] = _extension_guids(
             side=side,
             has_registry=any(item.side == scope for item in gpo.settings),
+            registry_tool=_registry_tool_guid(side, gpo.settings),
             gpp_profiles=profiles[side],
             has_scripts=script_policies.get(scope) is not None,
         )
@@ -705,6 +734,15 @@ def extension_registration(
         machine=values["Machine"],
         user=values["User"],
         unverified_families=tuple(sorted(unverified)),
+        unmeasured_shapes=_unmeasured_shapes(gpo),
+    )
+
+
+def _unmeasured_shapes(gpo: GPO) -> tuple[str, ...]:
+    return tuple(
+        shape
+        for collection in gpo.gpp_collections
+        for shape in gpp_registry_unmeasured_shapes(collection)
     )
 
 
@@ -712,6 +750,83 @@ def _native_export_files(
     gpo: GPO,
     scripts: Mapping[str, ScriptPolicy] | None = None,
 ) -> tuple[dict[str, bytes], dict[str, set[str]]]:
+    """Build the native backup's SYSVOL files, or refuse with EVERY reason.
+
+    Each check records its refusal and the function raises once, at the end,
+    with the issues ordered most-relevant first: a cpassword (a secret would be
+    shipped), then GPP content with no measured extension or wire form, then
+    Scripts, then the Folder Redirection carry-over. Callers that show one
+    reason (`native_backup_refusal`) show the first; the rest stay on the
+    error. Raising at the first check used to report the fdeploy refusal for a
+    GPO that also carried a cpassword (review N6).
+    """
+    computer = [item for item in gpo.settings if item.side == "computer"]
+    user = [item for item in gpo.settings if item.side == "user"]
+    files: dict[str, bytes] = {}
+    profiles: dict[str, set[str]] = {"Machine": set(), "User": set()}
+    if computer:
+        files["Machine/registry.pol"] = _gpmc_preg_bytes(computer)
+    if user:
+        files["User/registry.pol"] = _gpmc_preg_bytes(user)
+
+    issues: list[ValidationIssue] = []
+    unsupported: set[str] = set()
+    for side_dir, family, filename, content in _gpp_family_files(gpo):
+        if contains_cpassword(content):
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="cpassword_detected",
+                    message=f"GPP file {filename} contains a cpassword attribute.",
+                    path=f"gpp_collections/{filename}",
+                )
+            )
+            continue
+        if family not in _GPP_EXTENSION_PROFILES:
+            unsupported.add(family)
+            continue
+        profiles[side_dir].add(family)
+        files[f"{side_dir}/Preferences/{filename}"] = content
+
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="unsupported_native_gpp_extension",
+                message=(
+                    "Native backup extension metadata has not been verified for: "
+                    f"{names}. Use the Studio publication bundle instead."
+                ),
+                path="gpp_collections",
+            )
+        )
+    shapes = _unmeasured_shapes(gpo)
+    if shapes:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="unmeasured_gpp_registry_shape",
+                message=(
+                    "No Windows capture backs the native form of these GPP Registry "
+                    f"items: {'; '.join(shapes)}. Use the Studio publication bundle "
+                    "instead (WI-075)."
+                ),
+                path="gpp_collections",
+            )
+        )
+
+    script_policies = scripts or {}
+    for scope in _SCRIPT_SIDES:
+        policy = script_policies.get(scope)
+        if policy is None:
+            continue
+        refusal = _native_scripts_refusal(scope, policy)
+        if refusal is not None:
+            issues.append(refusal)
+            continue
+        _native_scripts_files(scope, policy, files)
+
     # WI-068. An imported fdeploy1.ini is carried on the model but there is no
     # writer for it (WI-066 owes the Flags encoding). Re-emitting the imported
     # text alone is not a measured write either: it would also need the Folder
@@ -719,8 +834,9 @@ def _native_export_files(
     # fdeploy.ini marker beside it is unmeasured. A backup without the file
     # would silently drop the redirection, so refuse. Checked here rather than
     # in the route so `native_backup_refusal` advertises the same refusal.
+    # Recorded LAST: it is the least specific of the refusals (review N6).
     if gpo.fdeploy is not None:
-        raise ValidationError([
+        issues.append(
             ValidationIssue(
                 severity="error",
                 code="folder_redirection_not_exportable",
@@ -731,57 +847,37 @@ def _native_export_files(
                 ),
                 path="fdeploy",
             )
-        ])
-    computer = [item for item in gpo.settings if item.side == "computer"]
-    user = [item for item in gpo.settings if item.side == "user"]
-    files: dict[str, bytes] = {}
-    profiles: dict[str, set[str]] = {"Machine": set(), "User": set()}
-    if computer:
-        files["Machine/registry.pol"] = _gpmc_preg_bytes(computer)
-    if user:
-        files["User/registry.pol"] = _gpmc_preg_bytes(user)
-
-    script_policies = scripts or {}
-    for scope in _SCRIPT_SIDES:
-        policy = script_policies.get(scope)
-        if policy is None:
-            continue
-        refusal = _native_scripts_refusal(scope, policy)
-        if refusal is not None:
-            raise ValidationError([refusal])
-        _native_scripts_files(scope, policy, files)
-
-    unsupported: set[str] = set()
-    for side_dir, family, filename, content in _gpp_family_files(gpo):
-        if contains_cpassword(content):
-            raise ValidationError([
-                ValidationIssue(
-                    severity="error",
-                    code="cpassword_detected",
-                    message=f"GPP file {filename} contains a cpassword attribute.",
-                    path=f"gpp_collections/{filename}",
-                )
-            ])
-        if family not in _GPP_EXTENSION_PROFILES:
-            unsupported.add(family)
-            continue
-        profiles[side_dir].add(family)
-        files[f"{side_dir}/Preferences/{filename}"] = content
-
-    if unsupported:
-        names = ", ".join(sorted(unsupported))
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="unsupported_native_gpp_extension",
-                message=(
-                    "Native backup extension metadata has not been verified for: "
-                    f"{names}. Use the Studio publication bundle instead."
-                ),
-                path="gpp_collections",
-            )
-        ])
+        )
+    if issues:
+        raise ValidationError(issues)
     return files, profiles
+
+
+def _is_firewall_policy_key(key: str) -> bool:
+    folded = key.casefold().strip("\\")
+    return folded == _FIREWALL_POLICY_KEY or folded.startswith(_FIREWALL_POLICY_KEY + "\\")
+
+
+def _registry_tool_guid(side: str, settings: Sequence[RegistrySetting]) -> str | None:
+    """The tool half to pair with the Registry CSE on *side*, if any.
+
+    Firewall-only machine policy gets the firewall snap-in's tool GUID, as
+    measured. Anything else keeps the Administrative Templates tool. MIXED
+    machine content (firewall keys and ordinary policy) also keeps it: no
+    capture records which list GPMC writes for that combination. The live
+    census (tests/fixtures/live-domain-census/r06-cse-census) shows a
+    production group [{35378EAC}{B05566AC}{D02B1F72}], which suggests both
+    tool halves in one group -- but the census holds no Registry.pol content,
+    so what produced it is unmeasured and it is not written (WI-075). User-side
+    firewall keys are unmeasured too (firewall policy is computer policy).
+    """
+    scope = "computer" if side == "Machine" else "user"
+    keys = [item.key for item in settings if item.side == scope]
+    if not keys:
+        return None
+    if side == "Machine" and all(_is_firewall_policy_key(key) for key in keys):
+        return _FIREWALL_TOOL_GUID
+    return _REGISTRY_MACHINE_TOOL_GUID if side == "Machine" else _REGISTRY_USER_TOOL_GUID
 
 
 def _extension_guids(
@@ -790,10 +886,11 @@ def _extension_guids(
     has_registry: bool,
     gpp_profiles: set[str],
     has_scripts: bool = False,
+    registry_tool: str | None = None,
 ) -> str:
     groups: list[str] = []
     if has_registry:
-        tool = (
+        tool = registry_tool or (
             _REGISTRY_MACHINE_TOOL_GUID if side == "Machine" else _REGISTRY_USER_TOOL_GUID
         )
         groups.append(f"[{_REGISTRY_CSE_GUID}{tool}]")
@@ -872,6 +969,7 @@ def _build_backup_xml(
             _extension_guids(
                 side="Machine",
                 has_registry="Machine/registry.pol" in files,
+                registry_tool=_registry_tool_guid("Machine", gpo.settings),
                 gpp_profiles=profiles["Machine"],
                 has_scripts=machine_scripts,
             ),
@@ -881,6 +979,7 @@ def _build_backup_xml(
             _extension_guids(
                 side="User",
                 has_registry="User/registry.pol" in files,
+                registry_tool=_registry_tool_guid("User", gpo.settings),
                 gpp_profiles=profiles["User"],
                 has_scripts=user_scripts,
             ),
@@ -972,10 +1071,11 @@ def native_backup_refusal(
     INSTANCE rather than the CLASS. `gpmc_export` was the entry WI-044 held up
     as the correct template — it already reported a `reason` — and it was
     advertising `enabled: true` for GPOs whose backup then refused with 422.
-    A GPP Registry preference does it: `Registry` is authorable and has been
-    since 1.0, and it is not one of the four families `_GPP_EXTENSION_PROFILES`
-    covers, so `_native_export_files` raises `unsupported_native_gpp_extension`
-    while `validate_gpo` reports nothing and `preserved_files` stays 0.
+    A GPP Registry preference did it: `Registry` was authorable from 1.0 and
+    absent from `_GPP_EXTENSION_PROFILES` until batch 2 measured its pair, so
+    `_native_export_files` raised `unsupported_native_gpp_extension` while
+    `validate_gpo` reported nothing and `preserved_files` stayed 0. (An
+    unmeasured GPP Registry item shape still refuses the same way, WI-075.)
 
     RUNS THE REAL CODE rather than restating its conditions.
     `gpmc_backup_bundle` refuses only inside `native_backup_id` and

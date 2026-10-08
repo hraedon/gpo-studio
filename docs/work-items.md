@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**2 open.**
+**3 open.**
 
+- [WI-075](#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not) - requalify WP-1B (and publication) with the GPP Registry candidate; capture the unmeasured shapes.
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 
@@ -3025,3 +3026,68 @@ and this item records the proposal instead.
 **Closes when:** the user-side Scripts pair is captured and `export.py` matches it (or is
 confirmed already correct), and a lane covering a user-side logon script and a
 computer-side shutdown script has a banked verdict.
+
+## WI-075 — native GPMC export refused GPP Registry, and the 1.x contract said it did not
+
+**Opened:** 2026-10-08 (batch 2, `batch2/gpp-registry-and-tidy`).
+**Status:** open.
+
+**The narrowing.** The 1.0 capability matrix lists GPP Registry with GPMC backup
+export &#10003;. Since the WP-1B era, `export._GPP_EXTENSION_PROFILES` carried only
+the families a capture had measured, and Registry was not one of them, so
+`gpmc_backup_bundle` refused EVERY GPO holding a GPP Registry item with
+`unsupported_native_gpp_extension`, and the publication planner refused it too.
+WI-046 made the refusal visible in `artifact_capabilities`; the matrix row kept
+saying &#10003;.
+
+**What the capture showed.** A native `Set-GPPrefRegistryValue` capture on
+WS2025 (2026-10-08, `tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC`) measured
+the pair `[{B087BE9D-ED37-454F-AF9C-04291E351182}{BEE07A6A-EC9F-4659-B8C9-0B1937907C83}]`
+on both sides, and showed the writer AND the reader were wrong about the wire form:
+
+- REG_DWORD is eight upper-case hex digits (`0000002A`); Studio wrote decimal
+  and its reader called `int()` on the hex, so a native REG_DWORD did not import.
+- REG_QWORD is sixteen hex digits; Studio read `0000000100000000` as the decimal
+  100000000. A workspace that imported a native QWORD before batch 2 holds that
+  wrong number, and nothing stored distinguishes it from a real decimal --
+  re-import such GPOs.
+- REG_MULTI_SZ is the strings space-joined PLUS a `<Values>` list; Studio wrote
+  `;`-joined with no list and read the native value as one string (the list
+  survived only as unknown content; it is re-typed on load).
+- `<Registry>` carries `name`/`status` = the value name, `image` by action
+  (C 0, R 1, U 2) and a braced upper-case `uid`; `<Properties>` carries
+  `displayDecimal` and `default` before `hive`.
+
+**Fixed in batch 2** (bound edits to `gpp.py`, `export.py`, `publication.py`;
+the WP-1B lane gains a `gppregistry-both` candidate and GPP Registry items in
+`mixed-all`, and its GPMC report markers are now namespace-qualified because
+Registry.pol and GPP Registry share the local name `RegistrySettings`).
+
+**Still refused, unmeasured** (`unmeasured_gpp_registry_shape`, export and
+publication alike): Delete items (the capture's Delete failed to author), REG_BINARY
+values, key-only items and default-value items.
+`scripts/plan-033/capture-gpp-registry-native.ps1` (revision 2) authors each of
+them for the operator to run. Inferred rather than measured, and recorded so
+it is not mistaken for evidence: the user-side zero-GUID group
+`[{00000000-…}{BEE07A6A-…}]` (the cmdlet wrote none; the live census shows it on
+a machine side only, GPMC-editor-authored); and the BOM, which Studio omits as
+every GPMC-editor GPP file in the corpus does while the cmdlet wrote one.
+
+**Same batch, same rule: firewall policy's tool half.** Native firewall
+authoring (`tests/fixtures/native-firewall-gpmc/fw-capture-20261008`) registered
+`[{35378EAC-…}{B05566AC-…}]` for a Registry.pol holding only
+`SOFTWARE\Policies\Microsoft\WindowsFirewall` keys; Studio wrote
+`{D02B1F72-…}`. Firewall-only machine policy now registers `{B05566AC-…}`.
+Firewall keys MIXED with other policy keep `{D02B1F72-…}`: the live census shows a
+production group `[{35378EAC-…}{B05566AC-…}{D02B1F72-…}]`, but holds no
+Registry.pol content, so what produced it is unmeasured
+(`test_mixed_machine_content_is_left_unchanged_because_it_is_unmeasured`).
+
+**Closes when:** the WP-1B lane passes at a batch-2 commit with the
+`gppregistry-both` candidate and the GPP Registry items in `mixed-all`, the
+publication and scripts-metadata lanes (whose bound `export.py`/`gpp.py`
+changed) and the object-security lane (whose bound `object_security.py`
+changed, review N7) pass at that commit, and the capability matrix GPP Registry
+and GPMC backup export rows are moved from "fixed, awaiting batch-2
+requalification" to their certified wording. The unmeasured shapes above may
+stay refused at closure; each one lifted needs the revision-2 capture first.

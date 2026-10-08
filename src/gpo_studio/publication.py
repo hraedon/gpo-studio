@@ -471,6 +471,24 @@ def generate_publication_plan(
     # the directory object, which is why these steps target AD even though what
     # makes them necessary was written to SYSVOL.
     registration = extension_registration(gpo)
+    # A registered family can still carry an item whose own wire form no
+    # capture backs (WI-075: a GPP Registry Delete, REG_BINARY, key-only or
+    # default-value item). The SYSVOL step above would publish that inferred
+    # form, so refuse by the same rule the native backup export uses.
+    if registration.unmeasured_shapes:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-gpp-registry-shape",
+                operation="unsupported_gpp_registry_shape",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: no Windows capture backs the native form "
+                    "of these GPP Registry items: "
+                    f"{'; '.join(registration.unmeasured_shapes)}"
+                ),
+            )
+        )
     if registration.unverified_families:
         steps.append(
             PublicationStep(
@@ -729,6 +747,20 @@ def validate_publication_plan(plan: PublicationPlan) -> tuple[InteropIssue, ...]
                     "Plan carries GPP content whose extension metadata has never been "
                     "captured, so the extension list it requires cannot be stated; "
                     "publishing it would create a GPO that applies nothing."
+                ),
+                component="plan",
+            )
+        )
+
+    if any(step.operation == "unsupported_gpp_registry_shape" for step in plan.steps):
+        issues.append(
+            InteropIssue(
+                level="error",
+                check="unsupported_gpp_registry_shape",
+                message=(
+                    "Plan carries GPP Registry items whose native form no Windows "
+                    "capture backs (WI-075); publishing them would put an inferred "
+                    "wire form in SYSVOL."
                 ),
                 component="plan",
             )

@@ -86,14 +86,14 @@ Full evidence: [`release-evidence.md`](release-evidence.md) and
 | Security filters | supported | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | &#10003; | expected_failure |
 | WMI filters | supported | &#10003; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | not_validated |
 | GPP Groups | supported | &#9680; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | not_validated |
-| GPP Registry | supported | &#9680; | &#10003; | &#10003; | &#10007; | &#10003; | &#10003; | not_validated |
+| GPP Registry | supported | &#9680; | &#10003; | &#9680; | &#10007; | &#10003; | &#10003; | fixed, awaiting batch-2 requalification ([WI-075](work-items.md#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not)) |
 | ILT predicates | supported | &#9680; | &#10003; | &#10003; | &mdash; | &#10003; | &#10003; | not_validated |
 | Side enablement | supported | &#10003; | &#9680; | &#9680; | &#10003; | &#10003; | &#10003; | verified |
 | Domain configuration | supported | &#10003; | &#10003; | &#10003; | &#9680; | &#10003; | &#10003; | not_validated |
 | Revision history and restore | supported | &#10003; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Estate import (gpo-lens) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; |
 | GPMC backup import (single-GPO) | supported | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | &#10003; | windows-imported (raw registry, Plan 033 WP-2) |
-| GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry, Drives, Local Users and Groups, Scheduled Tasks daily Exec, Services) |
+| GPMC backup export | supported subset | &mdash; | &mdash; | &#10003; | &mdash; | &mdash; | &mdash; | windows-imported (registry, Drives, Local Users and Groups, Scheduled Tasks daily Exec, Services); GPP Registry fixed, awaiting batch-2 requalification (WI-075) |
 | Studio bundle export | supported | &mdash; | &mdash; | &#10003; | &#10003; | &mdash; | &#10003; | verified |
 | cpassword | blocked | &#10007; | &#10007; | &#10007; | &mdash; | &mdash; | &mdash; | &mdash; |
 | Unknown CSE content | metadata retained | &#10007; | &#9680; | &#10007; | &mdash; | &#10003; | &#10003; | &mdash; |
@@ -289,9 +289,26 @@ attributes on `<RegistrySettings>`, and unknown root children (e.g. nested
 - **Serialization:** each registry item becomes its own `<Registry>` element per
   MS-GPPREF, keyed by `hive` (e.g. HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER),
   `key` and value name.
-- **Import:** `Registry/Registry.xml` parsed from GPMC backups.
-- **Export:** `Preferences/Registry/Registry.xml` in both the Studio bundle and
-  the GPMC backup.
+- **Import:** `Registry/Registry.xml` parsed from GPMC backups, in the wire
+  form a native capture measured (2026-10-08,
+  `tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC`): REG_DWORD as eight
+  upper-case hex digits, REG_QWORD as sixteen, REG_MULTI_SZ as a `<Values>`
+  list beside its space-joined `value`. Before batch 2 a native REG_DWORD did
+  not import at all, a REG_QWORD was read as decimal, and a REG_MULTI_SZ came
+  in as one string. The decimal and `;`-joined forms Studio itself wrote
+  before batch 2 are refused on read, not guessed at.
+- **Export &#9680;:** `Preferences/Registry/Registry.xml` in the Studio bundle
+  and the GPMC backup, written to the measured form (attribute set and order,
+  `status`/`image`, braced upper-case `uid`, `displayDecimal`/`default`). The
+  GPMC backup registers the measured extension pair
+  `[{B087BE9D-…}{BEE07A6A-…}]` on each side carrying the family. **Fixed,
+  awaiting batch-2 requalification:** from WP-1B until batch 2 the native
+  export *refused* every GPO with a GPP Registry item, a narrowing of the 1.0
+  contract this row used to hide (WI-075). The WP-1B lane now carries a GPP
+  Registry candidate; the row is not `verified` until that lane passes.
+  Still refused, because no capture measured their wire form: Delete items,
+  REG_BINARY values, key-only items and default-value items
+  (`unmeasured_gpp_registry_shape`, also refused by the publication planner).
 - **PowerShell plan &#10007;:** not applied by the plan. GPMC backup export only.
 - **Diff &#10003;:** two-way and three-way, keyed on scope and UID-based
   identity. Without a UID, it falls back to hive/key/value-name/action.
@@ -423,10 +440,19 @@ Exec TaskV2) and Services. The
 certifications does and does not cover.
 
 - **API:** `GET /api/gpos/{guid}/gpmc-backup`.
-- Native GPP emission is limited to extension profiles backed by real GPMC
-  captures: Drive Maps, Local Users and Groups, and Scheduled Tasks. Other GPP
+- Native GPP emission is limited to extension profiles backed by real
+  Windows captures: Drive Maps, Local Users and Groups, Scheduled Tasks,
+  Services and (batch 2, awaiting requalification) GPP Registry. Other GPP
   families fail export with `unsupported_native_gpp_extension` instead of
-  guessing Windows metadata.
+  guessing Windows metadata; unmeasured GPP Registry item shapes fail with
+  `unmeasured_gpp_registry_shape` (WI-075). A refusal lists every reason, the
+  most relevant first.
+- Machine Registry.pol holding only Windows Firewall policy
+  (`SOFTWARE\Policies\Microsoft\WindowsFirewall…`) registers the firewall
+  snap-in's tool half, `[{35378EAC-…}{B05566AC-…}]`, as native authoring did
+  (`tests/fixtures/native-firewall-gpmc`). Firewall keys mixed with other
+  policy keep the Administrative Templates pair: that combination has no
+  capture (WI-075).
 - **Blocked** when unknown CSE content is present (see below).
 - **Blocked** when cpassword is detected.
 

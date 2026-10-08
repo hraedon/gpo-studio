@@ -3206,12 +3206,14 @@ def test_wi044_a_deny_gpo_advertises_the_refusal_it_will_actually_perform(
 def test_wi046_a_gpp_registry_gpo_advertises_the_gpmc_backup_refusal(tmp_path) -> None:
     """WI-044 fixed an instance; this is the class (WI-046).
 
-    `gpmc_export` was the entry WI-044 cited as the correct template — it
-    already carried a `reason` — and it was advertising `enabled: true` for a
-    GPO whose backup then refused. `gpmc_backup_bundle` covers four GPP
-    families (`Drives`, `Groups`, `ScheduledTasks`, `Services`); `Registry` is
-    not among them, has been authorable since 1.0, and neither `validate_gpo`
-    nor `preserved_files` notices.
+    `gpmc_export` was the entry WI-044 cited as the correct template -- it
+    already carried a `reason` -- and it was advertising `enabled: true` for a
+    GPO whose backup then refused. GPP Registry was the case: authorable since
+    1.0, refused by the backup, unseen by `validate_gpo` and `preserved_files`.
+
+    Batch 2 measured the GPP Registry extension pair (WI01A-Registry-GPMC), so a
+    measured item shape now exports. A Delete item has no capture (WI-075), so
+    it refuses -- and the advertisement must follow the refusal both ways.
     """
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
@@ -3225,31 +3227,51 @@ def test_wi046_a_gpp_registry_gpo_advertises_the_gpmc_backup_refusal(tmp_path) -
         assert before["gpmc_export"]["enabled"] is True
         assert client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup").status_code == 200
 
-        added = client.post(
-            f"/api/gpos/{gpo['guid']}/preferences/registry",
-            json={
-                "expected_revision": gpo["revision"],
-                "actor": "tester",
-                "reason": "author a registry preference",
-                "scope": "computer",
-                "registry": {
-                    "key": "Software\\Demo",
-                    "value": {"name": "V", "value": "x", "registry_type": "REG_SZ"},
+        def add(value: dict[str, object], revision: int) -> dict[str, object]:
+            response = client.post(
+                f"/api/gpos/{gpo['guid']}/preferences/registry",
+                json={
+                    "expected_revision": revision,
+                    "actor": "tester",
+                    "reason": "author a registry preference",
+                    "scope": "computer",
+                    "registry": {"key": "Software\\Demo", "value": value},
                 },
-            },
-        )
-        assert added.status_code == 201
+            )
+            assert response.status_code == 201
+            body: dict[str, object] = response.json()
+            return body
 
+        added = add({"name": "V", "value": "x", "registry_type": "REG_SZ"}, gpo["revision"])
+        measured = client.get(f"/api/gpos/{gpo['guid']}").json()["artifact_capabilities"]
+        assert measured["gpmc_export"]["enabled"] is True
+        backup = client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup")
+        assert backup.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(backup.content)) as archive:
+            names = archive.namelist()
+            backup_xml = next(
+                archive.read(name) for name in names if name.endswith("/Backup.xml")
+            )
+        assert any(name.endswith("Machine/Preferences/Registry/Registry.xml") for name in names)
+        assert (
+            b"[{B087BE9D-ED37-454F-AF9C-04291E351182}{BEE07A6A-EC9F-4659-B8C9-0B1937907C83}]"
+            in backup_xml
+        )
+
+        revision = added["gpo"]["revision"]  # type: ignore[index]
+        add(
+            {"name": "Gone", "value": "x", "registry_type": "REG_SZ", "action": "delete"},
+            revision,
+        )
         after = client.get(f"/api/gpos/{gpo['guid']}").json()["artifact_capabilities"]
         assert after["gpmc_export"]["enabled"] is False
-        assert "unsupported" in after["gpmc_export"]["reason"].lower() or (
-            "has not been verified" in after["gpmc_export"]["reason"]
-        )
+        assert "capture" in after["gpmc_export"]["reason"]
+        assert "the Delete action" in after["gpmc_export"]["reason"]
 
         refused = client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup")
         assert refused.status_code == 422
         codes = [i["code"] for i in refused.json()["error"]["issues"]]
-        assert codes == ["unsupported_native_gpp_extension"]
+        assert codes == ["unmeasured_gpp_registry_shape"]
 
         # The Studio bundle and the plan are unaffected: this refusal belongs
         # to the native backup path alone, and over-reporting it would be the

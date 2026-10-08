@@ -34,18 +34,24 @@ _SECTIONS = frozenset({"Registry Keys", "File Security", "Service General Settin
 _AREAS = frozenset({"regkeys", "filestore", "services", "group_mgmt"})
 _GROUP_SECTION = "Group Membership"
 _GROUP_RELATIONS = frozenset({"members", "memberof"})
-_NATIVE_ROW = re.compile(r'^"([^"]+)",\s*(\d+),\s*"([^"]*)"$')
-_EXPORTED_ROW = re.compile(r'^"([^"]+)",\s*(\d+),\s*"([^"]*)"$')
+_NATIVE_ROW = re.compile(r'^"([^"]+)",\s*(\d+),\s*"([^"]*)"$', re.ASCII)
+_EXPORTED_ROW = re.compile(r'^"([^"]+)",\s*(\d+),\s*"([^"]*)"$', re.ASCII)
+#: Every pattern built from this is compiled with re.ASCII: without it `\d`
+#: matches any Unicode digit, so "S-1-5-32-٥٤٤" (Arabic-Indic digits) would pass
+#: as a SID while naming no principal Windows has (review N7).
 _SID = r"S-1-\d+(?:-\d+)+"
+_SID_RE = re.compile(_SID, re.ASCII)
 #: The native key: a STARRED SID and the suffix as `RestrictedGroupsFamily`
 #: writes it. Under MS-GPSB an unstarred principal in the key is a name, so a
 #: bare SID there names a group called "S-1-5-32-544" (WI-064). The candidate
 #: is held to this exactly; nothing is normalised on Studio's side.
-_NATIVE_GROUP_KEY = re.compile(rf"^\*({_SID})__(Members|Memberof)$")
+_NATIVE_GROUP_KEY = re.compile(rf"^\*({_SID})__(Members|Memberof)$", re.ASCII)
 #: Windows' re-export: still starred, suffix and SID compared case-insensitively.
-_EXPORTED_GROUP_KEY = re.compile(rf"^\*({_SID})__(members|memberof)$", re.IGNORECASE)
-_NATIVE_GROUP_MEMBER = re.compile(rf"^\*({_SID})$")
-_EXPORTED_GROUP_MEMBER = re.compile(rf"^\*({_SID})$", re.IGNORECASE)
+_EXPORTED_GROUP_KEY = re.compile(
+    rf"^\*({_SID})__(members|memberof)$", re.IGNORECASE | re.ASCII
+)
+_NATIVE_GROUP_MEMBER = re.compile(rf"^\*({_SID})$", re.ASCII)
+_EXPORTED_GROUP_MEMBER = re.compile(rf"^\*({_SID})$", re.IGNORECASE | re.ASCII)
 
 GroupRows = dict[tuple[str, str], tuple[str, ...]]
 
@@ -69,9 +75,12 @@ def _sha256(path: Path) -> str:
 
 
 #: Exact top-level keys per expected schema. Version 1 is the pre-WI-064
-#: candidate (object rows only) and is still read, so banked packs can be
-#: re-graded; a new run must carry version 2, which `_expected_group_membership`
-#: enforces.
+#: candidate (object rows only). It is still RECOGNISED, so a banked v1 pack is
+#: read rather than rejected as malformed -- but it can only re-grade to
+#: FAILURE: `_expected_group_membership` requires version 2, and the comparison
+#: block marks every check false when it raises. Recognising v1 keeps the
+#: failure a reasoned one ("requires schema_version 2"), nothing more; no v1
+#: pack can pass this finalizer (review N5).
 _EXPECTED_KEYS: dict[int, frozenset[str]] = {
     1: frozenset({"schema_version", "settings"}),
     2: frozenset({"schema_version", "settings", "group_membership"}),
@@ -130,14 +139,14 @@ def _expected_group_membership(raw: object) -> GroupRows:
         if not isinstance(item, dict) or set(item) != {"group_sid", "relation", "member_sids"}:
             raise ValueError("each expected group must have group_sid, relation, member_sids")
         group_sid, relation, member_sids = item["group_sid"], item["relation"], item["member_sids"]
-        if not isinstance(group_sid, str) or re.fullmatch(_SID, group_sid) is None:
+        if not isinstance(group_sid, str) or _SID_RE.fullmatch(group_sid) is None:
             raise ValueError("expected group_sid must be a SID")
         if relation not in _GROUP_RELATIONS:
             raise ValueError("expected group relation must be members or memberof")
         if (
             not isinstance(member_sids, list)
             or not member_sids
-            or not all(isinstance(sid, str) and re.fullmatch(_SID, sid) for sid in member_sids)
+            or not all(isinstance(sid, str) and _SID_RE.fullmatch(sid) for sid in member_sids)
         ):
             raise ValueError("expected member_sids must be a non-empty array of SIDs")
         members = tuple(sorted(sid.casefold() for sid in member_sids))

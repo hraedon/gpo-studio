@@ -14,6 +14,7 @@ from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
 
 from .ilt import IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
+from .numeric import coerce_dword_qword
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
 from .xml_safety import parse_xml_bounded
 
@@ -125,8 +126,17 @@ _GROUP_KNOWN_ATTRS = frozenset({
     "action", "removeUsers", "removeGroups", "description",
 }) | _COMMON_ITEM_ATTRS
 _MEMBER_KNOWN_ATTRS = frozenset({"name", "sid", "action"})
+# ``status`` and ``image`` are DERIVED on <Registry>: the writer emits them from
+# the value name and the action code (measured, WI01A-Registry-GPMC), so the
+# parser must not capture them as unknown content -- a stale ``image`` carried
+# in an unknown bag would contradict an edited action. ``changed`` is not
+# derived: Studio has no clock to honour, so an imported timestamp is kept as
+# unknown content and re-emitted in its native position, and none is invented.
+_REGISTRY_DERIVED_ATTRS = frozenset({"status", "image"})
 _REGISTRY_KNOWN_ATTRS = (
-    frozenset({"clsid", "name", "action", "uid"}) | _COMMON_ITEM_ATTRS
+    frozenset({"clsid", "name", "action", "uid"})
+    | _REGISTRY_DERIVED_ATTRS
+    | _COMMON_ITEM_ATTRS
 )
 _REGISTRY_VALUE_KNOWN_ATTRS = frozenset({
     "action", "hive", "key", "name", "type", "value", "default",
@@ -140,7 +150,9 @@ _GROUP_PROPS_KNOWN_ATTRS = frozenset({
     "applyOnce", "removePolicy", "userContext", "disabled", "bypassErrors",
 })
 _GROUP_PROPS_KNOWN_CHILDREN = frozenset({"Members"})
-_REGISTRY_PROPS_KNOWN_CHILDREN: frozenset[str] = frozenset()
+# <Values> is the typed REG_MULTI_SZ payload (one <Value> per string), measured
+# in WI01A-Registry-GPMC; the writer generates it, so it is never unknown.
+_REGISTRY_PROPS_KNOWN_CHILDREN: frozenset[str] = frozenset({"Values"})
 _GROUPS_ROOT_KNOWN_ATTRS = frozenset({"clsid"})
 # MS-GPPREF <Groups> root holds both <Group> and <User> inner elements.
 _GROUPS_ROOT_KNOWN_CHILDREN = frozenset({"Group", "User"})
@@ -154,10 +166,20 @@ _GROUP_RESERVED_ATTRS = frozenset({
     "clsid", "name",
 })
 _MEMBER_RESERVED_ATTRS = frozenset({"name", "sid", "action"})
-_REGISTRY_RESERVED_ATTRS = frozenset({"clsid", "name", "uid"})
+_REGISTRY_RESERVED_ATTRS = frozenset({"clsid", "name", "uid"}) | _REGISTRY_DERIVED_ATTRS
 _REGISTRY_VALUE_RESERVED_ATTRS = frozenset({
     "action", "hive", "key", "name", "type", "value", "default",
 })
+
+# GPP Registry wire forms with a Windows capture behind them
+# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC, 2026-10-08). Anything
+# outside these is written by inference and is refused by the native backup
+# export and the publication planner (`gpp_registry_unmeasured_shapes`) until a
+# capture measures it (WI-075).
+_MEASURED_GPP_REGISTRY_TYPES = frozenset({
+    "REG_SZ", "REG_EXPAND_SZ", "REG_DWORD", "REG_QWORD", "REG_MULTI_SZ",
+})
+_GPP_REGISTRY_HEX_WIDTH = {"REG_DWORD": 8, "REG_QWORD": 16}
 
 _REGISTRY_HIVES = frozenset({
     "HKEY_LOCAL_MACHINE", "HKEY_CLASSES_ROOT", "HKEY_CURRENT_USER",
@@ -307,6 +329,41 @@ def _code_to_registry_action(code: str) -> GppRegistryAction:
     if code not in _CODE_TO_REGISTRY_ACTION:
         raise GppError(f"Unsupported GPP registry action code: {code!r}")
     return _CODE_TO_REGISTRY_ACTION[code]
+
+
+def _registry_action_image(action: GppRegistryAction) -> str | None:
+    """The ``image`` GPMC writes on <Registry> for *action*, or ``None``.
+
+    ``image`` is the editor's icon index. C/R/U were measured on the Registry
+    family itself (WI01A-Registry-GPMC: ``C``→0, ``R``→1, ``U``→2). Delete was
+    not: the capture's Delete item failed to author, and although Drive Maps
+    writes ``image="3"`` for its Delete item, that is another family. Nothing
+    is written for Delete rather than borrowing that value (WI-075).
+    """
+    match action:
+        case "create":
+            return "0"
+        case "replace":
+            return "1"
+        case "update":
+            return "2"
+        case "delete":
+            return None
+        case _:
+            assert_never(action)
+
+
+def _native_uid(uid: str) -> str:
+    """Render an item uid the way GPMC writes it: braced, upper-case.
+
+    A non-GUID uid (imported from a foreign writer, say) is kept verbatim:
+    rewriting it would change an identity Studio does not own.
+    """
+    try:
+        parsed = uuid.UUID(uid)
+    except ValueError:
+        return uid
+    return "{" + str(parsed).upper() + "}"
 
 
 def _validate_gpp_action(value: str) -> GppAction:
@@ -646,38 +703,92 @@ def serialize_gpp_groups(collection: GppCollection) -> bytes:
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+def _registry_wire_value(value: GppRegistryValue) -> str:
+    """Encode a typed registry value as GPMC writes ``Properties@value``.
+
+    Measured (WI01A-Registry-GPMC): REG_DWORD is eight upper-case hex digits
+    (42 → ``0000002A``), REG_QWORD sixteen (2**32 → ``0000000100000000``), and
+    REG_MULTI_SZ is its strings joined by single spaces -- lossy, which is why
+    the writer also emits the authoritative <Values> list. Before batch 2
+    Studio wrote decimal and ``;``-joined strings, a form no capture backs.
+    """
+    raw = value.value
+    width = _GPP_REGISTRY_HEX_WIDTH.get(value.registry_type)
+    if width is not None:
+        if isinstance(raw, list):
+            raise GppError(f"{value.registry_type} value must be an integer, got a list")
+        try:
+            number = coerce_dword_qword(raw, value.registry_type)
+        except (TypeError, ValueError) as error:
+            raise GppError(f"Invalid {value.registry_type} value {raw!r}: {error}") from error
+        return f"{number:0{width}X}"
+    if value.registry_type == "REG_MULTI_SZ":
+        if not isinstance(raw, list):
+            raise GppError("REG_MULTI_SZ value must be a list of strings")
+        return " ".join(raw)
+    if isinstance(raw, list):
+        return ";".join(raw)
+    return str(raw)
+
+
 def _serialize_registry(reg: GppRegistry) -> ET.Element:
     """Serialize a GppRegistry to a single <Registry> XML element.
 
     Invariant: one <Registry> element = one domain object with exactly one
     value, one UID, one ILT filter, and one set of element metadata.
+
+    Attribute set and order follow the native capture
+    (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC): ``clsid name status
+    image changed uid`` and the common options on <Registry>; ``action
+    displayDecimal default hive key name type value`` on <Properties>. The
+    item ``name`` (and ``status``) is the VALUE name, as GPMC writes it; a
+    key-only or default item, whose display name no capture shows, falls back
+    to the key.
     """
     hive = _normalize_hive(reg.hive)
     value = reg.value
     elem = ET.Element(_ns("Registry"))
     elem.set("clsid", _REGISTRY_CLSID)
-    elem.set("name", reg.key)
+    display_name = value.name or reg.key
+    elem.set("name", display_name)
+    elem.set("status", display_name)
+    image = _registry_action_image(value.action)
+    if image is not None:
+        elem.set("image", image)
+    # Derived attributes are regenerated; a stale copy in the unknown bag
+    # (stored before batch 2, when they were not typed) must not override them.
+    unknown_attrs = tuple(
+        (name, text)
+        for name, text in reg.unknown_attrs
+        if _local_name(name) not in _REGISTRY_DERIVED_ATTRS
+    )
+    _apply_unknown_attrs(elem, tuple(p for p in unknown_attrs if p[0] == "changed"))
     if reg.uid:
-        elem.set("uid", reg.uid)
+        elem.set("uid", _native_uid(reg.uid))
     _apply_common_options(elem, reg.common)
-    _apply_unknown_attrs(elem, reg.unknown_attrs)
+    _apply_unknown_attrs(elem, tuple(p for p in unknown_attrs if p[0] != "changed"))
     props = ET.SubElement(elem, _ns("Properties"))
     props.set("action", _registry_action_to_code(value.action))
+    # ``displayDecimal`` is the editor's DWORD display radix, not the encoding:
+    # the value is hex either way. An imported one is preserved in place;
+    # otherwise GPMC's own default ("0") is written.
+    display_decimal = next(
+        (text for name, text in value.unknown_attrs if name == "displayDecimal"), "0"
+    )
+    props.set("displayDecimal", display_decimal)
+    props.set("default", "1" if value.default else "0")
     props.set("hive", hive)
     props.set("key", reg.key)
     props.set("name", value.name)
     props.set("type", value.registry_type)
-    raw = value.value
-    if isinstance(raw, list):
-        text_value = ";".join(raw)
-    elif isinstance(raw, int):
-        text_value = str(raw)
-    else:
-        text_value = raw
-    props.set("value", text_value)
-    if value.default:
-        props.set("default", "1")
-    _apply_unknown_attrs(props, value.unknown_attrs)
+    props.set("value", _registry_wire_value(value))
+    _apply_unknown_attrs(
+        props, tuple(p for p in value.unknown_attrs if p[0] != "displayDecimal")
+    )
+    if value.registry_type == "REG_MULTI_SZ" and isinstance(value.value, list):
+        values_elem = ET.SubElement(props, _ns("Values"))
+        for item in value.value:
+            ET.SubElement(values_elem, _ns("Value")).text = item
     _append_unknown_children(
         props, reg.unknown_props_children, f"registry {reg.key!r} properties"
     )
@@ -877,32 +988,90 @@ def parse_gpp_groups(data: bytes) -> tuple[GppGroup, ...]:
     return tuple(_parse_group(elem) for elem in _findall_local(root, "Group"))
 
 
+def _parse_registry_number(raw: str, reg_type: str) -> int:
+    """Read a REG_DWORD/REG_QWORD ``value`` in the hex form GPMC writes.
+
+    Only the measured width is accepted (8 hex digits for DWORD, 16 for
+    QWORD). The decimal form Studio wrote before batch 2 is refused rather than
+    guessed at: ``42`` is 42 to that Studio and, very probably, 0x42 to the
+    Windows extension, and an 8-digit decimal is indistinguishable from hex.
+    """
+    width = _GPP_REGISTRY_HEX_WIDTH[reg_type]
+    if len(raw) != width or any(ch not in "0123456789abcdefABCDEF" for ch in raw):
+        raise GppError(
+            f"Invalid {reg_type} value {raw!r}: GPMC writes {width} hexadecimal "
+            f"digits (42 is {42:0{width}X}). Decimal values written by Studio "
+            "before batch 2 are not read; re-author the value."
+        )
+    return int(raw, 16)
+
+
+def _parse_registry_multi_sz(props: ET.Element, raw: str) -> list[str]:
+    """Read REG_MULTI_SZ from its <Values> list (measured, WI01A-Registry-GPMC).
+
+    ``Properties@value`` is the strings space-joined, so it cannot carry a
+    string that contains a space; <Values> is the authoritative copy. The two
+    must agree -- a file where they do not is ambiguous, and nothing says which
+    one the Windows extension applies.
+    """
+    values_elem = _find_local(props, "Values")
+    items = (
+        [child.text or "" for child in _findall_local(values_elem, "Value")]
+        if values_elem is not None
+        else []
+    )
+    if len(items) > _MAX_MULTI_SZ_ITEMS:
+        raise GppError(f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}")
+    if not items:
+        if raw:
+            raise GppError(
+                f"REG_MULTI_SZ value {raw!r} has no <Values> list. GPMC writes one "
+                "<Value> per string; the ';'-joined form Studio wrote before batch 2 "
+                "is not read."
+            )
+        return []
+    if " ".join(items) != raw:
+        raise GppError(
+            f"REG_MULTI_SZ value {raw!r} disagrees with its <Values> list {items!r}"
+        )
+    return items
+
+
 def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
     raw = props.get("value", "")
     reg_type = props.get("type", "REG_SZ")
     action = _code_to_registry_action(props.get("action", "C"))
     name = props.get("name", "")
     default = props.get("default", "0") == "1"
-    if reg_type in ("REG_DWORD", "REG_QWORD"):
-        try:
-            value: str | int | list[str] = int(raw)
-        except ValueError as error:
-            raise GppError(f"Invalid {reg_type} value: {raw!r}") from error
+    value: str | int | list[str]
+    if reg_type in _GPP_REGISTRY_HEX_WIDTH:
+        value = _parse_registry_number(raw, reg_type)
     elif reg_type == "REG_MULTI_SZ":
-        value = raw.split(";") if raw else []
-        if len(value) > _MAX_MULTI_SZ_ITEMS:
-            raise GppError(
-                f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}"
-            )
+        value = _parse_registry_multi_sz(props, raw)
     else:
         value = raw
+    if reg_type != "REG_MULTI_SZ":
+        values_elem = _find_local(props, "Values")
+        # GPMC's report renders an EMPTY <Values/> under every type; a populated
+        # one on a non-multi-string value would be dropped on re-export.
+        if values_elem is not None and _findall_local(values_elem, "Value"):
+            raise GppError(f"{reg_type} value {name!r} carries a <Values> list")
+    # ``displayDecimal="0"`` is what the writer emits when nothing says
+    # otherwise, so it is not kept as unknown content: a round trip of an
+    # authored value would otherwise grow an attribute it never had. Any other
+    # value (the editor's decimal radix) is preserved and re-emitted in place.
+    unknown_attrs = tuple(
+        pair
+        for pair in _capture_unknown_attrs(props, _REGISTRY_VALUE_KNOWN_ATTRS)
+        if pair != ("displayDecimal", "0")
+    )
     return GppRegistryValue(
         name=name,
         value=value,
         registry_type=reg_type,
         action=action,
         default=default,
-        unknown_attrs=_capture_unknown_attrs(props, _REGISTRY_VALUE_KNOWN_ATTRS),
+        unknown_attrs=unknown_attrs,
     )
 
 
@@ -1076,7 +1245,10 @@ def _ensure_registry_editor_ids(registry: GppRegistry) -> GppRegistry:
     if not value.id:
         value = replace(value, id=str(uuid.uuid4()))
     reg_id = registry.id or str(uuid.uuid4())
-    uid = registry.uid or str(uuid.uuid5(uuid.NAMESPACE_URL, f"studio/registry/{reg_id}"))
+    # Braced upper-case, as GPMC writes an item uid (WI01A-Registry-GPMC).
+    uid = registry.uid or _native_uid(
+        str(uuid.uuid5(uuid.NAMESPACE_URL, f"studio/registry/{reg_id}"))
+    )
     return replace(
         registry,
         id=reg_id,
@@ -1415,6 +1587,55 @@ def _gpp_registry_value_from_dict(v: dict[str, Any]) -> GppRegistryValue:
     )
 
 
+def _upgrade_stored_registry(reg: GppRegistry) -> GppRegistry:
+    """Re-type content a pre-batch-2 import stored as unknown.
+
+    Before batch 2 the parser did not know ``status``/``image`` on <Registry>
+    or <Values> under <Properties>, so a native import kept them as unknown
+    content -- and kept the REG_MULTI_SZ strings only there, the typed value
+    being the space-joined ``value`` attribute read as ONE string. The writer
+    now generates all three, so a stored copy would duplicate or contradict
+    them. The derived attributes are dropped; a stored <Values> list becomes
+    the typed REG_MULTI_SZ value it always was.
+
+    Not recoverable here: a REG_QWORD imported before batch 2 had its 16 hex
+    digits read as decimal, which nothing stored distinguishes from a genuine
+    decimal (WI-075). A REG_DWORD import never succeeded -- ``int()`` refused
+    the hex form outright.
+    """
+    unknown_attrs = tuple(
+        (name, text)
+        for name, text in reg.unknown_attrs
+        if _local_name(name) not in _REGISTRY_DERIVED_ATTRS
+    )
+    value = reg.value
+    props_children: list[str] = []
+    for raw in reg.unknown_props_children:
+        try:
+            child = _bounded_parse(raw.encode("utf-8"))
+        except GppError:
+            props_children.append(raw)
+            continue
+        if _local_name(child.tag) != "Values":
+            props_children.append(raw)
+            continue
+        items = [entry.text or "" for entry in _findall_local(child, "Value")]
+        if value.registry_type == "REG_MULTI_SZ" and items:
+            value = replace(value, value=items)
+    if (
+        unknown_attrs == reg.unknown_attrs
+        and value is reg.value
+        and tuple(props_children) == reg.unknown_props_children
+    ):
+        return reg
+    return replace(
+        reg,
+        unknown_attrs=unknown_attrs,
+        value=value,
+        unknown_props_children=tuple(props_children),
+    )
+
+
 def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     """Reconstruct a GppCollection from a plain dict."""
     scope_raw = str(data.get("scope", "computer"))
@@ -1599,7 +1820,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     unknown_props_children=v_props_children,
                     unknown_children=v_elem_children,
                 ))
-    registry_tuple = tuple(registry)
+    registry_tuple = tuple(_upgrade_stored_registry(r) for r in registry)
     for r in registry_tuple:
         _validate_unknown_attrs(
             r.unknown_attrs,
@@ -1770,6 +1991,34 @@ def _adapters_from_dict(data: dict[str, Any]) -> dict[str, Any]:
             data.get(f"{key}_unknown_children", [])
         )
     return result
+
+
+def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]:
+    """GPP Registry items whose native wire form no Windows capture backs.
+
+    The 2026-10-08 capture (WI01A-Registry-GPMC) measured named values of
+    REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD and REG_MULTI_SZ under the
+    Create, Replace and Update actions. A Delete item, a REG_BINARY value, a
+    key-only item and a default-value item were not measured, so emitting one
+    into a native backup or a publication would put an inferred form on the
+    wire. They are listed here so both refuse them by the same rule (WI-075).
+    """
+    shapes: list[str] = []
+    for reg in collection.registry:
+        value = reg.value
+        where = f"{collection.scope} {reg.hive}\\{reg.key}"
+        if value.default:
+            shapes.append(f"{where}: a default-value item")
+            continue
+        if not value.name:
+            shapes.append(f"{where}: a key-only item")
+            continue
+        where = f"{where} value {value.name!r}"
+        if value.registry_type not in _MEASURED_GPP_REGISTRY_TYPES:
+            shapes.append(f"{where}: {value.registry_type or 'untyped'}")
+        if value.action == "delete":
+            shapes.append(f"{where}: the Delete action")
+    return tuple(shapes)
 
 
 def contains_cpassword(xml: bytes) -> bool:

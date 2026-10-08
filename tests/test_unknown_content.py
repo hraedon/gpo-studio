@@ -51,7 +51,7 @@ _REGISTRY_XML_WITH_UNKNOWN = b"""<?xml version="1.0" encoding="utf-8"?>
             name="Software\\Policies\\Test"
             uid="{def-456}" disabled="0" status="Enabled">
     <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
-                name="Enabled" value="1" type="REG_DWORD"
+                name="Enabled" value="00000001" type="REG_DWORD"
                 description="Test value"/>
     <Filters>
       <FilterWmi query="SELECT * FROM Win32_OperatingSystem" not="0" bool="AND"/>
@@ -588,7 +588,7 @@ def test_registry_element_metadata_from_dict() -> None:
                     {"type": "ou", "value": "OU=Test", "negate": False, "bool_op": "AND"}
                 ]
             },
-            "unknown_attrs": [["image", "12"]],
+            "unknown_attrs": [["image", "12"], ["custom", "1"]],
             "unknown_children": ["<Custom/>"],
             "value": {"name": "V", "value": "x"},
         }],
@@ -597,7 +597,10 @@ def test_registry_element_metadata_from_dict() -> None:
     reg = restored.registry[0]
     assert reg.ilt_filter is not None
     assert reg.ilt_filter.predicates[0].type == "ou"
-    assert reg.unknown_attrs == (("image", "12"),)
+    # ``image`` was unknown content before batch 2; it is now derived from the
+    # action (WI01A-Registry-GPMC), so a stored copy is dropped on load rather
+    # than left to contradict the action. Genuinely unknown attributes stay.
+    assert reg.unknown_attrs == (("custom", "1"),)
     assert reg.unknown_children == ("<Custom/>",)
 
 
@@ -611,7 +614,7 @@ def test_registry_element_metadata_round_trips_through_dict() -> None:
                 IltPredicate(type="ou", value="OU=Test"),
             )
         ),
-        unknown_attrs=(("image", "12"),),
+        unknown_attrs=(("custom", "12"),),
         unknown_children=("<Custom/>",),
         value=GppRegistryValue(name="V", value="x"),
     )
@@ -619,14 +622,14 @@ def test_registry_element_metadata_round_trips_through_dict() -> None:
     d = gpp_collection_to_dict(collection)
 
     assert d["registry"][0]["ilt_filter"] is not None
-    assert d["registry"][0]["unknown_attrs"] == [("image", "12")]
+    assert d["registry"][0]["unknown_attrs"] == [("custom", "12")]
     assert d["registry"][0]["unknown_children"] == ["<Custom/>"]
 
     restored = gpp_collection_from_dict(d)
     r = restored.registry[0]
     assert r.ilt_filter is not None
     assert r.ilt_filter.predicates[0].type == "ou"
-    assert r.unknown_attrs == (("image", "12"),)
+    assert r.unknown_attrs == (("custom", "12"),)
     assert r.unknown_children == ("<Custom/>",)
 
 

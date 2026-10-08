@@ -51,7 +51,7 @@ _REGISTRY_XML = b"""<?xml version="1.0" encoding="utf-8"?>
   <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
             name="Software\\Policies\\Test">
     <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
-                name="Enabled" type="REG_DWORD" value="1"/>
+                name="Enabled" type="REG_DWORD" value="00000001"/>
   </Registry>
   <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
             name="Software\\Policies\\Test">
@@ -61,7 +61,9 @@ _REGISTRY_XML = b"""<?xml version="1.0" encoding="utf-8"?>
   <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
             name="Software\\Policies\\Test">
     <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
-                name="List" type="REG_MULTI_SZ" value="a;b;c"/>
+                name="List" type="REG_MULTI_SZ" value="a b c">
+      <Values><Value>a</Value><Value>b</Value><Value>c</Value></Values>
+    </Properties>
   </Registry>
 </RegistrySettings>"""
 
@@ -232,9 +234,10 @@ def test_serialize_registry_produces_valid_xml() -> None:
     assert b'hive="HKEY_LOCAL_MACHINE"' in data
     assert b'key="Software\\Policies\\Test"' in data
     assert b'type="REG_DWORD"' in data
-    assert b'value="1"' in data
+    assert b'value="00000001"' in data
     assert b'type="REG_MULTI_SZ"' in data
-    assert b'value="a;b;c"' in data
+    assert b'value="a b c"' in data
+    assert b"<Values><Value>a</Value><Value>b</Value><Value>c</Value></Values>" in data
 
 
 def test_serialize_registry_one_element_per_value() -> None:
@@ -280,7 +283,7 @@ def test_parse_registry_legacy_format() -> None:
 <RegistrySettings clsid="{A3CC7818-8A30-4e0c-91C5-A4EA4B5A8DAB}">
   <Registry clsid="{9CD4A0B9-A8CE-471E-A0D8-7DE5A1B4F7CA}"
             name="Software\\Policies\\Test" action="U">
-    <Properties name="Enabled" value="1" type="REG_DWORD" action="C"/>
+    <Properties name="Enabled" value="00000001" type="REG_DWORD" action="C"/>
     <Properties name="Path" value="C:\\\\Temp" type="REG_SZ" action="C"/>
   </Registry>
 </RegistrySettings>"""
@@ -321,7 +324,14 @@ def test_registry_action_code_mapping() -> None:
         assert f'action="{code}"'.encode() in data
 
 
-def test_reg_multi_sz_joined_with_semicolons() -> None:
+# The three encodings below are pinned to the native capture
+# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC): Set-GPPrefRegistryValue
+# wrote UserMulti ['one','two'] as value="one two" plus <Values>, UpdateDword 42
+# as "0000002A" and UserQword 4294967296 as "0000000100000000".
+# test_gpp_registry_native.py compares whole items against those bytes.
+
+
+def test_reg_multi_sz_space_joined_with_values_list() -> None:
     reg = GppRegistry(
         key="K",
         value=GppRegistryValue(
@@ -329,25 +339,26 @@ def test_reg_multi_sz_joined_with_semicolons() -> None:
         ),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
-    assert b'value="x;y;z"' in data
+    assert b'value="x y z"' in data
+    assert b"<Values><Value>x</Value><Value>y</Value><Value>z</Value></Values>" in data
 
 
-def test_reg_dword_value_as_string() -> None:
+def test_reg_dword_value_as_eight_hex_digits() -> None:
     reg = GppRegistry(
         key="K",
         value=GppRegistryValue(name="Dw", value=42, registry_type="REG_DWORD"),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
-    assert b'value="42"' in data
+    assert b'value="0000002A"' in data
 
 
-def test_reg_qword_value_as_string() -> None:
+def test_reg_qword_value_as_sixteen_hex_digits() -> None:
     reg = GppRegistry(
         key="K",
         value=GppRegistryValue(name="Qw", value=2**32, registry_type="REG_QWORD"),
     )
     data = serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
-    assert b'value="4294967296"' in data
+    assert b'value="0000000100000000"' in data
 
 
 def test_serialize_gpp_returns_dict_of_files() -> None:
@@ -936,7 +947,7 @@ def test_registry_no_coalescing_each_element_is_separate() -> None:
   <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
             name="Software\\Policies\\Test" uid="{first}">
     <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"
-                name="Enabled" type="REG_DWORD" value="1"/>
+                name="Enabled" type="REG_DWORD" value="00000001"/>
     <Filters>
       <FilterOrgUnit name="OU=First,DC=example,DC=com" not="0" bool="AND"/>
     </Filters>
@@ -1053,7 +1064,7 @@ def test_registry_uid_parsed_and_serialized() -> None:
         b'<Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"'
         b' name="Software\\Policies\\Test" uid="{abc-123}">'
         b'<Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Policies\\Test"'
-        b' name="Enabled" type="REG_DWORD" value="1"/>'
+        b' name="Enabled" type="REG_DWORD" value="00000001"/>'
         b'</Registry>'
         b'</RegistrySettings>'
     )

@@ -727,6 +727,61 @@
       "transformations_applied": [
         "replace-domain-sid"
       ]
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/capture.json",
+      "raw_sha256": "fbe24e7c9f403caec09b11e2bc1b125ccce121d3c3baa3f16ee8a33e7216bd2d",
+      "sanitized_sha256": "fbe24e7c9f403caec09b11e2bc1b125ccce121d3c3baa3f16ee8a33e7216bd2d",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/gpreport-verify.xml",
+      "raw_sha256": "9d47ff06594b94cb6c4e954e4faa459100a948d2056d6d42c3e9cea169c7e52a",
+      "sanitized_sha256": "47199a548a35db5dfaee0c6bd0a0fa9b20a76abc98f41ec328f8a6b1682278ce",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/manifest.xml",
+      "raw_sha256": "2025927198a5763c6bafd80eb226f196f50dd5db4ba602bcfe00c5c90fe00e23",
+      "sanitized_sha256": "2025927198a5763c6bafd80eb226f196f50dd5db4ba602bcfe00c5c90fe00e23",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/{B3FB75FF-92C6-4D7C-8237-32E02032A1D9}/Backup.xml",
+      "raw_sha256": "955ac9a07f48627a95bb2162f13c2c063ea6ce316b8639e504a15e32a11165b4",
+      "sanitized_sha256": "171f8c0bc0bf135d19d3d0283b2193ee321592ccf2002579e6851d41d7b06622",
+      "transformations_applied": [
+        "replace-domain-sid",
+        "replace-sd-hex"
+      ]
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/{B3FB75FF-92C6-4D7C-8237-32E02032A1D9}/DomainSysvol/GPO/Machine/Preferences/Registry/Registry.xml",
+      "raw_sha256": "283a67f0299e67512811675a42b7229c588a26fdaa598167fb228c9a3cf36563",
+      "sanitized_sha256": "283a67f0299e67512811675a42b7229c588a26fdaa598167fb228c9a3cf36563",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/{B3FB75FF-92C6-4D7C-8237-32E02032A1D9}/DomainSysvol/GPO/User/Preferences/Registry/Registry.xml",
+      "raw_sha256": "3286a761aac13788eaeab4e9f9e2e74a8fa09ef023b2ce6af38c8ea5dae5caaf",
+      "sanitized_sha256": "3286a761aac13788eaeab4e9f9e2e74a8fa09ef023b2ce6af38c8ea5dae5caaf",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/{B3FB75FF-92C6-4D7C-8237-32E02032A1D9}/bkupInfo.xml",
+      "raw_sha256": "26ccbf1f65413bf9af1d3ab0ca3f1057fd6fbb0fc664dbbaeeabbceffae60e9f",
+      "sanitized_sha256": "26ccbf1f65413bf9af1d3ab0ca3f1057fd6fbb0fc664dbbaeeabbceffae60e9f",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "WI01A-Registry-GPMC/{B3FB75FF-92C6-4D7C-8237-32E02032A1D9}/gpreport.xml",
+      "raw_sha256": "d6446a9ce012ef1152ac1732a2869ec5f7da69421b12e307e531e9425d5d8f9c",
+      "sanitized_sha256": "d01ac2ffe5336ddf3247a65a7ba70c845573109de380b4515cbf5733814ca1da",
+      "transformations_applied": [
+        "replace-domain-sid"
+      ]
     }
   ],
   "batches": [
@@ -749,6 +804,10 @@
     {
       "source": "/tmp/wi022-services",
       "timestamp": "2026-07-30T22:39:43+00:00"
+    },
+    {
+      "source": "gpo-studio-evidence/inbox/gppreg-capture-20261008 (LabMS01, WS2025, Set-GPPrefRegistryValue; capture-gpp-registry-native.ps1)",
+      "timestamp": "2026-10-08T09:40:38+00:00"
     }
   ]
 }

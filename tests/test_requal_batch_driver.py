@@ -145,3 +145,36 @@ def test_a_batch_dir_inside_the_repository_is_refused(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "outside the repository" in result.stderr
     assert not (tmp_path / "acb.log").exists()
+    # Review N8: the refusal leaves nothing behind -- the directory used to be
+    # created before the check that refused it.
+    assert not (clone / "batch").exists()
+    status = subprocess.run(
+        ["git", "-C", str(clone), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout == ""
+
+
+def test_a_symlinked_batch_dir_into_the_repository_is_refused(tmp_path: Path) -> None:
+    """Resolving without creating must still see through a symlink (review N8)."""
+    clone = _clone(tmp_path)
+    link = tmp_path / "into-repo"
+    link.symlink_to(clone, target_is_directory=True)
+    env = {
+        **os.environ,
+        "PATH": f"{_fake_acb(tmp_path, 0)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+    }
+    result = subprocess.run(
+        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(link / "batch"), "wp1b"],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "outside the repository" in result.stderr
+    assert not (clone / "batch").exists()

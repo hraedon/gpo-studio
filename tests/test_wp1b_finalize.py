@@ -35,9 +35,51 @@ def test_services_report_marker_is_capture_backed_and_required() -> None:
         / "gpreport-verify.xml"
     )
 
-    assert markers["services"] == ("ServiceSettings",)
-    assert "ServiceSettings" in markers["mixed"]
-    assert "ServiceSettings" in report_extensions(report)
+    assert markers["services"] == ("Services:ServiceSettings",)
+    assert "Services:ServiceSettings" in markers["mixed"]
+    assert "Services:ServiceSettings" in report_extensions(report)
+
+
+_FIXTURES = Path(__file__).parent / "fixtures" / "native-gpp-gpmc"
+_PLAN034 = Path(__file__).parents[1] / "docs/plan-033/wp1b-evidence/plan034-20261008/wp1b"
+
+
+def test_gpp_registry_report_marker_is_capture_backed_and_namespace_qualified() -> None:
+    """GPP Registry and Registry.pol share the local name ``RegistrySettings``.
+
+    The native GPP Registry capture declares it under ``.../Windows/Registry``;
+    the banked registry-only WP-1B report declares it under ``.../Registry``.
+    Each candidate family must be satisfiable only by its own extension, so the
+    marker is namespace-qualified -- by local name the mixed candidate's
+    Registry.pol would satisfy the GPP Registry marker on its own.
+    """
+    symbols = _finalizer_symbols()
+    markers = cast(dict[str, tuple[str, ...]], symbols["_FAMILY_REPORT_MARKERS"])
+    report_extensions = cast(Callable[[Path], list[str]], symbols["_report_extensions"])
+
+    gpp = report_extensions(_FIXTURES / "WI01A-Registry-GPMC" / "gpreport-verify.xml")
+    policy = report_extensions(_PLAN034 / "registry-both" / "gpreport-after-import.xml")
+
+    assert markers["gpp_registry"] == ("Windows/Registry:RegistrySettings",)
+    assert gpp == ["Windows/Registry:RegistrySettings"]
+    assert policy == ["Registry:RegistrySettings"]
+    assert not set(markers["gpp_registry"]) & set(policy)
+    assert set(markers["gpp_registry"]) <= set(markers["mixed"])
+
+
+def test_every_banked_report_still_satisfies_its_family_markers() -> None:
+    """Qualifying the markers must not break the families already certified."""
+    symbols = _finalizer_symbols()
+    markers = cast(dict[str, tuple[str, ...]], symbols["_FAMILY_REPORT_MARKERS"])
+    report_extensions = cast(Callable[[Path], list[str]], symbols["_report_extensions"])
+    index = json.loads((_PLAN034 / "controller-candidate/candidates.json").read_text())
+    for entry in index["candidates"]:
+        observed = report_extensions(_PLAN034 / entry["id"] / "gpreport-after-import.xml")
+        wanted = set(markers[entry["family"]])
+        if entry["family"] == "mixed":
+            # The banked mixed run predates GPP Registry in the candidate.
+            wanted.discard("Windows/Registry:RegistrySettings")
+        assert wanted <= set(observed), entry["id"]
 
 
 # ---------------------------------------------------------------------------

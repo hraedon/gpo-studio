@@ -1,0 +1,33 @@
+{
+  "source": "gpo-studio-evidence/inbox/fw-capture-20261008 (LabMS01, WS2025; native firewall authoring into one disposable unlinked GPO, then Backup-GPO)",
+  "note": "Extract only: the full capture.json also carries rule readback and the Registry.pol as base64. Machine-registry.pol is the Backup-GPO copy, byte-identical to capture.json registry_pol_base64.",
+  "run_id": "firewall-capture-20261008062641-2952",
+  "environment": {
+    "server_build": "26100",
+    "computer_system_domain_role": 3,
+    "powershell_version": "5.1.26100.33438"
+  },
+  "authoring_errors": [],
+  "ad_attributes": {
+    "gPCMachineExtensionNames": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}]",
+    "gPCUserExtensionNames": ""
+  },
+  "backup_extension_guids": {
+    "MachineExtensionGuids": "[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}]",
+    "UserExtensionGuids": ""
+  },
+  "sysvol_files": [
+    {
+      "relative_path": "GPT.INI",
+      "length": 60
+    },
+    {
+      "relative_path": "Machine/Registry.pol",
+      "length": 7592
+    }
+  ],
+  "sha256": {
+    "capture.json": "1d24ed80223f44721e4b951edb829727fa5d3d373b7edf86086521e3ad79c283",
+    "Machine-registry.pol": "e5a4aa2d93576797396f4946d26f087230c70bf8b34f18814f1227da5f7feaf7"
+  }
+}

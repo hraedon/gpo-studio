@@ -59,8 +59,10 @@ LANES=(
 )
 
 cd "$REPO_ROOT"
-mkdir -p "$BATCH_DIR"
-batch_real="$(cd "$BATCH_DIR" && pwd -P)"
+# Resolve WITHOUT creating: the refusals below must leave nothing behind, and
+# an in-repo <batch-dir> created first would litter the tree it refuses to
+# dirty (review N8). `realpath -m` resolves symlinks in the existing prefix.
+batch_real="$(realpath -m -- "$BATCH_DIR")"
 repo_real="$(pwd -P)"
 if [[ "$batch_real/" == "$repo_real/"* ]]; then
     # The per-lane clean-tree guard would see the batch's own logs as a tree
@@ -73,7 +75,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
     exit 2
 fi
 COMMIT="$(git rev-parse HEAD)"
-mkdir -p "$BATCH_DIR/logs"
+mkdir -p "$BATCH_DIR" "$BATCH_DIR/logs"
 PROGRESS="$BATCH_DIR/progress.jsonl"
 export TMPDIR="$BATCH_DIR/tmp"
 mkdir -p "$TMPDIR"

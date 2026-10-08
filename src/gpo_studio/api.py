@@ -1812,8 +1812,9 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     plan_blocked = plan_refusal(gpo)
     plan_reason = plan_blocked.message if plan_blocked is not None else ""
     # WI-046. Same class as WI-044, one capability along: the GMPC backup path
-    # refuses GPP families outside `_GPP_EXTENSION_PROFILES` -- Registry among
-    # them, authorable since 1.0 -- and neither `blocked` nor `preserved_files`
+    # refuses GPP families outside `_GPP_EXTENSION_PROFILES` (Registry was among
+    # them until batch 2 measured its pair; an unmeasured GPP Registry item
+    # shape still refuses, WI-075), and neither `blocked` nor `preserved_files`
     # sees it.
     backup_blocked = native_backup_refusal(gpo)
     backup_reason = backup_blocked.message if backup_blocked is not None else ""

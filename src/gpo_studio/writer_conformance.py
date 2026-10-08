@@ -52,6 +52,7 @@ class WriterConformanceError(ValueError):
 #: here is blocked at export rather than guessed at.
 NATIVE_GPP_FAMILIES: tuple[str, ...] = (
     "drives",
+    "gpp_registry",
     "groups",
     "local_users",
     "scheduled_tasks",
@@ -178,6 +179,28 @@ def _scheduled_task(item: Any) -> dict[str, object]:
     }
 
 
+def _gpp_registry(item: Any) -> dict[str, object]:
+    """Summarize one GPP Registry preference item.
+
+    The VALUE's action is the one on the wire (``Properties@action``);
+    ``GppRegistry.action`` is a legacy model field nothing serializes, so it is
+    left out rather than compared as though it meant something.
+    """
+    value = item.value
+    raw = value.value
+    return {
+        "hive": item.hive,
+        "key": item.key,
+        "name": value.name,
+        "registry_type": value.registry_type,
+        "value": list(raw) if isinstance(raw, list) else raw,
+        "default": value.default,
+        "action": value.action,
+        "common": _common(item),
+        "ilt": _ilt(item),
+    }
+
+
 def _service(item: Any) -> dict[str, object]:
     return {
         "service_name": item.service_name,
@@ -205,6 +228,7 @@ def _service(item: Any) -> dict[str, object]:
 
 _FAMILY_SUMMARIZERS: dict[str, tuple[str, Any]] = {
     "drives": ("drives", _drive),
+    "gpp_registry": ("registry", _gpp_registry),
     "groups": ("groups", _group),
     "local_users": ("local_users", _local_user),
     "scheduled_tasks": ("scheduled_tasks", _scheduled_task),
@@ -219,6 +243,11 @@ def _sort_key(family: str, entry: dict[str, object]) -> str:
     order within a GPP file has no policy meaning for these families, so the
     comparison is order-insensitive.
     """
+    if family == "gpp_registry":
+        # A value name repeats across keys, so the policy key is the full path.
+        return "\\".join(
+            str(entry.get(part, "")) for part in ("hive", "key", "name")
+        ).casefold()
     for field_name in ("letter", "name", "user_name", "service_name"):
         value = entry.get(field_name)
         if isinstance(value, str) and value:
@@ -318,9 +347,20 @@ _XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
 #: independent readers of the same policy, not between Studio and itself.
 _REPORT_ROOT_TO_GPP_FILE: dict[str, tuple[str, str]] = {
     "DriveMapSettings": ("Drives", "Drives/Drives.xml"),
+    # GPP Registry, rendered under .../Settings/Windows/Registry (measured,
+    # WI01A-Registry-GPMC/gpreport-verify.xml). Registry.pol policy renders
+    # under .../Settings/Registry with <RegistrySetting> children instead, so
+    # the root is additionally pinned to its namespace below.
+    "RegistrySettings": ("RegistrySettings", "Registry/Registry.xml"),
     "LocalUsersAndGroups": ("Groups", "Groups/Groups.xml"),
     "ScheduledTasks": ("ScheduledTasks", "ScheduledTasks/ScheduledTasks.xml"),
     "NTServices": ("NTServices", "Services/Services.xml"),
+}
+
+#: Report roots whose local name alone is not distinctive enough: the GPMC
+#: namespace each must carry to be read as that GPP family.
+_REPORT_ROOT_NAMESPACE: dict[str, str] = {
+    "RegistrySettings": "http://www.microsoft.com/GroupPolicy/Settings/Windows/Registry",
 }
 
 #: Report-only bookkeeping GPMC adds that has no on-disk counterpart.
@@ -356,9 +396,14 @@ def _report_side_collection(side_element: ET.Element, scope: str) -> GppCollecti
             if container.get(_XSI_TYPE) is None:
                 continue
             for settings_root in container:
-                local_name = settings_root.tag.split("}", 1)[-1]
+                namespace, _, local_name = settings_root.tag[1:].rpartition("}")
+                if not settings_root.tag.startswith("{"):
+                    namespace, local_name = "", settings_root.tag
                 mapped = _REPORT_ROOT_TO_GPP_FILE.get(local_name)
                 if mapped is None:
+                    continue
+                required = _REPORT_ROOT_NAMESPACE.get(local_name)
+                if required is not None and namespace != required:
                     continue
                 disk_root, file_path = mapped
                 rebuilt = _strip_report_namespace(settings_root, disk_root)
