@@ -49,6 +49,9 @@ LOCAL_FILES = {
     "registry_pol.py": "src/gpo_studio/registry_pol.py",
     "validation.py": "src/gpo_studio/validation.py",
     "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+    # Batch 2: the archive writer and product modules this lane's candidate
+    # bytes flow through, so editing them stales the verdict (review P1).
+    "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
     "xml_safety.py": "src/gpo_studio/xml_safety.py",
 }
 

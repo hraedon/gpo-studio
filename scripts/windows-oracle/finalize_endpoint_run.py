@@ -72,6 +72,10 @@ DEPLOYED_FILES: dict[str, str] = {
 LOCAL_FILES: dict[str, str] = {
     "finalize_endpoint_run.py": "scripts/windows-oracle/finalize_endpoint_run.py",
     "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+    # Batch 2: the archive writer and product modules this lane's candidate
+    # bytes flow through, so editing them stales the verdict (review P1).
+    "export.py": "src/gpo_studio/export.py",
+    "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
     "run-endpoint-oracle.sh": "scripts/windows-oracle/run-endpoint-oracle.sh",
     "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
     "build-endpoint-candidate.py": "scripts/plan-033/build-endpoint-candidate.py",

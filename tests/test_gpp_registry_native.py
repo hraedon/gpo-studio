@@ -18,6 +18,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,6 +30,7 @@ from gpo_studio.export import (
 )
 from gpo_studio.gpp import (
     GppCollection,
+    GppCommonOptions,
     GppError,
     GppRegistry,
     GppRegistryValue,
@@ -80,11 +82,17 @@ AUTHORED: dict[str, list[tuple[str, str, str | int | list[str], str, str]]] = {
 HIVE = {"Machine": "HKEY_LOCAL_MACHINE", "User": "HKEY_CURRENT_USER"}
 SCOPE = {"Machine": "computer", "User": "user"}
 
-#: Common options Studio always writes explicitly. The cmdlet wrote only
-#: ``disabled``; Studio's parser reads the other three from their absence
-#: (``removePolicy``/``userContext`` absent = 0, ``bypassErrors`` absent = 0,
-#: i.e. stop on error), so the explicit forms say the same thing.
-STUDIO_EXPLICIT_COMMON = ("removePolicy", "userContext", "bypassErrors")
+#: Common options Studio always writes explicitly, with the EXACT values that
+#: say what the native items' absence says. The cmdlet wrote only ``disabled``.
+#: Reading an absent ``removePolicy``/``userContext`` as 0 and an absent
+#: ``bypassErrors`` as 0 (stop on error) is Studio's existing interpretation,
+#: shared with the certified families -- not something these captures measure
+#: (no capture records the extension's behaviour). What IS asserted is that
+#: Studio writes exactly these values for a model with the native meaning; a
+#: writer emitting "1" for any of them fails (batch-2 review P2).
+STUDIO_EXPLICIT_COMMON = {"removePolicy": "0", "userContext": "0", "bypassErrors": "0"}
+#: The common options a native cmdlet item means under that reading.
+NATIVE_COMMON = GppCommonOptions(stop_on_error=True)
 
 
 def _native_bytes(side: str) -> bytes:
@@ -114,6 +122,7 @@ def _authored_model(side: str) -> tuple[GppRegistry, ...]:
                     name=name, value=value, registry_type=reg_type, action=action  # type: ignore[arg-type]
                 ),
                 unknown_attrs=(("changed", native.attrib["changed"]),),
+                common=NATIVE_COMMON,
             )
         )
     return tuple(items)
@@ -130,6 +139,11 @@ def _assert_same_element(studio: ET.Element, native: ET.Element, path: str = "")
     assert studio.tag == native.tag, where
     studio_attrs = list(studio.attrib.items())
     if native.tag == "Registry":
+        # Only the three explicit common options are set aside, and each must
+        # carry exactly its expected value; native has none of them.
+        explicit = {k: v for k, v in studio_attrs if k in STUDIO_EXPLICIT_COMMON}
+        assert explicit == STUDIO_EXPLICIT_COMMON, where
+        assert not set(STUDIO_EXPLICIT_COMMON) & set(native.attrib), where
         studio_attrs = [(k, v) for k, v in studio_attrs if k not in STUDIO_EXPLICIT_COMMON]
     assert studio_attrs == list(native.attrib.items()), where
     assert (studio.text or "").strip() == (native.text or "").strip(), where
@@ -451,6 +465,7 @@ def _shapes_model() -> tuple[GppRegistry, ...]:
                 name=name, value=value, registry_type=reg_type, action=action  # type: ignore[arg-type]
             ),
             unknown_attrs=(("changed", native.attrib["changed"]),),
+            common=NATIVE_COMMON,
         )
         for (key, name, reg_type, value, action), native in zip(
             SHAPES_MACHINE, natives, strict=True
@@ -587,6 +602,7 @@ def _matrix_model(side: str) -> tuple[GppRegistry, ...]:
                 name=name, value=value, registry_type=reg_type, action=action  # type: ignore[arg-type]
             ),
             unknown_attrs=(("changed", native.attrib["changed"]),),
+            common=NATIVE_COMMON,
         )
         for (key, name, reg_type, value, action), native in zip(
             _matrix_authored()[side], natives, strict=True
@@ -804,6 +820,9 @@ def test_a_pre_batch_2_import_is_re_typed_on_load() -> None:
             "key": KEY,
             "hive": "HKEY_CURRENT_USER",
             "uid": "{A93FEDD0-81D5-457B-B2AE-2BEA9B045B45}",
+            # What that import stored: the native item's absent bypassErrors
+            # read as stop-on-error.
+            "common": {"stop_on_error": True},
             "unknown_attrs": [
                 ["status", "UserMulti"], ["image", "2"], ["changed", "2026-10-08 9:28:03"],
             ],
@@ -860,3 +879,178 @@ def test_a_key_only_item_typed_other_than_reg_sz_is_not_a_measured_shape() -> No
     )
     shapes = gpp_registry_unmeasured_shapes(GppCollection(scope="user", registry=(reg,)))
     assert shapes == (f"user HKEY_LOCAL_MACHINE\\{KEY}: a key-only item typed REG_DWORD",)
+
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 review: the WP-1B native-shape check really inspects Registry XML
+# ---------------------------------------------------------------------------
+
+
+def _all_native_items() -> list[ET.Element]:
+    items: list[ET.Element] = []
+    for path in REGISTRY_CORPUS.glob("*/*/DomainSysvol/GPO/*/Preferences/Registry/Registry.xml"):
+        items.extend(ET.fromstring(path.read_bytes()))
+    return items
+
+
+def test_the_shape_constants_are_windows_own() -> None:
+    """writer_conformance states the native shape; every captured item has it."""
+    from gpo_studio import writer_conformance as wc
+
+    items = _all_native_items()
+    assert len(items) == 5 + 8 + 28
+    for path in REGISTRY_CORPUS.glob("*/*/DomainSysvol/GPO/*/Preferences/Registry/Registry.xml"):
+        root = ET.fromstring(path.read_bytes())
+        assert (root.tag, root.get("clsid")) == wc.NATIVE_REGISTRY_ROOT
+    for item in items:
+        props = item.find("Properties")
+        assert props is not None
+        assert (item.tag, item.get("clsid")) == wc.NATIVE_REGISTRY_ITEM
+        assert tuple(item.attrib) == wc.NATIVE_REGISTRY_ITEM_ATTRS
+        assert tuple(props.attrib) == wc.NATIVE_REGISTRY_PROPS_ATTRS
+        assert item.get("image") == wc.NATIVE_REGISTRY_IMAGES[props.attrib["action"]]
+    assert not set(wc.STUDIO_REGISTRY_COMMON_ATTRS) & {a for i in items for a in i.attrib}
+
+
+def test_studio_output_for_every_capture_has_no_shape_findings() -> None:
+    from gpo_studio.writer_conformance import registry_shape_findings
+
+    for path in REGISTRY_CORPUS.glob("*/*/DomainSysvol/GPO/*/Preferences/Registry/Registry.xml"):
+        collection = mark_edited(
+            parse_gpp_collection("computer", {"Registry/Registry.xml": path.read_bytes()})
+        )
+        assert registry_shape_findings(collection) == [], path
+
+
+def _gpo_with_registry() -> GPO:
+    return _gpo(GppCollection(scope="computer", registry=_matrix_model("Machine")))
+
+
+@pytest.mark.parametrize(
+    ("label", "mutate"),
+    [
+        ("not native at all", lambda data: b"<not-native-at-all/>"),
+        ("wrong root clsid", lambda data: data.replace(b"{A3CCFC41", b"{00000000", 1)),
+        (
+            "lower-case dword",
+            lambda data: data.replace(b'value="0000002A"', b'value="0000002a"', 1),
+        ),
+        ("decimal dword", lambda data: data.replace(b'value="0000002A"', b'value="42"', 1)),
+        ("wrong image", lambda data: data.replace(b'image="3"', b'image="2"', 1)),
+        (
+            "props order",
+            lambda data: data.replace(
+                b'displayDecimal="0" default="0"', b'default="0" displayDecimal="0"', 1
+            ),
+        ),
+        ("semicolon multi", lambda data: data.replace(b'value="one two"', b'value="one;two"', 1)),
+        ("status not name", lambda data: data.replace(b'status="CreateString"', b'status="X"', 1)),
+        (
+            "synthetic attribute",
+            lambda data: data.replace(b"<Registry ", b'<Registry bogus="1" ', 1),
+        ),
+    ],
+)
+def test_a_non_native_registry_writer_fails_the_shape_check(
+    label: str, mutate: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's mutation, and more: the finalizer's native_shape check bites."""
+    from gpo_studio import writer_conformance
+
+    real = writer_conformance.serialize_gpp
+
+    def mutated(collection: GppCollection) -> dict[str, bytes]:
+        files = dict(real(collection))
+        if "Registry/Registry.xml" in files:
+            files["Registry/Registry.xml"] = mutate(files["Registry/Registry.xml"])
+        return files
+
+    assert writer_conformance.native_shape_findings(_gpo_with_registry()) == ()
+    monkeypatch.setattr(writer_conformance, "serialize_gpp", mutated)
+    assert writer_conformance.native_shape_findings(_gpo_with_registry()), label
+
+
+def test_the_wp1b_finalizer_grades_a_non_native_registry_candidate_as_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end through the builder's expected.json: native_shape_matches_corpus."""
+    import runpy
+
+    from gpo_studio import writer_conformance
+
+    builder = runpy.run_path(
+        str(Path(__file__).parents[1] / "scripts/plan-033/build-wp1b-candidates.py")
+    )
+    gpo = next(f() for cid, _, f in builder["CANDIDATES"] if cid == "gppregistry-both")
+    assert builder["_expected"](gpo)["native_shape_findings"] == []
+    real = writer_conformance.serialize_gpp
+    monkeypatch.setattr(
+        writer_conformance,
+        "serialize_gpp",
+        lambda c: {**real(c), "Registry/Registry.xml": b"<not-native-at-all/>"},
+    )
+    monkeypatch.setitem(builder["_expected"].__globals__, "native_shape_findings",
+                        writer_conformance.native_shape_findings)
+    assert builder["_expected"](gpo)["native_shape_findings"]
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 review: unmodeled <Values> content is refused, never dropped
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        '<Values futureMode="1"><Value>a</Value></Values>',
+        "<Values><Value>a</Value><Future/></Values>",
+        '<Values><Value lang="x">a</Value></Values>',
+        "<Values><Value>a<b/></Value></Values>",
+        "<Values><Value>a</Value></Values><Values><Value>a</Value></Values>",
+        "<Values>stray<Value>a</Value></Values>",
+    ],
+)
+def test_unmodeled_values_content_is_refused(values: str) -> None:
+    with pytest.raises(GppError):
+        parse_gpp_registry(_one(f'type="REG_MULTI_SZ" value="a">{values}</Properties>'))
+
+
+def test_unmodeled_values_content_under_another_type_is_refused() -> None:
+    with pytest.raises(GppError):
+        parse_gpp_registry(_one('type="REG_SZ" value="a"><Values><Future/></Values></Properties>'))
+
+
+def test_the_report_rendering_empty_values_is_still_read() -> None:
+    reg = parse_gpp_registry(_one('type="REG_SZ" value="a"><Values /></Properties>'))[0]
+    assert reg.value.value == "a"
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 review: list values and key-only values
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("registry_type", ["REG_SZ", "REG_EXPAND_SZ", "REG_BINARY"])
+def test_a_list_for_a_non_multi_string_type_is_refused_everywhere(registry_type: str) -> None:
+    from gpo_studio.api import GppRegistryValueData
+    from gpo_studio.validation import validate_gpp_registry_value
+
+    value = GppRegistryValue(name="N", value=["a", "b"], registry_type=registry_type)
+    with pytest.raises(GppError, match="cannot be a list|must be a hexadecimal string"):
+        serialize_gpp_registry(
+            GppCollection(scope="computer", registry=(GppRegistry(key=KEY, value=value),))
+        )
+    assert any(i.code == "type_mismatch" for i in validate_gpp_registry_value(value, "v"))
+    with pytest.raises(ValueError, match="cannot be a list"):
+        GppRegistryValueData(name="N", value=["a", "b"], registry_type=registry_type)
+
+
+def test_a_key_only_item_carrying_a_value_is_not_a_measured_shape() -> None:
+    reg = GppRegistry(
+        key=KEY, value=GppRegistryValue(name="", value="junk", registry_type="REG_SZ")
+    )
+    gpo = _gpo(GppCollection(scope="computer", registry=(reg,)))
+    refusal = native_backup_refusal(gpo)
+    assert refusal is not None and refusal.code == "unmeasured_gpp_registry_shape"
+    assert "a key-only item carrying a value" in refusal.message

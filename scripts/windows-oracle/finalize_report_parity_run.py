@@ -83,6 +83,9 @@ LOCAL_FILES = {
     "model.py": "src/gpo_studio/model.py",
     "xml_safety.py": "src/gpo_studio/xml_safety.py",
     "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+    # Batch 2: the archive writer and product modules this lane's candidate
+    # bytes flow through, so editing them stales the verdict (review P1).
+    "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
 }
 
 _RESULT_KEYS = frozenset({

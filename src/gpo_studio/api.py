@@ -499,6 +499,8 @@ class GppRegistryValueData(BaseModel):
                                           "REG_BINARY", "REG_DWORD",
                                           "REG_MULTI_SZ", "REG_QWORD"):
                 raise ValueError("Invalid registry type for default entry")
+            if isinstance(self.value, list) and self.registry_type != "REG_MULTI_SZ":
+                raise ValueError(f"{self.registry_type or 'An untyped'} value cannot be a list")
             if self.registry_type in ("REG_DWORD", "REG_QWORD"):
                 if not isinstance(self.value, str):
                     raise ValueError(
@@ -514,6 +516,10 @@ class GppRegistryValueData(BaseModel):
         else:
             if self.registry_type not in _VALID_REGISTRY_TYPE_STRINGS:
                 raise ValueError(f"Invalid registry type: {self.registry_type}")
+            if isinstance(self.value, list) and self.registry_type != "REG_MULTI_SZ":
+                # Only a multi-string holds a list; any other type would be
+                # written ';'-joined and read back as one string.
+                raise ValueError(f"{self.registry_type} value cannot be a list")
             if self.registry_type in ("REG_DWORD", "REG_QWORD"):
                 if not isinstance(self.value, str):
                     raise ValueError(

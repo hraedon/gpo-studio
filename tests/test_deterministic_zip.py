@@ -95,7 +95,29 @@ def test_no_deflate_means_no_zlib_dependence(monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.parametrize(
     "name",
-    ["", "/abs.txt", "a\\b.txt", "a/../b.txt", "a//b.txt", "./a.txt", "a/."],
+    [
+        "",
+        "/abs.txt",
+        "a\\b.txt",
+        "a/../b.txt",
+        "a//b.txt",
+        "./a.txt",
+        "a/.",
+        # Review P2: names that extract differently, or onto something else.
+        "a\x00suffix",
+        "tab\there",
+        "C:/absolute.txt",
+        "a:stream",
+        "NUL.txt",
+        "con",
+        "dir/COM1.log",
+        "LPT9",
+        "trailing./x",
+        "trailing /x",
+        "file.",
+        'quote".txt',
+        "star*.txt",
+    ],
 )
 def test_unsafe_names_are_refused(name: str) -> None:
     with pytest.raises(DeterministicZipError):
@@ -106,3 +128,24 @@ def test_names_differing_only_by_case_are_refused() -> None:
     """They would extract onto each other on Windows."""
     with pytest.raises(DeterministicZipError, match="only by case"):
         deterministic_zip({"Machine/registry.pol": b"", "Machine/Registry.pol": b""})
+
+
+def test_a_nul_name_cannot_shadow_another_member() -> None:
+    """zipfile truncates at NUL: both members would be stored as "a"."""
+    with pytest.raises(DeterministicZipError, match="control character"):
+        deterministic_zip({"a": b"SECOND", "a\x00suffix": b"FIRST"})
+
+
+@pytest.mark.parametrize(
+    "names", [("a", "a/b"), ("Dir", "dir/file.txt"), ("x/y", "X/Y/z")]
+)
+def test_a_file_that_is_also_a_directory_is_refused(names: tuple[str, ...]) -> None:
+    with pytest.raises(DeterministicZipError, match="also a directory"):
+        deterministic_zip(dict.fromkeys(names, b""))
+
+
+def test_every_real_archive_name_is_still_accepted() -> None:
+    """The control: the shipping archives pass the stricter rules."""
+    gpmc_backup_bundle(_gpo())
+    export_bundle(_gpo())
+    deterministic_zip({"User/Documents & Settings/fdeploy.ini": b"", "{A}/b c.xml": b""})

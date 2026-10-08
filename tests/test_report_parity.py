@@ -22,7 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gpo_studio.api import app
-from gpo_studio.gpp import GppCollection, GppLocalGroup
+from gpo_studio.gpp import GPP_REGISTRY_REPORT_NAMESPACE, GppCollection, GppLocalGroup
 from gpo_studio.gpp_adapters import (
     GppDrive,
     GppFile,
@@ -38,13 +38,16 @@ from gpo_studio.gpp_adapters import (
 from gpo_studio.model import GPO, RegistrySetting
 from gpo_studio.report import policy_report
 from gpo_studio.report_parity import (
+    GPP_REGISTRY_FAMILY,
     KNOWN_DIVERGENCES,
+    MEASURED_REPORT_TYPES,
     OBSERVED_GPP_FAMILIES,
     Divergence,
     FamilyInventory,
     Inventory,
     InventoryItem,
     ReportParityError,
+    _TypeTrackingBuilder,
     classify,
     compare,
     inventory_from_json,
@@ -54,6 +57,7 @@ from gpo_studio.report_parity import (
     windows_inventory,
 )
 from gpo_studio.store import WorkspaceStore, gpo_from_dict
+from gpo_studio.xml_safety import parse_xml_bounded
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "tests/fixtures/native-gpp-gpmc"
@@ -312,11 +316,15 @@ def _registry_ext(body: str) -> str:
 
 
 def test_windows_registry_entries_carry_key_name_and_rendered_value() -> None:
+    # Windows qualifies every child with the policy-registry namespace (q1).
     body = (
-        "<RegistrySetting><KeyPath>Software\\X</KeyPath><AdmSetting>false</AdmSetting>"
-        "<Value><Name>V</Name><Number>7</Number></Value></RegistrySetting>"
-        "<RegistrySetting><KeyPath>Software\\Y</KeyPath></RegistrySetting>"
-        "<Policy><Name>Some ADMX policy</Name></Policy><Blocked>false</Blocked>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:AdmSetting>false</q1:AdmSetting>"
+        "<q1:Value><q1:Name>V</q1:Name><q1:Number>7</q1:Number></q1:Value>"
+        "</q1:RegistrySetting>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\Y</q1:KeyPath></q1:RegistrySetting>"
+        "<q1:Policy><q1:Name>Some ADMX policy</q1:Name></q1:Policy>"
+        "<q1:Blocked>false</q1:Blocked>"
     )
     inventory = windows_inventory(_report(computer=_registry_ext(body)))
     assert inventory.family("computer", "RegistrySettings") == (
@@ -472,10 +480,12 @@ def test_reordering_within_a_task_type_stays_unexplained() -> None:
 def test_registry_data_is_not_stripped() -> None:
     """Review finding 3: padding in REG_SZ data is data."""
     body = (
-        "<RegistrySetting><KeyPath>Software\\X</KeyPath>"
-        "<Value><Name>V</Name><String>  padded  </String></Value></RegistrySetting>"
-        "<RegistrySetting><KeyPath>Software\\X</KeyPath>"
-        "<Value><Name>E</Name><String></String></Value></RegistrySetting>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:Value><q1:Name>V</q1:Name><q1:String>  padded  </q1:String></q1:Value>"
+        "</q1:RegistrySetting>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:Value><q1:Name>E</q1:Name><q1:String></q1:String></q1:Value>"
+        "</q1:RegistrySetting>"
     )
     items = windows_inventory(_report(computer=_registry_ext(body))).family(
         "computer", "RegistrySettings"
@@ -555,3 +565,102 @@ def test_an_unknown_divergence_stays_unexplained() -> None:
     result = compare(_inv(_A, family="FilesSettings"), Inventory(families=()))
     known, unexplained = classify(result)
     assert known == {} and len(unexplained) == 1
+
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 review: report types are classified by full QName
+# ---------------------------------------------------------------------------
+
+_GPP_NS = "http://www.microsoft.com/GroupPolicy/Settings/Windows/Registry"
+_POLICY_NS = "http://www.microsoft.com/GroupPolicy/Settings/Registry"
+_GPP_ITEM = (
+    '<g:RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+    '<g:Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="V" '
+    'uid="{80BA2F39-55EC-40E1-A554-A6096468D60E}"><g:Properties action="C"/></g:Registry>'
+    "</g:RegistrySettings>"
+)
+
+
+def _extension(type_ns: str, body: str, extra_ns: str = "") -> str:
+    return (
+        f'<ExtensionData><Extension xmlns:t="{type_ns}" xmlns:g="{_GPP_NS}" '
+        f'xmlns:q1="{_POLICY_NS}" {extra_ns}xsi:type="t:RegistrySettings">{body}'
+        "</Extension><Name>Registry</Name></ExtensionData>"
+    )
+
+
+def test_a_gpp_registry_type_is_filed_as_gpp_registry() -> None:
+    inventory = windows_inventory(_report(computer=_extension(_GPP_NS, _GPP_ITEM)))
+    assert [f.family for f in inventory.families] == [GPP_REGISTRY_FAMILY]
+
+
+def test_an_unmeasured_type_namespace_is_not_filed_as_a_measured_family() -> None:
+    """The reviewer's mutation: same local name and child, type QName in urn:unmeasured."""
+    inventory = windows_inventory(_report(computer=_extension("urn:unmeasured", _GPP_ITEM)))
+    families = [f.family for f in inventory.families]
+    assert GPP_REGISTRY_FAMILY not in families
+    assert families == ["unmeasured:{urn:unmeasured}RegistrySettings"]
+
+
+def test_an_undeclared_type_prefix_is_unmeasured() -> None:
+    report = _report(computer=(
+        '<ExtensionData><Extension xsi:type="nope:DriveMapSettings"/>'
+        "<Name>x</Name></ExtensionData>"
+    ))
+    assert [f.family for f in windows_inventory(report).families] == [
+        "unmeasured:{}DriveMapSettings"
+    ]
+
+
+def test_one_extension_holding_both_registry_families_is_split_by_element() -> None:
+    """Policy settings and a GPP Registry container are filed separately."""
+    body = (
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:Value><q1:Name>V</q1:Name><q1:Number>7</q1:Number></q1:Value>"
+        "</q1:RegistrySetting>" + _GPP_ITEM
+    )
+    for type_ns in (_POLICY_NS, _GPP_NS):
+        inventory = windows_inventory(_report(computer=_extension(type_ns, body)))
+        assert inventory.family("computer", "RegistrySettings") == (
+            InventoryItem("RegistrySetting", key="Software\\X", name="V", value="Number:7"),
+        )
+        assert [i.name for i in inventory.family("computer", GPP_REGISTRY_FAMILY)] == ["V"]
+
+
+def _report_type_qnames() -> set[tuple[str, str]]:
+    found: set[tuple[str, str]] = set()
+    reports = [
+        path for path in ROOT.rglob("*.xml")
+        if path.name in ("gpreport.xml", "gpreport-verify.xml", "gpreport-after-import.xml")
+        or path.parent.name == "reports"
+    ]
+    for path in reports:
+        data = path.read_bytes()
+        try:
+            builder = _TypeTrackingBuilder(error_class=ReportParityError)
+            parse_xml_bounded(
+                data, max_size=64 * 1024 * 1024, error_class=ReportParityError, builder=builder
+            )
+        except ReportParityError:
+            continue
+        found |= {
+            qname for qname in builder.type_qnames.values()
+            if qname[0].startswith("http://www.microsoft.com/GroupPolicy/Settings/")
+        }
+    return found
+
+
+def test_the_measured_type_table_is_exactly_what_windows_reports_declared() -> None:
+    """`MEASURED_REPORT_TYPES` is read off the repository's Windows reports."""
+    assert set(MEASURED_REPORT_TYPES) == _report_type_qnames()
+
+
+def test_the_gpp_registry_namespace_has_one_source() -> None:
+    from gpo_studio import writer_conformance
+
+    assert GPP_REGISTRY_REPORT_NAMESPACE == _GPP_NS
+    assert (GPP_REGISTRY_REPORT_NAMESPACE, "RegistrySettings") in MEASURED_REPORT_TYPES
+    assert writer_conformance._REPORT_ROOT_NAMESPACE["RegistrySettings"] is (
+        GPP_REGISTRY_REPORT_NAMESPACE
+    )

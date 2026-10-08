@@ -1300,6 +1300,171 @@ HISTORICAL_BOUND_FILES.update(dict.fromkeys(
 ))
 
 
+# Batch 2 (review P1) widened eight lanes' bound tables to the archive writer
+# and product modules their candidates flow through. Every verdict minted
+# before that binds the narrower table it was finalized with.
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp1b-evidence/backup-report-20260908/publication/verification.json',
+        'wp1b-evidence/plan034-20261008/publication/verification.json',
+        'wp1b-evidence/wi062-20260910/publication/verification.json',
+    ),
+    {
+        'build-publication-candidate.py',
+        'canonical.py',
+        'export.py',
+        'finalize_publication_run.py',
+        'gpp.py',
+        'model.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'publication.py',
+        'registry_pol.py',
+        'run-publication-import.ps1',
+        'run-publication-oracle.sh',
+        'validation.py',
+        'xml_safety.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json',
+        'wp1b-evidence/plan034-20261008/scripts-metadata/verification.json',
+        'wp1b-evidence/wi062-20260910/scripts-metadata/verification.json',
+    ),
+    {
+        'build-scripts-backup-candidate.py',
+        'canonical.py',
+        'export.py',
+        'finalize_scripts_backup_run.py',
+        'gpp.py',
+        'model.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'registry_pol.py',
+        'run-scripts-backup-import.ps1',
+        'run-scripts-backup-oracle.sh',
+        'script_policy.py',
+        'validation.py',
+        'xml_safety.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp1b-evidence/plan034-20261008/wp1b/verification.json',
+        'wp1b-evidence/wi059-20260908/wp1b/verification.json',
+        'wp1b-evidence/wi062-20260910/wp1b/verification.json',
+    ),
+    {
+        'build-wp1b-candidates.py',
+        'finalize_wp1b_run.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'run-wp1b-oracle.sh',
+        'run-wp1b-writer.ps1',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp2-evidence/plan034-20261008/wp2/verification.json',
+        'wp2-evidence/wi059-20260908/wp2/verification.json',
+        'wp2-evidence/wi062-20260910/wp2/verification.json',
+    ),
+    {
+        'build-wp2-candidate.py',
+        'finalize_wp2_import_run.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'run-wp2-import.ps1',
+        'run-wp2-oracle.sh',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp2-evidence/report-parity/verification.json',
+    ),
+    {
+        'backup.py',
+        'backup_inventory.py',
+        'build-report-parity-candidate.py',
+        'finalize_report_parity_run.py',
+        'gpp.py',
+        'gpp_adapters.py',
+        'import_export.py',
+        'model.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'registry_pol.py',
+        'report_parity.py',
+        'run-report-parity-oracle.sh',
+        'run-report-parity.ps1',
+        'xml_safety.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp3-evidence/firewall-20261008/firewall/verification.json',
+    ),
+    {
+        'build-firewall-candidate.py',
+        'canonical.py',
+        'cleanup-firewall-policy.ps1',
+        'export.py',
+        'finalize_firewall_run.py',
+        'firewall_policy.py',
+        'gpp.py',
+        'model.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'publication.py',
+        'registry_pol.py',
+        'run-firewall-oracle.sh',
+        'run-firewall-policy.ps1',
+        'validation.py',
+        'xml_safety.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp4-evidence/fdeploy/verification.json',
+    ),
+    {
+        'backup.py',
+        'backup_inventory.py',
+        'build-fdeploy-candidate.py',
+        'fdeploy.py',
+        'fdeploy_parity.py',
+        'finalize_fdeploy_run.py',
+        'gpp.py',
+        'model.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'r3-fdeploy.ini.txt',
+        'r3-fdeploy1.ini.txt',
+        'r3-provenance.json',
+        'run-fdeploy-lane.ps1',
+        'run-fdeploy-oracle.sh',
+        'safe_io.py',
+        'xml_safety.py',
+    },
+))
+HISTORICAL_BOUND_FILES.update(dict.fromkeys(
+    (
+        'wp6-evidence/plan034-20261008/endpoint/verification.json',
+        'wp6-evidence/wi059-20260908/endpoint/verification.json',
+        'wp6-evidence/wi062-20260910/endpoint/verification.json',
+    ),
+    {
+        'build-endpoint-candidate.py',
+        'finalize_endpoint_run.py',
+        'oracle_evidence.py',
+        'psdirect.ps1',
+        'run-endpoint-author.ps1',
+        'run-endpoint-observe.ps1',
+        'run-endpoint-oracle.sh',
+    },
+))
+
 def _verdict(relative: str) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads((EVIDENCE / relative).read_text(encoding="utf-8")))
 
@@ -1610,7 +1775,13 @@ def test_a_manifest_form_verdict_resolves_against_its_commit(
     source = verdict["source"]
     commit = source["commit"]
     deployed, local = _file_tables(finalizer)
-    assert source["paths"] == {**deployed, **local}
+    expected_paths = {**deployed, **local}
+    historical = HISTORICAL_BOUND_FILES.get(relative)
+    if historical is not None:
+        # A verdict finalized before its lane's table grew (batch 2, review P1)
+        # resolves against the table it was finalized with.
+        expected_paths = {n: p for n, p in expected_paths.items() if n in historical}
+    assert source["paths"] == expected_paths
     assert source["banked_copies"] == sorted(deployed)
 
     for name, recorded in source["files"].items():

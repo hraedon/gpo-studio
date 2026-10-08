@@ -3303,8 +3303,11 @@ firewall and fdeploy as well.
 **Closes when:** the single 1.1.0 requalification passes every lane at the
 batch-2 commit -- in particular WP-1B (with the `gppregistry-both` candidate and
 the GPP Registry items in `mixed-all`), publication, scripts-metadata,
-object-security, report-parity (30 cases, GPP Registry included), firewall and
-fdeploy, whose bound files or candidates this batch changed -- and the
+object-security, report-parity (30 cases, GPP Registry included), firewall,
+fdeploy, WP-2 and endpoint, whose bound files or candidates this batch changed
+(review P1 widened eight lanes' tables to bind `deterministic_zip.py`, and WP-1B,
+WP-2 and endpoint to bind `export.py`; WP-1B also binds `gpp.py`,
+`gpp_adapters.py` and `writer_conformance.py`, the writers it certifies) -- and the
 capability matrix GPP Registry and GPMC backup export rows are moved from
 "fixed, awaiting batch-2 requalification" to their certified wording. The
 default-value shape may stay refused at closure.

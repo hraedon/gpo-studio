@@ -71,6 +71,12 @@ GppRegistryAction = Literal["create", "replace", "update", "delete"]
 _GROUPS_CLSID = "{3125E937-EB16-4b4c-9934-544FC6D24D26}"
 _GROUP_CLSID = "{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}"
 _REGISTRY_SETTINGS_CLSID = "{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}"
+#: The namespace GPMC's XML report puts GPP Registry under. The report gives it
+#: the same local name as Registry.pol policy (``RegistrySettings``, under
+#: ``.../Settings/Registry``), so the namespace is what tells them apart. The
+#: one copy every reader uses (report_parity, writer_conformance); pinned to
+#: the native reports by test_gpp_registry_native.py.
+GPP_REGISTRY_REPORT_NAMESPACE = "http://www.microsoft.com/GroupPolicy/Settings/Windows/Registry"
 _REGISTRY_CLSID = "{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
 
 _ACTION_TO_CODE: dict[GppAction, str] = {
@@ -748,7 +754,9 @@ def _registry_wire_value(value: GppRegistryValue) -> str:
         except ValueError as error:
             raise GppError(f"Invalid REG_BINARY value {raw!r}: {error}") from error
     if isinstance(raw, list):
-        return ";".join(raw)
+        # Only REG_MULTI_SZ holds a list. Joining one into a REG_SZ wrote
+        # "a;b", which reads back as the single string "a;b" (review).
+        raise GppError(f"{value.registry_type or 'An untyped'} value cannot be a list")
     return str(raw)
 
 
@@ -1032,6 +1040,34 @@ def _parse_registry_number(raw: str, reg_type: str) -> int:
     return int(raw, 16)
 
 
+def _registry_values_items(props: ET.Element, context: str) -> list[str] | None:
+    """The strings of <Properties>/<Values>, or ``None`` when there is none.
+
+    The writer regenerates <Values> from the typed list, so anything in it the
+    model does not hold would be dropped on the first edit. It is refused here
+    instead (review P2): a second <Values> container (which one would the
+    extension apply?), attributes or text on <Values>, a child other than
+    <Value>, and attributes or children on a <Value>. Windows' own files and
+    report carry none of these (tests/fixtures/native-gpp-registry-gpmc).
+    """
+    containers = _findall_local(props, "Values")
+    if not containers:
+        return None
+    if len(containers) > 1:
+        raise GppError(f"{context}: more than one <Values> list")
+    values_elem = containers[0]
+    if values_elem.attrib or (values_elem.text or "").strip():
+        raise GppError(f"{context}: <Values> carries content Studio does not model")
+    items: list[str] = []
+    for child in values_elem:
+        if _local_name(child.tag) != "Value":
+            raise GppError(f"{context}: <Values> holds a <{_local_name(child.tag)}>")
+        if child.attrib or len(child) or (child.tail or "").strip():
+            raise GppError(f"{context}: a <Value> carries content Studio does not model")
+        items.append(child.text or "")
+    return items
+
+
 def _parse_registry_multi_sz(props: ET.Element, raw: str) -> list[str]:
     """Read REG_MULTI_SZ from its <Values> list (measured, WI01A-Registry-GPMC).
 
@@ -1040,12 +1076,7 @@ def _parse_registry_multi_sz(props: ET.Element, raw: str) -> list[str]:
     must agree -- a file where they do not is ambiguous, and nothing says which
     one the Windows extension applies.
     """
-    values_elem = _find_local(props, "Values")
-    items = (
-        [child.text or "" for child in _findall_local(values_elem, "Value")]
-        if values_elem is not None
-        else []
-    )
+    items = _registry_values_items(props, "REG_MULTI_SZ value") or []
     if len(items) > _MAX_MULTI_SZ_ITEMS:
         raise GppError(f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}")
     if not items:
@@ -1085,12 +1116,10 @@ def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
         value = raw
     else:
         value = raw
-    if reg_type != "REG_MULTI_SZ":
-        values_elem = _find_local(props, "Values")
-        # GPMC's report renders an EMPTY <Values/> under every type; a populated
-        # one on a non-multi-string value would be dropped on re-export.
-        if values_elem is not None and _findall_local(values_elem, "Value"):
-            raise GppError(f"{reg_type} value {name!r} carries a <Values> list")
+    # GPMC's report renders an EMPTY <Values/> under every type; a populated
+    # one on a non-multi-string value would be dropped on re-export.
+    if reg_type != "REG_MULTI_SZ" and _registry_values_items(props, f"{reg_type} value {name!r}"):
+        raise GppError(f"{reg_type} value {name!r} carries a <Values> list")
     # ``displayDecimal="0"`` is what the writer emits when nothing says
     # otherwise, so it is not kept as unknown content: a round trip of an
     # authored value would otherwise grow an attribute it never had. Any other
@@ -2050,6 +2079,10 @@ def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]
             shape = _GPP_REGISTRY_KEY_ONLY
             if value.registry_type not in ("", "REG_SZ"):
                 shapes.append(f"{where}: a key-only item typed {value.registry_type}")
+                continue
+            if value.value not in ("", []):
+                # Every captured key-only item has value="" (review).
+                shapes.append(f"{where}: a key-only item carrying a value")
                 continue
         else:
             shape = value.registry_type

@@ -108,6 +108,13 @@ TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
     "psdirect": {
         "finalize_wp1b_run.py": "scripts/windows-oracle/finalize_wp1b_run.py",
         "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+        # Batch 2: the archive writer and product modules this lane's candidate
+        # bytes flow through, so editing them stales the verdict (review P1).
+        "export.py": "src/gpo_studio/export.py",
+        "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
+        "gpp.py": "src/gpo_studio/gpp.py",
+        "gpp_adapters.py": "src/gpo_studio/gpp_adapters.py",
+        "writer_conformance.py": "src/gpo_studio/writer_conformance.py",
         "run-wp1b-oracle.sh": "scripts/windows-oracle/run-wp1b-oracle.sh",
         "build-wp1b-candidates.py": "scripts/plan-033/build-wp1b-candidates.py",
         "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",

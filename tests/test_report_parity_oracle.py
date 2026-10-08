@@ -349,13 +349,44 @@ def _authored_backup(target: Path, report: bytes) -> str:
     return backup_root.name
 
 
+_XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
+
+
+def _parse_report(data: bytes) -> tuple[ET.Element, dict[int, tuple[str, str]]]:
+    """A report tree plus each element's ``xsi:type`` QName.
+
+    ElementTree drops ``xmlns:qN`` declarations and renames prefixes on output,
+    while ``xsi:type="qN:..."`` keeps the old prefix in an attribute VALUE. A
+    plain round trip therefore leaves every type QName unresolvable, which the
+    report reader rightly treats as unmeasured. `_serialize_report` puts a
+    matching declaration back.
+    """
+    from gpo_studio.report_parity import ReportParityError, _TypeTrackingBuilder
+    from gpo_studio.xml_safety import parse_xml_bounded
+
+    builder = _TypeTrackingBuilder(error_class=ReportParityError)
+    root = parse_xml_bounded(
+        data, max_size=64 * 1024 * 1024, error_class=ReportParityError, builder=builder
+    )
+    return root, builder.type_qnames
+
+
+def _serialize_report(root: ET.Element, qnames: dict[int, tuple[str, str]]) -> bytes:
+    for elem in root.iter():
+        qname = qnames.get(id(elem))
+        if qname is not None:
+            elem.set("xmlns:qt", qname[0])
+            elem.set(_XSI_TYPE, f"qt:{qname[1]}")
+    return cast(bytes, ET.tostring(root, encoding="utf-8", xml_declaration=True))
+
+
 def _as_fresh_report(capture: bytes, guid: str, name: str, domain: str = _DOMAIN) -> bytes:
     """A capture-time report re-identified as a fresh report of the owned GPO.
 
     Windows' fresh report of the disposable GPO carries the same settings but
     the owned GPO's identifier, name and domain; only those three change.
     """
-    root = ET.fromstring(capture)
+    root, qnames = _parse_report(capture)
     ident = root.find(f"{{{_SETTINGS_NS}}}Identifier")
     assert ident is not None
     guid_elem = ident.find(f"{{{_TYPES_NS}}}Identifier")
@@ -365,7 +396,7 @@ def _as_fresh_report(capture: bytes, guid: str, name: str, domain: str = _DOMAIN
     guid_elem.text = "{" + guid.upper() + "}"
     domain_elem.text = domain
     name_elem.text = name
-    return cast(bytes, ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    return _serialize_report(root, qnames)
 
 
 def _simulated_run(candidate: Path, run: Path) -> dict[str, Any]:
@@ -490,9 +521,9 @@ def test_the_simulated_run_passes_every_check(
 def _edit_report(run: Path, case_id: str, edit: Any) -> None:
     """Apply ``edit`` to one fresh report's XML tree, then refresh its hash."""
     report = run / "reports" / f"{BUILDER.case_dir(case_id)}.xml"
-    root = ET.fromstring(report.read_bytes())
+    root, qnames = _parse_report(report.read_bytes())
     edit(root)
-    report.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    report.write_bytes(_serialize_report(root, qnames))
     _rehash(run, _read_result(run))
 
 

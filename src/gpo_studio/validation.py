@@ -869,6 +869,16 @@ def validate_gpp_registry_value(
                     f"{path}/value",
                 )
             )
+    if value.registry_type in ("REG_SZ", "REG_EXPAND_SZ") and not isinstance(raw, str):
+        # A list here was written ';'-joined and read back as one string.
+        issues.append(
+            ValidationIssue(
+                "error",
+                "type_mismatch",
+                f"{value.registry_type} requires a string.",
+                f"{path}/value",
+            )
+        )
     if value.registry_type == "REG_MULTI_SZ" and not (
         isinstance(raw, list) and all(isinstance(item, str) for item in raw)
     ):

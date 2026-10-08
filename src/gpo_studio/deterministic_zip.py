@@ -22,9 +22,11 @@ What used to vary, and what pins it here:
   Python's ``zipfile`` all extract STORED members.
 
 Names are validated rather than normalised: a name that is absolute, holds a
-backslash or a ``..`` segment, or differs from another only by case is
-refused, because it would extract differently (or onto another member) on
-Windows.
+``..`` segment, a NUL or other control character, a character or device name
+Windows forbids (``\\``, ``:``, ``CON``, ``NUL.txt`` ...), or a trailing dot or
+space, or that collides with another member case-insensitively (including a
+file that is also another member's directory), is refused: it would extract
+differently, or onto another member, on Windows.
 """
 
 from __future__ import annotations
@@ -44,23 +46,58 @@ class DeterministicZipError(ValueError):
     """A member name that would not extract to the same place everywhere."""
 
 
+#: Device names Windows reserves in every directory, with or without an
+#: extension ("NUL.txt" is the NUL device too).
+_WINDOWS_RESERVED = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+#: Characters Windows forbids in a path component (``\\`` and ``:`` included:
+#: a backslash is a separator there, a colon a drive or alternate stream).
+_WINDOWS_FORBIDDEN = frozenset('<>:"|?*\\')
+
+
+def _component_problem(part: str) -> str | None:
+    if part in ("", ".", ".."):
+        return "an empty, '.' or '..' segment"
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in part):
+        # NUL in particular: zipfile truncates the name at it, so "a\x00x"
+        # would be stored as "a" beside a real "a".
+        return "a control character"
+    if any(ch in _WINDOWS_FORBIDDEN for ch in part):
+        return "a character Windows forbids in a path"
+    if part.endswith((".", " ")):
+        return "a trailing dot or space, which Windows strips"
+    if part.split(".", 1)[0].rstrip(" ").upper() in _WINDOWS_RESERVED:
+        return "a Windows reserved device name"
+    return None
+
+
 def _check_names(names: list[str]) -> None:
-    folded: dict[str, str] = {}
+    files: dict[str, str] = {}
+    directories: dict[str, str] = {}
     for name in names:
+        if not name or name.startswith("/"):
+            raise DeterministicZipError(f"unsafe archive member name {name!r}: absolute or empty")
         parts = name.split("/")
-        if (
-            not name
-            or name.startswith("/")
-            or "\\" in name
-            or any(part in ("", ".", "..") for part in parts)
-        ):
-            raise DeterministicZipError(f"unsafe archive member name: {name!r}")
+        for part in parts:
+            problem = _component_problem(part)
+            if problem is not None:
+                raise DeterministicZipError(f"unsafe archive member name {name!r}: {problem}")
         key = name.casefold()
-        if key in folded:
+        if key in files:
             raise DeterministicZipError(
-                f"archive members {folded[key]!r} and {name!r} differ only by case"
+                f"archive members {files[key]!r} and {name!r} differ only by case"
             )
-        folded[key] = name
+        files[key] = name
+        for depth in range(1, len(parts)):
+            directories.setdefault("/".join(parts[:depth]).casefold(), name)
+    for key, name in files.items():
+        if key in directories:
+            raise DeterministicZipError(
+                f"archive member {name!r} is also a directory of {directories[key]!r}"
+            )
 
 
 def deterministic_zip(entries: Mapping[str, bytes]) -> bytes:

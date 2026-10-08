@@ -119,11 +119,16 @@ def parse_xml_bounded(
     max_text_length: int = 1_048_576,
     max_attr_length: int = 4096,
     error_class: type[Exception] = ValueError,
+    builder: BoundedTreeBuilder | None = None,
 ) -> ET.Element:
     """Parse XML with structural limits enforced during construction.
 
     Checks byte size and entity declarations before parsing, then
     uses a BoundedTreeBuilder to enforce structural limits incrementally.
+    A caller that needs more from the parse (namespace declarations, say)
+    passes its own *builder*, a `BoundedTreeBuilder` subclass constructed with
+    the limits it wants; the ``max_*`` arguments other than *max_size* are then
+    the builder's business.
     """
     if isinstance(data, str):
         data = data.encode("utf-8")
@@ -132,13 +137,14 @@ def parse_xml_bounded(
         raise error_class(f"XML exceeds {max_size} bytes")
     if _has_entity_decl(data):
         raise error_class("XML entity declarations are not allowed")
-    builder = BoundedTreeBuilder(
-        max_elements=max_elements,
-        max_depth=max_depth,
-        max_text_length=max_text_length,
-        max_attr_length=max_attr_length,
-        error_class=error_class,
-    )
+    if builder is None:
+        builder = BoundedTreeBuilder(
+            max_elements=max_elements,
+            max_depth=max_depth,
+            max_text_length=max_text_length,
+            max_attr_length=max_attr_length,
+            error_class=error_class,
+        )
     parser = ET.XMLParser(target=builder)
     try:
         return ET.fromstring(data, parser=parser)

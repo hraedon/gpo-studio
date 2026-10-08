@@ -9,6 +9,37 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- **Batch-2 review fixes (two independent reviews of `303ae6c`).**
+  - Every lane whose candidate bytes flow through `deterministic_zip.py` now
+    binds it (WP-1B, WP-2, publication, scripts-metadata, firewall,
+    report-parity, fdeploy, endpoint); WP-1B, WP-2 and endpoint also bind
+    `export.py`, and WP-1B the writers it certifies (`gpp.py`,
+    `gpp_adapters.py`, `writer_conformance.py`). A test derives the rule from
+    each builder's imports, and verdicts finalized before the change keep their
+    narrower table in `HISTORICAL_BOUND_FILES`.
+  - `deterministic_zip` refuses NUL and control characters (zipfile truncated
+    `"a\0x"` to `"a"`, shadowing a real member), Windows-forbidden characters
+    and drive/stream colons, reserved device names (`NUL.txt`, `COM1`), trailing
+    dots/spaces, and a file that is also another member's directory.
+  - GPP Registry `<Values>` content Studio does not model (attributes, extra
+    children, a second `<Values>`) is refused on read instead of dropped on
+    the next edit. A list value for a non-multi-string type is refused by the
+    writer, validation and the API (it was written `;`-joined and read back as
+    one string), and a key-only item carrying a value is an unmeasured shape.
+  - `report_parity` classifies report extensions by full QName (the
+    `xsi:type` prefix's namespace plus local name) against a table read off the
+    repository's Windows reports; an unknown namespace is `unmeasured:`. A
+    registry Extension's children are routed by their own namespace, so policy
+    settings and a GPP Registry container in one Extension are split. The GPP
+    Registry report namespace has one definition (`gpp.GPP_REGISTRY_REPORT_NAMESPACE`).
+  - The WP-1B `native_shape_matches_corpus` check now inspects emitted GPP
+    Registry XML against the captured shape (root/item clsids, attribute order,
+    image per action, hex encodings, `<Values>`), with the shape constants
+    pinned to the native captures; a non-native writer fails it.
+  - The native-bytes tests assert Studio's explicit common options carry
+    exactly `removePolicy="0" userContext="0" bypassErrors="0"` for a model with
+    the native items' meaning, instead of setting them aside.
+
 - **Deterministic archives everywhere (batch 2).** `gpo_studio.deterministic_zip`
   writes every ZIP Studio and the lane builders produce -- `gpmc_backup_bundle`,
   `export_bundle`, and the report-parity and fdeploy candidates (the WP-1B, WP-2,
