@@ -17,6 +17,13 @@
 #
 # (Tests alone add a leading `--test-scope-tool <path>`; see TEST SEAM below.)
 #
+# <batch-dir> must be outside the repository and PRIVATE: this user's, mode
+# 0700 (created so if missing), with every ancestor owned by root or this user
+# and writable by nobody else unless sticky. A shared batch directory is not
+# supported. Stopping the driver with TERM, INT or HUP cancels the lane in
+# flight -- its process tree killed and its scope verified empty -- records it
+# cancelled, and exits 5.
+#
 # With no lane names, every lane in LANES runs. The tree must be clean: a
 # verdict minted from a dirty tree is refused by its finalizer anyway, and
 # failing here costs no estate time.
@@ -129,19 +136,20 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 COMMIT="$(git rev-parse HEAD)"
 # The batch directory holds every lane's ownership proof, report, log and
-# progress row: nothing in it may be writable by anyone else. Directories are
-# created 0700 and files 0600 (umask 077 above). What already exists is
-# checked, never repaired: the batch directory must be ours and not group- or
-# world-writable unless it is sticky; logs/ and tmp/ must be ours, not
-# symlinks, and writable by nobody else; and so must every file already in
-# the batch directory or logs/ (progress.jsonl and earlier lane logs, which
-# this batch appends to or overwrites).
+# progress row. It must be PRIVATE: a directory owned by this user with mode
+# 0700 (created so if missing; anything else is refused, not repaired), and
+# every ancestor up to / -- along the path as given and as resolved -- owned
+# by root or this user and not writable by others unless sticky, so nobody
+# else can rename or replace any directory on the way to it. With that, no
+# other user can create or alter anything inside it; progress.jsonl is still
+# reserved exclusively at 0600 before any lane runs, and checked on every
+# append.
 me="$(id -u)"
 refuse_unsafe() {
     echo "refusing: $1" >&2
     exit 2
 }
-check_private() {  # check_private <path> <dir|file> [sticky-ok]
+check_private() {  # check_private <path> <dir|file>: ours, not a symlink, writable by nobody else
     local path=$1 kind=$2 mode owner
     [[ -L "$path" ]] && refuse_unsafe "$path is a symlink"
     if [[ $kind == dir ]]; then
@@ -151,25 +159,69 @@ check_private() {  # check_private <path> <dir|file> [sticky-ok]
     fi
     read -r mode owner < <(stat -c '%a %u' -- "$path")
     [[ "$owner" == "$me" ]] || refuse_unsafe "$path is not owned by this user"
-    if (( 8#$mode & 8#022 )); then
-        # Only the batch directory itself may be shared, and only if sticky
-        # (nobody can then rename or remove what is ours in it).
-        if [[ "${3:-}" != sticky-ok ]] || ! (( 8#$mode & 8#1000 )); then
-            refuse_unsafe "$path is writable by others (mode $mode)"
-        fi
-    fi
+    (( 8#$mode & 8#022 )) && refuse_unsafe "$path is writable by others (mode $mode)"
+    return 0
 }
 mkdir -p "$BATCH_DIR"
-check_private "$BATCH_DIR" dir sticky-ok
+python3 - "$BATCH_DIR" <<'PY' || exit 2
+import os, stat, sys
+
+uid = os.getuid()
+path = sys.argv[1]
+
+
+def refuse(where, why):
+    print(f"refusing: {where} {why}", file=sys.stderr)
+    sys.exit(2)
+
+
+st = os.lstat(path)
+mode = stat.S_IMODE(st.st_mode)
+if stat.S_ISLNK(st.st_mode):
+    refuse(path, "(the batch directory) is a symlink")
+if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or mode != 0o700:
+    refuse(path, f"(the batch directory) must be this user's, with mode 0700 (it is {mode:04o})")
+
+
+def ancestors(p):
+    while p != "/":
+        p = os.path.dirname(p)
+        yield p
+
+
+for chain in (os.path.abspath(path), os.path.realpath(path)):
+    for directory in ancestors(chain):
+        st = os.lstat(directory)
+        if st.st_uid not in (0, uid):
+            refuse(directory, "(an ancestor of the batch directory) is owned by another user")
+        if stat.S_ISLNK(st.st_mode):
+            continue  # its own entry is guarded by its parent; the resolved chain is walked too
+        if st.st_mode & 0o022 and not st.st_mode & stat.S_ISVTX:
+            refuse(
+                directory,
+                f"(an ancestor of the batch directory) is writable by others and not sticky "
+                f"(mode {stat.S_IMODE(st.st_mode):04o})",
+            )
+PY
 mkdir -p "$BATCH_DIR/logs"
 check_private "$BATCH_DIR/logs" dir
 PROGRESS="$BATCH_DIR/progress.jsonl"
 export TMPDIR="$BATCH_DIR/tmp"
 mkdir -p "$TMPDIR"
 check_private "$TMPDIR" dir
-for existing in "$PROGRESS" "$BATCH_DIR"/logs/*; do
+for existing in "$BATCH_DIR"/logs/*; do
     [[ -e "$existing" || -L "$existing" ]] && check_private "$existing" file
 done
+# Reserve the progress record before any lane runs: created exclusively at
+# 0600, or -- when a batch directory is reused -- an existing private file.
+if [[ -e "$PROGRESS" || -L "$PROGRESS" ]]; then
+    check_private "$PROGRESS" file
+else
+    python3 -c '
+import os, sys
+os.close(os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))
+' "$PROGRESS"
+fi
 
 wanted=("$@")
 known=()
@@ -287,6 +339,33 @@ clear_scope() {
     return 1
 }
 
+# Stopping the driver. TERM, INT or HUP to this process cancels the lane in
+# flight: the signal is forwarded to its supervisor (which kills the lane and
+# reports a cancellation); run_bounded then checks the lane's scope with the
+# usual rules and clears it if anything is left; the lane is recorded
+# cancelled with 128 + the signal; no finalizer runs; the batch exits 5 (4 if
+# containment was lost on the way). A second signal while stopping changes
+# nothing: the driver never exits before the scope is verified empty or the
+# loss of containment is recorded.
+STOP_SIGNAL=0
+ACTIVE_SUPERVISOR=""
+SUPERVISOR_STOP_GRACE=$((LANE_KILL_GRACE + 15))
+on_stop() {
+    if [[ $STOP_SIGNAL -ne 0 ]]; then
+        echo "driver: already stopping (signal $1 ignored); finishing the lane's cleanup" >&2
+        return 0
+    fi
+    STOP_SIGNAL=$1
+    echo "driver: signal $1 received; cancelling the batch" >&2
+    if [[ -n "$ACTIVE_SUPERVISOR" ]]; then
+        kill -TERM "$ACTIVE_SUPERVISOR" 2>/dev/null || true
+    fi
+    return 0
+}
+trap 'on_stop 15' TERM
+trap 'on_stop 2' INT
+trap 'on_stop 1' HUP
+
 # Remove an invocation's private directory -- only ever one mktemp made here.
 drop_work() {
     [[ -n "$1" && "$1" == "$TMPDIR"/tmp.* ]] && rm -rf -- "$1"
@@ -316,10 +395,33 @@ run_bounded() {
     cgroup_file="$work/scope-proof"
     SCOPE_SEQ=$((SCOPE_SEQ + 1))
     unit="gpo-studio-lane-$SCOPE_NONCE-$SCOPE_SEQ"
+    # In the background, so a signal to this driver runs its trap at once
+    # (a foreground child would defer it); `wait` is then the place it lands.
     "${SCOPE_TOOL[@]}" start "$unit" "$SCOPE_NONCE" "$cgroup_file" -- \
         python3 "$SUPERVISOR" --deadline "$deadline" --grace "$LANE_KILL_GRACE" \
-        --log "$log" --report "$report" -- "$@"
+        --log "$log" --report "$report" -- "$@" &
+    ACTIVE_SUPERVISOR=$!
+    local stop_seen_at=""
+    while kill -0 "$ACTIVE_SUPERVISOR" 2>/dev/null; do
+        if [[ $STOP_SIGNAL -eq 0 ]]; then
+            # Blocks until the supervisor exits or a signal runs the trap.
+            wait "$ACTIVE_SUPERVISOR" 2>/dev/null
+            continue
+        fi
+        # Stopping: the supervisor was told (trap). Poll rather than wait, so
+        # a supervisor that does not finish its own cleanup in time is
+        # killed; the scope check below then treats the missing report as
+        # lost containment and clears the scope itself.
+        stop_seen_at=${stop_seen_at:-$(date +%s)}
+        if (( $(date +%s) - stop_seen_at > SUPERVISOR_STOP_GRACE )); then
+            echo "=== watchdog: supervisor did not stop within ${SUPERVISOR_STOP_GRACE}s; killing it" >>"$log"
+            kill -KILL "$ACTIVE_SUPERVISOR" 2>/dev/null
+        fi
+        sleep 0.5
+    done
+    wait "$ACTIVE_SUPERVISOR" 2>/dev/null
     status=$?
+    ACTIVE_SUPERVISOR=""
     if [[ ! -s "$cgroup_file" ]]; then
         # The scope was never established, so the supervisor -- and the lane
         # -- never started. Whatever already holds this unit name is not ours
@@ -377,6 +479,10 @@ print(r["status"], int(r["timed_out"]), int(r["cancelled"]), r["killed"])' "$rep
 for row in "${LANES[@]}"; do
     IFS='|' read -r name runner budget envs <<<"$row"
     selected "$name" || continue
+    if [[ $STOP_SIGNAL -ne 0 ]]; then
+        echo "batch STOPPED by signal $STOP_SIGNAL before $name; no further lane runs" >&2
+        exit "$BATCH_CANCELLED"
+    fi
     budget="${GPO_STUDIO_LANE_BUDGET_SECONDS:-$budget}"
     if [[ "$envs" == *"GPO_STUDIO_RSOP_USER="* && -z "$RSOP_USER" ]]; then
         echo "refusing $name: GPO_STUDIO_RSOP_USER is required for this lane" >&2
@@ -416,9 +522,15 @@ for row in "${LANES[@]}"; do
     # as a by-hand run.
     next="$(sed -n 's/^NEXT: //p' "$log" | tail -1)"
     if [[ $status -eq 0 && $CANCELLED -eq 0 && $CONTAINMENT_LOST -eq 0 && $SCOPE_FAILED -eq 0 \
-          && -n "$next" ]]; then
+          && $STOP_SIGNAL -eq 0 && -n "$next" ]]; then
         run_bounded "$deadline" "$log" bash -c "$next"
         status=$?
+    fi
+    if [[ $STOP_SIGNAL -ne 0 ]]; then
+        # The driver was stopped while this lane ran: whatever it exited with
+        # is not its verdict.
+        CANCELLED=1
+        [[ $CONTAINMENT_LOST -eq 0 && $SCOPE_FAILED -eq 0 ]] && status=$((128 + STOP_SIGNAL))
     fi
     set -e
     timed_out=$WATCHDOG_FIRED
@@ -430,9 +542,15 @@ for row in "${LANES[@]}"; do
 import json, sys
 (path, name, runner, commit, started, completed, status, run_dir, budget, timed_out, strays,
  cancelled, lost, scope_failed, test_scope) = sys.argv[1:]
-import os
-# 0600 on creation, whatever the umask; the driver checked any existing file.
-fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+import os, stat
+# The record was reserved private before the first lane; append only to the
+# file that is still exactly that (checked on the descriptor actually written).
+fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+st = os.fstat(fd)
+if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+    os.close(fd)
+    print(f"refusing: {path} is no longer a private file of this user", file=sys.stderr)
+    sys.exit(2)
 with os.fdopen(fd, "a", encoding="utf-8") as fh:
     fh.write(json.dumps({
         "name": name, "runner": runner, "commit": commit,
@@ -459,7 +577,7 @@ PY
         echo "batch STOPPED: no scope could be created for $name; no further lane runs" >&2
         exit "$BATCH_CONTAINMENT_LOST"
     fi
-    if [[ $CANCELLED -eq 1 ]]; then
+    if [[ $CANCELLED -eq 1 || $STOP_SIGNAL -ne 0 ]]; then
         echo "batch STOPPED: $name was cancelled; no further lane runs" >&2
         exit "$BATCH_CANCELLED"
     fi

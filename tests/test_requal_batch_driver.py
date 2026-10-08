@@ -592,6 +592,31 @@ _TERM_EXITS_ZERO = (
 )
 
 
+#: A leader that ignores SIGTERM: only the supervisor's KILL after its grace
+#: can end it, so a driver stop takes a while -- long enough for a second
+#: signal to arrive mid-cleanup.
+_TERM_IGNORED = (
+    "    trap '' TERM\n"
+    '    echo $$ >> "$FAKE_PIDS"\n'
+    "    while :; do sleep 0.2; done\n"
+)
+
+#: A supervisor that starts the lane and then ignores SIGTERM, writing no
+#: report -- the driver must kill it after its stop grace and clear the scope.
+_DEAF_SUPERVISOR = """\
+import signal, subprocess, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+args = sys.argv[1:]
+log = args[args.index("--log") + 1]
+command = args[args.index("--") + 1:]
+with open(log, "ab") as out:
+    subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                     start_new_session=True)
+while True:
+    time.sleep(1)
+"""
+
+
 def _start_batch(
     tmp_path: Path, first: str, supervisor: str | None = None, scope: str = "fake", mode: str = ""
 ) -> tuple[subprocess.Popen[str], Path]:
@@ -947,7 +972,7 @@ def test_a_batch_dir_others_can_write_is_refused(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 2
-    assert "writable by others" in result.stderr
+    assert "must be this user's, with mode 0700 (it is 0775)" in result.stderr
     assert not (tmp_path / "acb.log").exists()
 
 
@@ -970,25 +995,70 @@ def test_the_batch_creates_its_directories_private_under_a_loose_umask(tmp_path:
         assert path.stat().st_mode & 0o777 == 0o600, (path, oct(path.stat().st_mode))
 
 
-def test_an_owned_sticky_batch_dir_keeps_its_records_private(tmp_path: Path) -> None:
-    """Review round 4: under umask 002 progress.jsonl came out 0664 in a 1777
-    batch directory, where others can create and read files."""
+def _batch_at(tmp_path: Path, batch: Path) -> subprocess.CompletedProcess[str]:
     clone = _clone(tmp_path)
+    env = _plain_env(tmp_path)
+    return subprocess.run(
+        _driver(clone, env, str(batch), "wp1b"), cwd=clone, env=env, capture_output=True, text=True
+    )
+
+
+def test_a_sticky_shared_batch_dir_is_refused(tmp_path: Path) -> None:
+    """Final review: the sticky exception let a late 0666 progress file in.
+    Shared batch directories are no longer supported at all."""
     sticky = tmp_path / "sticky"
     sticky.mkdir()
     sticky.chmod(0o1777)
-    env = _plain_env(tmp_path)
-    result = subprocess.run(
-        ["bash", "-c", 'umask 002 && exec "$@"', "--", *_driver(clone, env, str(sticky), "wp1b")],
-        cwd=clone,
-        env=env,
-        capture_output=True,
-        text=True,
+    result = _batch_at(tmp_path, sticky)
+    assert result.returncode == 2
+    assert "with mode 0700 (it is 1777)" in result.stderr
+    assert not (tmp_path / "acb.log").exists()
+
+
+def test_a_batch_dir_that_is_not_exactly_0700_is_refused(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    batch.chmod(0o750)
+    result = _batch_at(tmp_path, batch)
+    assert result.returncode == 2
+    assert "with mode 0700 (it is 0750)" in result.stderr
+
+
+def test_a_replaceable_ancestor_is_refused_by_name(tmp_path: Path) -> None:
+    """Final review: a 0700 batch directory under a non-sticky 0777 parent can
+    be renamed away by any writer of that parent."""
+    parent = tmp_path / "shared-parent"
+    parent.mkdir()
+    parent.chmod(0o777)
+    result = _batch_at(tmp_path, parent / "batch")
+    assert result.returncode == 2
+    assert f"refusing: {parent} (an ancestor of the batch directory) is writable by others" in (
+        result.stderr
     )
+    assert not (tmp_path / "acb.log").exists()
+
+
+def test_a_replaceable_ancestor_reached_through_a_symlink_is_refused(tmp_path: Path) -> None:
+    parent = tmp_path / "shared-parent"
+    (parent / "real").mkdir(parents=True)
+    (parent / "real").chmod(0o755)
+    parent.chmod(0o777)
+    link = tmp_path / "link"
+    link.symlink_to(parent / "real")
+    result = _batch_at(tmp_path, link / "batch")
+    assert result.returncode == 2
+    assert f"refusing: {parent} (an ancestor" in result.stderr
+
+
+def test_a_sticky_ancestor_is_accepted(tmp_path: Path) -> None:
+    """Like /tmp: others can write it, but cannot rename what is ours in it."""
+    parent = tmp_path / "sticky-parent"
+    parent.mkdir()
+    parent.chmod(0o1777)
+    result = _batch_at(tmp_path, parent / "batch")
     assert result.returncode == 0, result.stderr
-    assert (sticky / "progress.jsonl").stat().st_mode & 0o777 == 0o600
-    assert (sticky / "logs").stat().st_mode & 0o777 == 0o700
-    assert (sticky / "tmp").stat().st_mode & 0o777 == 0o700
+    assert (parent / "batch").stat().st_mode & 0o777 == 0o700
+    assert (parent / "batch" / "progress.jsonl").stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.parametrize(
@@ -1046,3 +1116,74 @@ def test_an_inherited_environment_alone_cannot_select_the_test_scope(tmp_path: P
     assert "no longer honoured" in result.stderr
     assert not (tmp_path / "acb.log").exists()
     assert not (tmp_path / "scope.log").exists()
+
+
+# --- final review: stopping the DRIVER ---------------------------------------
+
+
+@SCOPES
+@pytest.mark.parametrize("sig,expected", [(signal.SIGTERM, 143), (signal.SIGINT, 130)])
+def test_a_signal_to_the_driver_cancels_the_lane_and_stops_the_batch(
+    tmp_path: Path, scope: str, sig: signal.Signals, expected: int
+) -> None:
+    """Final review: TERM to the driver left its supervisor and lane running,
+    with no cancellation row."""
+    proc, pids_file = _start_batch(tmp_path, _DETACH_AND_WAIT, scope=scope)
+    pids = _wait_for_pids(pids_file, 2)
+    supervisor = _parent_of(pids[1])
+    os.kill(proc.pid, sig)
+    out, err, survivors = _finish(proc, pids)
+    assert proc.returncode == 5, err
+    rows = _rows(tmp_path)
+    assert [(r["exit_status"], r["cancelled"], r["containment_lost"]) for r in rows] == [
+        (expected, True, False)
+    ]
+    assert (tmp_path / "count").read_text().strip() == "1", "the next lane started"
+    assert not _alive(supervisor), "the supervisor outlived the driver"
+    assert not survivors, "the lane outlived the driver"
+    assert "cancelling the batch" in err
+
+
+def test_a_second_signal_during_cleanup_does_not_cut_it_short(tmp_path: Path) -> None:
+    proc, pids_file = _start_batch(tmp_path, _TERM_IGNORED)
+    pids = _wait_for_pids(pids_file, 1)
+    os.kill(proc.pid, signal.SIGTERM)
+    time.sleep(0.5)
+    os.kill(proc.pid, signal.SIGTERM)
+    os.kill(proc.pid, signal.SIGHUP)
+    out, err, survivors = _finish(proc, pids)
+    assert proc.returncode == 5, err
+    assert [(r["exit_status"], r["cancelled"]) for r in _rows(tmp_path)] == [(143, True)]
+    assert "already stopping" in err
+    assert not survivors
+
+
+def test_a_supervisor_that_will_not_stop_is_killed_and_its_scope_cleared(tmp_path: Path) -> None:
+    proc, pids_file = _start_batch(tmp_path, _DETACH_AND_WAIT, _DEAF_SUPERVISOR)
+    pids = _wait_for_pids(pids_file, 2)
+    os.kill(proc.pid, signal.SIGTERM)
+    out, err, survivors = _finish(proc, pids)
+    assert proc.returncode == 4, err
+    rows = _rows(tmp_path)
+    assert [(r["exit_status"], r["cancelled"], r["containment_lost"]) for r in rows] == [
+        (125, True, True)
+    ]
+    log = (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert "did not stop within" in log and "verified empty" in log
+    assert not survivors
+
+
+def test_a_progress_record_altered_mid_batch_is_refused(tmp_path: Path) -> None:
+    """The record is reserved private before the first lane and re-checked on
+    the descriptor every append writes through."""
+    proc, pids_file = _start_batch(tmp_path, _TERM_EXITS_ZERO)
+    pids = _wait_for_pids(pids_file, 1)
+    progress = tmp_path / "batch" / "progress.jsonl"
+    assert progress.stat().st_mode & 0o777 == 0o600, "not reserved before the lane ran"
+    progress.chmod(0o666)
+    supervisor = _parent_of(pids[0])
+    os.kill(supervisor, signal.SIGTERM)
+    out, err, survivors = _finish(proc, pids)
+    assert proc.returncode == 2, err
+    assert "no longer a private file" in err
+    assert progress.read_text() == ""

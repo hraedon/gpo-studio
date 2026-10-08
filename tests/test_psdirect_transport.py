@@ -54,6 +54,15 @@ def test_the_push_chunk_stays_far_under_the_measured_send_ceiling() -> None:
     assert int(match.group(1)) <= 128
 
 
+def test_the_pull_chunk_stays_far_under_the_measured_receive_results() -> None:
+    """Single 1 MB and 5 MB results were received cleanly (2026-10-08); nothing
+    larger was measured. A pull chunk is one such result."""
+    match = re.search(r"^\$script:PullChunkBytes = (\d+)(KB|MB)$", TEXT, re.MULTILINE)
+    assert match, "PullChunkBytes is no longer a literal KB/MB constant"
+    size_kb = int(match.group(1)) * (1024 if match.group(2) == "MB" else 1)
+    assert size_kb <= 2048
+
+
 def test_no_controller_side_copy_item_crosses_the_wire() -> None:
     """Copy-Item -ToSession/-FromSession against the HOST session is what hung
     (push) and could not be bounded (pull). Only the guest leg, which runs on
@@ -169,6 +178,19 @@ $bad = foreach ($node in $ast.FindAll({ param($n) $true }, $true)) {
             "${line}: unresolvable invocation: $($node.Extent.Text)"
             continue
         }
+        # Resolve what will actually run: a module-qualified name to its
+        # command, and an alias to its target.
+        if ($name -match '\\') { $name = $name.Split('\')[-1] }
+        $found = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found -and "$($found.CommandType)" -eq 'Alias' -and $found.ResolvedCommand) {
+            $name = $found.ResolvedCommand.Name
+            $found = $found.ResolvedCommand
+        }
+        if ($name -in 'Set-Alias', 'New-Alias') {
+            # An alias defined here could hide anything from this check.
+            "${line}: defines an alias: $($node.Extent.Text)"
+            continue
+        }
         if ($name -in 'Start-Process', 'Invoke-Item', 'Invoke-Expression', 'Start-Job') {
             "${line}: starts or evaluates a process: $name"
             continue
@@ -180,8 +202,7 @@ $bad = foreach ($node in $ast.FindAll({ param($n) $true }, $true)) {
             continue
         }
         if ($name -in $defined) { continue }
-        $found = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $found -or "$($found.CommandType)" -notin 'Cmdlet', 'Function', 'Alias') {
+        if (-not $found -or "$($found.CommandType)" -notin 'Cmdlet', 'Function') {
             "${line}: not a cmdlet: $name"
         }
     } elseif ($node -is [System.Management.Automation.Language.TypeExpressionAst] -or
@@ -245,8 +266,13 @@ $Body = 'sh'; & $Body
 function Invoke-RestartableTransfer { param([string] $Body) & $Body 1 }
 function Invoke-Other { param([scriptblock] $Body) & $Body 1 }
 Get-Item -LiteralPath .
+Microsoft.PowerShell.Management\Start-Process sh
+Set-Alias pstart Start-Process
+pstart sh
+New-Alias -Name other -Value Start-Process
+gci .
 """
-_EXPECTED_CONTROL_LINES = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+_EXPECTED_CONTROL_LINES = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18}
 
 
 def test_the_native_guard_catches_every_launch_form(tmp_path: Path) -> None:
