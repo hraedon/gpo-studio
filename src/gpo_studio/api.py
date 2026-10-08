@@ -25,6 +25,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
 from starlette.types import Scope
@@ -1954,6 +1955,47 @@ def _is_loopback_host(host: str) -> bool:
     return any(host.startswith(known + ":") for known in _LOOPBACK_HOSTS)
 
 
+#: Route path -> the limitations that route promises on EVERY response,
+#: refusals included. A surface whose limits travel only with its 200s tells a
+#: caller who was refused (422), who named the wrong GPO (404) or whose request
+#: never reached the handler (400/403/413/421 from the middleware below, or a
+#: body FastAPI could not parse) nothing about what the surface could never
+#: have answered. Every refusal path in this module builds its body through
+#: `_error_body`, which adds `limitations` beside the error for a registered
+#: route. Matching is by path template, not by `scope["route"]`, because the
+#: middleware refuses before routing has happened. The firewall surface
+#: registers itself where it is defined.
+_ROUTE_LIMITATIONS: dict[str, Callable[[], list[dict[str, str]]]] = {}
+
+
+def _route_limitations(path: str) -> list[dict[str, str]] | None:
+    for route in app.routes:
+        template = getattr(route, "path", None)
+        regex = getattr(route, "path_regex", None)
+        if (
+            isinstance(template, str)
+            and template in _ROUTE_LIMITATIONS
+            and regex is not None
+            and regex.match(path)
+        ):
+            return _ROUTE_LIMITATIONS[template]()
+    return None
+
+
+def _error_body(
+    request: Request, detail: Any, *, key: str = "error"
+) -> dict[str, Any]:
+    body: dict[str, Any] = {key: detail}
+    limitations = _route_limitations(request.url.path)
+    if limitations is not None:
+        body["limitations"] = limitations
+    return body
+
+
+def _refusal(request: Request, message: str, status_code: int) -> JSONResponse:
+    return JSONResponse(_error_body(request, {"message": message}), status_code=status_code)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
@@ -1981,10 +2023,7 @@ class HostValidationMiddleware(BaseHTTPMiddleware):
         if not _is_unsafe_mode():
             host = request.headers.get("host", "")
             if not _is_loopback_host(host):
-                return JSONResponse(
-                    {"error": {"message": "Host header not allowed"}},
-                    status_code=421,
-                )
+                return _refusal(request, "Host header not allowed", 421)
         return await call_next(request)
 
 
@@ -1996,28 +2035,16 @@ class OriginValidationMiddleware(BaseHTTPMiddleware):
             origin = request.headers.get("origin", "")
             if origin:
                 if origin == "null":
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
                 try:
                     parsed = urlparse(origin)
                 except ValueError:
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
                 if parsed.scheme not in ("http", "https"):
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
                 origin_host = parsed.hostname or ""
                 if not origin_host or not _is_loopback_host(origin_host):
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
         return await call_next(request)
 
 
@@ -2027,34 +2054,22 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     ) -> StarletteResponse:
         te = request.headers.get("transfer-encoding", "").lower()
         if "chunked" in te:
-            return JSONResponse(
-                {"error": {"message": "Chunked transfer encoding not supported"}},
-                status_code=400,
-            )
+            return _refusal(request, "Chunked transfer encoding not supported", 400)
         content_length = request.headers.get("content-length")
         if content_length:
             try:
                 cl = int(content_length)
             except ValueError:
-                return JSONResponse(
-                    {"error": {"message": "Invalid Content-Length"}},
-                    status_code=400,
-                )
+                return _refusal(request, "Invalid Content-Length", 400)
             if cl < 0 or cl > MAX_REQUEST_BODY_BYTES:
-                return JSONResponse(
-                    {"error": {"message": "Request body too large"}},
-                    status_code=413,
-                )
+                return _refusal(request, "Request body too large", 413)
 
         if request.method in _MUTATION_METHODS:
             body = bytearray()
             async for chunk in request.stream():
                 body.extend(chunk)
                 if len(body) > MAX_REQUEST_BODY_BYTES:
-                    return JSONResponse(
-                        {"error": {"message": "Request body too large"}},
-                        status_code=413,
-                    )
+                    return _refusal(request, "Request body too large", 413)
             request._body = bytes(body)
 
         return await call_next(request)
@@ -2187,24 +2202,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
 
 
-#: Route path -> the limitations that route promises on EVERY response,
-#: refusals included. A surface whose limits travel only with its 200s tells a
-#: caller who was refused (422) or who named the wrong GPO (404) nothing about
-#: what the surface could never have answered. Both error handlers below add
-#: `limitations` beside `error` for a registered route; the firewall surface
-#: registers itself where it is defined.
-_ROUTE_LIMITATIONS: dict[str, Callable[[], list[dict[str, str]]]] = {}
-
-
-def _error_body(request: Request, detail: dict[str, Any]) -> dict[str, Any]:
-    body: dict[str, Any] = {"error": detail}
-    route = request.scope.get("route")
-    path = getattr(route, "path", None)
-    if isinstance(path, str) and path in _ROUTE_LIMITATIONS:
-        body["limitations"] = _ROUTE_LIMITATIONS[path]()
-    return body
-
-
 @app.exception_handler(StudioError)
 async def studio_error(request: Request, error: StudioError) -> JSONResponse:
     status = (
@@ -2256,14 +2253,24 @@ async def fdeploy_error(_request: Request, error: FdeployError) -> JSONResponse:
     return JSONResponse({"error": {"message": str(error)}}, status_code=400)
 
 
-def _json_safe_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
+def _json_default(value: object) -> str:
+    """A JSON stand-in for what a validation issue can carry and JSON cannot.
+
+    A non-JSON body (`text/plain`, form data) reaches the model as `bytes`,
+    and pydantic echoes it as the issue's `input`; serializing that raised
+    inside the error handler and turned a 422 into a 500. The bytes are
+    summarized rather than echoed: the caller already has them.
+    """
+    if isinstance(value, bytes | bytearray):
+        return f"<{len(value)} bytes, not JSON>"
+    return str(value)
+
+
+def _json_safe(value: Any) -> Any:
     try:
-        safe = json.loads(json.dumps(ctx, default=str))
+        return json.loads(json.dumps(value, default=_json_default))
     except (TypeError, ValueError):
-        return {str(k): str(v) for k, v in ctx.items()}
-    if isinstance(safe, dict):
-        return cast(dict[str, Any], safe)
-    return {str(k): str(v) for k, v in ctx.items()}
+        return str(value)
 
 
 def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
@@ -2272,14 +2279,30 @@ def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
         if not isinstance(issue, dict):
             sanitized.append({"issue": str(issue)})
             continue
-        clean: dict[str, Any] = {}
-        for key, value in issue.items():
-            if key == "ctx" and isinstance(value, dict):
-                clean[key] = _json_safe_ctx(value)
-            else:
-                clean[key] = value
-        sanitized.append(clean)
+        safe = _json_safe(issue)
+        sanitized.append(
+            cast(dict[str, Any], safe)
+            if isinstance(safe, dict)
+            else {"issue": str(issue)}
+        )
     return sanitized
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception(request: Request, error: StarletteHTTPException) -> Response:
+    """Starlette's default body (`{"detail": ...}`), plus a route's limitations.
+
+    FastAPI raises this itself for a body it cannot parse (400) before any
+    handler runs. Status 204/304 carry no body, as in the default handler.
+    """
+    headers = getattr(error, "headers", None)
+    if error.status_code in (204, 304):
+        return Response(status_code=error.status_code, headers=headers)
+    return JSONResponse(
+        _error_body(request, error.detail, key="detail"),
+        status_code=error.status_code,
+        headers=headers,
+    )
 
 
 @app.exception_handler(RequestValidationError)

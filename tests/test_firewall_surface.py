@@ -540,3 +540,82 @@ def test_other_routes_errors_are_unchanged(client: TestClient) -> None:
     response = client.post("/api/security-template/object-security", json={"bogus": 1})
     assert response.status_code == 422
     assert set(response.json()) == {"error"}
+
+
+# --------------------------------------------------------------------------
+# ... including refusals made before the handler runs (Sol, second pass)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("shape", "status"),
+    [
+        ("invalid-utf8-json", 400),
+        ("oversized", 413),
+        ("chunked", 400),
+        ("origin", 403),
+        ("host", 421),
+    ],
+)
+def test_refusals_before_the_handler_carry_the_limitations(
+    store: WorkspaceStore, monkeypatch: pytest.MonkeyPatch, shape: str, status: int
+) -> None:
+    """Middleware and body-parsing refusals know the route by its path."""
+    monkeypatch.setenv("GPO_STUDIO_UNSAFE_BIND", "0")
+    kwargs: dict[str, Any] = {
+        "invalid-utf8-json": {
+            "content": b"\xff",
+            "headers": {"content-type": "application/json"},
+        },
+        "oversized": {
+            "content": b"{}",
+            "headers": {"content-length": str(api.MAX_REQUEST_BODY_BYTES + 1)},
+        },
+        "chunked": {"content": b"{}", "headers": {"transfer-encoding": "chunked"}},
+        "origin": {"json": {}, "headers": {"origin": "null"}},
+        "host": {"json": {}, "headers": {"host": "evil.example"}},
+    }[shape]
+    with TestClient(app, base_url="http://127.0.0.1") as safe_client:
+        response = safe_client.post(RENDER, **kwargs)
+        assert response.status_code == status, response.text
+        assert _limitation_codes(response.json()) == EVERY_RESPONSE_LIMITATIONS
+        # The decode route too, for the GET-reachable refusals.
+        if shape == "host":
+            response = safe_client.get(
+                DECODE.format(guid="00000000-0000-4000-8000-000000000000"),
+                headers={"host": "evil.example"},
+            )
+            assert response.status_code == 421
+            assert _limitation_codes(response.json()) == EVERY_RESPONSE_LIMITATIONS
+        # The control: the same refusal elsewhere keeps its old body.
+        other = safe_client.post("/api/gpos", **kwargs)
+        assert other.status_code == status, other.text
+        assert "limitations" not in other.json()
+
+
+def test_a_wrong_method_on_a_firewall_route_carries_the_limitations(
+    client: TestClient,
+) -> None:
+    response = client.get(RENDER)
+    assert response.status_code == 405
+    body = response.json()
+    assert body["detail"] == "Method Not Allowed"
+    assert _limitation_codes(body) == EVERY_RESPONSE_LIMITATIONS
+    assert set(client.get("/api/no-such-route").json()) == {"detail"}
+
+
+@pytest.mark.parametrize(
+    ("route", "limited"),
+    [(RENDER, True), ("/api/gpos", False), ("/api/security-template/object-security", False)],
+)
+def test_a_non_json_body_is_a_422_not_a_500(
+    client: TestClient, route: str, limited: bool
+) -> None:
+    """Pre-existing (found in review): bytes in a validation issue crashed the handler."""
+    response = client.post(route, content=b"x", headers={"content-type": "text/plain"})
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error"]["message"] == "Invalid request"
+    inputs = [issue.get("input") for issue in body["error"]["issues"]]
+    assert "<1 bytes, not JSON>" in inputs
+    assert ("limitations" in body) is limited

@@ -227,7 +227,11 @@ is unmeasured and tracked as WI-077.
 Every response carries `policy_store_readback_not_application`,
 `representative_tranche_only`, `ipsec_pki_wired_wireless_out_of_scope`,
 `gpme_display_unmeasured` and `single_build_measured`; a decode with unknown
-rule tokens adds `unmodeled_tokens_preserved_not_editable`.
+rule tokens adds `unmodeled_tokens_preserved_not_editable`. Refusals carry
+them too, beside `error` (or `detail`): codec and request-validation 422s, an
+unknown GPO's 404, a wrong method's 405, an unparseable body's 400, and the
+middleware's host (421), origin (403), chunked (400) and size (413) refusals,
+which match the route by path because they run before routing.
 `tests/test_firewall_surface.py` holds the render of the certified request
 equal to the builder's emission and the banked `expected.json`, shows the
 rendered settings posted to a GPO export Windows' write-leg Registry.pol byte
