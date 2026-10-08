@@ -198,12 +198,48 @@ def test_every_candidate_hash_resolves_to_the_banked_controller_candidate() -> N
         for relative, digest in (verdict.get("candidate") or {}).items():
             banked = (candidate_dir / relative).read_bytes()
             assert hashlib.sha256(banked).hexdigest() == digest, (run["name"], relative)
-        delivery = verdict.get("candidate_delivery")
-        if isinstance(delivery, dict) and "controller_sha256" in delivery:
-            assert delivery["controller_sha256"] in {
+        for digest in _delivery_digests(verdict.get("candidate_delivery"), run["name"]):
+            assert digest in {
                 hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in candidate_dir.rglob("*") if p.is_file()
             }, run["name"]
+
+
+def _delivery_digests(delivery: object, name: str) -> list[str]:
+    """Every controller-side candidate digest a verdict records, in either shape.
+
+    Publication and Scripts record one archive as ``{"controller_sha256": ...}``;
+    WP-2, WP-3 and object-security record one entry per file as
+    ``{filename: {"controller_sha256": ...}}``. An unrecognised shape fails
+    rather than being skipped (review finding: the nested shape was skipped).
+    """
+    if delivery is None:
+        return []
+    assert isinstance(delivery, dict), name
+    if "controller_sha256" in delivery:
+        digest = delivery["controller_sha256"]
+        assert isinstance(digest, str) and len(digest) == 64, name
+        return [digest]
+    digests: list[str] = []
+    for filename, entry in delivery.items():
+        assert isinstance(entry, dict) and "controller_sha256" in entry, (name, filename)
+        digest = entry["controller_sha256"]
+        assert isinstance(digest, str) and len(digest) == 64, (name, filename)
+        digests.append(digest)
+    assert digests, name
+    return digests
+
+
+def test_nested_candidate_delivery_digests_are_checked() -> None:
+    """Negative control: a nested digest that matches no banked file is caught."""
+    digests = _delivery_digests(
+        {"candidate.inf": {"controller_sha256": "0" * 64}}, "control"
+    )
+    assert digests == ["0" * 64]
+    with pytest.raises(AssertionError):
+        _delivery_digests({"candidate.inf": {"guest_sha256": "0" * 64}}, "control")
+    with pytest.raises(AssertionError):
+        _delivery_digests({}, "control")
 
 
 def test_wp0_binds_its_harness_by_manifest() -> None:
