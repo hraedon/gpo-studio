@@ -37,8 +37,8 @@ Update this list in the same change as any status line;
 - [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
 - [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
-- [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - the check conflates unparsed with unparseable.
-- [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - star the key, then certify it with candidate rows.
+- [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - fixed in the requalification batch; closes when the object-security lane re-runs.
+- [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - fixed and candidate rows added in the batch; closes when the object-security lane certifies them.
 - [WI-063](#wi-063--eight-lane-runners-are-committed-with-crlf-and-no-longer-parse) - renormalize with the next estate requalification.
 
 ---
@@ -2453,6 +2453,12 @@ the previous one.
 exactly these sixteen files. It fails if a seventeenth file joins them, or if one of the
 sixteen is fixed without the requalification that makes its verdict valid again.
 
+**2026-10-07, batch branch `batch/wi064-wi065`.** `finalize_object_security_run.py` was
+edited for WI-064 and written back as LF, so it came off the exemption list (fifteen
+remain). Its verdict is re-earned by the batch's object-security run, like the rest of
+that lane's bound files. The `.gitattributes` rule and the other fifteen files are
+unchanged.
+
 ## WI-064 — the restricted-groups writer emits a bare SID where Windows emits a star-SID
 
 **Opened:** 2026-09-11 (scoping the WP-3 object-security surface).
@@ -2503,6 +2509,30 @@ response.
 Without the candidate rows, a fix would leave the family written by a serializer no oracle
 has read.
 
+**Fixed in the requalification batch, 2026-10-07; awaiting requalification** (branch
+`batch/wi064-wi065`). The first two closing conditions are met in code; the third needs the
+estate.
+
+- `to_template_entries()` writes `*{sid}__Members` and `*{sid}__Memberof`.
+  `test_object_security.py` pins the key against the R4 export line and reproduces that
+  line byte for byte from a parse of it.
+- `build-object-security-candidate.py` adds three `[Group Membership]` rows built by
+  `RestrictedGroupsFamily`: a one-member and a two-member `__Members`, and a `__Memberof`.
+  All use BUILTIN alias SIDs, so the expected side names them exactly. `expected.json` is
+  schema 2. Its `group_membership` list is taken from the model, not from the emitted text,
+  so a mis-spelled key is caught rather than copied into the expectation.
+- The guest script asks `secedit` for `group_mgmt` on both `/import` and `/export`; the
+  finalizer requires it on both.
+- The finalizer reads the candidate's rows strictly. A key or member without a star is an
+  error, not something it tolerates. It compares Windows' re-export as principal sets
+  (members may come back reordered), keyed by group and relation. A dropped, added or
+  empty row fails the new `windows_export_group_membership_exact` check.
+
+Whether Windows keeps a `__Memberof` row between BUILTIN aliases through the temporary
+database is a prediction, not a measurement. If it does not, that is a finding for the run
+to explain. POST `/api/security-template/object-security` still omits the family, and its
+`restricted_groups_not_surfaced` limitation says the serializer is not certified.
+
 ## WI-065 — "could not be parsed" is reported for SDDL nothing tried to parse
 
 **Opened:** 2026-09-11 (building the WP-3 object-security surface; found by the
@@ -2542,6 +2572,21 @@ expires it and costs an estate run. It goes in the same batch as WI-063 and WI-0
 
 **Pinning test:** `test_object_security_surface.py` asserts the current behaviour and
 fails when the check is corrected. That failure is the prompt to re-run the lane.
+
+**Fixed in the requalification batch, 2026-10-07; awaiting requalification** (branch
+`batch/wi064-wi065`). The first two closing conditions are met; the third needs the estate.
+
+- `validate` parses `raw_sddl` on demand when no descriptor is present, through a shared
+  `_service_descriptor` helper. It reports `unparseable_service_sddl` only when that parse
+  fails.
+- `_service_risk` had the same conflation: it read an unparsed descriptor as "no ACL
+  change" and scored it low. It now uses the same helper.
+- The candidate builder gives its services parsed descriptors. It now also validates
+  every family and refuses to build if any issue is reported, which puts the validator on
+  the lane's path.
+- The pinning test now asserts the corrected behaviour. The surface's `_parsed_sddl`
+  workaround in `api.py` was removed as redundant. The surface builds models from
+  `raw_sddl` alone, and the certified descriptor still validates clean.
 
 ## WI-066 — R3 answered one of the four questions it was designed to answer
 

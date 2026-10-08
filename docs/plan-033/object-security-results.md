@@ -77,3 +77,14 @@ nothing tried to parse, which is why validating this lane's own candidate
 yields three errors for an SDDL Windows accepted (WI-065). Neither was
 reachable by the lane: the first has no rows in the candidate, and the second
 is on a path the candidate builder never calls.
+
+**Requalification batch, 2026-10-07** (branch `batch/wi064-wi065`, not yet
+run). Both defects are fixed in code, and the lane is extended so that the
+next run measures the fix. The candidate gains three `[Group Membership]` rows
+built by `RestrictedGroupsFamily`. The guest imports and exports the
+`group_mgmt` area. The finalizer requires starred keys and members and
+compares Windows' re-export as principal sets. The services in the candidate
+carry parsed descriptors, and the builder refuses any candidate the product
+reports issues for. The verdict above no longer binds the shipping files on
+that branch. WI-064 and WI-065 stay open until a run re-earns it, and until
+then restricted groups stay off the surface.
