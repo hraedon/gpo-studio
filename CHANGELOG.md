@@ -9,6 +9,42 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Requalification batch: retired the PowerShell publication script and the
+  modules the 2026-10-07 operator ruling puts out of scope. The affected lanes
+  (publication completeness and Scripts metadata) are **awaiting
+  requalification**: their verdicts bind the pre-batch bytes of
+  `publication.py`, `script_policy.py` and `export.py` until the estate re-runs
+  them. No row moves to `yes`.
+  - `publication.py` no longer generates a script. `generate_publication_script`,
+    `PowerShellPublicationScript`, the empty `_WINDOWS_VERIFIED_OPERATIONS`
+    allowlist and their helpers are deleted, with their tests. The script
+    copied files straight into SYSVOL, which `docs/live-publication.md` forbids.
+    Publication goes through the native GPMC backup and `Import-GPO` plus
+    `apply.ps1`. The planner, `validate_publication_plan`,
+    `planned_sysvol_paths` and `payload_digest` are unchanged apart from the
+    two items below.
+  - The publication planner now refuses a GPO with a disabled computer or user
+    side (`unsupported_side_status`). It had no step for the directory
+    object's `flags` attribute, which `apply.ps1` sets through `GpoStatus`, so a
+    plan executed as written would have published the side enabled (WI-070).
+  - Deleted the pre-R2 `serialize_script_policy_ini` / `parse_script_policy_ini`
+    from `script_policy.py`. They wrote an INI shape no Windows capture
+    contains; the certified writer is `gpmc_backup_bundle(gpo, scripts=...)`.
+    `preview_script_policy` is kept; nothing in the product calls it.
+  - Deleted `artifact_store.py` and its tests. Delivering script or executable
+    payloads is out of scope for 1.x. `validate_publication_plan` lost its
+    optional `store=` cross-check and `preview_script_policy` its optional
+    `artifact_store=` argument.
+  - The native backup's script refusals no longer say "Use the Studio
+    publication bundle instead". That bundle carries no scripts at all; the
+    message now says the GPMC backup with scripts is the only export that
+    carries them, in the measured shape only, and names the change that makes
+    the policy exportable.
+  - Proposed, not built: extending the Scripts metadata lane to a user-side
+    logon script and a computer-side shutdown script (WI-071). The user-side
+    Scripts extension pair Studio writes has never been measured, and the
+    round trip cannot detect a wrong one.
+
 - Added a Folder Redirection browser panel that reviews native `fdeploy` files
   and compares an earlier copy with a current one, through the existing API. It
   preserves the uploaded bytes, shows raw flags and both files' structural

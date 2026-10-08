@@ -1,9 +1,11 @@
 """Controlled publisher protocol for GPO Studio (Plan 030).
 
 This module models the *gating* layer that sits between a
-:class:`~gpo_studio.publication.PublicationPlan` and the actual emission of a
-PowerShell publication script. The web process never writes directly to AD or
-SYSVOL; instead, every publication must first pass a set of *gates* checked
+:class:`~gpo_studio.publication.PublicationPlan` and any later publication
+step. (The PowerShell publication script it was written to gate was retired on
+2026-10-07; this module is retained, out of scope for 1.x, as a Milestone 3
+seed.) The web process never writes directly to AD or SYSVOL; instead, every
+publication must first pass a set of *gates* checked
 against a :class:`PublisherProfile` (the capabilities granted to an actor) and
 an optional :class:`ApprovalRequest` (human approval collected out-of-band).
 
@@ -438,7 +440,8 @@ _STEP_CAPABILITY_MAP: dict[str, PublisherCapability] = {
 
 # Deliberately absent above: the refusal operations a plan carries when it
 # cannot be published (`unsupported_cse_content`,
-# `unsupported_extension_registration`, `extension_lists_unreachable`). An
+# `unsupported_extension_registration`, `extension_lists_unreachable`,
+# `unsupported_side_status`). An
 # unmapped operation fails the capability gate, which is the outcome those
 # steps exist to force -- mapping them would make a refusal publishable by
 # granting a capability.

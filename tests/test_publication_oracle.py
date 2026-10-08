@@ -136,8 +136,8 @@ def test_a_declared_version_half_is_checked_in_both_directions(
     """Declaring "machine" must fail when the user half moved as well.
 
     A check that only asserted the declared half moved would pass a plan that
-    moved both, which is precisely the corruption `_bump_gpt_version` exists to
-    prevent.
+    moved both, which is precisely the corruption the plan's declared
+    `version_half` exists to rule out.
     """
     assert _version_half_matches(half, packed) is expected
 
