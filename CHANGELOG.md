@@ -9,6 +9,29 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Banked the fdeploy lane's certifying run, `fd-20261008102559-9746`: 29/29 on
+  clean commit `6b76fad`, on the estate member server (WS2025 26100, Windows
+  PowerShell 5.1). It ran four cases: R3's GPMC-written `fdeploy1.ini` verbatim
+  (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023,
+  3069). For each, `Import-GPO` put the candidate's exact bytes in SYSVOL,
+  `Backup-GPO` re-exported `fdeploy1.ini` and `fdeploy.ini` byte for byte, and
+  Studio's `read_backup` over Windows' own backup agreed with a fresh
+  `Get-GPOReport` row for row (folder, principal SID, destination). Each report
+  named the GPO the run created. `fdeploy.py` is now `lane-backed and surfaced`
+  for its read target, Plan 034's `fdeploy` row reaches `yes` for reading, and
+  Plan 027 leaves the unsurfaced domain-layer set. **Not certified:** decoding
+  `Flags`, other `Flags` values, multi-folder and multi-principal documents,
+  and any writer, which stays deferred under WI-066 until R12. Windows' option
+  rendering per `Flags` is recorded as data for WI-066 and matches the
+  2026-10-08 probe; it is not asserted. The pack is under
+  `docs/plan-033/wp4-evidence/fdeploy/`, and
+  `tests/test_fdeploy_lane_evidence.py` re-runs the shipping finalizer over it
+  and rebuilds the candidate byte for byte. See
+  [the results](docs/plan-033/fdeploy-results.md). An exploratory pass at
+  `379e59b` binds pre-review source and is recorded as history only.
+  `bound-source-cost.md` is regenerated: `model.py`, `gpp.py` and `xml_safety.py`
+  now cost three lanes, and `backup.py`, `backup_inventory.py`, `safe_io.py`,
+  `fdeploy.py` and `fdeploy_parity.py` cost one.
 - Added two Plan 034 surfaces over the lanes the
   [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:
   Scripts metadata (`scripts-r10-20261008074828-8492`, 20/20) and publication

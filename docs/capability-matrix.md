@@ -148,7 +148,7 @@ Plan 033 has since added this evidence:
 | RSoP simulation | Not in the 1.0 contract. Post-1.0, `rsop.py` is certified in twelve measured regions and reachable at `/api/rsop/compute` and `/api/rsop/compare`; see [Reconciled post-1.0 layers](#reconciled-post-10-layers--certified-and-surfaced) below. |
 | Authentication / multi-user | Identity is claimed (untrusted) from the request body. |
 | Additional GPP CSEs | Drive, Files, Folders, Tasks, Services, Environment, Shortcuts, Printers. |
-| Scripts, software installation, folder redirection | Not implemented; the 1.0 contract is unchanged. Post-1.0 the three have diverged. Software installation is ruled **out of scope** ([2026-09-06](scope-decision-2026-09-06-software-installation-and-certification.md)), and its module was deleted on 2026-10-07. Folder redirection is ruled a **read target** ([2026-09-11](scope-decision-2026-09-11-folder-redirection.md)): `fdeploy.py` reads `fdeploy1.ini` at `POST /api/folder-redirection/fdeploy`, with no lane behind it, and the old `folder_redirection.py` was deleted on 2026-10-07. Scripts has a metadata lane and, since 2026-10-08, an export surface for the one shape that lane measured (computer startup scripts as a GPMC backup); it is a post-1.0 capability, not part of the 1.0 contract. See the post-1.0 rows below. |
+| Scripts, software installation, folder redirection | Not implemented; the 1.0 contract is unchanged. Post-1.0 the three have diverged. Software installation is ruled **out of scope** ([2026-09-06](scope-decision-2026-09-06-software-installation-and-certification.md)), and its module was deleted on 2026-10-07. Folder redirection is ruled a **read target** ([2026-09-11](scope-decision-2026-09-11-folder-redirection.md)): `fdeploy.py` reads `fdeploy1.ini` at `POST /api/folder-redirection/fdeploy`, and since 2026-10-08 the fdeploy lane certifies that reader for the shapes it ran; the writer is deferred (WI-066), and the old `folder_redirection.py` was deleted on 2026-10-07. Scripts has a metadata lane and, since 2026-10-08, an export surface for the one shape that lane measured (computer startup scripts as a GPMC backup); it is a post-1.0 capability, not part of the 1.0 contract. See the post-1.0 rows below. |
 | Starter GPOs | Not implemented. |
 | Multi-domain / forest-scale operations | Not implemented. |
 | GPO-level metadata diff | Two-way and three-way diff report name, description and domain changes. `status` is workflow state, not policy, so it is not diffed. |
@@ -827,6 +827,40 @@ operation allowlist is still empty. Every response says so. See
 [the results](plan-033/publication-completeness-results.md) and
 [the operator guide](scripts-and-publication-preview.md).
 
+### `fdeploy.py` (Plan 027 / Plan 034 WP-4) — a certified reader, reachable at `/api/folder-redirection/fdeploy`
+
+Reconciled 2026-10-08 for its **read target**, in reverse order: the surface
+came first on the R3 capture alone (the 2026-09-11 ruling), and the lane closed
+it. The writer is deferred under WI-066.
+
+**Endpoints.** `POST /api/folder-redirection/fdeploy` parses an `fdeploy1.ini`
+and returns its sections, the reader's claims, structural issues and the
+reader's limits; `.../diff` compares two copies, keyed on
+`(folder GUID, principal)`. The Folder Redirection sidebar panel drives both
+([review guide](folder-redirection-review.md)). An imported GPMC backup carries
+the same parse on `GPO.fdeploy`. Nothing writes Folder Redirection policy.
+
+**Certification.** `fd-20261008102559-9746` (29/29, clean commit `6b76fad`),
+banked under `plan-033/wp4-evidence/fdeploy/`. Four cases ran: R3's bytes
+verbatim and three `Flags`-only variants (1020, 1023, 3069), each with one
+folder (Documents), one principal (Everyone) and one path. For each case,
+Windows' SYSVOL copy after `Import-GPO`, and its `Backup-GPO` re-export, are
+byte-identical to the candidate. Studio's `read_backup` over Windows' own
+backup agrees with Windows' fresh GPMC report row for row on folder id,
+principal SID and destination. Each report names the GPO the run created.
+`tests/test_fdeploy_lane_evidence.py` re-runs the shipping finalizer over the
+banked bytes and re-derives each claim from the raw artifacts. See
+[the results](plan-033/fdeploy-results.md).
+
+**What is NOT certified, and is not claimed.** `Flags` is carried as the
+integer Windows wrote and never decoded. The lane records Windows' option
+rendering for its four values (data for WI-066) and asserts none of it.
+Agreement is shown for those four values only. Values for which the report
+renders no folder, or an empty destination, were excluded on purpose.
+Multi-folder and multi-principal documents, endpoint behaviour and other
+builds are unmeasured. **No writer exists**, and none is certified: what GPMC
+writes per checkbox is R12's question (WI-066).
+
 ---
 
 ## Post-1.0 domain layers — landed but not surfaced
@@ -904,7 +938,7 @@ verdict.
 | 026 | ~~`artifact_store.py`~~ | — | **deleted 2026-10-07 (operator ruling)** — delivering script or executable payloads is out of scope for 1.x. Its optional uses in `publication.py` and `script_policy.py` were removed in the requalification batch. The former scope record is kept at [the scope ruling](plan-033/artifact-store-scope.md) |
 | 027 | ~~`software_install.py`~~ | — | **deleted 2026-10-07** — writing was ruled out on [2026-09-06](scope-decision-2026-09-06-software-installation-and-certification.md): the CSE appears in 0 of 26 production GPOs (R6), and its `.aas` artifact is generated by Windows Installer, not authored. The module had no consumer outside its own tests. Native Software Installation files in an imported backup keep their metadata (path, size, SHA-256) in `cse_metadata`; the original bytes are not stored, and this module never held them either |
 | 027 | ~~`folder_redirection.py`~~ | — | **deleted 2026-10-07, superseded by `fdeploy.py`** — R3 showed the policy lives in `fdeploy1.ini`, which this module never addressed. See [the decision and its addendum](scope-decision-2026-09-11-folder-redirection.md) |
-| 027 | `fdeploy.py` | **yes** — `POST /api/folder-redirection/fdeploy` and the [Folder Redirection browser review panel](folder-redirection-review.md) | **capture-backed (R3)** — Folder Redirection was ruled a **read target** on 2026-09-11. The reader is tested against the banked R3 capture and bound by no lane, so it has not left this table. `Flags` is carried, not decoded: there is one observation of a ten-bit word (WI-066), so the writer waits until R12 measures the encoding. Since WI-068 (closed 2026-10-08, when the Plan 034 batch re-ran the publication and scripts-metadata lanes) an imported backup carries the parse on `GPO.fdeploy`, and its report and diffs render it; GPMC backup export and the publication planner refuse such a GPO. **Ruled 2026-10-07:** build a lane that imports the banked R3 bytes with `Import-GPO`, reads them back with `Backup-GPO`/`Get-GPOReport` and compares the result with the parse. R12 is attempted through the console driver so WI-066 can be answered. Either the lane reaches `yes`, or the writer stays deferred under WI-066 |
+| 027 | `fdeploy.py` | **yes** — `POST /api/folder-redirection/fdeploy` (and `/diff`) and the [Folder Redirection browser review panel](folder-redirection-review.md), **read only** | **lane-backed and surfaced (R3, fdeploy)** — Folder Redirection was ruled a **read target** on 2026-09-11. Lane: `fd-20261008102559-9746` (29/29, clean commit `6b76fad`, 2026-10-08) on a clean member server. For R3's GPMC-written bytes (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023, 3069), `Import-GPO` put the candidate's bytes in SYSVOL, `Backup-GPO` re-exported `fdeploy1.ini` and `fdeploy.ini` byte for byte, and `read_backup` over Windows' own backup agreed with a fresh `Get-GPOReport` row for row on folder id, principal SID and destination, with every report naming the owned GPO. The verdict binds `fdeploy.py`, `fdeploy_parity.py` and the `read_backup` chain by hash ([results](plan-033/fdeploy-results.md)). An exploratory pass at `379e59b` binds pre-review source and is history. The surface was already there: since WI-068 (closed 2026-10-08) an imported backup also carries the parse on `GPO.fdeploy`, and its report and diffs render it, while GPMC backup export and the publication planner refuse such a GPO. See [above](#fdeploypy-plan-027--plan-034-wp-4--a-certified-reader-reachable-at-apifolder-redirectionfdeploy). **Limits:** `Flags` is carried, not decoded. Windows' option rendering per value is recorded as WI-066 data and never asserted. Other `Flags` values, multi-folder and multi-principal documents, and endpoint behaviour are unmeasured. **The writer is deferred** until R12 measures the encoding (WI-066) |
 | 028 | `lifecycle.py` | no | no — **ruled 2026-10-07:** a same-domain lane over `Backup-GPO`/`Restore-GPO`/`Import-GPO`/`Copy-GPO`, then a restore-plan surface. The cross-domain half is out of scope until the estate has a second domain or a trust |
 | 028 | `gpmc_interop.py` | no | **reduced to one type (ruled 2026-10-07)** — only `InteropIssue` remains, because `publication.py` imports it; `tests/test_gpmc_interop.py` pins its shape. The interop checks are deleted because the predicate was wrong in kind. It reported a GPO unimportable whenever its preserved CSE metadata named an extension Studio does not emit, which equates *Studio cannot emit this* with *GPMC cannot import this*. Over the R6 census it would flag 15 of the 26 production GPOs, every one of them a live GPO in a GPMC-managed domain. `is_gpmc_editable` had no oracle at all. The R6 fact the module carried, the extension vocabulary, lives in `export.py`, and the publication lane certifies that byte for byte. Not counted as a capability |
 | 030 | `publication.py` | **yes** — `GET /api/gpos/{guid}/publication-plan` and the Publication preview browser panel, **review only** ([operator guide](scripts-and-publication-preview.md)) | **lane-backed and surfaced (R5, R8, R11, publication-completeness)** — lane: requalified in the [Plan 034 batch](plan-033/plan034-batch.md) as `publication-completeness-20261008074904-1047` (21/21, `263f196`), after the PowerShell script branch (`generate_publication_script` and its allowlist) was retired by the 2026-10-07 ruling, the `artifact_store` cross-check removed, and a disabled side (WI-070) or a carried Folder Redirection file made a refusal. The candidate has both sides enabled, so the refusals are pinned by unit tests, not by the lane. The lane compares the plan's account of what it would write with what Windows produces: both directions of the SYSVOL file set, both extension-list attributes byte-identical, and the packed GPT.INI version moving the declared half. It **measures the plan, not a publication**. Surface: added 2026-10-08 as a preview composed in `api.py` (bound by no lane) that writes nothing and does not reach `publisher.py`; every step carries `coverage` (`measured` for exactly the step kinds the lane grades — `update_gpt_ini`, `write_registry_pol`, `update_extension_lists`, `copy_gpp_xml` for the two imported families — plus the absence of `GPO.cmt`; `unmeasured` otherwise; `refused` where `validate_publication_plan` errors), and `tests/test_publication_surface.py` derives that set from the lane's builder and finalizer. See [above](#publicationpy-plan-030--a-review-only-plan-reachable-at-apigposguidpublication-plan). **Limits:** one GPO shape (two registry sides plus one verified GPP family each); security filtering, links and WMI filters have no coverage; rollback was never executed; the operation allowlist is still empty. Every response says so (`ad_side_steps_unmeasured`, `one_shape_measured`, `out_of_model_content_not_planned`, `rollback_unmeasured`, `nothing_here_writes`). See [the results](plan-033/publication-completeness-results.md). **Ruled 2026-10-07:** the PowerShell script branch was deleted because it copied files straight into SYSVOL, which [the publication design](live-publication.md) forbids |
@@ -912,10 +946,10 @@ verdict.
 | 031 | ~~`certification.py`~~ | — | **deleted 2026-09-07 (WI-056)** — superseded by `oracle_evidence.py`, no consumer outside its own tests. Plan 031's underlying question (what a portfolio of evidence across capabilities looks like) is unanswered and is recorded there, not here |
 | 032 | `hosting.py` | no | no — **out of scope for 1.x, code retained (ruled 2026-10-07)** as a Milestone 3 seed. It is not counted as a capability, and the 2026-08-07 "harden" verdict ([the assessment](plan-032-shape-assessment-2026-08-07.md)) is unchanged. No hosted mode is available |
 
-**No row in this table says a bare `yes`, on purpose.** Four rows,
-`policy_families.py`, `object_security.py` (2026-09-11), `script_policy.py`
-and `publication.py` (2026-10-08), have met both halves of the exit
-condition, and they are described under
+**No row in this table says a bare `yes`, on purpose.** Five rows,
+`policy_families.py`, `object_security.py` (2026-09-11), `script_policy.py`,
+`publication.py` and `fdeploy.py` (2026-10-08), have met both halves of the
+exit condition, and they are described under
 [Reconciled post-1.0 layers](#reconciled-post-10-layers--certified-and-surfaced)
 above. Their cells say `lane-backed and surfaced` and name the evidence, so the
 claim stays tied to a lane; `test_no_module_is_marked_windows_verified_yes`

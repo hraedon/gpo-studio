@@ -1,0 +1,16 @@
+﻿
+
+DisplayName      : zz-studio-fd-fd-20261008102559-9746-2
+DomainName       : AD.LABDOMAIN.DEV
+Owner            : LAB\Domain Admins
+Id               : b18650e1-c3a9-430c-8a3e-9b0855805d82
+GpoStatus        : AllSettingsEnabled
+Description      : 
+CreationTime     : 10/8/2026 10:25:57 AM
+ModificationTime : 10/8/2026 10:25:58 AM
+UserVersion      : AD Version: 1, SysVol Version: 1
+ComputerVersion  : AD Version: 1, SysVol Version: 1
+WmiFilter        : 
+
+
+

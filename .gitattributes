@@ -73,3 +73,17 @@ docs/plan-033/wi062-cleanup/** -text -whitespace
 docs/plan-033/*-evidence/plan034-20261008/** -text -whitespace
 docs/plan-033/*-evidence/plan034-rerun-20261008/** -text -whitespace
 docs/plan-033/plan034-cleanup/** -text -whitespace
+
+# The fdeploy lane's certifying run (6b76fad, 2026-10-08): the controller's
+# local run directory verbatim plus controller-candidate/ and controller.log.
+# fdeploy1.ini/fdeploy.ini are UTF-16LE and the report XML and command streams
+# keep Windows' bytes; the verdict's artifact and candidate SHA-256s cover them.
+docs/plan-033/wp4-evidence/fdeploy/** -text -whitespace
+# Sources that verdict binds and no earlier rule pinned. The blobs are LF; pin
+# them so a Windows checkout does not smudge them to CRLF and fail the binding.
+src/gpo_studio/fdeploy.py text eol=lf
+src/gpo_studio/fdeploy_parity.py text eol=lf
+src/gpo_studio/backup.py text eol=lf
+src/gpo_studio/backup_inventory.py text eol=lf
+src/gpo_studio/safe_io.py text eol=lf
+tests/fixtures/native-folder-redirection-gpmc/** text eol=lf

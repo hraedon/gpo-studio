@@ -18,6 +18,15 @@ below said the module was untouched and that none of WP-4's options was a
 deletion order. The 2026-10-07 ruling deleted it as superseded by `fdeploy.py`,
 because Plan 034 now requires every module it lists to leave either at `yes` or
 with a recorded ruling. Nothing imported it outside its own tests.
+
+**2026-10-08 — the read target is lane-certified.** The fdeploy lane's run
+`fd-20261008102559-9746` (29/29, commit `6b76fad`) certified the reader for R3's
+bytes and three `Flags`-only variants. Windows kept the bytes through
+`Import-GPO` and `Backup-GPO`, and `read_backup` agreed with `Get-GPOReport` row
+for row. See [the results](plan-033/fdeploy-results.md). The first bullet under
+"What this ruling does not claim" below is therefore history for the read
+direction. The writer stays deferred behind R12, and `Flags` is still not
+decoded.
 `src/gpo_studio/folder_redirection.py` (537 lines) and
 `tests/test_folder_redirection.py` (624) are removed, and version control keeps
 both. This follows the `certification.py` deletion (WI-056) recorded in

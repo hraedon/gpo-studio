@@ -1,14 +1,14 @@
 # fdeploy lane design
 
-Status: **first estate run passed at `379e59b` (28/28, 2026-10-08); the
-lane was then hardened after review, so that verdict binds superseded source
-and the lane must re-run.** The first run showed R3's bytes byte-identical
-through `Import-GPO` and `Backup-GPO`, the reader agreeing with Windows'
-report, and the option rendering matching the probe. The cross-lineage review
-of that commit failed it on four findings, all about the harness rather than
-the measurement. Each is fixed here with a regression test (see
-[Review hardening](#review-hardening-2026-10-08)). The hardening edits the
-guest, the builder and the finalizer, which that verdict binds.
+Status: **certified 2026-10-08 by `fd-20261008102559-9746` (29/29, clean
+commit `6b76fad`); see [the results](fdeploy-results.md).** That run is the
+lane's live verdict, banked under `wp4-evidence/fdeploy/`. An earlier
+exploratory pass at `379e59b` (28/28) showed the same measurements, but the
+cross-lineage review of that commit failed it on four findings, all about the
+harness rather than the measurement. Each is fixed here with a regression test
+(see [Review hardening](#review-hardening-2026-10-08)). The hardening edited
+the guest, the builder and the finalizer, which that pass binds, so it is
+history and certifies nothing.
 
 This is the exit the [2026-10-07 direction](../direction-2026-10-07-plan-034-completion.md)
 set for `fdeploy.py`: "banked R3 bytes go through `Import-GPO`, then

@@ -58,8 +58,13 @@ paths and raw flags.
 
 The panel calls `POST /api/folder-redirection/fdeploy` to inspect each file and
 `POST /api/folder-redirection/fdeploy/diff` to compare them. The reader is
-tested against one native Windows capture, and no repeatable Windows lane backs
-it. The panel does not add to that evidence. Imported backups now carry the
-parsed file on the GPO, and its policy report and GPO diffs render it (WI-068,
-open until the affected lanes re-run); see the
+tested against one native Windows capture (R3), and since 2026-10-08 a
+repeatable Windows lane backs it: the fdeploy lane's run
+`fd-20261008102559-9746` showed Windows keeping the file's bytes through
+`Import-GPO` and `Backup-GPO`, and the reader agreeing with `Get-GPOReport` on
+folder, principal and destination, for R3's bytes and three `Flags`-only
+variants. It did not decode `Flags` or measure multi-folder or multi-principal
+files; see [the lane results](plan-033/fdeploy-results.md). The panel does not
+add to that evidence. Imported backups carry the parsed file on the GPO, and
+its policy report and GPO diffs render it (WI-068, closed 2026-10-08); see the
 [read-target decision](scope-decision-2026-09-11-folder-redirection.md).

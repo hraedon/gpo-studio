@@ -2701,6 +2701,20 @@ all (`FRSettingRead failed`). For 765 and 2045 it renders the folder with an emp
 The fdeploy lane ([design](plan-033/fdeploy-lane-design.md)) records Windows' option
 rendering per case as data for this item and asserts none of it. The first run (2026-10-08, `379e59b`) matched the probe on all four values; a re-run is owed after review hardening.
 
+**Update, 2026-10-08: the reader is certified; this item is the writer's.** The
+re-run after review hardening, `fd-20261008102559-9746` (29/29, clean commit `6b76fad`),
+is banked under `docs/plan-033/wp4-evidence/fdeploy/` and live; see
+[the fdeploy results](plan-033/fdeploy-results.md). It supersedes the `379e59b` pass,
+which binds pre-hardening source and was never banked. For Flags 1021 (R3 verbatim), 1020,
+1023 and 3069, Windows kept the bytes through `Import-GPO` and `Backup-GPO`, and Studio's
+reader agreed with Windows' report on folder, principal and destination. That is the read
+target's `yes`. The option rendering it recorded matches the probe on all four values
+(1020 clears `MoveContents`, 1023 sets `FollowParent`, 3069 sets `RedirectToLocal`,
+relative to 1021); the table is in the results doc and pinned by
+`tests/test_fdeploy_lane_evidence.py`. Four interpretations of a ten-bit word are still
+not an encoding. Questions 3 and 4 remain R12's, and the writer stays deferred until R12
+answers them.
+
 **Closes when:** R12 is captured (one GPMC session on LabMS01; no lane, no harness change)
 and its result row answers questions 3 and 4 or names what it still does not answer. The
 brief [`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md)

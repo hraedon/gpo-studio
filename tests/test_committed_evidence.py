@@ -946,6 +946,19 @@ RETIRED_VERDICTS.update({
     'wp3-evidence/plan034-20261008/object-security/verification.json',
 })
 
+# The fdeploy lane's certifying run, 2026-10-08 (Plan 034 WP-4): a single lane
+# on its own commit, `6b76fad`, banked the way the object-security successor
+# was -- the controller's run directory verbatim, plus `controller-candidate/`
+# and `controller.log`. 29/29: for four Flags values, Windows' SYSVOL copy and
+# Backup-GPO re-export of fdeploy1.ini/fdeploy.ini are the candidate's bytes,
+# and Studio's read_backup over Windows' own backup agrees with Windows' fresh
+# report row for row. It is the lane's first verdict, so nothing retires: the
+# exploratory pass at `379e59b` binds superseded source and was never banked.
+# `tests/test_fdeploy_lane_evidence.py` pins the pack.
+LANE_VERDICTS.update({
+    'wp4-evidence/fdeploy/verification.json': 'finalize_fdeploy_run.py',
+})
+
 
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
 #: estate batch owes. Enumerated, never pattern-matched, for the same reason

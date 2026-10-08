@@ -49,9 +49,17 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 #: is out of scope for 1.x with its code retained, unreachable and not
 #: counted as a capability. A plan whose remaining modules are merely
 #: *unsurfaced*, like 025's `network_security.py`, stays in this tuple.
+#:
+#: **027 was removed on 2026-10-08**, the same way. Both of its modules were
+#: deleted on 2026-10-07: `software_install.py` by the 2026-09-06
+#: out-of-scope ruling, and `folder_redirection.py` because R3 showed it read
+#: the wrong artifact. Its successor `fdeploy.py` then met both halves of the
+#: exit for the read target: the fdeploy lane certified the reader
+#: (`fd-20261008102559-9746`), and `/api/folder-redirection/fdeploy` was
+#: already mounted. The deferred writer (WI-066) is a recorded ruling, not an
+#: unexamined layer.
 DOMAIN_LAYER_PLANS: tuple[str, ...] = (
     "025",
-    "027",
     "028",
     "031",
     "032",
@@ -115,6 +123,7 @@ PROMOTED_DOMAIN_LAYER_PLANS: tuple[tuple[str, str], ...] = (
     ("029", "/api/rsop/compute"),
     ("026", "/api/gpos/{guid}/gpmc-backup-with-scripts"),
     ("030", "/api/gpos/{guid}/publication-plan"),
+    ("027", "/api/folder-redirection/fdeploy"),
 )
 
 
