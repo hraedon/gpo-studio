@@ -64,12 +64,15 @@ function Remove-ADObject { param($Identity, $Server, $Confirm, $ErrorAction)
 function Remove-ADGroup { param($Identity, $Server, $Confirm, $ErrorAction) $global:ad.Remove($Identity); $global:deleted += $Identity }
 function Remove-ADOrganizationalUnit { param($Identity, $Server, $Confirm, $Recursive, $ErrorAction) $global:ad.Remove($Identity); $global:deleted += $Identity }
 function Get-GPInheritance { param($Target, $Domain, $Server, $ErrorAction) return [pscustomobject]@{ GpoLinks = @() } }
+function Start-Sleep { param($Seconds) }
 function Get-GPO { param([switch]$All, $Name, $Guid, $Domain, $Server, $ErrorAction)
+    if ($All) { return @($global:gpos.Values) }
     if ($Name) { if ($global:gpos.ContainsKey($Name)) { return $global:gpos[$Name] }; throw "GpoNotFound: $Name was not found" }
     foreach ($g in $global:gpos.Values) { if ("$($g.Id)" -eq "$Guid") { return $g } }
     throw "GpoNotFound: $Guid was not found" }
 function New-GPO { param($Name, $Comment, $Domain, $Server, $ErrorAction)
-    $g = [pscustomobject]@{ Id = [guid]::NewGuid(); DisplayName = $Name }
+    $g = [pscustomobject]@{ Id = [guid]::NewGuid(); DisplayName = $Name; Description = $Comment
+        GpoStatus = 'AllSettingsEnabled'; WmiFilter = $null; CreationTime = (Get-Date) }
     $global:gpos[$Name] = $g
     if ($global:commitThenThrow -eq 'gpo') { throw 'synthetic: response lost after the server committed the GPO' }
     return $g }
@@ -88,6 +91,7 @@ function Report($out) {
         cleanup               = $r.cleanup
         cleanup_succeeded     = $r.cleanup_succeeded
         error                 = $r.error
+        import_as_new_error   = $r.operations.import_as_new.error
     } | ConvertTo-Json -Depth 8 -Compress
 }
 """
@@ -219,3 +223,103 @@ def test_guest_probe_objects_carrying_the_runs_marker_are_removed(tmp_path: Path
     """The control for the two race probes: a clean early failure tears down fully."""
     report = _run_probe(tmp_path, "$global:commitThenThrow = 'gpo'\n")
     assert report["ad_left"] == []
+
+
+# ---------------------------------------------------------------------------
+# Re-review 3: a GPO a creating operation RETURNS is not proof of creating it
+# ---------------------------------------------------------------------------
+
+#: Stand-ins for the rest of the flow, so a run reaches the creating operations.
+_FULL_FLOW = r"""
+$global:groupCount = 0
+function Get-ADGroup { param($Identity, $Server, $ErrorAction)
+    $global:groupCount++
+    return [pscustomobject]@{ SID = [pscustomobject]@{ Value = "S-1-5-21-1-2-3-$($global:groupCount + 1100)" } } }
+function Set-GPRegistryValue { param($Guid, $Domain, $Server, $Key, $ValueName, $Type, $Value, $ErrorAction) }
+function New-GPLink { param($Guid, $Target, $LinkEnabled, $Domain, $Server, $ErrorAction) }
+function Remove-GPLink { param($Guid, $Target, $Domain, $Server, $ErrorAction) }
+function Set-GPPermission { param($Guid, $Domain, $Server, $TargetName, $TargetType, $PermissionLevel, [switch]$Replace, $ErrorAction) }
+function Set-ADObject { param($Identity, $Server, $Replace, $ErrorAction) }
+function Get-GPRegistryValue { param($Guid, $Domain, $Server, $Key, $ValueName, $ErrorAction) return [pscustomobject]@{ Value = 'v' } }
+function Get-GPPermission { param($Guid, [switch]$All, $Domain, $Server, $ErrorAction) }
+function Get-Acl { param($Path) return [pscustomobject]@{ Sddl = '' } }
+function Backup-GPO { param($Guid, $Path, $Comment, $Domain, $Server, $ErrorAction) return [pscustomobject]@{ Id = [guid]'dddddddd-0000-0000-0000-000000000001' } }
+function Copy-GPO { param($SourceGuid, $TargetName, [switch]$CopyAcl, $SourceDomain, $TargetDomain, $SourceDomainController, $TargetDomainController, $ErrorAction)
+    return New-GPO -Name $TargetName }
+function Restore-GPO { param($BackupId, $Path, $Domain, $Server, $Confirm, $ErrorAction) }
+function Get-ADObject { param($Identity, $Server, $ErrorAction, $Properties, $LDAPFilter, $SearchBase)
+    if ($LDAPFilter) { return @() }
+    if ($Identity -eq 'DC=synthetic,DC=test') { return [pscustomobject]@{ gPLink = '' } }
+    if ("$Identity" -match '^CN=\{[^}]+\},CN=Policies,') { return [pscustomobject]@{ gPCWQLFilter = ''; gPCFileSysPath = '' } }
+    if ($global:ad.ContainsKey($Identity)) {
+        $v = $global:ad[$Identity]; $m = if ($v -is [hashtable]) { $v.marker } else { '' }
+        return [pscustomobject]@{ DistinguishedName = $Identity; description = $m; 'msWMI-Parm1' = $m } }
+    throw [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]::new('not found') }
+"""
+
+_FOREIGN_ID = "eeeeeeee-0000-0000-0000-000000000099"
+
+#: Import-GPO -CreateIfNeeded hands back a GPO that already existed when the
+#: operation began (it is in the pre-operation id snapshot).
+_IMPORT_RETURNS_PREEXISTING = _FULL_FLOW + r"""
+$global:gpos['someone-else'] = [pscustomobject]@{ Id = [guid]'eeeeeeee-0000-0000-0000-000000000099'
+    DisplayName = 'someone-else'; Description = 'foreign'; GpoStatus = 'AllSettingsEnabled'; WmiFilter = $null
+    CreationTime = [datetime]'2026-01-01' }
+function Import-GPO { param($BackupId, $Path, $TargetName, $TargetGuid, [switch]$CreateIfNeeded, $Domain, $Server, $Confirm, $ErrorAction)
+    if ($CreateIfNeeded) { return $global:gpos['someone-else'] }
+    return Get-GPO -Guid $TargetGuid }
+"""
+
+#: Sol's race: another creator's GPO appears under the target name and the
+#: import returns it. It is not in the snapshot, but it was created before the
+#: operation began.
+_IMPORT_RETURNS_OLDER_GPO = _FULL_FLOW + r"""
+function Import-GPO { param($BackupId, $Path, $TargetName, $TargetGuid, [switch]$CreateIfNeeded, $Domain, $Server, $Confirm, $ErrorAction)
+    if ($CreateIfNeeded) {
+        $g = [pscustomobject]@{ Id = [guid]'eeeeeeee-0000-0000-0000-000000000099'; DisplayName = $TargetName
+            Description = 'foreign'; GpoStatus = 'AllSettingsEnabled'; WmiFilter = $null; CreationTime = [datetime]'2026-01-01' }
+        $global:gpos[$TargetName] = $g
+        return $g }
+    return Get-GPO -Guid $TargetGuid }
+"""
+
+
+def _import_entry(report: dict[str, object]) -> dict[str, object]:
+    created = report["created"]
+    assert isinstance(created, dict)
+    gpos = created["gpos"]
+    entries = [g for g in (gpos if isinstance(gpos, list) else [gpos]) if g["role"] == "import_as_new"]
+    assert len(entries) == 1
+    return dict(entries[0])
+
+
+@pytest.mark.parametrize(
+    "setup", [_IMPORT_RETURNS_PREEXISTING, _IMPORT_RETURNS_OLDER_GPO],
+    ids=["returned_id_in_snapshot", "returned_gpo_older_than_operation"],
+)
+def test_guest_probe_a_returned_foreign_gpo_is_never_owned_or_deleted(
+    tmp_path: Path, setup: str
+) -> None:
+    report = _run_probe(tmp_path, setup)
+    entry = _import_entry(report)
+    assert entry["owned"] is False
+    assert entry["id"] == _FOREIGN_ID
+    assert _FOREIGN_ID not in [str(d).lower() for d in report["deleted"]]  # type: ignore[union-attr]
+    assert any(
+        name == "someone-else" or str(name).endswith("-imported")
+        for name in report["gpos_left"]  # type: ignore[union-attr]
+    )
+    assert "not created by this run" in str(report["import_as_new_error"])
+    assert report["cleanup_succeeded"] is False
+
+
+def test_guest_probe_gpos_the_operations_did_create_are_owned_and_removed(
+    tmp_path: Path,
+) -> None:
+    """The control for the probes above: fresh copies are owned and torn down."""
+    report = _run_probe(tmp_path, _IMPORT_RETURNS_PREEXISTING)
+    created = report["created"]
+    assert isinstance(created, dict)
+    owned = {g["role"]: g["owned"] for g in created["gpos"]}
+    assert owned["copy"] is True and owned["copy_with_acl"] is True
+    assert report["gpos_left"] == ["someone-else"]

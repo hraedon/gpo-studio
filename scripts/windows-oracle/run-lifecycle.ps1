@@ -232,6 +232,37 @@ function Get-AdOwnership {
     return 'foreign'
 }
 
+# A creating operation (Copy-GPO, Import-GPO -CreateIfNeeded) RETURNS a GPO,
+# but returning one does not prove creating it: if another creator takes the
+# name after the absence check, Import-GPO -CreateIfNeeded imports into that GPO
+# and returns it. So every GPO id in the domain is captured immediately before
+# the operation, with the start time truncated to the whole second (AD's
+# whenCreated has one-second resolution), and the returned GPO is owned only if
+# its id was not in that set AND its CreationTime is not before the start.
+# Anything else is foreign: recorded, never owned, never deleted, and the
+# operation fails.
+function Get-CreationBaseline {
+    $now = Get-Date
+    $ids = @(Get-GPO -All -Domain $Domain -Server $dc -ErrorAction Stop |
+            ForEach-Object { ([string]$_.Id).ToLowerInvariant() })
+    return [ordered]@{
+        ids   = $ids
+        start = $now.AddTicks(-($now.Ticks % [TimeSpan]::TicksPerSecond))
+    }
+}
+function Confirm-GpoCreated {
+    param($Entry, $Gpo, $Baseline)
+    $id = ([string]$Gpo.Id).ToLowerInvariant()
+    $Entry.id = $id
+    if (@($Baseline.ids) -contains $id) {
+        throw "returned GPO ${id} existed before the operation; not created by this run, left in place"
+    }
+    if ($null -eq $Gpo.CreationTime -or $Gpo.CreationTime -lt $Baseline.start) {
+        throw "returned GPO ${id} has CreationTime '$($Gpo.CreationTime)' before the operation began; not created by this run, left in place"
+    }
+    $Entry.owned = $true
+}
+
 # Intent first, then the create. The entry is a reference: filling in the id
 # after the create updates the inventory in place.
 function Register-GpoIntent {
@@ -511,6 +542,7 @@ try {
             $op.target_preexisted = [bool](Find-GpoByName -Name $targetName)
             if ($op.target_preexisted) { throw "copy target '$targetName' exists" }
             $entry = Register-GpoIntent -Role $name -Name $targetName
+            $baseline = Get-CreationBaseline
             if ($name -eq 'copy_with_acl') {
                 $copy = Copy-GPO -SourceGuid $source.Id -TargetName $targetName -CopyAcl `
                     -SourceDomain $Domain -TargetDomain $Domain `
@@ -520,9 +552,8 @@ try {
                     -SourceDomain $Domain -TargetDomain $Domain `
                     -SourceDomainController $dc -TargetDomainController $dc -ErrorAction Stop 2> $stderr
             }
-            $entry.id = ([string]$copy.Id).ToLowerInvariant()
-            $entry.owned = $true
             Save-CommandOutput $name $copy
+            Confirm-GpoCreated -Entry $entry -Gpo $copy -Baseline $baseline
             $op.target_after = Read-ScopeState -Id $copy.Id
             $op.succeeded = $true
         } catch {
@@ -541,12 +572,12 @@ try {
         $op.target_preexisted = [bool](Find-GpoByName -Name $names.gpo_import_as_new)
         if ($op.target_preexisted) { throw "import_as_new target '$($names.gpo_import_as_new)' exists" }
         $entry = Register-GpoIntent -Role 'import_as_new' -Name $names.gpo_import_as_new
+        $baseline = Get-CreationBaseline
         $imported = Import-GPO -BackupId $backupId -Path $backupRoot -TargetName $names.gpo_import_as_new `
             -CreateIfNeeded -Domain $Domain -Server $dc -Confirm:$false -ErrorAction Stop `
             2> (Join-Path $commands 'import_as_new.stderr.txt')
-        $entry.id = ([string]$imported.Id).ToLowerInvariant()
-        $entry.owned = $true
         Save-CommandOutput 'import_as_new' $imported
+        Confirm-GpoCreated -Entry $entry -Gpo $imported -Baseline $baseline
         $op.target_after = Read-ScopeState -Id $imported.Id
         $op.succeeded = $true
     } catch {
@@ -631,6 +662,12 @@ try {
         # name after the guard -- so it is reported and left in place.
         foreach ($gpo in $created.gpos) {
             if ($gpo.owned) { continue }
+            if ($gpo.id) {
+                # A creating operation RETURNED this GPO but did not create it
+                # (Confirm-GpoCreated): the operation wrote into a GPO that is
+                # not ours, which no teardown can undo.
+                $problems += "GPO $($gpo.id) returned for '$($gpo.name)' was not created by this run; it was modified and is left in place"
+            }
             try {
                 if (Find-GpoByName -Name $gpo.name) {
                     $problems += "GPO '$($gpo.name)' exists but its create failed; ownership unproven, left in place"
