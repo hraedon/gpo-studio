@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import runpy
+import sys
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -122,17 +125,82 @@ def test_every_artifact_rehashes_and_nothing_is_unaccounted(verdict: dict[str, A
     assert on_disk == accounted
 
 
+def _archive_members(data: bytes) -> list[tuple[str, tuple[int, ...], int, int, bytes]]:
+    """Everything in a ZIP the lane consumes, without the container's host byte."""
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        return [
+            (
+                info.filename,
+                tuple(info.date_time),
+                info.compress_type,
+                info.external_attr,
+                archive.read(info),
+            )
+            for info in archive.infolist()
+        ]
+
+
+#: Why the archive's SHA-256 is exact only on POSIX, which the bound builder
+#: does not control (the same finding as the firewall bank, and scheduled for
+#: the cross-lane deterministic-zip sweep in batch 2 rather than fixed here,
+#: since the builder is bound): `zipfile.ZipInfo` defaults `create_system` to
+#: 0 on Windows and 3 elsewhere, and that byte sits in every central-directory
+#: entry. Windows/3.14 may differ further if its build links a different zlib
+#: (inferred from the firewall bank, not measured here). The certified
+#: candidate is built on the Linux controller, so the banked hash is the POSIX
+#: one. `test_the_host_byte_changes_only_the_container` pins the explanation.
+ARCHIVE = "report-parity-cases.zip"
+
+
 def test_the_guest_received_the_candidate_the_tree_still_builds(
-    verdict: dict[str, Any],
+    verdict: dict[str, Any], tmp_path: Path
 ) -> None:
-    archive = _sha(CANDIDATE / "report-parity-cases.zip")
+    """The guest got the banked candidate, and the tree still builds it.
+
+    On every platform `expected.json` is rebuilt byte for byte, and the
+    archive's members (names, order, timestamps, compression method,
+    attributes and bytes) are identical. On POSIX, where the controller builds
+    it, the archive's container hash is exact too, which is the finalizer's own
+    `candidate_rebuilds` check.
+    """
+    archive = _sha(CANDIDATE / ARCHIVE)
     delivery = verdict["candidate_delivery"]
     assert delivery["controller_sha256"] == delivery["guest_sha256"] == archive
     assert _sha(PACK / "candidate.zip") == archive
     builder = FINALIZER["_builder"](ROOT)
+    builder.build(tmp_path, ROOT)
+    assert _sha(tmp_path / "expected.json") == verdict["candidate"]["expected.json"]
+    assert _archive_members((tmp_path / ARCHIVE).read_bytes()) == _archive_members(
+        (CANDIDATE / ARCHIVE).read_bytes()
+    )
+    if sys.platform == "win32":
+        return
+    assert _sha(tmp_path / ARCHIVE) == archive
     assert FINALIZER["candidate_rebuilds"](builder, CANDIDATE, ROOT), (
         "the bound builder no longer rebuilds the banked candidate byte for byte"
     )
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows is already the create_system=0 host"
+)
+def test_the_host_byte_changes_only_the_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Forcing Windows' `create_system` default moves the hash and nothing else."""
+    original = zipfile.ZipInfo.__init__
+
+    def windows_default(self: zipfile.ZipInfo, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        self.create_system = 0
+
+    monkeypatch.setattr(zipfile.ZipInfo, "__init__", windows_default)
+    FINALIZER["_builder"](ROOT).build(tmp_path, ROOT)
+    data = (tmp_path / ARCHIVE).read_bytes()
+    banked = (CANDIDATE / ARCHIVE).read_bytes()
+    assert hashlib.sha256(data).digest() != hashlib.sha256(banked).digest()
+    assert _archive_members(data) == _archive_members(banked)
+    assert _sha(tmp_path / "expected.json") == _sha(CANDIDATE / "expected.json")
 
 
 def test_the_deployed_runner_is_the_one_at_the_commit(verdict: dict[str, Any]) -> None:

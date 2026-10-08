@@ -91,7 +91,7 @@ class _WindowsOrderedPath(type(Path())):  # type: ignore[misc]
     """
 
     def _folded(self) -> str:
-        return str(self).casefold()
+        return self.as_posix().casefold()
 
     def __lt__(self, other: object) -> bool:
         return self._folded() < Path(str(other)).as_posix().casefold()
@@ -106,8 +106,16 @@ class _WindowsOrderedPath(type(Path())):  # type: ignore[misc]
         return not self.__lt__(other)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "the shim stands in for WindowsPath on other hosts; on Windows the real "
+        "comparator is native, and the two platform-independence tests below "
+        "run against it directly"
+    ),
+)
 def test_the_comparator_shim_really_orders_like_windows() -> None:
-    """The control: without it the test below proves nothing on Linux."""
+    """The control: without it the tests below prove nothing on Linux."""
     upper, lower = _WindowsOrderedPath("x/DomainSysvol"), _WindowsOrderedPath("x/bkupInfo.xml")
     assert sorted([upper, lower]) == [lower, upper]
     assert sorted([upper, lower], key=lambda p: p.parts) == [upper, lower]
