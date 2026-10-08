@@ -54,6 +54,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from uuid import NAMESPACE_DNS, NAMESPACE_URL, uuid5
 from xml.sax.saxutils import quoteattr
@@ -487,10 +488,25 @@ def longest_guest_path(archive_names: list[str], case_dirs: list[str]) -> str:
     return max(paths, key=len)
 
 
+def _ordinal(base: Path) -> Callable[[Path], tuple[str, ...]]:
+    """Sort key: the path's components below ``base``, compared ordinally.
+
+    Never sort ``Path`` objects themselves. ``WindowsPath`` compares
+    case-insensitively and ``PosixPath`` does not, so ``sorted(root.rglob("*"))``
+    puts ``bkupInfo.xml`` before ``DomainSysvol/`` on Windows and after it on
+    Linux. The archive's member order, and so its bytes, then depended on the
+    controller's OS, and the finalizer's byte-identical rebuild check failed on
+    a Windows checkout of an unchanged tree (the defect report-parity's builder
+    had first). Component tuples of ``str`` order the same everywhere, and
+    match what a POSIX ``Path`` sort produced.
+    """
+    return lambda path: path.relative_to(base).parts
+
+
 def _zip(root: Path) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        for path in sorted((p for p in root.rglob("*") if p.is_file()), key=_ordinal(root)):
             info = zipfile.ZipInfo(path.relative_to(root).as_posix(), (1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import io
 import json
 import re
 import shutil
@@ -242,6 +243,86 @@ def test_the_builder_is_deterministic(tmp_path: Path) -> None:
                        capture_output=True)
     for name in FINALIZER.REQUIRED_CANDIDATE_FILES:
         assert (first / name).read_bytes() == (second / name).read_bytes(), name
+
+
+class _WindowsOrderedPath(type(Path())):  # type: ignore[misc]
+    """A path that sorts the way ``WindowsPath`` does: case-insensitively.
+
+    The certifying run's candidate rebuilt byte for byte on Linux and not on a
+    Windows checkout (PR #98, run 37772005773), because the builder sorted
+    ``Path`` objects and the two platforms order them differently
+    (``bkupInfo.xml`` against ``DomainSysvol``) -- the defect report-parity's
+    builder had first. This reproduces the Windows comparator on any host, so
+    the regression is caught here rather than only by the Windows CI job.
+    """
+
+    def _folded(self) -> str:
+        return self.as_posix().casefold()
+
+    def __lt__(self, other: object) -> bool:
+        return self._folded() < Path(str(other)).as_posix().casefold()
+
+    def __gt__(self, other: object) -> bool:
+        return self._folded() > Path(str(other)).as_posix().casefold()
+
+    def __le__(self, other: object) -> bool:
+        return not self.__gt__(other)
+
+    def __ge__(self, other: object) -> bool:
+        return not self.__lt__(other)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "the shim stands in for WindowsPath on other hosts; on Windows the real "
+        "comparator is native, and the two platform-independence tests below "
+        "run against it directly"
+    ),
+)
+def test_the_comparator_shim_really_orders_like_windows() -> None:
+    """The control: without it the tests below prove nothing on Linux."""
+    upper, lower = _WindowsOrderedPath("x/DomainSysvol"), _WindowsOrderedPath("x/bkupInfo.xml")
+    assert sorted([upper, lower]) == [lower, upper]
+    assert sorted([upper, lower], key=lambda p: p.parts) == [upper, lower]
+
+
+def test_the_archive_member_order_does_not_depend_on_the_platform(tmp_path: Path) -> None:
+    """The defect itself: the archive root is a temporary directory, so this is
+    exercised through ``_zip`` directly, over the names that triggered it."""
+    for relative in ("cases/c1/{ID}/Backup.xml", "cases/c1/{ID}/bkupInfo.xml",
+                     "cases/c1/{ID}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini",
+                     "cases/c1/{ID}/gpreport.xml", "cases/c1/manifest.xml"):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(relative.encode())
+    native = BUILDER._zip(Path(tmp_path))
+    windows = BUILDER._zip(_WindowsOrderedPath(tmp_path))
+    with zipfile.ZipFile(io.BytesIO(native)) as zipped:
+        names = zipped.namelist()
+    assert names.index(
+        "cases/c1/{ID}/DomainSysvol/GPO/User/Documents & Settings/fdeploy1.ini"
+    ) < names.index("cases/c1/{ID}/bkupInfo.xml")
+    assert native == windows
+
+
+def test_the_candidate_does_not_depend_on_the_platforms_path_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The finalizer's rebuild check must hold on a controller of either OS.
+
+    The builder stages into its own temporary directory, so the repo root
+    alone does not carry the comparator in; the module's ``Path`` is replaced
+    too, so the staging tree is Windows-ordered as well.
+    """
+    native, windows = tmp_path / "native", tmp_path / "windows"
+    native.mkdir()
+    windows.mkdir()
+    BUILDER.build(native, ROOT)
+    monkeypatch.setattr(BUILDER, "Path", _WindowsOrderedPath)
+    BUILDER.build(windows, _WindowsOrderedPath(ROOT))
+    for name in FINALIZER.REQUIRED_CANDIDATE_FILES:
+        assert (native / name).read_bytes() == (windows / name).read_bytes(), name
 
 
 def test_the_verbatim_case_is_r3_and_the_others_change_only_flags(candidate: Path) -> None:
