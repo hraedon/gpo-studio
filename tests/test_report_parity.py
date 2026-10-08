@@ -427,11 +427,11 @@ def test_malformed_inventory_json_is_refused(data: object) -> None:
 
 def test_the_task_order_matcher_does_not_absorb_other_families() -> None:
     task_order = known_divergence("scheduled-task-order")
-    assert task_order.matches(Divergence("computer", "ScheduledTasksSettings", "order"))
-    assert not task_order.matches(Divergence("computer", "LugsSettings", "order"))
+    assert task_order.matches(Divergence("computer", "ScheduledTasksSettings", "order"), ())
+    assert not task_order.matches(Divergence("computer", "LugsSettings", "order"), ())
     item = InventoryItem("TaskV2", name="t")
     assert not task_order.matches(
-        Divergence("computer", "ScheduledTasksSettings", "missing_in_studio", item)
+        Divergence("computer", "ScheduledTasksSettings", "missing_in_studio", item), ()
     )
 
 
@@ -439,34 +439,52 @@ def test_the_power_matcher_names_only_the_global_power_plan() -> None:
     power = known_divergence("adapter-root-unknowns-dropped")
     plan = InventoryItem("GlobalPowerOptionsV2", name="p")
     scheme = InventoryItem("PowerScheme", name="p")
-    assert power.matches(Divergence("user", "PowerOptionsSettings", "missing_in_studio", plan))
-    assert not power.matches(
-        Divergence("user", "PowerOptionsSettings", "missing_in_studio", scheme)
-    )
-    assert not power.matches(Divergence("user", "PowerOptionsSettings", "extra_in_studio", plan))
+    family = "PowerOptionsSettings"
+    assert power.matches(Divergence("user", family, "missing_in_studio", plan), ())
+    assert not power.matches(Divergence("user", family, "missing_in_studio", scheme), ())
+    assert not power.matches(Divergence("user", family, "extra_in_studio", plan), ())
 
 
-@pytest.mark.parametrize(
-    "kind,element,name,family,expected",
-    [
-        ("missing_in_studio", "Drive", "P", "DriveMapSettings", True),
-        ("extra_in_studio", "Drive", "P:", "DriveMapSettings", True),
-        ("missing_in_studio", "Drive", "P:", "DriveMapSettings", False),
-        ("extra_in_studio", "Drive", "P", "DriveMapSettings", False),
-        ("extra_in_studio", "Drive", "\\\\s\\h", "DriveMapSettings", False),
-        ("missing_in_studio", "File", "P", "DriveMapSettings", False),
-        ("missing_in_studio", "Drive", "P", "FilesSettings", False),
-    ],
-)
-def test_the_legacy_drive_name_matcher_is_exact(
-    kind: str, element: str, name: str, family: str, expected: bool
-) -> None:
+def _drive(name: str, **fields: str) -> InventoryItem:
+    return InventoryItem("Drive", name=name, action=fields.get("action", "U"))
+
+
+def test_the_legacy_drive_name_matches_only_a_complete_pair() -> None:
     legacy = known_divergence("legacy-studio-drive-name")
-    divergence = Divergence(
-        "user", family, kind, InventoryItem(element, name=name)  # type: ignore[arg-type]
+    windows_p = Divergence("user", "DriveMapSettings", "missing_in_studio", _drive("P"))
+    studio_p = Divergence("user", "DriveMapSettings", "extra_in_studio", _drive("P:"))
+    pair = (windows_p, studio_p)
+    assert legacy.matches(windows_p, pair) and legacy.matches(studio_p, pair)
+    # Either half alone is a real divergence: a drive one side lacks.
+    assert not legacy.matches(windows_p, (windows_p,))
+    assert not legacy.matches(studio_p, (studio_p,))
+    # The halves must be the same item apart from the colon.
+    other = Divergence("user", "DriveMapSettings", "extra_in_studio", _drive("P:", action="R"))
+    assert not legacy.matches(windows_p, (windows_p, other))
+    letter_q = Divergence("user", "DriveMapSettings", "extra_in_studio", _drive("Q:"))
+    assert not legacy.matches(windows_p, (windows_p, letter_q))
+    # Direction matters: Studio's bare letter is not the legacy shape.
+    reversed_pair = (
+        Divergence("user", "DriveMapSettings", "missing_in_studio", _drive("P:")),
+        Divergence("user", "DriveMapSettings", "extra_in_studio", _drive("P")),
     )
-    assert legacy.matches(divergence) is expected
-    assert not legacy.matches(Divergence("user", "DriveMapSettings", "order"))
+    assert not any(legacy.matches(d, reversed_pair) for d in reversed_pair)
+    # Other families, elements, kinds and names never match.
+    unc = Divergence("user", "DriveMapSettings", "extra_in_studio", _drive("\\\\s\\h"))
+    assert not legacy.matches(unc, (unc,))
+    file_p = Divergence("user", "DriveMapSettings", "missing_in_studio",
+                        InventoryItem("File", name="P"))
+    assert not legacy.matches(file_p, (file_p,))
+    files = Divergence("user", "FilesSettings", "missing_in_studio", _drive("P"))
+    assert not legacy.matches(files, (files,))
+    assert not legacy.matches(Divergence("user", "DriveMapSettings", "order"), pair)
+
+
+def test_a_lone_extra_drive_with_a_colon_stays_unexplained() -> None:
+    """The broad matcher this replaced absorbed exactly this case."""
+    result = compare(Inventory(families=()), _inv(_drive("M:")))
+    known, unexplained = classify(result)
+    assert known == {} and len(unexplained) == 1
 
 
 def test_an_unknown_divergence_stays_unexplained() -> None:

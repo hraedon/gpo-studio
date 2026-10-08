@@ -96,13 +96,14 @@ def test_discovery_covers_every_finalizer_and_its_declared_paths() -> None:
     lanes = SYMBOLS["bound_source_paths"](ROOT)
     finalizers = {p.name for p in (ROOT / "scripts/windows-oracle").glob("finalize_*.py")}
     assert set(lanes) == finalizers
-    assert len(lanes) == 10
+    assert len(lanes) == 11
     for name, paths in lanes.items():
         assert paths, name
         assert all((ROOT / p).is_file() for p in paths), name
     assert "tests/fixtures/recipes/synthetic-registry-basic.json" in lanes["finalize_oracle_run.py"]
     assert "src/gpo_studio/export.py" in lanes["finalize_publication_run.py"]
     assert "scripts/windows-oracle/run-rsop-user-observe.ps1" in lanes["finalize_rsop_user_run.py"]
+    assert "src/gpo_studio/report_parity.py" in lanes["finalize_report_parity_run.py"]
 
 
 def test_no_finalizers_is_not_a_success(tmp_path: Path) -> None:

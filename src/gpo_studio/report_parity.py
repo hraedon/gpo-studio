@@ -472,13 +472,14 @@ class KnownDivergence:
     name: str
     description: str
     work_item: str | None
-    matches: Callable[[Divergence], bool]
+    matches: Callable[[Divergence, tuple[Divergence, ...]], bool]
 
 
 def _is(
     family: str, kind: DivergenceKind, element: str | None = None
-) -> Callable[[Divergence], bool]:
-    def predicate(divergence: Divergence) -> bool:
+) -> Callable[[Divergence, tuple[Divergence, ...]], bool]:
+    def predicate(divergence: Divergence, siblings: tuple[Divergence, ...] = ()) -> bool:
+        del siblings  # single-divergence matchers need no context
         if divergence.family != family or divergence.kind != kind:
             return False
         if element is None:
@@ -488,15 +489,38 @@ def _is(
     return predicate
 
 
-def _legacy_drive_name(divergence: Divergence) -> bool:
+def _drive_letter_pair(item: InventoryItem) -> InventoryItem | None:
+    """The other half of a bare-letter / letter-colon drive name pair."""
+    if len(item.name) == 1 and item.name.isalpha():
+        return replace(item, name=f"{item.name}:")
+    if len(item.name) == 2 and item.name[0].isalpha() and item.name[1] == ":":
+        return replace(item, name=item.name[0])
+    return None
+
+
+def _legacy_drive_name(divergence: Divergence, siblings: tuple[Divergence, ...]) -> bool:
+    """A Windows ``P`` and a Studio ``P:`` that are otherwise the same item.
+
+    Matched only as a pair: a lone extra ``P:`` (Studio writes a drive Windows
+    does not have) or a lone missing ``P`` is a real divergence, not a label.
+    """
     item = divergence.item
     if divergence.family != "DriveMapSettings" or item is None or item.element != "Drive":
         return False
-    if divergence.kind == "missing_in_studio":
-        return len(item.name) == 1 and item.name.isalpha()
-    if divergence.kind == "extra_in_studio":
-        return len(item.name) == 2 and item.name[0].isalpha() and item.name[1] == ":"
-    return False
+    other = _drive_letter_pair(item)
+    if other is None:
+        return False
+    if divergence.kind == "missing_in_studio" and len(item.name) == 1:
+        wanted: DivergenceKind = "extra_in_studio"
+    elif divergence.kind == "extra_in_studio" and len(item.name) == 2:
+        wanted = "missing_in_studio"
+    else:
+        return False
+    return any(
+        s.kind == wanted and s.family == divergence.family and s.side == divergence.side
+        and s.item == other
+        for s in siblings
+    )
 
 
 KNOWN_DIVERGENCES: tuple[KnownDivergence, ...] = (
@@ -564,9 +588,10 @@ def classify(
     """Split divergences into known (by name) and unexplained."""
     known: dict[str, list[Divergence]] = {}
     unexplained: list[Divergence] = []
-    for divergence in result.divergences:
+    everything = result.divergences
+    for divergence in everything:
         for candidate in KNOWN_DIVERGENCES:
-            if candidate.matches(divergence):
+            if candidate.matches(divergence, everything):
                 known.setdefault(candidate.name, []).append(divergence)
                 break
         else:
