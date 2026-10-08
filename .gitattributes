@@ -62,3 +62,8 @@ docs/plan-033/wp1b-evidence/backup-report-20260908/** -text -whitespace
 # XML); the batch manifest's SHA-256s cover those bytes.
 docs/plan-033/*-evidence/wi062-20260910/** -text -whitespace
 docs/plan-033/wi062-cleanup/** -text -whitespace
+
+# Firewall native records/XML retain exact hashes and Windows record ordering.
+tests/fixtures/native-firewall-gpmc/** -text -whitespace
+scripts/plan-033/capture-firewall-native.ps1 text eol=lf
+src/gpo_studio/firewall_policy.py text eol=lf

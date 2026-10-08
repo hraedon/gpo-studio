@@ -1,0 +1,115 @@
+{
+  "origin": "Native NetSecurity -PolicyStore authoring into an unlinked disposable GPO; WS2025 member server build 26100. capture.json, Get-GPOReport XML and Backup-GPO.",
+  "capture_date": "2026-10-08",
+  "capture_script": "scripts/plan-033/capture-firewall-native.ps1",
+  "capture_script_sha256": "15eb38e5d9834702743742aae7f95a83c1ed4653b32a4b3b8fb46c4cc266de4d",
+  "sanitizer": "scripts/plan-033/sanitize-firewall-fixtures.py",
+  "sanitisation": "Domain, DC, domain account, GPO, domain GUID, backup GUID and run identities replaced with synthetic values. Domain SID prefixes replaced using the existing GPP convention; backup descriptor hex replaced by the existing nonfunctional placeholder. Well-known SIDs/CSE/tool GUIDs, synthetic rule names, paths and RFC documentation addresses retained. Raw inbox remains outside the repository.",
+  "registry_pol": {
+    "sha256": "e5a4aa2d93576797396f4946d26f087230c70bf8b34f18814f1227da5f7feaf7",
+    "bytes": 7592,
+    "records": 25,
+    "rules": 13,
+    "identity_audit": "All keys/names/values inspected: no estate identifiers. Capture base64, backup and top-level Registry.pol are identical."
+  },
+  "ordering": "Windows orders root, Domain profile, FirewallRules, Private profile. Within profile keys it retains authoring order. registry_pol.serialize sorts keys/value names; compare native record sets and individual record bytes, not whole-file byte order. Token order inside each rule is native.",
+  "normalizations": [
+    {
+      "name": "icmpv4-port-filter-rpc",
+      "rule": "StudioFwProbe-03",
+      "wire": "ICMP4=8:0, no LPort token",
+      "readback": "local_port=RPC"
+    },
+    {
+      "name": "rpc-endpoint-map-spelling",
+      "rule": "StudioFwProbe-09",
+      "wire": "LPort=RPC-EPMap",
+      "readback": "local_port=RPCEPMap"
+    },
+    {
+      "name": "wired-interface-spelling",
+      "rule": "StudioFwProbe-11",
+      "wire": "IFType=Lan",
+      "readback": "interface_type=Wired"
+    },
+    {
+      "name": "authenticated-bypass-action",
+      "rule": "StudioFwProbe-13",
+      "wire": "Action=ByPass; Security=Authenticate; RMauth=D:(A;;CC;;;WD)",
+      "readback": "action=Allow; authentication=Required; override_block_rules=True"
+    },
+    {
+      "name": "ipv4-subnet-mask-form",
+      "rule": "StudioFwProbe-05",
+      "authored": "192.0.2.0/24",
+      "wire_and_readback": "192.0.2.0/255.255.255.0"
+    },
+    {
+      "name": "local-subnet-family-expansion",
+      "rule": "StudioFwProbe-08",
+      "wire": "RA4=LocalSubnet|RA6=LocalSubnet",
+      "readback": "remote_address=LocalSubnet"
+    }
+  ],
+  "limitations": "Native capture grounds codec tests; no Studio write/import lane, endpoint application evidence or operator surface. Sanitized backups are fixture evidence, not deployable security descriptors.",
+  "files": [
+    {
+      "relative_path": "backup/manifest.xml",
+      "raw_sha256": "127cbf9309865afd055e46129ac5364e99aefeb74b3aa551ce772eb7c86df965",
+      "sanitized_sha256": "477f8340f81831590ebc94c8554bdc5f4ee27caa50427fa6cb81404454ef5c07",
+      "transformations_applied": [
+        "replace-domain-host-account-gpo-and-backup-identities"
+      ]
+    },
+    {
+      "relative_path": "backup/{33333333-3333-4333-8333-333333333333}/Backup.xml",
+      "raw_sha256": "3a9899379cbbc14cf1323d481198d6a1f179c42dd588e74496627d6180068df4",
+      "sanitized_sha256": "80d274df5eac1a42aff4bba61796ad3d418a66d34035f684c78010552515c465",
+      "transformations_applied": [
+        "replace-domain-host-account-gpo-and-backup-identities",
+        "replace-domain-sid-prefix",
+        "replace-security-descriptor-hex-with-placeholder"
+      ]
+    },
+    {
+      "relative_path": "backup/{33333333-3333-4333-8333-333333333333}/DomainSysvol/GPO/Machine/registry.pol",
+      "raw_sha256": "e5a4aa2d93576797396f4946d26f087230c70bf8b34f18814f1227da5f7feaf7",
+      "sanitized_sha256": "e5a4aa2d93576797396f4946d26f087230c70bf8b34f18814f1227da5f7feaf7",
+      "transformations_applied": []
+    },
+    {
+      "relative_path": "backup/{33333333-3333-4333-8333-333333333333}/bkupInfo.xml",
+      "raw_sha256": "c4194f32de31539f38ec81a33503425c26e721984b657d3785d847edcbd735af",
+      "sanitized_sha256": "965860418459af56380704d39c14c9e0031fa8feb9a0ed2c28d97d79a60047f1",
+      "transformations_applied": [
+        "replace-domain-host-account-gpo-and-backup-identities"
+      ]
+    },
+    {
+      "relative_path": "backup/{33333333-3333-4333-8333-333333333333}/gpreport.xml",
+      "raw_sha256": "23c4b07f83f738c1f5a55526408b7d444e90e4f39d24f43b285a88aff654b559",
+      "sanitized_sha256": "7f45b1932a42e0263c925fc8ba2112c92f8b7e8b574f08fc27aab5641d4f9d35",
+      "transformations_applied": [
+        "replace-domain-host-account-gpo-and-backup-identities",
+        "replace-domain-sid-prefix"
+      ]
+    },
+    {
+      "relative_path": "capture.json",
+      "raw_sha256": "1d24ed80223f44721e4b951edb829727fa5d3d373b7edf86086521e3ad79c283",
+      "sanitized_sha256": "fbbb655fb989b3d35f15fe506439eeb01b354ea132cd38572ad2050fc90ebc44",
+      "transformations_applied": [
+        "replace-domain-host-account-gpo-and-backup-identities"
+      ]
+    },
+    {
+      "relative_path": "report.xml",
+      "raw_sha256": "a6de2e758de151031c45467a9b9514027c75d63ce0763f451aedb192f5421ae2",
+      "sanitized_sha256": "b3b765096660e3f80f8da3dda806f9e5cb6b7968fee4c169077b2bc4ed682157",
+      "transformations_applied": [
+        "replace-domain-host-account-gpo-and-backup-identities",
+        "replace-domain-sid-prefix"
+      ]
+    }
+  ]
+}

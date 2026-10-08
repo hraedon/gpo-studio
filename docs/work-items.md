@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**7 open.**
 
+- [WI-070](#wi-070--firewall-codec-needs-a-write-lane-before-a-surface) - certify the firewall writer, then surface and retire the legacy firewall facade.
 - [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
 - [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -2752,3 +2753,24 @@ real time so no jump happens.
 `PENDING_REQUALIFICATION`, **and** this entry says which debt was paid: the mechanism
 identified, or the lane unblocked around it. Don't close it by paying one debt without
 saying so; that is how this became an unnumbered paragraph.
+
+## WI-070 — firewall codec needs a write lane before a surface
+
+**Opened:** 2026-10-07 (Plan 034 firewall-only operator ruling).
+**Status:** open.
+
+`firewall_policy.py` is grounded in the native WS2025 tranche dated 2026-10-08,
+not in a Studio-origin Windows write/import lane. The legacy firewall half of
+`network_security.py` stays compatible until that lane certifies the replacement.
+IPsec, Public Key, wired and wireless are out of scope for 1.x.
+
+**Closes when:** a rerunnable, candidate/source/hash-bound firewall writer lane
+certifies Studio-origin machine policy against independent Windows readback,
+then an operator surface reaches that certified codec and the legacy firewall
+facade is replaced with compatible explicit re-exports/adapted callers. Register
+the capability only after both steps. The measured B05566AC tool registration
+proposal must be resolved with the export adapter; any bound export edit must
+requalify its publication/scripts-metadata lanes in that session.
+
+The [codec and lane design](plan-033/firewall-codec.md) records exact wire facts,
+refusals, named cmdlet normalizations and required write-leg assertions.

@@ -7,7 +7,11 @@ test modules. Plan 033 now has a certified
 Studio-origin `secedit` writer tranche for account policy, event audit, and
 user rights, but platform wiring and the broader native corpus and security
 areas remain open. The `Windows-verified` claim in this plan's scope is
-**not** met.
+**not** met. A separate `firewall_policy.py` codec is now capture-backed
+(native tranche dated 2026-10-08), not surfaced or Windows-verified by a Studio
+write lane. The 2026-10-07 ruling narrows the network exit to firewall codec →
+lane → surface; IPsec, Public Key, wired and wireless are out of scope for 1.x.
+See [the codec and lane design](../docs/plan-033/firewall-codec.md).
 
 **Two of the four left, 2026-09-11.** `policy_families.py` is reachable at
 `POST /api/security-template/policy-families` and `object_security.py` at
