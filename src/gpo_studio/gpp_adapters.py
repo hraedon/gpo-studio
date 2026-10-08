@@ -1197,7 +1197,13 @@ def serialize_gpp_environment(
     items: tuple[GppEnvironment, ...],
     scope: GppScope,  # noqa: ARG001 - reserved for scope-specific CLSIDs
 ) -> bytes:
-    """Serialize Environment Variables items to GPP XML bytes."""
+    """Serialize Environment Variables items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("environment")
     for env in items:
         root.append(_serialize_environment(env))
@@ -1266,7 +1272,13 @@ def serialize_gpp_ini_files(
     items: tuple[GppIniFile, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize INI Files items to GPP XML bytes."""
+    """Serialize INI Files items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("ini_files")
     for ini in items:
         root.append(_serialize_ini(ini))
@@ -1341,7 +1353,13 @@ def serialize_gpp_regional_options(
     items: tuple[GppRegionalOptions, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Regional Options items to GPP XML bytes."""
+    """Serialize Regional Options items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("regional_options")
     for reg in items:
         root.append(_serialize_regional_options(reg))
@@ -1415,7 +1433,13 @@ def serialize_gpp_power_options(
     items: tuple[GppPowerOptions, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Power Options items to GPP XML bytes."""
+    """Serialize Power Options items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("power_options")
     for pwr in items:
         root.append(_serialize_power_options(pwr))
@@ -1485,7 +1509,13 @@ def serialize_gpp_devices(
     items: tuple[GppDevice, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Devices items to GPP XML bytes."""
+    """Serialize Devices items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("devices")
     for dev in items:
         root.append(_serialize_device(dev))
@@ -1557,7 +1587,13 @@ def serialize_gpp_folder_options(
     items: tuple[GppFolderOptions, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Folder Options items to GPP XML bytes."""
+    """Serialize Folder Options items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("folder_options")
     for fo in items:
         root.append(_serialize_folder_options(fo))
@@ -1630,7 +1666,13 @@ def serialize_gpp_data_sources(
     items: tuple[GppDataSource, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Data Sources items to GPP XML bytes."""
+    """Serialize Data Sources items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("data_sources")
     for ds in items:
         root.append(_serialize_data_source(ds))
@@ -1706,7 +1748,13 @@ def serialize_gpp_drives(
     items: tuple[GppDrive, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Drive Maps items to GPP XML bytes."""
+    """Serialize Drive Maps items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("drives")
     for drive in items:
         root.append(_serialize_drive(drive))
@@ -1780,7 +1828,13 @@ def serialize_gpp_files(
     items: tuple[GppFile, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Files items to GPP XML bytes."""
+    """Serialize Files items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("files")
     for fi in items:
         root.append(_serialize_file(fi))
@@ -1854,7 +1908,13 @@ def serialize_gpp_folders(
     items: tuple[GppFolder, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Folders items to GPP XML bytes."""
+    """Serialize Folders items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("folders")
     for folder in items:
         root.append(_serialize_folder(folder))
@@ -1926,7 +1986,13 @@ def serialize_gpp_network_shares(
     items: tuple[GppNetworkShare, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Network Shares items to GPP XML bytes."""
+    """Serialize Network Shares items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("network_shares")
     for share in items:
         root.append(_serialize_network_share(share))
@@ -2009,7 +2075,13 @@ def serialize_gpp_printers(
     items: tuple[GppPrinter, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Printers items to GPP XML bytes."""
+    """Serialize Printers items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("printers")
     for printer in items:
         root.append(_serialize_printer(printer))
@@ -2091,7 +2163,13 @@ def serialize_gpp_shortcuts(
     items: tuple[GppShortcut, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Shortcuts items to GPP XML bytes."""
+    """Serialize Shortcuts items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("shortcuts")
     for sc in items:
         root.append(_serialize_shortcut(sc))
@@ -2172,7 +2250,13 @@ def serialize_gpp_applications(
     items: tuple[GppApplication, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Applications items to GPP XML bytes."""
+    """Serialize Applications items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("applications")
     for app in items:
         root.append(_serialize_application(app))
@@ -2282,7 +2366,13 @@ def serialize_gpp_services(
     items: tuple[GppService, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize NT Services items to GPP XML bytes."""
+    """Serialize NT Services items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("services")
     for svc in items:
         root.append(_serialize_service(svc))
@@ -2410,7 +2500,13 @@ def serialize_gpp_local_users(
     items: tuple[GppLocalUser, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Local Users items to GPP XML bytes."""
+    """Serialize Local Users items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("local_users")
     for user in items:
         root.append(_serialize_local_user(user))
@@ -2507,7 +2603,13 @@ def serialize_gpp_local_groups(
     items: tuple[GppLocalGroup, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Local Groups items to GPP XML bytes."""
+    """Serialize Local Groups items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("local_groups")
     for group in items:
         root.append(_serialize_local_group(group))
@@ -2927,7 +3029,13 @@ def serialize_gpp_scheduled_tasks(
     items: tuple[GppScheduledTask, ...],
     scope: GppScope,
 ) -> bytes:
-    """Serialize Scheduled Tasks items to GPP XML bytes."""
+    """Serialize Scheduled Tasks items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("scheduled_tasks")
     for task in items:
         root.append(_serialize_scheduled_task(task, scope))
@@ -3039,7 +3147,13 @@ def serialize_gpp_immediate_tasks(
     items: tuple[GppImmediateTask, ...],
     scope: GppScope,  # noqa: ARG001
 ) -> bytes:
-    """Serialize Immediate Tasks items to GPP XML bytes."""
+    """Serialize Immediate Tasks items to a GPP XML fragment (items only).
+
+    For tests and diagnostics only. It sees items, not a collection, so it
+    cannot write a root's retained attributes or children; a GPP file is
+    written by ``gpp.serialize_gpp`` (WI-072, review N3), and
+    ``tests/test_gpp_document_order.py`` fails if production code calls this.
+    """
     root = _build_root_element("immediate_tasks")
     for task in items:
         root.append(_serialize_immediate_task(task))
@@ -3390,29 +3504,6 @@ def _build_adapter_root(
 
 # Map of adapter_key -> file path suffix (for serialize_gpp).
 ADAPTER_FILE_PATHS: dict[str, str] = _ADAPTER_FILE_PATHS
-
-# Map of adapter_key -> serialize function (for serialize_gpp).
-ADAPTER_SERIALIZE_FUNCTIONS: dict[str, Callable[..., bytes]] = {
-    "environment": serialize_gpp_environment,
-    "ini_files": serialize_gpp_ini_files,
-    "regional_options": serialize_gpp_regional_options,
-    "power_options": serialize_gpp_power_options,
-    "devices": serialize_gpp_devices,
-    "folder_options": serialize_gpp_folder_options,
-    "data_sources": serialize_gpp_data_sources,
-    "drives": serialize_gpp_drives,
-    "files": serialize_gpp_files,
-    "folders": serialize_gpp_folders,
-    "network_shares": serialize_gpp_network_shares,
-    "printers": serialize_gpp_printers,
-    "shortcuts": serialize_gpp_shortcuts,
-    "applications": serialize_gpp_applications,
-    # Privileged execution adapters (Plan 024 WP-4).
-    "services": serialize_gpp_services,
-    "local_users": serialize_gpp_local_users,
-    "scheduled_tasks": serialize_gpp_scheduled_tasks,
-    "immediate_tasks": serialize_gpp_immediate_tasks,
-}
 
 # Ordered list of adapter keys (for dict serialization).
 ADAPTER_KEYS: tuple[str, ...] = _ADAPTER_KEYS

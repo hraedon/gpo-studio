@@ -725,7 +725,7 @@ def _copies_disagree(data: dict[str, Any]) -> None:
             _set("immediate_tasks.0.document_position", 3),
             "retained root child #1 and immediate_tasks item 0",
         ),
-        (_copies_disagree, "at positions 3 and 4"),
+        (_copies_disagree, r"at different positions \(\[3\] and \[4\]\)"),
         (_two_unknowns_on_one_slot, "retained root child #1 and retained root child #2"),
         (_set("immediate_tasks.0.document_position", 10**100), "an integer from 0 to 99999"),
     ],
@@ -752,3 +752,117 @@ def test_legitimate_shared_slots_and_gaps_load() -> None:
     data = _tasks_dict()
     data["scheduled_tasks"][1]["document_position"] = 99_999
     gpp_collection_from_dict(data)
+
+
+# ---------------------------------------------------------------------------
+# Second review (DeepSeek) N3/N5: no way to write a file without its root content
+# ---------------------------------------------------------------------------
+
+
+def test_the_collection_entry_points_write_the_whole_file() -> None:
+    """``serialize_gpp_groups`` writes Groups.xml as ``serialize_gpp`` does (users too)."""
+    from gpo_studio.gpp import serialize_gpp_groups, serialize_gpp_registry
+
+    groups = mark_edited(parse_gpp_collection("computer", {GROUPS_FILE: _interleaved_groups_xml()}))
+    assert serialize_gpp_groups(groups) == serialize_gpp(groups)[GROUPS_FILE]
+    assert [tag for tag, _ in _children(serialize_gpp_groups(groups))].count("User") == 2
+    registry = mark_edited(parse_gpp_collection("computer", {REGISTRY_FILE: _LEGACY_REGISTRY}))
+    assert serialize_gpp_registry(registry) == serialize_gpp(registry)[REGISTRY_FILE]
+
+
+def test_the_item_only_serializer_map_is_gone() -> None:
+    import gpo_studio.gpp as gpp_module
+
+    assert not hasattr(gpp_adapters, "ADAPTER_SERIALIZE_FUNCTIONS")
+    with pytest.raises(AttributeError):
+        _ = gpp_module.ADAPTER_SERIALIZE_FUNCTIONS
+
+
+def test_no_production_code_writes_a_gpp_file_from_items_alone() -> None:
+    """The item-only ``serialize_gpp_<family>`` helpers are for tests (review N3).
+
+    They see items, not a collection, so a file written with one loses the
+    root's retained content -- WI-072 again. Production code writes GPP files
+    through ``gpp.serialize_gpp`` (or the collection-taking per-file entry
+    points, which route there); this scan fails on any other call.
+    """
+    import ast
+
+    fragment_helpers = {
+        name for name in dir(gpp_adapters)
+        if name.startswith("serialize_gpp_") and callable(getattr(gpp_adapters, name))
+    } | {"_build_adapter_root"}
+    assert len(fragment_helpers) == 20
+    offenders: list[str] = []
+    sources = sorted((ROOT / "src/gpo_studio").glob("*.py")) + sorted(
+        (ROOT / "scripts").rglob("*.py")
+    )
+    for path in sources:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name not in fragment_helpers:
+                continue
+            relative = path.relative_to(ROOT).as_posix()
+            if name == "_build_adapter_root" and relative == "src/gpo_studio/gpp.py":
+                continue  # the root-preserving writer itself
+            offenders.append(f"{relative}:{node.lineno} {name}")
+    assert offenders == []
+
+
+def _two_copies(**changes: Any) -> GppCollection:
+    base = dict(
+        scope="computer",
+        scheduled_tasks=(GppScheduledTask(name="S0"),),
+        scheduled_tasks_unknown_children=('<Retained name="r" />',),
+        immediate_tasks_unknown_children=('<Retained name="r" />',),
+    )
+    base.update(changes)
+    return GppCollection(**base)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {"immediate_tasks_unknown_children": ('<Other name="x" />',)},
+            "different retained root children",
+        ),
+        (
+            {
+                "scheduled_tasks_unknown_attrs": (("disabled", "1"),),
+                "immediate_tasks_unknown_attrs": (("disabled", "0"),),
+            },
+            "different retained root attributes",
+        ),
+        (
+            {"root_unknown_positions": (("immediate_tasks", (4,)), ("scheduled_tasks", (3,)))},
+            r"at different positions \(\[3\] and \[4\]\)",
+        ),
+    ],
+    ids=["children", "attributes", "positions"],
+)
+def test_an_in_memory_collection_with_disagreeing_root_copies_is_refused(
+    changes: dict[str, Any], message: str,
+) -> None:
+    """Review N5: not only on load -- writing refuses too, rather than picking one."""
+    collection = _two_copies(**changes)
+    with pytest.raises(GppError, match=message):
+        serialize_gpp(collection)
+    with pytest.raises(GppError, match=message):
+        gpp_collection_from_dict(gpp_collection_to_dict(collection))
+
+
+def test_one_familys_copy_alone_and_identical_copies_are_written_once() -> None:
+    alone = _two_copies(immediate_tasks_unknown_children=())
+    both = _two_copies(root_unknown_positions=(
+        ("immediate_tasks", (0,)), ("scheduled_tasks", (0,)),
+    ))
+    for collection in (alone, both):
+        assert [tag for tag, _ in _children(serialize_gpp(collection)[TASKS_FILE])].count(
+            "Retained"
+        ) == 1
+    assert _children(serialize_gpp(both)[TASKS_FILE])[0] == ("Retained", "r")

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import uuid
 import xml.etree.ElementTree as ET
-from collections import Counter
 from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
@@ -732,12 +731,14 @@ def _serialize_group(group: GppGroup) -> ET.Element:
 
 
 def serialize_gpp_groups(collection: GppCollection) -> bytes:
-    """Serialize the ``groups`` family (and its root unknowns) to GPP XML bytes.
+    """Serialize Groups.xml from a GppCollection to GPP XML bytes.
 
-    Local users, which share Groups.xml, are not included; :func:`serialize_gpp`
-    writes the whole file.
+    The whole file, exactly as :func:`serialize_gpp` writes it: groups, the
+    local users that share the root, and the root's retained content, in
+    document order. There is deliberately no way to write one family of a
+    shared root on its own (review N3): that is how WI-072 dropped content.
     """
-    return _serialize_gpp_file(collection, _GROUPS_FILE, ("groups",))
+    return _serialize_gpp_file(collection, _GROUPS_FILE, _gpp_file_families()[_GROUPS_FILE])
 
 
 def _registry_wire_value(value: GppRegistryValue) -> str:
@@ -863,8 +864,8 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
 
 
 def serialize_gpp_registry(collection: GppCollection) -> bytes:
-    """Serialize Registry from a GppCollection to GPP XML bytes."""
-    return _serialize_gpp_file(collection, _REGISTRY_FILE, ("registry",))
+    """Serialize Registry.xml from a GppCollection, as :func:`serialize_gpp` writes it."""
+    return _serialize_gpp_file(collection, _REGISTRY_FILE, _gpp_file_families()[_REGISTRY_FILE])
 
 
 # ---------------------------------------------------------------------------
@@ -968,37 +969,77 @@ def _checked_position(value: object, context: str) -> int | None:
     return value
 
 
-def _file_unknown_children(
-    collection: GppCollection, families: tuple[str, ...]
-) -> list[tuple[str, int | None]]:
-    """The file's root unknown children, each once, with its recorded position.
+@dataclass(frozen=True, slots=True)
+class _RootUnknowns:
+    """A file root's retained attributes and children, read once."""
 
-    Families sharing a root each capture the root's unknown children on import
-    (Groups.xml fills both ``groups_unknown_children`` and
-    ``local_users_unknown_children``), so the copies are de-duplicated: the
-    first family's list is taken whole, and a later family contributes only an
-    entry it holds more times than any earlier family did.
+    attrs: tuple[tuple[str, str], ...]
+    children: tuple[str, ...]
+    #: Parallel to ``children``, or ``None`` when no usable position is recorded.
+    positions: tuple[int, ...] | None
+
+
+def _root_unknowns(
+    collection: GppCollection, path: str, families: tuple[str, ...]
+) -> _RootUnknowns:
+    """The root's retained content, refusing copies that disagree (review N5).
+
+    Families sharing a root (Groups.xml, ScheduledTasks.xml) each capture the
+    root's unknown attributes and children on import, so the model holds one
+    copy per family. Every copy that is not empty must be identical -- and so
+    must their recorded positions, where both record them -- because the file
+    has one root: two different copies are not two halves of it, and writing
+    their union (or picking one) would invent or drop content silently. An
+    import always writes identical copies; a caller may fill one family's copy
+    and leave the other empty. This is checked when writing and when loading a
+    stored collection, so neither path can reach the file with a conflict.
     """
     recorded = dict(collection.root_unknown_positions)
-    seen: Counter[str] = Counter()
-    out: list[tuple[str, int | None]] = []
+    attrs: tuple[tuple[str, str], ...] = ()
+    children: tuple[str, ...] = ()
+    positions: tuple[int, ...] | None = None
     for key in families:
-        raws: tuple[str, ...] = getattr(collection, f"{key}_unknown_children")
-        positions = recorded.get(key)
-        usable = positions is not None and len(positions) == len(raws)
-        local: Counter[str] = Counter()
-        for index, raw in enumerate(raws):
-            local[raw] += 1
-            if local[raw] <= seen[raw]:
-                continue
-            position = (
-                _checked_position(positions[index], f"{key} root unknowns")
-                if usable and positions is not None
-                else None
+        family_attrs: tuple[tuple[str, str], ...] = getattr(collection, f"{key}_unknown_attrs")
+        family_children: tuple[str, ...] = getattr(collection, f"{key}_unknown_children")
+        if family_attrs:
+            if attrs and family_attrs != attrs:
+                raise GppError(
+                    f"{path}: the families sharing this root hold different retained "
+                    f"root attributes ({families[0]} and {key} copies disagree)"
+                )
+            attrs = family_attrs
+        if not family_children:
+            continue
+        if children and family_children != children:
+            raise GppError(
+                f"{path}: the families sharing this root hold different retained "
+                f"root children ({families[0]} and {key} copies disagree)"
             )
-            out.append((raw, position))
-        seen |= local
-    return out
+        children = family_children
+        family_positions = recorded.get(key)
+        if family_positions is None or len(family_positions) != len(family_children):
+            continue
+        checked = tuple(
+            _checked_position(slot, f"{key} root unknowns") for slot in family_positions
+        )
+        usable = tuple(slot for slot in checked if slot is not None)
+        if positions is not None and usable != positions:
+            raise GppError(
+                f"{path}: the families sharing this root record its retained root "
+                f"children at different positions ({list(positions)} and {list(usable)})"
+            )
+        positions = usable
+    return _RootUnknowns(attrs=attrs, children=children, positions=positions)
+
+
+def _file_unknown_children(
+    collection: GppCollection, path: str, families: tuple[str, ...]
+) -> list[tuple[str, int | None]]:
+    """The file's root unknown children, once, each with its recorded position."""
+    unknowns = _root_unknowns(collection, path, families)
+    if unknowns.positions is None:
+        return [(raw, None) for raw in unknowns.children]
+    return list(zip(unknowns.children, unknowns.positions, strict=True))
 
 
 def _family_sort_keys(
@@ -1055,7 +1096,7 @@ def _ordered_tokens(
             items = tuple(replace(item, document_position=None) for item in items)
         for index, sort_key in enumerate(_family_sort_keys(items, rank[key], key)):
             entries.append((sort_key, (key, index)))
-    for index, (_raw, position) in enumerate(_file_unknown_children(collection, families)):
+    for index, (_raw, position) in enumerate(_file_unknown_children(collection, path, families)):
         unknown_key: _SortKey = (
             (1, rank[_UNKNOWN], index, 0)
             if position is None or not recorded
@@ -1126,17 +1167,13 @@ def _serialize_gpp_file(
     root_tag, root_clsid = _root_identity(path, families[0])
     root = ET.Element(_ns(root_tag))
     root.set("clsid", root_clsid)
-    for family_index, key in enumerate(families):
-        for name, value in getattr(collection, f"{key}_unknown_attrs"):
-            # Families sharing a root each captured its attributes on import;
-            # the first family's copy wins.
-            if family_index == 0 or name not in root.attrib:
-                root.set(name, value)
+    for name, value in _root_unknowns(collection, path, families).attrs:
+        root.set(name, value)
     elements: dict[str, list[ET.Element]] = {
         key: _family_elements(collection, key) for key in families
     }
     unknowns: list[ET.Element] = []
-    for raw, _position in _file_unknown_children(collection, families):
+    for raw, _position in _file_unknown_children(collection, path, families):
         try:
             unknowns.append(_bounded_parse(raw.encode("utf-8")))
         except GppError as error:
@@ -2281,12 +2318,13 @@ def _validate_document_positions(collection: GppCollection) -> None:
     expands into one item per <Properties>, all at that element's slot (list
     order decides between them). And files whose root holds two families
     (Groups.xml, ScheduledTasks.xml) record each retained root child once per
-    family; those copies must agree on the slot, and then count once.
+    family; those copies must agree (`_root_unknowns`), and then count once.
     """
-    recorded = dict(collection.root_unknown_positions)
     for path, families in _gpp_file_families().items():
         holders: dict[int, str] = {}
-        copies: dict[tuple[str, int], int] = {}
+        for index, (_raw, slot) in enumerate(_file_unknown_children(collection, path, families)):
+            if slot is not None:
+                _claim_slot(holders, path, slot, f"retained root child #{index + 1}")
         for key in families:
             for index, item in enumerate(_family_items(collection, key)):
                 slot = item.document_position
@@ -2295,22 +2333,6 @@ def _validate_document_positions(collection: GppCollection) -> None:
                 _claim_slot(
                     holders, path, slot,
                     "registry items" if key == "registry" else f"{key} item {index}",
-                )
-            positions = recorded.get(key, ())
-            occurrence: Counter[str] = Counter()
-            for raw, slot in zip(
-                getattr(collection, f"{key}_unknown_children"), positions, strict=False
-            ):
-                occurrence[raw] += 1
-                identity = (raw, occurrence[raw])
-                previous = copies.setdefault(identity, slot)
-                if previous != slot:
-                    raise GppError(
-                        f"{path}: the families sharing this root record one retained "
-                        f"root child at positions {previous} and {slot}"
-                    )
-                _claim_slot(
-                    holders, path, slot, f"retained root child #{list(copies).index(identity) + 1}"
                 )
 
 
@@ -2569,7 +2591,7 @@ def contains_cpassword(xml: bytes) -> bool:
 # cannot also import from gpp_adapters.py at gpp.py module load time.
 
 _GPP_ADAPTER_EXPORTS: frozenset[str] = frozenset({
-    "ADAPTER_FILE_PATHS", "ADAPTER_KEYS", "ADAPTER_SERIALIZE_FUNCTIONS",
+    "ADAPTER_FILE_PATHS", "ADAPTER_KEYS",
     "ROOT_PARSE_FUNCTIONS",
     "GppApplication", "GppDataSource", "GppDevice", "GppDrive", "GppEnvironment",
     "GppFile", "GppFolder", "GppFolderOptions", "GppImmediateTask", "GppIniFile",

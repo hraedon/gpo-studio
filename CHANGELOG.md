@@ -617,7 +617,14 @@ Operator-facing:
   a family, across families, or against a retained child). Gaps, a legacy
   Registry expansion's shared slot, and the per-family copies Groups.xml and
   ScheduledTasks.xml keep of one retained child (which must agree) are
-  accepted. Both the canonical digest and the GPO diff compare the resulting order,
+  accepted. Those per-family copies must also agree when an in-memory
+  collection is written: differing copies are refused rather than merged.
+  There is no longer a way to write a GPP file without its retained root
+  content: `serialize_gpp_groups` and `serialize_gpp_registry` write the whole
+  file as `serialize_gpp` does (Groups.xml now includes its local users), the
+  unused item-only `ADAPTER_SERIALIZE_FUNCTIONS` map is removed, and the
+  item-only `serialize_gpp_<family>` helpers are documented as test fragments,
+  with a test that fails if production code calls one. Both the canonical digest and the GPO diff compare the resulting order,
   not the recorded numbers, so digests of stored GPOs do not move.
   Covered by `tests/test_gpp_document_order.py` (the native Power and
   scheduled-task captures edited, deleted from, reordered and added to; an
