@@ -1,31 +1,50 @@
-"""Tests for the GPO lifecycle, backup/restore, and migration table model.
+"""Tests for the same-domain lifecycle model: manifests, plans, scope survival.
 
-Plan 028 WP-1.
+Plan 028 WP-1, reworked for Plan 034 (2026-10-07). The state machine and the
+duplicate migration table were deleted with their tests; the module docstring
+says why.
 """
 
 from __future__ import annotations
 
-import re
+import base64
+import shutil
+from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
+from typing import get_args
 
 import pytest
 
+from gpo_studio.backup import (
+    BackupError,
+    BackupGpo,
+    CseExtension,
+    CseFile,
+    GpmcBackup,
+    read_backup,
+)
 from gpo_studio.lifecycle import (
+    SCOPE_DIMENSIONS,
+    SCOPE_SURVIVAL,
+    WINDOWS_OPERATIONS,
     BackupFileEntry,
     BackupIndex,
     BackupManifest,
-    LifecycleTransition,
-    MigrationEntry,
-    MigrationTable,
+    RestoreMode,
     RestorePlan,
-    RestoreStep,
-    apply_migration_table,
+    ScopeDimension,
+    Survival,
+    WindowsOperation,
+    cmdlet_for,
     generate_restore_plan,
-    transition_lifecycle,
-    valid_lifecycle_transitions,
+    manifest_from_backup,
+    target_identity_for,
 )
 from gpo_studio.model import ValidationError
 
 _GUID = "{11111111-2222-3333-4444-555555555555}"
+_NATIVE = Path(__file__).parent / "fixtures" / "native-gpp-gpmc"
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +53,7 @@ _GUID = "{11111111-2222-3333-4444-555555555555}"
 
 
 def _file(
-    relative_path: str = "DomainSysvol/GPO/Machine/Registry.pol",
+    relative_path: str = "Machine/Registry.pol",
     content_hash: str = "a" * 64,
     size: int = 128,
 ) -> BackupFileEntry:
@@ -47,30 +66,182 @@ def _file(
 
 def _manifest(**overrides: object) -> BackupManifest:
     fields: dict[str, object] = {
-        "backup_id": "backup-001",
+        "backup_id": "{AAAAAAAA-0000-0000-0000-000000000001}",
         "gpo_guid": _GUID,
         "gpo_display_name": "Test Policy",
         "domain": "studio.local",
-        "created_at": "2026-01-01T00:00:00Z",
+        "created_at": "2026-01-01T00:00:00",
         "files": (_file(),),
     }
     fields.update(overrides)
     return BackupManifest(**fields)  # type: ignore[arg-type]
 
 
-def _entry(
-    source: str = "S-1-5-32-544",
-    target: str = "S-1-12-544",
-    *,
-    is_resolved: bool = True,
-    entry_type: str = "group",
-) -> MigrationEntry:
-    return MigrationEntry(
-        source_principal=source,
-        target_principal=target,
-        entry_type=entry_type,  # type: ignore[arg-type]
-        is_resolved=is_resolved,
+# ---------------------------------------------------------------------------
+# manifest_from_backup: the bridge from a real Backup-GPO directory
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    ["WI01A-DriveMaps-GPMC", "WI01A-Services-GPMC", "WI01A-MixedCSE-GPMC"],
+)
+def test_a_native_backup_yields_a_manifest(fixture: str) -> None:
+    manifest = manifest_from_backup(read_backup(_NATIVE / fixture))
+    assert manifest.validate() == ()
+    assert manifest.gpo_display_name == fixture
+    assert manifest.domain
+    assert manifest.files
+    assert all(len(f.content_hash) == 64 for f in manifest.files)
+
+
+def test_the_backup_id_is_not_the_gpo_guid() -> None:
+    """GPMC's ``ID`` names the backup instance; ``GPOGuid`` names the GPO.
+
+    The pre-bridge model had nothing to stop a caller conflating them, and a
+    restore aimed at the backup ID would aim at a GPO that does not exist.
+    """
+    manifest = manifest_from_backup(read_backup(_NATIVE / "WI01A-DriveMaps-GPMC"))
+    backup_id = manifest.backup_id.strip("{}").casefold()
+    gpo_guid = manifest.gpo_guid.strip("{}").casefold()
+    assert backup_id == "e9f0a681-9b36-419e-a16e-c2c59dc44dad"
+    assert gpo_guid == "f0197e25-3e19-4835-b296-3c35dc069635"
+    assert backup_id != gpo_guid
+
+
+def test_backup_time_is_kept_naive_rather_than_given_an_invented_offset() -> None:
+    manifest = manifest_from_backup(read_backup(_NATIVE / "WI01A-DriveMaps-GPMC"))
+    assert manifest.created_at == "2026-07-26T17:55:38"
+    assert not manifest.created_at.endswith("Z")
+    assert "+" not in manifest.created_at
+
+
+def test_an_empty_wmi_filter_element_means_no_filter() -> None:
+    manifest = manifest_from_backup(read_backup(_NATIVE / "WI01A-DriveMaps-GPMC"))
+    assert manifest.has_wmi_filter is False
+    assert manifest.wmi_filter_reference == ""
+
+
+def _with_backup_xml(tmp_path: Path, transform: Callable[[bytes], bytes]) -> Path:
+    source = _NATIVE / "WI01A-DriveMaps-GPMC"
+    target = tmp_path / "backup"
+    shutil.copytree(source, target)
+    backup_xml = next(target.glob("{*}/Backup.xml"))
+    original = backup_xml.read_bytes()
+    changed = transform(original)
+    assert changed != original, "the transform matched nothing"
+    backup_xml.write_bytes(changed)
+    return target
+
+
+def test_a_populated_wmi_filter_element_is_kept_verbatim(tmp_path: Path) -> None:
+    """Synthetic: the populated shape has never been captured, so no parse."""
+    target = _with_backup_xml(
+        tmp_path,
+        lambda data: data.replace(
+            b"<WMIFilter/>", b"<WMIFilter>[synthetic;{F};0]</WMIFilter>"
+        ),
     )
+    manifest = manifest_from_backup(read_backup(target))
+    assert manifest.has_wmi_filter is True
+    assert manifest.wmi_filter_reference == "[synthetic;{F};0]"
+
+
+def test_a_wmi_filter_element_with_children_counts_as_a_filter(tmp_path: Path) -> None:
+    target = _with_backup_xml(
+        tmp_path,
+        lambda data: data.replace(b"<WMIFilter/>", b"<WMIFilter><Name>x</Name></WMIFilter>"),
+    )
+    assert manifest_from_backup(read_backup(target)).has_wmi_filter is True
+
+
+def test_a_disabled_side_in_a_native_backup_maps_to_the_gpo_status(tmp_path: Path) -> None:
+    target = _with_backup_xml(
+        tmp_path,
+        lambda data: data.replace(b"<Options><![CDATA[0]]>", b"<Options><![CDATA[1]]>"),
+    )
+    assert manifest_from_backup(read_backup(target)).gpo_status == "user_disabled"
+
+
+def _gpo(**overrides: object) -> BackupGpo:
+    fields: dict[str, object] = {
+        "guid": "11111111-2222-3333-4444-555555555555",
+        "display_name": "Legacy",
+        "domain": "studio.local",
+    }
+    fields.update(overrides)
+    return BackupGpo(**fields)  # type: ignore[arg-type]
+
+
+def _backup(*gpos: BackupGpo, backup_id: str = "{AAAAAAAA-0000-0000-0000-000000000001}",
+            backup_time: str = "2026-01-01T00:00:00") -> GpmcBackup:
+    return GpmcBackup(backup_time=backup_time, backup_id=backup_id, gpos=gpos)
+
+
+@pytest.mark.parametrize(
+    "computer,user,status",
+    [
+        (True, True, "all_settings_enabled"),
+        (True, False, "user_disabled"),
+        (False, True, "computer_disabled"),
+        (False, False, "all_disabled"),
+    ],
+)
+def test_side_enablement_maps_to_every_gpo_status(
+    computer: bool, user: bool, status: str
+) -> None:
+    backup = _backup(_gpo(computer_enabled=computer, user_enabled=user))
+    assert manifest_from_backup(backup).gpo_status == status
+
+
+def test_a_backup_without_retained_xml_lists_its_scanned_files() -> None:
+    extension = CseExtension(
+        guid="{35378EAC-683F-11D2-A89A-00C04FBBCFA2}",
+        side="machine",
+        files=(CseFile("Registry.pol", "b" * 64, 10),),
+    )
+    manifest = manifest_from_backup(_backup(_gpo(machine_extensions=(extension,))))
+    assert manifest.files == (BackupFileEntry("Machine/Registry.pol", "b" * 64, 10),)
+    assert manifest.has_wmi_filter is False
+
+
+def test_a_multi_gpo_backup_is_refused() -> None:
+    backup = _backup(_gpo(), _gpo(guid="22222222-2222-3333-4444-555555555555"))
+    with pytest.raises(ValidationError) as excinfo:
+        manifest_from_backup(backup)
+    assert excinfo.value.issues[0].code == "multi_gpo_backup"
+
+
+def test_a_backup_whose_manifest_would_be_invalid_is_refused() -> None:
+    backup = _backup(_gpo(display_name=""), backup_id="", backup_time="")
+    with pytest.raises(ValidationError) as excinfo:
+        manifest_from_backup(backup)
+    codes = {issue.code for issue in excinfo.value.issues}
+    assert {"empty_backup_id", "empty_created_at", "empty_gpo_display_name"} <= codes
+
+
+def _native_gpo_with_backup_xml(encoded: str) -> BackupGpo:
+    gpo = read_backup(_NATIVE / "WI01A-DriveMaps-GPMC").gpos[0]
+    assert gpo.backup_inventory is not None
+    return replace(gpo, backup_inventory=replace(gpo.backup_inventory, backup_xml_base64=encoded))
+
+
+def test_corrupt_retained_backup_xml_is_refused() -> None:
+    with pytest.raises(BackupError, match="base64"):
+        manifest_from_backup(_backup(_native_gpo_with_backup_xml("@@")))
+
+
+def test_retained_backup_xml_without_core_settings_is_refused() -> None:
+    encoded = base64.b64encode(b"<GroupPolicyBackupScheme/>").decode("ascii")
+    with pytest.raises(BackupError, match="GroupPolicyCoreSettings"):
+        manifest_from_backup(_backup(_native_gpo_with_backup_xml(encoded)))
+
+
+def test_core_settings_without_a_wmi_element_means_no_filter() -> None:
+    xml = b"<GroupPolicyBackupScheme><GroupPolicyCoreSettings/></GroupPolicyBackupScheme>"
+    encoded = base64.b64encode(xml).decode("ascii")
+    manifest = manifest_from_backup(_backup(_native_gpo_with_backup_xml(encoded)))
+    assert manifest.has_wmi_filter is False
 
 
 # ---------------------------------------------------------------------------
@@ -203,74 +374,155 @@ def test_backup_index_latest_backup_missing_returns_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# RestorePlan
+# Modes are named after the cmdlets they mean
 # ---------------------------------------------------------------------------
 
 
-def test_restore_plan_valid_overwrite() -> None:
-    plan = RestorePlan(
-        backup_id="backup-001",
-        mode="overwrite",
-        target_gpo_guid=_GUID,
-    )
-    assert plan.validate() == ()
+def test_every_windows_operation_names_its_cmdlet() -> None:
+    assert cmdlet_for("restore_in_place").startswith("Restore-GPO ")
+    assert cmdlet_for("import_into_existing").startswith("Import-GPO ")
+    assert "-TargetGuid" in cmdlet_for("import_into_existing")
+    assert "-CreateIfNeeded" in cmdlet_for("import_as_new")
+    assert "-CreateIfNeeded" not in cmdlet_for("import_into_existing")
+    assert cmdlet_for("copy").startswith("Copy-GPO ")
+    assert "-CopyAcl" not in cmdlet_for("copy")
+    assert cmdlet_for("copy_with_acl").endswith("-CopyAcl")
+    assert cmdlet_for("import_to_draft") == ""
 
 
-def test_restore_plan_valid_new_gpo() -> None:
-    plan = RestorePlan(
-        backup_id="backup-001",
-        mode="new_gpo",
-        target_name="Restored Policy",
-    )
-    assert plan.validate() == ()
+def test_restore_modes_are_the_windows_operations_plus_the_studio_draft() -> None:
+    modes: set[str] = set()
+    for member in get_args(RestoreMode):
+        modes.update(get_args(member))
+    assert modes == set(WINDOWS_OPERATIONS) | {"import_to_draft"}
 
 
-def test_restore_plan_import_to_draft_needs_no_target() -> None:
-    plan = RestorePlan(backup_id="backup-001", mode="import_to_draft")
-    assert plan.validate() == ()
+@pytest.mark.parametrize(
+    "mode,identity",
+    [
+        ("restore_in_place", "source"),
+        ("import_into_existing", "existing_target"),
+        ("import_as_new", "windows_assigned"),
+        ("copy", "windows_assigned"),
+        ("copy_with_acl", "windows_assigned"),
+        ("import_to_draft", "studio_draft"),
+    ],
+)
+def test_target_identity_per_mode(mode: RestoreMode, identity: str) -> None:
+    assert target_identity_for(mode) == identity
 
 
-def test_restore_plan_overwrite_empty_target_is_error() -> None:
-    plan = RestorePlan(backup_id="backup-001", mode="overwrite")
-    issues = plan.validate()
-    assert any(i.code == "empty_target_gpo_guid" and i.severity == "error" for i in issues)
+# ---------------------------------------------------------------------------
+# SCOPE_SURVIVAL: predictions, complete, consistent with the plan's identity
+# ---------------------------------------------------------------------------
 
 
-def test_restore_plan_invalid_guid_error() -> None:
-    plan = RestorePlan(
-        backup_id="backup-001",
-        mode="overwrite",
-        target_gpo_guid="not-a-guid",
-    )
-    issues = plan.validate()
-    assert any(i.code == "invalid_target_gpo_guid" and i.severity == "error" for i in issues)
+def test_the_survival_table_covers_every_operation_and_dimension() -> None:
+    assert set(SCOPE_SURVIVAL) == set(WINDOWS_OPERATIONS)
+    outcomes = set(get_args(Survival))
+    for operation, row in SCOPE_SURVIVAL.items():
+        assert tuple(row) == SCOPE_DIMENSIONS, operation
+        assert set(row.values()) <= outcomes, operation
+    assert set(SCOPE_DIMENSIONS) == set(get_args(ScopeDimension))
 
 
-def test_restore_plan_new_gpo_empty_name_is_error() -> None:
-    plan = RestorePlan(backup_id="backup-001", mode="new_gpo")
-    issues = plan.validate()
-    assert any(i.code == "empty_target_name" and i.severity == "error" for i in issues)
+def test_the_survival_table_cannot_be_corrected_at_run_time() -> None:
+    with pytest.raises(TypeError):
+        SCOPE_SURVIVAL["copy"]["links"] = "kept"  # type: ignore[index]
 
 
-def test_restore_plan_empty_backup_id_is_error() -> None:
-    plan = RestorePlan(backup_id="", mode="import_to_draft")
-    issues = plan.validate()
-    assert any(i.code == "empty_backup_id" and i.severity == "error" for i in issues)
+def test_every_operation_is_predicted_to_keep_the_settings() -> None:
+    """The control row: an operation that lost the settings would not be one."""
+    for operation in WINDOWS_OPERATIONS:
+        assert SCOPE_SURVIVAL[operation]["settings"] == "kept", operation
 
 
-def test_restore_plan_conflicts_produce_warning() -> None:
-    plan = RestorePlan(
-        backup_id="backup-001",
-        mode="overwrite",
-        target_gpo_guid=_GUID,
-        conflicts=("WMI filter 'X' not found in target domain",),
-    )
-    issues = plan.validate()
-    conflict_issues = [i for i in issues if i.code == "restore_conflicts"]
-    assert len(conflict_issues) == 1
-    assert conflict_issues[0].severity == "warning"
-    # The conflict warning does not block the plan.
-    assert not any(i.severity == "error" for i in issues)
+@pytest.mark.parametrize("operation", WINDOWS_OPERATIONS)
+def test_the_guid_prediction_agrees_with_the_plans_target_identity(
+    operation: WindowsOperation,
+) -> None:
+    expected = {
+        "source": "kept",
+        "existing_target": "replaced",
+        "windows_assigned": "defaulted",
+    }[target_identity_for(operation)]
+    assert SCOPE_SURVIVAL[operation]["gpo_guid"] == expected
+
+
+def test_replaced_is_predicted_only_where_a_target_pre_exists() -> None:
+    """``replaced`` means the target's own prior value; a new GPO has none."""
+    for operation in WINDOWS_OPERATIONS:
+        if target_identity_for(operation) == "windows_assigned":
+            assert "replaced" not in SCOPE_SURVIVAL[operation].values(), operation
+
+
+def test_copy_acl_is_the_only_difference_between_the_two_copies() -> None:
+    copy, with_acl = SCOPE_SURVIVAL["copy"], SCOPE_SURVIVAL["copy_with_acl"]
+    differing: set[ScopeDimension] = {d for d in SCOPE_DIMENSIONS if copy[d] != with_acl[d]}
+    assert differing == {"acl_security_filtering"}
+    assert with_acl["acl_security_filtering"] == "kept"
+
+
+def test_the_docstring_says_the_table_is_a_prediction() -> None:
+    from gpo_studio import lifecycle
+
+    assert lifecycle.__doc__ is not None and "predictions" in lifecycle.__doc__.casefold()
+    assert lifecycle._predict.__doc__ is not None
+    assert "PREDICTIONS" in lifecycle._predict.__doc__
+
+
+# ---------------------------------------------------------------------------
+# RestorePlan validation
+# ---------------------------------------------------------------------------
+
+
+def _plan(**overrides: object) -> RestorePlan:
+    fields: dict[str, object] = {
+        "backup_id": "{AAAAAAAA-0000-0000-0000-000000000001}",
+        "mode": "restore_in_place",
+        "source_gpo_guid": _GUID,
+        "domain": "studio.local",
+        "cmdlet": "",
+        "target_identity": "source",
+        "target_gpo_guid": _GUID,
+    }
+    fields.update(overrides)
+    return RestorePlan(**fields)  # type: ignore[arg-type]
+
+
+def _codes(plan: RestorePlan) -> set[str]:
+    return {issue.code for issue in plan.validate() if issue.severity == "error"}
+
+
+def test_restore_in_place_targets_only_the_backups_own_gpo() -> None:
+    assert _codes(_plan()) == set()
+    assert _codes(_plan(target_gpo_guid=_GUID.strip("{}").upper())) == set()
+    other = "{99999999-8888-7777-6666-555555555555}"
+    assert _codes(_plan(target_gpo_guid=other)) == {"restore_target_not_source"}
+
+
+def test_import_into_existing_needs_a_guid_or_a_name() -> None:
+    base = {"mode": "import_into_existing", "target_identity": "existing_target"}
+    assert _codes(_plan(**base, target_gpo_guid="")) == {"empty_import_target"}
+    assert _codes(_plan(**base, target_gpo_guid="", target_name="X")) == set()
+    assert _codes(_plan(**base, target_gpo_guid="nope")) == {"invalid_target_gpo_guid"}
+
+
+@pytest.mark.parametrize("mode", ["import_as_new", "copy", "copy_with_acl"])
+def test_creating_modes_need_a_name_and_refuse_a_guid(mode: str) -> None:
+    base = {"mode": mode, "target_identity": "windows_assigned"}
+    assert _codes(_plan(**base, target_gpo_guid="", target_name="New")) == set()
+    assert _codes(_plan(**base, target_gpo_guid="", target_name="")) == {"empty_target_name"}
+    assert _codes(_plan(**base, target_name="New")) == {"target_guid_assigned_by_windows"}
+
+
+def test_import_to_draft_needs_no_target() -> None:
+    plan = _plan(mode="import_to_draft", target_identity="studio_draft", target_gpo_guid="")
+    assert _codes(plan) == set()
+
+
+def test_an_empty_backup_id_is_an_error() -> None:
+    assert "empty_backup_id" in _codes(_plan(backup_id=""))
 
 
 # ---------------------------------------------------------------------------
@@ -278,301 +530,95 @@ def test_restore_plan_conflicts_produce_warning() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_generate_restore_plan_overwrite() -> None:
-    manifest = _manifest()
-    plan = generate_restore_plan(
-        manifest,
-        mode="overwrite",
-        target_gpo_guid=_GUID,
-        target_name="Overwritten Policy",
-    )
-    assert plan.backup_id == manifest.backup_id
-    assert plan.mode == "overwrite"
+def test_restore_in_place_defaults_to_the_backups_gpo() -> None:
+    plan = generate_restore_plan(_manifest(), "restore_in_place")
     assert plan.target_gpo_guid == _GUID
-    assert plan.target_name == "Overwritten Policy"
+    assert plan.target_name == "Test Policy"
+    assert plan.target_identity == "source"
+    assert plan.cmdlet == cmdlet_for("restore_in_place")
+    assert plan.domain == "studio.local"
 
 
-def test_generate_restore_plan_new_gpo_generates_guid() -> None:
-    manifest = _manifest()
-    plan = generate_restore_plan(
-        manifest,
-        mode="new_gpo",
-        target_name="Restored Policy",
-    )
-    assert plan.mode == "new_gpo"
-    assert plan.target_name == "Restored Policy"
-    # A fresh GUID is generated and is a valid GUID format.
-    assert re.fullmatch(
-        r"\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
-        r"[0-9A-Fa-f]{12}\}?",
-        plan.target_gpo_guid,
-    )
+def test_restore_in_place_into_another_gpo_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        generate_restore_plan(
+            _manifest(), "restore_in_place",
+            target_gpo_guid="{99999999-8888-7777-6666-555555555555}",
+        )
 
 
-def test_generate_restore_plan_import_to_draft_defaults_name() -> None:
-    manifest = _manifest(gpo_display_name="Studio Draft")
-    plan = generate_restore_plan(manifest, mode="import_to_draft")
-    assert plan.mode == "import_to_draft"
+@pytest.mark.parametrize("mode", ["import_as_new", "copy", "copy_with_acl"])
+def test_creating_modes_never_invent_a_target_guid(mode: RestoreMode) -> None:
+    plan = generate_restore_plan(_manifest(), mode, target_name="New")
     assert plan.target_gpo_guid == ""
-    assert plan.target_name == "Studio Draft"
+    assert plan.target_identity == "windows_assigned"
 
 
-def test_generate_restore_plan_overwrite_without_target_raises() -> None:
-    manifest = _manifest()
+@pytest.mark.parametrize("mode", ["import_as_new", "copy", "copy_with_acl"])
+def test_creating_modes_without_a_name_raise(mode: RestoreMode) -> None:
+    with pytest.raises(ValidationError):
+        generate_restore_plan(_manifest(), mode)
+
+
+def test_import_into_existing_carries_the_callers_target() -> None:
+    target = "{99999999-8888-7777-6666-555555555555}"
+    plan = generate_restore_plan(_manifest(), "import_into_existing", target_gpo_guid=target)
+    assert plan.target_gpo_guid == target
+    assert plan.target_identity == "existing_target"
+
+
+def test_import_to_draft_defaults_its_name_and_carries_no_scope() -> None:
+    plan = generate_restore_plan(_manifest(), "import_to_draft")
+    assert plan.target_name == "Test Policy"
+    assert plan.target_gpo_guid == ""
+    assert plan.scope == ()
+    assert plan.warnings == ()
+
+
+@pytest.mark.parametrize("operation", WINDOWS_OPERATIONS)
+def test_each_plan_carries_its_operations_survival_row(operation: WindowsOperation) -> None:
+    kwargs: dict[str, str] = {"target_name": "T"}
+    if operation == "import_into_existing":
+        kwargs = {"target_gpo_guid": "{99999999-8888-7777-6666-555555555555}"}
+    if operation == "restore_in_place":
+        kwargs = {}
+    plan = generate_restore_plan(_manifest(), operation, **kwargs)
+    assert {p.dimension: p.survival for p in plan.scope} == dict(SCOPE_SURVIVAL[operation])
+    for prediction in plan.scope:
+        rescoped = prediction.dimension not in ("settings", "gpo_guid")
+        if rescoped and prediction.survival in ("lost", "defaulted"):
+            assert any(w.startswith(prediction.dimension) for w in plan.warnings)
+
+
+def test_a_wmi_link_is_flagged_as_unchecked_not_as_a_conflict() -> None:
+    """The old plan reported 'not found in target domain' with no data to know.
+
+    Now: if the operation is predicted to carry the link, the plan says the
+    filter's existence was not checked. Nothing claims it is missing.
+    """
+    manifest = _manifest(has_wmi_filter=True, wmi_filter_reference="[d;{F};0]")
+    plan = generate_restore_plan(manifest, "restore_in_place")
+    assert any("not checked" in w for w in plan.warnings)
+    assert not any("not found" in w for w in plan.warnings)
+    no_filter = generate_restore_plan(_manifest(), "restore_in_place")
+    assert not any("WMI" in w for w in no_filter.warnings)
+    # import_as_new is predicted to lose the link, so existence is moot.
+    imported = generate_restore_plan(manifest, "import_as_new", target_name="T")
+    assert not any("not checked" in w for w in imported.warnings)
+
+
+def test_a_cross_domain_plan_is_refused_by_the_ruling() -> None:
     with pytest.raises(ValidationError) as excinfo:
-        generate_restore_plan(manifest, mode="overwrite")
-    assert any(i.code == "empty_target_gpo_guid" for i in excinfo.value.issues)
-
-
-def test_generate_restore_plan_new_gpo_without_name_raises() -> None:
-    manifest = _manifest()
-    with pytest.raises(ValidationError) as excinfo:
-        generate_restore_plan(manifest, mode="new_gpo")
-    assert any(i.code == "empty_target_name" for i in excinfo.value.issues)
-
-
-def test_generate_restore_plan_flags_wmi_filter_conflict() -> None:
-    manifest = _manifest(has_wmi_filter=True, wmi_filter_name="WorkstationsOnly")
-    plan = generate_restore_plan(manifest, mode="import_to_draft")
-    assert any("WorkstationsOnly" in c for c in plan.conflicts)
-
-
-# ---------------------------------------------------------------------------
-# Lifecycle state machine
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("state", "expected"),
-    [
-        ("draft", ("ready", "deleted")),
-        ("ready", ("approved", "draft", "deleted")),
-        ("approved", ("published", "ready", "deleted")),
-        ("published", ("archived", "draft", "deleted")),
-        ("archived", ("draft", "deleted")),
-        ("deleted", ()),
-    ],
-)
-def test_valid_lifecycle_transitions(state: str, expected: tuple[str, ...]) -> None:
-    assert valid_lifecycle_transitions(state) == expected  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize(
-    ("frm", "to"),
-    [
-        ("draft", "ready"),
-        ("ready", "approved"),
-        ("ready", "draft"),
-        ("approved", "published"),
-        ("approved", "ready"),
-        ("published", "archived"),
-        ("published", "draft"),
-        ("archived", "draft"),
-        ("draft", "deleted"),
-        ("published", "deleted"),
-    ],
-)
-def test_transition_lifecycle_valid(frm: str, to: str) -> None:
-    transition = transition_lifecycle(frm, to, "admin", "approved change")  # type: ignore[arg-type]
-    assert transition.from_state == frm
-    assert transition.to_state == to
-    assert transition.actor == "admin"
-    assert transition.reason == "approved change"
-    assert transition.timestamp
-
-
-@pytest.mark.parametrize(
-    ("frm", "to"),
-    [
-        ("draft", "published"),
-        ("draft", "approved"),
-        ("ready", "published"),
-        ("approved", "archived"),
-        ("published", "ready"),
-        ("archived", "published"),
-        ("deleted", "draft"),
-    ],
-)
-def test_transition_lifecycle_invalid_raises(frm: str, to: str) -> None:
-    with pytest.raises(ValidationError) as excinfo:
-        transition_lifecycle(frm, to, "admin", "bad move")  # type: ignore[arg-type]
-    assert excinfo.value.issues[0].code == "invalid_transition"
-
-
-def test_transition_lifecycle_approved_to_published_requires_approval() -> None:
-    transition = transition_lifecycle("approved", "published", "admin", "ship it")
-    assert transition.requires_approval is True
-
-
-def test_transition_lifecycle_other_transitions_do_not_require_approval() -> None:
-    transition = transition_lifecycle("ready", "approved", "admin", "approve")
-    assert transition.requires_approval is False
-
-
-def test_lifecycle_transition_is_immutable() -> None:
-    transition = transition_lifecycle("draft", "ready", "admin", "go")
-    with pytest.raises(AttributeError):
-        transition.actor = "other"  # type: ignore[misc]
-
-
-def test_lifecycle_transition_is_frozen_dataclass() -> None:
-    transition = LifecycleTransition(
-        from_state="draft",
-        to_state="ready",
-        actor="admin",
-        reason="go",
-        timestamp="2026-01-01T00:00:00Z",
+        generate_restore_plan(_manifest(), "import_as_new", target_name="T",
+                              target_domain="other.local")
+    assert excinfo.value.issues[0].code == "cross_domain_out_of_scope"
+    same = generate_restore_plan(
+        _manifest(), "import_as_new", target_name="T", target_domain="STUDIO.LOCAL"
     )
-    # Frozen dataclass: re-assignment fails with AttributeError.
-    with pytest.raises(AttributeError):
-        transition.from_state = "ready"  # type: ignore[misc]
+    assert same.domain == "STUDIO.LOCAL"
 
 
-# ---------------------------------------------------------------------------
-# MigrationTable
-# ---------------------------------------------------------------------------
-
-
-def test_migration_table_get_entry_found() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("S-1-5-32-544", "S-1-12-544"),),
-    )
-    entry = table.get_entry("S-1-5-32-544")
-    assert entry is not None
-    assert entry.target_principal == "S-1-12-544"
-
-
-def test_migration_table_get_entry_missing_returns_none() -> None:
-    table = MigrationTable(table_id="mt-1", entries=())
-    assert table.get_entry("S-1-5-32-544") is None
-
-
-def test_migration_table_get_entry_is_case_insensitive() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("CONTOSO\\Admins", "FABRIKAM\\Admins"),),
-    )
-    entry = table.get_entry("contoso\\admins")
-    assert entry is not None
-    assert entry.target_principal == "FABRIKAM\\Admins"
-
-
-def test_migration_table_resolve_principal_with_mapping() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("S-1-5-32-544", "S-1-12-544"),),
-    )
-    assert table.resolve_principal("S-1-5-32-544") == "S-1-12-544"
-
-
-def test_migration_table_resolve_principal_without_mapping_returns_source() -> None:
-    table = MigrationTable(table_id="mt-1", entries=())
-    assert table.resolve_principal("S-1-5-32-999") == "S-1-5-32-999"
-
-
-def test_migration_table_resolve_principal_empty_target_returns_source() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("S-1-5-32-544", ""),),
-    )
-    assert table.resolve_principal("S-1-5-32-544") == "S-1-5-32-544"
-
-
-def test_migration_table_duplicate_source_is_error() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(
-            _entry("S-1-5-32-544", "S-1-12-544"),
-            _entry("S-1-5-32-544", "S-1-12-545"),
-        ),
-    )
-    issues = table.validate()
-    assert any(i.code == "duplicate_source_principal" and i.severity == "error" for i in issues)
-
-
-def test_migration_table_noop_mapping_is_warning() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("S-1-5-32-544", "S-1-5-32-544"),),
-    )
-    issues = table.validate()
-    noop = [i for i in issues if i.code == "noop_mapping"]
-    assert len(noop) == 1
-    assert noop[0].severity == "warning"
-
-
-def test_migration_table_unresolved_entry_is_warning() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("S-1-5-32-544", "S-1-12-544", is_resolved=False),),
-    )
-    issues = table.validate()
-    unresolved = [i for i in issues if i.code == "unresolved_principal"]
-    assert len(unresolved) == 1
-    assert unresolved[0].severity == "warning"
-
-
-def test_migration_table_fully_resolved_has_no_warnings() -> None:
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("S-1-5-32-544", "S-1-12-544", is_resolved=True),),
-    )
-    assert table.validate() == ()
-
-
-# ---------------------------------------------------------------------------
-# apply_migration_table
-# ---------------------------------------------------------------------------
-
-
-def test_apply_migration_table_resolved_principals_no_warnings() -> None:
-    manifest = _manifest()
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(_entry("S-1-5-32-544", "S-1-12-544", is_resolved=True),),
-    )
-    assert apply_migration_table(manifest, table) == ()
-
-
-def test_apply_migration_table_unresolved_principals_warn() -> None:
-    manifest = _manifest()
-    table = MigrationTable(
-        table_id="mt-1",
-        entries=(
-            _entry("S-1-5-32-544", "S-1-12-544", is_resolved=True),
-            _entry("S-1-5-32-545", "S-1-12-545", is_resolved=False),
-        ),
-    )
-    warnings = apply_migration_table(manifest, table)
-    assert len(warnings) == 1
-    assert "S-1-5-32-545" in warnings[0]
-
-
-def test_apply_migration_table_mismatched_table_id_warns() -> None:
-    manifest = _manifest(migration_table_id="mt-expected")
-    table = MigrationTable(
-        table_id="mt-actual",
-        entries=(_entry("S-1-5-32-544", "S-1-12-544", is_resolved=True),),
-    )
-    warnings = apply_migration_table(manifest, table)
-    assert len(warnings) == 1
-    assert "mt-expected" in warnings[0]
-    assert "mt-actual" in warnings[0]
-
-
-def test_apply_migration_table_empty_table_no_warnings() -> None:
-    manifest = _manifest()
-    table = MigrationTable(table_id="mt-1", entries=())
-    assert apply_migration_table(manifest, table) == ()
-
-
-# ---------------------------------------------------------------------------
-# RestoreStep (smoke)
-# ---------------------------------------------------------------------------
-
-
-def test_restore_step_defaults() -> None:
-    step = RestoreStep(step_id="s1", operation="create_gpo", status="pending")
-    assert step.detail == ""
-    assert step.status == "pending"
+def test_the_index_matches_guids_regardless_of_braces_and_case() -> None:
+    index = BackupIndex(backups=(_manifest(),))
+    assert index.get_backup("aaaaaaaa-0000-0000-0000-000000000001") is not None
+    assert index.backups_for_gpo(_GUID.strip("{}").upper()) != ()
