@@ -175,7 +175,9 @@ _BARE_GUID = re.compile(rf"^{_HEX_GUID}$")
 _BRACED_GUID = re.compile(rf"^\{{{_HEX_GUID}\}}$")
 _SID = re.compile(r"^S-1-\d+(?:-\d+)+$")
 _PERMISSION = re.compile(r"^S-1-\d+(?:-\d+)+\|Gpo[A-Za-z]+\|(?:True|False)$")
-_WQL = re.compile(rf"^\[[^;\]]+;(\{{{_HEX_GUID}\}});\d+\]$")
+#: gPCWQLFilter / WMI reference: ``[<DNS domain>;{<filter id>};<flags>]``.
+#: Windows resolves the filter by domain AND id (MS-GPOL), so both are kept.
+_WQL = re.compile(rf"^\[([^;\]]+);(\{{{_HEX_GUID}\}});\d+\]$")
 _RUN_ID = re.compile(r"^lifecycle-\d{14}-\d{4}$")
 _STAMP = re.compile(r"^\d{14}-\d{4}$")
 _GROUP_NAME = re.compile(r"^zzlc-(\d{6})-(src|tgt)$")
@@ -247,7 +249,7 @@ def validate_state(raw: object, label: str) -> Mapping[str, Any]:
         match = _WQL.match(wql)
         if match is None:
             raise ValueError(f"{label}: gPCWQLFilter {wql!r} is present but unparseable")
-        if _bare(match.group(1)) != _bare(state["wmi_filter_id"]):
+        if _bare(match.group(2)) != _bare(state["wmi_filter_id"]):
             raise ValueError(f"{label}: wmi_filter_id disagrees with gPCWQLFilter")
     return state
 
@@ -289,12 +291,25 @@ def dimension_value(state: Mapping[str, Any], dimension: str) -> Value:
         # they are display strings, and the SID is what the DACL holds.
         return frozenset(_strings(state["permissions"], "permissions"))
     if dimension == "wmi_association":
-        return _bare(_text(state, "wmi_filter_id", "state"))
+        # Domain AND filter id (re-review 3): the same id in another domain is
+        # another association.
+        wql = _text(state, "gpc_wql_filter", "state")
+        if wql == "":
+            return ""
+        match = _WQL.match(wql)
+        if match is None:
+            raise ValueError(f"gPCWQLFilter {wql!r} is present but unparseable")
+        return association(match.group(1), _text(state, "wmi_filter_id", "state"))
     if dimension == "links":
         return frozenset(dn.casefold() for dn in _strings(state["links"], "links"))
     if dimension == "description":
         return _text(state, "description", "state")
     raise ValueError(f"unknown scope dimension {dimension!r}")
+
+
+def association(domain: str, filter_id: str) -> str:
+    """The comparable identity of a WMI filter association."""
+    return f"{domain.strip().casefold()};{_bare(filter_id)}"
 
 
 def _empty(value: Value) -> bool:
@@ -323,7 +338,9 @@ def classify(
     return "unclassified"
 
 
-def _authored(state: Mapping[str, Any], fixture: Mapping[str, Any], role: str) -> bool:
+def _authored(
+    state: Mapping[str, Any], fixture: Mapping[str, Any], role: str, domain: str
+) -> bool:
     """Did the guest author this GPO's scope exactly as the fixture says?"""
     value, description, ou, wmi, sid = {
         "source": (
@@ -344,7 +361,7 @@ def _authored(state: Mapping[str, Any], fixture: Mapping[str, Any], role: str) -
         dimension_value(state, "settings") == fixture[value]
         and dimension_value(state, "description") == fixture[description]
         and dimension_value(state, "links") == frozenset({fixture[ou].casefold()})
-        and dimension_value(state, "wmi_association") == _bare(fixture[wmi])
+        and dimension_value(state, "wmi_association") == association(domain, fixture[wmi])
         and f"{fixture[sid]}|GpoApply|False" in permissions
         # MS16-072 filtering: Authenticated Users reduced to Read.
         and f"{AUTHENTICATED_USERS}|GpoRead|False" in permissions
@@ -513,13 +530,35 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
     )
     if not _BRACED_GUID.match(_text(backup, "backup_id", "backup")):
         raise ValueError("backup.backup_id is not a braced GUID")
+    domain = _text(result, "domain", "result")
+    if not domain:
+        raise ValueError("result.domain is empty")
 
     lane: dict[str, bool] = {
-        "source_authored_as_specified": _authored(source, fixture, "source"),
-        "target_authored_as_specified": _authored(target, fixture, "target"),
+        "source_authored_as_specified": _authored(source, fixture, "source", domain),
+        "target_authored_as_specified": _authored(target, fixture, "target", domain),
+        # Re-review 3: the run id and every snapshot's display name must be the
+        # ones this run's stamp generates, or the snapshots may describe
+        # objects this run never made.
+        "run_id_matches_fixture": result["run_id"] == f"lifecycle-{fixture['stamp']}",
+        "snapshot_names_match_inventory": all(
+            state["display_name"] == f"zz-studio-lifecycle-{fixture['stamp']}-{suffix}"
+            for state, suffix in (
+                (source, GPO_NAME_SUFFIX["source"]),
+                (perturbed, GPO_NAME_SUFFIX["source"]),
+                (target, GPO_NAME_SUFFIX["target"]),
+                (control, GPO_NAME_SUFFIX["control"]),
+            )
+        )
+        and all(
+            not isinstance(operations[op].get("target_after"), dict)
+            or operations[op]["target_after"].get("display_name")
+            == f"zz-studio-lifecycle-{fixture['stamp']}-{GPO_NAME_SUFFIX[op]}"
+            for op in NEW_GPO_ROLES
+        ),
         # Re-review P2(c): the perturbed object must BE the source being
         # restored, not some other GPO in the perturbed shape.
-        "restore_perturbation_landed": _authored(perturbed, fixture, "perturbed")
+        "restore_perturbation_landed": _authored(perturbed, fixture, "perturbed", domain)
         and _bare(perturbed["gpo_id"]) == _bare(source["gpo_id"])
         and _bare(perturbed["gpo_id"]) != _bare(target["gpo_id"]),
         "fixture_names_are_generated": _fixture_names_are_generated(fixture),
@@ -553,9 +592,14 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
             raise ValueError(f"operations.{op}.succeeded is not a boolean")
         if record["error"] is not None and not isinstance(record["error"], str):
             raise ValueError(f"operations.{op}.error is neither null nor a string")
+        if op not in PREEXISTING and record["target_before"] is not None:
+            # Re-review 3: a creating operation has no prior target. Any
+            # before-state here -- even a malformed one -- contradicts the
+            # claim being graded, so it is refused rather than ignored.
+            raise ValueError(f"operations.{op}.target_before must be null for a creating operation")
         before = (
             validate_state(record["target_before"], f"{op}.target_before")
-            if op in PREEXISTING and record["target_before"] is not None
+            if record["target_before"] is not None
             else None
         )
         bound = True
@@ -618,7 +662,9 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
     return lane, claims, comparison
 
 
-def wmi_reference_identifies(reference: str, filter_id: str, filter_name: str) -> bool:
+def wmi_reference_identifies(
+    reference: str, filter_id: str, filter_name: str, domain: str
+) -> bool:
     """Does a backup's WMIFilter text identify exactly this filter?
 
     Re-review P2(a): containment let ``<name>-other-filter`` and a wrong GUID
@@ -630,7 +676,8 @@ def wmi_reference_identifies(reference: str, filter_id: str, filter_name: str) -
     text = reference.strip()
     match = _WQL.match(text)
     if match is not None:
-        return _bare(match.group(1)) == _bare(filter_id)
+        # The domain counts as much as the id (re-review 3).
+        return association(match.group(1), match.group(2)) == association(domain, filter_id)
     if _BRACED_GUID.match(text):
         return _bare(text) == _bare(filter_id)
     return text == filter_name
@@ -651,6 +698,7 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
         source = validate_state(result["source_baseline"], "source_baseline")
         fixture = validate_fixture(result["fixture"])
         relative = _text(backup, "relative_path", "backup")
+        domain = _text(result, "domain", "result")
         manifest = manifest_from_backup(read_backup(run / relative))
     except (BackupError, ValidationError, OSError, KeyError, ValueError) as exc:
         return False, {"error": f"{type(exc).__name__}: {exc}"}
@@ -659,6 +707,7 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
             manifest.wmi_filter_reference,
             fixture[f"{prefix}_wmi_filter_id"],
             fixture[f"{prefix}_wmi_filter_name"],
+            domain,
         )
 
     data = {

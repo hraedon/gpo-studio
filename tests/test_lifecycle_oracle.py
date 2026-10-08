@@ -17,6 +17,7 @@ import atexit
 import copy
 import functools
 import json
+import re
 import runpy
 import shutil
 import subprocess
@@ -58,7 +59,7 @@ def _expectation() -> dict[str, Any]:
 # Identity of the committed native fixture, so the backup bridge can be
 # exercised against a real Backup-GPO tree.
 _SRC = "f0197e25-3e19-4835-b296-3c35dc069635"
-_SRC_NAME = "WI01A-DriveMaps-GPMC"
+_NATIVE_NAME = "WI01A-DriveMaps-GPMC"
 _BACKUP_ID = "{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}"
 _TGT = "aaaaaaaa-0000-0000-0000-000000000002"
 _CTRL = "aaaaaaaa-0000-0000-0000-000000000003"
@@ -77,6 +78,7 @@ _STAMP = "20261007000000-0001"
 _PREFIX = f"zz-studio-lifecycle-{_STAMP}"
 _DOMAIN_DN = "DC=synthetic,DC=test"
 _PARENT = f"OU={_PREFIX},{_DOMAIN_DN}"
+_SRC_NAME = f"{_PREFIX}-source"
 _OU_SRC, _OU_TGT = f"OU=src-link,{_PARENT}", f"OU=tgt-link,{_PARENT}"
 _WMI_SRC = "{bbbbbbbb-0000-0000-0000-000000000001}"
 _WMI_TGT = "{bbbbbbbb-0000-0000-0000-000000000002}"
@@ -136,11 +138,14 @@ def _state(
 
 
 _SOURCE = _state(_SRC, "source-x", "source description", [_OU_SRC], _WMI_SRC, _SRC_ACL, _SRC_NAME)
-_TARGET = _state(_TGT, "target-x", "target description", [_OU_TGT], _WMI_TGT, _TGT_ACL)
+_TARGET = _state(
+    _TGT, "target-x", "target description", [_OU_TGT], _WMI_TGT, _TGT_ACL,
+    f"{_PREFIX}-target",
+)
 _PERTURBED = _state(
     _SRC, "perturbed-x", "perturbed description", [_OU_TGT], _WMI_TGT, _TGT_ACL, _SRC_NAME
 )
-_CONTROL = _state(_CTRL, "", "", [], "", _DEFAULT_ACL)
+_CONTROL = _state(_CTRL, "", "", [], "", _DEFAULT_ACL, f"{_PREFIX}-control")
 
 _FIELD = {
     "settings": "settings_value",
@@ -180,6 +185,10 @@ def _after(op: str, before: dict[str, Any] | None) -> dict[str, Any]:
             _set(after, key, _NEW[op])
         else:
             _set(after, key, list(_DEFAULT_ACL))
+    if before is None:
+        # The creating operations name their result; the guest generated it.
+        suffix = "imported" if op == "import_as_new" else op
+        after["display_name"] = f"{_PREFIX}-{suffix}"
     return after
 
 
@@ -319,6 +328,10 @@ def _candidate(tmp_path: Path) -> Path:
 def _run_dir(tmp_path: Path, result: dict[str, Any], wmi: str | None = _WMI_SRC) -> Path:
     run = tmp_path / "run"
     shutil.copytree(_NATIVE, run / "backup")
+    # The native capture becomes this run's source backup: its GPO display
+    # name is rewritten to the name the run generated for the source.
+    for xml in (run / "backup").rglob("*.xml"):
+        xml.write_bytes(xml.read_bytes().replace(_NATIVE_NAME.encode(), _SRC_NAME.encode()))
     if wmi is not None:
         backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
         backup_xml.write_bytes(
@@ -504,7 +517,55 @@ def _mutate_nil_copy_guid(r: dict[str, Any]) -> None:
     r["operations"]["copy"]["target_after"]["gpo_id"] = "00000000-0000-0000-0000-000000000000"
 
 
+def _mutate_import_reports_baseline_before(r: dict[str, Any]) -> None:
+    r["operations"]["import_as_new"]["target_before"] = copy.deepcopy(r["target_baseline"])
+
+
+def _mutate_import_reports_after_as_before(r: dict[str, Any]) -> None:
+    record = r["operations"]["import_as_new"]
+    record["target_before"] = copy.deepcopy(record["target_after"])
+
+
+def _mutate_copy_reports_malformed_before(r: dict[str, Any]) -> None:
+    r["operations"]["copy"]["target_before"] = {"gpo_id": None}
+
+
+def _mutate_snapshot_names_unrelated(r: dict[str, Any]) -> None:
+    for state in (
+        r["control_state"], r["target_baseline"],
+        r["operations"]["copy"]["target_after"],
+        r["operations"]["copy_with_acl"]["target_after"],
+        r["operations"]["import_as_new"]["target_after"],
+    ):
+        state["display_name"] = "unrelated"
+
+
+def _mutate_run_id_differs_from_fixture(r: dict[str, Any]) -> None:
+    r["run_id"] = "lifecycle-20261009000000-0001"
+
+
+def _mutate_source_association_other_domain(r: dict[str, Any]) -> None:
+    r["source_baseline"]["gpc_wql_filter"] = f"[other.synthetic.test;{_WMI_SRC};0]"
+
+
 _MUTATIONS: dict[str, tuple[Callable[[dict[str, Any]], None], str]] = {
+    # Re-review 3 cases, each of which received an overall PASS.
+    "creating_operation_reports_before_state": (
+        _mutate_import_reports_baseline_before, "result_gradable"
+    ),
+    "import_reports_actual_existing_target": (
+        _mutate_import_reports_after_as_before, "result_gradable"
+    ),
+    "copy_reports_malformed_before": (_mutate_copy_reports_malformed_before, "result_gradable"),
+    "snapshot_names_unrelated": (
+        _mutate_snapshot_names_unrelated, "snapshot_names_match_inventory"
+    ),
+    "run_id_different_from_fixture": (
+        _mutate_run_id_differs_from_fixture, "run_id_matches_fixture"
+    ),
+    "source_association_in_another_domain": (
+        _mutate_source_association_other_domain, "source_authored_as_specified"
+    ),
     # Re-review (2026-10-08) cases, each of which received an overall PASS.
     "duplicate_group_inventory": (_mutate_duplicate_group_inventory, "creation_inventory_complete"),
     "wrong_group_inventory": (_mutate_unrelated_group_inventory, "creation_inventory_complete"),
@@ -622,15 +683,19 @@ def test_each_exact_wmi_reference_shape_identifies_the_source(
 
 
 def test_wmi_reference_identity_is_exact() -> None:
-    identifies = cast(Callable[[str, str, str], bool], _FINALIZER["wmi_reference_identifies"])
-    name = "flt"
-    assert identifies(f"[d;{_WMI_SRC};0]", _WMI_SRC, name) is True
-    assert identifies(f"[d;{_WMI_TGT};0]", _WMI_SRC, name) is False
-    assert identifies(_WMI_SRC, _WMI_SRC, name) is True
-    assert identifies("flt", _WMI_SRC, name) is True
-    assert identifies("flt-2", _WMI_SRC, name) is False
-    assert identifies("FLT", _WMI_SRC, name) is False
-    assert identifies(f"[d;{_WMI_TGT};0] flt", _WMI_SRC, name) is False
+    identifies = cast(
+        Callable[[str, str, str, str], bool], _FINALIZER["wmi_reference_identifies"]
+    )
+    name, d = "flt", "d.test"
+    assert identifies(f"[d.test;{_WMI_SRC};0]", _WMI_SRC, name, d) is True
+    assert identifies(f"[D.TEST;{_WMI_SRC};0]", _WMI_SRC, name, d) is True
+    assert identifies(f"[other.d.test;{_WMI_SRC};0]", _WMI_SRC, name, d) is False
+    assert identifies(f"[d.test;{_WMI_TGT};0]", _WMI_SRC, name, d) is False
+    assert identifies(_WMI_SRC, _WMI_SRC, name, d) is True
+    assert identifies("flt", _WMI_SRC, name, d) is True
+    assert identifies("flt-2", _WMI_SRC, name, d) is False
+    assert identifies("FLT", _WMI_SRC, name, d) is False
+    assert identifies(f"[d.test;{_WMI_TGT};0] flt", _WMI_SRC, name, d) is False
 
 
 def test_the_expected_inventory_is_exact_dns() -> None:
@@ -639,6 +704,31 @@ def test_the_expected_inventory_is_exact_dns() -> None:
     created = _result()["created"]
     for key in ("ous", "groups", "wmi_filters"):
         assert expected[key] == created[key], key
+
+
+def test_a_backup_wmi_reference_in_another_domain_fails_the_bridge(tmp_path: Path) -> None:
+    """Re-review 3 (Sol's backup_wmi_different_domain): the domain must match too."""
+    code, verdict = _bridge_with_reference(tmp_path, f"[other.synthetic.test;{_WMI_SRC};0]")
+    assert code == 1
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
+
+
+def test_a_restored_association_in_another_domain_is_not_kept(tmp_path: Path) -> None:
+    """Re-review 3 (Sol's restore_wmi_domain_changed): same id, other domain.
+
+    Only the raw gPCWQLFilter changes, so the parsed id still matches; the
+    association is nevertheless a different one and the cell must not read
+    'kept'.
+    """
+    result = _result()
+    result["operations"]["restore_in_place"]["target_after"]["gpc_wql_filter"] = (
+        f"[other.synthetic.test;{_WMI_SRC};0]"
+    )
+    code, verdict = _verdict(tmp_path, result)
+    assert code == 1
+    assert verdict["checks"]["survival.restore_in_place.wmi_association"] is False
+    observed = verdict["comparison"]["observed_survival"]["restore_in_place"]
+    assert observed["wmi_association"] == "unclassified"
 
 
 def test_a_wmi_reference_naming_the_target_filter_fails_the_bridge(tmp_path: Path) -> None:
@@ -1111,7 +1201,11 @@ def test_the_guest_never_deletes_by_name_pattern() -> None:
     """Review finding 1: a prefix sweep deleted a pre-existing GPO on collision."""
     guest = _GUEST_PATH.read_text(encoding="utf-8")
     assert "-like" not in guest
-    assert "Get-GPO -All" not in guest
+    # Get-GPO -All survives only as the pre-operation id snapshot that proves
+    # creation; nothing is ever deleted from a listing.
+    assert guest.count("Get-GPO -All") == 1
+    baseline = guest[guest.index("function Get-CreationBaseline"):]
+    assert baseline.index("Get-GPO -All") < baseline.index("\n}\n")
 
 
 def test_the_guest_guards_ownership_before_its_first_create() -> None:
@@ -1217,6 +1311,58 @@ def test_directory_deletes_are_gated_on_the_marker_and_gpo_deletes_on_ownership(
 
 def test_ownership_is_recorded_only_from_a_returned_object() -> None:
     guest = _GUEST_PATH.read_text(encoding="utf-8")
-    assert guest.count(".owned = $true") == 4
-    for line in (ln for ln in guest.splitlines() if ".owned = $true" in ln):
-        assert line.strip().startswith(("$entry.owned", "$controlEntry.owned")), line
+    # New-GPO (control, source, target) cannot adopt an existing name, so its
+    # returned object is ours; the creating operations go through
+    # Confirm-GpoCreated instead (re-review 3).
+    assert guest.count(".owned = $true") == 3
+    owned_lines = [ln.strip() for ln in guest.splitlines() if ".owned = $true" in ln]
+    assert sorted(owned_lines) == sorted(
+        ["$entry.owned = $true", "$controlEntry.owned = $true", "$Entry.owned = $true"]
+    )
+    confirm = guest[guest.index("function Confirm-GpoCreated"):]
+    confirm = confirm[: confirm.index("\n}\n")]
+    assert confirm.index("-contains $id") < confirm.index("$Entry.owned = $true")
+    assert confirm.index("CreationTime -lt $Baseline.start") < confirm.index(
+        "$Entry.owned = $true"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Re-review 3: a returned GPO is not proof of creation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "operation,cmdlet", [("copy", "$copy = Copy-GPO"), ("import_as_new", "$imported = Import-GPO")]
+)
+def test_creating_operations_snapshot_ids_before_and_confirm_after(
+    operation: str, cmdlet: str
+) -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    start = {
+        "copy": "foreach ($name in 'copy', 'copy_with_acl')",
+        "import_as_new": "$op = $operations['import_as_new']",
+    }[operation]
+    block = guest[guest.index(start):]
+    baseline_at = block.index("$baseline = Get-CreationBaseline")
+    create_at = block.index(cmdlet)
+    confirm_at = block.index("Confirm-GpoCreated -Entry $entry -Gpo")
+    after_at = block.index("$op.target_after = Read-ScopeState")
+    assert baseline_at < create_at < confirm_at < after_at
+
+
+def test_the_guest_has_no_colon_after_an_unbraced_variable_in_a_string() -> None:
+    """"$runId:" is a scope-qualified variable in PowerShell, not "$runId" + ":".
+
+    It made the whole guest script unparseable in round 3 (06a6d8f). Without a
+    PowerShell parser on every host, this is the cheap static guard: inside a
+    double-quoted string, a variable followed by ':' must be written ${name}.
+    """
+    pattern = re.compile(r'"[^"]*\$(?!script:|global:|env:|using:|\(|\{)[A-Za-z_]\w*:[^"]*"')
+    offenders = [
+        f"{number}: {line.strip()}"
+        for number, line in enumerate(_GUEST_PATH.read_text(encoding="utf-8").splitlines(), 1)
+        if not line.lstrip().startswith("#") and pattern.search(line)
+    ]
+    assert offenders == []
+    assert pattern.search('$m = "x:$runId:$(1)"')

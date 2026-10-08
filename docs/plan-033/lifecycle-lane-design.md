@@ -97,9 +97,27 @@ so the next reader knows what each guard is for:
   (re-review P1). Each directory object (OU, group, WMI filter) therefore
   carries a run-unique marker set by its own create call (`description`, or
   `msWMI-Parm1` for a filter), and cleanup deletes it only if the marker it
-  reads back is this run's. A GPO counts as owned only if its create returned
-  it. A GPO found under an intended name after a failed create is reported and
-  left in place, and the run fails.
+  reads back is this run's. A GPO from `New-GPO` counts as owned when the
+  create returns it, because `New-GPO` cannot adopt an existing name. A GPO
+  returned by `Copy-GPO` or `Import-GPO -CreateIfNeeded` does not prove
+  creation, since the import can write into a GPO another creator made after
+  the absence check (re-review 3). It counts as owned only if its id was absent
+  from a `Get-GPO -All` snapshot taken immediately before the operation, and
+  its `CreationTime` is not earlier than the operation's start, truncated to
+  the whole second. Otherwise it is recorded as foreign, never owned and never
+  deleted, and the run fails. A GPO found under an intended name after a failed
+  create is likewise reported and left in place. A window remains between the
+  snapshot and the cmdlet's own create step, which no client-side check can
+  close.
+* **Creating operations have no before-state.** A non-null `target_before` on
+  a copy or `import_as_new` record is refused as malformed. It is never
+  ignored.
+* **Each WMI association is its domain plus its filter id.** Every comparison
+  uses both: the snapshot's `gPCWQLFilter` and the backup bridge's
+  `[domain;{id};n]` form. The domain DNS name is compared case-insensitively.
+* **Snapshots must name what the run made.** `run_id` must be
+  `lifecycle-<stamp>`, and every baseline, and every creating operation's
+  result, must carry the display name the run generated.
 * **No coercion.** The finalizer type-checks every value it grades: GUID syntax,
   SIDs, `SID|level|denied` permission entries, and booleans. A `null` is a
   harness error and never becomes the string `"None"`. A `gPCWQLFilter` that is
