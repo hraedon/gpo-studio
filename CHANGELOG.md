@@ -9,6 +9,16 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Imported backups now carry their Folder Redirection file (WI-068).
+  `read_backup` parses `User/Documents & Settings/fdeploy1.ini` onto
+  `GPO.fdeploy`. The policy report renders it, and the GPO diffs compare it by
+  folder and principal, including in the browser's three-way comparison. It is
+  import provenance: it is in the review digest and not in the policy-semantic
+  digest. GPMC backup export refuses a GPO carrying it, because Studio has no
+  writer for the file (WI-066). The edit touches `model.py`, `canonical.py` and
+  `export.py`, so WI-068 stays open until the publication and scripts-metadata
+  lanes re-run in the estate requalification batch.
+
 - Added a Folder Redirection browser panel that reviews native `fdeploy` files
   and compares an earlier copy with a current one, through the existing API. It
   preserves the uploaded bytes, shows raw flags and both files' structural
