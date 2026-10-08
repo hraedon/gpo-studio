@@ -2,10 +2,19 @@
 
 Status: implemented (domain layer) — **not surfaced**. `publication.py` and
 `publisher.py` model publication plans and the capability/approval gating that
-guards them. Both are pure and side-effect-free, are reachable from no API
-endpoint or UI module, and emit no writes: the charter invariant that the web
-process never writes to AD or SYSVOL is unchanged by this plan's landing.
-Surfacing any of it is gated on Plan 033 WP-7.
+guards them. Both are pure and side-effect-free and emit no writes: the
+charter invariant that the web process never writes to AD or SYSVOL is
+unchanged by this plan's landing. `publisher.py` is reachable from no API
+endpoint or UI module, and is out of scope for 1.x (2026-10-07 ruling).
+
+**`publication.py` got a review-only surface on 2026-10-08, awaiting
+requalification.** `GET /api/gpos/{guid}/publication-plan` and the Publication
+preview panel show the plan with a per-step `coverage` mark held to the
+publication-completeness lane's assertions; nothing executes a step. The
+2026-10-07 direction ("scripts and publication already have lanes, so their
+surfaces can be built now") supersedes the earlier gate on Plan 033 WP-7 for
+this read-only surface. The plan stays unsurfaced because `publisher.py` is, and
+because the lane's verdict binds pre-batch bytes until the estate re-runs it.
 
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane

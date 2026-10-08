@@ -102,6 +102,12 @@ The 1.0 contract above has not changed. Since 1.0:
   structural issues and the reader's limits, based on the banked R3 capture. It
   does not author or apply policy. See the
   [file review guide](docs/folder-redirection-review.md).
+- **Scripts export and publication preview:** a sidebar panel exports computer
+  startup scripts as a GPMC backup, in the one shape the Scripts lane measured,
+  and a "Publication preview" button shows the publication plan with each
+  step's lane coverage. Neither writes to AD or SYSVOL, and both lanes are
+  awaiting requalification after the 2026-10 batch. See the
+  [operator guide](docs/scripts-and-publication-preview.md).
 - **Not reachable:** the other Plans 025–032 domain layers are implemented
   but not wired to the API or browser. The
   [capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced)

@@ -52,6 +52,27 @@
     .rsop-inconclusive{background:var(--red-soft);border:1px solid var(--red);border-radius:8px;padding:12px 14px;margin-top:10px;color:var(--red)}
     .rsop-conditional{color:var(--amber);font-size:12px;margin-top:3px}
     .inf-output{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;white-space:pre;font-size:12px;line-height:1.5}
+    .scripts-section{margin-top:18px}
+    .scripts-section h3{margin-bottom:4px}
+    .script-rows{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:8px}
+    .script-row fieldset{border:1px solid var(--line);border-radius:8px;margin:0;padding:8px 12px 10px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 12px;align-items:end}
+    .script-row legend{font-weight:650;font-size:12px;color:var(--muted);padding:0 4px}
+    .script-row label{margin:4px 0}
+    .script-row-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px}
+    .script-row-actions button{padding:5px 9px}
+    .scripts-empty{color:var(--muted);font-size:13px;padding:6px 0}
+    .scripts-digest,.publication-summary{margin:8px 0 12px}
+    .scripts-digest dd,.publication-facts{overflow-wrap:anywhere}
+    .publication-banner{background:var(--green-soft);color:var(--green-ink);border:1px solid var(--green-border);border-radius:8px;padding:10px 14px;margin:0 0 12px}
+    .publication-steps,.publication-absences{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+    .publication-step{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+    .publication-step p{margin:6px 0 0;overflow-wrap:anywhere}
+    .publication-step-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;overflow-wrap:anywhere}
+    .publication-group h4{margin:14px 0 4px}
+    .publication-absences li{overflow-wrap:anywhere}
+    #publication-results details{margin-top:14px}
+    #publication-results summary{cursor:pointer;font-weight:650}
+    @media(max-width:600px){.script-row fieldset{grid-template-columns:1fr}.script-row-actions{justify-content:stretch}.script-row-actions button{flex:1 1 auto}}
    </style>
 </head>
 <body>
@@ -66,6 +87,7 @@
       <button class="full" id="open-rsop">RSOP prediction</button>
       <button class="full" id="open-security-template">Security template</button>
       <button class="full" id="open-folder-redirection">Folder Redirection</button>
+      <button class="full" id="open-scripts">Scripts</button>
       <label class="search"><span aria-hidden="true">⌕</span><span class="sr-only">Filter policies</span><input id="search" type="search" placeholder="Filter policies"></label>
       <nav id="gpo-list" aria-label="Group Policy objects"></nav>
       <footer><span><span class="dot"></span> Offline authoring mode</span><button id="theme-toggle" type="button" aria-label="Colour theme: automatic">Auto</button></footer>
@@ -79,6 +101,7 @@
           <a class="button" id="policy-report">Policy report</a>
           <a class="button" id="plan" data-export-kind="powershell_plan" target="_blank" rel="noopener">Review PowerShell</a>
           <a class="button" id="gpmc-backup" data-export-kind="gpmc_export">GPMC backup</a>
+          <button type="button" class="button" id="publication-preview">Publication preview</button>
           <a class="button primary" id="export" data-export-kind="studio_export">Export bundle</a>
         </div>
       </header>
@@ -456,6 +479,42 @@
       <div class="dialog-actions"><button type="button" data-close-folder-redirection>Close</button><button class="primary" type="submit" id="folder-redirection-submit">Review files</button></div>
       <p id="folder-redirection-status" role="status" aria-live="polite"></p>
       <div id="folder-redirection-results" class="rsop-results" aria-busy="false"></div>
+    </form>
+  </dialog>
+
+  <dialog id="scripts-dialog" class="wide" aria-labelledby="scripts-dialog-title" aria-describedby="scripts-dialog-description">
+    <form id="scripts-form" novalidate>
+      <div class="dialog-head"><div><p class="eyebrow">Scripts</p><h2 id="scripts-dialog-title">Export startup scripts</h2></div><button type="button" class="icon" data-close-scripts aria-label="Close">&times;</button></div>
+      <p id="scripts-dialog-description" class="rsop-note">This builds a GPMC backup of the selected policy that lists computer startup scripts in <code>scripts.ini</code> and <code>psscripts.ini</code>. It carries the script names and parameters only, not the scripts themselves. Windows imported a backup like this and kept the entries; it has never run them. Shutdown, logon, logoff and user scripts are not offered because no test has covered them.</p>
+      <p id="scripts-policy" class="rsop-note"></p>
+      <p id="scripts-availability" class="error-summary app-message" role="note" hidden></p>
+      <section class="scripts-section" aria-labelledby="scripts-legacy-heading">
+        <h3 id="scripts-legacy-heading">Startup scripts <span class="mono">(scripts.ini)</span></h3>
+        <p class="rsop-note">Batch, command or other non-PowerShell scripts. They run in the order listed.</p>
+        <ul id="scripts-legacy-rows" class="script-rows"></ul>
+        <button type="button" id="scripts-add-legacy">Add startup script</button>
+      </section>
+      <section class="scripts-section" aria-labelledby="scripts-powershell-heading">
+        <h3 id="scripts-powershell-heading">PowerShell startup scripts <span class="mono">(psscripts.ini)</span></h3>
+        <p class="rsop-note">PowerShell scripts run before the other startup scripts. That is the only order that has been tested, so it is the only one offered.</p>
+        <ul id="scripts-powershell-rows" class="script-rows"></ul>
+        <button type="button" id="scripts-add-powershell">Add PowerShell script</button>
+      </section>
+      <div class="dialog-actions"><button type="button" data-close-scripts>Close</button><button type="button" id="scripts-download">Download backup</button><button class="primary" type="submit" id="scripts-preview">Preview</button></div>
+      <p id="scripts-status" role="status" aria-live="polite"></p>
+      <div id="scripts-results" class="rsop-results"></div>
+    </form>
+  </dialog>
+
+  <dialog id="publication-dialog" class="wide" aria-labelledby="publication-dialog-title" aria-describedby="publication-banner">
+    <form method="dialog" id="publication-form">
+      <div class="dialog-head"><div><p class="eyebrow">Publication boundary</p><h2 id="publication-dialog-title">Publication preview</h2></div><button type="button" class="icon" data-close-publication aria-label="Close">&times;</button></div>
+      <p id="publication-banner" class="publication-banner" role="note"><strong>Nothing here writes.</strong> This lists what publishing the policy would involve and which steps have been tested against Windows. It does not connect to Active Directory or SYSVOL, and it runs no step.</p>
+      <p id="publication-policy" class="rsop-note"></p>
+      <label for="publication-target">Publish to<select id="publication-target"><option value="both">Active Directory and SYSVOL</option><option value="ad">Active Directory only</option><option value="sysvol">SYSVOL only</option></select></label>
+      <p id="publication-status" role="status" aria-live="polite"></p>
+      <div id="publication-results" class="rsop-results" aria-busy="false"></div>
+      <div class="dialog-actions"><button type="button" data-close-publication>Close</button></div>
     </form>
   </dialog>
 

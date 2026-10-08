@@ -1,12 +1,23 @@
 # Plan 026 — Scripts and managed-artifact policies
 
-Status: partly implemented (domain layer) — **not surfaced**. `script_policy.py`
-holds the script model; the certified `scripts.ini` / `psscripts.ini` writer is
+Status: partly implemented (domain layer) — **not surfaced** as a capability
+yet, although its surface exists (below). `script_policy.py` holds the script
+model; the certified `scripts.ini` / `psscripts.ini` writer is
 `gpmc_backup_bundle(gpo, scripts=...)` in `export.py`, which the Plan 034
-scripts-metadata lane measures. No API endpoint or UI module passes scripts to
-it, so a Scripts export surface remains open. The scripts-metadata verdict is
-pending requalification in the Plan 034 batch and is not re-earned until that
-lane runs on the estate. `artifact_store.py` (WP-1) was **deleted** by the
+scripts-metadata lane measures. The scripts-metadata verdict is pending
+requalification in the Plan 034 batch and is not re-earned until that lane runs
+on the estate.
+
+**Surface landed 2026-10-08, awaiting requalification.**
+`POST /api/gpos/{guid}/gpmc-backup-with-scripts` (and `/preview`) and the
+Scripts browser panel pass scripts to that writer unchanged, for the shape the
+lane measured only (computer startup entries, PowerShell first, on a GPO with
+no other content); everything else is refused. See
+[the operator guide](../docs/scripts-and-publication-preview.md). The plan stays
+in the unsurfaced set until the lane re-runs, because a capability needs both
+halves current and this verdict binds pre-batch bytes. Promoting it then means
+moving 026 to `PROMOTED_DOMAIN_LAYER_PLANS` in
+`tests/test_domain_layer_status.py` and rewording this line. `artifact_store.py` (WP-1) was **deleted** by the
 2026-10-07 operator ruling (`docs/direction-2026-10-07-plan-034-completion.md`):
 delivering script or executable payloads is out of scope for 1.x, and so is
 WP-4's typed executable publication.
