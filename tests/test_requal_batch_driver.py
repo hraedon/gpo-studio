@@ -124,3 +124,24 @@ def test_a_computer_scope_lane_does_not_inherit_the_user_principal(tmp_path: Pat
     assert "-u GPO_STUDIO_RSOP_USER" in lines[0]
     assert "GPO_STUDIO_RSOP_USER=" not in lines[0]
     assert "GPO_STUDIO_RSOP_USER=labuser" in lines[1]
+
+
+def test_a_batch_dir_inside_the_repository_is_refused(tmp_path: Path) -> None:
+    """Review B2 (DeepSeek): the batch's own logs would trip the clean-tree guard."""
+    clone = _clone(tmp_path)
+    env = {
+        **os.environ,
+        "PATH": f"{_fake_acb(tmp_path, 0)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+    }
+    result = subprocess.run(
+        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(clone / "batch"), "wp1b"],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "outside the repository" in result.stderr
+    assert not (tmp_path / "acb.log").exists()

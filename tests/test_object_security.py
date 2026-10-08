@@ -904,3 +904,27 @@ def _entries_to_text(entries: dict[str, dict[str, str]]) -> str:
         )
     )
     return format_security_template(template)
+
+
+def test_a_name_keyed_group_is_written_back_unstarred() -> None:
+    """Review B1 (DeepSeek): only a SID is starred; a name stays a name.
+
+    Native templates carry name keys and name members, and the reader keeps
+    them; starring them on the way out would name principals called
+    ``*Power Users`` and ``*Administrator``.
+    """
+    from gpo_studio.security_template import parse_security_template
+
+    family = RestrictedGroupsFamily.from_template(
+        parse_security_template(
+            "[Group Membership]\n"
+            "Power Users__Members = Administrator,*S-1-5-32-545\n"
+            "*S-1-5-32-544__Memberof = Backup Operators\n"
+        )
+    )
+    assert family.to_template_entries() == {
+        "Group Membership": {
+            "Power Users__Members": "Administrator,*S-1-5-32-545",
+            "*S-1-5-32-544__Memberof": "Backup Operators",
+        }
+    }

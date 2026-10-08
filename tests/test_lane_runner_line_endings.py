@@ -120,10 +120,10 @@ def test_no_new_controller_source_carries_crlf() -> None:
         if b"\r\n" in path.read_bytes()
     )
     assert not offenders, (
-        f"These controller-side sources carry CRLF: {offenders}. They are "
-        "declared `-text` in .gitattributes, so git will neither normalize "
-        "them nor report drift -- the bytes commit exactly as an editor left "
-        "them (WI-063). Convert to LF before committing."
+        f"These controller-side sources carry CRLF: {offenders}. The trees are "
+        "declared `text eol=lf`, so this means the bytes were committed from a "
+        "checkout that bypassed normalization (WI-063). Convert to LF before "
+        "committing."
     )
 
 
