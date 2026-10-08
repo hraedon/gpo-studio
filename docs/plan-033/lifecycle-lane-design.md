@@ -103,12 +103,16 @@ so the next reader knows what each guard is for:
   creation, since the import can write into a GPO another creator made after
   the absence check (re-review 3). It counts as owned only if its id was absent
   from a `Get-GPO -All` snapshot taken immediately before the operation, and
-  its `CreationTime` is not earlier than the operation's start, truncated to
-  the whole second. Otherwise it is recorded as foreign, never owned and never
+  its AD `whenCreated` is not earlier than the operation's start. Both times
+  are read from the domain controller's clock (RootDSE `currentTime`) and
+  truncated to the whole second. Estate run 1 compared against the member's
+  clock, and a DC a few seconds behind rejected all three genuine creations.
+  A GPO that fails either check is recorded as foreign, never owned and never
   deleted, and the run fails. A GPO found under an intended name after a failed
   create is likewise reported and left in place. A window remains between the
-  snapshot and the cmdlet's own create step, which no client-side check can
-  close.
+  snapshot and the cmdlet's own create step. Every run name therefore carries
+  a 64-bit nonce from a fresh GUID that no other process knows before the
+  first create, so taking a name inside that window means guessing it.
 * **Creating operations have no before-state.** A non-null `target_before` on
   a copy or `import_as_new` record is refused as malformed. It is never
   ignored.
@@ -125,16 +129,26 @@ so the next reader knows what each guard is for:
 * **One perturbation snapshot, on the source.** The restore is graded only if
   its `before` state is the very snapshot whose perturbation was verified, and
   that snapshot's GPO id is the source's.
-* **Cleanup proof.** The proof needs exactly the five named residual
-  categories. It also needs a creation inventory equal, DN for DN, to the
+* **Cleanup proof.** The residual lists every surviving object under a name
+  this run used, its own or not. A survivor that is not provably ours is
+  marked "left in place, ownership unproven", so the post-run state is never
+  reported clean while a run-named object exists. Estate run 1 reported an
+  empty residual with three such GPOs still present. The proof needs exactly
+  the five named residual categories. It also needs a creation inventory equal, DN for DN, to the
   objects the run's stamp generates: the OUs, the two groups under the run's
   OU, and the two `msWMI-Som` objects in `CN=SOM,CN=WMIPolicy,CN=System`.
   Every GPO entry must be owned, carry its generated name, and have the id the
   guest read back. The control must be an untouched `New-GPO` (Authenticated Users holds
   Apply), so that "defaulted" means something.
-* **Bridge evidence.** The backup's WMI reference must identify the source
-  filter exactly, in one of three forms: `[domain;{id};n]` with exactly its id,
-  the bare braced id, or exactly its name. Substring matches never count.
+* **Bridge evidence: the measured shape.** Estate run 1 showed what
+  `Backup.xml` really carries:
+  `MSFT_SomFilter.ID="{id}",Domain="DOMAIN"`, a WMI object path with the DNS
+  domain in upper case, plus a sibling `WMIFilterName`. It is not the
+  directory attribute's `[domain;{id};0]` form. The bridge accepts only that
+  measured shape, with the exact id, the run's domain (compared ignoring case)
+  and the source filter's exact name. The shapes guessed before the run are no
+  longer accepted. The sanitized measured value is
+  `tests/fixtures/lifecycle/backup-wmifilter-ws2025.json`.
 * **The `-CreateIfNeeded` precondition.** The creating plans set
   `requires_target_absent`. When the caller supplies the domain's current
   names, only that list decides, and the backup's historical name only draws a
@@ -145,6 +159,23 @@ so the next reader knows what each guard is for:
   environment and a clean repository of the bound bytes, and it must exit 0.
   The guest-script probes (`tests/test_lifecycle_guest_probes.py`) run the
   script under `pwsh` against stand-in cmdlets.
+
+## Exploratory estate run 1 (2026-10-08, commit `7a9671d`)
+
+This run is not a verdict, but it is the first contact with Windows, on
+LabMS01 (WS2025 build 26100, PowerShell 5.1.26100):
+
+* `restore_in_place` and `import_into_existing` ran, and **all 12 of their
+  cells matched the predictions**. Restore kept the settings, GUID, DACL, WMI
+  association and description, and left the current links in place
+  (`replaced`). Import into the existing GPO kept the settings and the
+  description, and the target's own GUID, DACL, WMI association and links
+  stayed (`replaced`). The description cell for `import_into_existing` was
+  among the least certain predictions; it held.
+* The three creating operations ran but were rejected by the clock-skew defect
+  described above, so their 18 cells are ungraded.
+* The backup bridge failed on the then-unknown `Backup.xml` WMI shape, which
+  is now measured and handled.
 
 ## What it cannot assert
 

@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from gpo_studio.backup import BackupError, read_backup
-from gpo_studio.lifecycle import manifest_from_backup
+from gpo_studio.lifecycle import manifest_from_backup, parse_wmi_filter_reference
 from gpo_studio.model import ValidationError
 from gpo_studio.oracle_evidence import (
     OracleEvidenceError,
@@ -178,8 +178,9 @@ _PERMISSION = re.compile(r"^S-1-\d+(?:-\d+)+\|Gpo[A-Za-z]+\|(?:True|False)$")
 #: gPCWQLFilter / WMI reference: ``[<DNS domain>;{<filter id>};<flags>]``.
 #: Windows resolves the filter by domain AND id (MS-GPOL), so both are kept.
 _WQL = re.compile(rf"^\[([^;\]]+);(\{{{_HEX_GUID}\}});\d+\]$")
-_RUN_ID = re.compile(r"^lifecycle-\d{14}-\d{4}$")
-_STAMP = re.compile(r"^\d{14}-\d{4}$")
+_RUN_ID = re.compile(r"^lifecycle-\d{14}-\d{4}-[0-9a-f]{16}$")
+#: yyyyMMddHHmmss-nnnn-<64-bit nonce>; the nonce makes every run name unguessable.
+_STAMP = re.compile(r"^\d{14}-\d{4}-[0-9a-f]{16}$")
 _GROUP_NAME = re.compile(r"^zzlc-(\d{6})-(src|tgt)$")
 _NIL_GUID = "00000000-0000-0000-0000-000000000000"
 _WMI_CONTAINER = "CN=SOM,CN=WMIPolicy,CN=System,"
@@ -266,7 +267,7 @@ def validate_fixture(raw: object) -> Mapping[str, Any]:
         if not _BRACED_GUID.match(fixture[key]):
             raise ValueError(f"fixture.{key} is not a braced GUID")
     if not _STAMP.match(fixture["stamp"]):
-        raise ValueError("fixture.stamp is not the guest's yyyyMMddHHmmss-nnnn stamp")
+        raise ValueError("fixture.stamp is not the guest's yyyyMMddHHmmss-nnnn-<nonce> stamp")
     source_group = _GROUP_NAME.match(fixture["source_group_name"])
     target_group = _GROUP_NAME.match(fixture["target_group_name"])
     if (
@@ -481,7 +482,10 @@ def _inventory_complete(
     if not isinstance(gpos, list):
         raise ValueError("created.gpos is not a list")
     entries = [
-        _mapping(entry, frozenset({"role", "name", "id", "owned"}), "created.gpos[]")
+        _mapping(
+            entry, frozenset({"role", "name", "id", "owned", "creation_evidence"}),
+            "created.gpos[]",
+        )
         for entry in gpos
     ]
     roles = [entry["role"] for entry in entries]
@@ -492,6 +496,15 @@ def _inventory_complete(
     ids = [entry["id"] for entry in entries]
     return (
         all(entry["owned"] is True for entry in entries)
+        # New-GPO results carry no creation evidence; the creating operations'
+        # results must carry the snapshot/DC-clock proof the guest checked.
+        and all(entry["creation_evidence"] is None for entry in entries
+                if entry["role"] in ("control", "source", "target"))
+        and all(
+            isinstance(entry["creation_evidence"], str)
+            and entry["creation_evidence"].startswith("in_snapshot=False;")
+            for entry in entries if entry["role"] in NEW_GPO_ROLES
+        )
         and all(
             by_role[role]["name"] == f"{prefix}-{suffix}"
             for role, suffix in GPO_NAME_SUFFIX.items()
@@ -662,25 +675,22 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
     return lane, claims, comparison
 
 
-def wmi_reference_identifies(
-    reference: str, filter_id: str, filter_name: str, domain: str
-) -> bool:
-    """Does a backup's WMIFilter text identify exactly this filter?
+def wmi_reference_identifies(reference: str, filter_id: str, domain: str) -> bool:
+    """Does a ``Backup.xml`` ``WMIFilter`` value identify exactly this filter?
 
-    Re-review P2(a): containment let ``<name>-other-filter`` and a wrong GUID
-    beside the right name both pass. Only three exact shapes are accepted --
-    the gPCWQLFilter form ``[domain;{id};n]`` with exactly this id, the bare
-    braced id, or exactly this name -- because the populated shape has never
-    been captured; this lane's verdict records which one Windows writes.
+    Only the shape Windows was measured writing is accepted (estate lifecycle
+    run 1, 2026-10-08): ``MSFT_SomFilter.ID="{id}",Domain="DOMAIN"``, parsed
+    by :func:`gpo_studio.lifecycle.parse_wmi_filter_reference`. The id must be
+    exactly this filter's, and the DNS domain must equal the run's domain
+    ignoring case (Windows writes it in upper case). The guessed shapes that
+    preceded the measurement -- ``[domain;{id};n]``, a bare id, a name -- are
+    no longer accepted for the backup: the first is the *directory
+    attribute's* form, not the backup's.
     """
-    text = reference.strip()
-    match = _WQL.match(text)
-    if match is not None:
-        # The domain counts as much as the id (re-review 3).
-        return association(match.group(1), match.group(2)) == association(domain, filter_id)
-    if _BRACED_GUID.match(text):
-        return _bare(text) == _bare(filter_id)
-    return text == filter_name
+    parsed = parse_wmi_filter_reference(reference)
+    if parsed is None:
+        return False
+    return association(parsed[1], parsed[0]) == association(domain, filter_id)
 
 
 def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
@@ -704,10 +714,7 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
         return False, {"error": f"{type(exc).__name__}: {exc}"}
     def identifies(prefix: str) -> bool:
         return wmi_reference_identifies(
-            manifest.wmi_filter_reference,
-            fixture[f"{prefix}_wmi_filter_id"],
-            fixture[f"{prefix}_wmi_filter_name"],
-            domain,
+            manifest.wmi_filter_reference, fixture[f"{prefix}_wmi_filter_id"], domain
         )
 
     data = {
@@ -716,11 +723,14 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
         "gpo_display_name": manifest.gpo_display_name,
         "created_at": manifest.created_at,
         "has_wmi_filter": manifest.has_wmi_filter,
-        # The populated Backup.xml WMIFilter shape: never captured before
-        # this lane, recorded so the bridge can stop keeping it verbatim.
         "wmi_filter_reference": manifest.wmi_filter_reference,
         "wmi_reference_names_source_filter": identifies("source"),
         "wmi_reference_names_target_filter": identifies("target"),
+        # WMIFilterName, written beside WMIFilter: must be the source filter's
+        # msWMI-Name exactly.
+        "wmi_filter_name": manifest.wmi_filter_name,
+        "wmi_filter_name_is_source_filter": manifest.wmi_filter_name
+        == fixture["source_wmi_filter_name"],
         "files": [f.relative_path for f in manifest.files],
     }
     ok = (
@@ -731,6 +741,7 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
         and manifest.has_wmi_filter
         and data["wmi_reference_names_source_filter"] is True
         and data["wmi_reference_names_target_filter"] is False
+        and data["wmi_filter_name_is_source_filter"] is True
     )
     return ok, data
 

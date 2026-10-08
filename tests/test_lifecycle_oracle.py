@@ -74,7 +74,7 @@ _BASE = [f"{_DA}|GpoEditDeleteModifySecurity|False", f"{_SYS}|GpoEditDeleteModif
 _DEFAULT_ACL = sorted([f"{_AU}|GpoApply|False", *_BASE])
 _SRC_ACL = sorted([f"{_AU}|GpoRead|False", f"{_SRC_SID}|GpoApply|False", *_BASE])
 _TGT_ACL = sorted([f"{_AU}|GpoRead|False", f"{_TGT_SID}|GpoApply|False", *_BASE])
-_STAMP = "20261007000000-0001"
+_STAMP = "20261007000000-0001-0123456789abcdef"
 _PREFIX = f"zz-studio-lifecycle-{_STAMP}"
 _DOMAIN_DN = "DC=synthetic,DC=test"
 _PARENT = f"OU={_PREFIX},{_DOMAIN_DN}"
@@ -114,6 +114,18 @@ _FIXTURE = {
 
 def _wql(wmi: str) -> str:
     return f"[synthetic.test;{wmi};0]" if wmi else ""
+
+
+def _som(wmi: str, domain: str = "SYNTHETIC.TEST") -> str:
+    """The Backup.xml WMIFilter shape measured on WS2025 (estate run 1)."""
+    return f'MSFT_SomFilter.ID="{wmi}",Domain="{domain}"'
+
+
+def _wmi_elements(reference: str, name: str) -> bytes:
+    return (
+        f"<WMIFilter><![CDATA[{reference}]]></WMIFilter>"
+        f"<WMIFilterName><![CDATA[{name}]]></WMIFilterName>"
+    ).encode()
 
 
 def _state(
@@ -205,15 +217,20 @@ def _result() -> dict[str, Any]:
             "target_after": _after(op, before),
         }
     gpos = [
-        {"role": "control", "name": f"{_PREFIX}-control", "id": _CTRL, "owned": True},
-        {"role": "source", "name": f"{_PREFIX}-source", "id": _SRC, "owned": True},
-        {"role": "target", "name": f"{_PREFIX}-target", "id": _TGT, "owned": True},
+        {"role": "control", "name": f"{_PREFIX}-control", "id": _CTRL, "owned": True,
+         "creation_evidence": None},
+        {"role": "source", "name": f"{_PREFIX}-source", "id": _SRC, "owned": True,
+         "creation_evidence": None},
+        {"role": "target", "name": f"{_PREFIX}-target", "id": _TGT, "owned": True,
+         "creation_evidence": None},
     ]
     for op in ("copy", "copy_with_acl", "import_as_new"):
         name = _IMPORT_NAME if op == "import_as_new" else f"{_PREFIX}-{op}"
         gpos.append(
             {"role": op, "name": name, "id": operations[op]["target_after"]["gpo_id"],
-             "owned": True}
+             "owned": True,
+             "creation_evidence": "in_snapshot=False;when_created_utc=2026-10-07T00:00:05Z;"
+             "dc_start_utc=2026-10-07T00:00:05Z"}
         )
     return {
         "schema_version": 1,
@@ -336,7 +353,7 @@ def _run_dir(tmp_path: Path, result: dict[str, Any], wmi: str | None = _WMI_SRC)
         backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
         backup_xml.write_bytes(
             backup_xml.read_bytes().replace(
-                b"<WMIFilter/>", f"<WMIFilter>{_wql(wmi)}</WMIFilter>".encode()
+                b"<WMIFilter/>", _wmi_elements(_som(wmi), _FIXTURE["source_wmi_filter_name"])
             )
         )
     (run / "commands").mkdir()
@@ -376,7 +393,7 @@ def test_the_control_run_passes_end_to_end(tmp_path: Path) -> None:
     assert verdict["passed"] is True
     assert verdict["harness_valid"] is True and verdict["predictions_agree"] is True
     assert code == 0
-    assert verdict["comparison"]["backup_bridge"]["wmi_filter_reference"] == _wql(_WMI_SRC)
+    assert verdict["comparison"]["backup_bridge"]["wmi_filter_reference"] == _som(_WMI_SRC)
     assert set(verdict["candidate"]) == {"expected.json"}
 
 
@@ -541,7 +558,7 @@ def _mutate_snapshot_names_unrelated(r: dict[str, Any]) -> None:
 
 
 def _mutate_run_id_differs_from_fixture(r: dict[str, Any]) -> None:
-    r["run_id"] = "lifecycle-20261009000000-0001"
+    r["run_id"] = "lifecycle-20261009000000-0001-0123456789abcdef"
 
 
 def _mutate_source_association_other_domain(r: dict[str, Any]) -> None:
@@ -635,13 +652,13 @@ def test_a_wmi_reference_naming_another_filter_fails_the_bridge(tmp_path: Path) 
     assert verdict["comparison"]["backup_bridge"]["wmi_reference_names_source_filter"] is False
 
 
-def _bridge_with_reference(tmp_path: Path, reference: str) -> tuple[int, dict[str, Any]]:
+def _bridge_with_reference(
+    tmp_path: Path, reference: str, name: str = _FIXTURE["source_wmi_filter_name"]
+) -> tuple[int, dict[str, Any]]:
     run = _run_dir(tmp_path, _result(), wmi=None)
     backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
     backup_xml.write_bytes(
-        backup_xml.read_bytes().replace(
-            b"<WMIFilter/>", f"<WMIFilter>{reference}</WMIFilter>".encode()
-        )
+        backup_xml.read_bytes().replace(b"<WMIFilter/>", _wmi_elements(reference, name))
     )
     completed = _finalize(run, _candidate(tmp_path))
     verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
@@ -658,44 +675,72 @@ def _bridge_with_reference(tmp_path: Path, reference: str) -> tuple[int, dict[st
             "[synthetic.test;{bbbbbbbb-0000-0000-0000-000000000099};0] "
             + _FIXTURE["source_wmi_filter_name"],
         ),
-        ("source_id_embedded_in_other_text", f"x{_WMI_SRC}x"),
-        ("both_filters_named", f"{_wql(_WMI_SRC)}{_wql(_WMI_TGT)}"),
+        ("source_id_embedded_in_other_text", f"x{_som(_WMI_SRC)}x"),
+        ("both_filters_named", f"{_som(_WMI_SRC)}{_som(_WMI_TGT)}"),
+        # The shapes guessed before estate run 1 measured the real one.
+        ("directory_attribute_form", _wql(_WMI_SRC)),
+        ("bare_braced_id", _WMI_SRC.upper()),
+        ("filter_name_alone", _FIXTURE["source_wmi_filter_name"]),
+        # Sol's round-3 backup_wmi_different_domain, in both shapes.
+        ("som_path_other_domain", _som(_WMI_SRC, "OTHER.SYNTHETIC.TEST")),
+        ("wql_form_other_domain", f"[other.synthetic.test;{_WMI_SRC};0]"),
     ],
 )
 def test_a_wmi_reference_that_does_not_exactly_identify_the_source_fails(
     tmp_path: Path, case: str, reference: str
 ) -> None:
-    """Re-review P2(a): identity is exact equality, never containment."""
+    """Identity is the measured shape with exact id and domain, never containment."""
     code, verdict = _bridge_with_reference(tmp_path, reference)
     assert code == 1, case
     assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False, case
 
 
-@pytest.mark.parametrize(
-    "reference", [_wql(_WMI_SRC), _WMI_SRC.upper(), _FIXTURE["source_wmi_filter_name"]]
-)
-def test_each_exact_wmi_reference_shape_identifies_the_source(
-    tmp_path: Path, reference: str
+@pytest.mark.parametrize("domain", ["SYNTHETIC.TEST", "synthetic.test", "Synthetic.Test"])
+def test_the_measured_som_path_identifies_the_source_in_any_domain_case(
+    tmp_path: Path, domain: str
 ) -> None:
-    code, verdict = _bridge_with_reference(tmp_path, reference)
+    """Windows wrote the domain in upper case; the run records it as it found it."""
+    code, verdict = _bridge_with_reference(tmp_path, _som(_WMI_SRC, domain))
     assert verdict["checks"]["backup_bridge_reads_windows_backup"] is True
     assert code == 0
 
 
-def test_wmi_reference_identity_is_exact() -> None:
-    identifies = cast(
-        Callable[[str, str, str, str], bool], _FINALIZER["wmi_reference_identifies"]
+def test_a_wrong_wmi_filter_name_beside_the_right_reference_fails(tmp_path: Path) -> None:
+    code, verdict = _bridge_with_reference(
+        tmp_path, _som(_WMI_SRC), name=_FIXTURE["target_wmi_filter_name"]
     )
-    name, d = "flt", "d.test"
-    assert identifies(f"[d.test;{_WMI_SRC};0]", _WMI_SRC, name, d) is True
-    assert identifies(f"[D.TEST;{_WMI_SRC};0]", _WMI_SRC, name, d) is True
-    assert identifies(f"[other.d.test;{_WMI_SRC};0]", _WMI_SRC, name, d) is False
-    assert identifies(f"[d.test;{_WMI_TGT};0]", _WMI_SRC, name, d) is False
-    assert identifies(_WMI_SRC, _WMI_SRC, name, d) is True
-    assert identifies("flt", _WMI_SRC, name, d) is True
-    assert identifies("flt-2", _WMI_SRC, name, d) is False
-    assert identifies("FLT", _WMI_SRC, name, d) is False
-    assert identifies(f"[d.test;{_WMI_TGT};0] flt", _WMI_SRC, name, d) is False
+    assert code == 1
+    assert verdict["comparison"]["backup_bridge"]["wmi_filter_name_is_source_filter"] is False
+
+
+def test_wmi_reference_identity_is_exact() -> None:
+    identifies = cast(Callable[[str, str, str], bool], _FINALIZER["wmi_reference_identifies"])
+    d = "d.test"
+    assert identifies(_som(_WMI_SRC, "D.TEST"), _WMI_SRC, d) is True
+    assert identifies(_som(_WMI_SRC.upper(), "d.test"), _WMI_SRC, d) is True
+    assert identifies(_som(_WMI_SRC, "OTHER.D.TEST"), _WMI_SRC, d) is False
+    assert identifies(_som(_WMI_TGT, "D.TEST"), _WMI_SRC, d) is False
+    assert identifies(f"[d.test;{_WMI_SRC};0]", _WMI_SRC, d) is False
+    assert identifies(_WMI_SRC, _WMI_SRC, d) is False
+    assert identifies(_som(_WMI_SRC, "D.TEST") + " ", _WMI_SRC, d) is True
+    assert identifies("x" + _som(_WMI_SRC, "D.TEST"), _WMI_SRC, d) is False
+
+
+def test_the_measured_windows_backup_string_is_identified() -> None:
+    """The fixture is estate run 1's Backup.xml value, domain sanitized, case kept."""
+    measured = json.loads(
+        (_ROOT / "tests/fixtures/lifecycle/backup-wmifilter-ws2025.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    identifies = cast(Callable[[str, str, str], bool], _FINALIZER["wmi_reference_identifies"])
+    assert measured["domain_as_written"] == measured["domain_as_written"].upper()
+    assert identifies(measured["wmi_filter"], measured["filter_id"], "synthetic.test") is True
+    # The same GPO's directory attribute uses the OTHER form; it is not a
+    # backup reference.
+    assert identifies(
+        measured["gpc_wql_filter_of_the_same_gpo"], measured["filter_id"], "synthetic.test"
+    ) is False
 
 
 def test_the_expected_inventory_is_exact_dns() -> None:
@@ -704,13 +749,6 @@ def test_the_expected_inventory_is_exact_dns() -> None:
     created = _result()["created"]
     for key in ("ous", "groups", "wmi_filters"):
         assert expected[key] == created[key], key
-
-
-def test_a_backup_wmi_reference_in_another_domain_fails_the_bridge(tmp_path: Path) -> None:
-    """Re-review 3 (Sol's backup_wmi_different_domain): the domain must match too."""
-    code, verdict = _bridge_with_reference(tmp_path, f"[other.synthetic.test;{_WMI_SRC};0]")
-    assert code == 1
-    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
 
 
 def test_a_restored_association_in_another_domain_is_not_kept(tmp_path: Path) -> None:
@@ -735,22 +773,6 @@ def test_a_wmi_reference_naming_the_target_filter_fails_the_bridge(tmp_path: Pat
     code, verdict = _verdict(tmp_path, _result(), wmi=_WMI_TGT)
     assert code == 1
     assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
-
-
-def test_a_wmi_reference_by_name_satisfies_the_bridge(tmp_path: Path) -> None:
-    """The populated shape is unknown; the authored filter's name identifies it too."""
-    run = _run_dir(tmp_path, _result(), wmi=None)
-    backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
-    backup_xml.write_bytes(
-        backup_xml.read_bytes().replace(
-            b"<WMIFilter/>",
-            f"<WMIFilter>{_FIXTURE['source_wmi_filter_name']}</WMIFilter>".encode(),
-        )
-    )
-    completed = _finalize(run, _candidate(tmp_path))
-    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
-    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is True
-    assert completed.returncode == 0
 
 
 def test_a_backup_without_a_wmi_link_fails_the_bridge_claim(tmp_path: Path) -> None:
@@ -1203,9 +1225,14 @@ def test_the_guest_never_deletes_by_name_pattern() -> None:
     assert "-like" not in guest
     # Get-GPO -All survives only as the pre-operation id snapshot that proves
     # creation; nothing is ever deleted from a listing.
-    assert guest.count("Get-GPO -All") == 1
+    # Two uses: the pre-operation id snapshot that proves creation, and the
+    # report-only sweep for run-named survivors. Neither deletes.
+    assert guest.count("Get-GPO -All") == 2
     baseline = guest[guest.index("function Get-CreationBaseline"):]
     assert baseline.index("Get-GPO -All") < baseline.index("\n}\n")
+    sweep = guest[guest.index("# Report-only sweep for GPOs carrying"):]
+    sweep = sweep[: sweep.index("} catch {")]
+    assert "Get-GPO -All" in sweep and "Remove-" not in sweep
 
 
 def test_the_guest_guards_ownership_before_its_first_create() -> None:
@@ -1322,7 +1349,7 @@ def test_ownership_is_recorded_only_from_a_returned_object() -> None:
     confirm = guest[guest.index("function Confirm-GpoCreated"):]
     confirm = confirm[: confirm.index("\n}\n")]
     assert confirm.index("-contains $id") < confirm.index("$Entry.owned = $true")
-    assert confirm.index("CreationTime -lt $Baseline.start") < confirm.index(
+    assert confirm.index("$whenCreated -lt $Baseline.dc_start") < confirm.index(
         "$Entry.owned = $true"
     )
 
@@ -1366,3 +1393,54 @@ def test_the_guest_has_no_colon_after_an_unbraced_variable_in_a_string() -> None
     ]
     assert offenders == []
     assert pattern.search('$m = "x:$runId:$(1)"')
+
+
+# ---------------------------------------------------------------------------
+# Estate run 1 (2026-10-08): DC clock for creation proof; honest residue
+# ---------------------------------------------------------------------------
+
+
+def _function_body(guest: str, name: str) -> str:
+    body = guest[guest.index(f"function {name}"):]
+    return body[: body.index("\n}\n")]
+
+
+def test_creation_proof_reads_only_the_domain_controllers_clock() -> None:
+    """The member clock led the DC and rejected all three genuine creations."""
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    baseline = _function_body(guest, "Get-CreationBaseline")
+    confirm = _function_body(guest, "Confirm-GpoCreated")
+    assert "(Get-ADRootDSE -Server $dc -ErrorAction Stop).currentTime" in baseline
+    assert "-Properties whenCreated" in confirm
+    for body in (baseline, confirm):
+        assert "Get-Date" not in body
+        assert "CreationTime" not in body
+
+
+def test_unowned_run_named_survivors_are_reported_as_residue() -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    cleanup = guest[guest.index("} finally {"):]
+    assert "left in place, ownership unproven" in cleanup
+    assert "$residual.surviving_gpos += \"$($gpo.name) (" in cleanup
+    foreign = "$residual[$categories[$kind]] += \"${dn}: left in place, ownership unproven\""
+    assert foreign in cleanup
+
+
+def test_the_run_stamp_carries_a_guid_nonce() -> None:
+    """Re-review 4 P1: run names are unguessable.
+
+    A foreign creator cannot take a name it cannot know between the absence
+    check and Import-GPO -CreateIfNeeded.
+    """
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    assert "$nonce = [guid]::NewGuid().ToString('N').Substring(0, 16)" in guest
+    assert (
+        '$stamp = "$(Get-Date -Format yyyyMMddHHmmss)-'
+        '$(Get-Random -Minimum 1000 -Maximum 9999)-$nonce"'
+    ) in guest
+    assert '$prefix = "zz-studio-lifecycle-$stamp"' in guest
+    # 20 + 14 + 1 + 4 + 1 + 16: within the 64-character OU RDN limit.
+    assert len(f"zz-studio-lifecycle-{_STAMP}") <= 64
+    validate = cast(Callable[[object], object], _FINALIZER["validate_fixture"])
+    with pytest.raises(ValueError, match="stamp"):
+        validate(dict(_FIXTURE, stamp="20261007000000-0001"))
