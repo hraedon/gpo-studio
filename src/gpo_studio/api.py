@@ -1764,6 +1764,9 @@ def _gpo_list_item(gpo: Any) -> dict[str, Any]:
     """
     item = _gpo_to_api_dict(gpo)
     item["has_backup_inventory"] = item.pop("backup_inventory", None) is not None
+    # Same reasoning for the parsed `fdeploy1.ini` (WI-068): its text and its
+    # verbatim section lines are bounded only by the 1 MiB file cap.
+    item["has_fdeploy"] = item.pop("fdeploy", None) is not None
     return item
 
 
@@ -3502,6 +3505,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         source_guid=backup_gpo.guid,
         cse_metadata=cse_metadata,
         backup_inventory=backup_gpo.backup_inventory,
+        fdeploy=backup_gpo.fdeploy,
         domain=backup_gpo.domain or "studio.local",
         security_filters=security_filters,
         wmi_filter=wmi_filter,
@@ -4727,10 +4731,11 @@ def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
 # Plan 034 WP-4: the fdeploy (Folder Redirection) reader surface.
 #
 # `fdeploy.py` is a read target, not a write target -- see its module
-# docstring and the scope decision it cites. This block is the operator's
-# only path to the artifact: nothing in the GPO model carries it yet (WI-068),
-# so a caller who wants to know what `fdeploy1.ini` says has no route but this
-# one until that lands.
+# docstring and the scope decision it cites. This block reviews a file the
+# caller supplies. An imported backup reaches the same module another way:
+# `read_backup` parses `fdeploy1.ini` onto `GPO.fdeploy` (WI-068), and the
+# policy report and GPO diff render it. `tests/test_fdeploy_surface.py` holds
+# this block's composition equal to the module's.
 #
 # Same shape as the two surfaces above: typed request in, typed structure out,
 # limitations carried in the response body rather than left in this comment.

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
+    from .fdeploy import FdeployDocument
     from .gpp import GppCollection
 
 Side = Literal["computer", "user"]
@@ -123,6 +124,11 @@ class GPO:
     source_guid: str = ""
     cse_metadata: tuple[CseMetadataEntry, ...] = field(default_factory=tuple)
     backup_inventory: BackupInventory | None = None
+    #: The imported ``fdeploy1.ini`` (Folder Redirection), parsed. Import
+    #: provenance like ``backup_inventory``: read-only, never published (no
+    #: writer exists, WI-066), folded into the review digest and kept out of the
+    #: policy-semantic one (WI-068).
+    fdeploy: FdeployDocument | None = None
     security_filters: tuple[SecurityFilter, ...] = field(default_factory=tuple)
     wmi_filter: WmiFilter | None = None
     gpp_collections: tuple[GppCollection, ...] = field(default_factory=tuple)
