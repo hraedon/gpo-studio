@@ -35,11 +35,17 @@ src/gpo_studio/gpp.py text eol=lf
 src/gpo_studio/model.py text eol=lf
 src/gpo_studio/registry_pol.py text eol=lf
 src/gpo_studio/validation.py text eol=lf
+# Bound by the lifecycle lane (wp7-evidence/lifecycle, 2026-10-08).
+src/gpo_studio/lifecycle.py text eol=lf
+src/gpo_studio/backup.py text eol=lf
 # Native logs/JSON retain CRLF and padding; their hashes cover those bytes.
 docs/plan-033/wp3-evidence/policy-families/** -text -whitespace
 docs/plan-033/wp3-evidence/object-security/** -text -whitespace
 docs/plan-033/wp1b-evidence/scripts-metadata/** -text -whitespace
 docs/plan-033/wp1b-evidence/publication-completeness/** -text -whitespace
+# The lifecycle lane's first banked verdict: CRLF guest JSON (with a BOM) and
+# command transcripts, whose SHA-256s the verdict's artifacts block covers.
+docs/plan-033/wp7-evidence/lifecycle/** -text -whitespace
 
 # Raw census artifacts, verbatim byte copies: every SHA-256 is banked in
 # tests/fixtures/live-domain-census/provenance.json, so the blobs must not

@@ -1,12 +1,17 @@
 # Same-domain lifecycle lane: design
 
-**Status (2026-10-07):** built offline, **never run**. No verdict exists and none
-is registered. `lifecycle.py`'s survival table is a set of predictions until this
-lane has run on the estate and the table has been corrected to what it saw.
+**Status (2026-10-08):** certified. `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
+passed at `3513052` on a clean tree: harness valid, all 30 survival cells agreeing
+with `lifecycle.SCOPE_SURVIVAL`, cleanup clean. The verdict is banked at
+[`wp7-evidence/lifecycle/`](wp7-evidence/lifecycle/verification.json) and the
+measured table, the WMI wire shape and the clock-skew finding are in
+[the results](lifecycle-results.md). The status lines further down this
+document describe the lane as it was being built, and are kept as history.
 
 Plan 034's ruling for `lifecycle.py` ([direction 2026-10-07](../direction-2026-10-07-plan-034-completion.md)):
 same-domain lane over `Backup-GPO` / `Restore-GPO` / `Import-GPO` / `Copy-GPO`,
-then a restore-plan surface. The surface is not built yet; the lane comes first.
+then a restore-plan surface. The lane came first; the surface is
+`POST /api/lifecycle/restore-plan` (2026-10-08).
 
 ## What it asserts
 
