@@ -5,7 +5,7 @@ Status: implemented (domain layer) — **not surfaced**. `script_policy.py` and
 path. Updated 2026-10-07:
 
 - `script_policy.py` is **lane-backed and unsurfaced**. The Scripts metadata
-  lane passed 21/21 on a clean member server (live pack:
+  lane passed on a clean member server (live pack, 20/20 checks:
   `scripts-r10-20260905191308-8174` from the WI-062 batch; the earlier
   `scripts-r10-20260908013518-2476`, see
   [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md), is
