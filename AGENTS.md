@@ -48,8 +48,10 @@ every verdict that binds it, and the evidence is wrong until the estate re-runs 
 [`docs/plan-033/bound-source-cost.md`](docs/plan-033/bound-source-cost.md) lists the cost of each file
 in lanes. It is generated from the live verdicts and guarded by `tests/test_bound_source_cost.py`.
 
-- `oracle_evidence.py` and `psdirect.ps1` cost every lane. `model.py`, `export.py` and `validation.py`
-  cost two lanes each.
+- `oracle_evidence.py` and `psdirect.ps1` cost every lane (24). `gpp.py`, `model.py`,
+  `registry_pol.py`, `xml_safety.py` and `security_template.py` cost three lanes each; `backup.py`
+  (lifecycle and report parity), `canonical.py`, `export.py`, `policy_families.py` and
+  `validation.py` cost two.
 - If no estate session is planned, either put the new behaviour in a file nothing binds (with a test
   holding it equal to the bound one), or file a work item pinned by a test that fails if someone fixes
   it without re-running the lane (WI-048). Whoever books the session decides the batching.

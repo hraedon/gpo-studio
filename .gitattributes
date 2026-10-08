@@ -35,10 +35,13 @@ src/gpo_studio/gpp.py text eol=lf
 src/gpo_studio/model.py text eol=lf
 src/gpo_studio/registry_pol.py text eol=lf
 src/gpo_studio/validation.py text eol=lf
-# The report-parity lane (Plan 034 WP-2) binds these too.
+# Bound by the lifecycle lane (wp7-evidence/lifecycle, 2026-10-08).
+src/gpo_studio/lifecycle.py text eol=lf
+src/gpo_studio/backup.py text eol=lf
+# The report-parity lane (Plan 034 WP-2) binds these too (backup.py is pinned
+# above for the lifecycle lane as well).
 src/gpo_studio/report_parity.py text eol=lf
 src/gpo_studio/gpp_adapters.py text eol=lf
-src/gpo_studio/backup.py text eol=lf
 src/gpo_studio/backup_inventory.py text eol=lf
 src/gpo_studio/import_export.py text eol=lf
 # Native logs/JSON retain CRLF and padding; their hashes cover those bytes.
@@ -46,6 +49,9 @@ docs/plan-033/wp3-evidence/policy-families/** -text -whitespace
 docs/plan-033/wp3-evidence/object-security/** -text -whitespace
 docs/plan-033/wp1b-evidence/scripts-metadata/** -text -whitespace
 docs/plan-033/wp1b-evidence/publication-completeness/** -text -whitespace
+# The lifecycle lane's first banked verdict: CRLF guest JSON (with a BOM) and
+# command transcripts, whose SHA-256s the verdict's artifacts block covers.
+docs/plan-033/wp7-evidence/lifecycle/** -text -whitespace
 # The report-parity lane's certifying run (1a31feb): UTF-16LE CRLF reports and
 # raw command streams; the verdict's SHA-256s cover those bytes.
 docs/plan-033/wp2-evidence/report-parity/** -text -whitespace

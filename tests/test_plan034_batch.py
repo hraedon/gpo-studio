@@ -146,13 +146,21 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
     assert "zz-studio" in collector
 
 
-#: Lanes first banked after the batch, each with its own certifying run. They
-#: are enumerated, not pattern-matched: a verdict joins the live set beside the
-#: batch only by being named here, so an unretired stale binding still fails.
-BANKED_AFTER_THE_BATCH = {
+#: Lane verdicts banked AFTER the batch, by lanes the batch did not run, each
+#: with its own certifying run.
+#:
+#: Enumerated with a reason, never pattern-matched: the test below exists to
+#: catch an unretired stale binding or a missing registration, and a lane that
+#: postdates the batch is neither, but only when someone names it here. A
+#: verdict joins the live set beside the batch only by being named here.
+BANKED_AFTER_THE_BATCH: frozenset[str] = frozenset({
+    # The same-domain lifecycle lane did not exist when the batch froze
+    # `263f196`. Its first verdict, `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
+    # at `3513052`, was banked the same day.
+    "wp7-evidence/lifecycle/verification.json",
     # report-parity-20261008104512-7480 at a1c280b (Plan 034 WP-2 items 2-3).
     "wp2-evidence/report-parity/verification.json",
-}
+})
 
 
 def test_the_batch_is_the_live_set() -> None:

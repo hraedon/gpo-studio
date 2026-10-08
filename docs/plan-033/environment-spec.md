@@ -64,6 +64,7 @@ produced a verdict.
 | object-security | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `object-security-20261008082348-9729` (`pass`) |
 | scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `scripts-r10-20261008074828-8492` (`pass`) |
 | publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `publication-completeness-20261008074904-1047` (`pass`) |
+| lifecycle | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `lifecycle-20261008093248-2000-c76d10eb3f2849fe` (`pass`) |
 | report-parity | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `report-parity-20261008104512-7480` (`pass`) |
 | endpoint | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `endpoint-observe-20261008075004-5187` (`pass`) |
 | lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `rsop-observe-20261008075254-6590` (`pass`) |

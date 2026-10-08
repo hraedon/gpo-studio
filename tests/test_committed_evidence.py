@@ -946,6 +946,37 @@ RETIRED_VERDICTS.update({
     'wp3-evidence/plan034-20261008/object-security/verification.json',
 })
 
+# Plan 034's same-domain lifecycle lane, first banked verdict (2026-10-08):
+# `lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`, clean tree,
+# on LabMS01. All 30 survival cells of `lifecycle.SCOPE_SURVIVAL` were
+# measured and agreed with the table, the five plan-identity claims and the
+# backup bridge held, and cleanup was proven empty by re-query. Plan 033 WP-7
+# is the lifecycle work package, hence `wp7-evidence/`. Exploratory runs 1
+# (`7a9671d`, failed on the creation guard's clock comparison) and 2
+# (`a3f24d1`, passed before the Plan 034 batch merged) are history recorded in
+# `docs/plan-033/lifecycle-results.md`, not banked verdicts.
+LANE_VERDICTS.update({
+    'wp7-evidence/lifecycle/verification.json': 'finalize_lifecycle_run.py',
+})
+
+#: Finalizers whose manifest-form verdict (WI-062's `paths`, `banked_copies`
+#: and `manifest_bound_source`) carries a schema number other than 2.
+#:
+#: The lifecycle lane was born after WI-062, so its first verdict schema has
+#: the manifest form from the start and is numbered 1 -- there was no earlier
+#: byte-copy form for it to supersede. The finalizer is bound by the verdict,
+#: so renumbering it would expire the lane for a cosmetic change. Listing it
+#: here keeps it inside both manifest-form checks below rather than letting a
+#: `schema_version == 2` filter quietly skip it.
+MANIFEST_FORM_SCHEMA_VERSIONS: dict[str, int] = {
+    'finalize_lifecycle_run.py': 1,
+}
+
+
+def _is_manifest_form(relative: str, finalizer: str) -> bool:
+    expected = MANIFEST_FORM_SCHEMA_VERSIONS.get(finalizer, 2)
+    return bool(_verdict(relative).get("schema_version") == expected)
+
 # The report-parity lane (Plan 034 WP-2 items 2 and 3), banked 2026-10-08:
 # `report-parity-20261008104512-7480`, 25/25 checks over all 27 corpus backups
 # plus one guest-authored GPO, on LabMS01 at `a1c280b` (clean tree). It
@@ -954,8 +985,9 @@ RETIRED_VERDICTS.update({
 # builder was made platform-independent; its pack is in git history and its
 # tag is preserved. A manifest-form (schema 2) pack: the guest-deployed runner is banked,
 # the controller half is bound by (commit, path, sha256). It binds files no
-# other live lane binds (`report_parity.py`, `gpp_adapters.py`, `backup.py`,
-# `backup_inventory.py`, `import_export.py`), so the cost table moves with it.
+# other live lane binds (`report_parity.py`, `gpp_adapters.py`,
+# `backup_inventory.py`, `import_export.py`; `backup.py` too, which the
+# lifecycle lane above also binds), so the cost table moves with it.
 LANE_VERDICTS.update({
     'wp2-evidence/report-parity/verification.json': 'finalize_report_parity_run.py',
 })
@@ -1527,13 +1559,16 @@ def test_pending_requalification_verdicts_are_genuinely_stale() -> None:
     sorted(
         (relative, finalizer)
         for relative, finalizer in LANE_VERDICTS.items()
-        if _verdict(relative).get("schema_version") == 2
+        if _is_manifest_form(relative, finalizer)
     ),
 )
 def test_a_manifest_form_verdict_resolves_against_its_commit(
     relative: str, finalizer: str
 ) -> None:
-    """WI-062: schema-version-2 packs bind controller-side source by manifest.
+    """WI-062: manifest-form packs bind controller-side source by manifest.
+
+    Schema version 2 for the lanes that predate WI-062; a lane born after it
+    is listed in `MANIFEST_FORM_SCHEMA_VERSIONS` with its own number.
 
     The verdict records ``(commit, path, sha256)`` for every bound file, and
     the pack carries bytes only for the names `banked_copies` lists (the
@@ -1571,7 +1606,8 @@ def test_a_manifest_form_verdict_resolves_against_its_commit(
 
 
 def test_every_lane_finalizer_writes_the_manifest_form() -> None:
-    """The nine lane finalizers all emit schema version 2 with the new keys.
+    """Every lane finalizer emits the manifest form with the new keys (schema 2,
+    or the number `MANIFEST_FORM_SCHEMA_VERSIONS` records for a post-WI-062 lane).
 
     The pack tests above only see a finalizer's output once a verdict is
     committed; this keeps the half that has no committed evidence yet honest.
@@ -1585,7 +1621,8 @@ def test_every_lane_finalizer_writes_the_manifest_form() -> None:
         }
     ):
         text = (ORACLE_DIR / finalizer).read_text(encoding="utf-8")
-        assert '"schema_version": 2,' in text, finalizer
+        schema = MANIFEST_FORM_SCHEMA_VERSIONS.get(finalizer, 2)
+        assert f'"schema_version": {schema},' in text, finalizer
         assert '"paths":' in text and '"banked_copies":' in text, finalizer
         assert "manifest_bound_source" in text, (
             f"{finalizer}: controller-side files must be bound through "
