@@ -337,6 +337,25 @@
       "oracle": "Two legs on disposable unlinked GPOs. Read: New-NetFirewallRule/Set-NetFirewallProfile -PolicyStore author the policy and Studio's codec parses Windows' Registry.pol. Write: Import-GPO of Studio's backup, then Windows' Registry.pol is compared byte for byte with the candidate's. Both legs read the policy back through the NetSecurity cmdlets and Get-GPOReport. Endpoint application is outside this lane.",
       "status": "partial",
       "notes": "Certified 2026-10-08 at a6e0002dac0d65d6ae2b969a23636bf284061da1 by firewall-20261008094055-2092337 (36/36). The 13 measured rule shapes and the Domain/Private profile tranche parse with zero unrecognised records, Windows returns Studio's Registry.pol unchanged after Import-GPO, and cmdlet readback matches on both legs including six named normalizations. Studio's export registers the Administrative Templates tool GUID (D02B1F72) where native authoring registers the firewall one (B05566AC); GPMC's report rendered the firewall extension for both, and GPME editability was not measured. One build (WS2025 26100) was measured. IPsec, Public Key, wired and wireless policy are out of scope."
+    },
+    {
+      "lane_id": "fdeploy-gpmc",
+      "plan_wp": "WP-4",
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "For each case, a GPMC-format backup carrying fdeploy1.ini and the fdeploy.ini marker is imported with Import-GPO into a disposable unlinked GPO. SYSVOL is read back, a fresh Get-GPOReport -ReportType Xml is taken and Backup-GPO re-exports the GPO. The re-exported files must be byte-identical to the candidate's, and Studio's read_backup over Windows' own backup must agree with the report's FolderRedirectionSettings rows (folder id, principal SID, destination path). The expectation is built on the controller and never reaches the guest.",
+      "status": "partial",
+      "notes": "Certified 2026-10-08 at df713ef6eb86152e3e1e5ecf1e55f21dd5c64540 by fd-20261008121347-3151 (29/29). Four cases: R3's GPMC-written bytes verbatim (Flags 1021) and three builder-written Flags-only variants (1020, 1023, 3069); one folder (Documents), one principal (Everyone), one path. Certifies the reader's agreement with Windows for these shapes only. Flags is carried, not decoded: Windows' option rendering per value is recorded, not asserted (WI-066 data). Multi-folder and multi-principal documents, other Flags values, the writer (WI-066/R12) and endpoint application are not covered. One build (WS2025 26100) was measured."
     }
   ]
 }
