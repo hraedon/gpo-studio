@@ -1,0 +1,19 @@
+﻿
+
+DisplayName      : zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tar
+                   get
+DomainName       : AD.LABDOMAIN.DEV
+Owner            : LAB\Domain Admins
+Id               : d1cd249a-ac88-4762-986d-ad2ff323fcf8
+GpoStatus        : AllSettingsEnabled
+Description      : Studio lifecycle lane source 
+                   20261008093248-2000-c76d10eb3f2849fe
+CreationTime     : 10/8/2026 9:32:42 AM
+ModificationTime : 10/8/2026 9:32:47 AM
+UserVersion      : AD Version: 1, SysVol Version: 1
+ComputerVersion  : AD Version: 2, SysVol Version: 2
+WmiFilter        : zz-studio-lifecycle-20261008093248-2000-c76d10eb3f2849fe-tgt
+                   -wmi
+
+
+

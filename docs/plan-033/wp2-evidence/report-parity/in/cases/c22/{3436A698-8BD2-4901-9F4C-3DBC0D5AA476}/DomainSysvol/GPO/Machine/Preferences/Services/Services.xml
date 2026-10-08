@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NTServices clsid="{2CFB484A-4E96-4b5d-A0B6-093D2F91E6AE}"><NTService clsid="{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}" name="GPOStudio-WP1B-Service" removePolicy="0" userContext="0" disabled="0" bypassErrors="1"><Properties startupType="AUTOMATIC" serviceName="GPOStudio-WP1B-Service" timeout="45" serviceAction="START" firstFailure="RESTART" secondFailure="RESTART" resetFailCountDelay="172800" restartServiceDelay="120000" /></NTService></NTServices>

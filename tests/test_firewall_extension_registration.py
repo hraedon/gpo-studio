@@ -2,8 +2,8 @@
 
 Native firewall authoring registers the firewall snap-in's tool GUID with the
 Registry CSE, not the Administrative Templates one. The expectation is read
-from the capture (tests/fixtures/native-firewall-gpmc/fw-capture-20261008),
-never restated from export.py.
+from the banked native capture (tests/fixtures/native-firewall-gpmc, the
+firewall lane's fixture), never restated from export.py.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from gpo_studio.export import extension_registration, gpmc_backup_bundle
 from gpo_studio.import_export import extract_side_settings
 from gpo_studio.model import GPO, RegistrySetting
 
-CAPTURE = Path(__file__).parent / "fixtures" / "native-firewall-gpmc" / "fw-capture-20261008"
+CAPTURE = Path(__file__).parent / "fixtures" / "native-firewall-gpmc"
 CENSUS = (
     Path(__file__).parent / "fixtures" / "live-domain-census" / "r06-cse-census"
     / "extension-lists.csv"
@@ -28,14 +28,18 @@ CENSUS = (
 FIREWALL_KEY = r"SOFTWARE\Policies\Microsoft\WindowsFirewall"
 
 
-def _extract() -> dict[str, object]:
-    return json.loads((CAPTURE / "capture-extract.json").read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+def _capture() -> dict[str, object]:
+    return json.loads((CAPTURE / "capture.json").read_text(encoding="utf-8-sig"))  # type: ignore[no-any-return]
+
+
+def _backup_xml() -> str:
+    return next(CAPTURE.glob("backup/*/Backup.xml")).read_text(encoding="utf-8-sig")
 
 
 def _captured_settings(tmp_path: Path) -> list[RegistrySetting]:
     machine = tmp_path / "content" / "Machine"
     machine.mkdir(parents=True)
-    (machine / "registry.pol").write_bytes((CAPTURE / "Machine-registry.pol").read_bytes())
+    (machine / "registry.pol").write_bytes((CAPTURE / "Registry.pol").read_bytes())
     return extract_side_settings(tmp_path / "content", "computer")
 
 
@@ -61,9 +65,9 @@ def _ordinary(side: str = "computer") -> RegistrySetting:
 
 
 def test_the_fixture_is_the_captured_registry_pol() -> None:
-    extract = _extract()
-    digest = hashlib.sha256((CAPTURE / "Machine-registry.pol").read_bytes()).hexdigest()
-    assert digest == extract["sha256"]["Machine-registry.pol"]  # type: ignore[index]
+    provenance = json.loads((CAPTURE / "provenance.json").read_text(encoding="utf-8"))
+    digest = hashlib.sha256((CAPTURE / "Registry.pol").read_bytes()).hexdigest()
+    assert digest == provenance["registry_pol"]["sha256"]
 
 
 def test_the_capture_holds_firewall_keys_only(tmp_path: Path) -> None:
@@ -77,8 +81,7 @@ def test_the_capture_holds_firewall_keys_only(tmp_path: Path) -> None:
 
 
 def test_firewall_only_policy_registers_what_windows_registered(tmp_path: Path) -> None:
-    extract = _extract()
-    ad = extract["ad_attributes"]
+    ad = _capture()["ad_attributes"]
     assert isinstance(ad, dict)
     gpo = _gpo(_captured_settings(tmp_path))
 
@@ -92,9 +95,9 @@ def test_firewall_only_policy_registers_what_windows_registered(tmp_path: Path) 
         ).decode()
     recorded = re.search(r"<(?:\w+:)?MachineExtensionGuids>(.*?)</", backup_xml)
     assert recorded is not None
-    backup_lists = extract["backup_extension_guids"]
-    assert isinstance(backup_lists, dict)
-    assert recorded.group(1) == backup_lists["MachineExtensionGuids"]
+    native = re.search(r"<MachineExtensionGuids><!\[CDATA\[(.*?)\]\]>", _backup_xml())
+    assert native is not None
+    assert recorded.group(1) == native.group(1)
 
 
 def test_mixed_machine_content_is_left_unchanged_because_it_is_unmeasured(

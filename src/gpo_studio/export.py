@@ -31,7 +31,7 @@ _REGISTRY_USER_TOOL_GUID = "{D02B1F73-3407-48AE-BA88-E8213C6761F1}"
 _GPP_FILE_COPY_EXTENSION_GUID = "{F15C46CD-82A0-4C2D-A210-5D0D3182A418}"
 # Windows Defender Firewall snap-in: the tool half GPMC pairs with the Registry
 # CSE when the machine Registry.pol holds firewall policy. Measured 2026-10-08
-# (tests/fixtures/native-firewall-gpmc/fw-capture-20261008): a GPO whose
+# (tests/fixtures/native-firewall-gpmc): a GPO whose
 # Registry.pol held only SOFTWARE\Policies\Microsoft\WindowsFirewall keys got
 # gPCMachineExtensionNames = [{35378EAC-...}{B05566AC-...}] -- no {D02B1F72-...}.
 _FIREWALL_TOOL_GUID = "{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}"
