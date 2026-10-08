@@ -34,7 +34,7 @@ Update this list in the same change as any status line;
 
 **7 open.**
 
-- [WI-070](#wi-070--firewall-codec-needs-a-write-lane-before-a-surface) - certify the firewall writer, then surface and retire the legacy firewall facade.
+- [WI-076](#wi-076--firewall-codec-needs-a-write-lane-before-a-surface) - certify the firewall writer, then surface and retire the legacy firewall facade.
 - [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
 - [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -2754,13 +2754,14 @@ real time so no jump happens.
 identified, or the lane unblocked around it. Don't close it by paying one debt without
 saying so; that is how this became an unnumbered paragraph.
 
-## WI-070 — firewall codec needs a write lane before a surface
+## WI-076 — firewall codec needs a write lane before a surface
 
 **Opened:** 2026-10-07 (Plan 034 firewall-only operator ruling).
 **Status:** open.
 
 `firewall_policy.py` is grounded in the native WS2025 tranche dated 2026-10-08,
-not in a Studio-origin Windows write/import lane. The legacy firewall half of
+not yet in a verified Studio-origin Windows write/import lane. The two-leg lane
+is implemented; its estate session remains pending. The legacy firewall half of
 `network_security.py` stays compatible until that lane certifies the replacement.
 IPsec, Public Key, wired and wireless are out of scope for 1.x.
 

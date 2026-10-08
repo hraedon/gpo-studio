@@ -1,8 +1,8 @@
 # Firewall codec and the next lane
 
-Status: codec implemented, **not surfaced**; capture-backed, not Windows-verified
-by a Studio write lane. Native fixture dated 2026-10-08; operator scope ruling
-2026-10-07. Plan 034 exit remains codec → lane → surface. [WI-070](../work-items.md#wi-070--firewall-codec-needs-a-write-lane-before-a-surface)
+Status: codec and two-leg lab lane implemented, **not surfaced**; capture-backed,
+Windows lane not yet run or verified. Native fixture dated 2026-10-08; operator scope ruling
+2026-10-07. Plan 034 exit remains codec → lane → surface. [WI-076](../work-items.md#wi-076--firewall-codec-needs-a-write-lane-before-a-surface)
 tracks the remaining work.
 
 `firewall_policy.py` reads/validates/emits the measured machine Registry.pol
@@ -59,30 +59,72 @@ without LPort, RPC endpoint spelling, Lan/Wired, authenticated ByPass appearing
 as Allow plus OverrideBlockRules, CIDR/mask form, and LocalSubnet family collapse.
 They are assertions the lane must name, not errors it may silently normalize away.
 
-## Proposed write leg (requires an estate session)
+## Implemented lane (requires an estate session)
 
-1. Build/hash-bind a Studio-origin machine policy from the independent typed
-   fixture expectations, including all 13 rules and both configured profiles.
-   Bind the codec, serializer, candidate builder, harness and finalizer sources.
-2. Import that artifact into a disposable, unlinked GPO through the explicit
-   administrator adapter. Assert no User Registry.pol or host PersistentStore
-   writes and that Public values and Private default outbound remain absent.
-3. Assert native AD extension metadata: Registry CSE
-   `{35378EAC-683F-11D2-A89A-00C04FBBCFA2}` paired with firewall snap-in tool
-   `{B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}`, and no User extension. Capture
-   the version changes, Backup-GPO payload, Registry.pol, report and cmdlet filters.
-4. Compare Windows readback with independently authored expected fields for
-   every rule/profile and every application/service/address/port/interface/security
-   filter. Assert the named normalizations individually, including the ICMPv4
-   anomaly. Reject missing/extra rules and collapsed profiles.
-5. Assert Windows accepts the Studio-origin bytes; re-export/read the policy
-   and compare record identity, registry type, data and token order. If Windows
-   rewrites anything beyond file record ordering, bank it as a named measured fact
-   before changing the codec. Add isolated write/mutate controls that change a
-   rule and a profile; a read leg on native bytes alone cannot certify a writer.
-6. Check cleanup and unchanged PersistentStore before/after. Bank candidate/raw
-   hashes and a rerunnable verdict. Define GPMC editability and endpoint processing
-   as separate claims; cmdlet readback alone proves neither.
+The controller builds a typed `FirewallPolicy` with all 13 measured rules and
+Domain/Private settings, leaving Public and Private default outbound absent.
+`build-firewall-candidate.py` refuses all codec or GPO validation issues, then
+uses `to_registry_settings` → `GPO` → the unchanged `gpmc_backup_bundle` export
+path to emit `studio-firewall-backup.zip`. It emits `authoring.json` in
+NetSecurity parameter vocabulary and controller-only `expected.json` containing
+the typed policy, every expected rule/profile field, six explicitly named
+readback normalization rules and each expected raw Registry.pol record chunk.
+All three files receive SHA-256 lines in builder stdout (WI-025).
+
+`run-firewall-policy.ps1` runs on LabMS01 under Windows PowerShell 5.1. Its read
+leg creates a disposable unlinked GPO, authors via `New-NetFirewallRule` and
+`Set-NetFirewallProfile -PolicyStore "$Domain\$name"`, then captures the rule,
+port/address/application/service/interface type/interface/security filters and
+all three profiles. The write leg creates a second disposable unlinked GPO and
+imports Studio's archive via `Import-GPO`, then takes the same observations.
+Every policy operation records its effective PolicyStore (filter cmdlets use
+InputObject from that store), subject, success and stdout/stderr filenames. CIM
+and AD values become plain strings/integers before JSON. Each leg captures
+Machine Registry.pol base64, directory extension metadata and Get-GPOReport XML.
+The guest checks PersistentStore for zero `StudioFwLane*` rules before and after,
+removes both owned GPOs in `finally`, and strictly re-queries all GPOs for their
+names and IDs. It never links either GPO.
+
+`finalize_firewall_run.py` independently gates schema, authoring/import success,
+zero unrecognised Windows records/tokens, complete parsed policy equality,
+record-set equality with per-record **original byte** equality, complete cmdlet
+readback on both legs, every write rule ID and absence of extras. It names each
+of the six normalizations as a separate check in each leg. Scoped operation
+logs, no links, unchanged PersistentStore, cleanup, LabMS01 member role, frozen
+environment, deployed script hashes, delivery of both archive and authoring JSON,
+no harness error and clean bound source are also required. Missing data fails
+closed. Expected data never travels to the guest. The verdict hashes every
+candidate file and raw artifact and binds the lane files, codec and publication
+export chain by commit/path/SHA-256, with the same evidence-tag convention.
+
+The finalizer **records**, without asserting a tool GUID, each leg's
+`gPCMachineExtensionNames` and whether its report renders a Windows Firewall
+extension. The read/write comparison supplies the evidence for the B05566AC
+registration question while keeping the bound exporter unchanged. A passing
+cmdlet/byte verdict alone does not establish GPMC editability, endpoint processing
+or an operator surface. No estate run has been performed for this implementation.
+
+Run from this worktree on the controller, with a qualified Hyper-V host selected
+in `GPO_STUDIO_LAB_HOST` and `GPO_STUDIO_LAB_GUEST=LabMS01`:
+
+```bash
+export GPO_STUDIO_LAB_HOST='<qualified-hyperv-host>'
+export GPO_STUDIO_LAB_GUEST='LabMS01'
+acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \
+  bash scripts/windows-oracle/run-firewall-oracle.sh
+```
+
+The composed acb checkout provides `HYPERV_CONTROL_USERNAME`,
+`HYPERV_CONTROL_PASSWORD`, `GUEST_BOOTSTRAP_USERNAME` and
+`GUEST_BOOTSTRAP_PASSWORD`; the driver/transport consume them from the environment.
+The driver uses a 600-second guest timeout, prints `LOCAL_RUN_DIR=` and
+`CANDIDATE_DIR=`, retrieves the deployed guest script and artifacts, and finalizes
+itself. To regrade the banked pack without creating an evidence tag:
+
+```bash
+uv run python scripts/windows-oracle/finalize_firewall_run.py "$LOCAL_RUN_DIR" \
+  --candidate-root "$CANDIDATE_DIR" --repo-root "$PWD" --no-tag
+```
 
 `export.py` is bound by two live lanes and remains untouched. Its extension
 registration will need a reviewed proposal: detect emitted firewall keys and
