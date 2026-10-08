@@ -7,17 +7,19 @@ verdict's bound file set, so the composition lives in `api.py` and this file is
 what stops the two drifting. Same shape as
 `test_policy_family_surface.py`, same reason.
 
-Certified by `object-security-20260905191252-4253` at `f5cad577`, 18/18 checks,
-succeeding `object-security-20260907075319-7408` (19/19) on the same lane.
+Certified by `object-security-20261008082348-9729` at `1fb3f56`, 20/20 checks
+(the Plan 034 batch's successor run), after `object-security-20260905191252-4253`
+(18/18) and `object-security-20260907075319-7408` (19/19) on the same lane.
 Three Registry Keys rows, three File Security rows and three Service General
 Setting rows, exercising propagation codes 0/1/2 and startup codes 2/3/4.
 
 **Restricted groups are not part of the surface**, and one test here exists to
 keep it that way. Their writer emitted a bare SID where Windows emits a
-star-SID (WI-064); it is corrected, and the requalification batch adds
-`[Group Membership]` rows built by `RestrictedGroupsFamily` to the candidate.
-No verdict has read those rows yet, so the surface composes the candidate
-*minus* that section until one does.
+star-SID (WI-064); it is corrected, and the candidate's `[Group Membership]`
+rows built by `RestrictedGroupsFamily` were certified by the 2026-10-08 run.
+The surface still composes the candidate *minus* that section: adding the
+family is a surface change of its own, and the `restricted_groups_not_surfaced`
+message asserted below predates the certification.
 """
 
 from __future__ import annotations

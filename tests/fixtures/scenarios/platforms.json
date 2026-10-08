@@ -7,9 +7,9 @@
       "os": "Windows Server 2025 Standard",
       "build": "26100 family",
       "status": "frozen",
-      "qualifying_run": "wp3-security-template-20260908003251-3920",
+      "qualifying_run": "wp3-security-template-20261008074709-2998",
       "snapshot_required": false,
-      "notes": "LabDC01 directly requalified for DC-only Kerberos serialization, role 5, by wp3-security-template-20260908003251-3920. It also serves AD and SYSVOL to the member/client lanes. No policy application is claimed."
+      "notes": "LabDC01 directly requalified for DC-only Kerberos serialization, role 5, by wp3-security-template-20261008074709-2998 (Plan 034 batch, 2026-10-08). It also serves AD and SYSVOL to the member/client lanes. No policy application is claimed."
     },
     {
       "host_id": "client-win11",
@@ -17,9 +17,9 @@
       "os": "Windows 11 Enterprise (25H2)",
       "build": "26200 family",
       "status": "frozen",
-      "qualifying_run": "endpoint-observe-20260908003432-9991",
+      "qualifying_run": "endpoint-observe-20261008075004-5187",
       "snapshot_required": true,
-      "notes": "LabCL01, build 26200 family, requalified by the endpoint and computer/user RSoP lanes. Interactive user sessions are exercised by WP-9; the GroupPolicy module remains absent on the client. Runs: endpoint-observe-20260908003432-9991, rsop-observe-20260908003647-5124, rsop-observe-20260908003802-3428, rsop-observe-20260908003917-3943, rsop-observe-20260908004032-4871, rsop-observe-20260908004147-8239, rsop-observe-20260908004329-7397, rsop-observe-20260908004451-9557, rsop-user-observe-20260908004610-7393, rsop-user-observe-20260908004751-4785, rsop-user-observe-20260908004932-4297, rsop-user-observe-20260908005147-1436, rsop-user-observe-20260908005409-2134, rsop-user-observe-20260908005556-1857."
+      "notes": "LabCL01, build 26200 family, requalified by the endpoint and computer/user RSoP lanes. Interactive user sessions are exercised by WP-9; the GroupPolicy module remains absent on the client. Runs (Plan 034 batch, 2026-10-08): endpoint-observe-20261008075004-5187, rsop-observe-20261008075254-6590, rsop-observe-20261008075447-5315, rsop-observe-20261008075636-2267, rsop-observe-20261008075825-8227, rsop-observe-20261008080014-9153, rsop-observe-20261008081929-9918, rsop-observe-20261008080205-6689, rsop-user-observe-20261008080357-2733, rsop-user-observe-20261008080612-1816, rsop-user-observe-20261008080829-2986, rsop-user-observe-20261008081133-5663, rsop-user-observe-20261008081431-2742, rsop-user-observe-20261008081652-5582."
     },
     {
       "host_id": "member-ws2025-disposable",
@@ -27,9 +27,9 @@
       "os": "Windows Server 2025 Standard",
       "build": "26100 family",
       "status": "frozen",
-      "qualifying_run": "wp3-security-template-20260908003235-1230",
+      "qualifying_run": "wp3-security-template-20261008074639-3419",
       "snapshot_required": true,
-      "notes": "LabMS01, role 3, requalified in the WI-059 batch. Member-host runs: live-synthetic-registry-basic-20260908003108-1493, wp1b-writer-20260908003141-5853, wp2-native-import-20260908003212-8693, wp3-security-template-20260908003235-1230, object-security-20260908003317-7120, scripts-r10-20260908003334-8294, publication-completeness-20260908003355-4887. Security-template lanes validate/import/export through temporary databases; no configure operation is claimed."
+      "notes": "LabMS01, role 3, requalified in the Plan 034 batch (2026-10-08). Member-host runs: live-synthetic-registry-basic-20261008074346-9312, wp1b-writer-20261008074501-2113, wp2-native-import-20261008074557-7463, wp3-security-template-20261008074639-3419, object-security-20261008074755-6711, object-security-20261008082348-9729, scripts-r10-20261008074828-8492, publication-completeness-20261008074904-1047 (object-security-20261008074755-6711 at 263f196 was superseded by object-security-20261008082348-9729 at 1fb3f56). Security-template lanes validate/import/export through temporary databases; no configure operation is claimed."
     }
   ],
   "tools": [
@@ -66,7 +66,7 @@
       "kind": "microsoft-inbox",
       "frozen_version": "rides the server OS build family (26100)",
       "status": "frozen",
-      "notes": "Requalified 2026-09-08 by wp3-security-template-20260908003235-1230, wp3-security-template-20260908003251-3920 and object-security-20260908003317-7120. Version follows the frozen server OS build. Native validate/import/export uses temporary databases; no /configure is invoked."
+      "notes": "Requalified 2026-10-08 by wp3-security-template-20261008074639-3419, wp3-security-template-20261008074709-2998 and object-security-20261008082348-9729. Version follows the frozen server OS build. Native validate/import/export uses temporary databases; no /configure is invoked."
     },
     {
       "tool_id": "netsecurity",
@@ -92,7 +92,7 @@
       "tool_id": "studio-finalize",
       "kind": "studio-harness",
       "status": "frozen",
-      "notes": "All ten finalizers and the shared source-byte guard are input-bound in the 22 passing WI-059 runs at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5. Finalization refuses working/index/HEAD byte drift before writing a verdict or tag, including with --no-tag. WP-0 binds its finalizer and shared library in its manifest."
+      "notes": "All ten finalizers and the shared source-byte guard are bound by (commit, path, sha256) in the 22 passing Plan 034 batch runs at 263f19640529d469c2a54c18b43d228db5378279 and the object-security successor at 1fb3f56ac7431e0044c69c32edc4350b2ab84151. Finalization refuses working/index/HEAD byte drift before writing a verdict or tag, including with --no-tag. WP-0 binds its finalizer and shared library in its manifest."
     }
   ],
   "lanes": [
@@ -133,7 +133,7 @@
       ],
       "oracle": "Import-GPO of a Studio-authored native backup, then GPMC report parse plus Backup-GPO round trip; agreement is between two independent readers of the same policy.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5 by wp1b-writer-20260908003141-5853. Seven candidates cover drives, local users and groups, daily Exec TaskV2 scheduled tasks, Services, and the registry-both control. This is native writer conformance; Services endpoint application remains outside scope."
+      "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by wp1b-writer-20261008074501-2113. Seven candidates cover drives, local users and groups, daily Exec TaskV2 scheduled tasks, Services, and the registry-both control. This is native writer conformance; Services endpoint application remains outside scope."
     },
     {
       "lane_id": "security-template-secedit",
@@ -152,7 +152,7 @@
       ],
       "oracle": "secedit /validate, /import /overwrite into a fresh temporary database, /export; semantic comparison against the exported template. /configure is never invoked on a shared host.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5 by wp3-security-template-20260908003235-1230, wp3-security-template-20260908003251-3920. Account/audit/user-rights, Registry Values, Group Membership and policy families are covered. The DC run carries the five native Kerberos keys; the member run omits that area. Both observed roles are recorded (5 and 3). No /configure is invoked."
+      "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by wp3-security-template-20261008074639-3419, wp3-security-template-20261008074709-2998. Account/audit/user-rights, Registry Values, Group Membership and policy families are covered. The DC run carries the five native Kerberos keys; the member run omits that area. Both observed roles are recorded (5 and 3). No /configure is invoked."
     },
     {
       "lane_id": "scripts-metadata-gpmc",
@@ -171,7 +171,7 @@
       ],
       "oracle": "Import-GPO of a Studio Scripts backup, Get-GPOReport Scripts namespace inspection, and Backup-GPO re-export comparison. Script payload execution is outside this lane.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at b5ccbabd19b7ed661312915ca4b314dc27bbdd6e by scripts-r10-20260908013518-2476. Import-GPO, Get-GPOReport Scripts metadata and Backup-GPO rebackup pass. Script payload execution and endpoint processing remain outside scope."
+      "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by scripts-r10-20261008074828-8492. Import-GPO, Get-GPOReport Scripts metadata and Backup-GPO rebackup pass. Script payload execution and endpoint processing remain outside scope."
     },
     {
       "lane_id": "object-security-secedit",
@@ -189,7 +189,7 @@
       ],
       "oracle": "secedit /validate, fresh-database /import /overwrite and /export for regkeys, filestore and services; exact target/code/SDDL comparison after parsing ordinal export rows. No /configure.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5 by object-security-20260908003317-7120. All nine registry/file/service rows pass, including propagation codes 0/1/2 and service startup codes 2/3/4 with explicit descriptor controls. Applied ACLs, descriptor advisability, empty/absent service descriptors and GPMC editability remain outside scope; WI-055 records the pre-surface scope ruling."
+      "notes": "Requalified 2026-10-08 at 1fb3f56ac7431e0044c69c32edc4350b2ab84151 by object-security-20261008082348-9729, the successor to the Plan 034 batch run object-security-20261008074755-6711 at 263f19640529d469c2a54c18b43d228db5378279 (8b1a5b4 changed object_security.py after the freeze). Three [Group Membership] rows built by RestrictedGroupsFamily (star-SID keys and members, two __Members and one __Memberof) are accepted and re-exported exactly. All nine registry/file/service rows pass, including propagation codes 0/1/2 and service startup codes 2/3/4 with explicit descriptor controls. Applied ACLs, descriptor advisability, empty/absent service descriptors and GPMC editability remain outside scope; WI-055 records the pre-surface scope ruling."
     },
     {
       "lane_id": "endpoint-application",
@@ -232,7 +232,7 @@
       ],
       "oracle": "gpresult.exe /x <file> /f /scope:computer on the client, parsed from the http://www.microsoft.com/GroupPolicy/Rsop namespace, plus direct winning-registry reads, GroupPolicy operational events, LDAP tokenGroups via [adsisearcher] for the computer token, and Get-Acl / Get-GPPermission -All for effective rights.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5 by rsop-observe-20260908003647-5124, rsop-observe-20260908003802-3428, rsop-observe-20260908003917-3943, rsop-observe-20260908004032-4871, rsop-observe-20260908004147-8239, rsop-observe-20260908004329-7397, rsop-observe-20260908004451-9557. The seven computer scenarios cover precedence, block/enforcement/disabled links, true/false/error WMI outcomes, allow/read-only/deny filtering, group deny, and deny Read. The group-denial case reboots and verifies a refreshed machine token. Applied-GPO comparison and direct winning-registry reads are gated; neither can substitute for the other. The client uses gpresult because its GroupPolicy module is absent. SearchedSOM freshness is not graded; WI-028 requires separate scoping evidence."
+      "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by rsop-observe-20261008075254-6590, rsop-observe-20261008075447-5315, rsop-observe-20261008075636-2267, rsop-observe-20261008075825-8227, rsop-observe-20261008080014-9153, rsop-observe-20261008081929-9918, rsop-observe-20261008080205-6689. The seven computer scenarios cover precedence, block/enforcement/disabled links, true/false/error WMI outcomes, allow/read-only/deny filtering, group deny, and deny Read. The group-denial case reboots and verifies a refreshed machine token. Applied-GPO comparison and direct winning-registry reads are gated; neither can substitute for the other. The client uses gpresult because its GroupPolicy module is absent. SearchedSOM freshness is not graded; WI-028 requires separate scoping evidence."
     },
     {
       "lane_id": "rsop-user-loopback",
@@ -256,7 +256,7 @@
       ],
       "oracle": "gpresult.exe /x <file> /f /scope:user /user <DOMAIN>\\<principal> on the client, parsed from the http://www.microsoft.com/GroupPolicy/Rsop namespace's UserResults section, plus the winning HKCU values read from the principal's loaded hive at HKEY_USERS\\<SID>, plus GroupPolicy operational events -- 8005 for the completion of the principal's own processing pass, and 5311 for the loopback mode Windows actually used.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at 4cfa9af4b3f12104e8c592cd94df00b88e49beb5 by rsop-user-observe-20260908004610-7393, rsop-user-observe-20260908004751-4785, rsop-user-observe-20260908004932-4297, rsop-user-observe-20260908005147-1436, rsop-user-observe-20260908005409-2134, rsop-user-observe-20260908005556-1857. Six scenarios cover loopback merge/replace, disabled user side, allow/read-only/group filtering, explicit deny Apply and deny Read. Applied-GPO comparison is gated (WI-032); winning values are read from the principal's loaded HKEY_USERS hive. Event 5311 verifies loopback mode and a mode mismatch is inconclusive. Group cases restart the client and verify the new session token contains the authored group. A verified console session is required. User-side WMI outcomes and slow-link processing remain outside scope; SearchedSOM freshness is not graded."
+      "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by rsop-user-observe-20261008080357-2733, rsop-user-observe-20261008080612-1816, rsop-user-observe-20261008080829-2986, rsop-user-observe-20261008081133-5663, rsop-user-observe-20261008081431-2742, rsop-user-observe-20261008081652-5582. Six scenarios cover loopback merge/replace, disabled user side, allow/read-only/group filtering, explicit deny Apply and deny Read. Applied-GPO comparison is gated (WI-032); winning values are read from the principal's loaded HKEY_USERS hive. Event 5311 verifies loopback mode and a mode mismatch is inconclusive. Group cases restart the client and verify the new session token contains the authored group. A verified console session is required. User-side WMI outcomes and slow-link processing remain outside scope; SearchedSOM freshness is not graded."
     },
     {
       "lane_id": "publication-completeness-gpmc",
@@ -275,7 +275,7 @@
       ],
       "oracle": "Import-GPO of a Studio backup, then read back the GPO's SYSVOL tree and its gPCMachineExtensionNames/gPCUserExtensionNames, and compare both against the publication plan's own claim about what it would write. Executing a publication is outside this lane: nothing here writes to SYSVOL or AD on Studio's behalf.",
       "status": "partial",
-      "notes": "Requalified 2026-09-08 at b5ccbabd19b7ed661312915ca4b314dc27bbdd6e by publication-completeness-20260908013539-2644. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
+      "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by publication-completeness-20261008074904-1047. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
     }
   ]
 }

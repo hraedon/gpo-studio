@@ -1,0 +1,54 @@
+{
+  "backup_id": "{A842E8CD-71AA-565A-8076-F9D3F567F36C}",
+  "gpo_name": "GPOStudio WP1B groups-machine",
+  "native_shape_findings": [],
+  "settings": [],
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-000000000003}",
+  "summary": {
+    "preferences": {
+      "computer": {
+        "drives": [],
+        "groups": [
+          {
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "description": "Plan 033 WP-1B writer conformance",
+            "ilt": null,
+            "members": [
+              {
+                "action": "add",
+                "name": "GPOSTUDIO\\wp1b-member",
+                "sid": "S-1-5-21-1111111111-2222222222-3333333333-1101"
+              }
+            ],
+            "name": "GPOStudio-WP1B-Group",
+            "remove_all_groups": false,
+            "remove_all_users": false,
+            "sid": ""
+          }
+        ],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      },
+      "user": {
+        "drives": [],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      }
+    },
+    "registry": {
+      "computer": [],
+      "user": []
+    },
+    "version": "gpo-studio.writer-conformance.v1"
+  }
+}

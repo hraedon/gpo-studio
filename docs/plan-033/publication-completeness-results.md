@@ -1,10 +1,15 @@
 # Publication completeness — Windows results
 
-**Current qualification (2026-09-08):** `publication-completeness-20260908013539-2644`, 21/21,
-on clean frozen `b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`.
-[Complete successor evidence](wp1b-evidence/backup-report-20260908/publication/verification.json) and the
-[reason for the targeted refresh](backup-report-fidelity.md). Earlier results
-below remain records of their original revisions and scope.
+**Current qualification (2026-10-08):** `publication-completeness-20261008074904-1047`, 21/21,
+on clean frozen `263f19640529d469c2a54c18b43d228db5378279`
+([evidence](wp1b-evidence/plan034-20261008/publication/verification.json),
+[Plan 034 batch](plan034-batch.md)). Its 21st check grades the AD
+`versionNumber` separately from `GPT.INI`'s version. Earlier results below,
+including the 2026-09-08 qualification
+`publication-completeness-20260908013539-2644` (21/21 at `b5ccbabd`;
+[successor evidence](wp1b-evidence/backup-report-20260908/publication/verification.json),
+[reason for that refresh](backup-report-fidelity.md)), remain records of their
+original revisions and scope.
 
 
 Plan 034 WP-1's `publication` item. Run

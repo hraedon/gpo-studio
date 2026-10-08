@@ -7,14 +7,16 @@
 > engineering program that set the contract.
 > **Supersedes:** `docs/roadmap.md` (kept for historical context only).
 
-**Evidence current as of 2026-09-08.** The
-[WI-059 requalification](plan-033/wi059-harness-batch.md) replaced all 21 live
-lane verdicts and refreshed WP-0 on one frozen harness. It added source-byte
-enforcement and did not expand the capability contract. Historical
-measurements cited below keep their original scope.
-[WI-060 backup/report fidelity](plan-033/backup-report-fidelity.md) then added a
-surfaced source inventory and refreshed only the two qualifications it
-affected, Scripts and publication. All other WI-059 source bindings still hold.
+**Evidence current as of 2026-10-08.** The
+[Plan 034 requalification batch](plan-033/plan034-batch.md) re-earned all 22
+lanes, WP-0 included, on one frozen commit (`263f196`). The object-security
+lane's live verdict is a same-day successor at `1fb3f56`, after a review fix to
+its serializer. The batch did not expand the capability contract: it carried
+WI-063's LF renormalization, the WI-064/WI-065 object-security fixes, WI-068,
+WI-070 and the 2026-10-07 retirements. Historical measurements cited below
+keep their original scope. The earlier
+[WI-059](plan-033/wi059-harness-batch.md) and [WI-062](plan-033/wi062-batch.md)
+batches remain the binding history for their commits.
 
 GPO Studio is an offline-first, single-operator authoring and review workbench.
 It edits a local SQLite workspace and emits artifacts for review. The web
@@ -548,6 +550,12 @@ These runs found three defects before they were fixed: WI-031, WI-033 and
 WI-040. All three failed the same way: the model said a GPO applied when Windows
 kept it off.
 
+**Current verdicts:** the [Plan 034 batch](plan-033/plan034-batch.md) at
+`263f196` (2026-10-08), all twelve scenarios plus the computer group-deny row,
+for example `rsop-observe-20261008075254-6590` (`lsdou-precedence`) and
+`rsop-user-observe-20261008080357-2733` (`loopback-merge`). The batch note lists
+every run.
+
 **Re-certified 2026-09-06 (batch two), with three cells added.** All twelve
 scenarios were re-run after WI-037 changed every lane driver. Two of them also
 carried three rows that had never been measured:
@@ -666,6 +674,10 @@ certification: the audit key `AuditDirectoryServiceAccess` (native is
 `AuditDSAccess`), and two speculative Kerberos fields that had never been
 measured. See [the results](plan-033/wp3-policy-family-results.md).
 
+**Current verdicts:** `wp3-security-template-20261008074639-3419` (member) and
+`wp3-security-template-20261008074709-2998` (DC), 20/20 checks each, at
+`263f196` in the [Plan 034 batch](plan-033/plan034-batch.md).
+
 **What is NOT certified, and is not claimed.** Every response's `limitations`
 carries all three, not only this document:
 
@@ -707,13 +719,18 @@ file-system and service security as typed JSON and returns a `GptTmpl.inf`.
 Like the policy-families surface, it emits only and reads only the request
 body.
 
-**Certification.** `object-security-20260905191252-4253` at `f5cad577` (18/18),
-succeeding `object-security-20260907075319-7408` (19/19) on the same lane. The
-candidate had three `[Registry Keys]` rows, three `[File Security]` rows and
-three `[Service General Setting]` rows, exercising propagation codes 0/1/2 and
-startup codes 2/3/4, each with an explicit canonical SDDL control. Windows
-validated them, imported them into a temporary security database and
-re-exported them. See [the results](plan-033/object-security-results.md).
+**Certification.** `object-security-20261008082348-9729` at `1fb3f56`
+(20/20), the successor to the [Plan 034 batch](plan-033/plan034-batch.md)'s
+own run after `8b1a5b4` changed the serializer. Earlier runs on the lane:
+`object-security-20260905191252-4253` at `f5cad577` (18/18) and
+`object-security-20260907075319-7408` (19/19). The candidate has three
+`[Registry Keys]` rows, three `[File Security]` rows and three
+`[Service General Setting]` rows, exercising propagation codes 0/1/2 and
+startup codes 2/3/4, each with an explicit canonical SDDL control. Since the
+Plan 034 batch it also has three `[Group Membership]` rows built by
+`RestrictedGroupsFamily`. Windows validated them, imported them into a
+temporary security database and re-exported them. See
+[the results](plan-033/object-security-results.md).
 
 **What is NOT certified, and is not claimed.** All four ride on every
 response's `limitations`:
@@ -729,9 +746,12 @@ response's `limitations`:
   Studio will not answer.
 - **Restricted groups** cannot be rendered here yet. The Plan 034 batch fixed
   the serializer (WI-064: a SID principal is starred, a name is not, as Windows
-  writes both) and gave the lane's candidate `[Group Membership]` rows built by
-  `RestrictedGroupsFamily`, but the family stays omitted until that lane re-runs
-  and certifies them.
+  writes both), and `object-security-20261008082348-9729` certified the
+  `[Group Membership]` rows `RestrictedGroupsFamily` builds (SID-keyed only; the
+  unstarred-name path is pinned by a unit test, not by the lane). The family is
+  still omitted from this surface until a surface change adds it. The
+  response's `restricted_groups_not_surfaced` message predates that run and
+  still says no lane has read the rows.
 - **First tranche only.** Empty versus absent service descriptors,
   environment-variable file paths, noncanonical SDDL and broader descriptor
   combinations are outside it.
@@ -743,8 +763,8 @@ sending `scope` here would return a 422. An empty validation list is shown with
 the WI-055 ruling beside it, not as a bare "no issues", because that is where an
 operator would otherwise read silence as approval.
 
-**Defects found by building the surface.** Both are filed against the batch
-that will re-run this lane:
+**Defects found by building the surface.** Both were fixed in the Plan 034
+batch and closed on 2026-10-08 by `object-security-20261008082348-9729`:
 
 - WI-064, above.
 - WI-065: `validate` reports "could not be parsed" for a descriptor nothing
@@ -826,17 +846,17 @@ verdict.
 | Plan | Module(s) | Surfaced | Windows-verified |
 |---|---|---|---|
 | 025 | `security_template.py` | **through its consumers** — both Security template endpoints emit through it | **exits through its consumers (ruled 2026-10-07)** — three live verdicts bind it: `wp3-member`, `wp3-dc` and `object-security`. They exercise it in both directions: every candidate builder emits through it, and every finalizer decodes the bytes Windows wrote with `secedit /export` through it. The two endpoints that reach it are `POST /api/security-template/policy-families` and `POST /api/security-template/object-security`. **Reading a GPME-authored `GptTmpl.inf` is out of scope** until someone proposes a Security Settings import surface. The earlier R4 capture measured the encoding and section shape of one native template, and showed the codec keeps that template's 3 `[Registry Keys]` rows unparsed (WI-038, below). The module is not counted as a capability of its own: what is certified is what its consumers emit |
-| 025 | `object_security.py` | **yes** — `POST /api/security-template/object-security` | **lane-backed and surfaced (R4, R9)** — propagation codes measured (0/1/2; all three were previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 adds a clean member-server 19/19 validate/import/export lane. Surfaced 2026-09-11 for **emission only**, for the three certified families. Restricted groups are omitted until the Plan 034 batch's object-security re-run certifies the corrected serializer (WI-064). ACL *application* is unverified. ACL *content* is unjudged by ruling (WI-055, closed 2026-09-07), not by omission, and every response says so. See [above](#object_securitypy-plan-025--three-certified-families-reachable-at-apisecurity-templateobject-security) |
+| 025 | `object_security.py` | **yes** — `POST /api/security-template/object-security` | **lane-backed and surfaced (R4, R9)** — propagation codes measured (0/1/2; all three were previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 adds a clean member-server validate/import/export lane: current verdict `object-security-20261008082348-9729` (20/20, `1fb3f56`). Surfaced 2026-09-11 for **emission only**, for the three certified families. The corrected restricted-groups serializer is now lane-certified (WI-064, closed 2026-10-08) but not yet surfaced. ACL *application* is unverified. ACL *content* is unjudged by ruling (WI-055, closed 2026-09-07), not by omission, and every response says so. See [above](#object_securitypy-plan-025--three-certified-families-reachable-at-apisecurity-templateobject-security) |
 | 025 | `network_security.py` | no | no — [NetSecurity availability and one unlinked-GPO firewall probe passed](plan-033/wp3-policy-family-results.md#wp-2-netsecurity-discriminator); the model itself is unverified. **Ruled 2026-10-07:** IPsec, Public Key, wired and wireless policy are **out of scope for 1.x**. None appears in more than 2 of the 26 production GPOs in the census, and none has an honest oracle short of a rewrite. The firewall half is **pending a lane**: a codec, then a lane, then a surface. If the firewall lane has no verdict by about 2026-10-24, the firewall half is ruled out too |
-| 025 | `policy_families.py` | **yes** — `POST /api/security-template/policy-families` | **lane-backed and surfaced (R7)** — a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), 21/21 checks each; the lane corrected the audit key and removed two unsupported Kerberos fields. Surfaced 2026-09-11 for **emission only**: the endpoint renders families as INF and does not parse one back, because `security_template.py`'s read direction has no cmdlet oracle. Every response carries the three limits the lane did not reach: `/configure` is never invoked, one tranche of values was measured, and GPME editing is unmeasured. Application and arbitrary-value coverage are unverified |
-| 026 | `script_policy.py` | no | **lane-backed, unsurfaced (R2, R10, scripts-metadata)** — the Scripts metadata lane re-runs the measurement on a clean member server; the live pack (20/20 checks; the retired run had 21, one check since removed by WI-062) is the WI-062 batch's `scripts-r10-20260905191308-8174` (the earlier [`scripts-r10-20260908013518-2476`](plan-033/backup-report-fidelity.md) is retired history). **Awaiting requalification:** the Plan 034 batch renormalized its runner (WI-063), deleted the stale pre-R2 INI writer/parser (the certified writer is `export.gpmc_backup_bundle(gpo, scripts=...)`) and changed `export.py`'s script refusal text, so the live verdict binds superseded bytes until the estate re-runs the lane. R2 measured the native wire format, and R10 showed Windows re-emitting Studio's `scripts.ini`/`psscripts.ini` byte for byte after `Import-GPO`. No operator can reach it yet. **Ruled 2026-10-07:** the stale pre-R2 `scripts.ini` writer and parser are deleted with the publication script branch in the requalification batch, and the certified writer is the one in `export.py`. The exit is this lane plus a Scripts export surface. Payload execution and endpoint processing are unverified |
+| 025 | `policy_families.py` | **yes** — `POST /api/security-template/policy-families` | **lane-backed and surfaced (R7)** — a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), currently `wp3-security-template-20261008074639-3419` and `wp3-security-template-20261008074709-2998` (20/20 each, Plan 034 batch); the lane corrected the audit key and removed two unsupported Kerberos fields. Surfaced 2026-09-11 for **emission only**: the endpoint renders families as INF and does not parse one back, because `security_template.py`'s read direction has no cmdlet oracle. Every response carries the three limits the lane did not reach: `/configure` is never invoked, one tranche of values was measured, and GPME editing is unmeasured. Application and arbitrary-value coverage are unverified |
+| 026 | `script_policy.py` | no | **lane-backed, unsurfaced (R2, R10, scripts-metadata)** — the Scripts metadata lane re-runs the measurement on a clean member server; the live pack is the [Plan 034 batch](plan-033/plan034-batch.md)'s `scripts-r10-20261008074828-8492` (20/20 checks, `263f196`), re-earned after the batch renormalized its runner (WI-063), deleted the stale pre-R2 INI writer/parser (the certified writer is `export.gpmc_backup_bundle(gpo, scripts=...)`) and changed `export.py`. The WI-062 batch's `scripts-r10-20260905191308-8174` and the earlier [`scripts-r10-20260908013518-2476`](plan-033/backup-report-fidelity.md) are retired history. R2 measured the native wire format, and R10 showed Windows re-emitting Studio's `scripts.ini`/`psscripts.ini` byte for byte after `Import-GPO`. No operator can reach it yet. **Ruled 2026-10-07:** the stale pre-R2 `scripts.ini` writer and parser are deleted with the publication script branch in the requalification batch, and the certified writer is the one in `export.py`. The exit is this lane plus a Scripts export surface. Payload execution and endpoint processing are unverified |
 | 026 | ~~`artifact_store.py`~~ | — | **deleted 2026-10-07 (operator ruling)** — delivering script or executable payloads is out of scope for 1.x. Its optional uses in `publication.py` and `script_policy.py` were removed in the requalification batch. The former scope record is kept at [the scope ruling](plan-033/artifact-store-scope.md) |
 | 027 | ~~`software_install.py`~~ | — | **deleted 2026-10-07** — writing was ruled out on [2026-09-06](scope-decision-2026-09-06-software-installation-and-certification.md): the CSE appears in 0 of 26 production GPOs (R6), and its `.aas` artifact is generated by Windows Installer, not authored. The module had no consumer outside its own tests. Native Software Installation files in an imported backup keep their metadata (path, size, SHA-256) in `cse_metadata`; the original bytes are not stored, and this module never held them either |
 | 027 | ~~`folder_redirection.py`~~ | — | **deleted 2026-10-07, superseded by `fdeploy.py`** — R3 showed the policy lives in `fdeploy1.ini`, which this module never addressed. See [the decision and its addendum](scope-decision-2026-09-11-folder-redirection.md) |
-| 027 | `fdeploy.py` | **yes** — `POST /api/folder-redirection/fdeploy` and the [Folder Redirection browser review panel](folder-redirection-review.md) | **capture-backed (R3)** — Folder Redirection was ruled a **read target** on 2026-09-11. The reader is tested against the banked R3 capture and bound by no lane, so it has not left this table. `Flags` is carried, not decoded: there is one observation of a ten-bit word (WI-066), so the writer waits until R12 measures the encoding. Since WI-068 (implemented in the Plan 034 batch, open until the publication and scripts-metadata lanes re-run) an imported backup carries the parse on `GPO.fdeploy`, and its report and diffs render it; GPMC backup export and the publication planner refuse such a GPO. **Ruled 2026-10-07:** build a lane that imports the banked R3 bytes with `Import-GPO`, reads them back with `Backup-GPO`/`Get-GPOReport` and compares the result with the parse. R12 is attempted through the console driver so WI-066 can be answered. Either the lane reaches `yes`, or the writer stays deferred under WI-066 |
+| 027 | `fdeploy.py` | **yes** — `POST /api/folder-redirection/fdeploy` and the [Folder Redirection browser review panel](folder-redirection-review.md) | **capture-backed (R3)** — Folder Redirection was ruled a **read target** on 2026-09-11. The reader is tested against the banked R3 capture and bound by no lane, so it has not left this table. `Flags` is carried, not decoded: there is one observation of a ten-bit word (WI-066), so the writer waits until R12 measures the encoding. Since WI-068 (closed 2026-10-08, when the Plan 034 batch re-ran the publication and scripts-metadata lanes) an imported backup carries the parse on `GPO.fdeploy`, and its report and diffs render it; GPMC backup export and the publication planner refuse such a GPO. **Ruled 2026-10-07:** build a lane that imports the banked R3 bytes with `Import-GPO`, reads them back with `Backup-GPO`/`Get-GPOReport` and compares the result with the parse. R12 is attempted through the console driver so WI-066 can be answered. Either the lane reaches `yes`, or the writer stays deferred under WI-066 |
 | 028 | `lifecycle.py` | no | no — **ruled 2026-10-07:** a same-domain lane over `Backup-GPO`/`Restore-GPO`/`Import-GPO`/`Copy-GPO`, then a restore-plan surface. The cross-domain half is out of scope until the estate has a second domain or a trust |
 | 028 | `gpmc_interop.py` | no | **reduced to one type (ruled 2026-10-07)** — only `InteropIssue` remains, because `publication.py` imports it; `tests/test_gpmc_interop.py` pins its shape. The interop checks are deleted because the predicate was wrong in kind. It reported a GPO unimportable whenever its preserved CSE metadata named an extension Studio does not emit, which equates *Studio cannot emit this* with *GPMC cannot import this*. Over the R6 census it would flag 15 of the 26 production GPOs, every one of them a live GPO in a GPMC-managed domain. `is_gpmc_editable` had no oracle at all. The R6 fact the module carried, the extension vocabulary, lives in `export.py`, and the publication lane certifies that byte for byte. Not counted as a capability |
-| 030 | `publication.py` | no | **lane-backed, unsurfaced (R5, R8, R11, publication-completeness)** — **awaiting requalification:** the PowerShell script branch (`generate_publication_script` and its allowlist) is retired by the 2026-10-07 ruling, the `artifact_store` cross-check is gone, and a disabled side (WI-070) or a carried Folder Redirection file is now refused; the live verdict binds the pre-batch bytes until the estate re-runs it. A lane compares the plan's account of what it would write with what Windows produces: 21/21, both directions of the SYSVOL file set, both extension-list attributes byte-identical, and the packed GPT.INI version moving the declared half. Covers one GPO shape (two registry sides plus one verified GPP family each). It **measures the plan, not a publication**: nothing writes to SYSVOL or AD, operators cannot reach the module, and the operation allowlist is still empty. Security filtering, links and WMI filters have no coverage. Its runner is one of the eight WI-063 left unparseable (`bash -n` fails), so it is not re-runnable until the requalification batch renormalizes and re-runs it. See [the results](plan-033/publication-completeness-results.md). **Ruled 2026-10-07:** the PowerShell script branch (`generate_publication_script` and its helpers) is retired in the requalification batch, because it copies files straight into SYSVOL, which [the publication design](live-publication.md) forbids. The exit is this lane plus a read-only publication-plan surface |
+| 030 | `publication.py` | no | **lane-backed, unsurfaced (R5, R8, R11, publication-completeness)** — requalified in the [Plan 034 batch](plan-033/plan034-batch.md) as `publication-completeness-20261008074904-1047` (21/21, `263f196`), after the PowerShell script branch (`generate_publication_script` and its allowlist) was retired by the 2026-10-07 ruling, the `artifact_store` cross-check removed, and a disabled side (WI-070) or a carried Folder Redirection file made a refusal. The candidate has both sides enabled, so the refusals are pinned by unit tests, not by the lane. A lane compares the plan's account of what it would write with what Windows produces: 21/21, both directions of the SYSVOL file set, both extension-list attributes byte-identical, and the packed GPT.INI version moving the declared half. Covers one GPO shape (two registry sides plus one verified GPP family each). It **measures the plan, not a publication**: nothing writes to SYSVOL or AD, operators cannot reach the module, and the operation allowlist is still empty. Security filtering, links and WMI filters have no coverage. See [the results](plan-033/publication-completeness-results.md). **Ruled 2026-10-07:** the PowerShell script branch (`generate_publication_script` and its helpers) was deleted in the requalification batch, because it copied files straight into SYSVOL, which [the publication design](live-publication.md) forbids. The exit is this lane plus a read-only publication-plan surface |
 | 030 | `publisher.py` | no | no — **out of scope for 1.x, code retained (ruled 2026-10-07)** as a Milestone 3 seed. It is not counted as a capability. Its review closed as WI-050, WI-051 and WI-052 |
 | 031 | ~~`certification.py`~~ | — | **deleted 2026-09-07 (WI-056)** — superseded by `oracle_evidence.py`, no consumer outside its own tests. Plan 031's underlying question (what a portfolio of evidence across capabilities looks like) is unanswered and is recorded there, not here |
 | 032 | `hosting.py` | no | no — **out of scope for 1.x, code retained (ruled 2026-10-07)** as a Milestone 3 seed. It is not counted as a capability, and the 2026-08-07 "harden" verdict ([the assessment](plan-032-shape-assessment-2026-08-07.md)) is unchanged. No hosted mode is available |
@@ -909,9 +929,9 @@ output no independent Windows oracle has checked.
 
 - **`publication.py` and `publisher.py` do not weaken the charter.** Neither
   writes anything, and the web process still never writes to AD or SYSVOL.
-  `publication.py` can still *generate* a PowerShell script that copies files
+  `publication.py` used to *generate* a PowerShell script that copied files
   straight into SYSVOL, which [the publication design](live-publication.md)
-  forbids. That branch is retired in the requalification batch (ruled
+  forbids. That branch was deleted in the requalification batch (ruled
   2026-10-07).
 - **`hosting.py` does not make a hosted mode available.** The shipped
   application is still single-operator and offline-first, and hosting is out

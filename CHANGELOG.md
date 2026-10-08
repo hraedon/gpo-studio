@@ -9,6 +9,33 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Banked the Plan 034 requalification batch
+  ([batch note](docs/plan-033/plan034-batch.md)). All 22 lanes passed on frozen
+  commit `263f196`, driven by `scripts/plan-033/run-requal-batch.sh`, on an
+  estate running at real time: WP-0 plus 21 schema-version-2 lane verdicts,
+  including the computer group-deny lane, which last passed in the WI-059
+  batch. `8b1a5b4` changed `object_security.py` after the freeze (a
+  `[Group Membership]` principal is starred only when it is a SID), so the
+  object-security lane was re-run at `1fb3f56`
+  (`object-security-20261008082348-9729`, 20/20), and that successor is the
+  live verdict. The 20 WI-062 verdicts, the pending WI-059 group-deny verdict
+  and the batch's own superseded object-security verdict are retired, with
+  their packs and tags unchanged. `PENDING_REQUALIFICATION` is empty.
+  `tests/test_plan034_batch.py` pins the manifest, every banked hash, the
+  digests at each commit, the live set, the cleanup capture, and regrades of
+  the RSoP, endpoint and WP-1B records by today's finalizers.
+  `environment-spec.md`, `platforms.json`, the capability matrix and the
+  bound-source cost table now cite these runs.
+  - Closed WI-063 (the LF-renormalized runners are re-earned), WI-064 (Windows
+    re-exported the star-SID `[Group Membership]` rows that
+    `RestrictedGroupsFamily` builds, including the predicted `__Memberof`),
+    WI-065, WI-068, WI-069 and WI-070. WI-069 closed because the lane was
+    unblocked by re-baselining at real time. The mechanism of the old DNS
+    deletion was never identified.
+  - Restricted groups are lane-certified but still not surfaced. The
+    object-security endpoint's `restricted_groups_not_surfaced` message
+    predates the certifying run.
+
 - Requalification batch: retired the PowerShell publication script and the
   modules the 2026-10-07 operator ruling puts out of scope. The affected lanes
   (publication completeness and Scripts metadata) are **awaiting

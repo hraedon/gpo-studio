@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Drives clsid="{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}"><Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="S" removePolicy="0" userContext="0" disabled="0" bypassErrors="1"><Properties action="U" letter="S" path="\\synthetic.test\share" label="Synthetic" persistent="1" useLetter="1" /></Drive></Drives>

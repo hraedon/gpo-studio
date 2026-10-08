@@ -192,7 +192,7 @@ Release and lab tooling, driven by `scripts/`: `conformance.py`,
 unit-tested but **not reachable from any operator surface**:
 `network_security`, `script_policy`, `lifecycle`, `publication`, `publisher`
 and `hosting`. `script_policy` and `publication` have Windows evidence lanes,
-awaiting requalification in the Plan 034 batch, but no surface yet. `publisher`
+requalified in the Plan 034 batch (2026-10-08), but no surface yet. `publisher`
 and `hosting` are out of scope for 1.x and kept as seeds. `rsop`,
 `policy_families` and `object_security` have endpoints, and
 `security_template` is reached through the last two. `fdeploy` reads Folder

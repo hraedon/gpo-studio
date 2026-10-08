@@ -1,0 +1,32 @@
+{
+  "candidates": [
+    {
+      "family": "registry",
+      "id": "registry-both"
+    },
+    {
+      "family": "drives",
+      "id": "drives-user"
+    },
+    {
+      "family": "groups",
+      "id": "groups-machine"
+    },
+    {
+      "family": "local_users",
+      "id": "localusers-machine"
+    },
+    {
+      "family": "scheduled_tasks",
+      "id": "scheduledtasks-machine"
+    },
+    {
+      "family": "services",
+      "id": "services-machine"
+    },
+    {
+      "family": "mixed",
+      "id": "mixed-all"
+    }
+  ]
+}
