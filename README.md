@@ -93,15 +93,23 @@ accepted minor accessibility observation are in
 The 1.0 contract above has not changed. Since 1.0:
 
 - **Live (reachable from the API or browser):** scope of management,
-  delegation, AD discovery and full GPP adapter coverage. Three post-1.0 layers
+  delegation, AD discovery and full GPP adapter coverage. Five post-1.0 layers
   are also reachable through narrow, lane-certified endpoints: RSOP prediction
-  (`rsop.py`), and the emission direction of `policy_families.py` and
-  `object_security.py`.
+  (`rsop.py`), the emission direction of `policy_families.py` and
+  `object_security.py`, one measured shape of `script_policy.py` (the Scripts
+  export) and a review-only view of `publication.py` (the publication
+  preview).
 - **Folder Redirection review:** a sidebar panel reads a native `fdeploy` file,
   or compares an earlier copy with a current one. It shows raw flags,
   structural issues and the reader's limits, based on the banked R3 capture. It
   does not author or apply policy. See the
   [file review guide](docs/folder-redirection-review.md).
+- **Scripts export and publication preview:** a sidebar panel exports computer
+  startup scripts as a GPMC backup, in the one shape the Scripts lane measured,
+  and a "Publication preview" button shows the publication plan with each
+  step's lane coverage. Neither writes to AD or SYSVOL. Both lanes were
+  requalified in the Plan 034 batch (2026-10-08). See the
+  [operator guide](docs/scripts-and-publication-preview.md).
 - **Not reachable:** the other Plans 025–032 domain layers are implemented
   but not wired to the API or browser. The
   [capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced)
@@ -190,12 +198,12 @@ Release and lab tooling, driven by `scripts/`: `conformance.py`,
 
 `src/` also holds Plans 025–032 domain layers that are landed and
 unit-tested but **not reachable from any operator surface**:
-`network_security`, `script_policy`, `lifecycle`, `publication`, `publisher`
-and `hosting`. `script_policy` and `publication` have Windows evidence lanes,
-requalified in the Plan 034 batch (2026-10-08), but no surface yet. `publisher`
-and `hosting` are out of scope for 1.x and kept as seeds. `rsop`,
+`network_security`, `lifecycle`, `publisher` and `hosting`. `publisher` and
+`hosting` are out of scope for 1.x and kept as seeds. `rsop`,
 `policy_families` and `object_security` have endpoints, and
-`security_template` is reached through the last two. `fdeploy` reads Folder
+`security_template` is reached through the last two. `script_policy` (Scripts
+export) and `publication` (review-only preview) have endpoints too, over
+Windows evidence lanes requalified in the Plan 034 batch (2026-10-08). `fdeploy` reads Folder
 Redirection files at its own endpoint. `gpmc_interop` holds only the issue type
 `publication` uses. `certification` (WI-056), `software_install`,
 `folder_redirection` and `artifact_store` (2026-10-07) were deleted. See

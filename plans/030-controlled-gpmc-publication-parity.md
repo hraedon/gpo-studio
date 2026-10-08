@@ -1,29 +1,51 @@
 # Plan 030 — Controlled GPMC publication parity
 
-Status: implemented (domain layer) — **not surfaced**. `publication.py` and
-`publisher.py` model publication plans and the capability/approval gating that
-guards them. Neither writes anything, and neither is reachable from an API
-endpoint or UI module: the charter invariant that the web process never writes
-to AD or SYSVOL is unchanged by this plan's landing. Updated 2026-10-07:
+Status: **`publication.py` surfaced and lane-backed; `publisher.py` ruled out
+of scope for 1.x** (updated 2026-10-08). `publication.py` and `publisher.py`
+model publication plans and the capability/approval gating that guards them.
+Neither writes anything: the charter invariant that the web process never
+writes to AD or SYSVOL is unchanged by this plan's landing. Every module this
+plan landed is now either a capability or ruled out:
 
-- `publication.py` is **lane-backed and unsurfaced**. The publication-
-  completeness lane passes 21/21 on LabMS01
-  ([results](../docs/plan-033/publication-completeness-results.md); current
-  verdict `publication-completeness-20261008074904-1047` from the
-  [Plan 034 batch](../docs/plan-033/plan034-batch.md)); it measures the plan,
-  not a publication. By the
+- `publication.py` is a **capability**, review only (`lane-backed and
+  surfaced` in the capability matrix, `yes` in Plan 034's table). Both halves
+  of the [`domain-layer-status.md`](../docs/domain-layer-status.md) exit hold,
+  in order:
+  1. **Lane.** The publication-completeness lane passes 21/21 on LabMS01
+     ([results](../docs/plan-033/publication-completeness-results.md)); its
+     live verdict is `publication-completeness-20261008074904-1047` (frozen
+     commit `263f196`) from the
+     [Plan 034 batch](../docs/plan-033/plan034-batch.md). It measures the plan,
+     not a publication.
+  2. **Surface.** `GET /api/gpos/{guid}/publication-plan` and the Publication
+     preview panel, landed 2026-10-08, show the plan with a per-step
+     `coverage` mark held to the lane's assertions and compose in `api.py`,
+     which no lane binds. Nothing executes a step. See
+     [the operator guide](../docs/scripts-and-publication-preview.md).
+
+  What stays open is what the surface marks: AD-side steps (security
+  filtering, links, WMI filters) are unmeasured, one GPO shape was measured,
+  and rollback was never executed. By the
   [2026-10-07 ruling](../docs/direction-2026-10-07-plan-034-completion.md) the
   PowerShell script branch (`generate_publication_script` and its helpers) was
   deleted in the requalification batch, because it copied files straight into
   SYSVOL, which [`live-publication.md`](../docs/live-publication.md) forbids.
-  Its exit is that lane plus a read-only publication-plan surface, which Plan
-  034 may build now rather than waiting for Plan 033 WP-7.
+  The same ruling let Plan 034 build this read-only surface without waiting
+  for Plan 033 WP-7.
 - `publisher.py` is **out of scope for 1.x, code retained** as a Milestone 3
-  seed. It is not counted as a capability.
+  seed (2026-10-07 ruling). It is reachable from no API endpoint or UI module,
+  is not counted as a capability, and remains an unproven draft under the
+  classification below. A ruled-out module does not hold a plan in the
+  unsurfaced set (Plan 034's exit is "a capability or a recorded out-of-scope
+  ruling"), so this plan left `DOMAIN_LAYER_PLANS` in
+  `tests/test_domain_layer_status.py` on 2026-10-08, by `publication.py`'s
+  surface.
 
-**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
-behaviour of this layer is a hypothesis about Windows until an evidence lane
-certifies it, and every layer examined so far has needed correction. See
+**Unproven draft, not an asset** (operator ruling 2026-07-29), outside the
+plan shape the publication-completeness lane certified: the wire behaviour of
+`publisher.py` and of the plan's unmeasured steps is a hypothesis about Windows
+until an evidence lane certifies it, and every layer examined so far has needed
+correction. See
 [`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
 
 Scope: safely orchestrate every verified GPMC lifecycle/scope/adapter operation

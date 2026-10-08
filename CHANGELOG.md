@@ -9,6 +9,46 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Added two Plan 034 surfaces over the lanes the
+  [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:
+  Scripts metadata (`scripts-r10-20261008074828-8492`, 20/20) and publication
+  completeness (`publication-completeness-20261008074904-1047`, 21/21), both
+  at frozen commit `263f196`. Neither surface touches a bound file: both
+  compose in `api.py`. With a current verdict and a delivery surface each,
+  `script_policy` and `publication` reach `yes` in Plan 034's table and are
+  `lane-backed and surfaced` in the capability matrix, and Plans 026 and 030
+  leave the unsurfaced domain-layer set (`publisher.py` stays out of scope for
+  1.x, code retained). See [the operator guide](docs/scripts-and-publication-preview.md).
+  - **Scripts export.** `POST /api/gpos/{guid}/gpmc-backup-with-scripts`
+    returns a GPMC backup carrying `scripts.ini`/`psscripts.ini`, built by
+    `gpmc_backup_bundle(gpo, scripts=...)` and `native_backup_refusal`
+    unchanged. `.../preview` returns both INI texts read out of the same ZIP,
+    its SHA-256, warnings and limitations. A test holds the endpoint's bytes
+    equal to the R10 lane builder's for the certified request, and a second
+    holds its INI files equal to the banked native GPMC capture. A preview
+    response that arrives after an edit, reopen or close is discarded. Shapes the lane
+    did not measure are refused with 422 and a code, not warned about:
+    user-side scripts (WI-071), shutdown/logon/logoff, PowerShell run last or
+    unordered, a GPO with registry or preference content, and a GPO with a
+    disabled side. Every response carries `payload_not_carried`,
+    `execution_unmeasured`, `gpme_editing_unmeasured` and
+    `one_entry_shape_measured` (the ZIP in `X-GPO-Studio-Limitations`). A new
+    `scripts_export` artifact capability advertises the GPO-level refusals. A
+    "Scripts" sidebar panel builds the request, previews the files with the
+    limitations above them, and downloads the backup.
+  - **Publication preview.** `GET /api/gpos/{guid}/publication-plan?target=`
+    returns the planner's steps, rollback steps, planned SYSVOL paths, payload
+    digest and validator issues, without `plan_id`, and marks every step
+    `measured`, `unmeasured` or `refused`. `measured` is exactly the step kinds
+    the publication-completeness lane grades, derived from its builder and
+    finalizer by a test; `refused` is read off `validate_publication_plan`.
+    An `update_extension_lists` step is `measured` only when every family/side
+    it registers is one the lane imported, otherwise `unmeasured` with a
+    `coverage_reason` naming the families. Nothing writes, and `publisher.py` stays unreachable. A "Publication
+    preview" button beside the export actions opens the plan grouped by SYSVOL
+    and Active Directory, with coverage badges, limitations on top, and a
+    banner saying nothing here writes.
+
 - Banked the Plan 034 requalification batch
   ([batch note](docs/plan-033/plan034-batch.md)). All 22 lanes passed on frozen
   commit `263f196`, driven by `scripts/plan-033/run-requal-batch.sh`, on an
