@@ -93,9 +93,23 @@ for row in "${LANES[@]}"; do
     echo "=== $name ($runner) started $started"
     set +e
     # shellcheck disable=SC2086 # the lane's KEY=VALUE pairs split on purpose
-    env $envs acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \
-        bash "scripts/windows-oracle/$runner" >"$log" 2>&1
+    # The lane's environment rides INSIDE the acb exec: acb hands its child a
+    # minimal environment, so anything set outside it (TMPDIR included) is
+    # not what the runner sees.
+    acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \
+        env TMPDIR="$TMPDIR" $envs bash "scripts/windows-oracle/$runner" >"$log" 2>&1
     status=$?
+    # run-windows-oracle.sh (WP-0) stops at the run directory and prints the
+    # finalizer command instead of running it; every other runner finalizes
+    # itself. Run exactly the command it printed, so the record is the same
+    # as a by-hand run.
+    next="$(sed -n 's/^NEXT: //p' "$log" | tail -1)"
+    if [[ $status -eq 0 && -n "$next" ]]; then
+        set +e
+        bash -c "$next" >>"$log" 2>&1
+        status=$?
+        set -e
+    fi
     set -e
     completed="$(date -u +%Y-%m-%dT%H:%M:%S.%6N+00:00)"
     run_dir="$(sed -n 's/^LOCAL_RUN_DIR=//p' "$log" | tail -1)"
