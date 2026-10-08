@@ -2694,6 +2694,32 @@ narrows this item but does not close it. The reader carries `Flags` as the integ
 wrote and names no bit. Questions 3 and 4 still need a capture, and the writer can't be
 built without them.
 
+**Update, 2026-10-08: Windows' reading of the word, bounded; the lane built.** A one-off
+probe on LabMS01 put R3's files into 15 GPOs with only `Flags` changed and took
+`Get-GPOReport` of each (capture in the evidence inbox, `fdeploy-flags-20261008`; not
+banked here). The report engine does not read `Flags` as independent option bits. Clearing
+one bit can flip several rendered options together, and some values render no folder at
+all (`FRSettingRead failed`). For 765 and 2045 it renders the folder with an empty
+`DestinationPath` even though the file carries a `FullPath`. That bounds question 3
+(interpretation) and does not answer it: what GPMC *writes* per checkbox is still R12's.
+The fdeploy lane ([design](plan-033/fdeploy-lane-design.md)) records Windows' option
+rendering per case as data for this item and asserts none of it. The first run (2026-10-08, `379e59b`) matched the probe on all four values; a re-run is owed after review hardening.
+
+**Update, 2026-10-08: the reader is certified; this item is the writer's.** The
+re-run after review hardening, `fd-20261008102559-9746` (29/29, clean commit `6b76fad`),
+was banked under `docs/plan-033/wp4-evidence/fdeploy/`; after two harness fixes it was
+replaced there by `fd-20261008121347-3151` (29/29, clean commit `df713ef`, same candidate
+bytes), which is live; see [the fdeploy results](plan-033/fdeploy-results.md). Both supersede the `379e59b` pass,
+which binds pre-hardening source and was never banked. For Flags 1021 (R3 verbatim), 1020,
+1023 and 3069, Windows kept the bytes through `Import-GPO` and `Backup-GPO`, and Studio's
+reader agreed with Windows' report on folder, principal and destination. That is the read
+target's `yes`. The option rendering it recorded matches the probe on all four values
+(1020 clears `MoveContents`, 1023 sets `FollowParent`, 3069 sets `RedirectToLocal`,
+relative to 1021); the table is in the results doc and pinned by
+`tests/test_fdeploy_lane_evidence.py`. Four interpretations of a ten-bit word are still
+not an encoding. Questions 3 and 4 remain R12's, and the writer stays deferred until R12
+answers them.
+
 **Closes when:** R12 is captured (one GPMC session on LabMS01; no lane, no harness change)
 and its result row answers questions 3 and 4 or names what it still does not answer. The
 brief [`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md)

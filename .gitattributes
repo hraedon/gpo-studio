@@ -105,3 +105,17 @@ src/gpo_studio/firewall_policy.py text eol=lf
 # Native command streams and report XML keep their bytes; the verdict's
 # artifact and candidate SHA-256s cover them.
 docs/plan-033/wp3-evidence/firewall-20261008/** -text -whitespace
+
+# The fdeploy lane's certifying run (df713ef, 2026-10-08): the controller's
+# local run directory verbatim plus controller-candidate/ and controller.log.
+# fdeploy1.ini/fdeploy.ini are UTF-16LE and the report XML and command streams
+# keep Windows' bytes; the verdict's artifact and candidate SHA-256s cover them.
+docs/plan-033/wp4-evidence/fdeploy/** -text -whitespace
+# Sources that verdict binds and no earlier rule pinned (`backup.py` and
+# `backup_inventory.py` are pinned above, for the report-parity lane). The
+# blobs are LF; pin them so a Windows checkout does not smudge them to CRLF and
+# fail the binding.
+src/gpo_studio/fdeploy.py text eol=lf
+src/gpo_studio/fdeploy_parity.py text eol=lf
+src/gpo_studio/safe_io.py text eol=lf
+tests/fixtures/native-folder-redirection-gpmc/** text eol=lf

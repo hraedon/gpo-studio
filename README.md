@@ -98,12 +98,18 @@ The 1.0 contract above has not changed. Since 1.0:
   (`rsop.py`), the emission direction of `policy_families.py` and
   `object_security.py`, one measured shape of `script_policy.py` (the Scripts
   export), a review-only view of `publication.py` (the publication
-  preview) and same-domain restore plans from `lifecycle.py`.
+  preview), same-domain restore plans from `lifecycle.py` and the Folder
+  Redirection reader (`fdeploy.py`).
 - **Folder Redirection review:** a sidebar panel reads a native `fdeploy` file,
   or compares an earlier copy with a current one. It shows raw flags,
-  structural issues and the reader's limits, based on the banked R3 capture. It
-  does not author or apply policy. See the
-  [file review guide](docs/folder-redirection-review.md).
+  structural issues and the reader's limits. The fdeploy lane (2026-10-08)
+  certified the reader against Windows for the four shapes it ran: Windows
+  keeps the bytes through `Import-GPO` and `Backup-GPO`, and the reader agrees
+  with `Get-GPOReport` on folder, principal and destination. `Flags` is shown,
+  not decoded, and multi-folder or multi-principal files are unmeasured. It
+  does not author or apply policy; the writer is deferred (WI-066). See the
+  [file review guide](docs/folder-redirection-review.md) and
+  [the lane results](docs/plan-033/fdeploy-results.md).
 - **Scripts export and publication preview:** a sidebar panel exports computer
   startup scripts as a GPMC backup, in the one shape the Scripts lane measured,
   and a "Publication preview" button shows the publication plan with each
@@ -218,7 +224,8 @@ export) and `publication` (review-only preview) have endpoints too, over
 Windows evidence lanes requalified in the Plan 034 batch (2026-10-08), and
 `lifecycle` (same-domain restore plans) has one over its own lane, certified
 the same day. `fdeploy` reads Folder
-Redirection files at its own endpoint. `gpmc_interop` holds only the issue type
+Redirection files at its own endpoint, over the fdeploy lane (2026-10-08); its
+writer is deferred. `gpmc_interop` holds only the issue type
 `publication` uses. `certification` (WI-056), `software_install`,
 `folder_redirection` and `artifact_store` (2026-10-07) were deleted. See
 [the capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced).

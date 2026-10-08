@@ -109,6 +109,7 @@ def test_discovery_covers_every_finalizer_and_its_declared_paths() -> None:
     assert "src/gpo_studio/export.py" in lanes["finalize_publication_run.py"]
     assert "src/gpo_studio/lifecycle.py" in lanes["finalize_lifecycle_run.py"]
     assert "scripts/windows-oracle/run-rsop-user-observe.ps1" in lanes["finalize_rsop_user_run.py"]
+    assert "src/gpo_studio/fdeploy_parity.py" in lanes["finalize_fdeploy_run.py"]
     assert "src/gpo_studio/report_parity.py" in lanes["finalize_report_parity_run.py"]
 
 

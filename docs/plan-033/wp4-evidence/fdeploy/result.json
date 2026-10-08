@@ -1,0 +1,220 @@
+﻿{
+    "schema_version":  2,
+    "run_id":  "fd-20261008121347-3151",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "cases":  [
+                  {
+                      "case_dir":  "c1",
+                      "target_name":  "zz-studio-fd-fd-20261008121347-3151-1",
+                      "backup_id":  "{AD093115-48AC-5D4E-B5CA-F2A7675FAC29}",
+                      "source_gpo_id":  "{ea1ed0df-ef71-50a3-bcc4-7c05fa457bd5}",
+                      "owned_gpo_id":  "3ab44605-1ecb-4620-9279-7c14586e8733",
+                      "import_succeeded":  true,
+                      "user_extension_names":  "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+                      "sysvol_files":  [
+                                           {
+                                               "relative_path":  "fdeploy.ini",
+                                               "length":  20,
+                                               "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00"
+                                           },
+                                           {
+                                               "relative_path":  "fdeploy1.ini",
+                                               "length":  458,
+                                               "sha256":  "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800"
+                                           }
+                                       ],
+                      "report_file":  "reports/c1.xml",
+                      "report_sha256":  "a245e0cc4bcc29449951c33f42395c8484f16cea85c03e73374daa64aab1b368",
+                      "report_links_to_count":  0,
+                      "rebackup_succeeded":  true,
+                      "rebackup_id":  "{196C57C5-E474-4AF0-AEB0-2569E631F0CD}",
+                      "rebackup_dir":  "backups/c1",
+                      "rebackup_files":  [
+                                             {
+                                                 "name":  "fdeploy1.ini",
+                                                 "present":  true,
+                                                 "length":  458,
+                                                 "sha256":  "71f1026180c4a92ed5bcca3366e5d22b80a64931f663fa079ef5d49cd2450800",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgBbAHYAZQByAHMAaQBvAG4AXQANAAoAdgBlAHIAcwBpAG8AbgA9ADEAMAAwAA0ACgBbAEYAbwBsAGQAZQByAF8AUgBlAGQAaQByAGUAYwB0AGkAbwBuAF0ADQAKAHsARgBEAEQAMwA5AEEARAAwAC0AMgAzADgARgAtADQANgBBAEYALQBBAEQAQgA0AC0ANgBDADgANQA0ADgAMAAzADYAOQBDADcAfQA9AHMALQAxAC0AMQAtADAAOwANAAoAWwB7AEYARABEADMAOQBBAEQAMAAtADIAMwA4AEYALQA0ADYAQQBGAC0AQQBEAEIANAAtADYAQwA4ADUANAA4ADAAMwA2ADkAQwA3AH0AXwBzAC0AMQAtADEALQAwAF0ADQAKAEYAbABhAGcAcwA9ADEAMAAyADEADQAKAEYAdQBsAGwAUABhAHQAaAA9AFwAXAB6AHoALQBzAHQAdQBkAGkAbwAtAGYAaQBsAGUAcwBlAHIAdgBlAHIAXAB6AHoAcgBlAGQAaQByAFwAJQBVAFMARQBSAE4AQQBNAEUAJQBcAEQAbwBjAHUAbQBlAG4AdABzAA0ACgA="
+                                             },
+                                             {
+                                                 "name":  "fdeploy.ini",
+                                                 "present":  true,
+                                                 "length":  20,
+                                                 "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgA="
+                                             }
+                                         ],
+                      "cleanup_succeeded":  true,
+                      "absence_confirmed":  true,
+                      "foreign_residue":  [
+
+                                          ],
+                      "error":  null
+                  },
+                  {
+                      "case_dir":  "c2",
+                      "target_name":  "zz-studio-fd-fd-20261008121347-3151-2",
+                      "backup_id":  "{6BBEDEBE-A82B-5173-B436-FA97B684E005}",
+                      "source_gpo_id":  "{cf44419e-cb92-58e8-b1e5-e26c7b884784}",
+                      "owned_gpo_id":  "94bcec8c-38e1-4700-a374-5a66f7dd920f",
+                      "import_succeeded":  true,
+                      "user_extension_names":  "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+                      "sysvol_files":  [
+                                           {
+                                               "relative_path":  "fdeploy.ini",
+                                               "length":  20,
+                                               "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00"
+                                           },
+                                           {
+                                               "relative_path":  "fdeploy1.ini",
+                                               "length":  458,
+                                               "sha256":  "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b"
+                                           }
+                                       ],
+                      "report_file":  "reports/c2.xml",
+                      "report_sha256":  "fb7fd466013a8de2e3f81e6c1ce517a0d5c157d5f12938058ae395b869f8d8d1",
+                      "report_links_to_count":  0,
+                      "rebackup_succeeded":  true,
+                      "rebackup_id":  "{8B960122-96DB-44B7-8B91-F778AAA7F0EA}",
+                      "rebackup_dir":  "backups/c2",
+                      "rebackup_files":  [
+                                             {
+                                                 "name":  "fdeploy1.ini",
+                                                 "present":  true,
+                                                 "length":  458,
+                                                 "sha256":  "dd4075c767102f8ffd1ea61eb2a0b619e5873040d29025098c91b53e1ad9e35b",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgBbAHYAZQByAHMAaQBvAG4AXQANAAoAdgBlAHIAcwBpAG8AbgA9ADEAMAAwAA0ACgBbAEYAbwBsAGQAZQByAF8AUgBlAGQAaQByAGUAYwB0AGkAbwBuAF0ADQAKAHsARgBEAEQAMwA5AEEARAAwAC0AMgAzADgARgAtADQANgBBAEYALQBBAEQAQgA0AC0ANgBDADgANQA0ADgAMAAzADYAOQBDADcAfQA9AHMALQAxAC0AMQAtADAAOwANAAoAWwB7AEYARABEADMAOQBBAEQAMAAtADIAMwA4AEYALQA0ADYAQQBGAC0AQQBEAEIANAAtADYAQwA4ADUANAA4ADAAMwA2ADkAQwA3AH0AXwBzAC0AMQAtADEALQAwAF0ADQAKAEYAbABhAGcAcwA9ADEAMAAyADAADQAKAEYAdQBsAGwAUABhAHQAaAA9AFwAXAB6AHoALQBzAHQAdQBkAGkAbwAtAGYAaQBsAGUAcwBlAHIAdgBlAHIAXAB6AHoAcgBlAGQAaQByAFwAJQBVAFMARQBSAE4AQQBNAEUAJQBcAEQAbwBjAHUAbQBlAG4AdABzAA0ACgA="
+                                             },
+                                             {
+                                                 "name":  "fdeploy.ini",
+                                                 "present":  true,
+                                                 "length":  20,
+                                                 "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgA="
+                                             }
+                                         ],
+                      "cleanup_succeeded":  true,
+                      "absence_confirmed":  true,
+                      "foreign_residue":  [
+
+                                          ],
+                      "error":  null
+                  },
+                  {
+                      "case_dir":  "c3",
+                      "target_name":  "zz-studio-fd-fd-20261008121347-3151-3",
+                      "backup_id":  "{F8E47D97-5D79-5D54-ACE8-DD2F8A2FDBCF}",
+                      "source_gpo_id":  "{9bc8afda-a613-566b-92d3-7387823dbe23}",
+                      "owned_gpo_id":  "f0f140ec-0be9-4daa-ba17-c58ca1dd385a",
+                      "import_succeeded":  true,
+                      "user_extension_names":  "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+                      "sysvol_files":  [
+                                           {
+                                               "relative_path":  "fdeploy.ini",
+                                               "length":  20,
+                                               "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00"
+                                           },
+                                           {
+                                               "relative_path":  "fdeploy1.ini",
+                                               "length":  458,
+                                               "sha256":  "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb"
+                                           }
+                                       ],
+                      "report_file":  "reports/c3.xml",
+                      "report_sha256":  "0e37244b37b94aaf2d6c01f3cd2392724c97e0f2f8cfd20f488c4a5ce92f4cde",
+                      "report_links_to_count":  0,
+                      "rebackup_succeeded":  true,
+                      "rebackup_id":  "{A1CD0C52-16BD-48DC-A584-F3DFAB8C6513}",
+                      "rebackup_dir":  "backups/c3",
+                      "rebackup_files":  [
+                                             {
+                                                 "name":  "fdeploy1.ini",
+                                                 "present":  true,
+                                                 "length":  458,
+                                                 "sha256":  "6aedae251d91cc2fc160c42af454799fb964721048ed43204f9ffd467cfe88fb",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgBbAHYAZQByAHMAaQBvAG4AXQANAAoAdgBlAHIAcwBpAG8AbgA9ADEAMAAwAA0ACgBbAEYAbwBsAGQAZQByAF8AUgBlAGQAaQByAGUAYwB0AGkAbwBuAF0ADQAKAHsARgBEAEQAMwA5AEEARAAwAC0AMgAzADgARgAtADQANgBBAEYALQBBAEQAQgA0AC0ANgBDADgANQA0ADgAMAAzADYAOQBDADcAfQA9AHMALQAxAC0AMQAtADAAOwANAAoAWwB7AEYARABEADMAOQBBAEQAMAAtADIAMwA4AEYALQA0ADYAQQBGAC0AQQBEAEIANAAtADYAQwA4ADUANAA4ADAAMwA2ADkAQwA3AH0AXwBzAC0AMQAtADEALQAwAF0ADQAKAEYAbABhAGcAcwA9ADEAMAAyADMADQAKAEYAdQBsAGwAUABhAHQAaAA9AFwAXAB6AHoALQBzAHQAdQBkAGkAbwAtAGYAaQBsAGUAcwBlAHIAdgBlAHIAXAB6AHoAcgBlAGQAaQByAFwAJQBVAFMARQBSAE4AQQBNAEUAJQBcAEQAbwBjAHUAbQBlAG4AdABzAA0ACgA="
+                                             },
+                                             {
+                                                 "name":  "fdeploy.ini",
+                                                 "present":  true,
+                                                 "length":  20,
+                                                 "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgA="
+                                             }
+                                         ],
+                      "cleanup_succeeded":  true,
+                      "absence_confirmed":  true,
+                      "foreign_residue":  [
+
+                                          ],
+                      "error":  null
+                  },
+                  {
+                      "case_dir":  "c4",
+                      "target_name":  "zz-studio-fd-fd-20261008121347-3151-4",
+                      "backup_id":  "{1AF21B71-65B2-5F02-B0F3-A69C417770AE}",
+                      "source_gpo_id":  "{a4b082ea-9add-5879-b2d7-c6e5e619c754}",
+                      "owned_gpo_id":  "1cf0f69f-61bc-4565-9795-79371fd80c8f",
+                      "import_succeeded":  true,
+                      "user_extension_names":  "[{25537BA6-77A8-11D2-9B6C-0000F8080861}{88E729D6-BDC1-11D1-BD2A-00C04FB9603F}]",
+                      "sysvol_files":  [
+                                           {
+                                               "relative_path":  "fdeploy.ini",
+                                               "length":  20,
+                                               "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00"
+                                           },
+                                           {
+                                               "relative_path":  "fdeploy1.ini",
+                                               "length":  458,
+                                               "sha256":  "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b"
+                                           }
+                                       ],
+                      "report_file":  "reports/c4.xml",
+                      "report_sha256":  "97f7cc213c6efcdb4a93a9fa30353b023bcdca202eabd2ea70681eca69a10015",
+                      "report_links_to_count":  0,
+                      "rebackup_succeeded":  true,
+                      "rebackup_id":  "{645BADAF-11DB-483B-BCA6-D977DFFFB4B2}",
+                      "rebackup_dir":  "backups/c4",
+                      "rebackup_files":  [
+                                             {
+                                                 "name":  "fdeploy1.ini",
+                                                 "present":  true,
+                                                 "length":  458,
+                                                 "sha256":  "863d83dcf2629ef6a427dbf56eb3338acbc580ecf3b19298ecbbde4746b5fc2b",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgBbAHYAZQByAHMAaQBvAG4AXQANAAoAdgBlAHIAcwBpAG8AbgA9ADEAMAAwAA0ACgBbAEYAbwBsAGQAZQByAF8AUgBlAGQAaQByAGUAYwB0AGkAbwBuAF0ADQAKAHsARgBEAEQAMwA5AEEARAAwAC0AMgAzADgARgAtADQANgBBAEYALQBBAEQAQgA0AC0ANgBDADgANQA0ADgAMAAzADYAOQBDADcAfQA9AHMALQAxAC0AMQAtADAAOwANAAoAWwB7AEYARABEADMAOQBBAEQAMAAtADIAMwA4AEYALQA0ADYAQQBGAC0AQQBEAEIANAAtADYAQwA4ADUANAA4ADAAMwA2ADkAQwA3AH0AXwBzAC0AMQAtADEALQAwAF0ADQAKAEYAbABhAGcAcwA9ADMAMAA2ADkADQAKAEYAdQBsAGwAUABhAHQAaAA9AFwAXAB6AHoALQBzAHQAdQBkAGkAbwAtAGYAaQBsAGUAcwBlAHIAdgBlAHIAXAB6AHoAcgBlAGQAaQByAFwAJQBVAFMARQBSAE4AQQBNAEUAJQBcAEQAbwBjAHUAbQBlAG4AdABzAA0ACgA="
+                                             },
+                                             {
+                                                 "name":  "fdeploy.ini",
+                                                 "present":  true,
+                                                 "length":  20,
+                                                 "sha256":  "5ad8f52071d25165e7e68064ab194ec27a074a3846149ed0689af23e7f7f2d00",
+                                                 "base64":  "//4NAAoAIAAgACAAIAAgAA0ACgA="
+                                             }
+                                         ],
+                      "cleanup_succeeded":  true,
+                      "absence_confirmed":  true,
+                      "foreign_residue":  [
+
+                                          ],
+                      "error":  null
+                  }
+              ],
+    "cleanup_state_restored":  true,
+    "residue":  [
+
+                ],
+    "environment":  {
+                        "server_caption":  "Microsoft Windows Server 2025 Standard",
+                        "server_build":  "26100",
+                        "computer_system_domain_role":  3,
+                        "powershell_edition":  "Desktop",
+                        "powershell_version":  "5.1.26100.33438",
+                        "group_policy_module_version":  "1.0.0.0",
+                        "gpmc_version":  "built-in",
+                        "locale":  "en-US",
+                        "computer_system_name":  "LABMS01",
+                        "computer_system_domain":  "ad.labdomain.dev"
+                    },
+    "error":  null
+}

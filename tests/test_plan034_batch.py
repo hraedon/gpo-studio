@@ -164,6 +164,11 @@ BANKED_AFTER_THE_BATCH: frozenset[str] = frozenset({
     # first verdict, `firewall-20261008094055-2092337` at `a6e0002`, was banked
     # the same day.
     "wp3-evidence/firewall-20261008/firewall/verification.json",
+    # The fdeploy lane (Plan 034 WP-4) did not exist when the batch froze
+    # `263f196`. Its current verdict, `fd-20261008121347-3151` at `df713ef`,
+    # was banked the same day (replacing `fd-20261008102559-9746` at
+    # `6b76fad`, which stopped binding after two harness fixes).
+    "wp4-evidence/fdeploy/verification.json",
 })
 
 
