@@ -1,0 +1,2391 @@
+{
+  "authored": {
+    "key": "Software\\Policies\\GPOStudio\\ReportParity",
+    "values": [
+      [
+        "computer",
+        "MachineString",
+        "String",
+        "report-parity-machine"
+      ],
+      [
+        "computer",
+        "MachineDword",
+        "Number",
+        "4242"
+      ],
+      [
+        "user",
+        "UserString",
+        "String",
+        "report-parity-user"
+      ],
+      [
+        "user",
+        "UserDword",
+        "Number",
+        "2424"
+      ]
+    ],
+    "windows_inventory": {
+      "admx_policies": {},
+      "families": [
+        {
+          "family": "RegistrySettings",
+          "items": [
+            {
+              "action": "",
+              "element": "RegistrySetting",
+              "key": "Software\\Policies\\GPOStudio\\ReportParity",
+              "name": "MachineDword",
+              "uid": "",
+              "value": "Number:4242"
+            },
+            {
+              "action": "",
+              "element": "RegistrySetting",
+              "key": "Software\\Policies\\GPOStudio\\ReportParity",
+              "name": "MachineString",
+              "uid": "",
+              "value": "String:report-parity-machine"
+            }
+          ],
+          "side": "computer"
+        },
+        {
+          "family": "RegistrySettings",
+          "items": [
+            {
+              "action": "",
+              "element": "RegistrySetting",
+              "key": "Software\\Policies\\GPOStudio\\ReportParity",
+              "name": "UserDword",
+              "uid": "",
+              "value": "Number:2424"
+            },
+            {
+              "action": "",
+              "element": "RegistrySetting",
+              "key": "Software\\Policies\\GPOStudio\\ReportParity",
+              "name": "UserString",
+              "uid": "",
+              "value": "String:report-parity-user"
+            }
+          ],
+          "side": "user"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "backup_id": "{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "M:",
+                "uid": "{0C6877AF-4BF2-43F1-8615-851BCA128E87}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "Drive",
+                "key": "",
+                "name": "P:",
+                "uid": "{2DB93EAD-4B50-426A-9978-79EABCF2D8AF}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Drive",
+                "key": "",
+                "name": "X:",
+                "uid": "{47A31127-FCA5-4584-89ED-6F7704CC278E}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "Drive",
+                "key": "",
+                "name": "H:",
+                "uid": "{98C078D3-5A7C-412C-B956-34AAC110AA6A}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "c80d7d4644b27127c595ed8d5c35e28934b3cd3455911a3372fe14609f69155d",
+      "case_id": "native-WI01A-DriveMaps-GPMC",
+      "dir": "c01",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-DriveMaps-GPMC",
+      "source_gpo_id": "{F0197E25-3E19-4835-B296-3C35DC069635}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "M:",
+                "uid": "{0C6877AF-4BF2-43F1-8615-851BCA128E87}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "Drive",
+                "key": "",
+                "name": "P:",
+                "uid": "{2DB93EAD-4B50-426A-9978-79EABCF2D8AF}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Drive",
+                "key": "",
+                "name": "X:",
+                "uid": "{47A31127-FCA5-4584-89ED-6F7704CC278E}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "Drive",
+                "key": "",
+                "name": "H:",
+                "uid": "{98C078D3-5A7C-412C-B956-34AAC110AA6A}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{C0D041DC-6028-47C1-AC0A-149759CBE7CF}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "EnvironmentVariablesSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "CREATE",
+                "uid": "{A5902E84-98E5-4835-86DC-22547196574D}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "CREATE",
+                "uid": "{7DC65F65-E77F-44C9-A468-0BC7530B9C2E}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "UPDATE",
+                "uid": "{DA92707B-1923-46F8-8598-F1A7D3BC5AE4}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "UPDATE",
+                "uid": "{B547171E-8B1E-4123-9776-AF242D665E48}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "REPLACE",
+                "uid": "{0973597E-8439-4931-8708-5D9A3E5276C4}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "REPLACE",
+                "uid": "{80453482-34FC-4700-AF6C-BCED475084CC}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "DELETE_USER",
+                "uid": "{39D12C7B-48B1-4BD9-975A-BFF89432A62B}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "DELETE_SYSTEM",
+                "uid": "{93CE9674-E910-4472-A7F7-4A6F90626FE5}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "PATH",
+                "uid": "{EBBC996D-F3FB-4F88-B7CA-04ED0BAFFCDA}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "CREATE%",
+                "uid": "{9E22C279-D52E-4580-BE1A-6D55D9E4F2A3}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "36ff009eeca61706302e388afdd62bd40e87c8937acce2679b622500bc77489c",
+      "case_id": "native-WI01A-EnvVars-GPMC",
+      "dir": "c02",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-EnvVars-GPMC",
+      "source_gpo_id": "{A0F52A39-51B7-406D-BC19-D4277B6AA5F0}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "EnvironmentVariablesSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "CREATE",
+                "uid": "{A5902E84-98E5-4835-86DC-22547196574D}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "CREATE",
+                "uid": "{7DC65F65-E77F-44C9-A468-0BC7530B9C2E}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "UPDATE",
+                "uid": "{DA92707B-1923-46F8-8598-F1A7D3BC5AE4}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "UPDATE",
+                "uid": "{B547171E-8B1E-4123-9776-AF242D665E48}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "REPLACE",
+                "uid": "{0973597E-8439-4931-8708-5D9A3E5276C4}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "REPLACE",
+                "uid": "{80453482-34FC-4700-AF6C-BCED475084CC}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "DELETE_USER",
+                "uid": "{39D12C7B-48B1-4BD9-975A-BFF89432A62B}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "DELETE_SYSTEM",
+                "uid": "{93CE9674-E910-4472-A7F7-4A6F90626FE5}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "PATH",
+                "uid": "{EBBC996D-F3FB-4F88-B7CA-04ED0BAFFCDA}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "EnvironmentVariable",
+                "key": "",
+                "name": "CREATE%",
+                "uid": "{9E22C279-D52E-4580-BE1A-6D55D9E4F2A3}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{6B7C7DD9-6845-43A0-ADEF-6E58B17790B2}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "FilesSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "File",
+                "key": "",
+                "name": "",
+                "uid": "{78789154-D329-41E3-9CA1-38BBE1B40C9A}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "File",
+                "key": "",
+                "name": "\u00dcn\u00efc\u00f6d\u00e9&.xml",
+                "uid": "{785E84A6-8D13-453E-9A3D-49A850D19345}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "File",
+                "key": "",
+                "name": "old.txt",
+                "uid": "{67F55D2B-7BEF-4A15-958D-AE64AA2F0C1B}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "60b493c4bf5968e2cabb780c63055b95df6d4c2a15213f869dfe8f2d9b85c60b",
+      "case_id": "native-WI01A-Files-GPMC",
+      "dir": "c03",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-Files-GPMC",
+      "source_gpo_id": "{2304BFFC-7116-4C31-9005-A728C073E494}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "FilesSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "File",
+                "key": "",
+                "name": "",
+                "uid": "{78789154-D329-41E3-9CA1-38BBE1B40C9A}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "File",
+                "key": "",
+                "name": "\u00dcn\u00efc\u00f6d\u00e9&.xml",
+                "uid": "{785E84A6-8D13-453E-9A3D-49A850D19345}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "File",
+                "key": "",
+                "name": "old.txt",
+                "uid": "{67F55D2B-7BEF-4A15-958D-AE64AA2F0C1B}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{409B579A-3F14-40E4-990B-836AB03F333D}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "FoldersSettings",
+            "items": [
+              {
+                "action": "R",
+                "element": "Folder",
+                "key": "",
+                "name": "",
+                "uid": "{BA4A4EB2-A418-42B2-BBAC-6A7856C377E6}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "Folder",
+                "key": "",
+                "name": "Pr\u00f6jects <\"&>",
+                "uid": "{AAA0780D-70B1-4DAD-B362-A12756B516C3}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "4565f06421f920b16647493307c6ad0b07d7a7fd01cd762240c33124c475abee",
+      "case_id": "native-WI01A-Folders-GPMC",
+      "dir": "c04",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-Folders-GPMC",
+      "source_gpo_id": "{F2C3EF18-EC03-494D-84F0-0E3AF0F635CD}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "FoldersSettings",
+            "items": [
+              {
+                "action": "R",
+                "element": "Folder",
+                "key": "",
+                "name": "",
+                "uid": "{BA4A4EB2-A418-42B2-BBAC-6A7856C377E6}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "Folder",
+                "key": "",
+                "name": "Pr\u00f6jects <\"&>",
+                "uid": "{AAA0780D-70B1-4DAD-B362-A12756B516C3}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{CAB85C5B-BAF0-4FC9-8949-8993F936F4C9}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "IniFilesSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "Ini",
+                "key": "",
+                "name": "%",
+                "uid": "{8C40AF03-3402-42A3-9F4E-9119B9DF2C79}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "Ini",
+                "key": "",
+                "name": "<>\"&",
+                "uid": "{2170D5F5-8997-4896-9F5B-EC2857E916BC}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Ini",
+                "key": "",
+                "name": "DemoName",
+                "uid": "{3B033AEE-2E82-4A05-937D-8459083C4852}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "Ini",
+                "key": "",
+                "name": "With",
+                "uid": "{246A3730-3860-4A35-AEA1-46A1A29906B2}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "579f3a4aecff5a61cda64f44d13dce6cdc8f26b9342635a018958be247aa3305",
+      "case_id": "native-WI01A-IniFiles-GPMC",
+      "dir": "c05",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-IniFiles-GPMC",
+      "source_gpo_id": "{678A45BD-5388-40F3-9239-60AEF35559C5}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "IniFilesSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "Ini",
+                "key": "",
+                "name": "%",
+                "uid": "{8C40AF03-3402-42A3-9F4E-9119B9DF2C79}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "Ini",
+                "key": "",
+                "name": "<>\"&",
+                "uid": "{2170D5F5-8997-4896-9F5B-EC2857E916BC}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Ini",
+                "key": "",
+                "name": "DemoName",
+                "uid": "{3B033AEE-2E82-4A05-937D-8459083C4852}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "Ini",
+                "key": "",
+                "name": "With",
+                "uid": "{246A3730-3860-4A35-AEA1-46A1A29906B2}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "Administrators (built-in)",
+                "uid": "{A582B44E-6757-4CA0-AE25-03D28428C3E9}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "Group",
+                "key": "",
+                "name": "Power Users (built-in)",
+                "uid": "{6BCFCE69-5856-4B58-9EFD-8836F8F6EAF7}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Group",
+                "key": "",
+                "name": "test-delete-group",
+                "uid": "{7E362A26-75C2-4307-B60D-335F634F8AAE}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "Group",
+                "key": "",
+                "name": "dev-team",
+                "uid": "{5DC5C290-D240-4D21-91AA-527199A653AD}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "30e0f251bc2e655987541c9353edbf2d294f971be2f1e78b073f716b3e182eb2",
+      "case_id": "native-WI01A-LocalGroups-GPMC",
+      "dir": "c06",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-LocalGroups-GPMC",
+      "source_gpo_id": "{E14A68FC-8520-4278-A415-FD0C40FD3409}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "Administrators (built-in)",
+                "uid": "{A582B44E-6757-4CA0-AE25-03D28428C3E9}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "Group",
+                "key": "",
+                "name": "Power Users (built-in)",
+                "uid": "{6BCFCE69-5856-4B58-9EFD-8836F8F6EAF7}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Group",
+                "key": "",
+                "name": "test-delete-group",
+                "uid": "{7E362A26-75C2-4307-B60D-335F634F8AAE}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "Group",
+                "key": "",
+                "name": "dev-team",
+                "uid": "{5DC5C290-D240-4D21-91AA-527199A653AD}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "Administrators (built-in)",
+                "uid": "{D07D1705-AA3C-4713-B20C-B42BBC698DE9}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Mixed Task",
+                "uid": "{5BE00225-8C30-4FB6-84CE-1F74A364B4F3}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "R",
+                "element": "Drive",
+                "key": "",
+                "name": "X:",
+                "uid": "{6594460C-136A-4AA4-964A-0596C220DF63}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "5e0334ef6d9df32a9b956b999e6f8820eb275f261c9c1ef9dbf710e8ab1c661c",
+      "case_id": "native-WI01A-MixedCSE-GPMC",
+      "dir": "c07",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-MixedCSE-GPMC",
+      "source_gpo_id": "{E6C12A1A-B830-4B2E-BF63-5A8969802816}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "Administrators (built-in)",
+                "uid": "{D07D1705-AA3C-4713-B20C-B42BBC698DE9}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Mixed Task",
+                "uid": "{5BE00225-8C30-4FB6-84CE-1F74A364B4F3}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "R",
+                "element": "Drive",
+                "key": "",
+                "name": "X:",
+                "uid": "{6594460C-136A-4AA4-964A-0596C220DF63}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "N:",
+                "uid": "{69C07D1E-7D2B-4834-BCCC-9C2DD86D15C0}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "6fe55eff7bdff7caad4a0e1d6dced8d1c36dba9ef34be3a52815d15a9784f799",
+      "case_id": "native-WI01A-NestedILT-GPMC",
+      "dir": "c08",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-NestedILT-GPMC",
+      "source_gpo_id": "{DFDDCE8E-9019-4F55-BB0E-3CC51446FBFB}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "N:",
+                "uid": "{69C07D1E-7D2B-4834-BCCC-9C2DD86D15C0}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{B88DAB7B-4B81-4FE3-AA70-3A859853C1E9}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "H:",
+                "uid": "{1598934D-0E59-4F8C-AFDD-32620D085587}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "4982fc9f4a5e5be7ec056a4a71320c8654ac1d72ac9e66025aa1614ea0e00143",
+      "case_id": "native-WI01A-OS-ILT",
+      "dir": "c09",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-OS-ILT",
+      "source_gpo_id": "{671DD87C-4C1E-4A82-909B-EF39ED6C4441}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "H:",
+                "uid": "{1598934D-0E59-4F8C-AFDD-32620D085587}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{63016C49-AC34-45B7-BF33-269F0AA85008}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "PowerOptionsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "GlobalPowerOptionsV2",
+                "key": "",
+                "name": "Power Plan (At least Windows 7)",
+                "uid": "{D5130C45-053D-4B8B-B6D7-001FFC3C25D4}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "f3d5d577efe748bd7b2a4dba4aa0cae6ccad34e595fa8072e11d5c2193f56761",
+      "case_id": "native-WI01A-Power-GPMC",
+      "dir": "c10",
+      "expected_known": [
+        "adapter-root-unknowns-dropped"
+      ],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-Power-GPMC",
+      "source_gpo_id": "{A3B86271-6835-401C-844A-94891FA09DA7}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": []
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{95AD77B1-2F66-49A9-98BD-176270FA5288}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "PrintersSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Lab-Color",
+                "uid": "{E1697093-F255-4F2B-814A-B32680B38132}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Lab-Mono",
+                "uid": "{36D48AA0-D917-412D-B8E7-92CB378CFD93}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Old-Printer",
+                "uid": "{9F9B975F-4C35-449E-81E7-D33B6A2486F8}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Create-Printer",
+                "uid": "{C8E69044-9A57-4FB6-98EA-72C504029B73}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Replace-Printer",
+                "uid": "{378FDCD3-F4C2-47B7-80E5-6B6A7B6380C1}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "9872a76f0afd8ca5c2edabe7ab64a6008a402d95a919e0397eaeb9a6a3422ee7",
+      "case_id": "native-WI01A-Printers-GPMC",
+      "dir": "c11",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-Printers-GPMC",
+      "source_gpo_id": "{1203D024-D433-4077-824B-D1DEC45CAB87}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "PrintersSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Lab-Color",
+                "uid": "{E1697093-F255-4F2B-814A-B32680B38132}",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Lab-Mono",
+                "uid": "{36D48AA0-D917-412D-B8E7-92CB378CFD93}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Old-Printer",
+                "uid": "{9F9B975F-4C35-449E-81E7-D33B6A2486F8}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Create-Printer",
+                "uid": "{C8E69044-9A57-4FB6-98EA-72C504029B73}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "SharedPrinter",
+                "key": "",
+                "name": "Replace-Printer",
+                "uid": "{378FDCD3-F4C2-47B7-80E5-6B6A7B6380C1}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{6C864157-BBBD-401A-8959-2D697AD3A52A}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GpoStudio-Cleanup",
+                "uid": "{FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "ImmediateTaskV2",
+                "key": "",
+                "name": "GpoStudio-Init",
+                "uid": "{61200875-7625-4876-AAF3-A1C7F04411A7}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Replace Test",
+                "uid": "{6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Create Task",
+                "uid": "{4310395E-9A2B-4CC1-AE5E-7DF49B2123A2}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Delete Test",
+                "uid": "{EC9EFD19-C102-4F73-9B31-98668661E69C}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "76604c4139a76852a3b99f0c44266e86aac1db13a92a4532894beb1262dc6014",
+      "case_id": "native-WI01A-SchedTasks-GPMC",
+      "dir": "c12",
+      "expected_known": [
+        "scheduled-task-order"
+      ],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasks-GPMC",
+      "source_gpo_id": "{3D9A5FF9-BD17-41CB-97A5-77C46395B076}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GpoStudio-Cleanup",
+                "uid": "{FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Replace Test",
+                "uid": "{6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "ImmediateTaskV2",
+                "key": "",
+                "name": "GpoStudio-Init",
+                "uid": "{61200875-7625-4876-AAF3-A1C7F04411A7}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Create Task",
+                "uid": "{4310395E-9A2B-4CC1-AE5E-7DF49B2123A2}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Delete Test",
+                "uid": "{EC9EFD19-C102-4F73-9B31-98668661E69C}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{F57CACDF-9C94-4AED-BD89-FC1295151BE3}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GpoStudio-Cleanup",
+                "uid": "{FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "ImmediateTaskV2",
+                "key": "",
+                "name": "GpoStudio-Init",
+                "uid": "{61200875-7625-4876-AAF3-A1C7F04411A7}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Replace Test",
+                "uid": "{6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "ImmediateTaskV2",
+                "key": "",
+                "name": "Defender-Activation",
+                "uid": "{28B8AB5E-628B-4488-B9B3-10A41E009EFA}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Create Task",
+                "uid": "{4310395E-9A2B-4CC1-AE5E-7DF49B2123A2}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Delete Test",
+                "uid": "{EC9EFD19-C102-4F73-9B31-98668661E69C}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "c72d90ceedbe409f76eab982f86bfdeb9de8d711756afdf8dcb22325e5d360fa",
+      "case_id": "native-WI01A-SchedTasksFull-GPMC",
+      "dir": "c13",
+      "expected_known": [
+        "scheduled-task-order"
+      ],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasksFull-GPMC",
+      "source_gpo_id": "{3D9A5FF9-BD17-41CB-97A5-77C46395B076}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GpoStudio-Cleanup",
+                "uid": "{FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}",
+                "value": ""
+              },
+              {
+                "action": "R",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Replace Test",
+                "uid": "{6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "ImmediateTaskV2",
+                "key": "",
+                "name": "GpoStudio-Init",
+                "uid": "{61200875-7625-4876-AAF3-A1C7F04411A7}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "ImmediateTaskV2",
+                "key": "",
+                "name": "Defender-Activation",
+                "uid": "{28B8AB5E-628B-4488-B9B3-10A41E009EFA}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "C",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Create Task",
+                "uid": "{4310395E-9A2B-4CC1-AE5E-7DF49B2123A2}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "TaskV2",
+                "key": "",
+                "name": "Delete Test",
+                "uid": "{EC9EFD19-C102-4F73-9B31-98668661E69C}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "WinRM",
+                "uid": "{6BE36FDC-9216-4087-AAF4-4E106E23A861}",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "Spooler",
+                "uid": "{E55335A2-4C05-4DD3-B28D-2C8359205324}",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "W32Time",
+                "uid": "{FBB57B6C-8F4A-4B5D-8C56-551CA1DDD2A4}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "3de597527dea143aec4a65b654b572ed1a0e0ba35747c1f2518d21366f2ad2aa",
+      "case_id": "native-WI01A-Services-GPMC",
+      "dir": "c14",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC",
+      "source_gpo_id": "{81910764-3E4B-4CA4-8F57-4CD733382F3D}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "WinRM",
+                "uid": "{6BE36FDC-9216-4087-AAF4-4E106E23A861}",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "Spooler",
+                "uid": "{E55335A2-4C05-4DD3-B28D-2C8359205324}",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "W32Time",
+                "uid": "{FBB57B6C-8F4A-4B5D-8C56-551CA1DDD2A4}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "Spooler",
+                "uid": "{3DA17861-8910-4232-9F50-7EE67ED8266D}",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "W32Time",
+                "uid": "{13FC0555-7E0B-496F-9D29-BBD4750665EA}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "fcc5e90400e7595d75c2317848f91f34b4bd32426f2c9e837e0186d0ed9b6775",
+      "case_id": "native-WI01A-ServicesRecovery-GPMC",
+      "dir": "c15",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC",
+      "source_gpo_id": "{602B2E51-7598-45A9-BB1F-73C7A030879D}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "Spooler",
+                "uid": "{3DA17861-8910-4232-9F50-7EE67ED8266D}",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "W32Time",
+                "uid": "{13FC0555-7E0B-496F-9D29-BBD4750665EA}",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{68D5F5AF-6859-4AC4-A48A-67A71AA5759C}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ShortcutSettings",
+            "items": [
+              {
+                "action": "R",
+                "element": "Shortcut",
+                "key": "",
+                "name": "Manager",
+                "uid": "{E477D4D8-AF17-4798-964A-48925A8A74E1}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "Shortcut",
+                "key": "",
+                "name": "\u00dc &.lnk",
+                "uid": "{1AE40094-240C-4656-B8C2-F1B7A3C05758}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Shortcut",
+                "key": "",
+                "name": "Old App",
+                "uid": "{9946F5E0-918B-4A74-8EDB-28671224FEA0}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "8f18c0a7a053cf878c5f7a8ba42703bf42e15dbca94a9cc1b41fb84a4ea3fdc0",
+      "case_id": "native-WI01A-Shortcuts-GPMC",
+      "dir": "c16",
+      "expected_known": [],
+      "source": "tests/fixtures/native-gpp-gpmc/WI01A-Shortcuts-GPMC",
+      "source_gpo_id": "{D3A73FAE-50E6-40F3-883D-B0688635BD42}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ShortcutSettings",
+            "items": [
+              {
+                "action": "R",
+                "element": "Shortcut",
+                "key": "",
+                "name": "Manager",
+                "uid": "{E477D4D8-AF17-4798-964A-48925A8A74E1}",
+                "value": ""
+              },
+              {
+                "action": "C",
+                "element": "Shortcut",
+                "key": "",
+                "name": "\u00dc &.lnk",
+                "uid": "{1AE40094-240C-4656-B8C2-F1B7A3C05758}",
+                "value": ""
+              },
+              {
+                "action": "D",
+                "element": "Shortcut",
+                "key": "",
+                "name": "Old App",
+                "uid": "{9946F5E0-918B-4A74-8EDB-28671224FEA0}",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": [
+        "restore-importable-security-descriptor"
+      ]
+    },
+    {
+      "backup_id": "{195DBB5B-8274-441D-804E-907EECDB14C5}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+                "name": "TestString",
+                "uid": "",
+                "value": "String:synthetic-test-value"
+              },
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+                "name": "TestDword",
+                "uid": "",
+                "value": "Number:42"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+                "name": "UserString",
+                "uid": "",
+                "value": "String:synthetic-user-value"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "f1624b676581d79f5eeaf553b8069a1a593d0e4dc67fb7fbc6a9c09d51ea90c0",
+      "case_id": "evidence-wi059-20260908-wp0-backup",
+      "dir": "c17",
+      "expected_known": [],
+      "source": "docs/plan-033/wp0-evidence/wi059-20260908/wp0/backup",
+      "source_gpo_id": "{9a800c77-3994-4cad-a7d8-2f67f247fa5c}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+                "name": "TestString",
+                "uid": "",
+                "value": "String:synthetic-test-value"
+              },
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+                "name": "TestDword",
+                "uid": "",
+                "value": "Number:42"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "SOFTWARE\\Policies\\GPOStudio\\Test",
+                "name": "UserString",
+                "uid": "",
+                "value": "String:synthetic-user-value"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{4A26C746-C855-49FA-8FA7-65CA78D86A7C}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "Scripts",
+            "items": [
+              {
+                "action": "",
+                "element": "Script",
+                "key": "",
+                "name": "zz-studio-marker.cmd",
+                "uid": "",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "Script",
+                "key": "",
+                "name": "zz-studio-second.cmd",
+                "uid": "",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "Script",
+                "key": "",
+                "name": "zz-studio-marker.ps1",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "42305ee6f9731fb95edea604bcf3a8e637d2eaabb5107f08ac216aa6009836fc",
+      "case_id": "evidence-wi059-20260908-scripts-metadata-rebackup",
+      "dir": "c18",
+      "expected_known": [
+        "scripts-not-modeled"
+      ],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/scripts-metadata/rebackup",
+      "source_gpo_id": "{b0cce6c6-887b-4071-8b5f-56fd2002dc90}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": []
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{F1EB5F60-231B-4997-9ED5-D87D08548239}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "P",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "0b82be63d65fdd2666223f2acd871f9fe81927b0454372261d09ef6fc1ca7a60",
+      "case_id": "evidence-wi059-20260908-wp1b-drives-user-rebackup",
+      "dir": "c19",
+      "expected_known": [
+        "legacy-studio-drive-name"
+      ],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/wp1b/drives-user/rebackup",
+      "source_gpo_id": "{af25b78d-a29a-4f3a-98f5-3df001f15a19}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "P:",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{AA686540-32C4-45E3-A6C6-A57C1FEDE8BA}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "GPOStudio-WP1B-Group",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "9403ba1b58d93b0024ad46ae1df87310f12ac2111fe56813ec18b2ac1c9e7c69",
+      "case_id": "evidence-wi059-20260908-wp1b-groups-machine-rebackup",
+      "dir": "c20",
+      "expected_known": [],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/wp1b/groups-machine/rebackup",
+      "source_gpo_id": "{7bf30513-32cd-4b9b-b5ad-adbc2d15b1aa}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "GPOStudio-WP1B-Group",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{A9297AE3-FF2B-4052-9018-B1AA7387DC54}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "User",
+                "key": "",
+                "name": "wp1b-localuser",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "3d6d6afcacb81bf4094abd886f84ffb7e77d4f896b32409760618c0bffbdf600",
+      "case_id": "evidence-wi059-20260908-wp1b-localusers-machine-rebackup",
+      "dir": "c21",
+      "expected_known": [],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/wp1b/localusers-machine/rebackup",
+      "source_gpo_id": "{dc881174-349c-4e8c-a7bc-71c5385fb156}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "User",
+                "key": "",
+                "name": "wp1b-localuser",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "GPOStudio-WP1B-Group",
+                "uid": "",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "User",
+                "key": "",
+                "name": "wp1b-localuser",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "MachineValue",
+                "uid": "",
+                "value": "Number:1101"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GPOStudio WP1B Conformance Task",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "GPOStudio-WP1B-Service",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "P",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "UserValue",
+                "uid": "",
+                "value": "String:wp1b-conformance"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "ebd0b80267acf3f951aa0c802038d8841ecf629e0edc9fd1b869ef4f57876d09",
+      "case_id": "evidence-wi059-20260908-wp1b-mixed-all-rebackup",
+      "dir": "c22",
+      "expected_known": [
+        "legacy-studio-drive-name"
+      ],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/wp1b/mixed-all/rebackup",
+      "source_gpo_id": "{1602cb26-c9dc-414f-8072-d09fa339e867}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "LugsSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Group",
+                "key": "",
+                "name": "GPOStudio-WP1B-Group",
+                "uid": "",
+                "value": ""
+              },
+              {
+                "action": "U",
+                "element": "User",
+                "key": "",
+                "name": "wp1b-localuser",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "MachineValue",
+                "uid": "",
+                "value": "Number:1101"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GPOStudio WP1B Conformance Task",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "GPOStudio-WP1B-Service",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "DriveMapSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "Drive",
+                "key": "",
+                "name": "P:",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "user"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "UserValue",
+                "uid": "",
+                "value": "String:wp1b-conformance"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{805DE351-B208-47E3-9CE6-183C31435F43}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "MachineValue",
+                "uid": "",
+                "value": "Number:1101"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "UserValue",
+                "uid": "",
+                "value": "String:wp1b-conformance"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "e2b4f7c9b95ee593aa288a15781d6abdb7f50c267cfddd2a8ce02f581910c77e",
+      "case_id": "evidence-wi059-20260908-wp1b-registry-both-rebackup",
+      "dir": "c23",
+      "expected_known": [],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/wp1b/registry-both/rebackup",
+      "source_gpo_id": "{deb7cd18-9f12-4abb-aa5b-86b4ac89860b}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "MachineValue",
+                "uid": "",
+                "value": "Number:1101"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP1B",
+                "name": "UserValue",
+                "uid": "",
+                "value": "String:wp1b-conformance"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{4BBA6A5C-1560-477B-B8AE-CA6C05223FB3}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GPOStudio WP1B Conformance Task",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "38548182298e400a54bd5ee952849f5003923ee32a7a4e64649f08152d780db7",
+      "case_id": "evidence-wi059-20260908-wp1b-scheduledtasks-machine-rebackup",
+      "dir": "c24",
+      "expected_known": [],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/wp1b/scheduledtasks-machine/rebackup",
+      "source_gpo_id": "{a058a88d-5478-49d9-b830-7daa194ba9b0}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ScheduledTasksSettings",
+            "items": [
+              {
+                "action": "U",
+                "element": "TaskV2",
+                "key": "",
+                "name": "GPOStudio WP1B Conformance Task",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{5F090181-A940-4E37-BFBC-D78FF015891F}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "GPOStudio-WP1B-Service",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "47ec0c21d84038521d740c355a9b5cb30f273e038721eaf0c9178f38b96168ab",
+      "case_id": "evidence-wi059-20260908-wp1b-services-machine-rebackup",
+      "dir": "c25",
+      "expected_known": [],
+      "source": "docs/plan-033/wp1b-evidence/wi059-20260908/wp1b/services-machine/rebackup",
+      "source_gpo_id": "{8703e2ce-6beb-40f2-9d51-454f7e2e4ec4}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "ServiceSettings",
+            "items": [
+              {
+                "action": "",
+                "element": "NTService",
+                "key": "",
+                "name": "GPOStudio-WP1B-Service",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP2",
+                "name": "MachineValue",
+                "uid": "",
+                "value": "Number:42"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP2",
+                "name": "UserValue",
+                "uid": "",
+                "value": "String:synthetic-wp2-value"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "backup_report_sha256": "8c749a8f2546ce16f509964fd445f19ac2f3f3d506f5ed107514abe9d0933276",
+      "case_id": "evidence-wi059-20260908-wp2-rebackup",
+      "dir": "c26",
+      "expected_known": [],
+      "source": "docs/plan-033/wp2-evidence/wi059-20260908/wp2/rebackup",
+      "source_gpo_id": "{6f09aae0-3df6-464d-a0a4-8c152e13dea3}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP2",
+                "name": "MachineValue",
+                "uid": "",
+                "value": "Number:42"
+              }
+            ],
+            "side": "computer"
+          },
+          {
+            "family": "RegistrySettings",
+            "items": [
+              {
+                "action": "",
+                "element": "RegistrySetting",
+                "key": "Software\\Policies\\GPOStudio\\WP2",
+                "name": "UserValue",
+                "uid": "",
+                "value": "String:synthetic-wp2-value"
+              }
+            ],
+            "side": "user"
+          }
+        ]
+      },
+      "transformations": []
+    },
+    {
+      "backup_id": "{BB0A91EB-0598-4CAA-8424-4E0FB159B03B}",
+      "backup_report_inventory": {
+        "admx_policies": {},
+        "families": [
+          {
+            "family": "Scripts",
+            "items": [
+              {
+                "action": "",
+                "element": "Script",
+                "key": "",
+                "name": "zz-studio-marker.cmd",
+                "uid": "",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "Script",
+                "key": "",
+                "name": "zz-studio-second.cmd",
+                "uid": "",
+                "value": ""
+              },
+              {
+                "action": "",
+                "element": "Script",
+                "key": "",
+                "name": "zz-studio-marker.ps1",
+                "uid": "",
+                "value": ""
+              }
+            ],
+            "side": "computer"
+          }
+        ]
+      },
+      "backup_report_sha256": "d28ec80f83ed6af3e08beaaa20fb8e73c834959e864bc9ff8aef312d5039a790",
+      "case_id": "evidence-backup-report-20260908-scripts-metadata-rebackup",
+      "dir": "c27",
+      "expected_known": [
+        "scripts-not-modeled"
+      ],
+      "source": "docs/plan-033/wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup",
+      "source_gpo_id": "{5f16b185-70fb-4f38-bbbd-c55e9a3e1a5c}",
+      "studio_inventory": {
+        "admx_policies": {},
+        "families": []
+      },
+      "transformations": []
+    }
+  ],
+  "excluded": [],
+  "exclusions": [
+    "admx-policy-rendering",
+    "scripts-not-modeled",
+    "links-filters-wmi (lifecycle lane)",
+    "preference Properties attributes (identity, uid and action only)"
+  ],
+  "schema_version": 1
+}

@@ -222,6 +222,23 @@ def _bool_str(value: bool) -> str:
     return "1" if value else "0"
 
 
+def _windows_leaf(path: str) -> str:
+    """The text after the last backslash, as GPME names path-keyed items.
+
+    Measured against GPMC-authored captures (report parity, Plan 034): a File
+    targeting ``%APPDATA%\\Vendor App\\`` is named ``""``, a Folder at
+    ``%USERPROFILE%\\Projects`` is named ``Projects``, a SharedPrinter at
+    ``\\\\printsv\\Lab-Color`` is named ``Lab-Color`` and a Shortcut at
+    ``%CommonDesktopDir%\\Lab Tools\\Manager`` is named ``Manager``.
+    """
+    return path.rsplit("\\", 1)[-1]
+
+
+def _drive_item_name(drive: GppDrive) -> str:
+    """GPME names a mapped drive by its letter and colon (``M:``)."""
+    return f"{drive.letter}:" if drive.letter else drive.path
+
+
 def _device_action_to_code(action: Literal["enable", "disable"]) -> str:
     match action:
         case "enable":
@@ -1614,7 +1631,7 @@ def parse_gpp_data_sources(data: bytes) -> tuple[GppDataSource, ...]:
 def _serialize_drive(drive: GppDrive) -> ET.Element:
     return _build_item_element(
         "drives",
-        item_name=drive.letter or drive.path,
+        item_name=_drive_item_name(drive),
         action=drive.action,
         common=drive.common,
         ilt_filter=drive.ilt_filter,
@@ -1687,7 +1704,7 @@ def parse_gpp_drives(data: bytes) -> tuple[GppDrive, ...]:
 def _serialize_file(fi: GppFile) -> ET.Element:
     return _build_item_element(
         "files",
-        item_name=fi.target,
+        item_name=_windows_leaf(fi.target),
         action=fi.action,
         common=fi.common,
         ilt_filter=fi.ilt_filter,
@@ -1762,7 +1779,7 @@ def parse_gpp_files(data: bytes) -> tuple[GppFile, ...]:
 def _serialize_folder(folder: GppFolder) -> ET.Element:
     return _build_item_element(
         "folders",
-        item_name=folder.path,
+        item_name=_windows_leaf(folder.path),
         action=folder.action,
         common=folder.common,
         ilt_filter=folder.ilt_filter,
@@ -1917,7 +1934,7 @@ def _serialize_printer(printer: GppPrinter) -> ET.Element:
     # GppAction code, so we pass an explicit action_code override.
     return _build_item_element(
         "printers",
-        item_name=printer.path,
+        item_name=_windows_leaf(printer.path),
         action=printer.action,
         common=printer.common,
         ilt_filter=printer.ilt_filter,
@@ -1996,7 +2013,7 @@ def parse_gpp_printers(data: bytes) -> tuple[GppPrinter, ...]:
 def _serialize_shortcut(sc: GppShortcut) -> ET.Element:
     return _build_item_element(
         "shortcuts",
-        item_name=sc.name,
+        item_name=_windows_leaf(sc.shortcut_path) if sc.shortcut_path else sc.name,
         action=sc.action,
         common=sc.common,
         ilt_filter=sc.ilt_filter,

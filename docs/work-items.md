@@ -32,8 +32,10 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**2 open.**
+**4 open.**
 
+- [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - one ordered task list in the bound model; costs two lanes.
+- [WI-072](#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained) - pass root unknowns through `gpp.py`; costs two lanes.
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 
@@ -3025,3 +3027,65 @@ and this item records the proposal instead.
 **Closes when:** the user-side Scripts pair is captured and `export.py` matches it (or is
 confirmed already correct), and a lane covering a user-side logon script and a
 computer-side shutdown script has a banked verdict.
+
+## WI-072 — serialize_gpp drops adapter root content the model retained
+
+**Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
+**Status:** open.
+
+**What is wrong.** A GPMC-authored Power Options file holds a `GlobalPowerOptionsV2`
+item (the Windows 7+ power plan). Studio's power adapter models only the XP-era
+`PowerScheme`, so the import keeps the item as an unknown root child in
+`GppCollection.power_options_unknown_children`. That is retention, and it is correct.
+`serialize_gpp` then rebuilds every adapter file from typed items alone
+(`_serialize_adapter_files` calls `_build_adapter_root(key, items, scope)` and never sees
+the collection's root unknowns), so the first edit that clears the retained source bytes
+silently drops the power plan. Windows' report of the capture lists it; Studio's
+inventory of the same model does not.
+
+**How it hid.** An unedited import exports its retained source bytes verbatim, so every
+round trip test was clean. The report-parity differ re-renders the typed model with the
+source bytes removed, which is the state after any edit.
+
+**Why it is not fixed here.** The caller that must pass the root unknowns is in `gpp.py`,
+which the publication and scripts-metadata verdicts bind. `_build_adapter_root` in
+`gpp_adapters.py` (unbound) cannot reach them. The same omission affects every adapter
+root's unknown attributes and children; only Power Options is observed.
+
+**Pinned by** `tests/test_report_parity.py::test_wi072_power_plan_is_retained_but_not_written`
+and the `adapter-root-unknowns-dropped` entry in `EXPECTED_KNOWN` for `WI01A-Power-GPMC`.
+The lane's certifying run `report-parity-20261008104512-7480` (2026-10-08) confirmed it
+on Windows and accepted it on that case only, as a known divergence.
+`tests/test_report_parity_evidence.py` pins it there.
+
+**Closes when:** `serialize_gpp` re-emits each adapter root's unknown attributes and
+children, the `WI01A-Power-GPMC` pin becomes full equality, and the publication and
+scripts-metadata lanes have re-run on the changed `gpp.py`.
+
+## WI-073 — scheduled and immediate tasks lose their interleaving when the model is written
+
+**Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
+**Status:** open.
+
+**What is wrong.** `ScheduledTasks.xml` is one ordered list in which `TaskV2` and
+`ImmediateTaskV2` items interleave. The model splits them into
+`GppCollection.scheduled_tasks` and `GppCollection.immediate_tasks`, and `serialize_gpp`
+writes all scheduled tasks and then all immediate tasks. GPP processes items in document
+order, so writing an edited GPO changes processing order. Both native scheduled-task
+captures show it (`TaskV2, ImmediateTaskV2, TaskV2` becomes `TaskV2, TaskV2,
+ImmediateTaskV2`). `Groups.xml` has the same shape (`groups` and `local_users` are separate
+lists) but no capture interleaves them yet.
+
+**Why it is not fixed here.** Preserving the order needs either one ordered list or an
+explicit position on each item, in `GppCollection` (`gpp.py`), which two lanes bind, plus
+the merge in `_serialize_adapter_files`.
+
+**Pinned by** `tests/test_report_parity.py::test_wi073_scheduled_and_immediate_tasks_lose_their_interleaving`
+and the `scheduled-task-order` entries in `EXPECTED_KNOWN`. The lane's certifying run
+`report-parity-20261008104512-7480` (2026-10-08) confirmed it on Windows for both
+captures and accepted it on those two cases only, as a known divergence.
+`tests/test_report_parity_evidence.py` pins it there.
+
+**Closes when:** a written model keeps the captured order for both native scheduled-task
+captures (their pins become full equality), a test covers an interleaved `Groups.xml`, and
+the lanes binding the changed files have re-run.
