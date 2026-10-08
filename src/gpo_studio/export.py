@@ -54,7 +54,7 @@ _GPP_EXTENSION_PROFILES: dict[str, tuple[str, str]] = {
         "{17D89FEC-5C44-4972-B12D-241CAEF74509}",
         "{79F92669-4224-476C-9C5C-6EFB4D87DF4A}",
     ),
-    # Measured 2026-10-08 (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC,
+    # Measured 2026-10-08 (tests/fixtures/native-gpp-registry-gpmc, every
     # capture.json): Set-GPPrefRegistryValue registered exactly
     # [{B087BE9D-...}{BEE07A6A-...}] in BOTH gPCMachineExtensionNames and
     # gPCUserExtensionNames, and Backup-GPO recorded the same lists. The

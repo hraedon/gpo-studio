@@ -325,7 +325,7 @@ def test_registry_action_code_mapping() -> None:
 
 
 # The three encodings below are pinned to the native capture
-# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC): Set-GPPrefRegistryValue
+# (tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC): Set-GPPrefRegistryValue
 # wrote UserMulti ['one','two'] as value="one two" plus <Values>, UpdateDword 42
 # as "0000002A" and UserQword 4294967296 as "0000000100000000".
 # test_gpp_registry_native.py compares whole items against those bytes.

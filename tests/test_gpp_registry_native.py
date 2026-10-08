@@ -50,7 +50,12 @@ from gpo_studio.writer_conformance import (
     summary_from_gpo,
 )
 
-CAPTURE = Path(__file__).parent / "fixtures" / "native-gpp-gpmc" / "WI01A-Registry-GPMC"
+#: GPP Registry captures live in their own corpus root, outside
+#: native-gpp-gpmc, so the report-parity lane's pinned corpus is unchanged.
+REGISTRY_CORPUS = Path(__file__).parent / "fixtures" / "native-gpp-registry-gpmc"
+#: The GPMC-editor captures of the other families.
+EDITOR_CORPUS = Path(__file__).parent / "fixtures" / "native-gpp-gpmc"
+CAPTURE = REGISTRY_CORPUS / "WI01A-Registry-GPMC"
 CONTENT_ROOT = next(CAPTURE.glob("*/DomainSysvol/GPO"))
 #: The revision-2 capture: Delete, REG_BINARY and key-only items besides the
 #: revision-1 five.
@@ -263,8 +268,7 @@ def test_bom_follows_the_gpmc_editor_corpus_not_the_cmdlet() -> None:
     assert _native_bytes("Machine").startswith(b"\xef\xbb\xbf")
     editor_files = [
         path
-        for path in CAPTURE.parent.glob("*/*/DomainSysvol/GPO/*/Preferences/*/*.xml")
-        if CAPTURE not in path.parents and SHAPES not in path.parents
+        for path in EDITOR_CORPUS.glob("*/*/DomainSysvol/GPO/*/Preferences/*/*.xml")
     ]
     assert editor_files
     assert not any(path.read_bytes().startswith(b"\xef\xbb\xbf") for path in editor_files)
@@ -534,6 +538,209 @@ def test_revision_2_report_and_backup_agree_through_studio() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The action x type matrix (WI01A-RegistryMatrix-GPMC): every pair, whole items
+# ---------------------------------------------------------------------------
+
+MATRIX = REGISTRY_CORPUS / "WI01A-RegistryMatrix-GPMC"
+MATRIX_ROOT = next(MATRIX.glob("*/DomainSysvol/GPO"))
+MATRIX_ACTIONS = ("Create", "Replace", "Update", "Delete")
+#: The capture script's `$values` table, by its -Type name.
+MATRIX_VALUES: dict[str, tuple[str, str | int | list[str]]] = {
+    "String": ("REG_SZ", "alpha"),
+    "ExpandString": ("REG_EXPAND_SZ", "%SystemRoot%\\x"),
+    "DWord": ("REG_DWORD", 42),
+    "QWord": ("REG_QWORD", 4294967296),
+    "MultiString": ("REG_MULTI_SZ", ["one", "two"]),
+    # [byte[]](0xCA,0xFE,0x00,0x01)
+    "Binary": ("REG_BINARY", "CAFE0001"),
+}
+
+
+def _matrix_bytes(side: str) -> bytes:
+    return (MATRIX_ROOT / side / "Preferences" / "Registry" / "Registry.xml").read_bytes()
+
+
+def _matrix_authored() -> dict[str, list[tuple[str, str, str, str | int | list[str], str]]]:
+    """The capture script's loops, in its order: (key, name, type, value, action)."""
+    machine = [
+        (rf"Software\GPOStudio\GppMatrix\{action}", f"{action}{kind}", reg_type, value,
+         action.lower())
+        for action in MATRIX_ACTIONS
+        for kind, (reg_type, value) in MATRIX_VALUES.items()
+    ]
+    user = [
+        (rf"Software\GPOStudio\GppMatrixKeys\{action}", "", "REG_SZ", "", action.lower())
+        for action in MATRIX_ACTIONS
+    ]
+    return {"Machine": machine, "User": user}
+
+
+def _matrix_model(side: str) -> tuple[GppRegistry, ...]:
+    hive = HIVE[side]
+    natives = list(ET.fromstring(_matrix_bytes(side)))
+    return tuple(
+        GppRegistry(
+            key=key,
+            hive=hive,
+            uid=native.attrib["uid"],
+            value=GppRegistryValue(
+                name=name, value=value, registry_type=reg_type, action=action  # type: ignore[arg-type]
+            ),
+            unknown_attrs=(("changed", native.attrib["changed"]),),
+        )
+        for (key, name, reg_type, value, action), native in zip(
+            _matrix_authored()[side], natives, strict=True
+        )
+    )
+
+
+def test_every_matrix_item_authored() -> None:
+    capture = json.loads((MATRIX / "capture.json").read_text(encoding="utf-8-sig"))
+    assert len(capture["authoring"]) == 28
+    assert all(row["ok"] for row in capture["authoring"])
+    assert capture["error"] is None
+    client, tool = _GPP_EXTENSION_PROFILES["Registry"]
+    assert capture["ad"]["machine"] == capture["ad"]["user"] == f"[{client}{tool}]"
+
+
+@pytest.mark.parametrize("side", ["Machine", "User"])
+def test_matrix_bytes_parse_to_what_was_authored(side: str) -> None:
+    parsed = parse_gpp_registry(_matrix_bytes(side))
+    got = [
+        (r.key, r.value.name, r.value.registry_type, r.value.value, r.value.action)
+        for r in parsed
+    ]
+    assert got == _matrix_authored()[side]
+
+
+@pytest.mark.parametrize("side", ["Machine", "User"])
+def test_writer_matches_every_matrix_item_from_an_authored_model(side: str) -> None:
+    """Each of the 28 items, attribute set and order, against Windows' bytes."""
+    collection = GppCollection(scope=SCOPE[side], registry=_matrix_model(side))  # type: ignore[arg-type]
+    studio = ET.fromstring(serialize_gpp_registry(collection))
+    native = ET.fromstring(_matrix_bytes(side))
+    assert len(studio) == len(native) == (24 if side == "Machine" else 4)
+    _assert_same_element(studio, native)
+
+
+@pytest.mark.parametrize("side", ["Machine", "User"])
+def test_writer_matches_every_matrix_item_after_an_import_and_edit(side: str) -> None:
+    collection = parse_gpp_collection(
+        SCOPE[side],  # type: ignore[arg-type]
+        {"Registry/Registry.xml": _matrix_bytes(side)},
+    )
+    studio = serialize_gpp(mark_edited(collection))["Registry/Registry.xml"]
+    _assert_same_element(ET.fromstring(studio), ET.fromstring(_matrix_bytes(side)))
+
+
+def _shape_of(props: ET.Element) -> tuple[str, str]:
+    action = {"C": "create", "R": "replace", "U": "update", "D": "delete"}[props.attrib["action"]]
+    shape = "key-only" if not props.attrib["name"] else props.attrib["type"]
+    return action, shape
+
+
+def test_the_measured_shape_set_is_exactly_what_the_matrix_captured() -> None:
+    """`_MEASURED_GPP_REGISTRY_SHAPES` is read off Windows' bytes, not reasoned.
+
+    Adding a pair to the set without a capture, or a capture losing a pair,
+    fails here.
+    """
+    from gpo_studio.gpp import _MEASURED_GPP_REGISTRY_SHAPES
+
+    captured = {
+        _shape_of(item.find("Properties"))  # type: ignore[arg-type]
+        for side in ("Machine", "User")
+        for item in ET.fromstring(_matrix_bytes(side))
+    }
+    assert len(captured) == 28
+    assert set(_MEASURED_GPP_REGISTRY_SHAPES) == captured
+
+
+def test_matrix_image_codes_are_one_per_action() -> None:
+    images = {
+        (_shape_of(item.find("Properties"))[0], item.attrib["image"])  # type: ignore[arg-type]
+        for side in ("Machine", "User")
+        for item in ET.fromstring(_matrix_bytes(side))
+    }
+    assert images == {("create", "0"), ("replace", "1"), ("update", "2"), ("delete", "3")}
+
+
+def test_matrix_report_and_backup_agree_through_studio() -> None:
+    differences = compare_preferences(
+        summary_from_backup(MATRIX_ROOT),
+        summary_from_gpmc_report(MATRIX / "gpreport-verify.xml"),
+    )
+    assert differences == (), [d.describe() for d in differences]
+
+
+def test_the_whole_matrix_exports_and_publishes(tmp_path: Path) -> None:
+    gpo = _gpo(
+        GppCollection(scope="computer", registry=_matrix_model("Machine")),
+        GppCollection(scope="user", registry=_matrix_model("User")),
+    )
+    assert native_backup_refusal(gpo) is None
+    assert extension_registration(gpo).unmeasured_shapes == ()
+    plan = generate_publication_plan(gpo)
+    assert not any(step.operation == "unsupported_gpp_registry_shape" for step in plan.steps)
+    with zipfile.ZipFile(io.BytesIO(gpmc_backup_bundle(gpo))) as archive:
+        archive.extractall(tmp_path)
+    content_root = next(tmp_path.glob("*/DomainSysvol/GPO"))
+    assert summary_from_backup(content_root) == summary_from_gpo(gpo)
+
+
+@pytest.mark.parametrize(
+    "capture", ["WI01A-Registry-GPMC", "WI01A-RegistryShapes-GPMC", "WI01A-RegistryMatrix-GPMC"]
+)
+def test_each_registry_capture_imports_through_the_api(
+    capture: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The public backup-import path, as the inventory replay exercises the rest.
+
+    These captures sit outside native-gpp-gpmc, so that replay does not reach
+    them; this does.
+    """
+    from contextlib import closing
+
+    from fastapi.testclient import TestClient
+
+    from gpo_studio.api import app
+    from gpo_studio.store import WorkspaceStore, gpo_from_dict
+
+    inbox = tmp_path / "inbox"
+    import shutil
+
+    shutil.copytree(REGISTRY_CORPUS / capture, inbox)
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox))
+    with closing(WorkspaceStore(tmp_path / "import.db")) as store:
+        monkeypatch.setattr(app.state, "store", store, raising=False)
+        monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+        with TestClient(app) as client:
+            response = client.post("/api/backups/import", json={
+                "path": str(inbox), "actor": "registry-test", "reason": "native capture",
+            })
+            assert response.status_code == 201, response.text
+            gpo = gpo_from_dict(response.json()["gpo"])
+    natives = sum(
+        len(ET.fromstring((side / "Preferences/Registry/Registry.xml").read_bytes()))
+        for side in next((REGISTRY_CORPUS / capture).glob("*/DomainSysvol/GPO")).iterdir()
+    )
+    assert sum(len(c.registry) for c in gpo.gpp_collections) == natives
+
+
+def test_the_registry_corpus_sanitization_record_covers_every_file() -> None:
+    import hashlib
+
+    record = json.loads((REGISTRY_CORPUS / "sanitization-record.json").read_text())
+    tracked = {entry["relative_path"]: entry["sanitized_sha256"] for entry in record["files"]}
+    on_disk = {
+        path.relative_to(REGISTRY_CORPUS).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in REGISTRY_CORPUS.rglob("*")
+        if path.is_file() and path.name != "sanitization-record.json"
+    }
+    assert tracked == on_disk
+
+
+# ---------------------------------------------------------------------------
 # Measured shapes export; the one unmeasured shape is refused everywhere
 # ---------------------------------------------------------------------------
 
@@ -644,3 +851,12 @@ def test_validation_error_lists_every_refusal_reason() -> None:
     message = caught.value.issues[0].message
     assert "One: a default-value item" in message
     assert "Two: a default-value item" in message
+
+
+def test_a_key_only_item_typed_other_than_reg_sz_is_not_a_measured_shape() -> None:
+    """Every captured key-only item is typed REG_SZ; anything else was never seen."""
+    reg = GppRegistry(
+        key=KEY, value=GppRegistryValue(name="", value="", registry_type="REG_DWORD")
+    )
+    shapes = gpp_registry_unmeasured_shapes(GppCollection(scope="user", registry=(reg,)))
+    assert shapes == (f"user HKEY_LOCAL_MACHINE\\{KEY}: a key-only item typed REG_DWORD",)

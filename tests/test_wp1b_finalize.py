@@ -57,7 +57,10 @@ def test_gpp_registry_report_marker_is_capture_backed_and_namespace_qualified() 
     markers = cast(dict[str, tuple[str, ...]], symbols["_FAMILY_REPORT_MARKERS"])
     report_extensions = cast(Callable[[Path], list[str]], symbols["_report_extensions"])
 
-    gpp = report_extensions(_FIXTURES / "WI01A-Registry-GPMC" / "gpreport-verify.xml")
+    gpp = report_extensions(
+        _FIXTURES.parent / "native-gpp-registry-gpmc" / "WI01A-Registry-GPMC"
+        / "gpreport-verify.xml"
+    )
     policy = report_extensions(_PLAN034 / "registry-both" / "gpreport-after-import.xml")
 
     assert markers["gpp_registry"] == ("Windows/Registry:RegistrySettings",)

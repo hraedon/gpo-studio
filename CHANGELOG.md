@@ -12,7 +12,7 @@ Current version: `1.0.0`.
 - **GPP Registry native export, fixed and awaiting batch-2 requalification
   (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
   Registry item, narrowing the 1.0 contract the capability matrix still
-  claimed. A native capture (2026-10-08, `tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC`)
+  claimed. A native capture (2026-10-08, `tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC`)
   measured the extension pair `[{B087BE9D-…}{BEE07A6A-…}]` on both sides and
   the wire form, and showed Studio's reader and writer were both wrong:
   REG_DWORD/REG_QWORD are fixed-width upper-case hex (a native DWORD did not
@@ -24,10 +24,16 @@ Current version: `1.0.0`.
   `export._GPP_EXTENSION_PROFILES` (the one source for the backup, the
   publication planner and `EMITTED_EXTENSION_GUIDS`), and pre-batch-2 stored
   imports are re-typed on load. A revision-2 capture
-  (`tests/fixtures/native-gpp-gpmc/WI01A-RegistryShapes-GPMC`, from
+  (`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC`, from
   `scripts/plan-033/capture-gpp-registry-native.ps1`) measured Delete
   (`image="3"`), REG_BINARY (upper-case hex, no separators) and key-only items
-  (named by the key, typed `REG_SZ`), so they export and publish. Default-value
+  (named by the key, typed `REG_SZ`), so they export and publish. A full
+  action x type matrix capture (`WI01A-RegistryMatrix-GPMC`, 28 items) then
+  pinned every action x type pair and key-only x action as a whole item: the
+  measured set is now an explicit list of those 28 pairs, held equal to the
+  native bytes, rather than composed from parts. The GPP Registry captures live
+  in `tests/fixtures/native-gpp-registry-gpmc`, outside the report-parity
+  corpus. Default-value
   items stay refused (`unmeasured_gpp_registry_shape`) by the export and the
   planner: the GroupPolicy module has no `-Default` parameter, so nothing
   measured them. The decimal and `;`-joined forms Studio wrote before batch 2,

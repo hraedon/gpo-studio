@@ -291,7 +291,7 @@ attributes on `<RegistrySettings>`, and unknown root children (e.g. nested
   `key` and value name.
 - **Import:** `Registry/Registry.xml` parsed from GPMC backups, in the wire
   form a native capture measured (2026-10-08,
-  `tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC`): REG_DWORD as eight
+  `tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC`): REG_DWORD as eight
   upper-case hex digits, REG_QWORD as sixteen, REG_MULTI_SZ as a `<Values>`
   list beside its space-joined `value`. Before batch 2 a native REG_DWORD did
   not import at all, a REG_QWORD was read as decimal, and a REG_MULTI_SZ came
@@ -309,7 +309,10 @@ attributes on `<RegistrySettings>`, and unknown root children (e.g. nested
   A revision-2 capture (`WI01A-RegistryShapes-GPMC`) measured Delete items
   (`image="3"`, type and value kept), REG_BINARY (upper-case hex, no
   separators) and key-only items (item name = the key, `type="REG_SZ"`), so
-  those export too. Still refused, because the GroupPolicy module cannot
+  those export too. A full action x type capture (`WI01A-RegistryMatrix-GPMC`,
+  28 items) pins every Create/Replace/Update/Delete x type pair and key-only x
+  action against Windows' bytes; nothing is composed from parts. Still refused,
+  because the GroupPolicy module cannot
   author one and nothing measured it: default-value items
   (`unmeasured_gpp_registry_shape`, also refused by the publication planner).
 - **PowerShell plan &#10007;:** not applied by the plan. GPMC backup export only.

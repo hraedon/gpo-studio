@@ -3193,7 +3193,7 @@ WI-046 made the refusal visible in `artifact_capabilities`; the matrix row kept
 saying &#10003;.
 
 **What the capture showed.** A native `Set-GPPrefRegistryValue` capture on
-WS2025 (2026-10-08, `tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC`) measured
+WS2025 (2026-10-08, `tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC`) measured
 the pair `[{B087BE9D-ED37-454F-AF9C-04291E351182}{BEE07A6A-EC9F-4659-B8C9-0B1937907C83}]`
 on both sides, and showed the writer AND the reader were wrong about the wire form:
 
@@ -3216,13 +3216,23 @@ the WP-1B lane gains a `gppregistry-both` candidate and GPP Registry items in
 Registry.pol and GPP Registry share the local name `RegistrySettings`).
 
 **Measured by the revision-2 capture** (2026-10-08,
-`tests/fixtures/native-gpp-gpmc/WI01A-RegistryShapes-GPMC`, from
+`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC`, from
 `scripts/plan-033/capture-gpp-registry-native.ps1`): a Delete item (`image="3"`,
 its type and value kept), REG_BINARY (bytes CA FE 00 01 as `CAFE0001`) and a
 key-only item (`name`/`status` = the key; `<Properties name="" type="REG_SZ"
 value="">`). Studio writes and reads all three in that form, they export and
-publish, and the WP-1B `gppregistry-both` candidate carries one of each. Their
-combinations with other types or actions are composed from those measured parts.
+publish, and the WP-1B `gppregistry-both` candidate carries one of each.
+
+**The whole matrix, measured** (2026-10-08,
+`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryMatrix-GPMC`, 28/28 items):
+Create/Replace/Update/Delete x REG_SZ/EXPAND_SZ/DWORD/QWORD/MULTI_SZ/BINARY on
+the computer side and a key-only item per action on the user side. Studio no
+longer composes a shape from separately measured parts: `gpp._MEASURED_GPP_REGISTRY_SHAPES`
+lists the 28 (action, shape) pairs, a test holds that set equal to the pairs
+read off the native bytes, and Studio's writer reproduces every one of the 28
+items against those bytes. The three GPP Registry captures live in their own
+corpus root, `tests/fixtures/native-gpp-registry-gpmc` (own sanitization
+record), so the report-parity lane's pinned corpus is unchanged.
 
 **Still refused, unmeasured** (`unmeasured_gpp_registry_shape`, export and
 publication alike): default-value items. The revision-2 script tried one and

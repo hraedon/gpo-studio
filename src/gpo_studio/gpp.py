@@ -171,15 +171,25 @@ _REGISTRY_VALUE_RESERVED_ATTRS = frozenset({
     "action", "hive", "key", "name", "type", "value", "default",
 })
 
-# GPP Registry wire forms with a Windows capture behind them
-# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC and
-# WI01A-RegistryShapes-GPMC, 2026-10-08). Anything outside these is written by
-# inference and is refused by the native backup export and the publication
-# planner (`gpp_registry_unmeasured_shapes`) until a capture measures it
-# (WI-075).
-_MEASURED_GPP_REGISTRY_TYPES = frozenset({
-    "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_QWORD", "REG_MULTI_SZ",
-})
+# GPP Registry item shapes with a Windows capture behind them, as (action,
+# shape) where shape is the value type or "key-only". Every pair below appears
+# in tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryMatrix-GPMC (the
+# 2026-10-08 action x type matrix: 4 actions x 6 types on the computer side,
+# key-only x 4 actions on the user side), and
+# test_gpp_registry_native.py holds this set equal to the pairs read off those
+# native bytes -- an entry cannot be added here without a capture. Anything
+# outside it (a default-value item: the GroupPolicy module cannot author one)
+# is refused by the native backup export and the publication planner
+# (`gpp_registry_unmeasured_shapes`, WI-075).
+_GPP_REGISTRY_KEY_ONLY = "key-only"
+_MEASURED_GPP_REGISTRY_SHAPES: frozenset[tuple[str, str]] = frozenset(
+    (action, shape)
+    for action in ("create", "replace", "update", "delete")
+    for shape in (
+        "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_QWORD", "REG_MULTI_SZ",
+        _GPP_REGISTRY_KEY_ONLY,
+    )
+)
 _GPP_REGISTRY_HEX_WIDTH = {"REG_DWORD": 8, "REG_QWORD": 16}
 
 _REGISTRY_HIVES = frozenset({
@@ -749,7 +759,7 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
     value, one UID, one ILT filter, and one set of element metadata.
 
     Attribute set and order follow the native capture
-    (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC): ``clsid name status
+    (tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC): ``clsid name status
     image changed uid`` and the common options on <Registry>; ``action
     displayDecimal default hive key name type value`` on <Properties>. The
     item ``name`` (and ``status``) is the VALUE name, as GPMC writes it; for a
@@ -2021,16 +2031,13 @@ def _adapters_from_dict(data: dict[str, Any]) -> dict[str, Any]:
 def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]:
     """GPP Registry items whose native wire form no Windows capture backs.
 
-    The two 2026-10-08 captures (WI01A-Registry-GPMC, WI01A-RegistryShapes-GPMC)
-    measured named values of all six types, all four action codes, and a
-    key-only item. A default-value item was NOT measured: the GroupPolicy
-    module has no ``-Default`` parameter, so the capture could not author one.
-    Emitting it into a native backup or a publication would put an inferred
-    form on the wire, so both refuse it by this one rule (WI-075).
-
-    The action code, value encoding and key-only form were each measured on
-    their own; combinations the captures did not hold together (a Delete of a
-    REG_DWORD, say) are composed from those measured parts, not refused.
+    An item is measured only if its exact (action, type) pair -- or (action,
+    key-only) -- is in `_MEASURED_GPP_REGISTRY_SHAPES`, every member of which
+    was captured as a whole item (WI01A-RegistryMatrix-GPMC). Nothing is
+    composed from separately measured parts. A default-value item was never
+    captured (the GroupPolicy module has no ``-Default`` parameter), so it is
+    listed here and both the native export and the publication planner refuse
+    it by this one rule (WI-075).
     """
     shapes: list[str] = []
     for reg in collection.registry:
@@ -2040,9 +2047,15 @@ def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]
             shapes.append(f"{where}: a default-value item")
             continue
         if not value.name:
-            continue  # key-only: measured
-        if value.registry_type not in _MEASURED_GPP_REGISTRY_TYPES:
-            shapes.append(f"{where} value {value.name!r}: {value.registry_type or 'untyped'}")
+            shape = _GPP_REGISTRY_KEY_ONLY
+            if value.registry_type not in ("", "REG_SZ"):
+                shapes.append(f"{where}: a key-only item typed {value.registry_type}")
+                continue
+        else:
+            shape = value.registry_type
+            where = f"{where} value {value.name!r}"
+        if (value.action, shape) not in _MEASURED_GPP_REGISTRY_SHAPES:
+            shapes.append(f"{where}: {value.action} of {shape or 'an untyped value'}")
     return tuple(shapes)
 
 

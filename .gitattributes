@@ -13,6 +13,9 @@ tests/fixtures/migration-tables/*.migtable -text
 docs/plan-033/**/*.json -text
 docs/plan-033/**/*.md   -text
 tests/fixtures/native-gpp-gpmc/** -text
+# Batch-2 GPP Registry native captures (WI-075): exact Windows bytes, hashes in
+# their sanitization-record.json.
+tests/fixtures/native-gpp-registry-gpmc/** -text
 # Older Scripts captures are UTF-8 transcripts, stored as LF in Git.
 tests/fixtures/native-scripts-gpmc/*.txt text eol=lf
 # WI-063: `-text` pinned whatever bytes were committed, so a Windows-side CRLF

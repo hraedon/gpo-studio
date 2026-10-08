@@ -99,8 +99,9 @@ SERVICE = GppService(
     id="{9B1DE5C0-0000-4000-8000-0000000000A4}",
 )
 # GPP Registry (batch 2). Only shapes the 2026-10-08 native captures measured
-# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC and
-# WI01A-RegistryShapes-GPMC): named values of all six types, all four action
+# as whole items (tests/fixtures/native-gpp-registry-gpmc: WI01A-Registry-GPMC,
+# WI01A-RegistryShapes-GPMC and the 28-item action x type matrix
+# WI01A-RegistryMatrix-GPMC): named values of all six types, all four action
 # codes, and a key-only item, on both sides. The values are chosen to make a
 # wrong encoding visible: 3000000000 is 0xB2D05E00 (hex letters, above 2**31,
 # and not a decimal string of 8 digits), the QWORD needs all sixteen digits,
