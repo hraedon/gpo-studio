@@ -94,14 +94,14 @@ $short = '{0:D6}' -f (Get-Random -Minimum 0 -Maximum 999999)
 # only objects that carry it.
 $marker = "gpo-studio-lifecycle:${runId}:$([guid]::NewGuid())"
 
-# Every name this run can create, generated before anything is created.
+# Every fixture name this run creates, generated before anything is created.
+# The CREATING operations' target names are deliberately absent: the run nonce
+# above becomes public with the first OU, so each of those names gets its own
+# nonce, generated immediately before its operation (New-OperationTargetName).
 $names = [ordered]@{
     gpo_control       = "$prefix-control"
     gpo_source        = "$prefix-source"
     gpo_target        = "$prefix-target"
-    gpo_copy          = "$prefix-copy"
-    gpo_copy_with_acl = "$prefix-copy_with_acl"
-    gpo_import_as_new = "$prefix-imported"
     group_src         = "zzlc-$short-src"
     group_tgt         = "zzlc-$short-tgt"
     wmi_src           = "$prefix-src-wmi"
@@ -302,6 +302,18 @@ function Confirm-GpoCreated {
         throw "returned GPO ${id} was created at $($Entry.creation_evidence) -- before the operation began on the DC clock; not created by this run, left in place"
     }
     $Entry.owned = $true
+}
+
+# The target name of ONE creating operation, with a nonce of its own from a
+# fresh GUID. It is generated immediately before that operation and written
+# nowhere -- not to the directory, not to any output -- before the operation's
+# create step; the result records it afterwards, in the inventory entry. The
+# run nonce cannot serve: it is public from the first OU onward (re-review 5),
+# and a racer who could read the target name there could take it inside the
+# window between the id snapshot and the cmdlet's own create.
+function New-OperationTargetName {
+    param([string]$Suffix)
+    return "$prefix-$Suffix-$([guid]::NewGuid().ToString('N').Substring(0, 16))"
 }
 
 # Intent first, then the create. The entry is a reference: filling in the id
@@ -539,7 +551,6 @@ try {
         target_wmi_filter_id   = $targetFilter.ToLowerInvariant()
         source_wmi_filter_name = $names.wmi_src
         target_wmi_filter_name = $names.wmi_tgt
-        import_as_new_name     = $names.gpo_import_as_new
         source_group_name      = $names.group_src
         target_group_name      = $names.group_tgt
         domain_dn              = $domainDn
@@ -579,7 +590,7 @@ try {
         try {
             Initialize-CommandArtifacts $name
             $stderr = Join-Path $commands "$name.stderr.txt"
-            $targetName = $names["gpo_$name"]
+            $targetName = New-OperationTargetName -Suffix $name
             $op.target_preexisted = [bool](Find-GpoByName -Name $targetName)
             if ($op.target_preexisted) { throw "copy target '$targetName' exists" }
             $entry = Register-GpoIntent -Role $name -Name $targetName
@@ -610,11 +621,12 @@ try {
     $op = $operations['import_as_new']
     try {
         Initialize-CommandArtifacts 'import_as_new'
-        $op.target_preexisted = [bool](Find-GpoByName -Name $names.gpo_import_as_new)
-        if ($op.target_preexisted) { throw "import_as_new target '$($names.gpo_import_as_new)' exists" }
-        $entry = Register-GpoIntent -Role 'import_as_new' -Name $names.gpo_import_as_new
+        $importName = New-OperationTargetName -Suffix 'imported'
+        $op.target_preexisted = [bool](Find-GpoByName -Name $importName)
+        if ($op.target_preexisted) { throw "import_as_new target '$importName' exists" }
+        $entry = Register-GpoIntent -Role 'import_as_new' -Name $importName
         $baseline = Get-CreationBaseline
-        $imported = Import-GPO -BackupId $backupId -Path $backupRoot -TargetName $names.gpo_import_as_new `
+        $imported = Import-GPO -BackupId $backupId -Path $backupRoot -TargetName $importName `
             -CreateIfNeeded -Domain $Domain -Server $dc -Confirm:$false -ErrorAction Stop `
             2> (Join-Path $commands 'import_as_new.stderr.txt')
         Save-CommandOutput 'import_as_new' $imported

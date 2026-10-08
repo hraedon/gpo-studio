@@ -145,12 +145,12 @@ def test_guest_probe_a_name_collision_deletes_nothing(tmp_path: Path) -> None:
     report = _run_probe(
         tmp_path,
         "$global:foreignGpo = [pscustomobject]@{ Id = [guid]'aaaaaaaa-0000-0000-0000-000000000099'; "
-        "DisplayName = 'foreign-copy' }\n"
-        "$global:gpos['foreign-copy'] = $global:foreignGpo\n"
-        "$global:collideSuffix = '-copy'\n",
+        "DisplayName = 'foreign-control' }\n"
+        "$global:gpos['foreign-control'] = $global:foreignGpo\n"
+        "$global:collideSuffix = '-control'\n",
     )
     assert report["deleted"] == []
-    assert report["gpos_left"] == ["foreign-copy"]
+    assert report["gpos_left"] == ["foreign-control"]
     assert report["ad_left"] == []
     assert report["ownership_established"] is False
     assert "ownership guard" in str(report["error"])
@@ -340,7 +340,7 @@ def test_guest_probe_a_returned_foreign_gpo_is_never_owned_or_deleted(
     assert entry["id"] == _FOREIGN_ID
     assert _FOREIGN_ID not in [str(d).lower() for d in report["deleted"]]  # type: ignore[union-attr]
     assert any(
-        name == "someone-else" or str(name).endswith("-imported")
+        name == "someone-else" or re.search(r"-imported-[0-9a-f]{16}$", str(name))
         for name in report["gpos_left"]  # type: ignore[union-attr]
     )
     assert "not created by this run" in str(report["import_as_new_error"])
@@ -416,3 +416,56 @@ def test_guest_probe_run_names_carry_an_unguessable_nonce(tmp_path: Path) -> Non
     first = _run_probe(tmp_path / "a", "$global:commitThenThrow = 'gpo'\n")
     second = _run_probe(tmp_path / "b", "$global:commitThenThrow = 'gpo'\n")
     assert _prefix(first) != _prefix(second)
+
+
+#: Sol's round-5 racer: it reads the run prefix from the first OU (public from
+#: then on), derives what the import target "would" be called, and creates a
+#: GPO under that name inside the window. Import-GPO -CreateIfNeeded adopts a
+#: GPO of its TargetName if one exists.
+_RACER_DERIVES_NAME_FROM_OU = _FULL_FLOW + r"""
+function Import-GPO { param($BackupId, $Path, $TargetName, $TargetGuid, [switch]$CreateIfNeeded, $Domain, $Server, $Confirm, $ErrorAction)
+    if (-not $CreateIfNeeded) { return Get-GPO -Guid $TargetGuid }
+    $ou = @($global:ad.Keys | Where-Object { $_ -match '^OU=(zz-studio-lifecycle-[^,]+),DC=' })[0]
+    $null = $ou -match '^OU=(zz-studio-lifecycle-[^,]+),DC='
+    $derived = "$($Matches[1])-imported"
+    $global:gpos[$derived] = [pscustomobject]@{ Id = [guid]'eeeeeeee-0000-0000-0000-000000000099'
+        DisplayName = $derived; Description = 'racer'; GpoStatus = 'AllSettingsEnabled'; WmiFilter = $null
+        CreationTime = $global:dcClock }
+    if ($global:gpos.ContainsKey($TargetName)) { return $global:gpos[$TargetName] }
+    return New-GPO -Name $TargetName }
+"""
+
+
+def test_guest_probe_a_racer_cannot_derive_the_import_target_from_the_ou(
+    tmp_path: Path,
+) -> None:
+    """Re-review 5 P1: each creating target carries its own unpublished nonce."""
+    report = _run_probe(tmp_path, _RACER_DERIVES_NAME_FROM_OU)
+    entry = _import_entry(report)
+    prefix = _prefix(report)
+    assert re.fullmatch(rf"{re.escape(prefix)}-imported-[0-9a-f]{{16}}", str(entry["name"]))
+    assert entry["owned"] is True
+    assert entry["id"] != _FOREIGN_ID
+    assert _FOREIGN_ID not in [str(d).lower() for d in report["deleted"]]  # type: ignore[union-attr]
+    assert report["gpos_left"] == [f"{prefix}-imported"]
+    # The racer's GPO carries the run prefix, so the report-only sweep lists it
+    # and the post-run state is not reported clean.
+    residual = report["cleanup"]["residual"]  # type: ignore[index]
+    assert any(_FOREIGN_ID in item and "run-named" in item for item in residual["surviving_gpos"])
+    assert report["cleanup_succeeded"] is False
+
+
+def test_guest_probe_each_creating_operation_gets_a_distinct_nonce(tmp_path: Path) -> None:
+    report = _run_probe(tmp_path, _DC_BEHIND_MEMBER)
+    created = report["created"]
+    assert isinstance(created, dict)
+    prefix = _prefix(report)
+    nonces = []
+    for role, suffix in (("copy", "copy"), ("copy_with_acl", "copy_with_acl"),
+                         ("import_as_new", "imported")):
+        name = next(g["name"] for g in created["gpos"] if g["role"] == role)
+        match = re.fullmatch(rf"{re.escape(prefix)}-{suffix}-([0-9a-f]{{16}})", name)
+        assert match, name
+        nonces.append(match.group(1))
+    assert len(set(nonces)) == 3
+    assert prefix.rsplit("-", 1)[-1] not in nonces
