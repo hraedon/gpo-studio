@@ -44,6 +44,8 @@ def _author_state(**overrides: Any) -> dict[str, Any]:
         "run_id": "rsop-author-20260804000000-1111",
         "setup_completed": True,
         "computer_moved": True,
+        "authored_problems": [],
+        "error": None,
         "user_moved": True,
         "scope": "user",
         "environment": {"build": "26100", "locale": "en-US"},
@@ -68,6 +70,8 @@ def _cleanup_result(**overrides: Any) -> dict[str, Any]:
             "surviving_links": [],
             "surviving_gpos": [],
             "surviving_ous": [],
+            "surviving_wmi_filters": [],
+            "surviving_group": None,
         },
     }
     result.update(overrides)
@@ -892,3 +896,121 @@ def test_the_abstention_gate_is_off_when_nothing_is_unevaluable(lane) -> None:
     assert verdict["state"] == "pass"
     assert verdict["comparison"]["conclusive"] is True
     assert verdict["comparison"]["unevaluable_gpos"] == []
+
+
+# ---------------------------------------------------------------------------
+# A missing record field is never "nothing to report"
+# ---------------------------------------------------------------------------
+#
+# Every field below is written by the guest on every run, empty when there is
+# nothing to say. `record.get(key) or []` read an ABSENT field the same way, so
+# a truncated record (or one from a harness that never collected the field)
+# passed the check that field exists for. Each must now fail the lane.
+
+
+@pytest.mark.parametrize("field", ["authored_problems", "error"])
+def test_an_author_state_missing_a_field_is_a_lane_failure(lane, field: str) -> None:
+    author = _author_state()
+    del author[field]
+    verdict = _finalize(*lane(author=author))
+    assert verdict["state"] == "lane-failure"
+
+
+def test_an_author_error_is_a_lane_failure(lane) -> None:
+    author = _author_state()
+    author["error"] = "Set-GPLink failed"
+    verdict = _finalize(*lane(author=author))
+    assert verdict["state"] == "lane-failure"
+    assert any("Set-GPLink failed" in p for p in verdict["lane_problems"])
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "computer_restored",
+        "surviving_links",
+        "surviving_gpos",
+        "surviving_ous",
+        "surviving_wmi_filters",
+        "surviving_group",
+    ],
+)
+def test_a_cleanup_residual_missing_a_field_is_a_lane_failure(lane, field: str) -> None:
+    cleanup = _cleanup_result()
+    del cleanup["residual"][field]
+    verdict = _finalize(*lane(cleanup=cleanup))
+    assert verdict["state"] == "lane-failure"
+
+
+@pytest.mark.parametrize("field", ["cleanup_problems", "residual"])
+def test_a_cleanup_record_missing_a_field_is_a_lane_failure(lane, field: str) -> None:
+    cleanup = _cleanup_result()
+    del cleanup[field]
+    verdict = _finalize(*lane(cleanup=cleanup))
+    assert verdict["state"] == "lane-failure"
+
+
+def test_a_surviving_wmi_filter_or_group_is_a_lane_failure(lane) -> None:
+    """Both were re-queried by the guest and read by nothing here."""
+    for key, value in (
+        ("surviving_wmi_filters", ["CN={11111111-1111-1111-1111-111111111111},CN=SOM"]),
+        ("surviving_group", "CN=StudioRsopGroup,OU=Lab"),
+    ):
+        cleanup = _cleanup_result()
+        cleanup["residual"][key] = value
+        verdict = _finalize(*lane(cleanup=cleanup))
+        assert verdict["state"] == "lane-failure", key
+
+
+@pytest.mark.parametrize("field", ["lane_problems", "error", "pre_run_residual"])
+def test_an_observation_missing_a_field_is_a_lane_failure(lane, field: str) -> None:
+    observation = _observation()
+    del observation[field]
+    verdict = _finalize(*lane(observation=observation))
+    assert verdict["state"] == "lane-failure"
+
+
+@pytest.mark.parametrize("value", [None, "missing"])
+def test_a_moved_user_without_a_restored_answer_is_a_lane_failure(lane, value) -> None:
+    """``user_restored`` null used to read as "never moved" even when it was."""
+    cleanup = _cleanup_result()
+    if value == "missing":
+        del cleanup["residual"]["user_restored"]
+    else:
+        cleanup["residual"]["user_restored"] = value
+    verdict = _finalize(*lane(cleanup=cleanup))
+    assert verdict["state"] == "lane-failure"
+    assert any("user account was not restored" in p for p in verdict["lane_problems"])
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "loopback-merge",
+        "loopback-replace",
+        "user-security-filtering",
+        "user-security-filtering-deny",
+        "user-security-filtering-read-deny",
+        "user-side-disabled",
+    ],
+)
+def test_the_banked_records_still_clear_lane_validity(scenario: str) -> None:
+    """The last real runs, regraded: tightened, not broken.
+
+    Every field the lane now requires was in the records Windows wrote.
+    """
+    pack = _REPO_ROOT / "docs/plan-033/wp9-evidence/wi062-20260910" / scenario
+
+    def load(name: str) -> dict[str, Any]:
+        (path,) = sorted(pack.rglob(name))
+        return dict(json.loads(path.read_text(encoding="utf-8-sig")))
+
+    problems = finalize_user._lane_validity(
+        load("author-state.json"),
+        load("cleanup-result.json"),
+        load("observation.json"),
+        True,
+        False,
+        True,
+    )
+    assert problems == []

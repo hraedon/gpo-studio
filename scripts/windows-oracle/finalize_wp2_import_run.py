@@ -76,6 +76,17 @@ def _setting_projection(setting: dict[str, Any]) -> tuple[object, ...]:
     )
 
 
+def _settings_match(expected: list[tuple[object, ...]], actual: list[tuple[object, ...]]) -> bool:
+    """Exact equality against a NON-EMPTY expectation.
+
+    An empty expectation equals an empty readback, so a candidate whose
+    ``expected.json`` lost its settings (or a guest that read nothing back)
+    would certify a round trip of nothing. The WP-2 candidate always carries
+    settings; an empty list is a broken yardstick, not a passing comparison.
+    """
+    return bool(expected) and actual == expected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("run_dir", type=Path)
@@ -139,7 +150,7 @@ def main() -> int:
 
     expected_settings = sorted(_setting_projection(item) for item in expected["settings"])
     readback_settings = sorted(_setting_projection(item) for item in result["registry_readback"])
-    checks["group_policy_readback_matches"] = readback_settings == expected_settings
+    checks["group_policy_readback_matches"] = _settings_match(expected_settings, readback_settings)
 
     checks.update(
         {
@@ -172,7 +183,7 @@ def main() -> int:
                 )
                 for item in imported_settings
             )
-        checks["windows_rebackup_matches"] = rebackup_settings == expected_settings
+        checks["windows_rebackup_matches"] = _settings_match(expected_settings, rebackup_settings)
 
         backup_xml = run_dir / "rebackup" / rebackup.backup_id / "Backup.xml"
         root = ET.fromstring(backup_xml.read_bytes())

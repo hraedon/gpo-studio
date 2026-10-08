@@ -133,3 +133,21 @@ def test_observed_operations_reject_name_argument_mismatch() -> None:
         ]
     }
     assert not _observed_operations_match(result)
+
+
+
+def test_an_empty_expectation_never_matches() -> None:
+    """Zero expected settings is a broken yardstick, not an exact match."""
+    from gpo_studio.security_template import decode_security_template, parse_security_template
+
+    matches = cast(Callable[..., tuple[bool, list[dict[str, str | None]]]],
+                   _FINALIZER["_matches_expected"])
+    template = parse_security_template(
+        decode_security_template(
+            "[Unicode]\r\nUnicode=yes\r\n[Version]\r\nsignature=\"$CHICAGO$\"\r\n"
+            "Revision=1\r\n".encode("utf-16")
+        )
+    )
+    ok, differences = matches(template, [])
+    assert ok is False
+    assert differences

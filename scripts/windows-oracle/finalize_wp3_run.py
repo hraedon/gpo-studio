@@ -154,6 +154,12 @@ def _matches_expected(
     settings: list[dict[str, Any]],
 ) -> tuple[bool, list[dict[str, str | None]]]:
     differences: list[dict[str, str | None]] = []
+    if not settings:
+        # Nothing to compare is not a match: an empty expectation would grade
+        # any template, including an empty export, as semantically exact.
+        return False, [
+            {"section": None, "key": None, "expected": "at least one setting", "actual": None}
+        ]
     for setting in settings:
         section = str(setting["section"])
         key = str(setting["key"])

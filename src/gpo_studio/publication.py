@@ -68,6 +68,14 @@ class PublicationStep:
     # against a real SYSVOL tree reads data instead of parsing prose -- the
     # Plan 034 lane does exactly that, and a detail string is not an interface.
     sysvol_path: str | None = None
+    # update_extension_lists only: the directory attribute this step sets and
+    # the exact value it sets it to. Typed for the same reason as
+    # `sysvol_path`: the completeness lane grades the plan's OWN claim about
+    # the extension lists, and must read it from the step rather than
+    # re-deriving it from the GPO (which would certify a plan that omitted the
+    # step, the WI-057 shape) or parsing `detail`.
+    directory_attribute: str | None = None
+    directory_value: str | None = None
 
 
 def _step_payload(step: PublicationStep) -> dict[str, object]:
@@ -85,6 +93,8 @@ def _step_payload(step: PublicationStep) -> dict[str, object]:
         "artifact_ids": list(step.artifact_ids),
         "version_half": step.version_half,
         "sysvol_path": step.sysvol_path,
+        "directory_attribute": step.directory_attribute,
+        "directory_value": step.directory_value,
     }
 
 
@@ -432,6 +442,29 @@ def generate_publication_plan(
             )
         )
 
+    # An imported Folder Redirection policy (WI-068 carries fdeploy1.ini on the
+    # model; WI-066 owes the writer). Studio has no fdeploy writer and no
+    # measured extension registration for it, so nothing below would publish
+    # it: the plan would validate while silently omitting the redirection.
+    # Refused for every target, not only SYSVOL: the policy needs both the
+    # SYSVOL file and its entry in gPCUserExtensionNames, and Studio can state
+    # neither, so an AD-only plan would be just as partial.
+    if gpo.fdeploy is not None:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-folder-redirection",
+                operation="unsupported_folder_redirection",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: the GPO carries an imported Folder "
+                    "Redirection policy (fdeploy1.ini) and this planner has no "
+                    "writer for it (WI-066), so a plan without it would publish a "
+                    "GPO that silently drops the redirection"
+                ),
+            )
+        )
+
     # Register the client-side extensions the SYSVOL content needs, without
     # which every file above is inert (WI-057). The values come from export.py's
     # measured vocabulary rather than being restated here; the attributes are on
@@ -471,6 +504,8 @@ def generate_publication_plan(
                         target="ad",
                         status="pending",
                         detail=f"Set {attribute} to {value}",
+                        directory_attribute=attribute,
+                        directory_value=value,
                     )
                 )
                 rollback.append(
@@ -708,6 +743,20 @@ def validate_publication_plan(plan: PublicationPlan) -> tuple[InteropIssue, ...]
                     "The GPO has a disabled computer or user side, and the plan has no "
                     "step that sets the directory object's flags attribute; publishing "
                     "it as written would leave that side enabled (WI-070)."
+                ),
+                component="plan",
+            )
+        )
+
+    if any(step.operation == "unsupported_folder_redirection" for step in plan.steps):
+        issues.append(
+            InteropIssue(
+                level="error",
+                check="unsupported_folder_redirection",
+                message=(
+                    "The GPO carries an imported Folder Redirection policy "
+                    "(fdeploy1.ini) that Studio cannot write (WI-066); publishing the "
+                    "plan would create a GPO without the redirection."
                 ),
                 component="plan",
             )

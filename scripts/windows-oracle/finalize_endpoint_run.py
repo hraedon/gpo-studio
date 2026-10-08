@@ -153,7 +153,81 @@ def _find_one(run_dir: Path, name: str) -> Path | None:
 
 
 def _row_map(observe: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {row["name"]: row for row in observe.get("observed_tasks", [])}
+    rows = observe.get("observed_tasks")
+    if not isinstance(rows, list):
+        return {}
+    return {
+        row["name"]: row
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("name"), str)
+    }
+
+
+def _flag(record: dict[str, Any], key: str) -> bool | None:
+    """*record[key]* if it is a real bool, else None.
+
+    Every lane-validity field is read through this or an equivalent, so a
+    MISSING field is never the same as an observed ``false``. The guest
+    writes each of them explicitly; a record without one is truncated or
+    from another harness, and that is a lane failure, not a negative.
+    """
+    value = record.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _row_problems(observe: dict[str, Any], expected: dict[str, Any]) -> list[str]:
+    """Every candidate task must be observed exactly once, and answered.
+
+    The controls and findings read a handful of named rows; the rest of the
+    candidate is the experiment. A row the observation dropped would leave
+    its question silently unanswered while the controls still passed, so the
+    observed row set must be EXACTLY the candidate's task set, each row
+    carrying the candidate's own expectation and a real ``present`` bool.
+    """
+    problems: list[str] = []
+    tasks = expected.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return ["the candidate names no tasks; there is no experiment to grade"]
+    wanted: dict[str, dict[str, Any]] = {}
+    for task in tasks:
+        if not isinstance(task, dict) or not isinstance(task.get("name"), str):
+            return ["the candidate's task list has an entry with no name"]
+        if task["name"] in wanted:
+            return [f"the candidate names task {task['name']} twice"]
+        wanted[task["name"]] = task
+
+    rows = observe.get("observed_tasks")
+    if not isinstance(rows, list):
+        return ["the observation recorded no observed_tasks list"]
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("name"), str):
+            problems.append("an observed row has no name")
+            continue
+        name = row["name"]
+        if name in seen:
+            problems.append(f"task {name} was observed twice")
+            continue
+        seen.add(name)
+        task = wanted.get(name)
+        if task is None:
+            problems.append(f"observed task {name} is not in the candidate")
+            continue
+        if not isinstance(row.get("present"), bool):
+            problems.append(f"task {name} has no present/absent answer")
+        for key in ("expected_if_defects_real", "isolates"):
+            if row.get(key) != task.get(key):
+                problems.append(
+                    f"task {name} records {key}={row.get(key)!r}, but the candidate "
+                    f"says {task.get(key)!r}"
+                )
+    for name in wanted:
+        if name not in seen:
+            problems.append(
+                f"candidate task {name} was never observed, so the question it "
+                "isolates is unanswered"
+            )
+    return problems
 
 
 def _lane_validity(
@@ -171,6 +245,10 @@ def _lane_validity(
     # half unlinks would recreate every GPP Replace item. Only the post-teardown
     # verify phase can say the endpoint is durably clean, so its absence is a
     # lane failure rather than a missing nicety.
+    target_gpo = observe.get("target_gpo")
+    if not isinstance(target_gpo, str) or not target_gpo:
+        problems.append("the observation half recorded no target GPO")
+
     if verify is None:
         problems.append(
             "no post-teardown verification: the observation half's cleanup claim is "
@@ -178,51 +256,118 @@ def _lane_validity(
             "confirmed the endpoint is durably clean"
         )
     else:
-        if not verify.get("tasks_removed"):
-            residual = verify.get("residual_tasks") or []
-            problems.append(
-                "tasks survived teardown on the endpoint: "
-                f"{', '.join(residual) or 'unknown'}"
-            )
-        if verify.get("gpo_still_applied"):
-            problems.append("the GPO is still applied to the endpoint after teardown")
-        for error in verify.get("errors") or []:
-            problems.append(f"post-teardown verification: {error}")
+        problems.extend(_verify_problems(verify, target_gpo))
 
-    cleanup = author.get("cleanup") or {}
-    if not cleanup:
+    cleanup = author.get("cleanup")
+    if not isinstance(cleanup, dict) or not cleanup:
         problems.append("authoring half recorded no cleanup: it never reached teardown")
     else:
         for key in ("computer_restored", "gpo_removed", "ou_removed"):
-            if not cleanup.get(key):
+            flag = _flag(cleanup, key)
+            if flag is None:
+                problems.append(f"authoring cleanup did not record {key}")
+            elif not flag:
                 problems.append(f"authoring cleanup incomplete: {key} is false")
-        for error in cleanup.get("errors") or []:
-            problems.append(f"authoring cleanup error: {error}")
-
-    if not (observe.get("cleanup") or {}).get("tasks_removed"):
-        residual = (observe.get("cleanup") or {}).get("residual_tasks") or []
+        problems.extend(_error_list_problems(cleanup, "authoring cleanup"))
+    if _flag(author, "setup_completed") is not True:
+        problems.append("the authoring half did not record a completed setup")
+    if "error" not in author:
+        problems.append("the authoring half recorded no error field")
+    elif author["error"] is not None:
+        problems.append(f"authoring half reported: {author['error']}")
+    if author.get("target_gpo") != target_gpo:
         problems.append(
-            f"observation left scheduled tasks behind: {', '.join(residual) or 'unknown'}"
+            f"the authoring half's target GPO {author.get('target_gpo')!r} is not the "
+            f"one the observation half measured ({target_gpo!r})"
         )
 
-    if not observe.get("gpo_applied"):
+    observe_cleanup = observe.get("cleanup")
+    if not isinstance(observe_cleanup, dict):
+        problems.append("observation half recorded no cleanup")
+    else:
+        removed = _flag(observe_cleanup, "tasks_removed")
+        if removed is not True:
+            residual = observe_cleanup.get("residual_tasks") or []
+            problems.append(
+                "observation left scheduled tasks behind: "
+                f"{', '.join(map(str, residual)) or 'unknown'}"
+                if removed is False
+                else "observation cleanup did not record tasks_removed"
+            )
+        problems.extend(_error_list_problems(observe_cleanup, "observation cleanup"))
+
+    if _flag(observe, "gpo_applied") is not True:
         problems.append(
             "the client never reported the GPO applied; nothing was measured, "
             "and every absent task is unexplained rather than negative"
         )
-    if not observe.get("observation_settled"):
+    if _flag(observe, "observation_settled") is not True:
         problems.append(
             "the observation did not settle: the Scheduled Tasks CSE was not seen "
             "completing a pass after the GPO arrived, so an absent task cannot be "
             "distinguished from one the CSE has not created yet"
         )
-    if observe.get("error"):
+    if "error" not in observe:
+        problems.append("the observation half recorded no error field")
+    elif observe["error"] is not None:
         problems.append(f"observation half reported: {observe['error']}")
 
     if not harness_ok:
         problems.append("deployed harness does not match its committed source")
     if dirty:
         problems.append("source tree is dirty; certification evidence requires a clean tree")
+    return problems
+
+
+def _error_list_problems(record: dict[str, Any], label: str) -> list[str]:
+    """A record's ``errors`` must be a list that is present and empty."""
+    errors = record.get("errors")
+    if not isinstance(errors, list):
+        return [f"{label} recorded no errors list"]
+    return [f"{label} error: {error}" for error in errors]
+
+
+def _verify_problems(verify: dict[str, Any], target_gpo: object) -> list[str]:
+    """The post-teardown phase's durable-clean claim, field by field.
+
+    Every field is required. A missing ``gpo_still_applied`` is not "not
+    applied": the guest only measures it when it was told which GPO to look
+    for, so the record must also name the same target GPO the observation
+    measured, and the refresh that makes the claim durable must have run.
+    """
+    problems: list[str] = []
+    if verify.get("target_gpo") != target_gpo or not verify.get("target_gpo"):
+        problems.append(
+            f"post-teardown verification checked target GPO {verify.get('target_gpo')!r}, "
+            f"not the measured {target_gpo!r}; its still-applied answer is about "
+            "nothing"
+        )
+    exit_code = verify.get("gpupdate_exit_code")
+    if type(exit_code) is not int or exit_code != 0:
+        problems.append(
+            f"post-teardown policy refresh did not succeed (exit {exit_code!r}), so "
+            "its absence claim is not durable"
+        )
+    removed = _flag(verify, "tasks_removed")
+    residual = verify.get("residual_tasks")
+    if removed is None:
+        problems.append("post-teardown verification did not record tasks_removed")
+    elif not removed or residual:
+        problems.append(
+            "tasks survived teardown on the endpoint: "
+            f"{', '.join(map(str, residual or [])) or 'unknown'}"
+        )
+    if not isinstance(residual, list):
+        problems.append("post-teardown verification recorded no residual_tasks list")
+    applied = _flag(verify, "gpo_still_applied")
+    if applied is None:
+        problems.append(
+            "post-teardown verification did not record gpo_still_applied, so nothing "
+            "shows the removed policy stopped applying"
+        )
+    elif applied:
+        problems.append("the GPO is still applied to the endpoint after teardown")
+    problems.extend(_error_list_problems(verify, "post-teardown verification"))
     return problems
 
 
@@ -261,7 +406,9 @@ def _control_problems(rows: dict[str, dict[str, Any]], expected: dict[str, Any])
         )
 
     native_excluding = rows.get(CONTROL_NATIVE_EXCLUDING)
-    if native_excluding is not None and native_excluding["present"]:
+    if native_excluding is None:
+        problems.append(f"control row {CONTROL_NATIVE_EXCLUDING} was not observed")
+    elif native_excluding["present"]:
         problems.append(
             f"{CONTROL_NATIVE_EXCLUDING} is PRESENT: a hand-written native excluding "
             "filter was not honoured, so filter evaluation itself is not working and "
@@ -380,6 +527,40 @@ def _findings(rows: dict[str, dict[str, Any]], expected: dict[str, Any]) -> list
     return findings
 
 
+def _grade(
+    author: dict[str, Any],
+    observe: dict[str, Any],
+    verify: dict[str, Any] | None,
+    expected: dict[str, Any],
+    harness_ok: bool,
+    dirty: bool,
+) -> tuple[str, list[str], list[str], list[dict[str, Any]]]:
+    """The verdict's three layers, exactly as `main` records them.
+
+    Returns (state, lane_problems, control_problems, findings).
+    """
+    rows = _row_map(observe)
+    lane_problems = _lane_validity(author, observe, verify, harness_ok, dirty)
+    lane_problems += _client_environment_problems(observe)
+    lane_problems += _row_problems(observe, expected)
+    control_problems = _control_problems(rows, expected) if not lane_problems else []
+    findings = _findings(rows, expected) if not (lane_problems or control_problems) else []
+    # A finding the rows could not answer is a question the run did not settle.
+    # With the row set complete this cannot happen for the current candidate,
+    # but a candidate that dropped a task a finding reads would otherwise pass
+    # with that question recorded as None.
+    for finding in findings:
+        if finding["answer"] is None:
+            lane_problems.append(f"finding {finding['id']} is unanswered by the observed rows")
+    if lane_problems:
+        state = "lane-failure"
+    elif control_problems:
+        state = "inconclusive"
+    else:
+        state = "pass"
+    return state, lane_problems, control_problems, findings
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_dir", type=Path)
@@ -455,31 +636,25 @@ def main(argv: list[str] | None = None) -> int:
         ).stdout
     )
 
-    rows = _row_map(observe)
-    lane_problems = _lane_validity(author, observe, verify, harness_ok, dirty)
-    lane_problems += _client_environment_problems(observe)
-    control_problems = _control_problems(rows, expected) if not lane_problems else []
-    findings = _findings(rows, expected) if not (lane_problems or control_problems) else []
-
-    if lane_problems:
-        state = "lane-failure"
-    elif control_problems:
-        state = "inconclusive"
-    else:
-        state = "pass"
+    state, lane_problems, control_problems, findings = _grade(
+        author, observe, verify, expected, harness_ok, dirty
+    )
+    observed_rows = [
+        row for row in (observe.get("observed_tasks") or []) if isinstance(row, dict)
+    ]
 
     # A row set that disagrees with its own expectations is a finding, not a
     # lane failure: that is what the lane is for. It is recorded so a reviewer
     # sees at a glance which rows moved.
     unexpected = [
         {
-            "name": row["name"],
-            "expected": row["expected_if_defects_real"],
-            "observed": "present" if row["present"] else "absent",
-            "isolates": row["isolates"],
+            "name": row.get("name"),
+            "expected": row.get("expected_if_defects_real"),
+            "observed": "present" if row.get("present") else "absent",
+            "isolates": row.get("isolates"),
         }
-        for row in observe.get("observed_tasks", [])
-        if (row["expected_if_defects_real"] == "present") != bool(row["present"])
+        for row in observed_rows
+        if (row.get("expected_if_defects_real") == "present") != bool(row.get("present"))
     ]
 
     verdict = {
@@ -511,7 +686,7 @@ def main(argv: list[str] | None = None) -> int:
         "lane_problems": lane_problems,
         "control_problems": control_problems,
         "findings": findings,
-        "rows": observe.get("observed_tasks", []),
+        "rows": observe.get("observed_tasks"),
         "unexpected_rows": unexpected,
         "harness_matches_source": harness_ok,
         "source": {
@@ -555,11 +730,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"LANE FAILURE  {problem}")
     for problem in control_problems:
         print(f"INCONCLUSIVE  {problem}")
-    for row in observe.get("observed_tasks", []):
-        mark = "present" if row["present"] else "absent "
-        matched = (row["expected_if_defects_real"] == "present") == bool(row["present"])
+    for row in observed_rows:
+        mark = "present" if row.get("present") else "absent "
+        matched = (row.get("expected_if_defects_real") == "present") == bool(row.get("present"))
         agree = "  " if matched else "!!"
-        print(f"{agree} {mark}  {row['name']:34s} {row['isolates']}")
+        print(f"{agree} {mark}  {row.get('name')!s:34s} {row.get('isolates')}")
     for finding in findings:
         print(f"FINDING {finding['id']}: {finding['answer']}")
     print(f"\nrun {observe.get('run_id')}: state={state} (source {commit}, dirty={dirty})")
