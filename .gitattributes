@@ -15,8 +15,12 @@ docs/plan-033/**/*.md   -text
 tests/fixtures/native-gpp-gpmc/** -text
 # Older Scripts captures are UTF-8 transcripts, stored as LF in Git.
 tests/fixtures/native-scripts-gpmc/*.txt text eol=lf
-scripts/plan-033/build-*.py -text
-scripts/windows-oracle/**   -text
+# WI-063: `-text` pinned whatever bytes were committed, so a Windows-side CRLF
+# edit committed cleanly and broke every runner. `text eol=lf` pins LF and makes
+# such an edit visible to `assert_bound_source_bytes` as worktree/HEAD drift.
+scripts/plan-033/build-*.py text eol=lf
+scripts/plan-033/*.sh       text eol=lf
+scripts/windows-oracle/**   text eol=lf
 src/gpo_studio/policy_families.py text eol=lf
 src/gpo_studio/security_template.py text eol=lf
 src/gpo_studio/object_security.py text eol=lf
@@ -62,3 +66,10 @@ docs/plan-033/wp1b-evidence/backup-report-20260908/** -text -whitespace
 # XML); the batch manifest's SHA-256s cover those bytes.
 docs/plan-033/*-evidence/wi062-20260910/** -text -whitespace
 docs/plan-033/wi062-cleanup/** -text -whitespace
+
+# Plan 034 requalification batch (263f196, plus the object-security re-run at
+# 1fb3f56): manifest-form packs with exact native artifacts (CRLF logs and
+# XML); the batch manifest's SHA-256s cover those bytes.
+docs/plan-033/*-evidence/plan034-20261008/** -text -whitespace
+docs/plan-033/*-evidence/plan034-rerun-20261008/** -text -whitespace
+docs/plan-033/plan034-cleanup/** -text -whitespace

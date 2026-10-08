@@ -16,15 +16,14 @@ CRLF blob, clean status, passing check, changed bytes. `.gitattributes` chose
 `-text` to stop a Windows checkout smudging LF into CRLF; it also stops the
 reverse, which is the half that was doing the guarding.
 
-The sixteen files cannot simply be renormalized here, because the WI-062 batch
-binds their digests: fixing them invalidates 19 of the 21 banked verdicts and
-costs an estate requalification. So this module pins the damage instead. The
-exemption list is the debt, written down where a seventeenth file cannot join
-it silently, and `test_no_exempt_file_was_quietly_fixed` is the control that
-stops the list from outliving the problem -- the same shape as
-`ORPHANED_VERDICT_COMMITS` and `PENDING_REQUALIFICATION` in
-`test_committed_evidence.py`, and for the same reason: an exemption with no
-expiry is just a permission.
+The sixteen files could not be renormalized while the WI-062 batch bound their
+digests. The Plan 034 requalification batch renormalized them, which expires
+every verdict that bound the CRLF bytes; those verdicts are re-earned only when
+the batch's lanes run on the estate, and until then they are pending
+requalification. The exemption list this module used to carry is gone with the
+CRLF bytes. What remains is the rule itself and the declaration that enforces it:
+`test_controller_trees_are_declared_lf` fails if `.gitattributes` goes back to
+`-text` for these trees, which is the change that let WI-063 commit cleanly.
 """
 
 from __future__ import annotations
@@ -39,32 +38,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ORACLE_DIR = REPO_ROOT / "scripts" / "windows-oracle"
 PLAN_033_DIR = REPO_ROOT / "scripts" / "plan-033"
-
-#: Controller-side source committed with CRLF by `f5cad577`, hash-bound by the
-#: WI-062 batch, and therefore not renormalizable until the estate re-runs.
-#: Every entry closes with WI-063. Nothing else may be added: a new CRLF file
-#: is a new defect, not a new row here.
-CRLF_PENDING_RENORMALIZATION = frozenset(
-    {
-        "finalize_endpoint_run.py",
-        "finalize_object_security_run.py",
-        "finalize_publication_run.py",
-        "finalize_rsop_run.py",
-        "finalize_rsop_user_run.py",
-        "finalize_scripts_backup_run.py",
-        "finalize_wp2_import_run.py",
-        "finalize_wp3_run.py",
-        "run-endpoint-oracle.sh",
-        "run-object-security-oracle.sh",
-        "run-publication-oracle.sh",
-        "run-rsop-oracle.sh",
-        "run-rsop-user-oracle.sh",
-        "run-scripts-backup-oracle.sh",
-        "run-wp2-oracle.sh",
-        "run-wp3-oracle.sh",
-    }
-)
-
 
 @functools.cache
 def _bash_can_check_a_file() -> bool:
@@ -102,14 +75,14 @@ def _controller_sources() -> list[Path]:
     return sorted(
         [path for path in ORACLE_DIR.iterdir() if path.is_file()]
         + sorted(PLAN_033_DIR.glob("build-*.py"))
+        + sorted(PLAN_033_DIR.glob("*.sh"))
     )
 
 
 @pytest.mark.parametrize(
     "runner",
     sorted(
-        path for path in ORACLE_DIR.glob("run-*-oracle.sh")
-        if path.name not in CRLF_PENDING_RENORMALIZATION
+        ORACLE_DIR.glob("run-*-oracle.sh")
     ),
     ids=lambda path: path.name,
 )
@@ -144,44 +117,41 @@ def test_no_new_controller_source_carries_crlf() -> None:
     offenders = sorted(
         path.name
         for path in _controller_sources()
-        if path.name not in CRLF_PENDING_RENORMALIZATION
-        and b"\r\n" in path.read_bytes()
+        if b"\r\n" in path.read_bytes()
     )
     assert not offenders, (
-        f"These controller-side sources carry CRLF: {offenders}. They are "
-        "declared `-text` in .gitattributes, so git will neither normalize "
-        "them nor report drift -- the bytes commit exactly as an editor left "
-        "them (WI-063). Convert to LF before committing; do not add them to "
-        "CRLF_PENDING_RENORMALIZATION, which records a debt that already "
-        "exists rather than licensing a new one."
+        f"These controller-side sources carry CRLF: {offenders}. The trees are "
+        "declared `text eol=lf`, so this means the bytes were committed from a "
+        "checkout that bypassed normalization (WI-063). Convert to LF before "
+        "committing."
     )
 
 
-def test_no_exempt_file_was_quietly_fixed() -> None:
-    """The control: the list must expire, and only through a requalification.
+def test_controller_trees_are_declared_lf() -> None:
+    """The declaration that keeps WI-063 from recurring.
 
-    Renormalizing one of these changes a digest that 19 banked verdicts bind,
-    so a fix that lands without re-running the lane leaves the evidence
-    claiming a harness that no longer ships. Failing here is the reminder that
-    the two have to move together.
+    Under `-text`, a CRLF working tree and a CRLF blob agree, so
+    `assert_bound_source_bytes` sees no drift and the broken bytes commit.
+    Under `text eol=lf` the same edit shows up as a worktree/HEAD mismatch
+    and the finalizer refuses it.
     """
-    stale = sorted(
-        name
-        for name in CRLF_PENDING_RENORMALIZATION
-        if b"\r\n" not in (ORACLE_DIR / name).read_bytes()
+    paths = [str(path.relative_to(REPO_ROOT)) for path in _controller_sources()]
+    result = subprocess.run(
+        ["git", "check-attr", "text", "eol", "--", *paths],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
-    assert not stale, (
-        f"These files are no longer CRLF: {stale}. Their digests are bound by "
-        "the WI-062 batch, so the lanes must be re-run and their verdicts "
-        "re-banked before the entries come off this list -- see WI-063. If the "
-        "requalification has happened, drop the entries and the "
-        "`scripts/windows-oracle/** -text` rule together."
+    attributes: dict[str, dict[str, str]] = {}
+    for line in result.stdout.splitlines():
+        path, name, value = (part.strip() for part in line.split(":", 2))
+        attributes.setdefault(path, {})[name] = value
+    wrong = sorted(
+        path
+        for path, values in attributes.items()
+        if values.get("text") != "set" or values.get("eol") != "lf"
     )
-
-
-def test_the_exemption_list_names_files_that_exist() -> None:
-    """A list that has drifted off its files guards nothing and says nothing."""
-    missing = sorted(
-        name for name in CRLF_PENDING_RENORMALIZATION if not (ORACLE_DIR / name).is_file()
+    assert not wrong, (
+        f"These controller-side sources are not declared `text eol=lf`: {wrong}"
     )
-    assert not missing, f"CRLF_PENDING_RENORMALIZATION names absent files: {missing}"

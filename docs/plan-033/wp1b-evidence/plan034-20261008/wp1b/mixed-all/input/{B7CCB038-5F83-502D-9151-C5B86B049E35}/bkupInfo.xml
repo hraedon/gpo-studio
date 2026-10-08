@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<BackupInst xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"><GPOGuid>{9B1DE5C0-0000-4000-8000-000000000006}</GPOGuid><GPODomain>synthetic.test</GPODomain><GPODomainGuid>{5e65c07d-ec3e-55c4-a879-00d5e30243fb}</GPODomainGuid><GPODomainController>UNKNOWN</GPODomainController><BackupTime>1980-01-01T00:00:00</BackupTime><ID>{B7CCB038-5F83-502D-9151-C5B86B049E35}</ID><Comment /><GPODisplayName>GPOStudio WP1B mixed-all</GPODisplayName></BackupInst>

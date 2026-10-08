@@ -9,6 +9,77 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Banked the Plan 034 requalification batch
+  ([batch note](docs/plan-033/plan034-batch.md)). All 22 lanes passed on frozen
+  commit `263f196`, driven by `scripts/plan-033/run-requal-batch.sh`, on an
+  estate running at real time: WP-0 plus 21 schema-version-2 lane verdicts,
+  including the computer group-deny lane, which last passed in the WI-059
+  batch. `8b1a5b4` changed `object_security.py` after the freeze (a
+  `[Group Membership]` principal is starred only when it is a SID), so the
+  object-security lane was re-run at `1fb3f56`
+  (`object-security-20261008082348-9729`, 20/20), and that successor is the
+  live verdict. The 20 WI-062 verdicts, the pending WI-059 group-deny verdict
+  and the batch's own superseded object-security verdict are retired, with
+  their packs and tags unchanged. `PENDING_REQUALIFICATION` is empty.
+  `tests/test_plan034_batch.py` pins the manifest, every banked hash, the
+  digests at each commit, the live set, the cleanup capture, and regrades of
+  the RSoP, endpoint and WP-1B records by today's finalizers.
+  `environment-spec.md`, `platforms.json`, the capability matrix and the
+  bound-source cost table now cite these runs.
+  - Closed WI-063 (the LF-renormalized runners are re-earned), WI-064 (Windows
+    re-exported the star-SID `[Group Membership]` rows that
+    `RestrictedGroupsFamily` builds, including the predicted `__Memberof`),
+    WI-065, WI-068, WI-069 and WI-070. WI-069 closed because the lane was
+    unblocked by re-baselining at real time. The mechanism of the old DNS
+    deletion was never identified.
+  - Restricted groups are lane-certified but still not surfaced. The
+    object-security endpoint's `restricted_groups_not_surfaced` message
+    predates the certifying run.
+
+- Requalification batch: retired the PowerShell publication script and the
+  modules the 2026-10-07 operator ruling puts out of scope. The affected lanes
+  (publication completeness and Scripts metadata) are **awaiting
+  requalification**: their verdicts bind the pre-batch bytes of
+  `publication.py`, `script_policy.py` and `export.py` until the estate re-runs
+  them. No row moves to `yes`.
+  - `publication.py` no longer generates a script. `generate_publication_script`,
+    `PowerShellPublicationScript`, the empty `_WINDOWS_VERIFIED_OPERATIONS`
+    allowlist and their helpers are deleted, with their tests. The script
+    copied files straight into SYSVOL, which `docs/live-publication.md` forbids.
+    Publication goes through the native GPMC backup and `Import-GPO` plus
+    `apply.ps1`. The planner, `validate_publication_plan`,
+    `planned_sysvol_paths` and `payload_digest` are unchanged apart from the
+    two items below.
+  - The publication planner now refuses a GPO with a disabled computer or user
+    side (`unsupported_side_status`). It had no step for the directory
+    object's `flags` attribute, which `apply.ps1` sets through `GpoStatus`, so a
+    plan executed as written would have published the side enabled (WI-070).
+  - Deleted the pre-R2 `serialize_script_policy_ini` / `parse_script_policy_ini`
+    from `script_policy.py`. They wrote an INI shape no Windows capture
+    contains; the certified writer is `gpmc_backup_bundle(gpo, scripts=...)`.
+    `preview_script_policy` is kept; nothing in the product calls it.
+  - Deleted `artifact_store.py` and its tests. Delivering script or executable
+    payloads is out of scope for 1.x. `validate_publication_plan` lost its
+    optional `store=` cross-check and `preview_script_policy` its optional
+    `artifact_store=` argument.
+  - The native backup's script refusals no longer say "Use the Studio
+    publication bundle instead". That bundle carries no scripts at all; the
+    message now says the GPMC backup with scripts is the only export that
+    carries them, in the measured shape only, and names the change that makes
+    the policy exportable.
+  - Proposed, not built: extending the Scripts metadata lane to a user-side
+    logon script and a computer-side shutdown script (WI-071). The user-side
+    Scripts extension pair Studio writes has never been measured, and the
+    round trip cannot detect a wrong one.
+- Imported backups now carry their Folder Redirection file (WI-068).
+  `read_backup` parses `User/Documents & Settings/fdeploy1.ini` onto
+  `GPO.fdeploy`. The policy report renders it, and the GPO diffs compare it by
+  folder and principal, including in the browser's three-way comparison. It is
+  import provenance: it is in the review digest and not in the policy-semantic
+  digest. GPMC backup export refuses a GPO carrying it, because Studio has no
+  writer for the file (WI-066). The edit touches `model.py`, `canonical.py` and
+  `export.py`, so WI-068 stays open until the publication and scripts-metadata
+  lanes re-run in the estate requalification batch.
 - Acted on the 2026-10-07 Plan 034 completion rulings
   ([the rulings](docs/direction-2026-10-07-plan-034-completion.md)) for the
   modules no lane binds, so no evidence expires:

@@ -1,23 +1,24 @@
 # Plan 026 — Scripts and managed-artifact policies
 
-Status: implemented (domain layer) — **not surfaced**. `script_policy.py` and
-`artifact_store.py` are reachable from no API endpoint, UI module, or export
-path. Updated 2026-10-07:
+Status: implemented (domain layer) — **not surfaced**. `script_policy.py` is
+reachable from no API endpoint, UI module, or export path. Updated 2026-10-07:
 
-- `script_policy.py` is **lane-backed and unsurfaced**. The Scripts metadata
-  lane passed on a clean member server (live pack, 20/20 checks:
-  `scripts-r10-20260905191308-8174` from the WI-062 batch; the earlier
+- `script_policy.py` is **lane-backed and unsurfaced**. The certified
+  `scripts.ini` / `psscripts.ini` writer is `gpmc_backup_bundle(gpo, scripts=...)`
+  in `export.py`, which the Scripts metadata lane measures. That lane passed on a
+  clean member server (live pack, 20/20 checks:
+  `scripts-r10-20261008074828-8492` from the
+  [Plan 034 batch](../docs/plan-033/plan034-batch.md), 2026-10-08; the WI-062
+  batch's `scripts-r10-20260905191308-8174` and the earlier
   `scripts-r10-20260908013518-2476`, see
-  [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md), is
-  retired history). Its runner is one of the eight WI-063 left unparseable,
-  so the lane is re-runnable again only after the requalification batch. Payload execution
-  and endpoint processing are not measured. By the 2026-10-07 ruling the stale
-  pre-R2 `scripts.ini` writer and parser are deleted in the requalification
-  batch, and its exit is this lane plus a Scripts export surface.
-- `artifact_store.py` is **to be deleted** in the requalification batch:
-  delivering script or executable payloads is out of scope for 1.x. It is
-  decoupled from `publication.py` and `script_policy.py` there first, because
-  live verdicts bind both.
+  [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md), are
+  retired history). That batch also deleted the stale pre-R2 `scripts.ini`
+  writer and parser.
+  Payload execution and endpoint processing are not measured. Its exit is this
+  lane plus a Scripts export surface.
+- `artifact_store.py` (WP-1) was **deleted** in the requalification batch:
+  delivering script or executable payloads is out of scope for 1.x, and so is
+  WP-4's typed executable publication.
 
 See [the rulings](../docs/direction-2026-10-07-plan-034-completion.md).
 

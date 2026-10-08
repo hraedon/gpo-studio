@@ -59,6 +59,7 @@ paths and raw flags.
 The panel calls `POST /api/folder-redirection/fdeploy` to inspect each file and
 `POST /api/folder-redirection/fdeploy/diff` to compare them. The reader is
 tested against one native Windows capture, and no repeatable Windows lane backs
-it. The panel does not add to that evidence. Integration with imported GPO
-reports and workspace diffs is still open as WI-068; see the
+it. The panel does not add to that evidence. Imported backups now carry the
+parsed file on the GPO, and its policy report and GPO diffs render it (WI-068,
+open until the affected lanes re-run); see the
 [read-target decision](scope-decision-2026-09-11-folder-redirection.md).

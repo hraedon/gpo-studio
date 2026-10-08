@@ -91,6 +91,31 @@ LOCAL_FILES: dict[str, str] = {
 }
 
 
+def _required_list(
+    record: dict[str, Any], key: str, label: str, problems: list[str]
+) -> list[Any]:
+    """*record[key]* if it is a list; otherwise record a lane problem.
+
+    The guest writes every one of these fields, empty when there is nothing to
+    report. ``record.get(key) or []`` read a MISSING field as "nothing to
+    report", so a truncated record -- or one from a harness that never
+    collected the field -- passed the very check the field exists for.
+    """
+    value = record.get(key)
+    if not isinstance(value, list):
+        problems.append(f"{label} did not record {key}")
+        return []
+    return value
+
+
+def _required_null_error(record: dict[str, Any], label: str, problems: list[str]) -> None:
+    """The record's ``error`` field must be present and null."""
+    if "error" not in record:
+        problems.append(f"{label} recorded no error field")
+    elif record["error"] is not None:
+        problems.append(f"{label} threw: {record['error']}")
+
+
 def _lane_validity(
     author: dict[str, Any],
     cleanup: dict[str, Any] | None,
@@ -111,31 +136,47 @@ def _lane_validity(
         # original container resolved policy for a principal the prediction is
         # not about, and every winner would legitimately differ.
         problems.append("the principal's user account was never moved into its target OU")
-    for problem in author.get("authored_problems") or []:
+    _required_null_error(author, "authoring half", problems)
+    for problem in _required_list(author, "authored_problems", "authoring half", problems):
         problems.append(f"authored topology does not match intent: {problem}")
 
     if cleanup is None:
         problems.append("authoring half recorded no cleanup: it never reached teardown")
     else:
-        for problem in cleanup.get("cleanup_problems") or []:
+        for problem in _required_list(
+            cleanup, "cleanup_problems", "authoring cleanup", problems
+        ):
             problems.append(f"authoring cleanup: {problem}")
-        residual = cleanup.get("residual") or {}
-        if not residual.get("computer_restored"):
+        residual = cleanup.get("residual")
+        if not isinstance(residual, dict):
+            problems.append("authoring cleanup recorded no residual re-query")
+            residual = {}
+        if residual.get("computer_restored") is not True:
             problems.append(
                 "the endpoint's computer account was not restored to its original OU"
             )
         # None means the run never moved a user, which the check above has
         # already reported; False means it moved one and did not put it back.
-        if residual.get("user_restored") is False:
+        # The user lane always moves its principal (checked above), so the
+        # re-query must say it is back: a missing or null answer is not "back".
+        if author.get("user_moved") and residual.get("user_restored") is not True:
             problems.append("the principal's user account was not restored to its original OU")
-        for link in residual.get("surviving_links") or []:
+        for link in _required_list(residual, "surviving_links", "cleanup residual", problems):
             problems.append(f"link survived teardown: {link}")
-        for gpo in residual.get("surviving_gpos") or []:
+        for gpo in _required_list(residual, "surviving_gpos", "cleanup residual", problems):
             problems.append(f"GPO survived teardown: {gpo}")
-        for ou in residual.get("surviving_ous") or []:
+        for ou in _required_list(residual, "surviving_ous", "cleanup residual", problems):
             problems.append(f"OU survived teardown: {ou}")
+        for wmi in _required_list(
+            residual, "surviving_wmi_filters", "cleanup residual", problems
+        ):
+            problems.append(f"WMI filter survived teardown: {wmi}")
+        if "surviving_group" not in residual:
+            problems.append("cleanup residual did not record surviving_group")
+        elif residual["surviving_group"] is not None:
+            problems.append(f"group survived teardown: {residual['surviving_group']}")
 
-    for problem in observe.get("lane_problems") or []:
+    for problem in _required_list(observe, "lane_problems", "observation half", problems):
         problems.append(f"observation: {problem}")
     if topology_delivered_intact is False:
         problems.append(
@@ -147,8 +188,7 @@ def _lane_validity(
             "the authoring half returned no copy of the topology it used, so nothing "
             "binds the prediction to the experiment that ran"
         )
-    if observe.get("error"):
-        problems.append(f"observation half threw: {observe['error']}")
+    _required_null_error(observe, "observation half", problems)
     if not observe.get("session_present"):
         # Without an interactive session there is no user hive and no RSoP data,
         # so every expected value reads as absent: a clean sweep of findings
@@ -169,7 +209,7 @@ def _lane_validity(
             "be distinguished from one that has not been written yet"
         )
 
-    residual_values = observe.get("pre_run_residual") or []
+    residual_values = _required_list(observe, "pre_run_residual", "observation half", problems)
     if residual_values:
         names = ", ".join(str(row.get("value_name")) for row in residual_values)
         problems.append(

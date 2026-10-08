@@ -31,6 +31,13 @@ product module except `fdeploy.py` emits fdeploy bytes stays, and now also
 covers `format_fdeploy`. The rest of this decision is unchanged: Folder
 Redirection is a read target, and the writer is deferred behind R12 (WI-066).
 
+**Delivery update, 2026-10-07:** WI-068 is implemented in the estate
+requalification batch: an imported backup carries the parse on `GPO.fdeploy`,
+and the policy report and GPO diffs render it. The "not an import path" bullet
+below describes the state before that. The item stays open until the
+publication and scripts-metadata lanes re-run. Nothing writes the file: GPMC
+backup export refuses a GPO that carries one.
+
 This records a decision, not an argument for one. The argument is
 [`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md),
 which assembled everything a ruling needed and stopped there, as

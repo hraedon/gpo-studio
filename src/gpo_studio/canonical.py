@@ -361,6 +361,13 @@ def review_model_dict(gpo: GPO) -> dict[str, Any]:
     # Preserve existing digests for GPOs without native import provenance.
     if gpo.backup_inventory is not None:
         result["backup_inventory"] = asdict(gpo.backup_inventory)
+    # WI-068: the imported fdeploy1.ini is import provenance too -- review
+    # digest only, never the policy-semantic one, and absent when there is none
+    # so every other GPO keeps its digest. Only the text is folded: it is the
+    # file losslessly, and the parsed views are derived from it, so folding them
+    # would move digests on a parser change that altered nothing imported.
+    if gpo.fdeploy is not None:
+        result["fdeploy"] = {"raw_text": gpo.fdeploy.raw_text}
     return result
 
 

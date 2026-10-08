@@ -8,11 +8,13 @@ to AD or SYSVOL is unchanged by this plan's landing. Updated 2026-10-07:
 
 - `publication.py` is **lane-backed and unsurfaced**. The publication-
   completeness lane passes 21/21 on LabMS01
-  ([results](../docs/plan-033/publication-completeness-results.md)); it
-  measures the plan, not a publication. By the
+  ([results](../docs/plan-033/publication-completeness-results.md); current
+  verdict `publication-completeness-20261008074904-1047` from the
+  [Plan 034 batch](../docs/plan-033/plan034-batch.md)); it measures the plan,
+  not a publication. By the
   [2026-10-07 ruling](../docs/direction-2026-10-07-plan-034-completion.md) the
-  PowerShell script branch (`generate_publication_script` and its helpers) is
-  retired in the requalification batch, because it copies files straight into
+  PowerShell script branch (`generate_publication_script` and its helpers) was
+  deleted in the requalification batch, because it copied files straight into
   SYSVOL, which [`live-publication.md`](../docs/live-publication.md) forbids.
   Its exit is that lane plus a read-only publication-plan surface, which Plan
   034 may build now rather than waiting for Plan 033 WP-7.

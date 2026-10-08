@@ -778,6 +778,20 @@ def test_evaluate_publication_denied() -> None:
     assert any(g.gate_id == "capability_gate" for g in decision.blocking_gates)
 
 
+def test_a_disabled_side_plan_is_blocked_even_with_every_capability() -> None:
+    """WI-070: the side-status refusal must not be publishable by a grant.
+
+    The refusal operation is deliberately unmapped, so the capability gate
+    fails, and the interop gate fails on the validation error. A profile that
+    holds every capability changes neither.
+    """
+    plan = generate_publication_plan(replace(_gpo_with_registry(), user_enabled=False))
+    decision = evaluate_publication(plan, _full_profile(), actor="alice")
+    assert decision.approved is False
+    blocking = {g.gate_id for g in decision.blocking_gates}
+    assert {"capability_gate", "interop_gate"} <= blocking
+
+
 # ---------------------------------------------------------------------------
 # PublicationAuditTrail
 # ---------------------------------------------------------------------------

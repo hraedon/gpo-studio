@@ -263,3 +263,60 @@ def test_candidate_rejects_duplicate_zip_members(tmp_path: Path) -> None:
             archive.writestr("manifest.xml", payload)
     with pytest.raises(ValueError, match="repeats an archive member"):
         _candidate_projection(candidate)
+
+
+
+# ---------------------------------------------------------------------------
+# Ownership cannot be satisfied by empty identities (sweep, 2026-10-08)
+# ---------------------------------------------------------------------------
+
+_OWNED = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+
+def _identity(**overrides: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    rebackup: dict[str, Any] = {
+        "gpo_id": "{" + _OWNED.upper() + "}",
+        "display_name": "target",
+        "domain": "example.test",
+    }
+    result: dict[str, Any] = {
+        "owned_gpo_id": _OWNED,
+        "target_name": "target",
+        "domain": "EXAMPLE.TEST",
+    }
+    for key, value in overrides.items():
+        side, field = key.split("__")
+        (rebackup if side == "rebackup" else result)[field] = value
+    return rebackup, result
+
+
+def test_the_rebackup_identity_matches_the_owned_target() -> None:
+    assert _FINALIZER["_rebackup_identity_matches"](*_identity()) is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        # The vacuous shapes: every one compared equal before the sweep.
+        {"result__owned_gpo_id": "", "rebackup__gpo_id": ""},
+        {"result__owned_gpo_id": None, "rebackup__gpo_id": None},
+        {"result__domain": None, "rebackup__domain": None},
+        {"result__target_name": None, "rebackup__display_name": None},
+        {"result__target_name": "", "rebackup__display_name": ""},
+        # And the ordinary mismatches.
+        {"rebackup__gpo_id": "{11111111-2222-3333-4444-555555555555}"},
+        {"result__owned_gpo_id": "not-a-guid"},
+        {"rebackup__display_name": "other"},
+        {"rebackup__domain": "other.test"},
+    ],
+)
+def test_empty_or_mismatched_identities_fail_ownership(overrides: dict[str, Any]) -> None:
+    assert _FINALIZER["_rebackup_identity_matches"](*_identity(**overrides)) is False
+
+
+def test_the_schema_check_requires_a_guid_owned_id() -> None:
+    source = (_ROOT / "scripts/windows-oracle/finalize_scripts_backup_run.py").read_text(
+        encoding="utf-8"
+    )
+    schema = source.split('"result_schema_exact":', 1)[1].split('"import_succeeded"', 1)[0]
+    assert '_guid(result.get("owned_gpo_id")) is not None' in schema

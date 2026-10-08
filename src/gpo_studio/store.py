@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
+from .fdeploy import FdeployDocument, fdeploy_from_dict
 from .gpp import (
     GppCollection,
     GppGroup,
@@ -44,8 +45,8 @@ from .model import (
 from .snapshot_documents import (
     RetainedDocument,
     SnapshotDocumentError,
-    apply_documents,
-    extract_documents,
+    apply_snapshot_documents,
+    extract_snapshot_documents,
     snapshot_digests,
 )
 from .validation import (
@@ -263,6 +264,10 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         backup_inventory=(
             inventory_from_dict(data["backup_inventory"])
             if data.get("backup_inventory") is not None else None
+        ),
+        fdeploy=(
+            fdeploy_from_dict(data["fdeploy"])
+            if data.get("fdeploy") is not None else None
         ),
         security_filters=tuple(
             _security_filter(item) for item in data.get("security_filters", [])
@@ -547,15 +552,17 @@ class WorkspaceStore:
                 self._map_sqlite_error(error)
 
     def _encode_snapshot_payload(self, gpo: GPO) -> tuple[str, list[RetainedDocument]]:
-        """Serialize a snapshot with its retained native XML moved to references.
+        """Serialize a snapshot with its retained documents moved to references.
 
-        WI-061. The returned documents must be filed with
+        WI-061 moved the retained native XML; the parsed ``fdeploy`` document
+        follows it, reduced to its native bytes, so N revisions of one import
+        hold one copy of each. The returned documents must be filed with
         :meth:`_store_documents` inside the same transaction that writes the
         snapshot rows, or the payload's digests would reference nothing.
         """
         data = gpo.to_dict()
         try:
-            documents = extract_documents(data)
+            documents = extract_snapshot_documents(data)
         except SnapshotDocumentError as error:
             raise WorkspaceError(str(error)) from error
         return json.dumps(data, separators=(",", ":"), sort_keys=True), documents
@@ -594,7 +601,7 @@ class WorkspaceStore:
             return None if row is None else str(row["content_base64"])
 
         try:
-            apply_documents(data, lookup)
+            apply_snapshot_documents(data, lookup)
         except SnapshotDocumentError as error:
             self._degraded = True
             raise WorkspaceError(str(error)) from error
@@ -637,6 +644,7 @@ class WorkspaceStore:
         source_guid: str = "",
         cse_metadata: tuple[CseMetadataEntry, ...] = (),
         backup_inventory: BackupInventory | None = None,
+        fdeploy: FdeployDocument | None = None,
         domain: str = "studio.local",
         computer_enabled: bool = True,
         user_enabled: bool = True,
@@ -662,6 +670,7 @@ class WorkspaceStore:
             source_guid=source_guid,
             cse_metadata=cse_metadata,
             backup_inventory=backup_inventory,
+            fdeploy=fdeploy,
             domain=domain,
             is_starter=is_starter,
             template_version=template_version,
@@ -940,6 +949,7 @@ class WorkspaceStore:
             source_guid=source.guid,
             cse_metadata=source.cse_metadata,
             backup_inventory=source.backup_inventory,
+            fdeploy=source.fdeploy,
             domain=source.domain,
             computer_enabled=source.computer_enabled,
             user_enabled=source.user_enabled,

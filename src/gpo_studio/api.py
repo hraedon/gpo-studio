@@ -136,7 +136,6 @@ from .object_security import (
     ServiceSecurity,
     StartupMode,
     SystemServicesFamily,
-    _try_parse_sddl,
 )
 from .policy_config import (
     PolicyConfiguration,
@@ -163,7 +162,7 @@ from .rsop import (
     compare_rsop_results,
     compute_rsop,
 )
-from .sddl import SddlError, SecurityDescriptor, parse_sddl
+from .sddl import SddlError, parse_sddl
 from .security_template import (
     InfSection,
     PrivilegeRight,
@@ -1764,6 +1763,9 @@ def _gpo_list_item(gpo: Any) -> dict[str, Any]:
     """
     item = _gpo_to_api_dict(gpo)
     item["has_backup_inventory"] = item.pop("backup_inventory", None) is not None
+    # Same reasoning for the parsed `fdeploy1.ini` (WI-068): its text and its
+    # verbatim section lines are bounded only by the 1 MiB file cap.
+    item["has_fdeploy"] = item.pop("fdeploy", None) is not None
     return item
 
 
@@ -3502,6 +3504,7 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
         source_guid=backup_gpo.guid,
         cse_metadata=cse_metadata,
         backup_inventory=backup_gpo.backup_inventory,
+        fdeploy=backup_gpo.fdeploy,
         domain=backup_gpo.domain or "studio.local",
         security_filters=security_filters,
         wmi_filter=wmi_filter,
@@ -4475,13 +4478,15 @@ def render_policy_families(body: PolicyFamilyRenderRequest) -> dict[str, Any]:
 # lives here and `test_object_security_surface.py` holds it equal to the
 # builder's.
 #
-# **Restricted groups are deliberately absent** (WI-064). The lane's candidate
-# carries Registry Keys, File Security and Service General Setting and no
-# `[Group Membership]` rows, so `RestrictedGroupsFamily` has never been through
-# an oracle -- and when it was looked at, its writer turned out to emit
-# `S-1-5-32-544__Members` where Windows emits `*S-1-5-32-544__Members`. Omitted
-# rather than surfaced with a warning, which is the rule the read direction of
-# the policy-family surface follows for the same reason.
+# **Restricted groups are deliberately absent** (WI-064). Their writer used to
+# emit `S-1-5-32-544__Members` where Windows emits `*S-1-5-32-544__Members`;
+# it now stars the key, and the lane's candidate carries `[Group Membership]`
+# rows built by `RestrictedGroupsFamily`. But no verdict has read those rows
+# yet: the requalification batch has not run. Until one certifies them the
+# family stays omitted rather than surfaced with a warning, which is the rule
+# the read direction of the policy-family surface follows for the same reason.
+# The surface composes the builder's sections minus that one, and
+# `test_object_security_surface.py` holds the two equal on that basis.
 # --------------------------------------------------------------------------
 
 
@@ -4515,9 +4520,8 @@ class ObjectSecurityRenderRequest(BaseModel):
     """The three families the object-security lane certified, and no others.
 
     There is no `restricted_groups` field. Adding one would surface a
-    serializer no oracle has read and which is known to emit the wrong key
-    form (WI-064); `extra="forbid"` means a caller who sends one is told so
-    rather than having it ignored.
+    serializer no verdict has certified (WI-064); `extra="forbid"` means a
+    caller who sends one is told so rather than having it ignored.
     """
 
     registry_keys: list[ObjectSecurityRegistryKeyData] = Field(
@@ -4574,11 +4578,12 @@ def _object_security_limitations() -> list[dict[str, str]]:
         {
             "code": "restricted_groups_not_surfaced",
             "message": (
-                "Group Membership is not renderable here. The lane's candidate "
-                "carries no such rows, so the restricted-groups serializer has "
-                "never been measured -- and it emits a bare SID where Windows "
-                "emits a star-SID (WI-064). Omitted rather than offered with a "
-                "warning."
+                "Group Membership is not renderable here. The restricted-groups "
+                "serializer is not certified: its key form was corrected to the "
+                "star-SID Windows writes (WI-064), and the lane's candidate now "
+                "carries rows it builds, but no lane run has yet shown Windows "
+                "accepting and re-exporting them. Omitted rather than offered "
+                "with a warning."
             ),
         },
         {
@@ -4601,12 +4606,14 @@ def object_security_sections(
 ) -> tuple[InfSection, ...]:
     """Compose the three families into the sections the lane certified.
 
-    Mirrors `build-object-security-candidate.py`'s `candidate_sections`,
-    including its section order -- `Version` comes *second* here, before the
-    family sections, where the policy-family builder puts it last. Both orders
-    were accepted by `secedit` on their own runs; neither has been measured
-    against the other, so each surface emits the order its own lane certified
-    rather than a tidier one shared between them.
+    Mirrors `build-object-security-candidate.py`'s `candidate_sections`
+    without its `[Group Membership]` section (restricted groups are not
+    surfaced; see the block comment above), including its section order --
+    `Version` comes *second* here, before the family sections, where the
+    policy-family builder puts it last. Both orders were accepted by `secedit`
+    on their own runs; neither has been measured against the other, so each
+    surface emits the order its own lane certified rather than a tidier one
+    shared between them.
     """
     registry, files, services = _object_security_models(body)
     entries: dict[str, dict[str, str]] = {}
@@ -4625,40 +4632,23 @@ def object_security_sections(
     )
 
 
-def _parsed_sddl(raw: str) -> SecurityDescriptor | None:
-    """Parse `raw`, or `None` if it will not parse — what `from_template` does.
-
-    **This call is load-bearing, and omitting it misdiagnoses valid input**
-    (WI-065). `SystemServicesFamily.validate` reads
-    `raw_sddl and security_descriptor is None` as "could not be parsed", but
-    that field is only ever populated by `from_template`; a model built
-    directly carries `None` because nothing tried, not because something
-    failed. The lane's own candidate builder constructs services exactly that
-    way, so the certified descriptor
-    `D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)` — which Windows accepted and
-    re-exported byte for byte, and which `parse_sddl` reads without complaint —
-    comes back from `validate` as three `unparseable_service_sddl` errors. The
-    builder never calls `validate`, which is why nothing noticed.
-
-    Parsing here is not a workaround for that: it is what the only other
-    constructor in the codebase does, and it leaves `validate`'s check meaning
-    what it says. Emitted bytes are unaffected, because `_resolve_sddl` prefers
-    the raw form for a lossless round trip; `test_object_security_surface.py`
-    holds that against the builder.
-    """
-    return _try_parse_sddl(raw)
-
-
 def _object_security_models(
     body: ObjectSecurityRenderRequest,
 ) -> tuple[RegistrySecurityFamily, FileSystemSecurityFamily, SystemServicesFamily]:
+    """Build the families from `raw_sddl` alone; nothing is pre-parsed.
+
+    This used to parse each descriptor first, because
+    `SystemServicesFamily.validate` read an unpopulated `security_descriptor`
+    as "could not be parsed" (WI-065). It now parses on demand, so the
+    workaround is gone, and emitted bytes never depended on it: the writers
+    prefer `raw_sddl` for a lossless round trip.
+    """
     return (
         RegistrySecurityFamily(
             keys=tuple(
                 RegistryKeySecurity(
                     key_path=k.key_path,
                     raw_sddl=k.raw_sddl,
-                    security_descriptor=_parsed_sddl(k.raw_sddl),
                     propagation=k.propagation,
                 )
                 for k in body.registry_keys
@@ -4669,7 +4659,6 @@ def _object_security_models(
                 FileSecurity(
                     file_path=f.file_path,
                     raw_sddl=f.raw_sddl,
-                    security_descriptor=_parsed_sddl(f.raw_sddl),
                     propagation=f.propagation,
                 )
                 for f in body.files
@@ -4681,7 +4670,6 @@ def _object_security_models(
                     service_name=s.service_name,
                     startup_mode=s.startup_mode,
                     raw_sddl=s.raw_sddl,
-                    security_descriptor=_parsed_sddl(s.raw_sddl),
                 )
                 for s in body.services
             )
@@ -4727,10 +4715,11 @@ def render_object_security(body: ObjectSecurityRenderRequest) -> dict[str, Any]:
 # Plan 034 WP-4: the fdeploy (Folder Redirection) reader surface.
 #
 # `fdeploy.py` is a read target, not a write target -- see its module
-# docstring and the scope decision it cites. This block is the operator's
-# only path to the artifact: nothing in the GPO model carries it yet (WI-068),
-# so a caller who wants to know what `fdeploy1.ini` says has no route but this
-# one until that lands.
+# docstring and the scope decision it cites. This block reviews a file the
+# caller supplies. An imported backup reaches the same module another way:
+# `read_backup` parses `fdeploy1.ini` onto `GPO.fdeploy` (WI-068), and the
+# policy report and GPO diff render it. `tests/test_fdeploy_surface.py` holds
+# this block's composition equal to the module's.
 #
 # Same shape as the two surfaces above: typed request in, typed structure out,
 # limitations carried in the response body rather than left in this comment.

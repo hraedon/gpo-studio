@@ -1,5 +1,12 @@
 # Artifact store scope
 
+**Superseded 2026-10-07: the module is deleted.** The operator ruling in
+`docs/direction-2026-10-07-plan-034-completion.md` puts delivery of script or
+executable payloads out of scope for 1.x, so `artifact_store.py` and its tests
+were removed and its optional uses in `publication.py` and `script_policy.py`
+were dropped. The text below is kept as the record of what the module claimed
+while it existed.
+
 `artifact_store.py` is a local integrity and policy utility. It has no Windows
 wire contract and is not Windows-certified by Plan 033 or Plan 034.
 

@@ -440,6 +440,16 @@ def _script_ini_pairs(entries: Sequence[_IniScriptEntry]) -> list[tuple[str, str
     return pairs
 
 
+# Where a script refusal sends the reader. `export_bundle` carries no Scripts
+# content, so "use the Studio publication bundle instead" -- what these
+# refusals used to say -- pointed at an export that drops scripts silently.
+_NO_SCRIPTS_EXPORT = (
+    "No Studio export can carry this state: the GPMC backup (gpmc_backup_bundle "
+    "with scripts) is the only export that carries scripts, in the measured "
+    "shape only, and the Studio publication bundle carries no scripts at all."
+)
+
+
 def _native_scripts_refusal(
     scope: str, policy: ScriptPolicy
 ) -> ValidationIssue | None:
@@ -452,6 +462,12 @@ def _native_scripts_refusal(
     logoff sync flags appear nowhere on the wire (the claim registry records
     their absence explicitly), so there is no measured encoding to emit and
     none is invented here.
+
+    NO OTHER EXPORT CARRIES IT EITHER. The Studio publication bundle
+    (`export_bundle`) writes no Scripts content at all, so the refusal must not
+    point there; the GPMC backup with ``scripts=`` is the only export that
+    carries scripts, and only in the measured shape. The message says so and
+    names the change that makes the policy exportable.
     """
     path = f"scripts/{scope}"
     if policy.run_logon_scripts_sync or policy.run_logoff_scripts_sync:
@@ -461,8 +477,8 @@ def _native_scripts_refusal(
             message=(
                 "RunLogonScriptsSync/RunLogoffScriptsSync have no native "
                 "scripts-file encoding (measured WS2025 GPMC: neither key "
-                "exists on the wire). Use the Studio publication bundle "
-                "instead."
+                "exists on the wire). " + _NO_SCRIPTS_EXPORT
+                + " Clear both flags to export this policy."
             ),
             path=path,
         )
@@ -474,8 +490,8 @@ def _native_scripts_refusal(
                 message=(
                     f"Script {entry.script_id} is asynchronous, which the "
                     "measured native scripts.ini shape (NCmdLine/NParameters "
-                    "only) cannot express. Use the Studio publication bundle "
-                    "instead."
+                    "only) cannot express. " + _NO_SCRIPTS_EXPORT
+                    + " Make the script synchronous to export it."
                 ),
                 path=f"{path}/{entry.script_id}",
             )
@@ -497,8 +513,10 @@ def _native_scripts_refusal(
                     f"PowerShell script {ps_entry.script_id} sets no_profile, "
                     "non_interactive=False, or asynchronous execution; the "
                     "measured native psscripts.ini entry shape "
-                    "(NCmdLine/NParameters only) cannot express it. Use the "
-                    "Studio publication bundle instead."
+                    "(NCmdLine/NParameters only) cannot express it. "
+                    + _NO_SCRIPTS_EXPORT
+                    + " Use the defaults (synchronous, profile loaded, "
+                    "non-interactive) to export it."
                 ),
                 path=f"powershell_{path}/{ps_entry.script_id}",
             )
@@ -694,6 +712,26 @@ def _native_export_files(
     gpo: GPO,
     scripts: Mapping[str, ScriptPolicy] | None = None,
 ) -> tuple[dict[str, bytes], dict[str, set[str]]]:
+    # WI-068. An imported fdeploy1.ini is carried on the model but there is no
+    # writer for it (WI-066 owes the Flags encoding). Re-emitting the imported
+    # text alone is not a measured write either: it would also need the Folder
+    # Redirection extension registration, and whether Windows needs the empty
+    # fdeploy.ini marker beside it is unmeasured. A backup without the file
+    # would silently drop the redirection, so refuse. Checked here rather than
+    # in the route so `native_backup_refusal` advertises the same refusal.
+    if gpo.fdeploy is not None:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="folder_redirection_not_exportable",
+                message=(
+                    "GPO carries an imported Folder Redirection file (fdeploy1.ini). "
+                    "Studio reads it but cannot write it, so it cannot be emitted as "
+                    "a GPMC backup. Keep the original backup."
+                ),
+                path="fdeploy",
+            )
+        ])
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
     files: dict[str, bytes] = {}
@@ -764,6 +802,8 @@ def _extension_guids(
         # R2 re-run): one group, CSE GUID then tool GUID, same bracket shape as
         # the other profiles. Relative order against the registry/GPP groups was
         # not captured in any single transaction; this order is deterministic.
+        # Captured on the MACHINE side only: the user side reuses the machine
+        # tool half unmeasured, and a round trip cannot tell (WI-071).
         groups.append(f"[{_SCRIPTS_CSE_GUID}{_SCRIPTS_TOOL_GUID}]")
     if gpp_profiles:
         pairs = [_GPP_EXTENSION_PROFILES[name] for name in sorted(gpp_profiles)]

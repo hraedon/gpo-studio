@@ -27,9 +27,27 @@ from gpo_studio.security_template import (
 )
 
 _SECTIONS = frozenset({"Registry Keys", "File Security", "Service General Setting"})
-_AREAS = frozenset({"regkeys", "filestore", "services"})
+#: `group_mgmt` is what makes secedit import and export `[Group Membership]` at
+#: all. The WP-3 lane lost a run to its absence (2026-08-04): an unrequested
+#: area never reaches the database, and the export's silence reads exactly like
+#: a defect in what Studio wrote.
+_AREAS = frozenset({"regkeys", "filestore", "services", "group_mgmt"})
+_GROUP_SECTION = "Group Membership"
+_GROUP_RELATIONS = frozenset({"members", "memberof"})
 _NATIVE_ROW = re.compile(r'^"([^"]+)",\s*(\d+),\s*"([^"]*)"$')
 _EXPORTED_ROW = re.compile(r'^"([^"]+)",\s*(\d+),\s*"([^"]*)"$')
+_SID = r"S-1-\d+(?:-\d+)+"
+#: The native key: a STARRED SID and the suffix as `RestrictedGroupsFamily`
+#: writes it. Under MS-GPSB an unstarred principal in the key is a name, so a
+#: bare SID there names a group called "S-1-5-32-544" (WI-064). The candidate
+#: is held to this exactly; nothing is normalised on Studio's side.
+_NATIVE_GROUP_KEY = re.compile(rf"^\*({_SID})__(Members|Memberof)$")
+#: Windows' re-export: still starred, suffix and SID compared case-insensitively.
+_EXPORTED_GROUP_KEY = re.compile(rf"^\*({_SID})__(members|memberof)$", re.IGNORECASE)
+_NATIVE_GROUP_MEMBER = re.compile(rf"^\*({_SID})$")
+_EXPORTED_GROUP_MEMBER = re.compile(rf"^\*({_SID})$", re.IGNORECASE)
+
+GroupRows = dict[tuple[str, str], tuple[str, ...]]
 
 DEPLOYED_FILES = {
     "run-object-security-template.ps1": "scripts/windows-oracle/run-object-security-template.ps1",
@@ -50,14 +68,32 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _expected_rows(raw: object) -> dict[tuple[str, str], tuple[int, str]]:
+#: Exact top-level keys per expected schema. Version 1 is the pre-WI-064
+#: candidate (object rows only) and is still read, so banked packs can be
+#: re-graded; a new run must carry version 2, which `_expected_group_membership`
+#: enforces.
+_EXPECTED_KEYS: dict[int, frozenset[str]] = {
+    1: frozenset({"schema_version", "settings"}),
+    2: frozenset({"schema_version", "settings", "group_membership"}),
+}
+
+
+def _expected_schema(raw: object) -> int:
     if (
         not isinstance(raw, dict)
-        or set(raw) != {"schema_version", "settings"}
         or type(raw.get("schema_version")) is not int
-        or raw["schema_version"] != 1
+        or raw["schema_version"] not in _EXPECTED_KEYS
+        or set(raw) != _EXPECTED_KEYS[raw["schema_version"]]
     ):
-        raise ValueError("expected schema_version must be integer 1 with exact top-level keys")
+        raise ValueError(
+            "expected schema_version must be integer 1 or 2 with exact top-level keys"
+        )
+    return int(raw["schema_version"])
+
+
+def _expected_rows(raw: object) -> dict[tuple[str, str], tuple[int, str]]:
+    _expected_schema(raw)
+    assert isinstance(raw, dict)
     settings = raw.get("settings")
     if not isinstance(settings, list) or not settings:
         raise ValueError("expected settings must be a non-empty array")
@@ -77,7 +113,104 @@ def _expected_rows(raw: object) -> dict[tuple[str, str], tuple[int, str]]:
     return rows
 
 
+def _expected_group_membership(raw: object) -> GroupRows:
+    """The model's restricted groups, keyed `(group SID, relation)`.
+
+    Requires schema 2: a run whose expectation carries no Group Membership
+    cannot certify the family, so it does not pass as if it had.
+    """
+    if _expected_schema(raw) != 2:
+        raise ValueError("expected group_membership requires schema_version 2")
+    assert isinstance(raw, dict)
+    entries = raw["group_membership"]
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("expected group_membership must be a non-empty array")
+    rows: GroupRows = {}
+    for item in entries:
+        if not isinstance(item, dict) or set(item) != {"group_sid", "relation", "member_sids"}:
+            raise ValueError("each expected group must have group_sid, relation, member_sids")
+        group_sid, relation, member_sids = item["group_sid"], item["relation"], item["member_sids"]
+        if not isinstance(group_sid, str) or re.fullmatch(_SID, group_sid) is None:
+            raise ValueError("expected group_sid must be a SID")
+        if relation not in _GROUP_RELATIONS:
+            raise ValueError("expected group relation must be members or memberof")
+        if (
+            not isinstance(member_sids, list)
+            or not member_sids
+            or not all(isinstance(sid, str) and re.fullmatch(_SID, sid) for sid in member_sids)
+        ):
+            raise ValueError("expected member_sids must be a non-empty array of SIDs")
+        members = tuple(sorted(sid.casefold() for sid in member_sids))
+        if len(set(members)) != len(members):
+            raise ValueError("expected member_sids repeat a member")
+        key = (group_sid.casefold(), str(relation))
+        if key in rows:
+            raise ValueError("expected group_membership repeats a group relation")
+        rows[key] = members
+    return rows
+
+
+def _template_group_membership(path: Path, *, exported: bool) -> GroupRows:
+    """Read `[Group Membership]` as principals, strictly in the native form.
+
+    Members are compared as a set, since membership has no order, and Windows
+    reorders principal lists on export (`[Privilege Rights]`, WP-3). Nothing
+    else is normalised: an unstarred key or member, an empty value, a repeated
+    member or a row Windows adds or drops is a finding, as an SDDL change is
+    for the object rows. A template with no such section yields no rows, which
+    the comparison then reports against the expectation.
+    """
+    template = parse_security_template(decode_security_template(path.read_bytes()))
+    section = template.get_section(_GROUP_SECTION)
+    rows: GroupRows = {}
+    if section is None:
+        return rows
+    if section.unknown_lines:
+        raise ValueError(f"{_GROUP_SECTION} has a line that is not key = value")
+    key_pattern = _EXPORTED_GROUP_KEY if exported else _NATIVE_GROUP_KEY
+    member_pattern = _EXPORTED_GROUP_MEMBER if exported else _NATIVE_GROUP_MEMBER
+    for key, value in section.entries:
+        key_match = key_pattern.fullmatch(key)
+        if key_match is None:
+            raise ValueError(f"{_GROUP_SECTION} key {key!r} is not a starred SID with a suffix")
+        group_sid, relation = key_match.groups()
+        members: list[str] = []
+        for part in value.split(","):
+            member_match = member_pattern.fullmatch(part.strip())
+            if member_match is None:
+                raise ValueError(
+                    f"{_GROUP_SECTION} {key!r} has a member that is not a starred SID"
+                )
+            members.append(member_match.group(1).casefold())
+        if len(set(members)) != len(members):
+            raise ValueError(f"{_GROUP_SECTION} {key!r} repeats a member")
+        row_key = (group_sid.casefold(), relation.casefold())
+        if row_key in rows:
+            raise ValueError(f"{_GROUP_SECTION} repeats a group relation")
+        rows[row_key] = tuple(sorted(members))
+    return rows
+
+
+def _group_differences(expected: GroupRows, actual: GroupRows) -> list[dict[str, object]]:
+    return [
+        {
+            "group_sid": key[0],
+            "relation": key[1],
+            "expected": list(expected[key]) if key in expected else None,
+            "actual": list(actual[key]) if key in actual else None,
+        }
+        for key in sorted(set(expected) | set(actual))
+        if expected.get(key) != actual.get(key)
+    ]
+
+
 def _template_rows(path: Path, *, exported: bool) -> dict[tuple[str, str], tuple[int, str]]:
+    """Read the three row-shaped sections; `[Group Membership]` is read apart.
+
+    That section is allowed alongside them and nothing else is: its rows are
+    `key = value` principals rather than quoted-CSV object rows, so
+    `_template_group_membership` reads and compares it.
+    """
     template = parse_security_template(decode_security_template(path.read_bytes()))
     rows: dict[tuple[str, str], tuple[int, str]] = {}
     observed_sections: set[str] = set()
@@ -85,7 +218,7 @@ def _template_rows(path: Path, *, exported: bool) -> dict[tuple[str, str], tuple
     if len({name.casefold() for name in section_names}) != len(section_names):
         raise ValueError("object-security template repeats a section")
     allowed_sections = _SECTIONS | {"Unicode", "Version"}
-    if set(section_names) != allowed_sections:
+    if set(section_names) - {_GROUP_SECTION} != allowed_sections:
         raise ValueError("object-security template has missing or extra sections")
     for section in template.sections:
         if section.name not in _SECTIONS:
@@ -189,7 +322,8 @@ def _operations_match(result: Mapping[str, Any]) -> bool:
         )
         if [value for value in folded if value.startswith("/")] != expected_switches:
             return False
-        if len(arguments) != (13 if expected_name == "import" else 12):
+        # Switches and their operands, plus one argument per requested area.
+        if len(arguments) != (10 if expected_name == "import" else 9) + len(_AREAS):
             return False
         if folded[1] != "/db" or folded[3] != "/cfg":
             return False
@@ -268,19 +402,34 @@ def main() -> int:
     comparison_error: str | None = None
     candidate_differences: list[dict[str, object]] = []
     export_differences: list[dict[str, object]] = []
+    group_candidate_differences: list[dict[str, object]] = []
+    group_export_differences: list[dict[str, object]] = []
     try:
         expected = _expected_rows(expected_raw)
+        expected_groups = _expected_group_membership(expected_raw)
         candidate = _template_rows(candidate_root / "candidate.inf", exported=False)
         exported = _template_rows(run_dir / "exported.inf", exported=True)
+        candidate_groups = _template_group_membership(
+            candidate_root / "candidate.inf", exported=False
+        )
+        exported_groups = _template_group_membership(run_dir / "exported.inf", exported=True)
         candidate_differences = _differences(expected, candidate)
         export_differences = _differences(expected, exported)
+        group_candidate_differences = _group_differences(expected_groups, candidate_groups)
+        group_export_differences = _group_differences(expected_groups, exported_groups)
         checks["expected_schema_supported"] = True
         checks["candidate_exact"] = not candidate_differences
         checks["windows_export_exact"] = not export_differences
+        checks["candidate_group_membership_exact"] = not group_candidate_differences
+        checks["windows_export_group_membership_exact"] = not group_export_differences
     except (KeyError, OSError, SecurityTemplateError, TypeError, ValueError) as exc:
         comparison_error = str(exc)
         checks.update(
-            expected_schema_supported=False, candidate_exact=False, windows_export_exact=False
+            expected_schema_supported=False,
+            candidate_exact=False,
+            windows_export_exact=False,
+            candidate_group_membership_exact=False,
+            windows_export_group_membership_exact=False,
         )
 
     # WI-062: controller-side files are bound by (commit, path, sha256) from
@@ -329,6 +478,8 @@ def main() -> int:
         "checks": checks,
         "candidate_differences": candidate_differences,
         "export_differences": export_differences,
+        "group_membership_candidate_differences": group_candidate_differences,
+        "group_membership_export_differences": group_export_differences,
         "comparison_error": comparison_error,
         "harness_error": result.get("error"),
         "transport": "psdirect",
