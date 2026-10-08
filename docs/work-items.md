@@ -41,7 +41,7 @@ Update this list in the same change as any status line;
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 - [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - fixed in the requalification batch; closes when the object-security lane re-runs.
 - [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - fixed and candidate rows added in the batch; closes when the object-security lane certifies them.
-- [WI-063](#wi-063--eight-lane-runners-are-committed-with-crlf-and-no-longer-parse) - renormalize with the next estate requalification.
+- [WI-063](#wi-063--eight-lane-runners-are-committed-with-crlf-and-no-longer-parse) - renormalized in the requalification batch; closes when its lanes re-run.
 
 ---
 
@@ -2457,9 +2457,16 @@ sixteen is fixed without the requalification that makes its verdict valid again.
 
 **2026-10-07, batch branch `batch/wi064-wi065`.** `finalize_object_security_run.py` was
 edited for WI-064 and written back as LF, so it came off the exemption list (fifteen
-remain). Its verdict is re-earned by the batch's object-security run, like the rest of
-that lane's bound files. The `.gitattributes` rule and the other fifteen files are
+remain). Its verdict will be re-earned by the batch's object-security run, like the rest
+of that lane's bound files. The `.gitattributes` rule and the other fifteen files are
 unchanged.
+
+**2026-10-07, requalification batch (`17448d5`).** The controller trees are declared
+`text eol=lf`, all sixteen files are LF, and the exemption list is gone: the pinning test
+now fails if `.gitattributes` returns these trees to `-text`
+(`test_controller_trees_are_declared_lf`) or if any controller source carries CRLF. The
+19 verdicts that bound the CRLF bytes are expired, not re-earned. The item stays open
+until the batch's lanes run on the estate and their verdicts bind the LF bytes.
 
 ## WI-064 — the restricted-groups writer emits a bare SID where Windows emits a star-SID
 

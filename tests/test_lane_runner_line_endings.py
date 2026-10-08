@@ -17,9 +17,11 @@ CRLF blob, clean status, passing check, changed bytes. `.gitattributes` chose
 reverse, which is the half that was doing the guarding.
 
 The sixteen files could not be renormalized while the WI-062 batch bound their
-digests. The Plan 034 requalification batch renormalized them and re-earned
-every verdict, so the exemption list this module used to carry is gone. What
-remains is the rule itself and the declaration that enforces it:
+digests. The Plan 034 requalification batch renormalized them, which expires
+every verdict that bound the CRLF bytes; those verdicts are re-earned only when
+the batch's lanes run on the estate, and until then they are pending
+requalification. The exemption list this module used to carry is gone with the
+CRLF bytes. What remains is the rule itself and the declaration that enforces it:
 `test_controller_trees_are_declared_lf` fails if `.gitattributes` goes back to
 `-text` for these trees, which is the change that let WI-063 commit cleanly.
 """
