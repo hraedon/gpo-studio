@@ -9,10 +9,11 @@ target. Both raws are preserved (hash-bound) in windows-console-driver
 ``docs/estate-window-3/captures/``; the transcripts here reconstruct those
 exact bytes.
 
-``folder_redirection.py`` is deliberately NOT exercised: R3's finding is that
-the module models redirection as User Shell Folders registry policy and may
-address the wrong artifact entirely. Whether it should read or write fdeploy
-artifacts is a scope decision for Plan 034, not this fixture's business.
+``folder_redirection.py`` was deliberately NOT exercised: R3's finding was
+that the module modelled redirection as User Shell Folders registry policy and
+addressed the wrong artifact entirely. Plan 034 ruled Folder Redirection a read
+target served by ``fdeploy.py`` (2026-09-11) and deleted the old module
+(2026-10-07).
 """
 
 from __future__ import annotations

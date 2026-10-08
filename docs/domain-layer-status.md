@@ -84,7 +84,12 @@ evidence lane rather than an audit.
 ## What the ruling does not mean
 
 - **No deletion.** Nothing is being removed. These layers are the starting point
-  their evidence lanes will revise.
+  their evidence lanes will revise. Later rulings about individual modules have
+  deleted some, each recorded where that module's ruling lives:
+  `certification.py` (2026-09-07, WI-056), and `software_install.py`,
+  `folder_redirection.py` and most of `gpmc_interop.py` (2026-10-07,
+  [the Plan 034 completion rulings](direction-2026-10-07-plan-034-completion.md)).
+  This ruling ordered none of them.
 - **No moratorium.** Writing a domain layer ahead of its evidence is a
   legitimate way to work in this project. The error is counting it as done.
 - **No change to any capability claim.** None of these modules appeared in the

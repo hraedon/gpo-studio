@@ -1,9 +1,25 @@
 # Plan 026 — Scripts and managed-artifact policies
 
 Status: implemented (domain layer) — **not surfaced**. `script_policy.py` and
-`artifact_store.py` are landed and unit-tested but are reachable from no API
-endpoint, UI module, or export path. Platform wiring and Plan 033 Windows
-evidence both remain open.
+`artifact_store.py` are reachable from no API endpoint, UI module, or export
+path. Updated 2026-10-07:
+
+- `script_policy.py` is **lane-backed and unsurfaced**. The Scripts metadata
+  lane passed on a clean member server (live pack, 20/20 checks:
+  `scripts-r10-20260905191308-8174` from the WI-062 batch; the earlier
+  `scripts-r10-20260908013518-2476`, see
+  [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md), is
+  retired history). Its runner is one of the eight WI-063 left unparseable,
+  so the lane is re-runnable again only after the requalification batch. Payload execution
+  and endpoint processing are not measured. By the 2026-10-07 ruling the stale
+  pre-R2 `scripts.ini` writer and parser are deleted in the requalification
+  batch, and its exit is this lane plus a Scripts export surface.
+- `artifact_store.py` is **to be deleted** in the requalification batch:
+  delivering script or executable payloads is out of scope for 1.x. It is
+  decoupled from `publication.py` and `script_policy.py` there first, because
+  live verdicts bind both.
+
+See [the rulings](../docs/direction-2026-10-07-plan-034-completion.md).
 
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane
