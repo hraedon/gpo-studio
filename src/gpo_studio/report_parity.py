@@ -52,6 +52,13 @@ _MAX_REPORT_BYTES = 50 * 1024 * 1024
 _REPORT_SIDES: tuple[tuple[str, Side], ...] = (("Computer", "computer"), ("User", "user"))
 
 REGISTRY_FAMILY = "RegistrySettings"
+#: GPP Registry. Windows' report gives it the SAME ``xsi:type`` local name as
+#: Registry.pol policy (``RegistrySettings``) but under its own namespace, with
+#: a clsid-bearing ``<RegistrySettings>`` container of ``<Registry>`` items
+#: (measured, tests/fixtures/native-gpp-registry-gpmc/*/gpreport-verify.xml).
+#: It is inventoried under this distinct, namespace-qualified family name.
+GPP_REGISTRY_FAMILY = "Windows/Registry:RegistrySettings"
+_GPP_REGISTRY_NS = "http://www.microsoft.com/GroupPolicy/Settings/Windows/Registry"
 
 #: Preference file -> the ``Extension`` ``xsi:type`` Windows' report uses for
 #: it. Only pairs observed in a Windows-produced ``gpreport.xml`` in the corpus
@@ -67,6 +74,7 @@ OBSERVED_GPP_FAMILIES: dict[str, str] = {
     "IniFiles/IniFiles.xml": "IniFilesSettings",
     "PowerOptions/PowerOptions.xml": "PowerOptionsSettings",
     "Printers/Printers.xml": "PrintersSettings",
+    "Registry/Registry.xml": GPP_REGISTRY_FAMILY,
     "ScheduledTasks/ScheduledTasks.xml": "ScheduledTasksSettings",
     "Services/Services.xml": "ServiceSettings",
     "Shortcuts/Shortcuts.xml": "ShortcutSettings",
@@ -339,6 +347,10 @@ def windows_inventory(report_xml: bytes) -> Inventory:
             family = extension.get(_XSI_TYPE, "").rsplit(":", 1)[-1]
             if not family:
                 raise ReportParityError("report extension has no xsi:type")
+            if family == REGISTRY_FAMILY and any(
+                child.tag == f"{{{_GPP_REGISTRY_NS}}}RegistrySettings" for child in extension
+            ):
+                family = GPP_REGISTRY_FAMILY
             bucket = families.setdefault((side, family), [])
             if family == REGISTRY_FAMILY:
                 items, policies = _report_registry_items(extension)

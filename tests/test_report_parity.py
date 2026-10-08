@@ -82,6 +82,9 @@ EXPECTED_KNOWN: dict[str, frozenset[str]] = {
     "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-Shortcuts-GPMC": frozenset(),
+    "tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC": frozenset(),
+    "tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryMatrix-GPMC": frozenset(),
+    "tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC": frozenset(),
     "docs/plan-033/wp0-evidence/wi059-20260908/wp0/backup": frozenset(),
     "docs/plan-033/wp1b-evidence/wi059-20260908/scripts-metadata/rebackup": frozenset(
         {"scripts-not-modeled"}
@@ -108,6 +111,8 @@ EXPECTED_KNOWN: dict[str, frozenset[str]] = {
 
 def _corpus() -> list[Path]:
     return sorted(NATIVE.glob("*/manifest.xml")) + sorted(
+        (ROOT / "tests/fixtures/native-gpp-registry-gpmc").glob("*/manifest.xml")
+    ) + sorted(
         p for p in EVIDENCE.glob("*-evidence/wi059-20260908/**/manifest.xml")
         if "rebackup" in p.parts or "backup" in p.parts
     ) + [EVIDENCE / "wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup/manifest.xml"]

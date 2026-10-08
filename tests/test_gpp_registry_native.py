@@ -50,8 +50,8 @@ from gpo_studio.writer_conformance import (
     summary_from_gpo,
 )
 
-#: GPP Registry captures live in their own corpus root, outside
-#: native-gpp-gpmc, so the report-parity lane's pinned corpus is unchanged.
+#: GPP Registry captures live in their own corpus root beside native-gpp-gpmc,
+#: with their own sanitization record; report parity lists them explicitly.
 REGISTRY_CORPUS = Path(__file__).parent / "fixtures" / "native-gpp-registry-gpmc"
 #: The GPMC-editor captures of the other families.
 EDITOR_CORPUS = Path(__file__).parent / "fixtures" / "native-gpp-gpmc"
@@ -696,7 +696,7 @@ def test_each_registry_capture_imports_through_the_api(
 ) -> None:
     """The public backup-import path, as the inventory replay exercises the rest.
 
-    These captures sit outside native-gpp-gpmc, so that replay does not reach
+    These captures sit outside native-gpp-gpmc, so the inventory replay does not reach
     them; this does.
     """
     from contextlib import closing

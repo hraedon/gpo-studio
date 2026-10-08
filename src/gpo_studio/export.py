@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import io
 import json
 import xml.etree.ElementTree as ET
-import zipfile
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Protocol, assert_never
@@ -17,6 +15,7 @@ from .canonical import (
     policy_semantic_sha256,
     review_model_sha256,
 )
+from .deterministic_zip import deterministic_zip
 from .gpp import contains_cpassword, gpp_registry_unmeasured_shapes, serialize_gpp
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
@@ -362,33 +361,27 @@ def export_bundle(gpo: GPO) -> bytes:
     }
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        entries: dict[str, bytes] = {
-            "manifest.json": json.dumps(manifest, indent=2, sort_keys=True).encode(),
-            "apply.ps1": powershell_plan(gpo).encode("utf-8-sig"),
-            "Machine/Registry.pol": serialize(computer),
-            "User/Registry.pol": serialize(user),
-        }
-        for col in gpo.gpp_collections:
-            side_dir = "Machine" if col.scope == "computer" else "User"
-            for filename, content in serialize_gpp(col).items():
-                if contains_cpassword(content):
-                    raise ValidationError([
-                        ValidationIssue(
-                            severity="error",
-                            code="cpassword_detected",
-                            message=f"GPP file {filename} contains a cpassword attribute.",
-                            path=f"gpp_collections/{filename}",
-                        )
-                    ])
-                entries[f"{side_dir}/Preferences/{filename}"] = content
-        for name, content in entries.items():
-            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o600 << 16
-            archive.writestr(info, content)
-    return output.getvalue()
+    entries: dict[str, bytes] = {
+        "manifest.json": json.dumps(manifest, indent=2, sort_keys=True).encode(),
+        "apply.ps1": powershell_plan(gpo).encode("utf-8-sig"),
+        "Machine/Registry.pol": serialize(computer),
+        "User/Registry.pol": serialize(user),
+    }
+    for col in gpo.gpp_collections:
+        side_dir = "Machine" if col.scope == "computer" else "User"
+        for filename, content in serialize_gpp(col).items():
+            if contains_cpassword(content):
+                raise ValidationError([
+                    ValidationIssue(
+                        severity="error",
+                        code="cpassword_detected",
+                        message=f"GPP file {filename} contains a cpassword attribute.",
+                        path=f"gpp_collections/{filename}",
+                    )
+                ])
+            entries[f"{side_dir}/Preferences/{filename}"] = content
+    # Platform-identical bytes (members sorted, STORED, fixed metadata).
+    return deterministic_zip(entries)
 
 
 def _gpmc_preg_bytes(settings: list[RegistrySetting]) -> bytes:
@@ -1111,17 +1104,12 @@ def gpmc_backup_bundle(
     backup_id = native_backup_id(gpo)
     files, profiles = _native_export_files(gpo, scripts)
     prefix = f"{backup_id}/DomainSysvol/GPO"
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        entries: dict[str, bytes] = {
-            "manifest.xml": _build_manifest_xml(gpo, backup_id),
-            f"{backup_id}/Backup.xml": _build_backup_xml(gpo, files, profiles),
-            f"{backup_id}/bkupInfo.xml": _build_bkup_info_xml(gpo, backup_id),
-        }
-        entries.update({f"{prefix}/{path}": content for path, content in files.items()})
-        for name in sorted(entries):
-            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o600 << 16
-            archive.writestr(info, entries[name])
-    return output.getvalue()
+    entries: dict[str, bytes] = {
+        "manifest.xml": _build_manifest_xml(gpo, backup_id),
+        f"{backup_id}/Backup.xml": _build_backup_xml(gpo, files, profiles),
+        f"{backup_id}/bkupInfo.xml": _build_bkup_info_xml(gpo, backup_id),
+    }
+    entries.update({f"{prefix}/{path}": content for path, content in files.items()})
+    # Platform-identical bytes: every lane candidate built from this backup is
+    # hash-bound, so a Windows controller must reproduce Linux's archive exactly.
+    return deterministic_zip(entries)

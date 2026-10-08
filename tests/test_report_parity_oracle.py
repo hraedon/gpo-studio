@@ -154,7 +154,7 @@ def test_the_candidate_does_not_depend_on_the_platforms_path_order(tmp_path: Pat
 def test_every_corpus_backup_is_import_ready_and_packaged(candidate: Path) -> None:
     expected = _expected(candidate)
     assert expected["excluded"] == []
-    assert len(expected["cases"]) == len(BUILDER.corpus()) == 27
+    assert len(expected["cases"]) == len(BUILDER.corpus()) == 30
     with zipfile.ZipFile(candidate / "report-parity-cases.zip") as archive:
         names = archive.namelist()
         index = archive.read("cases/index.tsv").decode("ascii")
@@ -162,7 +162,7 @@ def test_every_corpus_backup_is_import_ready_and_packaged(candidate: Path) -> No
     assert dirs == {c["dir"] for c in expected["cases"]}
     assert all(n.startswith("cases/") for n in names)
     assert index == "".join(f"{c['dir']}\t{c['case_id']}\n" for c in expected["cases"])
-    assert [c["dir"] for c in expected["cases"]] == [f"c{i:02d}" for i in range(1, 28)]
+    assert [c["dir"] for c in expected["cases"]] == [f"c{i:02d}" for i in range(1, 31)]
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,9 @@ def test_only_the_sanitized_placeholder_descriptor_is_replaced(candidate: Path) 
 
     assert BUILDER.DOMAIN_NEUTRAL_SD == _DOMAIN_NEUTRAL_SECURITY_DESCRIPTOR
     for case in _expected(candidate)["cases"]:
-        native = case["source"].startswith("tests/fixtures/native-gpp-gpmc/")
+        native = case["source"].startswith(
+            ("tests/fixtures/native-gpp-gpmc/", "tests/fixtures/native-gpp-registry-gpmc/")
+        )
         assert case["transformations"] == (
             ["restore-importable-security-descriptor"] if native else []
         ), case["case_id"]
@@ -703,7 +705,9 @@ def test_the_builder_refuses_a_corpus_missing_a_required_case(
 
 def test_the_required_corpus_is_the_whole_corpus() -> None:
     assert tuple(c for c, _ in BUILDER.corpus()) == BUILDER.REQUIRED_CASE_IDS
-    assert len(BUILDER.REQUIRED_CASE_IDS) == 27
+    # 27 at the report-parity bank; batch 2 added the three GPP Registry
+    # captures (WI-075).
+    assert len(BUILDER.REQUIRED_CASE_IDS) == 30
 
 
 # ---------------------------------------------------------------------------

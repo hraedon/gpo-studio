@@ -1,5 +1,5 @@
 {
-  "note": "GPP Registry native captures (batch 2, WI-075), kept outside tests/fixtures/native-gpp-gpmc so the report-parity lane corpus (build-report-parity-candidate.REQUIRED_CASE_IDS) is unchanged. Same recorded sanitizer and conventions (scripts/plan-033/sanitize-gpp-fixtures.py).",
+  "note": "GPP Registry native captures (batch 2, WI-075), in their own corpus root beside tests/fixtures/native-gpp-gpmc with this separate record; the report-parity lane lists them in REQUIRED_CASE_IDS explicitly. Same recorded sanitizer and conventions (scripts/plan-033/sanitize-gpp-fixtures.py).",
   "files": [
     {
       "relative_path": "WI01A-Registry-GPMC/capture.json",

@@ -9,6 +9,30 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- **Deterministic archives everywhere (batch 2).** `gpo_studio.deterministic_zip`
+  writes every ZIP Studio and the lane builders produce -- `gpmc_backup_bundle`,
+  `export_bundle`, and the report-parity and fdeploy candidates (the WP-1B, WP-2,
+  publication, scripts-metadata and firewall candidates come from
+  `gpmc_backup_bundle`) -- with members sorted by code point, 1980-01-01
+  timestamps, `create_system=3`, fixed attributes and STORED members. Deflate is
+  not used: CPython's Windows build links a different deflate implementation
+  than Linux, so no deflate setting yields identical bytes. The product exports
+  are STORED too; the ZIP is a transport container (`Expand-Archive` and
+  `zipfile` unpack it, `Import-GPO` reads the extracted folder), so only its
+  size changes. Names that are unsafe or differ only by case are refused. The
+  lane evidence tests (firewall, report-parity, fdeploy) assert the exact archive
+  hash on every platform again, and pin that a Windows-default `create_system`
+  changes nothing. The banked candidates were deflated, so those tests fail
+  until the 1.1.0 requalification re-banks them.
+- **Report parity covers GPP Registry.** The report-parity corpus gains the
+  three GPP Registry captures (30 cases); `report_parity` inventories Windows'
+  GPP Registry extension under `Windows/Registry:RegistrySettings`, since the
+  report gives it Registry.pol's local name. Studio's import matches Windows'
+  report for all 39 captured items.
+- **`run-requal-batch.sh`** drives the lifecycle, report-parity, firewall and
+  fdeploy lanes too (member server; the client-rebooting group-deny lane stays
+  last), and a test holds the lane table equal to the repository's runners.
+
 - **GPP Registry native export, fixed and awaiting batch-2 requalification
   (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
   Registry item, narrowing the 1.0 contract the capability matrix still
@@ -32,8 +56,8 @@ Current version: `1.0.0`.
   pinned every action x type pair and key-only x action as a whole item: the
   measured set is now an explicit list of those 28 pairs, held equal to the
   native bytes, rather than composed from parts. The GPP Registry captures live
-  in `tests/fixtures/native-gpp-registry-gpmc`, outside the report-parity
-  corpus. Default-value
+  in `tests/fixtures/native-gpp-registry-gpmc` and are part of the report-parity
+  corpus (see below). Default-value
   items stay refused (`unmeasured_gpp_registry_shape`) by the export and the
   planner: the GroupPolicy module has no `-Default` parameter, so nothing
   measured them. The decimal and `;`-joined forms Studio wrote before batch 2,

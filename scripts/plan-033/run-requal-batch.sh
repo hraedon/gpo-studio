@@ -41,6 +41,12 @@ LANES=(
     "object-security|run-object-security-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
     "scripts-metadata|run-scripts-backup-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
     "publication|run-publication-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    # Plan 034 lanes banked after the first batch (BANKED_AFTER_THE_BATCH): each
+    # runs on the member server alone.
+    "lifecycle|run-lifecycle-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "report-parity|run-report-parity-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "firewall|run-firewall-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
+    "fdeploy|run-fdeploy-oracle.sh|GPO_STUDIO_LAB_GUEST=$MEMBER"
     "endpoint|run-endpoint-oracle.sh|GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
     "lsdou-precedence|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=lsdou-precedence GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"
     "disabled-block-enforced|run-rsop-oracle.sh|GPO_STUDIO_RSOP_SCENARIO=disabled-block-enforced GPO_STUDIO_LAB_AUTHOR_GUEST=$MEMBER GPO_STUDIO_LAB_ENDPOINT_GUEST=$CLIENT"

@@ -35,7 +35,7 @@ Update this list in the same change as any status line;
 **6 open.**
 
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
-- [WI-075](#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not) - requalify WP-1B, publication, scripts-metadata, object-security, report-parity and firewall at the batch-2 commit.
+- [WI-075](#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not) - closes when the 1.1.0 requalification passes every lane at the batch-2 commit.
 - [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - one ordered task list in the bound model; costs two lanes.
 - [WI-072](#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained) - pass root unknowns through `gpp.py`; costs two lanes.
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
@@ -3186,11 +3186,16 @@ scripts-metadata and firewall lanes all bind, so it waits for a batch that
 re-runs all three. Every firewall surface response carries
 `gpme_display_unmeasured` until then.
 
-**Closes when:** either a GPME observation of a Studio-imported firewall GPO
+**Closes when:** ~~either a GPME observation of a Studio-imported firewall GPO
 shows the rules displayed and editable with `D02B1F72` alone (and the
 limitation is narrowed to say so), or `export.py` registers `B05566AC` for
 firewall keys in a batch that requalifies the publication, scripts-metadata and
-firewall lanes and the GPME observation is made on that output.
+firewall lanes and the GPME observation is made on that output.~~ Reconciled
+with batch 2 (below): the registration half is done, so this closes when a GPME
+observation of a Studio-imported firewall-only GPO carrying
+`[{35378EAC-…}{B05566AC-…}]` shows the rules displayed and editable under the
+Windows Defender Firewall node (and `gpme_display_unmeasured` is narrowed to
+say so), with the firewall lane requalified at the batch-2 commit.
 
 **Partly resolved in batch 2 (WI-075, `batch2/gpp-registry-and-tidy`).**
 `export.py` now registers `[{35378EAC-…}{B05566AC-…}]` for a machine
@@ -3258,7 +3263,7 @@ lists the 28 (action, shape) pairs, a test holds that set equal to the pairs
 read off the native bytes, and Studio's writer reproduces every one of the 28
 items against those bytes. The three GPP Registry captures live in their own
 corpus root, `tests/fixtures/native-gpp-registry-gpmc` (own sanitization
-record), so the report-parity lane's pinned corpus is unchanged.
+record); the final sweep added them to the report-parity corpus explicitly.
 
 **Still refused, unmeasured** (`unmeasured_gpp_registry_shape`, export and
 publication alike): default-value items. The revision-2 script tried one and
@@ -3280,11 +3285,26 @@ production group `[{35378EAC-…}{B05566AC-…}{D02B1F72-…}]`, but holds no
 Registry.pol content, so what produced it is unmeasured
 (`test_mixed_machine_content_is_left_unchanged_because_it_is_unmeasured`).
 
-**Closes when:** the WP-1B lane passes at a batch-2 commit with the
-`gppregistry-both` candidate and the GPP Registry items in `mixed-all`, the
-publication and scripts-metadata lanes (whose bound `export.py`/`gpp.py`
-changed) and the object-security lane (whose bound `object_security.py`
-changed, review N7) pass at that commit, and the capability matrix GPP Registry
-and GPMC backup export rows are moved from "fixed, awaiting batch-2
-requalification" to their certified wording. The unmeasured shape above may
-stay refused at closure; each one lifted needs the revision-2 capture first.
+**Final batch-2 sweep (2026-10-08).** Every archive Studio or a lane builder
+writes now goes through `gpo_studio.deterministic_zip` (members sorted by code
+point, 1980-01-01 timestamps, `create_system=3`, fixed attributes, STORED: CPython's
+Windows build links a different deflate than Linux, so no deflate setting is
+platform-identical). The product exports (`gpmc_backup_bundle`, `export_bundle`)
+are STORED too: the archive is a transport container that `Expand-Archive` and
+`zipfile` unpack and Windows never reads (`Import-GPO` reads the extracted
+folder). The lane evidence tests assert the exact archive hash on every
+platform again. The report-parity corpus gains the three GPP Registry captures
+(30 cases; `report_parity` inventories GPP Registry under
+`Windows/Registry:RegistrySettings`, since the report shares Registry.pol's
+local name), so the family gets report-parity certification in the
+requalification. `run-requal-batch.sh` now drives lifecycle, report-parity,
+firewall and fdeploy as well.
+
+**Closes when:** the single 1.1.0 requalification passes every lane at the
+batch-2 commit -- in particular WP-1B (with the `gppregistry-both` candidate and
+the GPP Registry items in `mixed-all`), publication, scripts-metadata,
+object-security, report-parity (30 cases, GPP Registry included), firewall and
+fdeploy, whose bound files or candidates this batch changed -- and the
+capability matrix GPP Registry and GPMC backup export rows are moved from
+"fixed, awaiting batch-2 requalification" to their certified wording. The
+default-value shape may stay refused at closure.

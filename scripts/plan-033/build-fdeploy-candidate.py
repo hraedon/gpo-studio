@@ -54,12 +54,12 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Callable
 from pathlib import Path
 from uuid import NAMESPACE_DNS, NAMESPACE_URL, uuid5
 from xml.sax.saxutils import quoteattr
 
 from gpo_studio.backup import read_backup
+from gpo_studio.deterministic_zip import deterministic_zip
 from gpo_studio.fdeploy import (
     FDEPLOY_POLICY_PATH,
     FLAGS_ARE_UNDECODED,
@@ -488,30 +488,18 @@ def longest_guest_path(archive_names: list[str], case_dirs: list[str]) -> str:
     return max(paths, key=len)
 
 
-def _ordinal(base: Path) -> Callable[[Path], tuple[str, ...]]:
-    """Sort key: the path's components below ``base``, compared ordinally.
-
-    Never sort ``Path`` objects themselves. ``WindowsPath`` compares
-    case-insensitively and ``PosixPath`` does not, so ``sorted(root.rglob("*"))``
-    puts ``bkupInfo.xml`` before ``DomainSysvol/`` on Windows and after it on
-    Linux. The archive's member order, and so its bytes, then depended on the
-    controller's OS, and the finalizer's byte-identical rebuild check failed on
-    a Windows checkout of an unchanged tree (the defect report-parity's builder
-    had first). Component tuples of ``str`` order the same everywhere, and
-    match what a POSIX ``Path`` sort produced.
-    """
-    return lambda path: path.relative_to(base).parts
-
-
 def _zip(root: Path) -> bytes:
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted((p for p in root.rglob("*") if p.is_file()), key=_ordinal(root)):
-            info = zipfile.ZipInfo(path.relative_to(root).as_posix(), (1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
-            archive.writestr(info, path.read_bytes())
-    return buffer.getvalue()
+    """The candidate archive, byte-identical on every controller platform.
+
+    `gpo_studio.deterministic_zip` fixes member order, timestamps, host byte,
+    attributes and compression (STORED: Windows and Linux deflate differ), so
+    the exact-hash rebuild check holds on a Windows checkout too.
+    """
+    return deterministic_zip({
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    })
 
 
 def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:

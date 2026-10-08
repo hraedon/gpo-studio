@@ -57,6 +57,7 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
+from gpo_studio.deterministic_zip import deterministic_zip
 from gpo_studio.report_parity import (
     FamilyInventory,
     Inventory,
@@ -136,6 +137,12 @@ REQUIRED_CASE_IDS: tuple[str, ...] = (
     "native-WI01A-Services-GPMC",
     "native-WI01A-ServicesRecovery-GPMC",
     "native-WI01A-Shortcuts-GPMC",
+    # Batch 2 (WI-075): the GPP Registry native captures, so the family gets
+    # report-parity certification. Their own corpus root keeps their
+    # sanitization record separate; they enter here, after the GPMC-editor set.
+    "native-WI01A-Registry-GPMC",
+    "native-WI01A-RegistryMatrix-GPMC",
+    "native-WI01A-RegistryShapes-GPMC",
     "evidence-wi059-20260908-wp0-backup",
     "evidence-wi059-20260908-scripts-metadata-rebackup",
     "evidence-wi059-20260908-wp1b-drives-user-rebackup",
@@ -159,6 +166,9 @@ def corpus(repo: Path = REPO_ROOT) -> list[tuple[str, Path]]:
     """
     native = sorted(
         (repo / "tests/fixtures/native-gpp-gpmc").glob("*/manifest.xml"), key=_ordinal(repo)
+    ) + sorted(
+        (repo / "tests/fixtures/native-gpp-registry-gpmc").glob("*/manifest.xml"),
+        key=_ordinal(repo),
     )
     evidence = sorted(
         (
@@ -273,14 +283,17 @@ def longest_guest_path(archive: bytes) -> tuple[int, str]:
 
 
 def _zip(root: Path) -> bytes:
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted((p for p in root.rglob("*") if p.is_file()), key=_ordinal(root)):
-            info = zipfile.ZipInfo(path.relative_to(root).as_posix(), (1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
-            archive.writestr(info, path.read_bytes())
-    return buffer.getvalue()
+    """The candidate archive, byte-identical on every controller platform.
+
+    `gpo_studio.deterministic_zip` fixes member order, timestamps, host byte,
+    attributes and compression (STORED: Windows and Linux deflate differ), so
+    the exact-hash rebuild check holds on a Windows checkout too.
+    """
+    return deterministic_zip({
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    })
 
 
 def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:

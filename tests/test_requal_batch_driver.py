@@ -178,3 +178,53 @@ def test_a_symlinked_batch_dir_into_the_repository_is_refused(tmp_path: Path) ->
     assert result.returncode == 2
     assert "outside the repository" in result.stderr
     assert not (clone / "batch").exists()
+
+
+def _lane_table() -> list[tuple[str, str, str]]:
+    """(name, runner, environment) rows of the driver's LANES array, in order."""
+    text = DRIVER.read_text(encoding="utf-8")
+    start = text.index("LANES=(")
+    block = text[start : text.index("\n)\n", start)]
+    rows: list[tuple[str, str, str]] = []
+    for line in block.splitlines()[1:]:
+        line = line.strip()
+        if not line.startswith('"'):
+            continue
+        name, runner, environment = line.strip('"').split("|", 2)
+        rows.append((name, runner, environment))
+    return rows
+
+
+def test_every_lane_runner_in_the_repository_is_in_the_batch() -> None:
+    """A runner the batch never invokes is a lane the requalification skips."""
+    runners = {
+        path.name for path in (REPO_ROOT / "scripts" / "windows-oracle").glob("run-*-oracle.sh")
+    }
+    assert runners == {runner for _, runner, _ in _lane_table()}
+
+
+def test_the_post_batch_lanes_run_on_the_member_server() -> None:
+    table = {name: (runner, env) for name, runner, env in _lane_table()}
+    for name, runner in (
+        ("lifecycle", "run-lifecycle-oracle.sh"),
+        ("report-parity", "run-report-parity-oracle.sh"),
+        ("firewall", "run-firewall-oracle.sh"),
+        ("fdeploy", "run-fdeploy-oracle.sh"),
+    ):
+        assert table[name] == (runner, "GPO_STUDIO_LAB_GUEST=$MEMBER"), name
+
+
+def test_the_client_rebooting_lane_is_still_last() -> None:
+    assert _lane_table()[-1][0] == "computer-security-filtering-group-deny"
+
+
+def test_the_post_batch_lanes_reach_their_runners(tmp_path: Path) -> None:
+    clone = _clone(tmp_path)
+    lanes = ("lifecycle", "report-parity", "firewall", "fdeploy")
+    result = _run(clone, _fake_acb(tmp_path, 0), tmp_path, *lanes)
+    assert result.returncode == 0, result.stderr
+    lines = (tmp_path / "acb.log").read_text().splitlines()
+    assert len(lines) == len(lanes)
+    for lane, line in zip(lanes, lines, strict=True):
+        assert "GPO_STUDIO_LAB_GUEST=LabMS01" in line, lane
+        assert f"run-{lane}-oracle.sh" in line, lane

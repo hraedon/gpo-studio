@@ -131,6 +131,7 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/api.py`
 - `src/gpo_studio/conformance.py`
 - `src/gpo_studio/delegation.py`
+- `src/gpo_studio/deterministic_zip.py`
 - `src/gpo_studio/diff.py`
 - `src/gpo_studio/estate.py`
 - `src/gpo_studio/evidence.py`
