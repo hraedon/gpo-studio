@@ -1189,7 +1189,10 @@ def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
 
     Every file keeps its root's retained unknown attributes and children, and
     every root child is written in document order (see the section above).
+    A collection whose positions collide is refused here as well as on load,
+    so nothing can be written that would not read back.
     """
+    _validate_document_positions(collection)
     if collection.source_files:
         return dict(collection.source_files)
     if (
@@ -1861,7 +1864,12 @@ def _common_options_from_dict(data: Any) -> GppCommonOptions:
 
 
 def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
-    """Serialize a GppCollection to a plain dict for JSON storage."""
+    """Serialize a GppCollection to a plain dict for JSON storage.
+
+    Colliding document positions are refused before storage, the same check
+    :func:`gpp_collection_from_dict` makes, so a stored GPO always loads.
+    """
+    _validate_document_positions(collection)
     if (
         collection.local_groups
         or collection.local_groups_unknown_attrs

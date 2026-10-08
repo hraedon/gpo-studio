@@ -651,7 +651,12 @@ def test_an_item_inserted_between_tied_slots_lands_where_the_list_says(tmp_path:
 def test_within_a_family_the_list_order_always_wins(
     task_slots: list[int | None], immediate_slots: list[int],
 ) -> None:
-    """Whatever the slots (ties, gaps, missing), one family's items keep list order."""
+    """Gaps and missing slots keep each family's list order; a collision is refused.
+
+    Two root children of one file at one slot cannot come from an import, so
+    the write refuses them (as the load does) rather than let the tie-break
+    decide processing order.
+    """
     tasks = tuple(
         GppScheduledTask(name=f"s{index}", document_position=slot)
         for index, slot in enumerate(task_slots)
@@ -660,9 +665,15 @@ def test_within_a_family_the_list_order_always_wins(
         GppImmediateTask(name=f"i{index}", document_position=slot)
         for index, slot in enumerate(immediate_slots)
     )
-    written = _children(serialize_gpp(GppCollection(
+    collection = GppCollection(
         scope="computer", scheduled_tasks=tasks, immediate_tasks=immediate,
-    ))[TASKS_FILE])
+    )
+    claimed = [slot for slot in task_slots if slot is not None] + immediate_slots
+    if len(claimed) != len(set(claimed)):
+        with pytest.raises(GppError, match="claimed by both"):
+            serialize_gpp(collection)
+        return
+    written = _children(serialize_gpp(collection)[TASKS_FILE])
     assert [n for tag, n in written if tag == "TaskV2"] == [t.name for t in tasks]
     assert [n for tag, n in written if tag == "ImmediateTaskV2"] == [t.name for t in immediate]
 
@@ -866,3 +877,20 @@ def test_one_familys_copy_alone_and_identical_copies_are_written_once() -> None:
             "Retained"
         ) == 1
     assert _children(serialize_gpp(both)[TASKS_FILE])[0] == ("Retained", "r")
+
+
+def test_a_colliding_order_is_refused_on_write_as_well_as_on_load() -> None:
+    """Nothing is stored or written that would not load again (review N1)."""
+    collection = replace(
+        _collection(SCHED, "computer"),
+        scheduled_tasks=(
+            GppScheduledTask(name="a", document_position=0),
+            GppScheduledTask(name="b", document_position=0),
+        ),
+        immediate_tasks=(),
+        source_files={},
+    )
+    with pytest.raises(GppError, match="claimed by both"):
+        serialize_gpp(collection)
+    with pytest.raises(GppError, match="claimed by both"):
+        gpp_collection_to_dict(collection)
