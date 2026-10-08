@@ -14,6 +14,15 @@ the 26 R6 census GPOs, and `is_gpmc_editable` had no oracle. `lifecycle.py`
 gets a same-domain lane, then a restore-plan surface; its cross-domain half is
 out of scope until the estate has a second domain or a trust.
 
+**2026-10-07 (Plan 034):** `lifecycle.py` reworked for the same-domain exit:
+a `manifest_from_backup` bridge from real `Backup-GPO` output, modes named after
+the cmdlets they mean, and a `SCOPE_SURVIVAL` table of *predictions*. The
+lifecycle state machine and the duplicate migration table were deleted. A lane
+that measures every survival cell is built but **not yet run**, so the layer is
+still not surfaced and not Windows-verified. See
+[`docs/plan-033/lifecycle-lane-design.md`](../docs/plan-033/lifecycle-lane-design.md).
+The cross-domain half is out of scope (ruling 2026-10-07).
+
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane
 certifies it, and every layer examined so far has needed correction. See

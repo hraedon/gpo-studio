@@ -137,8 +137,9 @@ def _predict(operation: WindowsOperation) -> Mapping[ScopeDimension, Survival]:
     predicted to move it. **The description cells for both imports are the
     least certain** -- whether ``Import-GPO`` writes ``GPO.cmt`` (and whether
     ``Get-GPO`` reads the description from it) has not been observed here. The
-    ``copy`` WMI cell (same-domain copy keeps the link) is the next least
-    certain.
+    WMI cells of both copies (same-domain copy keeps the link) are next, then
+    ``import_as_new``'s DACL (a GPO created by ``-CreateIfNeeded`` gets the
+    ``New-GPO`` default rather than the backup's DACL).
     """
     match operation:
         case "restore_in_place":
