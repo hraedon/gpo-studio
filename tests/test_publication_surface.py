@@ -423,9 +423,9 @@ def _refused_checks(gpo: GPO, target: str) -> set[str]:
                             GppRegistry(
                                 key="Software\\Synthetic",
                                 # GPP Registry's extension pair is measured
-                                # since batch 2; a Delete item's wire form is
-                                # not (WI-075), so it is what refuses now.
-                                value=GppRegistryValue(name="V", value="x", action="delete"),
+                                # since batch 2; a default-value item's wire
+                                # form is not (WI-075), so it is what refuses.
+                                value=GppRegistryValue(name="", value="x", default=True),
                             ),
                         ),
                     ),

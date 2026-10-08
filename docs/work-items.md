@@ -3063,11 +3063,20 @@ the WP-1B lane gains a `gppregistry-both` candidate and GPP Registry items in
 `mixed-all`, and its GPMC report markers are now namespace-qualified because
 Registry.pol and GPP Registry share the local name `RegistrySettings`).
 
+**Measured by the revision-2 capture** (2026-10-08,
+`tests/fixtures/native-gpp-gpmc/WI01A-RegistryShapes-GPMC`, from
+`scripts/plan-033/capture-gpp-registry-native.ps1`): a Delete item (`image="3"`,
+its type and value kept), REG_BINARY (bytes CA FE 00 01 as `CAFE0001`) and a
+key-only item (`name`/`status` = the key; `<Properties name="" type="REG_SZ"
+value="">`). Studio writes and reads all three in that form, they export and
+publish, and the WP-1B `gppregistry-both` candidate carries one of each. Their
+combinations with other types or actions are composed from those measured parts.
+
 **Still refused, unmeasured** (`unmeasured_gpp_registry_shape`, export and
-publication alike): Delete items (the capture's Delete failed to author), REG_BINARY
-values, key-only items and default-value items.
-`scripts/plan-033/capture-gpp-registry-native.ps1` (revision 2) authors each of
-them for the operator to run. Inferred rather than measured, and recorded so
+publication alike): default-value items. The revision-2 script tried one and
+the GroupPolicy module refused it ("A parameter cannot be found that matches
+parameter name 'Default'"); measuring one needs another authoring path (the
+GPMC editor). Inferred rather than measured, and recorded so
 it is not mistaken for evidence: the user-side zero-GUID group
 `[{00000000-…}{BEE07A6A-…}]` (the cmdlet wrote none; the live census shows it on
 a machine side only, GPMC-editor-authored); and the BOM, which Studio omits as
@@ -3089,5 +3098,5 @@ publication and scripts-metadata lanes (whose bound `export.py`/`gpp.py`
 changed) and the object-security lane (whose bound `object_security.py`
 changed, review N7) pass at that commit, and the capability matrix GPP Registry
 and GPMC backup export rows are moved from "fixed, awaiting batch-2
-requalification" to their certified wording. The unmeasured shapes above may
+requalification" to their certified wording. The unmeasured shape above may
 stay refused at closure; each one lifted needs the revision-2 capture first.

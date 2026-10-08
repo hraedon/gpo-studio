@@ -997,7 +997,9 @@ def test_key_only_registry_round_trip() -> None:
     assert len(reparsed) == 1
     rval = reparsed[0].value
     assert rval.name == ""
-    assert rval.registry_type == ""
+    # Windows types a key-only item REG_SZ on the wire
+    # (WI01A-RegistryShapes-GPMC), so that is what comes back.
+    assert rval.registry_type == "REG_SZ"
     assert rval.value == ""
 
 

@@ -213,21 +213,19 @@ def test_gpp_groups_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:
         assert orig.description == imp.description
 
 
-def test_gpp_registry_unmeasured_shapes_refuse_the_gpmc_backup() -> None:
-    """The fixture carries a REG_BINARY value and a Delete item (WI-075).
+def test_gpp_registry_all_actions_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:
+    """All four actions and a REG_BINARY value: every shape is measured (WI-075).
 
-    The GPP Registry extension pair is measured since batch 2, so the family no
-    longer refuses as a whole; those two item shapes have no capture and still
-    do, each named.
+    The binary value is written in the measured form (upper-case hex, no
+    separators); the fixture already authors it that way.
     """
     gpo = fixture_gpp_registry_all_actions()
-    with pytest.raises(ValidationError) as exc_info:
-        gpmc_backup_bundle(gpo)
-    codes = [issue.code for issue in exc_info.value.issues]
-    assert codes == ["unmeasured_gpp_registry_shape"]
-    message = exc_info.value.issues[0].message
-    assert "REG_BINARY" in message
-    assert "the Delete action" in message
+    collection = gpo.gpp_collections[0]
+    backup_dir = _extract_backup_zip(gpmc_backup_bundle(gpo), tmp_path / "all_actions")
+    got = _import_backup_to_gpo(backup_dir).gpp_collections[0].registry
+    assert [(r.hive, r.key, replace(r.value, id="")) for r in got] == [
+        (r.hive, r.key, r.value) for r in collection.registry
+    ]
 
 
 def test_gpp_registry_measured_shapes_roundtrip_through_gpmc_backup(tmp_path: Path) -> None:

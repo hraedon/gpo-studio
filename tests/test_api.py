@@ -3212,8 +3212,9 @@ def test_wi046_a_gpp_registry_gpo_advertises_the_gpmc_backup_refusal(tmp_path) -
     1.0, refused by the backup, unseen by `validate_gpo` and `preserved_files`.
 
     Batch 2 measured the GPP Registry extension pair (WI01A-Registry-GPMC), so a
-    measured item shape now exports. A Delete item has no capture (WI-075), so
-    it refuses -- and the advertisement must follow the refusal both ways.
+    measured item shape now exports. A default-value item has no capture -- the
+    GroupPolicy module cannot author one (WI-075) -- so it refuses, and the
+    advertisement must follow the refusal both ways.
     """
     store = WorkspaceStore(tmp_path / "api.db")
     app.state.store = store
@@ -3260,13 +3261,13 @@ def test_wi046_a_gpp_registry_gpo_advertises_the_gpmc_backup_refusal(tmp_path) -
 
         revision = added["gpo"]["revision"]  # type: ignore[index]
         add(
-            {"name": "Gone", "value": "x", "registry_type": "REG_SZ", "action": "delete"},
+            {"name": "", "value": "x", "registry_type": "REG_SZ", "default": True},
             revision,
         )
         after = client.get(f"/api/gpos/{gpo['guid']}").json()["artifact_capabilities"]
         assert after["gpmc_export"]["enabled"] is False
         assert "capture" in after["gpmc_export"]["reason"]
-        assert "the Delete action" in after["gpmc_export"]["reason"]
+        assert "a default-value item" in after["gpmc_export"]["reason"]
 
         refused = client.get(f"/api/gpos/{gpo['guid']}/gpmc-backup")
         assert refused.status_code == 422

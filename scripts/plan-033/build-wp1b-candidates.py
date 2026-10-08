@@ -98,13 +98,15 @@ SERVICE = GppService(
     timeout_seconds=45,
     id="{9B1DE5C0-0000-4000-8000-0000000000A4}",
 )
-# GPP Registry (batch 2). Only shapes the 2026-10-08 native capture measured
-# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC): named values of every
-# measured type under Create, Replace and Update, on both sides. The values are
-# chosen to make a wrong encoding visible: 3000000000 is 0xB2D05E00 (hex
-# letters, above 2**31, and not a decimal string of 8 digits), and the QWORD
-# needs all sixteen digits. The native export refuses Delete, REG_BINARY,
-# key-only and default-value items until a capture measures them (WI-075).
+# GPP Registry (batch 2). Only shapes the 2026-10-08 native captures measured
+# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC and
+# WI01A-RegistryShapes-GPMC): named values of all six types, all four action
+# codes, and a key-only item, on both sides. The values are chosen to make a
+# wrong encoding visible: 3000000000 is 0xB2D05E00 (hex letters, above 2**31,
+# and not a decimal string of 8 digits), the QWORD needs all sixteen digits,
+# and the binary value has a zero byte and hex letters. The key-only item is
+# typed REG_SZ, as Windows writes it. The native export still refuses a
+# default-value item (the GroupPolicy module cannot author one, WI-075).
 GPP_REGISTRY_KEY = r"Software\GPOStudio\WP1B\GppRegistry"
 
 
@@ -134,6 +136,14 @@ GPP_REGISTRY_MACHINE = (
     _gpp_registry("B2", "HKEY_LOCAL_MACHINE", "WP1BDword", "REG_DWORD", 3000000000, "update"),
     _gpp_registry(
         "B3", "HKEY_LOCAL_MACHINE", "WP1BExpand", "REG_EXPAND_SZ", r"%SystemRoot%\wp1b", "replace"
+    ),
+    _gpp_registry("B6", "HKEY_LOCAL_MACHINE", "WP1BDelete", "REG_SZ", "wp1b-gone", "delete"),
+    _gpp_registry("B7", "HKEY_LOCAL_MACHINE", "WP1BBinary", "REG_BINARY", "CAFE00B1", "create"),
+    GppRegistry(
+        key=GPP_REGISTRY_KEY + r"\KeyOnly",
+        hive="HKEY_LOCAL_MACHINE",
+        uid="{9B1DE5C0-0000-4000-8000-0000000000B8}",
+        value=GppRegistryValue(name="", value="", registry_type="REG_SZ", action="update"),
     ),
 )
 GPP_REGISTRY_USER = (

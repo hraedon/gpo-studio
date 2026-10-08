@@ -472,8 +472,8 @@ def generate_publication_plan(
     # makes them necessary was written to SYSVOL.
     registration = extension_registration(gpo)
     # A registered family can still carry an item whose own wire form no
-    # capture backs (WI-075: a GPP Registry Delete, REG_BINARY, key-only or
-    # default-value item). The SYSVOL step above would publish that inferred
+    # capture backs (WI-075: a GPP Registry default-value item, which the
+    # GroupPolicy module cannot author). The SYSVOL step above would publish that inferred
     # form, so refuse by the same rule the native backup export uses.
     if registration.unmeasured_shapes:
         steps.append(

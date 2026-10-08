@@ -52,11 +52,15 @@ from gpo_studio.writer_conformance import (
 
 CAPTURE = Path(__file__).parent / "fixtures" / "native-gpp-gpmc" / "WI01A-Registry-GPMC"
 CONTENT_ROOT = next(CAPTURE.glob("*/DomainSysvol/GPO"))
+#: The revision-2 capture: Delete, REG_BINARY and key-only items besides the
+#: revision-1 five.
+SHAPES = CAPTURE.parent / "WI01A-RegistryShapes-GPMC"
+SHAPES_ROOT = next(SHAPES.glob("*/DomainSysvol/GPO"))
 KEY = r"Software\GPOStudio\GppRegistry"
 
 #: What the capture script asked Windows to author (its ``$items`` table), by
-#: side. The Delete item is absent: it failed to author (capture.json), which is
-#: why the Delete wire form is still unmeasured.
+#: side. The Delete item is absent: it failed to author in revision 1
+#: (capture.json); revision 2 (SHAPES, below) measured it.
 AUTHORED: dict[str, list[tuple[str, str, str | int | list[str], str, str]]] = {
     "Machine": [
         ("CreateString", "REG_SZ", "alpha", "create", "C"),
@@ -231,13 +235,16 @@ def test_out_of_range_numbers_are_refused_by_the_writer(registry_type: str, valu
 
 
 def test_image_codes_follow_the_measured_actions() -> None:
-    """C/R/U images read straight off the native items; Delete has none (WI-075)."""
+    """Every action's image read straight off the native items of both captures."""
     measured = {
         native.find("Properties").attrib["action"]: native.attrib["image"]  # type: ignore[union-attr]
+        for root in (CONTENT_ROOT, SHAPES_ROOT)
         for side in ("Machine", "User")
-        for native in _native_items(side)
+        for native in ET.fromstring(
+            (root / side / "Preferences" / "Registry" / "Registry.xml").read_bytes()
+        )
     }
-    assert measured == {"C": "0", "U": "2", "R": "1"}
+    assert measured == {"C": "0", "U": "2", "R": "1", "D": "3"}
     for action, code in (("create", "C"), ("replace", "R"), ("update", "U"), ("delete", "D")):
         reg = GppRegistry(key=KEY, value=GppRegistryValue(name="N", value="v", action=action))  # type: ignore[arg-type]
         elem = ET.fromstring(
@@ -257,7 +264,7 @@ def test_bom_follows_the_gpmc_editor_corpus_not_the_cmdlet() -> None:
     editor_files = [
         path
         for path in CAPTURE.parent.glob("*/*/DomainSysvol/GPO/*/Preferences/*/*.xml")
-        if CAPTURE not in path.parents
+        if CAPTURE not in path.parents and SHAPES not in path.parents
     ]
     assert editor_files
     assert not any(path.read_bytes().startswith(b"\xef\xbb\xbf") for path in editor_files)
@@ -407,22 +414,152 @@ def test_extension_registration_states_the_pair_for_the_planner() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unmeasured item shapes: refused by the export and the planner alike
+# Revision-2 capture: Delete, REG_BINARY and key-only (WI01A-RegistryShapes-GPMC)
 # ---------------------------------------------------------------------------
 
-UNMEASURED: dict[str, GppRegistryValue] = {
-    "delete": GppRegistryValue(name="Gone", value="x", action="delete"),
-    "binary": GppRegistryValue(name="Bin", value="CAFE", registry_type="REG_BINARY"),
-    "key-only": GppRegistryValue(name="", value="", registry_type=""),
-    "default": GppRegistryValue(name="", value="d", default=True),
-}
+#: The revision-2 script's Machine items that authored, in file order. Its
+#: default-value item did not: "A parameter cannot be found that matches
+#: parameter name 'Default'" (capture.json), so that shape stays unmeasured.
+SHAPES_MACHINE: list[tuple[str, str, str, str | int | list[str], str]] = [
+    (KEY, "CreateString", "REG_SZ", "alpha", "create"),
+    (KEY, "UpdateDword", "REG_DWORD", 42, "update"),
+    (KEY, "ReplaceExpand", "REG_EXPAND_SZ", "%SystemRoot%\\x", "replace"),
+    (KEY, "DeleteMe", "REG_SZ", "gone", "delete"),
+    # Authored as [byte[]](0xCA,0xFE,0x00,0x01).
+    (KEY, "CreateBinary", "REG_BINARY", "CAFE0001", "create"),
+    # Authored with -Key alone and -Action Update.
+    (KEY + "\\KeyOnly", "", "REG_SZ", "", "update"),
+]
 
 
-@pytest.mark.parametrize("shape", sorted(UNMEASURED))
-def test_unmeasured_shapes_refuse_native_export_and_publication(shape: str) -> None:
-    reg = GppRegistry(key=KEY, value=UNMEASURED[shape])
+def _shapes_bytes(side: str) -> bytes:
+    return (SHAPES_ROOT / side / "Preferences" / "Registry" / "Registry.xml").read_bytes()
+
+
+def _shapes_model() -> tuple[GppRegistry, ...]:
+    natives = list(ET.fromstring(_shapes_bytes("Machine")))
+    return tuple(
+        GppRegistry(
+            key=key,
+            hive="HKEY_LOCAL_MACHINE",
+            uid=native.attrib["uid"],
+            value=GppRegistryValue(
+                name=name, value=value, registry_type=reg_type, action=action  # type: ignore[arg-type]
+            ),
+            unknown_attrs=(("changed", native.attrib["changed"]),),
+        )
+        for (key, name, reg_type, value, action), native in zip(
+            SHAPES_MACHINE, natives, strict=True
+        )
+    )
+
+
+def test_revision_2_authoring_record() -> None:
+    capture = json.loads((SHAPES / "capture.json").read_text(encoding="utf-8-sig"))
+    outcome = {row["value"]: row["ok"] for row in capture["authoring"]}
+    assert outcome == {
+        "CreateString": True, "UpdateDword": True, "ReplaceExpand": True,
+        "UserMulti": True, "UserQword": True, "DeleteMe": True,
+        "CreateBinary": True, "key-only": True, "default-value": False,
+    }
+    client, tool = _GPP_EXTENSION_PROFILES["Registry"]
+    assert capture["ad"]["machine"] == capture["ad"]["user"] == f"[{client}{tool}]"
+
+
+def test_revision_2_native_bytes_parse_to_what_was_authored() -> None:
+    parsed = parse_gpp_registry(_shapes_bytes("Machine"))
+    got = [
+        (r.key, r.value.name, r.value.registry_type, r.value.value, r.value.action)
+        for r in parsed
+    ]
+    assert got == SHAPES_MACHINE
+
+
+def test_writer_matches_the_revision_2_items_from_an_authored_model() -> None:
+    studio = serialize_gpp_registry(GppCollection(scope="computer", registry=_shapes_model()))
+    _assert_same_element(ET.fromstring(studio), ET.fromstring(_shapes_bytes("Machine")))
+
+
+@pytest.mark.parametrize("side", ["Machine", "User"])
+def test_writer_matches_the_revision_2_items_after_an_import_and_edit(side: str) -> None:
+    collection = parse_gpp_collection(
+        SCOPE[side],  # type: ignore[arg-type]
+        {"Registry/Registry.xml": _shapes_bytes(side)},
+    )
+    studio = serialize_gpp(mark_edited(collection))["Registry/Registry.xml"]
+    _assert_same_element(ET.fromstring(studio), ET.fromstring(_shapes_bytes(side)))
+
+
+def test_a_key_only_item_with_studios_empty_type_is_written_as_windows_types_it() -> None:
+    """Studio's model also allows ``registry_type=""`` for a key-only item."""
+    native = list(ET.fromstring(_shapes_bytes("Machine")))[-1]
+    reg = replace(
+        _shapes_model()[-1],
+        value=GppRegistryValue(name="", value="", registry_type="", action="update"),
+    )
+    elem = ET.fromstring(
+        serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
+    )[0]
+    _assert_same_element(elem, native)
+
+
+@pytest.mark.parametrize("authored", ["CAFE0001", "ca fe 00 01", "CA FE 00 01", "cafe0001"])
+def test_binary_is_written_as_windows_wrote_it(authored: str) -> None:
+    """Measured: bytes CA FE 00 01 are ``CAFE0001`` -- upper case, no separators."""
+    reg = GppRegistry(
+        key=KEY,
+        value=GppRegistryValue(name="B", value=authored, registry_type="REG_BINARY"),
+    )
+    props = ET.fromstring(
+        serialize_gpp_registry(GppCollection(scope="computer", registry=(reg,)))
+    ).find("Registry/Properties")
+    assert props is not None
+    native = list(ET.fromstring(_shapes_bytes("Machine")))[4].find("Properties")
+    assert native is not None
+    assert props.attrib["value"] == native.attrib["value"] == "CAFE0001"
+
+
+@pytest.mark.parametrize("value", ["CAFE0", "CA FE", "CAFG"])
+def test_binary_that_is_not_whole_hex_bytes_is_refused_on_read(value: str) -> None:
+    with pytest.raises(GppError):
+        parse_gpp_registry(_one(f'type="REG_BINARY" value="{value}"/>'))
+
+
+def test_revision_2_report_and_backup_agree_through_studio() -> None:
+    differences = compare_preferences(
+        summary_from_backup(SHAPES_ROOT),
+        summary_from_gpmc_report(SHAPES / "gpreport-verify.xml"),
+    )
+    assert differences == (), [d.describe() for d in differences]
+
+
+# ---------------------------------------------------------------------------
+# Measured shapes export; the one unmeasured shape is refused everywhere
+# ---------------------------------------------------------------------------
+
+
+def test_every_revision_2_shape_exports_and_publishes(tmp_path: Path) -> None:
+    gpo = _gpo(GppCollection(scope="computer", registry=_shapes_model()))
+    assert native_backup_refusal(gpo) is None
+    assert extension_registration(gpo).unmeasured_shapes == ()
+    plan = generate_publication_plan(gpo)
+    assert not any(step.operation == "unsupported_gpp_registry_shape" for step in plan.steps)
+    with zipfile.ZipFile(io.BytesIO(gpmc_backup_bundle(gpo))) as archive:
+        archive.extractall(tmp_path)
+    content_root = next(tmp_path.glob("*/DomainSysvol/GPO"))
+    assert summary_from_backup(content_root) == summary_from_gpo(gpo)
+
+
+DEFAULT_VALUE = GppRegistryValue(name="", value="d", default=True)
+
+
+def test_a_default_value_item_refuses_native_export_and_publication() -> None:
+    """The GroupPolicy module cannot author one, so its wire form is unknown."""
+    reg = GppRegistry(key=KEY, value=DEFAULT_VALUE)
     gpo = _gpo(GppCollection(scope="computer", registry=(reg,)))
-    assert len(gpp_registry_unmeasured_shapes(gpo.gpp_collections[0])) == 1
+    assert gpp_registry_unmeasured_shapes(gpo.gpp_collections[0]) == (
+        f"computer HKEY_LOCAL_MACHINE\\{KEY}: a default-value item",
+    )
 
     refusal = native_backup_refusal(gpo)
     assert refusal is not None
@@ -499,11 +636,11 @@ def test_an_imported_display_radix_is_preserved_in_place() -> None:
 def test_validation_error_lists_every_refusal_reason() -> None:
     """Two unmeasured items in one GPO are both named, not just the first."""
     gpo = _gpo(GppCollection(scope="computer", registry=(
-        GppRegistry(key=KEY, value=UNMEASURED["delete"]),
-        GppRegistry(key=KEY, value=UNMEASURED["binary"]),
+        GppRegistry(key=KEY + "\\One", value=DEFAULT_VALUE),
+        GppRegistry(key=KEY + "\\Two", value=DEFAULT_VALUE),
     )))
     with pytest.raises(ValidationError) as caught:
         gpmc_backup_bundle(gpo)
     message = caught.value.issues[0].message
-    assert "the Delete action" in message
-    assert "REG_BINARY" in message
+    assert "One: a default-value item" in message
+    assert "Two: a default-value item" in message

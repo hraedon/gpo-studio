@@ -172,12 +172,13 @@ _REGISTRY_VALUE_RESERVED_ATTRS = frozenset({
 })
 
 # GPP Registry wire forms with a Windows capture behind them
-# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC, 2026-10-08). Anything
-# outside these is written by inference and is refused by the native backup
-# export and the publication planner (`gpp_registry_unmeasured_shapes`) until a
-# capture measures it (WI-075).
+# (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC and
+# WI01A-RegistryShapes-GPMC, 2026-10-08). Anything outside these is written by
+# inference and is refused by the native backup export and the publication
+# planner (`gpp_registry_unmeasured_shapes`) until a capture measures it
+# (WI-075).
 _MEASURED_GPP_REGISTRY_TYPES = frozenset({
-    "REG_SZ", "REG_EXPAND_SZ", "REG_DWORD", "REG_QWORD", "REG_MULTI_SZ",
+    "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_QWORD", "REG_MULTI_SZ",
 })
 _GPP_REGISTRY_HEX_WIDTH = {"REG_DWORD": 8, "REG_QWORD": 16}
 
@@ -334,11 +335,11 @@ def _code_to_registry_action(code: str) -> GppRegistryAction:
 def _registry_action_image(action: GppRegistryAction) -> str | None:
     """The ``image`` GPMC writes on <Registry> for *action*, or ``None``.
 
-    ``image`` is the editor's icon index. C/R/U were measured on the Registry
-    family itself (WI01A-Registry-GPMC: ``C``→0, ``R``→1, ``U``→2). Delete was
-    not: the capture's Delete item failed to author, and although Drive Maps
-    writes ``image="3"`` for its Delete item, that is another family. Nothing
-    is written for Delete rather than borrowing that value (WI-075).
+    ``image`` is the editor's icon index, measured on the Registry family
+    itself: ``C``→0, ``R``→1, ``U``→2 (WI01A-Registry-GPMC) and ``D``→3
+    (WI01A-RegistryShapes-GPMC, the revision-2 capture's DeleteMe item). Every
+    action has one, so ``None`` is never returned today; the optional return
+    stays so an unmeasured action added later cannot borrow a value.
     """
     match action:
         case "create":
@@ -348,7 +349,7 @@ def _registry_action_image(action: GppRegistryAction) -> str | None:
         case "update":
             return "2"
         case "delete":
-            return None
+            return "3"
         case _:
             assert_never(action)
 
@@ -711,6 +712,9 @@ def _registry_wire_value(value: GppRegistryValue) -> str:
     REG_MULTI_SZ is its strings joined by single spaces -- lossy, which is why
     the writer also emits the authoritative <Values> list. Before batch 2
     Studio wrote decimal and ``;``-joined strings, a form no capture backs.
+    REG_BINARY is its bytes as upper-case hex with no separators (bytes
+    CA FE 00 01 → ``CAFE0001``, WI01A-RegistryShapes-GPMC); Studio's model
+    allows spaces between bytes, which are dropped.
     """
     raw = value.value
     width = _GPP_REGISTRY_HEX_WIDTH.get(value.registry_type)
@@ -726,6 +730,13 @@ def _registry_wire_value(value: GppRegistryValue) -> str:
         if not isinstance(raw, list):
             raise GppError("REG_MULTI_SZ value must be a list of strings")
         return " ".join(raw)
+    if value.registry_type == "REG_BINARY":
+        if not isinstance(raw, str):
+            raise GppError("REG_BINARY value must be a hexadecimal string")
+        try:
+            return bytes.fromhex(raw.replace(" ", "")).hex().upper()
+        except ValueError as error:
+            raise GppError(f"Invalid REG_BINARY value {raw!r}: {error}") from error
     if isinstance(raw, list):
         return ";".join(raw)
     return str(raw)
@@ -741,9 +752,11 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
     (tests/fixtures/native-gpp-gpmc/WI01A-Registry-GPMC): ``clsid name status
     image changed uid`` and the common options on <Registry>; ``action
     displayDecimal default hive key name type value`` on <Properties>. The
-    item ``name`` (and ``status``) is the VALUE name, as GPMC writes it; a
-    key-only or default item, whose display name no capture shows, falls back
-    to the key.
+    item ``name`` (and ``status``) is the VALUE name, as GPMC writes it; for a
+    key-only item it is the key (measured, WI01A-RegistryShapes-GPMC), whose
+    <Properties> carry ``name=""``, ``type="REG_SZ"`` and ``value=""``. A
+    default-value item uses the key too, unmeasured -- the module cannot author
+    one -- and is refused for native output (`gpp_registry_unmeasured_shapes`).
     """
     hive = _normalize_hive(reg.hive)
     value = reg.value
@@ -780,7 +793,10 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
     props.set("hive", hive)
     props.set("key", reg.key)
     props.set("name", value.name)
-    props.set("type", value.registry_type)
+    # A key-only item is typed REG_SZ on the wire (measured); Studio's model
+    # also allows the empty type for it.
+    is_key_only = not value.name and not value.default
+    props.set("type", value.registry_type or ("REG_SZ" if is_key_only else ""))
     props.set("value", _registry_wire_value(value))
     _apply_unknown_attrs(
         props, tuple(p for p in value.unknown_attrs if p[0] != "displayDecimal")
@@ -1048,6 +1064,15 @@ def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
         value = _parse_registry_number(raw, reg_type)
     elif reg_type == "REG_MULTI_SZ":
         value = _parse_registry_multi_sz(props, raw)
+    elif reg_type == "REG_BINARY":
+        # Measured: upper-case hex, no separators (WI01A-RegistryShapes-GPMC).
+        # Case is tolerated; anything that is not whole bytes of hex is not.
+        if len(raw) % 2 or any(ch not in "0123456789abcdefABCDEF" for ch in raw):
+            raise GppError(
+                f"Invalid REG_BINARY value {raw!r}: GPMC writes whole bytes as "
+                "hexadecimal digits with no separators"
+            )
+        value = raw
     else:
         value = raw
     if reg_type != "REG_MULTI_SZ":
@@ -1996,12 +2021,16 @@ def _adapters_from_dict(data: dict[str, Any]) -> dict[str, Any]:
 def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]:
     """GPP Registry items whose native wire form no Windows capture backs.
 
-    The 2026-10-08 capture (WI01A-Registry-GPMC) measured named values of
-    REG_SZ, REG_EXPAND_SZ, REG_DWORD, REG_QWORD and REG_MULTI_SZ under the
-    Create, Replace and Update actions. A Delete item, a REG_BINARY value, a
-    key-only item and a default-value item were not measured, so emitting one
-    into a native backup or a publication would put an inferred form on the
-    wire. They are listed here so both refuse them by the same rule (WI-075).
+    The two 2026-10-08 captures (WI01A-Registry-GPMC, WI01A-RegistryShapes-GPMC)
+    measured named values of all six types, all four action codes, and a
+    key-only item. A default-value item was NOT measured: the GroupPolicy
+    module has no ``-Default`` parameter, so the capture could not author one.
+    Emitting it into a native backup or a publication would put an inferred
+    form on the wire, so both refuse it by this one rule (WI-075).
+
+    The action code, value encoding and key-only form were each measured on
+    their own; combinations the captures did not hold together (a Delete of a
+    REG_DWORD, say) are composed from those measured parts, not refused.
     """
     shapes: list[str] = []
     for reg in collection.registry:
@@ -2011,13 +2040,9 @@ def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]
             shapes.append(f"{where}: a default-value item")
             continue
         if not value.name:
-            shapes.append(f"{where}: a key-only item")
-            continue
-        where = f"{where} value {value.name!r}"
+            continue  # key-only: measured
         if value.registry_type not in _MEASURED_GPP_REGISTRY_TYPES:
-            shapes.append(f"{where}: {value.registry_type or 'untyped'}")
-        if value.action == "delete":
-            shapes.append(f"{where}: the Delete action")
+            shapes.append(f"{where} value {value.name!r}: {value.registry_type or 'untyped'}")
     return tuple(shapes)
 
 

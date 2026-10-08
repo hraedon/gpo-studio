@@ -23,11 +23,15 @@ Current version: `1.0.0`.
   bytes in `tests/test_gpp_registry_native.py`), the pair is registered in
   `export._GPP_EXTENSION_PROFILES` (the one source for the backup, the
   publication planner and `EMITTED_EXTENSION_GUIDS`), and pre-batch-2 stored
-  imports are re-typed on load. Delete, REG_BINARY, key-only and default-value
+  imports are re-typed on load. A revision-2 capture
+  (`tests/fixtures/native-gpp-gpmc/WI01A-RegistryShapes-GPMC`, from
+  `scripts/plan-033/capture-gpp-registry-native.ps1`) measured Delete
+  (`image="3"`), REG_BINARY (upper-case hex, no separators) and key-only items
+  (named by the key, typed `REG_SZ`), so they export and publish. Default-value
   items stay refused (`unmeasured_gpp_registry_shape`) by the export and the
-  planner until `scripts/plan-033/capture-gpp-registry-native.ps1` (revision 2)
-  measures them. The decimal and `;`-joined forms Studio wrote before batch 2
-  are refused on read.
+  planner: the GroupPolicy module has no `-Default` parameter, so nothing
+  measured them. The decimal and `;`-joined forms Studio wrote before batch 2,
+  and REG_BINARY that is not whole hex bytes, are refused on read.
 - **WP-1B lane:** new `gppregistry-both` candidate and GPP Registry items in
   `mixed-all`; GPMC report markers are namespace-qualified, since Registry.pol
   and GPP Registry both render as `RegistrySettings`. Live verdicts for the

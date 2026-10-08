@@ -167,7 +167,7 @@ def test_invalid_retained_inventory_is_refused(invalid: object) -> None:
 
 
 def test_inventory_replay_has_real_windows_coverage() -> None:
-    assert len(BACKUPS) == 28
+    assert len(BACKUPS) == 29
     assert all(p.exists() for p in BACKUPS)
 
 

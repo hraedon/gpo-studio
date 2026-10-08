@@ -306,8 +306,11 @@ attributes on `<RegistrySettings>`, and unknown root children (e.g. nested
   export *refused* every GPO with a GPP Registry item, a narrowing of the 1.0
   contract this row used to hide (WI-075). The WP-1B lane now carries a GPP
   Registry candidate; the row is not `verified` until that lane passes.
-  Still refused, because no capture measured their wire form: Delete items,
-  REG_BINARY values, key-only items and default-value items
+  A revision-2 capture (`WI01A-RegistryShapes-GPMC`) measured Delete items
+  (`image="3"`, type and value kept), REG_BINARY (upper-case hex, no
+  separators) and key-only items (item name = the key, `type="REG_SZ"`), so
+  those export too. Still refused, because the GroupPolicy module cannot
+  author one and nothing measured it: default-value items
   (`unmeasured_gpp_registry_shape`, also refused by the publication planner).
 - **PowerShell plan &#10007;:** not applied by the plan. GPMC backup export only.
 - **Diff &#10003;:** two-way and three-way, keyed on scope and UID-based
