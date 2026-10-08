@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from gpo_studio import firewall_policy, network_security
 from gpo_studio.model import ValidationIssue
 from gpo_studio.network_security import (
     CertificateTrustEntry,
     FirewallPolicy,
+    FirewallProfileSettings,
     FirewallRule,
     IpsecPolicy,
     IpsecRule,
@@ -20,193 +22,49 @@ _ALT_THUMBPRINT = "fedcba9876543210fedcba9876543210fedcba98"
 
 
 # ---------------------------------------------------------------------------
-# FirewallRule
+# The firewall half: explicit re-exports of firewall_policy (WI-076)
 # ---------------------------------------------------------------------------
 
-
-def test_firewall_rule_valid() -> None:
-    rule = FirewallRule(
-        name="Allow HTTPS inbound",
-        direction="inbound",
-        action="allow",
-        protocol="tcp",
-        local_port="443",
-        remote_address="10.0.0.0/8",
-    )
-    assert rule.validate() == ()
-
-
-def test_firewall_rule_empty_name_error() -> None:
-    rule = FirewallRule(name="")
-    issues = rule.validate()
-    assert any(i.code == "firewall_rule_empty_name" for i in issues)
-    assert any(i.severity == "error" for i in issues)
+_REEXPORTED = (
+    "FirewallAction",
+    "FirewallDirection",
+    "FirewallParseResult",
+    "FirewallPolicy",
+    "FirewallProfile",
+    "FirewallProfileSettings",
+    "FirewallRule",
+    "FirewallValidationError",
+    "UnknownFirewallToken",
+    "from_registry_records",
+    "to_registry_settings",
+)
 
 
-def test_firewall_rule_invalid_port_range() -> None:
-    rule = FirewallRule(
-        name="Bad range",
-        local_port="80-20",
-    )
-    issues = rule.validate()
-    assert any(i.code == "firewall_rule_invalid_local_port" for i in issues)
-    assert all(i.severity == "error" for i in issues if i.code.startswith("firewall_rule_invalid"))
+def test_the_firewall_half_is_the_certified_codec_not_a_lookalike() -> None:
+    """Every firewall name is the codec's own object, by identity."""
+    for name in _REEXPORTED:
+        assert getattr(network_security, name) is getattr(firewall_policy, name), name
+        assert name in network_security.__all__, name
 
 
-def test_firewall_rule_invalid_port_non_numeric() -> None:
-    rule = FirewallRule(
-        name="Bad port",
-        remote_port="abc",
-    )
-    issues = rule.validate()
-    assert any(i.code == "firewall_rule_invalid_remote_port" for i in issues)
+def test_the_legacy_firewall_model_is_gone() -> None:
+    """No second firewall model survives beside the certified one.
+
+    The legacy classes assumed global profile values, protocol names and
+    free-form port strings; keeping them under the same names would let a
+    caller build a policy no lane measured and believe it was the surfaced one.
+    """
+    assert not hasattr(network_security, "FirewallProtocol")
+    assert not hasattr(network_security, "_validate_port_string")
+    assert "FirewallProtocol" not in network_security.__all__
+    assert not hasattr(FirewallPolicy, "domain_profile_enabled")
+    assert not hasattr(FirewallPolicy, "rules_for_profile")
 
 
-def test_firewall_rule_valid_port_range_and_list() -> None:
-    rule = FirewallRule(
-        name="Multi port",
-        local_port="80,443,1024-2048",
-        remote_port="*",
-    )
-    assert all(i.code != "firewall_rule_invalid_local_port" for i in rule.validate())
-    assert all(i.code != "firewall_rule_invalid_remote_port" for i in rule.validate())
-
-
-def test_firewall_rule_broad_inbound_allow_warning() -> None:
-    rule = FirewallRule(
-        name="Allow all inbound",
-        direction="inbound",
-        action="allow",
-        remote_address="*",
-    )
-    issues = rule.validate()
-    assert any(i.code == "firewall_broad_inbound_allow" for i in issues)
-    assert all(i.severity == "warning" for i in issues if i.code == "firewall_broad_inbound_allow")
-
-
-def test_firewall_rule_broad_inbound_allow_not_triggered_for_block() -> None:
-    rule = FirewallRule(
-        name="Block all inbound",
-        direction="inbound",
-        action="block",
-        remote_address="*",
-    )
-    assert all(i.code != "firewall_broad_inbound_allow" for i in rule.validate())
-
-
-def test_firewall_rule_broad_inbound_allow_not_triggered_for_outbound() -> None:
-    rule = FirewallRule(
-        name="Allow all outbound",
-        direction="outbound",
-        action="allow",
-        remote_address="*",
-    )
-    assert all(i.code != "firewall_broad_inbound_allow" for i in rule.validate())
-
-
-def test_firewall_rule_icmp_port_warning() -> None:
-    rule = FirewallRule(
-        name="ICMP rule with port",
-        protocol="icmpv4",
-        local_port="80",
-    )
-    issues = rule.validate()
-    assert any(i.code == "firewall_icmp_port_ignored" for i in issues)
-    assert all(i.severity == "warning" for i in issues if i.code == "firewall_icmp_port_ignored")
-
-
-def test_firewall_rule_icmp_without_port_clean() -> None:
-    rule = FirewallRule(
-        name="ICMP rule clean",
-        protocol="icmpv6",
-    )
-    assert all(i.code != "firewall_icmp_port_ignored" for i in rule.validate())
-
-
-# ---------------------------------------------------------------------------
-# FirewallPolicy
-# ---------------------------------------------------------------------------
-
-
-def test_firewall_policy_all_profiles_disabled_warning() -> None:
-    policy = FirewallPolicy(
-        domain_profile_enabled=False,
-        private_profile_enabled=False,
-        public_profile_enabled=False,
-        logging_enabled=True,
-    )
-    issues = policy.validate()
-    assert any(i.code == "firewall_all_profiles_disabled" for i in issues)
-    assert all(
-        i.severity == "warning"
-        for i in issues
-        if i.code == "firewall_all_profiles_disabled"
-    )
-
-
-def test_firewall_policy_permissive_default_warning() -> None:
-    policy = FirewallPolicy(
-        default_inbound_action="allow",
-        logging_enabled=True,
-    )
-    issues = policy.validate()
-    assert any(i.code == "firewall_permissive_default_inbound" for i in issues)
-
-
-def test_firewall_policy_logging_disabled_warning() -> None:
-    policy = FirewallPolicy(logging_enabled=False)
-    issues = policy.validate()
-    assert any(i.code == "firewall_logging_disabled" for i in issues)
-
-
-def test_firewall_policy_valid_clean() -> None:
-    policy = FirewallPolicy(
-        domain_profile_enabled=True,
-        private_profile_enabled=True,
-        public_profile_enabled=True,
-        default_inbound_action="block",
-        logging_enabled=True,
-    )
-    assert policy.validate() == ()
-
-
-def test_firewall_policy_aggregates_rule_issues() -> None:
-    bad_rule = FirewallRule(name="")
-    policy = FirewallPolicy(rules=(bad_rule,), logging_enabled=True)
-    issues = policy.validate()
-    assert any(i.code == "firewall_rule_empty_name" for i in issues)
-
-
-def test_firewall_policy_rules_for_profile() -> None:
-    domain_rule = FirewallRule(name="domain only", profiles=("domain",))
-    public_rule = FirewallRule(name="public only", profiles=("public",))
-    all_rule = FirewallRule(
-        name="all profiles", profiles=("domain", "private", "public")
-    )
-    policy = FirewallPolicy(
-        rules=(domain_rule, public_rule, all_rule), logging_enabled=True
-    )
-
-    domain_rules = policy.rules_for_profile("domain")
-    assert {r.name for r in domain_rules} == {"domain only", "all profiles"}
-
-    private_rules = policy.rules_for_profile("private")
-    assert {r.name for r in private_rules} == {"all profiles"}
-
-    public_rules = policy.rules_for_profile("public")
-    assert {r.name for r in public_rules} == {"public only", "all profiles"}
-
-
-def test_firewall_policy_rules_for_direction() -> None:
-    inbound = FirewallRule(name="in", direction="inbound")
-    outbound = FirewallRule(name="out", direction="outbound")
-    policy = FirewallPolicy(rules=(inbound, outbound), logging_enabled=True)
-
-    inbound_rules = policy.rules_for_direction("inbound")
-    assert {r.name for r in inbound_rules} == {"in"}
-
-    outbound_rules = policy.rules_for_direction("outbound")
-    assert {r.name for r in outbound_rules} == {"out"}
+def test_validate_through_the_facade_is_the_codecs_refusal() -> None:
+    rule = FirewallRule("R1", "unmeasured protocol", protocol=99)
+    assert [i.code for i in rule.validate()] == ["firewall_unmeasured_protocol"]
+    assert FirewallPolicy().validate() == ()
 
 
 # ---------------------------------------------------------------------------
@@ -475,13 +333,18 @@ def test_network_security_family_aggregates_issues() -> None:
 
 
 def _clean_firewall() -> FirewallPolicy:
+    """The measured Domain/Private profile tranche, which the codec accepts."""
     return FirewallPolicy(
-        domain_profile_enabled=True,
-        private_profile_enabled=True,
-        public_profile_enabled=True,
-        default_inbound_action="block",
-        logging_enabled=True,
+        policy_version=545,
+        domain=FirewallProfileSettings(enabled=True, default_inbound_action="block"),
+        private=FirewallProfileSettings(enabled=True, default_inbound_action="block"),
     )
+
+
+def _disabled_firewall() -> FirewallPolicy:
+    """Explicitly off on every profile: unmeasured, so the codec refuses it."""
+    off = FirewallProfileSettings(enabled=False)
+    return FirewallPolicy(policy_version=545, domain=off, private=off, public=off)
 
 
 def _clean_ipsec() -> IpsecPolicy:
@@ -504,28 +367,25 @@ def _clean_pki() -> PublicKeyPolicy:
 
 
 def test_assessment_critical_firewall_off_no_ipsec() -> None:
-    firewall = FirewallPolicy(
-        domain_profile_enabled=False,
-        private_profile_enabled=False,
-        public_profile_enabled=False,
-        logging_enabled=True,
+    assessment = assess_network_security(
+        _disabled_firewall(), IpsecPolicy(), _clean_pki(), NetworkSecurityFamily()
     )
-    ipsec = IpsecPolicy()
-    assessment = assess_network_security(firewall, ipsec, _clean_pki(), NetworkSecurityFamily())
     assert assessment.overall_risk == "critical"
-    assert any(i.code == "firewall_all_profiles_disabled" for i in assessment.firewall_issues)
+    assert assessment.firewall_issues, "an explicit False is unmeasured and refused"
+
+
+def test_assessment_unconfigured_profiles_are_not_disabled() -> None:
+    """`None` means not configured (local default on), never "off"."""
+    assessment = assess_network_security(
+        FirewallPolicy(), IpsecPolicy(), _clean_pki(), NetworkSecurityFamily()
+    )
+    assert assessment.overall_risk == "low"
 
 
 def test_assessment_critical_firewall_off_with_ipsec_not_critical() -> None:
     """Firewall disabled but IPsec present → not critical (IPsec mitigates)."""
-    firewall = FirewallPolicy(
-        domain_profile_enabled=False,
-        private_profile_enabled=False,
-        public_profile_enabled=False,
-        logging_enabled=True,
-    )
     assessment = assess_network_security(
-        firewall, _clean_ipsec(), _clean_pki(), NetworkSecurityFamily()
+        _disabled_firewall(), _clean_ipsec(), _clean_pki(), NetworkSecurityFamily()
     )
     assert assessment.overall_risk != "critical"
 
@@ -562,12 +422,7 @@ def test_assessment_high_weak_network_encryption() -> None:
 
 def test_assessment_high_error_present() -> None:
     firewall = FirewallPolicy(
-        rules=(FirewallRule(name=""),),
-        domain_profile_enabled=True,
-        private_profile_enabled=True,
-        public_profile_enabled=True,
-        default_inbound_action="block",
-        logging_enabled=True,
+        policy_version=545, rules=(FirewallRule("R1", "unmeasured", protocol=99),)
     )
     assessment = assess_network_security(
         firewall, _clean_ipsec(), _clean_pki(), NetworkSecurityFamily()
@@ -576,17 +431,12 @@ def test_assessment_high_error_present() -> None:
 
 
 def test_assessment_medium_only_warnings() -> None:
-    firewall = FirewallPolicy(
-        domain_profile_enabled=True,
-        private_profile_enabled=True,
-        public_profile_enabled=True,
-        default_inbound_action="block",
-        logging_enabled=False,
-    )
+    pki = PublicKeyPolicy(trusted_roots=(_valid_trusted_root(),))
     assessment = assess_network_security(
-        firewall, _clean_ipsec(), _clean_pki(), NetworkSecurityFamily()
+        _clean_firewall(), _clean_ipsec(), pki, NetworkSecurityFamily()
     )
     assert assessment.overall_risk == "medium"
+    assert assessment.firewall_issues == ()
 
 
 def test_assessment_low_all_clean() -> None:
@@ -607,31 +457,20 @@ def test_assessment_low_all_clean() -> None:
 
 def test_round_trip_full_policy_assessment() -> None:
     firewall = FirewallPolicy(
+        policy_version=545,
+        domain=FirewallProfileSettings(enabled=True, default_inbound_action="block"),
         rules=(
             FirewallRule(
-                name="Allow HTTPS",
-                direction="inbound",
-                action="allow",
-                protocol="tcp",
+                "Allow-HTTPS",
+                "Allow HTTPS",
+                protocol=6,
+                profiles=("domain",),
                 local_port="443",
-                remote_address="10.0.0.0/8",
-                profiles=("domain", "private"),
             ),
             FirewallRule(
-                name="Block telemetry",
-                direction="outbound",
-                action="block",
-                protocol="tcp",
-                remote_port="443",
-                remote_address="0.0.0.0/0",
-                profiles=("domain", "private"),
+                "Block-GRE", "Block GRE", direction="outbound", action="block", protocol=47
             ),
         ),
-        domain_profile_enabled=True,
-        private_profile_enabled=True,
-        public_profile_enabled=False,
-        default_inbound_action="block",
-        logging_enabled=True,
     )
     ipsec = IpsecPolicy(
         rules=(
@@ -677,37 +516,22 @@ def test_round_trip_full_policy_assessment() -> None:
     pki_issues = pki.validate()
     net_issues = networks.validate()
 
-    # Firewall has public profile disabled (a warning) but is otherwise sound.
-    assert all(i.severity != "error" for i in fw_issues)
+    assert fw_issues == ()
     assert ipsec_issues == ()
     assert pki_issues == ()
     assert net_issues == ()
 
     assessment = assess_network_security(firewall, ipsec, pki, networks)
-    assert assessment.overall_risk in ("medium", "low")
+    assert assessment.overall_risk == "low"
     assert assessment.firewall_issues == fw_issues
     assert assessment.ipsec_issues == ipsec_issues
     assert assessment.pki_issues == pki_issues
     assert assessment.network_issues == net_issues
 
-    # rules_for_profile / rules_for_direction work on the constructed policy.
-    domain_rules = firewall.rules_for_profile("domain")
-    assert {r.name for r in domain_rules} == {"Allow HTTPS", "Block telemetry"}
-
-    public_rules = firewall.rules_for_profile("public")
-    assert public_rules == ()
-
-    outbound_rules = firewall.rules_for_direction("outbound")
-    assert {r.name for r in outbound_rules} == {"Block telemetry"}
-
 
 def test_assessment_issues_are_typed() -> None:
     assessment = assess_network_security(
-        FirewallPolicy(
-            domain_profile_enabled=False,
-            private_profile_enabled=False,
-            public_profile_enabled=False,
-        ),
+        _disabled_firewall(),
         IpsecPolicy(),
         PublicKeyPolicy(),
         NetworkSecurityFamily(),

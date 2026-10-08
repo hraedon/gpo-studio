@@ -160,6 +160,10 @@ BANKED_AFTER_THE_BATCH: frozenset[str] = frozenset({
     "wp7-evidence/lifecycle/verification.json",
     # report-parity-20261008104512-7480 at a1c280b (Plan 034 WP-2 items 2-3).
     "wp2-evidence/report-parity/verification.json",
+    # The firewall lane (WI-076) did not exist when the batch froze either. Its
+    # first verdict, `firewall-20261008094055-2092337` at `a6e0002`, was banked
+    # the same day.
+    "wp3-evidence/firewall-20261008/firewall/verification.json",
 })
 
 

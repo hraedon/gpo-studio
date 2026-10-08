@@ -317,6 +317,26 @@
       "oracle": "For each Windows-produced corpus backup: New-GPO, Import-GPO, then a fresh Get-GPOReport -ReportType Xml, whose settings inventory (by side and report family) is compared with Studio's typed import of the same backup; plus one GPO authored on the guest with Set-GPRegistryValue and backed up with Backup-GPO. The expectation is built on the controller and never reaches the guest.",
       "status": "partial",
       "notes": "Qualified 2026-10-08 at a1c280b8a1ec31b03397437dc2e6d947022b4857 by report-parity-20261008104512-7480 (25/25 checks, 27/27 cases plus the authored case). It supersedes the earlier pass at 1a31feb, which stopped binding when the candidate builder's archive order was made platform-independent. Covers the families the corpus exercises: registry (REG_SZ/REG_DWORD), Drive Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks, Services, Shortcuts. Item identity (element, name, uid, action) and order only; preference Properties beyond action, ADMX <Policy> rendering, Scripts, links, security filtering and WMI filters are named exclusions. WI-072 and WI-073 are accepted only as pinned known divergences."
+    },
+    {
+      "lane_id": "firewall-policy-gpmc",
+      "plan_wp": "WP-3",
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "netsecurity",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "Two legs on disposable unlinked GPOs. Read: New-NetFirewallRule/Set-NetFirewallProfile -PolicyStore author the policy and Studio's codec parses Windows' Registry.pol. Write: Import-GPO of Studio's backup, then Windows' Registry.pol is compared byte for byte with the candidate's. Both legs read the policy back through the NetSecurity cmdlets and Get-GPOReport. Endpoint application is outside this lane.",
+      "status": "partial",
+      "notes": "Certified 2026-10-08 at a6e0002dac0d65d6ae2b969a23636bf284061da1 by firewall-20261008094055-2092337 (36/36). The 13 measured rule shapes and the Domain/Private profile tranche parse with zero unrecognised records, Windows returns Studio's Registry.pol unchanged after Import-GPO, and cmdlet readback matches on both legs including six named normalizations. Studio's export registers the Administrative Templates tool GUID (D02B1F72) where native authoring registers the firewall one (B05566AC); GPMC's report rendered the firewall extension for both, and GPME editability was not measured. One build (WS2025 26100) was measured. IPsec, Public Key, wired and wireless policy are out of scope."
     }
   ]
 }

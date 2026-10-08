@@ -9,6 +9,46 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Added the firewall surface (Plan 034, WI-076), over the firewall lane's first
+  certification, `firewall-20261008094055-2092337` (36/36 at `a6e0002`, on
+  LabMS01, WS2025 26100, PowerShell 5.1), now banked under
+  `docs/plan-033/wp3-evidence/firewall-20261008/` and live. Its read leg parses
+  rules Windows authored with `New-NetFirewallRule -PolicyStore` with zero
+  unrecognised records; its write leg imports Studio's backup with
+  `Import-GPO` and gets Studio's Registry.pol back byte for byte. See
+  [the results](docs/plan-033/firewall-results.md).
+  - **Render.** `POST /api/network-security/firewall/render` turns typed rules
+    and per-profile settings into `registry_settings` in the shape
+    `POST /api/gpos/{guid}/settings` accepts, plus the raw rule strings. It
+    writes nothing. Anything outside the measured tranche is a 422 with the
+    codec's issue code. A test holds the output for the certified request
+    equal to the lane builder's, and shows those settings, posted to a GPO and
+    exported, give the Registry.pol Windows returned.
+  - **Decode.** `GET /api/gpos/{guid}/firewall-policy` decodes a GPO's firewall
+    records, imported GPOs included (`empty`, `decoded`, `legacy` or
+    `refused`), with unknown rule tokens preserved and flagged. A test holds
+    the decode of the banked native fixture equal to the finalizer's parse.
+  - Every response carries `policy_store_readback_not_application`,
+    `representative_tranche_only`, `ipsec_pki_wired_wireless_out_of_scope`,
+    `gpme_display_unmeasured` and `single_build_measured`.
+  - **Breaking (unsurfaced module):** `network_security.py`'s legacy
+    `FirewallRule`, `FirewallPolicy` and `FirewallProtocol` are removed; the
+    module re-exports `firewall_policy`'s classes under explicit names, and
+    `assess_network_security` treats the firewall as disabled only when every
+    profile is explicitly `enabled=False`. IPsec, Public Key, wired and
+    wireless stay out of scope for 1.x.
+  - The capability matrix marks the firewall `lane-backed and surfaced`, Plan
+    034's row reaches `yes` for the firewall, and Plan 025 leaves the
+    unsurfaced domain-layer set. WI-076 is closed. WI-077 records the one
+    observation the lane made without asserting: Studio's export registers the
+    `D02B1F72` tool GUID where native authoring registers `B05566AC`; GPMC's
+    report rendered both, and GPME display is unmeasured.
+  - The firewall lane binds the export chain, so with the lifecycle and
+    report-parity lanes also banked, `gpp.py`, `model.py`, `registry_pol.py`
+    and `xml_safety.py` now cost four lanes, `canonical.py`, `export.py` and
+    `validation.py` three, and `publication.py` two (`bound-source-cost.md`
+    regenerated).
+
 - Banked the same-domain lifecycle lane and added its restore-plan surface
   (Plan 034). Run `lifecycle-20261008093248-2000-c76d10eb3f2849fe` passed at
   `3513052` on a clean tree, on LabMS01 (WS2025, PowerShell 5.1). All 30 cells

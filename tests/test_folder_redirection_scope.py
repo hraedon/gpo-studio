@@ -95,4 +95,3 @@ def test_the_writer_half_is_still_deferred_behind_r12() -> None:
         "until R12 measures the Flags encoding (WI-066); if that capture "
         "landed, say so in the decision document and change this test."
     )
-
