@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import zipfile
@@ -200,6 +201,44 @@ def _report_matches(path: Path, owned_id: str, target: str, domain: str) -> bool
     ]
 
 
+_GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+
+
+def _guid(value: object) -> str | None:
+    """*value* as a casefolded bare GUID (bare or balanced braces), else None."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if text.startswith("{") and text.endswith("}"):
+        text = text[1:-1]
+    return text.casefold() if _GUID.fullmatch(text) else None
+
+
+def _nonempty_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _rebackup_identity_matches(rebackup: dict[str, Any], result: dict[str, Any]) -> bool:
+    """The re-backup is of the GPO this run owns, under its own name and domain.
+
+    Every side must be a real value. ``str(x).strip("{}")`` compared an empty
+    owned id with an empty re-backup ID -- and ``str(None)`` with ``str(None)``
+    for the domain -- as a match.
+    """
+    owned = _guid(result.get("owned_gpo_id"))
+    target = _nonempty_str(result.get("target_name"))
+    domain = _nonempty_str(result.get("domain"))
+    return (
+        owned is not None
+        and _guid(rebackup.get("gpo_id")) == owned
+        and target is not None
+        and rebackup.get("display_name") == target
+        and domain is not None
+        and isinstance(rebackup.get("domain"), str)
+        and rebackup["domain"].casefold() == domain.casefold()
+    )
+
+
 def _member(environment: object) -> bool:
     return (
         isinstance(environment, dict)
@@ -242,9 +281,12 @@ def main() -> int:
         "error",
     }
     checks = {
+        # owned_gpo_id keys every ownership check, so it must be a GUID, not
+        # merely present (the guest records null until New-GPO returns).
         "result_schema_exact": set(result) == exact_keys
         and type(result.get("schema_version")) is int
-        and result["schema_version"] == 1,
+        and result["schema_version"] == 1
+        and _guid(result.get("owned_gpo_id")) is not None,
         "import_succeeded": result.get("import_succeeded") is True,
         "report_succeeded": result.get("report_succeeded") is True,
         "disposable_gpo_unlinked": type(result.get("report_links_to_count")) is int
@@ -290,17 +332,17 @@ def main() -> int:
             and sorted(name.casefold() for name in rebackup["wildcard_references"])
             == sorted(name.casefold() for name in _NATIVE_WILDCARDS)
         )
-        checks["rebackup_identity_matches_owned_target"] = (
-            str(rebackup["gpo_id"]).strip("{}").casefold()
-            == str(result.get("owned_gpo_id", "")).strip("{}").casefold()
-            and rebackup["display_name"] == result.get("target_name")
-            and str(rebackup["domain"]).casefold() == str(result.get("domain")).casefold()
+        checks["rebackup_identity_matches_owned_target"] = _rebackup_identity_matches(
+            rebackup, result
         )
-        checks["report_exposes_exact_scripts_metadata"] = _report_matches(
-            run / "report.xml",
-            str(result.get("owned_gpo_id", "")),
-            str(result.get("target_name", "")),
-            str(result.get("domain", "")),
+        owned = _guid(result.get("owned_gpo_id"))
+        target = _nonempty_str(result.get("target_name"))
+        domain = _nonempty_str(result.get("domain"))
+        checks["report_exposes_exact_scripts_metadata"] = (
+            owned is not None
+            and target is not None
+            and domain is not None
+            and _report_matches(run / "report.xml", owned, target, domain)
         )
     except (KeyError, OSError, ValueError, zipfile.BadZipFile) as exc:
         error = str(exc)

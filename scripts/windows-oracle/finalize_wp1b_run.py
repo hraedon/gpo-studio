@@ -165,6 +165,81 @@ def _candidate_problems(
     return problems
 
 
+def _candidate_set_problems(
+    index: object, run_candidates: object
+) -> list[str]:
+    """The run must report EXACTLY the candidate set the builder produced.
+
+    ``candidates.json`` is the builder's index; the run's ``candidates`` list
+    is what the guest says it imported. The verdict passes only when every
+    graded candidate passes, so a run that reported a SUBSET -- one candidate
+    instead of seven, say -- used to certify the lane on the candidates it
+    happened to return. Each id must appear once, with the builder's family:
+    the family selects the GPMC report markers a candidate is graded against,
+    and the guest must not be the one choosing them.
+    """
+    if not isinstance(index, dict) or not isinstance(index.get("candidates"), list):
+        return ["candidates.json has no candidates list"]
+    wanted: dict[str, str] = {}
+    for entry in index["candidates"]:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("id"), str)
+            or not isinstance(entry.get("family"), str)
+        ):
+            return ["candidates.json has an entry without an id and family"]
+        if entry["id"] in wanted:
+            return [f"candidates.json names {entry['id']} twice"]
+        wanted[entry["id"]] = entry["family"]
+    if not wanted:
+        return ["candidates.json names no candidates"]
+    if not isinstance(run_candidates, list):
+        return ["the run reported no candidates list"]
+    problems: list[str] = []
+    seen: set[str] = set()
+    for result in run_candidates:
+        candidate_id = result.get("candidate_id") if isinstance(result, dict) else None
+        if not isinstance(candidate_id, str):
+            problems.append("the run reported a candidate without an id")
+            continue
+        if candidate_id in seen:
+            problems.append(f"the run reported {candidate_id} twice")
+            continue
+        seen.add(candidate_id)
+        if candidate_id not in wanted:
+            problems.append(f"the run reported {candidate_id}, which the builder never produced")
+        elif result.get("family") != wanted[candidate_id]:
+            problems.append(
+                f"the run reported {candidate_id} as family {result.get('family')!r}; "
+                f"the builder produced it as {wanted[candidate_id]!r}"
+            )
+    problems += [
+        f"the builder produced {candidate_id} but the run never reported it"
+        for candidate_id in wanted
+        if candidate_id not in seen
+    ]
+    return problems
+
+
+def _passed(
+    *,
+    harness_ok: bool,
+    dirty: bool,
+    environment_violations: list[str],
+    candidate_set_problems: list[str],
+    candidates: list[dict[str, Any]],
+) -> bool:
+    """Every condition a WP-1B pass needs, in one place `main` and tests share."""
+    states = {candidate["state"] for candidate in candidates}
+    return (
+        harness_ok
+        and not dirty
+        and not environment_violations
+        and not candidate_set_problems
+        and states == {"pass"}
+    )
+
+
 def _setting_projection(setting: dict[str, Any]) -> tuple[object, ...]:
     value = setting["value"]
     if setting["registry_type"] == "REG_DWORD":
@@ -361,6 +436,11 @@ def main() -> int:
             print(f"finalize refused: {problem}", file=sys.stderr)
         return 1
 
+    candidate_set_problems = _candidate_set_problems(
+        json.loads((candidate_root / "candidates.json").read_text(encoding="utf-8")),
+        run_result["candidates"],
+    )
+
     candidates = [
         _finalize_candidate(
             run_dir / result["candidate_id"], candidate_root / result["candidate_id"], result
@@ -415,8 +495,13 @@ def main() -> int:
     # worst one to leave ungated.
     environment_violations = list(lane_environment_violations(run_result["environment"]))
 
-    states = {candidate["state"] for candidate in candidates}
-    passed = harness_ok and not dirty and not environment_violations and states == {"pass"}
+    passed = _passed(
+        harness_ok=harness_ok,
+        dirty=dirty,
+        environment_violations=environment_violations,
+        candidate_set_problems=candidate_set_problems,
+        candidates=candidates,
+    )
     verdict = {
         "schema_version": 2,
         "work_package": "WP-1B",
@@ -426,6 +511,7 @@ def main() -> int:
         "transport": args.transport,
         "environment": run_result["environment"],
         "environment_violations": environment_violations,
+        "candidate_set_problems": candidate_set_problems,
         "candidates": candidates,
         "source": {
             "commit": commit,
@@ -486,6 +572,8 @@ def main() -> int:
         for key in ("harness_error", "report_error", "rebackup_error"):
             if candidate[key]:
                 print(f"             {key}: {candidate[key]}")
+    for problem in candidate_set_problems:
+        print(f"CANDIDATE SET  {problem}")
     print(f"\nrun {run_result['run_id']}: passed={passed} (source {commit}, dirty={dirty})")
 
     # Preserve the commit this certification binds to. Only WP-0's finalizer did
