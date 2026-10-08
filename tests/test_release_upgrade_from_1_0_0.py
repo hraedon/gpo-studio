@@ -416,21 +416,23 @@ def test_pin_preference_gpo_digests_change_with_the_canonical_form(
     assert detail["review_model_sha256"] != legacy["review_model_sha256"]
 
 
-def test_pin_gpp_registry_no_longer_advertises_native_gpmc_export(
+def test_pin_gpp_registry_native_gpmc_export_is_offered_again(
     upgraded: tuple[Path, TestClient],
 ) -> None:
-    """1.0.0 offered GPMC backup export for GPP Registry; it is now refused.
+    """1.0.0 offered GPMC backup export for GPP Registry; 1.1.0 offers it again.
 
-    Plan 033 WP-2 made native GPP output an allowlist of four families whose
-    extension metadata was captured, and GPP Registry is not one (WI-046). The
-    Studio bundle still carries it.
+    Plan 033 WP-2 made native GPP output an allowlist of families whose
+    extension metadata was captured, and GPP Registry was refused (WI-046)
+    until batch 2 captured its pair and every item shape (WI-075). The 1.0.0
+    workspace's GPP Registry GPO is a measured shape, so it exports again, and
+    the backup really downloads -- the advertisement is not the whole check.
     """
     _path, client = upgraded
     capabilities = client.get(f"/api/gpos/{PREFERENCES_GPO}").json()["artifact_capabilities"]
     legacy = BASELINE[PREFERENCES_GPO]["detail"]["artifact_capabilities"]
     assert legacy["gpmc_export"]["enabled"] is True
-    assert capabilities["gpmc_export"]["enabled"] is False
-    assert "Registry" in capabilities["gpmc_export"]["reason"]
+    assert capabilities["gpmc_export"]["enabled"] is True, capabilities["gpmc_export"]
+    assert client.get(f"/api/gpos/{PREFERENCES_GPO}/gpmc-backup").status_code == 200
     assert capabilities["studio_export"]["enabled"] is True
 
 

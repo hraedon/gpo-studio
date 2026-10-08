@@ -56,9 +56,27 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
   024, so `policy_semantic_sha256` and `review_model_sha256` differ from the
   values 1.0.0 recorded, although no value changed. Digests of GPOs without
   preference items are unchanged.
-- **GPP Registry no longer offers native GPMC backup export.** Native GPP
-  output is an allowlist of captured families (Plan 033 WP-2, WI-046). The
-  Studio bundle still carries GPP Registry.
+- **GPP Registry native GPMC backup export is back** (batch 2, WI-075). From
+  WP-1B until batch 2 it was refused, because native GPP output is an
+  allowlist of captured families (Plan 033 WP-2, WI-046) and Registry's pair
+  had never been captured. Batch 2 captured it and every item shape, so a GPO
+  with GPP Registry items exports again; a default-value item is still refused
+  (`unmeasured_gpp_registry_shape`).
+- **GPP Registry wire values change.** REG_DWORD and REG_QWORD are written as
+  fixed-width upper-case hex and REG_MULTI_SZ as a space-joined value plus a
+  `<Values>` list, as Windows writes them. A Studio 1.0 bundle's decimal or
+  `;`-joined GPP Registry values are refused on re-import (re-author them);
+  workspaces are unaffected, since they store the typed model. A native
+  REG_QWORD imported by 1.0 was read as decimal and should be re-imported.
+- **Archives are stored, not deflated.** Every ZIP (GPMC backup, Studio bundle)
+  is written with STORED members in code-point order so it is byte-identical on
+  every platform. Files are larger and their hashes differ from 1.0's; the
+  members' contents do not change.
+- **Text XML cannot carry is refused.** A lone surrogate, a control character
+  other than TAB and LF, or a carriage return (outside Registry.pol data) is
+  refused with `text_not_xml_writable`. A 1.0 workspace holding such text still
+  opens and lists; that GPO's exports are refused until the named fields are
+  edited.
 - **Do not run 1.0.0's `workspace check` on a backup** (WI-074). It writes into
   the checked file, and the backup can then no longer be restored. Verify a
   pre-upgrade backup by restoring it to a throwaway path and checking that
@@ -66,138 +84,6 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 ### Added
 
-- **Text XML cannot carry never reaches storage (batch-2 review of `343fecf`).**
-  A REG_MULTI_SZ element holding an escaped lone surrogate committed a revision
-  and then made the GPO, its backup and the whole workspace list return 500;
-  NUL, VT, FF and U+FFFF were accepted and exported as XML no parser accepts.
-  Fixed generally: one predicate (`xml_safety.xml_text_problem`, the XML 1.0
-  `Char` production; CR additionally refused in GPP text, which XML reads back
-  as LF) and one walk over every string in the model (`unwritable_text`). The
-  store refuses to write any revision that fails it, whatever endpoint or field
-  the text came through; the API refuses such a JSON body up front (422 with
-  the JSON path); `validate_gpo` reports it (`text_not_xml_writable`). A legacy
-  stored revision still reads and lists (JSON escapes; digests `null`), every
-  exporter refuses it with that code, and an artifact that cannot encode stored
-  text is a 422 (`stored_text_not_encodable`), never a 500. A Hypothesis
-  property test throws arbitrary Unicode, surrogates and controls included, at
-  GPP and GPO text and holds no-500 and byte-exact round trips of accepted text.
-
-- **Batch-2 re-review fixes (Sol, `2ecc025`).** `deterministic_zip.py` and
-  `writer_conformance.py` are pinned `text eol=lf` (a CRLF checkout refused
-  every archive lane), and a test holds every file any finalizer binds to
-  `text eol=lf` or `-text`. A key-only item's empty list is written as the
-  measured `value=""` and stored as `""` (it used to commit and then make every
-  read of the GPO a 500); preference content the writer refuses now reaches
-  the client as a refusal, and a sweep of every registry item shape the API
-  accepts holds that later reads and exports never 500. `<Values>` is held to an
-  exact allowlist (no namespace, no attributes, whitespace-only text and
-  tails). A registry report Extension whose declared type is the other
-  measured family's is surfaced as `unmeasured:declared ...`, and GPP Registry
-  report items must have the measured `<Registry>`/`<Properties>` shape. The
-  superscript device names (`COM¹`, `LPT²`, `LPT³`) are refused in archives.
-
-- **Batch-2 review fixes (two independent reviews of `303ae6c`).**
-  - Every lane whose candidate bytes flow through `deterministic_zip.py` now
-    binds it (WP-1B, WP-2, publication, scripts-metadata, firewall,
-    report-parity, fdeploy, endpoint); WP-1B, WP-2 and endpoint also bind
-    `export.py`, and WP-1B the writers it certifies (`gpp.py`,
-    `gpp_adapters.py`, `writer_conformance.py`). A test derives the rule from
-    each builder's imports, and verdicts finalized before the change keep their
-    narrower table in `HISTORICAL_BOUND_FILES`.
-  - `deterministic_zip` refuses NUL and control characters (zipfile truncated
-    `"a\0x"` to `"a"`, shadowing a real member), Windows-forbidden characters
-    and drive/stream colons, reserved device names (`NUL.txt`, `COM1`), trailing
-    dots/spaces, and a file that is also another member's directory.
-  - GPP Registry `<Values>` content Studio does not model (attributes, extra
-    children, a second `<Values>`) is refused on read instead of dropped on
-    the next edit. A list value for a non-multi-string type is refused by the
-    writer, validation and the API (it was written `;`-joined and read back as
-    one string), and a key-only item carrying a value is an unmeasured shape.
-  - `report_parity` classifies report extensions by full QName (the
-    `xsi:type` prefix's namespace plus local name) against a table read off the
-    repository's Windows reports; an unknown namespace is `unmeasured:`. A
-    registry Extension's children are routed by their own namespace, so policy
-    settings and a GPP Registry container in one Extension are split. The GPP
-    Registry report namespace has one definition (`gpp.GPP_REGISTRY_REPORT_NAMESPACE`).
-  - The WP-1B `native_shape_matches_corpus` check now inspects emitted GPP
-    Registry XML against the captured shape (root/item clsids, attribute order,
-    image per action, hex encodings, `<Values>`), with the shape constants
-    pinned to the native captures; a non-native writer fails it.
-  - The native-bytes tests assert Studio's explicit common options carry
-    exactly `removePolicy="0" userContext="0" bypassErrors="0"` for a model with
-    the native items' meaning, instead of setting them aside.
-
-- **Deterministic archives everywhere (batch 2).** `gpo_studio.deterministic_zip`
-  writes every ZIP Studio and the lane builders produce -- `gpmc_backup_bundle`,
-  `export_bundle`, and the report-parity and fdeploy candidates (the WP-1B, WP-2,
-  publication, scripts-metadata and firewall candidates come from
-  `gpmc_backup_bundle`) -- with members sorted by code point, 1980-01-01
-  timestamps, `create_system=3`, fixed attributes and STORED members. Deflate is
-  not used: CPython's Windows build links a different deflate implementation
-  than Linux, so no deflate setting yields identical bytes. The product exports
-  are STORED too; the ZIP is a transport container (`Expand-Archive` and
-  `zipfile` unpack it, `Import-GPO` reads the extracted folder), so only its
-  size changes. Names that are unsafe or differ only by case are refused. The
-  lane evidence tests (firewall, report-parity, fdeploy) assert the exact archive
-  hash on every platform again, and pin that a Windows-default `create_system`
-  changes nothing. The banked candidates were deflated, so those tests fail
-  until the 1.1.0 requalification re-banks them.
-- **Report parity covers GPP Registry.** The report-parity corpus gains the
-  three GPP Registry captures (30 cases); `report_parity` inventories Windows'
-  GPP Registry extension under `Windows/Registry:RegistrySettings`, since the
-  report gives it Registry.pol's local name. Studio's import matches Windows'
-  report for all 39 captured items.
-- **`run-requal-batch.sh`** drives the lifecycle, report-parity, firewall and
-  fdeploy lanes too (member server; the client-rebooting group-deny lane stays
-  last), and a test holds the lane table equal to the repository's runners.
-
-- **GPP Registry native export, fixed and awaiting batch-2 requalification
-  (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
-  Registry item, narrowing the 1.0 contract the capability matrix still
-  claimed. A native capture (2026-10-08, `tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC`)
-  measured the extension pair `[{B087BE9D-…}{BEE07A6A-…}]` on both sides and
-  the wire form, and showed Studio's reader and writer were both wrong:
-  REG_DWORD/REG_QWORD are fixed-width upper-case hex (a native DWORD did not
-  import; a QWORD was read as decimal), REG_MULTI_SZ is space-joined plus a
-  `<Values>` list, and `<Registry>`/`<Properties>` carry `status`, `image`,
-  braced upper-case `uid`, `displayDecimal` and `default` in a fixed order.
-  The writer and reader now follow the capture (pinned against the native
-  bytes in `tests/test_gpp_registry_native.py`), the pair is registered in
-  `export._GPP_EXTENSION_PROFILES` (the one source for the backup, the
-  publication planner and `EMITTED_EXTENSION_GUIDS`), and pre-batch-2 stored
-  imports are re-typed on load. A revision-2 capture
-  (`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC`, from
-  `scripts/plan-033/capture-gpp-registry-native.ps1`) measured Delete
-  (`image="3"`), REG_BINARY (upper-case hex, no separators) and key-only items
-  (named by the key, typed `REG_SZ`), so they export and publish. A full
-  action x type matrix capture (`WI01A-RegistryMatrix-GPMC`, 28 items) then
-  pinned every action x type pair and key-only x action as a whole item: the
-  measured set is now an explicit list of those 28 pairs, held equal to the
-  native bytes, rather than composed from parts. The GPP Registry captures live
-  in `tests/fixtures/native-gpp-registry-gpmc` and are part of the report-parity
-  corpus (see below). Default-value
-  items stay refused (`unmeasured_gpp_registry_shape`) by the export and the
-  planner: the GroupPolicy module has no `-Default` parameter, so nothing
-  measured them. The decimal and `;`-joined forms Studio wrote before batch 2,
-  and REG_BINARY that is not whole hex bytes, are refused on read.
-- **WP-1B lane:** new `gppregistry-both` candidate and GPP Registry items in
-  `mixed-all`; GPMC report markers are namespace-qualified, since Registry.pol
-  and GPP Registry both render as `RegistrySettings`. Live verdicts for the
-  wp1b, publication, scripts-metadata and object-security lanes no longer bind
-  the shipping files and need the batch-2 run.
-- **Firewall policy registers the firewall snap-in tool half.** A machine
-  Registry.pol holding only `SOFTWARE\Policies\Microsoft\WindowsFirewall`
-  keys now registers `[{35378EAC-…}{B05566AC-…}]`, as native authoring did
-  (`tests/fixtures/native-firewall-gpmc`), instead of the
-  Administrative Templates `{D02B1F72-…}`. Mixed firewall-and-other content is
-  unchanged: no capture records it (WI-075).
-- **Review tidy (N5–N8).** The object-security finalizer's comment no longer
-  claims a v1 pack can be re-graded to anything but failure (N5). A refused
-  native export reports every reason, cpassword first and the fdeploy refusal
-  last (N6). SID patterns in `object_security.py` and the object-security
-  finalizer are ASCII-only, so a Unicode-digit look-alike is not a SID (N7).
-  `run-requal-batch.sh` resolves `<batch-dir>` without creating it, so its
-  in-repo refusal leaves nothing behind (N8).
 - Added the firewall surface (Plan 034, WI-076), over the firewall lane's first
   certification, `firewall-20261008094055-2092337` (36/36 at `a6e0002`, on
   LabMS01, WS2025 26100, PowerShell 5.1), now banked under
@@ -488,6 +374,21 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 ### Changed
 
+- *New in this draft (batch 2):* **Deterministic archives everywhere (batch 2).** `gpo_studio.deterministic_zip`
+  writes every ZIP Studio and the lane builders produce -- `gpmc_backup_bundle`,
+  `export_bundle`, and the report-parity and fdeploy candidates (the WP-1B, WP-2,
+  publication, scripts-metadata and firewall candidates come from
+  `gpmc_backup_bundle`) -- with members sorted by code point, 1980-01-01
+  timestamps, `create_system=3`, fixed attributes and STORED members. Deflate is
+  not used: CPython's Windows build links a different deflate implementation
+  than Linux, so no deflate setting yields identical bytes. The product exports
+  are STORED too; the ZIP is a transport container (`Expand-Archive` and
+  `zipfile` unpack it, `Import-GPO` reads the extracted folder), so only its
+  size changes. Names that are unsafe or differ only by case are refused. The
+  lane evidence tests (firewall, report-parity, fdeploy) assert the exact archive
+  hash on every platform again, and pin that a Windows-default `create_system`
+  changes nothing. The banked candidates were deflated, so those tests fail
+  until the 1.1.0 requalification re-banks them.
 - Within each key, `Registry.pol` records are now ordered delete-all-values,
   delete, then set. Registry settings gain a third action,
   `delete_all_values`, accepted by the settings API. It serializes as a
@@ -668,6 +569,110 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 Operator-facing:
 
+- *New in this draft (batch 2):* **GPP Registry native export, fixed and awaiting batch-2 requalification
+  (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
+  Registry item, narrowing the 1.0 contract the capability matrix still
+  claimed. A native capture (2026-10-08, `tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC`)
+  measured the extension pair `[{B087BE9D-…}{BEE07A6A-…}]` on both sides and
+  the wire form, and showed Studio's reader and writer were both wrong:
+  REG_DWORD/REG_QWORD are fixed-width upper-case hex (a native DWORD did not
+  import; a QWORD was read as decimal), REG_MULTI_SZ is space-joined plus a
+  `<Values>` list, and `<Registry>`/`<Properties>` carry `status`, `image`,
+  braced upper-case `uid`, `displayDecimal` and `default` in a fixed order.
+  The writer and reader now follow the capture (pinned against the native
+  bytes in `tests/test_gpp_registry_native.py`), the pair is registered in
+  `export._GPP_EXTENSION_PROFILES` (the one source for the backup, the
+  publication planner and `EMITTED_EXTENSION_GUIDS`), and pre-batch-2 stored
+  imports are re-typed on load. A revision-2 capture
+  (`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC`, from
+  `scripts/plan-033/capture-gpp-registry-native.ps1`) measured Delete
+  (`image="3"`), REG_BINARY (upper-case hex, no separators) and key-only items
+  (named by the key, typed `REG_SZ`), so they export and publish. A full
+  action x type matrix capture (`WI01A-RegistryMatrix-GPMC`, 28 items) then
+  pinned every action x type pair and key-only x action as a whole item: the
+  measured set is now an explicit list of those 28 pairs, held equal to the
+  native bytes, rather than composed from parts. The GPP Registry captures live
+  in `tests/fixtures/native-gpp-registry-gpmc` and are part of the report-parity
+  corpus (see below). Default-value
+  items stay refused (`unmeasured_gpp_registry_shape`) by the export and the
+  planner: the GroupPolicy module has no `-Default` parameter, so nothing
+  measured them. The decimal and `;`-joined forms Studio wrote before batch 2,
+  and REG_BINARY that is not whole hex bytes, are refused on read.
+- *New in this draft (batch 2):* **Firewall policy registers the firewall snap-in tool half.** A machine
+  Registry.pol holding only `SOFTWARE\Policies\Microsoft\WindowsFirewall`
+  keys now registers `[{35378EAC-…}{B05566AC-…}]`, as native authoring did
+  (`tests/fixtures/native-firewall-gpmc`), instead of the
+  Administrative Templates `{D02B1F72-…}`. Mixed firewall-and-other content is
+  unchanged: no capture records it (WI-075).
+- *New in this draft (batch 2):* **Text XML cannot carry never reaches storage (batch-2 review of `343fecf`).**
+  A REG_MULTI_SZ element holding an escaped lone surrogate committed a revision
+  and then made the GPO, its backup and the whole workspace list return 500;
+  NUL, VT, FF and U+FFFF were accepted and exported as XML no parser accepts.
+  Fixed generally: one predicate (`xml_safety.xml_text_problem`, the XML 1.0
+  `Char` production; CR also refused in every string written into XML --
+  names, descriptions, GPP text and attributes -- since XML reads it back as
+  LF, and kept only in Registry.pol data and the fdeploy INI) and one walk over every string in the model (`unwritable_text`). The
+  store refuses to write any revision that fails it, whatever endpoint or field
+  the text came through; the API refuses such a JSON body up front (422 with
+  the JSON path); `validate_gpo` reports it (`text_not_xml_writable`). A legacy
+  stored revision still reads and lists (JSON escapes; digests `null`), every
+  exporter refuses it with that code, and an artifact that cannot encode stored
+  text is a 422 (`stored_text_not_encodable`), never a 500. A Hypothesis
+  property test throws arbitrary Unicode, surrogates and controls included, at
+  GPP and GPO text and holds no-500 and byte-exact round trips of accepted text.
+
+- *New in this draft (batch 2):* **Batch-2 review fixes (two independent reviews of `303ae6c`).**
+  - Every lane whose candidate bytes flow through `deterministic_zip.py` now
+    binds it (WP-1B, WP-2, publication, scripts-metadata, firewall,
+    report-parity, fdeploy, endpoint); WP-1B, WP-2 and endpoint also bind
+    `export.py`, and WP-1B the writers it certifies (`gpp.py`,
+    `gpp_adapters.py`, `writer_conformance.py`). A test derives the rule from
+    each builder's imports, and verdicts finalized before the change keep their
+    narrower table in `HISTORICAL_BOUND_FILES`.
+  - `deterministic_zip` refuses NUL and control characters (zipfile truncated
+    `"a\0x"` to `"a"`, shadowing a real member), Windows-forbidden characters
+    and drive/stream colons, reserved device names (`NUL.txt`, `COM1`), trailing
+    dots/spaces, and a file that is also another member's directory.
+  - GPP Registry `<Values>` content Studio does not model (attributes, extra
+    children, a second `<Values>`) is refused on read instead of dropped on
+    the next edit. A list value for a non-multi-string type is refused by the
+    writer, validation and the API (it was written `;`-joined and read back as
+    one string), and a key-only item carrying a value is an unmeasured shape.
+  - `report_parity` classifies report extensions by full QName (the
+    `xsi:type` prefix's namespace plus local name) against a table read off the
+    repository's Windows reports; an unknown namespace is `unmeasured:`. A
+    registry Extension's children are routed by their own namespace, so policy
+    settings and a GPP Registry container in one Extension are split. The GPP
+    Registry report namespace has one definition (`gpp.GPP_REGISTRY_REPORT_NAMESPACE`).
+  - The WP-1B `native_shape_matches_corpus` check now inspects emitted GPP
+    Registry XML against the captured shape (root/item clsids, attribute order,
+    image per action, hex encodings, `<Values>`), with the shape constants
+    pinned to the native captures; a non-native writer fails it.
+  - The native-bytes tests assert Studio's explicit common options carry
+    exactly `removePolicy="0" userContext="0" bypassErrors="0"` for a model with
+    the native items' meaning, instead of setting them aside.
+
+- *New in this draft (batch 2):* **Batch-2 re-review fixes (Sol, `2ecc025`).** `deterministic_zip.py` and
+  `writer_conformance.py` are pinned `text eol=lf` (a CRLF checkout refused
+  every archive lane), and a test holds every file any finalizer binds to
+  `text eol=lf` or `-text`. A key-only item's empty list is written as the
+  measured `value=""` and stored as `""` (it used to commit and then make every
+  read of the GPO a 500); preference content the writer refuses now reaches
+  the client as a refusal, and a sweep of every registry item shape the API
+  accepts holds that later reads and exports never 500. `<Values>` is held to an
+  exact allowlist (no namespace, no attributes, whitespace-only text and
+  tails). A registry report Extension whose declared type is the other
+  measured family's is surfaced as `unmeasured:declared ...`, and GPP Registry
+  report items must have the measured `<Registry>`/`<Properties>` shape. The
+  superscript device names (`COM¹`, `LPT²`, `LPT³`) are refused in archives.
+
+- *New in this draft (batch 2):* **Review tidy (N5–N8).** The object-security finalizer's comment no longer
+  claims a v1 pack can be re-graded to anything but failure (N5). A refused
+  native export reports every reason, cpassword first and the fdeploy refusal
+  last (N6). SID patterns in `object_security.py` and the object-security
+  finalizer are ASCII-only, so a Unicode-digit look-alike is not a SID (N7).
+  `run-requal-batch.sh` resolves `<batch-dir>` without creating it, so its
+  in-repo refusal leaves nothing behind (N8).
 - *New in this draft:* `gpo-studio workspace check` no longer changes the
   database it checks (WI-074). It recorded its result in `workspace_meta`, so
   checking a backup changed the file after its sidecar recorded the SHA-256,
@@ -912,6 +917,28 @@ Lab and development tooling:
 
 Windows evidence and the lab tooling that produces it. None of these entries
 is a capability by itself; see Added for what an operator can reach.
+
+- *New in this draft (batch 2):* **Batch 2 changed files that live lane
+  verdicts bind** (`gpp.py`, `export.py`, `publication.py`, `xml_safety.py`,
+  `object_security.py`, `report_parity.py`, the new `deterministic_zip.py`
+  and several builders and finalizers), so the publication, scripts-metadata,
+  WP-1B, WP-2, report-parity, firewall, object-security, fdeploy and endpoint
+  verdicts banked before it no longer bind the shipping code. The single
+  1.1.0 requalification of every lane at one commit covers them; until it
+  runs, those lanes cite pre-batch-2 evidence (WI-075).
+- *New in this draft (batch 2):* **WP-1B lane:** new `gppregistry-both` candidate and GPP Registry items in
+  `mixed-all`; GPMC report markers are namespace-qualified, since Registry.pol
+  and GPP Registry both render as `RegistrySettings`. Live verdicts for the
+  wp1b, publication, scripts-metadata and object-security lanes no longer bind
+  the shipping files and need the batch-2 run.
+- *New in this draft (batch 2):* **Report parity covers GPP Registry.** The report-parity corpus gains the
+  three GPP Registry captures (30 cases); `report_parity` inventories Windows'
+  GPP Registry extension under `Windows/Registry:RegistrySettings`, since the
+  report gives it Registry.pol's local name. Studio's import matches Windows'
+  report for all 39 captured items.
+- *New in this draft (batch 2):* **`run-requal-batch.sh`** drives the lifecycle, report-parity, firewall and
+  fdeploy lanes too (member server; the client-rebooting group-deny lane stays
+  last), and a test holds the lane table equal to the repository's runners.
 
 - Re-banked the fdeploy lane: `fd-20261008121347-3151`, 29/29 on clean commit
   `df713ef`, now holds `docs/plan-033/wp4-evidence/fdeploy/` in place of
