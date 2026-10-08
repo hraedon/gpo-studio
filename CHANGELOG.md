@@ -602,14 +602,22 @@ Operator-facing:
   `serialize_gpp` writes every root child in that order. Within a family the
   list stays authoritative: reordering a family swaps its items between the
   family's own slots, deleting an item frees its slot, and an item inserted
-  between positioned items follows its list predecessor. An item with no
+  between positioned items follows its list predecessor. No recorded position
+  can reorder two items of one family against their list order, even where
+  slots tie (a legacy multi-value `<Registry>` expands into items sharing one
+  slot). An item with no
   recorded position, such as a group added through the API or anything stored
   before 1.1.0, is written after every positioned item in the order Studio
   always used, so a collection without positions writes the same bytes as
   before. An API edit keeps the edited item's slot. Positions are persisted in
-  the workspace snapshot; a stored order that cannot be honoured (an unknown
-  family, a non-integer position, a count that does not match) is refused on
-  load. Both the canonical digest and the GPO diff compare the resulting order,
+  the workspace snapshot; a stored order that cannot be honoured is refused on
+  load, naming the slot: an unknown family, a position that is not an integer
+  from 0 to 99999 (the XML parser's element bound, so no import can exceed it),
+  a count that does not match, or two root children claiming one slot (within
+  a family, across families, or against a retained child). Gaps, a legacy
+  Registry expansion's shared slot, and the per-family copies Groups.xml and
+  ScheduledTasks.xml keep of one retained child (which must agree) are
+  accepted. Both the canonical digest and the GPO diff compare the resulting order,
   not the recorded numbers, so digests of stored GPOs do not move.
   Covered by `tests/test_gpp_document_order.py` (the native Power and
   scheduled-task captures edited, deleted from, reordered and added to; an
@@ -618,6 +626,20 @@ Operator-facing:
   Hypothesis properties over random interleavings). The report-parity lane
   now requires its three formerly divergent cases to agree with Windows
   exactly (see Evidence). Both items close when the requalification run banks.
+
+- *New in this draft:* **A user-side scheduled task with no principal ran as
+  SYSTEM, fixed and awaiting requalification (WI-079).** `serialize_gpp`
+  built Scheduled Tasks through `_build_adapter_root`, which dropped the
+  collection's scope, so a user-side TaskV2 with an empty `run_as` was
+  written with `runAs` and the payload's `UserId` set to `NT AUTHORITY\System`,
+  the computer default. Every user-side TaskV2 in the native captures runs as
+  `%LogonDomain%\%LogonUser%`, which `serialize_gpp_scheduled_tasks` already
+  wrote. The scope now reaches every item serializer that takes it (only
+  Scheduled Tasks has a scope-dependent default; a test pins that list to the
+  serializers' signatures). Imported tasks carry their own `runAs` and are
+  unaffected, and no lane candidate holds a user-side task, so no lane
+  expectation moves. Covered by `tests/test_gpp_task_scope.py`, grounded in the
+  native captures.
 
 - *New in this draft (batch 2):* **GPP Registry native export, fixed and awaiting batch-2 requalification
   (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP

@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**7 open.**
 
+- [WI-079](#wi-079--a-user-side-scheduled-task-without-a-principal-was-written-to-run-as-system) - fixed in code (scope reaches the item serializer); closes when the requalification run banks.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-075](#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not) - closes when the 1.1.0 requalification passes every lane at the batch-2 commit.
 - [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - fixed in code (document positions); closes when the requalification run banks.
@@ -3148,7 +3149,12 @@ its root's children, recorded on import, persisted, outside `==`), and
 Within a family the list stays authoritative: its recorded positions are the slots it
 holds, filled in list order, so reordering a family swaps its items between its own
 slots, deleting one frees its slot, and an item inserted between positioned items
-follows its list predecessor. An item without a position after its family's last
+follows its list predecessor. No position can reorder a family against its list, even
+where slots tie (a legacy multi-value `<Registry>` expands into items sharing one slot;
+the first cut let an inserted item fall after such a tie, found by an independent
+review). A stored order whose positions collide (within a family, across families or
+against a retained child), exceed 99999 (the XML parser's element bound) or disagree
+between a shared root's per-family copies is refused on load. An item without a position after its family's last
 positioned item (a group added through the API, anything stored before this change)
 is written after every positioned entry in the order Studio always used, so a
 collection with no positions writes exactly the bytes it wrote before. An API edit
@@ -3395,3 +3401,37 @@ WP-2 and endpoint to bind `export.py`; WP-1B also binds `gpp.py`,
 capability matrix GPP Registry and GPMC backup export rows are moved from
 "fixed, awaiting batch-2 requalification" to their certified wording. The
 default-value shape may stay refused at closure.
+
+## WI-079 — a user-side scheduled task without a principal was written to run as SYSTEM
+
+**Opened:** 2026-10-08 (independent review of `fix/gpp-order-and-root-retention`).
+**Status:** open (fixed in code on `fix/gpp-order-and-root-retention`, pending
+requalification).
+
+**What was wrong.** GPMC writes `runAs` on every TaskV2, and its default depends on
+the side. Every user-side TaskV2 in the native captures
+(`tests/fixtures/native-gpp-gpmc/WI01A-SchedTasks-GPMC`, `WI01A-SchedTasksFull-GPMC`)
+runs as `%LogonDomain%\%LogonUser%` in both `runAs` and the payload's `UserId`; every
+machine-side one runs as `NT AUTHORITY\System`. `serialize_gpp_scheduled_tasks`
+honoured the scope, but `serialize_gpp` reached the item serializer through
+`gpp_adapters._build_adapter_root`, which accepted the scope and dropped it. A
+user-side TaskV2 authored with an empty `run_as` was therefore written to run as
+SYSTEM: the logged-on user's task would run with machine privileges.
+
+**How it hid.** Imported tasks carry their own `runAs`, and every lane candidate that
+authors a task does so on the computer side (`build-wp1b-candidates.py`,
+`build-endpoint-candidate.py`), where the dropped scope's default is the right one.
+The report-parity inventory compares item identity, not `runAs`.
+
+**The fix.** `_build_adapter_root` passes the scope to every item serializer that
+takes one (`_SCOPED_ITEM_SERIALIZERS`); only Scheduled Tasks has a scope-dependent
+default, and `tests/test_gpp_task_scope.py` pins that set to the serializers'
+signatures, checks both sides' defaults against the native captures, and holds
+`serialize_gpp` equal to `serialize_gpp_scheduled_tasks`. No lane expectation moves:
+the report-parity candidate rebuilds byte-identical, and no candidate holds a
+user-side task. Immediate tasks have no default principal on either side (an empty
+`run_as` is written empty); the native captures measure only the machine side
+(`NT AUTHORITY\System`), so that is left as it is rather than guessed.
+
+**Closes when:** the requalification runs of the lanes binding `gpp_adapters.py`
+(report parity) bank on the changed file.
