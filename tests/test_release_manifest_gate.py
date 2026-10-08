@@ -323,7 +323,6 @@ def test_a_final_tag_needs_the_exact_approval_marker(
         "> **Status** : draft",
         "> > **status:** draft",
         "- **Status:** DRAFT",
-        "> **Sta​tus:** DRAFT",
         "> **Status：** DRAFT",
         "> **Ѕtatus:** DRAFT",
         "_Status:_ draft",
@@ -345,10 +344,63 @@ def test_an_entity_encoded_second_status_is_counted_in_the_rendered_text(tmp_pat
         gate.check(root, "v1.1.0")
 
 
-def test_a_heading_named_status_is_refused(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "## Status\n\nDRAFT",
+        # Third Sol review, finding 2: CommonMark renders these headings as "Status".
+        "## Sta&#116;us\n\nDRAFT",
+        "## Sta&#x74;us\n\nDRAFT",
+        "Sta&#116;us\n------\n\nDRAFT",
+        "## Sta&#116;us: DRAFT",
+        "### **St&#97;tus**\n\nDRAFT",
+    ],
+)
+def test_a_heading_that_reads_as_status_is_refused(tmp_path: Path, heading: str) -> None:
     root = _root(tmp_path, "1.1.0")
-    _manifest(root, "1.1.0", gate.APPROVED, extra="## Status\n\nDRAFT")
-    with pytest.raises(gate.ReleaseGateError, match="a heading is named"):
+    _manifest(root, "1.1.0", gate.APPROVED, extra=heading)
+    with pytest.raises(gate.ReleaseGateError, match="a heading reads"):
+        gate.check(root, "v1.1.0")
+
+
+@pytest.mark.parametrize(
+    "char",
+    ["​", "‍", "⁠", "﻿", "­", "‮", "⁦", "؜", "\x07"],
+)
+def test_invisible_and_control_characters_are_refused(tmp_path: Path, char: str) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", gate.APPROVED, extra=f"Ordinary prose{char} here.")
+    with pytest.raises(gate.ReleaseGateError, match="invisible or control characters"):
+        gate.check(root, "v1.1.0")
+
+
+def test_the_original_document_decides_what_is_code_not_a_folded_copy(tmp_path: Path) -> None:
+    """Third Sol review, finding 1: folding must not create a closing fence.
+
+    The full-width backtick run is ordinary text to CommonMark, so the fence
+    opened above it runs to the end of the file and swallows the approval and
+    the version line. NFKC folds those characters to a real closing fence, so a
+    gate that parsed the folded copy saw an approved manifest.
+    """
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", "```\nexample\n｀｀｀\n\n" + gate.APPROVED)
+    with pytest.raises(gate.ReleaseGateError) as caught:
+        gate.check(root, "v1.1.0")
+    assert "not in a plain paragraph" in str(caught.value)
+    assert "plain bullet-list item" in str(caught.value)
+
+
+def test_a_zero_width_character_cannot_close_a_fence_either(tmp_path: Path) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", "```\nexample\n`​``\n\n" + gate.APPROVED)
+    with pytest.raises(gate.ReleaseGateError, match="invisible or control characters"):
+        gate.check(root, "v1.1.0")
+
+
+def test_full_width_punctuation_in_prose_is_still_matched_after_parsing(tmp_path: Path) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", gate.APPROVED, extra="Ｓtatus： DRAFT")
+    with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
         gate.check(root, "v1.1.0")
 
 

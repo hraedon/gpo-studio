@@ -48,7 +48,9 @@ The manifest is parsed as CommonMark. Exactly one status mention (the word and a
 exist anywhere in it, in any spelling, and it must be a plain paragraph in the
 top-level blockquote at the head of the file. A status in a code block (including
 one nested in a quote), list, nested quote or heading fails, and so does any raw
-HTML. `__version__` must be bound exactly once, and Hatchling must read the same
+HTML or any invisible or control character. Headings and paragraphs are judged
+by their entity-decoded text, and the original file, not a normalised copy, is
+what gets parsed. `__version__` must be bound exactly once, and Hatchling must read the same
 value. Before anything is attested, the built wheel's `METADATA` and the
 sdist's `PKG-INFO` must carry the approved version.
 

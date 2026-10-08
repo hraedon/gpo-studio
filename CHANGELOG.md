@@ -642,7 +642,11 @@ Lab and development tooling:
   in any spelling, and the one allowed must be a plain paragraph in the
   top-level blockquote. Code blocks (including fences nested in quotes), lists,
   nested quotes, headings and any raw HTML are refused, so an approval cannot
-  hide in an example block or a `<details>` element beside a draft.
+  hide in an example block or a `<details>` element beside a draft. The
+  original text is what is parsed (folding is applied only when matching, so it
+  cannot turn full-width backticks into a closing fence), invisible and control
+  characters are refused, and headings and paragraphs are judged by their
+  entity-decoded text.
   `__version__` must be bound exactly once and match what Hatchling reads, and
   the built wheel's and sdist's metadata versions must equal the approved
   version before anything is attested. It fails closed on anything else. Before publishing, the workflow

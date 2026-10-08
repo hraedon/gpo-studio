@@ -13,7 +13,7 @@ string. That file is the 1.0.0 manifest, so any later tag would have passed on
 3. The manifest names the version in its title and in its ``Application
    version`` line, and carries exactly one status line, which must be the
    approval marker for a final tag or the candidate marker for an RC tag. The
-   manifest is parsed as CommonMark (see ``status_problems``): a draft, a
+   manifest is parsed as CommonMark (see ``manifest_problems``): a draft, a
    stale copy, a second status mention anywhere, an approval in a code block,
    list or nested quote, or any raw HTML fails.
 4. The JSON report names the same version in ``release_version`` (not checked
@@ -52,23 +52,50 @@ APPROVED = "> **Status:** approved for release"
 CANDIDATE = "> **Status:** release candidate; final approval pending"
 
 # A status *mention* is the word "status" followed by a colon, however it is
-# spelled: any case, emphasis or code markers between, after NFKC folding, with
-# zero-width characters removed and common Cyrillic/Greek look-alikes folded to
-# ASCII. Every mention in the manifest counts, wherever CommonMark puts it.
+# spelled: any case, emphasis or code markers between. Matching happens on
+# decoded token text (entities resolved by the parser) after NFKC folding and
+# folding of common Cyrillic/Greek look-alikes to ASCII. Folding is applied only
+# to text being matched, never to the document the parser sees: folding first
+# can turn a full-width backtick run into a closing fence and change which lines
+# are code (third Sol review, finding 1).
 _STATUS_MENTION = re.compile(r"\bstatus\b[\s*_`~]*:", re.IGNORECASE)
-_STATUS_WORD = re.compile(r"\bstatus\b", re.IGNORECASE)
-_FOLD = str.maketrans(
+_STATUS_HEADING = re.compile(r"^[\W_]*status[\W_]*$", re.IGNORECASE)
+_LOOKALIKES = str.maketrans(
     {
-        **dict.fromkeys(map(ord, "\u00ad\u034f\u200b\u200c\u200d\u200e\u200f\u2060\ufeff")),
-        "\u0405": "S", "\u0455": "s", "\u0422": "T", "\u0442": "t", "\u03a4": "T",
-        "\u03c4": "t", "\u0410": "A", "\u0430": "a", "\u0391": "A", "\u03b1": "a",
-        "\u03c5": "u", "\u057d": "u", "\u0446": "u",
+        "Ѕ": "S", "ѕ": "s", "Т": "T", "т": "t", "Τ": "T",
+        "τ": "t", "А": "A", "а": "a", "Α": "A", "α": "a",
+        "υ": "u", "ս": "u", "ц": "u",
     }
 )
+_HEADER_PARAGRAPH = ("blockquote_open", "paragraph_open")
+_BULLET_ITEM = ("bullet_list_open", "list_item_open", "paragraph_open")
+_TITLE = ("heading_open",)
 
 
 def _fold(text: str) -> str:
-    return unicodedata.normalize("NFKC", text).translate(_FOLD)
+    return unicodedata.normalize("NFKC", text).translate(_LOOKALIKES)
+
+
+def _mentions(text: str) -> int:
+    return len(_STATUS_MENTION.findall(_fold(text)))
+
+
+def _invisible_characters(text: str) -> list[str]:
+    """Format, private-use, surrogate and control characters (bar tab and newline).
+
+    Zero-width and bidi controls change what a reader sees without changing what
+    a parser sees, or the reverse. A manifest has no use for them, so they are
+    refused outright instead of being folded away.
+    """
+    found = sorted(
+        {
+            f"U+{ord(char):04X} on line {number}"
+            for number, line in enumerate(text.split("\n"), start=1)
+            for char in line
+            if unicodedata.category(char) in {"Cf", "Co", "Cs", "Cc"} and char not in "\t\r"
+        }
+    )
+    return found
 
 
 class _TextOnly(HTMLParser):
@@ -82,30 +109,46 @@ class _TextOnly(HTMLParser):
         self.parts.append(data)
 
 
-_STATUS_HEADING = re.compile(r"^[\W_]*status[\W_]*$", re.IGNORECASE)
-_HEADER_PARAGRAPH = ("blockquote_open", "paragraph_open")
-_BULLET_ITEM = ("bullet_list_open", "list_item_open", "paragraph_open")
-_TITLE = ("heading_open",)
+def _decoded(token: Token) -> str:
+    """The text a reader sees for one block-level leaf token.
 
-
-def _inline_contexts(tokens: list[Token]) -> dict[int, tuple[str, ...]]:
-    """Map each source line to the block context of the inline text on it.
-
-    Lines that belong to code blocks, fences or HTML blocks get the leaf
-    token's type (``("fence",)`` and so on), so they never look like prose.
+    Inline text comes from the parser's children, where entities are already
+    decoded (``Sta&#116;us`` is ``Status``); link destinations and titles count
+    too. Code keeps its literal content, which is also what a renderer shows.
     """
-    contexts: dict[int, tuple[str, ...]] = {}
+    if token.type != "inline":
+        return token.content
+    parts: list[str] = []
+    for child in token.children or []:
+        if child.type in ("softbreak", "hardbreak"):
+            parts.append("\n")
+        else:
+            parts.append(child.content)
+        parts.extend(f" {value} " for value in child.attrs.values() if isinstance(value, str))
+    return "".join(parts)
+
+
+def _leaves(tokens: list[Token]) -> list[tuple[Token, tuple[str, ...]]]:
+    """Every block-level leaf token with the stack of blocks that contains it."""
+    leaves: list[tuple[Token, tuple[str, ...]]] = []
     stack: list[str] = []
     for token in tokens:
         if token.nesting == 1:
             stack.append(token.type)
-            continue
-        if token.nesting == -1:
+        elif token.nesting == -1:
             stack.pop()
-            continue
+        else:
+            leaves.append((token, tuple(stack)))
+    return leaves
+
+
+def _line_contexts(leaves: list[tuple[Token, tuple[str, ...]]]) -> dict[int, tuple[str, ...]]:
+    """Map each source line to its context; code and HTML lines get the leaf type."""
+    contexts: dict[int, tuple[str, ...]] = {}
+    for token, stack in leaves:
         if token.map is None:
             continue
-        context = (*stack, token.type) if token.type != "inline" else tuple(stack)
+        context = stack if token.type == "inline" else (*stack, token.type)
         for line in range(token.map[0], token.map[1]):
             contexts[line] = context
     return contexts
@@ -114,37 +157,42 @@ def _inline_contexts(tokens: list[Token]) -> dict[int, tuple[str, ...]]:
 def manifest_problems(text: str, title: str, application: str, required: str) -> list[str]:
     """Why ``text`` is not an unambiguous manifest carrying ``required``.
 
-    The manifest is parsed as CommonMark (markdown-it-py), so code blocks,
-    blockquote-nested fences, HTML blocks and lazy continuations are decided
-    the way a renderer decides them, not by a line heuristic. The rules:
+    The ORIGINAL document is parsed as CommonMark (markdown-it-py), so code
+    blocks, blockquote-nested fences, HTML blocks and lazy continuations are
+    decided the way a renderer decides them. The rules:
 
-    * the manifest contains no raw HTML at all: an HTML block can hide a
-      status (``<details>``) or show one Markdown does not;
-    * the title is the level-1 heading on the first line, and the
+    * no invisible or control characters, and no raw HTML at all: either can
+      make what a reader sees differ from what the gate sees;
+    * the title is the level-1 heading on line 1, and the
       ``- Application version`` line is a plain bullet-list item;
-    * no heading is named "Status";
-    * exactly one status mention exists, counted on the source lines and again
-      on the rendered text (which catches entity-encoded spellings);
+    * no heading's decoded text is "Status" or carries a status mention;
+    * exactly one status mention exists, counted three ways that must agree:
+      in the decoded text of every token, on the source lines, and in the
+      rendered HTML's text;
     * that mention is in a plain paragraph directly inside a top-level
       blockquote (the manifest's header block), not in a list, table, code
-      block or nested quote, and its source line is exactly ``required``.
+      block, heading or nested quote, and its source line is exactly
+      ``required``.
 
     An empty list means the manifest passes.
     """
     from markdown_it import MarkdownIt
 
+    problems: list[str] = []
+    invisible = _invisible_characters(text)
+    if invisible:
+        problems.append(f"invisible or control characters are not allowed: {invisible}")
+
     md = MarkdownIt("commonmark")
     raw_lines = text.splitlines()
-    folded = _fold(text)
-    folded_lines = folded.splitlines()
-    tokens = md.parse(folded)
-    contexts = _inline_contexts(tokens)
-    problems: list[str] = []
+    tokens = md.parse(text)
+    leaves = _leaves(tokens)
+    contexts = _line_contexts(leaves)
 
     html_lines = sorted(
         {
             line
-            for token in tokens
+            for token, _stack in leaves
             if token.map is not None
             and (
                 token.type == "html_block"
@@ -162,32 +210,37 @@ def manifest_problems(text: str, title: str, application: str, required: str) ->
     if len(application_lines) != 1 or contexts.get(application_lines[0]) != _BULLET_ITEM:
         problems.append(f"{application!r} must appear once, as a plain bullet-list item")
 
-    problems.extend(
-        f"a heading is named {token.content!r}"
-        for token in tokens
-        if token.type == "inline"
-        and token.map is not None
-        and contexts.get(token.map[0], ())[-1:] == ("heading_open",)
-        and _STATUS_HEADING.match(token.content)
-    )
+    carriers: list[tuple[Token, tuple[str, ...]]] = []
+    for token, stack in leaves:
+        decoded = _decoded(token)
+        if stack[-1:] == ("heading_open",) and (
+            _STATUS_HEADING.match(_fold(decoded).strip()) or _mentions(decoded)
+        ):
+            problems.append(f"a heading reads {decoded.strip()!r}")
+        carriers.extend([(token, stack)] * _mentions(decoded))
 
-    mentions = [index for index, line in enumerate(folded_lines) if _STATUS_MENTION.search(line)]
+    source_mentions = [i for i, line in enumerate(raw_lines) if _mentions(line)]
     renderer = _TextOnly()
-    renderer.feed(md.render(folded))
-    rendered_mentions = len(_STATUS_MENTION.findall(_fold("".join(renderer.parts))))
-    if len(mentions) != 1 or rendered_mentions != 1:
+    renderer.feed(md.render(text))
+    rendered_mentions = _mentions("".join(renderer.parts))
+    if len(carriers) != 1 or len(source_mentions) != 1 or rendered_mentions != 1:
         problems.append(
-            f"exactly one status line is allowed; found {len(mentions)} in the source "
-            f"({[raw_lines[i] for i in mentions]!r}) and {rendered_mentions} in the "
+            "exactly one status line is allowed; found "
+            f"{len(carriers)} in the parsed text, {len(source_mentions)} in the source "
+            f"({[raw_lines[i] for i in source_mentions]!r}) and {rendered_mentions} in the "
             "rendered text"
         )
-    elif contexts.get(mentions[0]) != _HEADER_PARAGRAPH:
+        return problems
+    token, stack = carriers[0]
+    line = source_mentions[0]
+    in_token = token.map is not None and token.map[0] <= line < token.map[1]
+    if token.type != "inline" or stack != _HEADER_PARAGRAPH or not in_token:
         problems.append(
-            f"the status line {raw_lines[mentions[0]]!r} is not in a plain paragraph of a "
-            f"top-level blockquote (its context is {contexts.get(mentions[0])!r})"
+            f"the status line {raw_lines[line]!r} is not in a plain paragraph of a "
+            f"top-level blockquote (its context is {(*stack, token.type)!r})"
         )
-    elif raw_lines[mentions[0]] != required:
-        problems.append(f"the status line is {raw_lines[mentions[0]]!r}, not {required!r}")
+    elif raw_lines[line] != required:
+        problems.append(f"the status line is {raw_lines[line]!r}, not {required!r}")
     return problems
 
 
