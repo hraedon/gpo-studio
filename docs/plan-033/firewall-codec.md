@@ -1,7 +1,8 @@
 # Firewall codec and the next lane
 
 Status: codec and two-leg lab lane implemented, **not surfaced**; capture-backed,
-Windows lane not yet run or verified. Native fixture dated 2026-10-08; operator scope ruling
+review corrections implemented with regression probes; Windows lane not yet run or verified.
+Native fixture dated 2026-10-08; operator scope ruling
 2026-10-07. Plan 034 exit remains codec → lane → surface. [WI-076](../work-items.md#wi-076--firewall-codec-needs-a-write-lane-before-a-surface)
 tracks the remaining work.
 
@@ -22,30 +23,62 @@ IPsec, Public Key, wired and wireless policy authoring are out of scope for 1.x
 under the operator ruling. Firewall `IFType=Lan` remains part of the measured
 firewall rule vocabulary; this does not qualify wired network policy authoring.
 
-## Measured contract
+## Accepted contract
 
-- HKLM/machine only, `PolicyVersion` DWORD 545, rule strings `v2.33`.
-- Per-profile optional values: `None` emits nothing. Public has no values.
-  Inbound block is 1, outbound allow is 0. `DisableNotifications=1` represents
-  cmdlet `NotifyOnListen=False`. Logging false is an explicit DWORD 0.
-- Action/active/direction then protocol and repeated profiles. Any omits tokens.
-  Protocol numbers: 6, 17, 1, 58, 47; Any omits Protocol.
-- Single ports and RPC/RPC-EPMap; remote range uses `RPort2_10` before `RPort`.
-  ICMP4 type/code 8:0 has no port token. LA4 host, RA4 mask subnet, RA6 CIDR
-  subnet; remote LocalSubnet expands into both RA4 and RA6.
-- App, Svc, IFType=Lan, Name, Desc, EmbedCtxt, Edge=TRUE and the measured
-  authenticated ByPass/RMauth/Security form in their native order.
+HKLM/machine only, `PolicyVersion` DWORD 545, rule strings `v2.33` with a
+trailing pipe. An entirely empty policy is accepted without PolicyVersion;
+any configured output requires it. Profile fields can be omitted independently
+(`None` emits nothing), but each present field must match its measured profile:
 
-Supported literal values and token combinations are limited to the capture.
-New token combinations are refused because their ordering is unmeasured.
+| Profile | Allowed fields and literal values |
+|---|---|
+| Domain | EnableFirewall=1, DefaultInboundAction=1 (block), DefaultOutboundAction=0 (allow), LogDroppedPackets=1, LogSuccessfulConnections=0, LogFileSize=8192, nonempty LogFilePath text |
+| Private | EnableFirewall=1, DefaultInboundAction=1 (block), DisableNotifications=1 (`NotifyOnListen=False`), LogSuccessfulConnections=1 |
+| Public | No fields |
+
+Each rule must match **one complete row** below. Missing or extra fields, or
+changing any literal into another row's value, is refused. Every row requires
+a nonempty Name. Any profile/protocol omits its tokens; `—` means absent.
+Only row 10 is disabled; all other rows require Active=TRUE.
+
+| Capture rule | Direction | Action | Protocol | Profile tokens | Additional fields in native order (Name included) |
+|---|---|---|---|---|---|
+| 01 | In | Allow | 6 | Domain | LPort (numeric), Name |
+| 02 | Out | Block | 17 | Domain, Private | RPort2_10 (range), RPort (numeric), Name |
+| 03 | In | Allow | 1 | — | ICMP4=8:0, Name |
+| 04 | In | Allow | 58 | — | Name |
+| 05 | In | Block | — | — | LA4 (host), RA4 (subnet), RA6 (subnet), Name |
+| 06 | Out | Allow | 6 | — | RPort (numeric), App, Name |
+| 07 | In | Allow | 6 | — | LPort (numeric), Svc, Name |
+| 08 | In | Allow | 6 | — | LPort=RPC, RA4=LocalSubnet, RA6=LocalSubnet, Name |
+| 09 | In | Allow | 6 | — | LPort=RPC-EPMap, Name |
+| 10 (Active=FALSE) | In | Allow | 6 | — | LPort (numeric), Name, Desc, EmbedCtxt |
+| 11 | In | Allow | 17 | — | LPort (numeric), IFType=Lan, Name, Edge=TRUE |
+| 12 | Out | Block | 47 | — | Name |
+| 13 | In | ByPass | 6 | — | LPort (numeric), Name, RMauth=D:(A;;CC;;;WD), Security=Authenticate |
+
+Tokens start with Action, Active, Dir, then Protocol if present, then Profile
+tokens in table order, then the additional fields. Names/IDs, numeric ports,
+App/Svc/Desc/EmbedCtxt/LogFilePath text and address payloads may vary within
+their row's forms. Text is nonempty and excludes pipe, NUL, CR and LF; rule IDs
+also exclude backslash and semicolon and must be unique ignoring case.
+Numeric ports are 1–65535; range endpoints are ascending, distinct ports.
+RPC keywords cannot replace numeric ports in other rows. LA4 is an IPv4 host;
+RA4 is one strict IPv4 subnet (prefix 1–31), emitted with a dotted mask;
+RA6 is one strict IPv6 subnet (prefix 1–127), emitted as CIDR. Row 05 requires
+both subnet families and excludes LocalSubnet, host and default-route prefixes;
+row 08 requires LocalSubnet alone, expanded into both families. Address input
+order may vary; emitted family order is RA4 then RA6.
+
 Unknown rule tokens retain positions and text, including repeats, but cannot be
 emitted. Unknown registry records are returned separately and callers must
 retain or explicitly review them. Invalid known records raise
-`FirewallValidationError` with `ValidationIssue` codes. Public configuration,
-other protocols/keywords, local port ranges/lists, other ICMP type/codes,
-interfaces, security descriptors, profile action variants and log sizes are
-refused. Variable names, ports and text can change within the measured shapes;
-the capture does not establish arbitrary-value Windows acceptance.
+`FirewallValidationError` with `ValidationIssue` codes. Without PolicyVersion,
+firewall records are retained as unrecognised legacy input, with the named
+`firewall_legacy_without_policy_version` issue and an empty policy; legacy
+Administrative Templates settings therefore do not crash this parser.
+The capture does not establish arbitrary-value Windows acceptance, and the
+future lane qualifies only its 13 concrete rules, not every variable payload.
 
 Windows' file order is root, Domain profile, rules, Private profile; profile
 values retain authoring order. Studio's existing Registry.pol serializer sorts
@@ -82,8 +115,13 @@ InputObject from that store), subject, success and stdout/stderr filenames. CIM
 and AD values become plain strings/integers before JSON. Each leg captures
 Machine Registry.pol base64, directory extension metadata and Get-GPOReport XML.
 The guest checks PersistentStore for zero `StudioFwLane*` rules before and after,
-removes both owned GPOs in `finally`, and strictly re-queries all GPOs for their
-names and IDs. It never links either GPO.
+records intended names before New-GPO (including a durable intent file), removes
+GPOs with those exact names in `finally`, and strictly re-queries the run prefix.
+The controller generates the run ID, naming GPOs `StudioFwLane-<run-id>-read`
+and `-write`, and independently calls `cleanup-firewall-policy.ps1` before and
+after the guest job, with an EXIT trap covering early controller failures.
+That helper only removes names beginning with `StudioFwLane-<run-id>-`, including
+the terminal separator; other runs' GPOs are untouched. It never links either GPO.
 
 `finalize_firewall_run.py` independently gates schema, authoring/import success,
 zero unrecognised Windows records/tokens, complete parsed policy equality,
@@ -96,6 +134,18 @@ no harness error and clean bound source are also required. Missing data fails
 closed. Expected data never travels to the guest. The verdict hashes every
 candidate file and raw artifact and binds the lane files, codec and publication
 export chain by commit/path/SHA-256, with the same evidence-tag convention.
+
+The write leg additionally requires zero unrecognised records/tokens, parsed
+policy equality with the controller's typed expectation, and **whole-file byte
+equality** with Machine Registry.pol inside the candidate ZIP. Import-GPO imports
+backup settings; principal/UNC mapping is exposed through its optional migration
+table ([Microsoft documentation](https://learn.microsoft.com/en-us/powershell/module/grouppolicy/import-gpo?view=windowsserver2025-ps)).
+This lane uses no migration table and contains no estate principal/UNC payloads;
+we therefore require unchanged policy bytes rather than assume an unmeasured
+rewrite is legitimate. The verdict records candidate/Windows SHA-256, lengths
+and equality even on byte mismatch. Any unexpected Windows rewrite must be
+reviewed with estate evidence before this contract changes. Builder stdout
+must contain exactly one matching SHA line for each of the three candidate files.
 
 The finalizer **records**, without asserting a tool GUID, each leg's
 `gPCMachineExtensionNames` and whether its report renders a Windows Firewall

@@ -56,7 +56,7 @@
     {
       "relative_path": "backup/manifest.xml",
       "raw_sha256": "127cbf9309865afd055e46129ac5364e99aefeb74b3aa551ce772eb7c86df965",
-      "sanitized_sha256": "477f8340f81831590ebc94c8554bdc5f4ee27caa50427fa6cb81404454ef5c07",
+      "sanitized_sha256": "909263d8c58253e59535734c4c105d3ffa732b75df92810d41cd2636b3a36504",
       "transformations_applied": [
         "replace-domain-host-account-gpo-and-backup-identities"
       ]
@@ -64,7 +64,7 @@
     {
       "relative_path": "backup/{33333333-3333-4333-8333-333333333333}/Backup.xml",
       "raw_sha256": "3a9899379cbbc14cf1323d481198d6a1f179c42dd588e74496627d6180068df4",
-      "sanitized_sha256": "80d274df5eac1a42aff4bba61796ad3d418a66d34035f684c78010552515c465",
+      "sanitized_sha256": "660e21e888938efe050dac9b4ca97be358cb62d7013444dac8fd582173b8d465",
       "transformations_applied": [
         "replace-domain-host-account-gpo-and-backup-identities",
         "replace-domain-sid-prefix",
@@ -80,7 +80,7 @@
     {
       "relative_path": "backup/{33333333-3333-4333-8333-333333333333}/bkupInfo.xml",
       "raw_sha256": "c4194f32de31539f38ec81a33503425c26e721984b657d3785d847edcbd735af",
-      "sanitized_sha256": "965860418459af56380704d39c14c9e0031fa8feb9a0ed2c28d97d79a60047f1",
+      "sanitized_sha256": "7aa9118b2407b3076b19d36c7b3a531e59356aefe216787cabb855accd375f92",
       "transformations_applied": [
         "replace-domain-host-account-gpo-and-backup-identities"
       ]
@@ -88,7 +88,7 @@
     {
       "relative_path": "backup/{33333333-3333-4333-8333-333333333333}/gpreport.xml",
       "raw_sha256": "23c4b07f83f738c1f5a55526408b7d444e90e4f39d24f43b285a88aff654b559",
-      "sanitized_sha256": "7f45b1932a42e0263c925fc8ba2112c92f8b7e8b574f08fc27aab5641d4f9d35",
+      "sanitized_sha256": "2c9dd61a79621d4655a6e505928e28ed3f25706917449beb816bcc5b891fcae8",
       "transformations_applied": [
         "replace-domain-host-account-gpo-and-backup-identities",
         "replace-domain-sid-prefix"
@@ -105,7 +105,7 @@
     {
       "relative_path": "report.xml",
       "raw_sha256": "a6de2e758de151031c45467a9b9514027c75d63ce0763f451aedb192f5421ae2",
-      "sanitized_sha256": "b3b765096660e3f80f8da3dda806f9e5cb6b7968fee4c169077b2bc4ed682157",
+      "sanitized_sha256": "830769e6b216f441a7d4fc5b387db0cca34e213a487fd3d36309915cd5cd42a4",
       "transformations_applied": [
         "replace-domain-host-account-gpo-and-backup-identities",
         "replace-domain-sid-prefix"

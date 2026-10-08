@@ -39,6 +39,7 @@ def sanitize(source: Path, destination: Path) -> None:
         fields["ID"].strip("{}"): "33333333-3333-4333-8333-333333333333",
     }
     backup = ET.fromstring(next(source.rglob("Backup.xml")).read_bytes())
+    netbios_names = set()
     for group in backup.iter():
         if group.tag.rsplit("}", 1)[-1] != "Group":
             continue
@@ -46,6 +47,7 @@ def sanitize(source: Path, destination: Path) -> None:
         if children.get("DnsDomainName", "").casefold() != fields["GPODomain"].casefold():
             continue
         replacements[children["NetBIOSDomainName"]] = "STUDIO"
+        netbios_names.add(children["NetBIOSDomainName"].casefold())
         replacements[children["SamAccountName"]] = f"zz-studio-group-{len(replacements)}"
     # The descriptor's localized group names need no interpretation; domain
     # names are replaced globally while well-known principal names are retained.
@@ -57,8 +59,11 @@ def sanitize(source: Path, destination: Path) -> None:
 
     def replace(text: str) -> str:
         for old, new in ordered:
+            pattern = re.escape(old)
+            if old.casefold() in netbios_names:
+                pattern = r"\b" + pattern + r"\b"
             text = re.sub(
-                re.escape(old), lambda _, replacement=new: replacement, text, flags=re.IGNORECASE
+                pattern, lambda _, replacement=new: replacement, text, flags=re.IGNORECASE
             )
         return text
 
@@ -79,7 +84,13 @@ def sanitize(source: Path, destination: Path) -> None:
                 raise ValueError("Backup Registry.pol differs from capture")
             output = raw
         else:
-            encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+            encoding = (
+                "utf-16le"
+                if raw.startswith(b"\xff\xfe")
+                else "utf-16be"
+                if raw.startswith(b"\xfe\xff")
+                else "utf-8"
+            )
             text = raw.decode(encoding)
             updated = replace(text)
             if updated != text:

@@ -4,11 +4,12 @@ param(
     [Parameter(Mandatory = $true)][string]$CandidateZip,
     [Parameter(Mandatory = $true)][string]$AuthoringJson,
     [Parameter(Mandatory = $true)][string]$OutputDir,
+    [Parameter(Mandatory = $true)][string]$RunId,
     [string]$Domain = $env:USERDNSDOMAIN
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$runId = "firewall-$(Get-Date -Format yyyyMMddHHmmss)-$(Get-Random -Minimum 1000 -Maximum 9999)"
+if ($RunId -notmatch '^firewall-[0-9]{14}-[0-9]+$') { throw 'invalid controller run id' }
 $work = Join-Path $OutputDir $runId
 $commands = Join-Path $work 'commands'
 $inputRoot = Join-Path $work 'input'
@@ -42,8 +43,8 @@ $result = [ordered]@{
     }
     error = $null
 }
-$owned = @{}
-$targets = @{ read = "StudioFwLane-read-$runId"; write = "StudioFwLane-write-$runId" }
+$intended = @{}
+$targets = @{ read = "StudioFwLane-$runId-read"; write = "StudioFwLane-$runId-write" }
 
 function ConvertTo-FlatString($value) {
     if ($null -eq $value) { return '' }
@@ -158,8 +159,10 @@ try {
             Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object { $_.DisplayName -eq $name }
         })
         if ($collisions.Count -ne 0) { throw 'disposable target already exists' }
+        # Persist intent first: New-GPO may succeed before logging throws.
+        $intended[$leg] = $name
+        $intended | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'intended-gpos.json') -Encoding UTF8
         $gpo = Invoke-LaneCommand 'New-GPO' $leg $null $name { New-GPO -Name $name -Domain $Domain -ErrorAction Stop }
-        $owned[$leg] = $gpo.Id
         $legResult = [ordered]@{
             target_name = $name; owned_gpo_id = [string]$gpo.Id; policy_store = $store
             authoring_succeeded = $false; import_succeeded = $false
@@ -197,22 +200,32 @@ try {
     $cleanupOk = $true
     foreach ($leg in @('read', 'write')) {
         try {
-            if ($owned.ContainsKey($leg)) {
-                $id = $owned[$leg]
-                Invoke-LaneCommand 'Remove-GPO' $leg $null ([string]$id) {
-                    Remove-GPO -Guid $id -Domain $Domain -Confirm:$false -ErrorAction Stop
-                } | Out-Null
+            if ($intended.ContainsKey($leg)) {
+                $cleanupName = $intended[$leg]
+                $cleanupGpos = @(Invoke-LaneCommand 'Get-GPO' "cleanup-$leg" $null $cleanupName {
+                    Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object {
+                        $_.DisplayName -eq $cleanupName -and
+                        ([string]$_.DisplayName).StartsWith("StudioFwLane-$runId-", [StringComparison]::OrdinalIgnoreCase)
+                    }
+                })
+                foreach ($cleanupGpo in $cleanupGpos) {
+                    $id = $cleanupGpo.Id
+                    Invoke-LaneCommand 'Remove-GPO' $leg $null ([string]$id) {
+                        Remove-GPO -Guid $id -Domain $Domain -Confirm:$false -ErrorAction Stop
+                    } | Out-Null
+                }
             }
         } catch {
             $cleanupOk = $false
-            $result.error = (($result.error, "cleanup: $($_.Exception.Message)") -ne $null) -join '; '
+            $result.error = (@($result.error, "cleanup: $($_.Exception.Message)") |
+                Where-Object { $null -ne $_ }) -join '; '
         }
     }
     try {
         # Query all with Stop: errors do not masquerade as an absent resource.
         $result.cleanup_remaining = @(Invoke-LaneCommand 'Get-GPO' 'cleanup' $null '' {
             Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object {
-                $_.DisplayName -in @($targets.Values) -or $_.Id -in @($owned.Values)
+                ([string]$_.DisplayName).StartsWith("StudioFwLane-$runId-", [StringComparison]::OrdinalIgnoreCase)
             } | ForEach-Object { [string]$_.Id }
         })
         $result.persistent_after = @(Invoke-LaneCommand 'Get-NetFirewallRule' 'after' 'PersistentStore' '' {
@@ -222,7 +235,8 @@ try {
         })
         $result.cleanup_verified = $cleanupOk -and $result.cleanup_remaining.Count -eq 0
     } catch {
-        $result.error = (($result.error, "verification: $($_.Exception.Message)") -ne $null) -join '; '
+        $result.error = (@($result.error, "verification: $($_.Exception.Message)") |
+            Where-Object { $null -ne $_ }) -join '; '
     }
     $result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $work 'result.json') -Encoding UTF8
     Write-Output $work

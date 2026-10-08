@@ -147,6 +147,7 @@ class FirewallPolicy:
 class FirewallParseResult:
     policy: FirewallPolicy
     unrecognised_records: tuple[PolRecord | RegistrySetting, ...] = ()
+    issues: tuple[ValidationIssue, ...] = ()
 
 
 def _safe_text(value: str, field_name: str) -> str:
@@ -163,6 +164,8 @@ def _address(value: str, family: int, subnet: bool) -> str:
             network = ipaddress.ip_network(value, strict=True)
             if network.version != family:
                 raise ValueError("address family mismatch")
+            if not 0 < network.prefixlen < network.max_prefixlen:
+                raise ValueError("remote default-route and host prefixes are unmeasured")
             if isinstance(network, ipaddress.IPv4Network):
                 return f"{network.network_address}/{network.netmask}"
             return str(network)
@@ -177,25 +180,40 @@ def _address(value: str, family: int, subnet: bool) -> str:
         _fail("unmeasured_address", str(error))
 
 
-# Relative token order is known only for these native shapes. Refuse new
-# combinations rather than inventing Windows' ordering between unseen pairs.
-_MEASURED_RULE_SHAPES: frozenset[tuple[str, ...]] = frozenset(
-    tuple(shape.split())
-    for shape in (
-        "Action Active Dir Protocol Profile LPort Name",
-        "Action Active Dir Protocol Profile Profile RPort2_10 RPort Name",
-        "Action Active Dir Protocol ICMP4 Name",
-        "Action Active Dir Protocol Name",
-        "Action Active Dir LA4 RA4 RA6 Name",
-        "Action Active Dir Protocol RPort App Name",
-        "Action Active Dir Protocol LPort Svc Name",
-        "Action Active Dir Protocol LPort RA4 RA6 Name",
-        "Action Active Dir Protocol LPort Name",
-        "Action Active Dir Protocol LPort Name Desc EmbedCtxt",
-        "Action Active Dir Protocol LPort IFType Name Edge",
-        "Action Active Dir Protocol LPort Name RMauth Security",
+# Each row is a measured rule, with only numeric ports, text and address
+# payloads elided. Keep literal values attached to their shape: a measured
+# key does not establish acceptance of its cross-product with other values.
+_MEASURED_RULE_FORMS: frozenset[tuple[str, ...]] = frozenset(
+    tuple(form.split("|"))
+    for form in (
+        "Action=Allow|Active=TRUE|Dir=In|Protocol=6|Profile=Domain|LPort|Name",
+        "Action=Block|Active=TRUE|Dir=Out|Protocol=17|Profile=Domain|Profile=Private|RPort2_10|RPort|Name",
+        "Action=Allow|Active=TRUE|Dir=In|Protocol=1|ICMP4=8:0|Name",
+        "Action=Allow|Active=TRUE|Dir=In|Protocol=58|Name",
+        "Action=Block|Active=TRUE|Dir=In|LA4|RA4|RA6|Name",
+        "Action=Allow|Active=TRUE|Dir=Out|Protocol=6|RPort|App|Name",
+        "Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort|Svc|Name",
+        "Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=RPC|RA4=LocalSubnet|RA6=LocalSubnet|Name",
+        "Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=RPC-EPMap|Name",
+        "Action=Allow|Active=FALSE|Dir=In|Protocol=6|LPort|Name|Desc|EmbedCtxt",
+        "Action=Allow|Active=TRUE|Dir=In|Protocol=17|LPort|IFType=Lan|Name|Edge=TRUE",
+        "Action=Block|Active=TRUE|Dir=Out|Protocol=47|Name",
+        "Action=ByPass|Active=TRUE|Dir=In|Protocol=6|LPort|Name|RMauth=D:(A;;CC;;;WD)|Security=Authenticate",
     )
 )
+
+
+def _rule_form(tokens: list[str]) -> tuple[str, ...]:
+    variable = {"Name", "Desc", "EmbedCtxt", "App", "Svc", "RPort", "RPort2_10", "LA4"}
+    return tuple(
+        key
+        if key in variable
+        or (key == "LPort" and value.isdecimal())
+        or (key in ("RA4", "RA6") and value != "LocalSubnet")
+        else token
+        for token in tokens
+        for key, _, value in [token.partition("=")]
+    )
 
 
 def _rule_tokens(rule: FirewallRule) -> list[str]:
@@ -292,9 +310,10 @@ def _rule_tokens(rule: FirewallRule) -> list[str]:
         tokens.extend(("RMauth=" + rule.remote_machine, "Security=Authenticate"))
     elif rule.remote_machine is not None or rule.security is not None:
         _fail("unmeasured_security", "Security tokens were measured only with ByPass")
-    if tuple(token.partition("=")[0] for token in tokens) not in _MEASURED_RULE_SHAPES:
+    if _rule_form(tokens) not in _MEASURED_RULE_FORMS:
         _fail(
-            "unmeasured_token_combination", "This token combination/order has no native measurement"
+            "unmeasured_token_combination",
+            "This token shape/literal combination has no native measurement",
         )
     return tokens
 
@@ -329,6 +348,26 @@ def _profile_records(
         value = getattr(settings, attr)
         if value is None:
             continue
+        measured_fields = {
+            "domain": {
+                "enabled",
+                "default_inbound_action",
+                "default_outbound_action",
+                "log_dropped_packets",
+                "log_successful_connections",
+                "log_file_size_kb",
+                "log_file_path",
+            },
+            "private": {
+                "enabled",
+                "default_inbound_action",
+                "disable_notifications",
+                "log_successful_connections",
+            },
+            "public": set(),
+        }
+        if attr not in measured_fields[profile]:
+            _fail("unmeasured_profile_field", f"{profile}.{attr} was not measured")
         wire: str | int
         if attr in ("default_inbound_action", "default_outbound_action"):
             expected = "block" if attr == "default_inbound_action" else "allow"
@@ -348,6 +387,13 @@ def _profile_records(
                 _fail("invalid_profile_boolean", f"{attr} must be bool or None")
             if attr in ("enabled", "disable_notifications") and value is not True:
                 _fail("unmeasured_profile_boolean", f"{attr}=false was not measured")
+            if attr == "log_dropped_packets" and value is not True:
+                _fail("unmeasured_profile_boolean", "Domain dropped-packet logging requires true")
+            if attr == "log_successful_connections" and value != (profile == "private"):
+                _fail(
+                    "unmeasured_profile_boolean",
+                    f"{profile} allowed-packet logging differs from capture",
+                )
             wire = int(value)
         result.append(_setting(key + ("\\Logging" if logging else ""), name, kind, wire))
     return result
@@ -504,6 +550,36 @@ def _parse_rule(rule_id: str, text: str) -> FirewallRule:
 
 def from_registry_records(records: Iterable[PolRecord | RegistrySetting]) -> FirewallParseResult:
     """Read machine records; never consume unrelated or unknown registry records."""
+    records = tuple(records)
+
+    def machine_firewall(record: PolRecord | RegistrySetting) -> bool:
+        return (
+            not isinstance(record, RegistrySetting)
+            or (record.side == "computer" and record.hive == "HKLM")
+        ) and (
+            record.key.casefold() == FIREWALL_KEY.casefold()
+            or record.key.casefold().startswith(FIREWALL_KEY.casefold() + "\\")
+        )
+
+    if any(machine_firewall(r) for r in records) and not any(
+        machine_firewall(r)
+        and r.key.casefold() == FIREWALL_KEY.casefold()
+        and r.value_name.casefold() == "policyversion"
+        for r in records
+    ):
+        # The same keys also contain older Administrative Templates settings.
+        # Without the version discriminator, retain all input for caller review
+        # rather than interpreting legacy values as the measured WFAS tranche.
+        return FirewallParseResult(
+            FirewallPolicy(),
+            records,
+            (
+                _issue(
+                    "legacy_without_policy_version",
+                    "Firewall records without PolicyVersion are retained as legacy/unrecognised",
+                ),
+            ),
+        )
     profile_values: dict[str, dict[str, object]] = {p: {} for p in ("domain", "private", "public")}
     rules: list[FirewallRule] = []
     unrecognised: list[PolRecord | RegistrySetting] = []

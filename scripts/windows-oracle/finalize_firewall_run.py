@@ -15,6 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 from uuid import UUID
+from zipfile import BadZipFile, ZipFile
 
 from gpo_studio.firewall_policy import from_registry_records
 from gpo_studio.oracle_evidence import (
@@ -34,7 +35,10 @@ CANDIDATE_EXPECTATION = "expected.json"
 #: of recorded as a shorter block (WI-025's worked argument).
 REQUIRED_CANDIDATE_FILES = (CANDIDATE_ARCHIVE, "authoring.json", CANDIDATE_EXPECTATION)
 
-DEPLOYED_FILES = {"run-firewall-policy.ps1": "scripts/windows-oracle/run-firewall-policy.ps1"}
+DEPLOYED_FILES = {
+    "run-firewall-policy.ps1": "scripts/windows-oracle/run-firewall-policy.ps1",
+    "cleanup-firewall-policy.ps1": "scripts/windows-oracle/cleanup-firewall-policy.ps1",
+}
 LOCAL_FILES = {
     "run-firewall-oracle.sh": "scripts/windows-oracle/run-firewall-oracle.sh",
     "finalize_firewall_run.py": "scripts/windows-oracle/finalize_firewall_run.py",
@@ -93,6 +97,29 @@ FILTERS = ("Port", "Address", "Application", "Service", "InterfaceType", "Interf
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _builder_hashes_match(run: Path, candidate_root: Path) -> bool:
+    try:
+        lines = (run / "builder.stdout.txt").read_text().splitlines()
+        hashes = [line for line in lines if "sha256=" in line]
+        return sorted(hashes) == sorted(
+            f"{name} sha256={_sha(candidate_root / name)}" for name in REQUIRED_CANDIDATE_FILES
+        )
+    except (OSError, UnicodeError):
+        return False
+
+
+def _candidate_registry_pol(candidate_root: Path) -> bytes:
+    with ZipFile(candidate_root / CANDIDATE_ARCHIVE) as archive:
+        paths = [
+            name
+            for name in archive.namelist()
+            if name.casefold().endswith("/domainsysvol/gpo/machine/registry.pol")
+        ]
+        if len(paths) != 1:
+            raise ValueError("candidate must contain exactly one machine Registry.pol")
+        return archive.read(paths[0])
 
 
 def _rows(rows: object) -> dict[str, dict[str, Any]]:
@@ -181,9 +208,13 @@ def _required_operations(result: dict[str, Any], expected: dict[str, Any]) -> li
             (cmd, leg, None, ident)
             for cmd in ("Get-GPO", "Get-ADObject", "Read-RegistryPol", "Get-GPOReport")
         )
-    sequence.extend(
-        ("Remove-GPO", leg, None, result[leg + "_leg"]["owned_gpo_id"]) for leg in ("read", "write")
-    )
+    for leg in ("read", "write"):
+        sequence.extend(
+            [
+                ("Get-GPO", "cleanup-" + leg, None, result[leg + "_leg"]["target_name"]),
+                ("Remove-GPO", leg, None, result[leg + "_leg"]["owned_gpo_id"]),
+            ]
+        )
     sequence.extend(
         [("Get-GPO", "cleanup", None, ""), ("Get-NetFirewallRule", "after", "PersistentStore", "")]
     )
@@ -204,7 +235,7 @@ def _operations_match(result: dict[str, Any], expected: dict[str, Any], run: Pat
         if UUID(read["owned_gpo_id"]) == UUID(write["owned_gpo_id"]):
             return False
         for leg, data in [("read", read), ("write", write)]:
-            if data["target_name"] != f"StudioFwLane-{leg}-{result['run_id']}":
+            if data["target_name"] != f"StudioFwLane-{result['run_id']}-{leg}":
                 return False
             if data["policy_store"] != result["domain"] + "\\" + data["target_name"]:
                 return False
@@ -290,7 +321,7 @@ def grade(
         and result.get("cleanup_remaining") == [],
         "harness_reported_no_error": "error" in result and result["error"] is None,
         "operations_match_scoped_contract": _operations_match(result, expected, run),
-        "builder_stdout_present": (run / "builder.stdout.txt").is_file(),
+        "builder_stdout_present": _builder_hashes_match(run, candidate_root),
     }
     env = result.get("environment")
     violations = (
@@ -314,6 +345,9 @@ def grade(
         "windows_registry_pol_parses_with_zero_unrecognised",
         "read_parsed_policy_equals_authored_policy",
         "read_registry_records_equal_codec_emission",
+        "write_registry_pol_parses_with_zero_unrecognised",
+        "write_parsed_policy_equals_expected_policy",
+        "write_registry_pol_equals_candidate_bytes",
     ):
         checks[name] = False
     try:
@@ -321,6 +355,7 @@ def grade(
         parsed = from_registry_records(parse(raw))
         checks["windows_registry_pol_parses_with_zero_unrecognised"] = (
             not parsed.unrecognised_records
+            and not parsed.issues
             and all(not r.unknown_tokens for r in parsed.policy.rules)
         )
         checks["read_parsed_policy_equals_authored_policy"] = (
@@ -331,6 +366,28 @@ def grade(
         ) == _expected_records(expected)
     except (KeyError, TypeError, ValueError, struct.error) as exc:
         comparison["errors"]["registry"] = str(exc)
+    try:
+        raw = base64.b64decode(write["registry_pol_base64"], validate=True)
+        candidate = _candidate_registry_pol(candidate_root)
+        checks["write_registry_pol_equals_candidate_bytes"] = raw == candidate
+        comparison["write_registry_bytes"] = {
+            "candidate_sha256": hashlib.sha256(candidate).hexdigest(),
+            "windows_sha256": hashlib.sha256(raw).hexdigest(),
+            "candidate_length": len(candidate),
+            "windows_length": len(raw),
+            "equal": raw == candidate,
+        }
+        parsed = from_registry_records(parse(raw))
+        checks["write_registry_pol_parses_with_zero_unrecognised"] = (
+            not parsed.unrecognised_records
+            and not parsed.issues
+            and all(not r.unknown_tokens for r in parsed.policy.rules)
+        )
+        checks["write_parsed_policy_equals_expected_policy"] = (
+            _policy_dict(parsed.policy) == expected["policy"]
+        )
+    except (KeyError, TypeError, ValueError, struct.error, OSError, BadZipFile) as exc:
+        comparison["errors"]["write_registry"] = str(exc)
     for prefix, leg in (("read", read), ("write", write)):
         checks[prefix + "_cmdlet_readback_matches_expected"] = False
         if prefix == "write":

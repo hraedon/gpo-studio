@@ -204,6 +204,131 @@ def test_cidr_and_family_split_equal_native_wire() -> None:
     assert serialize(to_registry_settings(modified)) == serialize(parse(native_bytes()))
 
 
+def test_literal_cross_product_is_limited_to_captured_rule_forms() -> None:
+    from itertools import product
+
+    def measured_form(rule: FirewallRule) -> FirewallRule:
+        # Independently project only allowed variable payloads from the model.
+        return replace(
+            rule,
+            rule_id="synthetic",
+            name="synthetic",
+            local_port="1234"
+            if rule.local_port and rule.local_port.isdecimal()
+            else rule.local_port,
+            remote_port=1234 if rule.remote_port is not None else None,
+            remote_port_range=(1234, 1235) if rule.remote_port_range else None,
+            local_address="198.51.100.1" if rule.local_address else None,
+            remote_addresses=("192.0.2.0/24", "2001:db8::/32")
+            if rule.local_address
+            else rule.remote_addresses,
+            program="synthetic" if rule.program else None,
+            service="synthetic" if rule.service else None,
+            description="synthetic" if rule.description else None,
+            group="synthetic" if rule.group else None,
+        )
+
+    measured = {measured_form(r) for r in expected_policy().rules}
+    for rule in expected_policy().rules:
+        for direction, action, enabled, protocol in product(
+            ("inbound", "outbound"),
+            ("allow", "block", "bypass"),
+            (True, False),
+            (None, 1, 6, 17, 47, 58),
+        ):
+            variant = replace(
+                rule, direction=direction, action=action, enabled=enabled, protocol=protocol
+            )
+            accepted = measured_form(variant) in measured
+            assert (variant.validate() == ()) is accepted, variant
+            if not accepted:
+                # Feed the same unmeasured literals through the read path too.
+                native = to_registry_settings(FirewallPolicy(policy_version=545, rules=(rule,)))
+                wire = native[1].value
+                assert isinstance(wire, str)
+                wire = wire.replace(
+                    f"Dir={'In' if rule.direction == 'inbound' else 'Out'}|",
+                    f"Dir={'In' if direction == 'inbound' else 'Out'}|",
+                )
+                wire = wire.replace(
+                    f"Action={dict(allow='Allow', block='Block', bypass='ByPass')[rule.action]}|",
+                    f"Action={dict(allow='Allow', block='Block', bypass='ByPass')[action]}|",
+                )
+                wire = wire.replace(
+                    f"Active={'TRUE' if rule.enabled else 'FALSE'}|",
+                    f"Active={'TRUE' if enabled else 'FALSE'}|",
+                )
+                if rule.protocol is not None:
+                    wire = wire.replace(
+                        f"Protocol={rule.protocol}|",
+                        f"Protocol={protocol}|" if protocol is not None else "",
+                    )
+                elif protocol is not None:
+                    wire = wire.replace("Dir=In|", f"Dir=In|Protocol={protocol}|").replace(
+                        "Dir=Out|", f"Dir=Out|Protocol={protocol}|"
+                    )
+                with pytest.raises(FirewallValidationError):
+                    from_registry_records([native[0], replace(native[1], value=wire)])
+
+
+@pytest.mark.parametrize(
+    "index,change",
+    [
+        (12, {"direction": "outbound"}),
+        (12, {"enabled": False, "protocol": 17}),
+        (10, {"direction": "outbound"}),
+        (10, {"action": "block"}),
+        (2, {"icmp4": None}),
+        (3, {"protocol": 6}),
+        (4, {"remote_addresses": ("192.0.2.7/32", "2001:db8::/32")}),
+        (4, {"remote_addresses": ("0.0.0.0/0", "2001:db8::/32")}),
+        (4, {"remote_addresses": ("192.0.2.0/24", "::/0")}),
+        (4, {"remote_addresses": ("192.0.2.0/24", "2001:db8::1/128")}),
+        (4, {"remote_addresses": ("LocalSubnet",)}),
+        (7, {"local_port": "1234"}),
+        (8, {"local_port": "1234"}),
+        (5, {"direction": "inbound"}),
+    ],
+)
+def test_reviewer_unmeasured_value_probes_refused(index, change) -> None:
+    rule = replace(expected_policy().rules[index], **change)
+    assert rule.validate()
+    with pytest.raises(FirewallValidationError):
+        to_registry_settings(FirewallPolicy(policy_version=545, rules=(rule,)))
+
+
+@pytest.mark.parametrize("value", [0, 1])
+@pytest.mark.parametrize("setting_input", [False, True])
+def test_legacy_admin_template_values_are_retained_with_named_issue(value, setting_input) -> None:
+    record = PolRecord(FIREWALL_KEY + r"\DomainProfile", "EnableFirewall", "REG_DWORD", value)
+    if setting_input:
+        record = RegistrySetting(
+            "legacy", "computer", "HKLM", record.key, record.value_name, record.registry_type, value
+        )
+    result = from_registry_records(iter([record]))
+    assert result.policy == FirewallPolicy()
+    assert result.unrecognised_records == (record,)
+    assert [i.code for i in result.issues] == ["firewall_legacy_without_policy_version"]
+
+
+@pytest.mark.parametrize(
+    "profile,settings",
+    [
+        ("domain", FirewallProfileSettings(disable_notifications=True)),
+        ("domain", FirewallProfileSettings(log_successful_connections=True)),
+        ("domain", FirewallProfileSettings(log_dropped_packets=False)),
+        ("private", FirewallProfileSettings(default_outbound_action="allow")),
+        ("private", FirewallProfileSettings(log_successful_connections=False)),
+        ("private", FirewallProfileSettings(log_file_size_kb=8192)),
+        ("private", FirewallProfileSettings(log_file_path="synthetic.log")),
+        ("private", FirewallProfileSettings(log_dropped_packets=True)),
+    ],
+)
+def test_profile_values_stay_attached_to_the_measured_profile(profile, settings) -> None:
+    policy = FirewallPolicy(policy_version=545, **{profile: settings})
+    assert policy.validate()
+
+
 def test_unknown_tokens_preserved_in_order_and_refused_on_write() -> None:
     records = parse(native_bytes())
     rule = records[8]
@@ -283,7 +408,11 @@ def test_refuse_unmeasured_rule_shapes(change: dict[str, object], code: str) -> 
 )
 def test_refuse_unmeasured_profile_values(settings: FirewallProfileSettings, code: str) -> None:
     with pytest.raises(FirewallValidationError) as error:
-        to_registry_settings(FirewallPolicy(policy_version=545, domain=settings))
+        to_registry_settings(
+            FirewallPolicy(policy_version=545, private=settings)
+            if settings.disable_notifications is not None
+            else FirewallPolicy(policy_version=545, domain=settings)
+        )
     assert error.value.issues[0].code == "firewall_" + code
 
 
@@ -411,7 +540,7 @@ def test_sanitizer_redacts_synthetic_estate_identities(tmp_path: Path) -> None:
     replacements = (
         ("zz-studio-dc.studio.example", "zz-capture-dc.lab.example"),
         ("studio.example", "lab.example"),
-        ("STUDIO", "CAPTURELAB"),
+        ("STUDIO", "LAB"),
         ("11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
         ("22222222-2222-4222-8222-222222222222", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
         ("33333333-3333-4333-8333-333333333333", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
@@ -423,7 +552,7 @@ def test_sanitizer_redacts_synthetic_estate_identities(tmp_path: Path) -> None:
         if not path.is_file() or path.suffix not in (".xml", ".json"):
             continue
         raw = path.read_bytes()
-        encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+        encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8"
         text = raw.decode(encoding)
         for old, new in replacements:
             text = text.replace(old, new)
@@ -441,7 +570,13 @@ def test_sanitizer_redacts_synthetic_estate_identities(tmp_path: Path) -> None:
         raw = path.read_bytes()
         text = raw.decode("utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig")
         for _, synthetic_original in replacements:
-            assert synthetic_original.casefold() not in text.casefold()
+            if synthetic_original == "LAB":
+                import re
+
+                assert not re.search(r"\bLAB\b", text, re.IGNORECASE)
+            else:
+                assert synthetic_original.casefold() not in text.casefold()
+    assert_xml_names_and_boms_preserved(source, destination)
     provenance = json.loads((destination / "provenance.json").read_text())
     transformations = {t for entry in provenance["files"] for t in entry["transformations_applied"]}
     assert transformations == {
@@ -449,6 +584,30 @@ def test_sanitizer_redacts_synthetic_estate_identities(tmp_path: Path) -> None:
         "replace-domain-sid-prefix",
         "replace-security-descriptor-hex-with-placeholder",
     }
+
+
+def assert_xml_names_and_boms_preserved(source: Path, destination: Path) -> None:
+    provenance = json.loads((destination / "provenance.json").read_text())
+    raw_files = {
+        hashlib.sha256(p.read_bytes()).hexdigest(): p for p in source.rglob("*") if p.is_file()
+    }
+    for entry in provenance["files"]:
+        raw_path = raw_files[entry["raw_sha256"]]
+        output = destination / entry["relative_path"]
+        raw, sanitized = raw_path.read_bytes(), output.read_bytes()
+        for bom in (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff"):
+            assert raw.startswith(bom) == sanitized.startswith(bom)
+        if output.suffix == ".xml":
+            assert {e.tag for e in ET.fromstring(raw).iter()} == {
+                e.tag for e in ET.fromstring(sanitized).iter()
+            }
+
+
+def test_regenerated_fixture_xml_names_and_boms_match_raw_inbox() -> None:
+    source = Path("/home/itadmin/gpo-studio-evidence/inbox/fw-capture-20261008")
+    if not source.exists():
+        pytest.skip("external native inbox unavailable; synthetic regression runs everywhere")
+    assert_xml_names_and_boms_preserved(source, FIXTURE)
 
 
 def test_sanitizer_refuses_identity_bearing_pol(tmp_path: Path) -> None:

@@ -9,6 +9,8 @@ import os
 import runpy
 import subprocess
 import sys
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -29,12 +31,14 @@ BUILDER = runpy.run_path(str(ROOT / "scripts/plan-033/build-firewall-candidate.p
 @pytest.fixture
 def evidence(tmp_path: Path):
     candidate, run = tmp_path / "candidate", tmp_path / "run"
-    BUILDER["build"](candidate, BUILDER["candidate_policy"]())
+    stdout = StringIO()
+    with redirect_stdout(stdout):
+        BUILDER["build"](candidate, BUILDER["candidate_policy"]())
     expected = json.loads((candidate / "expected.json").read_text())
     run.mkdir()
     (run / "commands").mkdir()
     (run / "deployed").mkdir()
-    (run / "builder.stdout.txt").write_text("synthetic builder log")
+    (run / "builder.stdout.txt").write_text(stdout.getvalue())
     (run / "candidate.zip").write_bytes((candidate / BUILDER["ARCHIVE_NAME"]).read_bytes())
     (run / "authoring.json").write_bytes((candidate / "authoring.json").read_bytes())
     for name, relative in FINALIZER["DEPLOYED_FILES"].items():
@@ -57,7 +61,7 @@ def evidence(tmp_path: Path):
     )
     result = dict(
         schema_version=1,
-        run_id="firewall-synthetic",
+        run_id="firewall-20261008123456-1234",
         domain="synthetic.test",
         persistent_before=[],
         persistent_after=[],
@@ -75,7 +79,7 @@ def evidence(tmp_path: Path):
         ("read", "11111111-1111-4111-8111-111111111111"),
         ("write", "22222222-2222-4222-8222-222222222222"),
     ]:
-        name = f"StudioFwLane-{leg}-{result['run_id']}"
+        name = f"StudioFwLane-{result['run_id']}-{leg}"
         result[leg + "_leg"] = dict(
             target_name=name,
             owned_gpo_id=guid,
@@ -84,7 +88,9 @@ def evidence(tmp_path: Path):
             import_succeeded=leg == "write",
             rules_readback=copy.deepcopy(expected["rules_readback"]),
             profiles_readback=copy.deepcopy(expected["profiles_readback"]),
-            registry_pol_base64=base64.b64encode(raw).decode(),
+            registry_pol_base64=base64.b64encode(
+                raw if leg == "read" else FINALIZER["_candidate_registry_pol"](candidate)
+            ).decode(),
             report_links_to_count=0,
             report_xml='<GPO><Computer><ExtensionData><Extension xmlns:f="urn:WindowsFirewall">'
             "<f:WindowsFirewallSettings/></Extension></ExtensionData></Computer></GPO>",
@@ -121,6 +127,89 @@ def grade(evidence):
 def test_complete_synthetic_evidence_passes(evidence) -> None:
     checks = grade(evidence)
     assert checks and all(checks.values()), checks
+
+
+@pytest.mark.parametrize("raw", [b"not a registry.pol at all", b"PReg\x01\0\0\0"])
+def test_reviewer_write_pol_probes_fail(evidence, raw) -> None:
+    # Reuse /tmp/fw-review/probes/test_probe_write_pol.py's counterexamples.
+    evidence[0]["write_leg"]["registry_pol_base64"] = base64.b64encode(raw).decode()
+    checks = grade(evidence)
+    assert checks["write_parsed_policy_equals_expected_policy"] is False
+    assert checks["write_registry_pol_equals_candidate_bytes"] is False
+
+
+def test_write_leg_requires_exact_candidate_order_even_for_equal_policy(evidence) -> None:
+    result, expected, run, candidate = evidence
+    result["write_leg"]["registry_pol_base64"] = result["read_leg"]["registry_pol_base64"]
+    checks, comparison = FINALIZER["grade"](result, expected, run, ROOT, candidate)
+    assert checks["write_parsed_policy_equals_expected_policy"] is True
+    assert checks["write_registry_pol_parses_with_zero_unrecognised"] is True
+    assert checks["write_registry_pol_equals_candidate_bytes"] is False
+    assert comparison["write_registry_bytes"]["equal"] is False
+    assert (
+        comparison["write_registry_bytes"]["windows_sha256"]
+        != comparison["write_registry_bytes"]["candidate_sha256"]
+    )
+
+
+@pytest.mark.parametrize("name", [None, "LabDC01", "LabMS02"])
+def test_member_host_name_is_required_even_with_member_role(evidence, name) -> None:
+    if name is None:
+        del evidence[0]["environment"]["computer_system_name"]
+    else:
+        evidence[0]["environment"]["computer_system_name"] = name
+    assert evidence[0]["environment"]["computer_system_domain_role"] == 3
+    assert grade(evidence)["member_server_host_role"] is False
+
+
+@pytest.mark.parametrize(
+    "leg,check",
+    [
+        ("read", "windows_registry_pol_parses_with_zero_unrecognised"),
+        ("write", "write_registry_pol_parses_with_zero_unrecognised"),
+    ],
+)
+def test_unknown_rule_tokens_fail_the_zero_unknown_gate(evidence, leg, check) -> None:
+    records = parse(base64.b64decode(evidence[0][leg + "_leg"]["registry_pol_base64"]))
+    from dataclasses import replace
+
+    records = [
+        replace(r, value=r.value + "Future=one|") if r.value_name == "StudioFwLane-01" else r
+        for r in records
+    ]
+    evidence[0][leg + "_leg"]["registry_pol_base64"] = base64.b64encode(serialize(records)).decode()
+    assert grade(evidence)[check] is False
+
+
+def test_record_extractor_independently_rejects_trailing_bytes(evidence, monkeypatch) -> None:
+    raw = base64.b64decode(evidence[0]["read_leg"]["registry_pol_base64"])
+    records = parse(raw)
+    # Isolate the extractor's own check from registry_pol.parse's check, which
+    # otherwise masks its removal (the reviewer's surviving mutation).
+    monkeypatch.setitem(FINALIZER["_record_bytes"].__globals__, "parse", lambda _: records)
+    with pytest.raises(ValueError, match="left trailing bytes"):
+        FINALIZER["_record_bytes"](raw + b"trailing")
+
+
+@pytest.mark.parametrize(
+    "mutation", ["wrong_sha", "missing_sha", "duplicate_sha", "empty", "changed_file"]
+)
+def test_builder_stdout_binds_all_candidate_hashes(evidence, mutation) -> None:
+    _, _, run, candidate = evidence
+    path = run / "builder.stdout.txt"
+    text = path.read_text()
+    if mutation == "wrong_sha":
+        text = text.replace("sha256=", "sha256=0", 1)
+    elif mutation == "missing_sha":
+        text = "\n".join(text.splitlines()[1:])
+    elif mutation == "duplicate_sha":
+        text += text.splitlines()[0] + "\n"
+    elif mutation == "empty":
+        text = ""
+    elif mutation == "changed_file":
+        (candidate / "expected.json").write_text("{}")
+    path.write_text(text)
+    assert grade(evidence)["builder_stdout_present"] is False
 
 
 FAILURES = [
@@ -325,6 +414,44 @@ def test_rule_blind_finalizer_mutation_fails_the_comparison_test(tmp_path: Path)
     assert "FAILED" in completed.stdout and "write_rule" in completed.stdout
 
 
+@pytest.mark.parametrize(
+    "old,new,test",
+    [
+        (
+            '        and str(env.get("computer_system_name", "")).casefold() == "labms01"',
+            "",
+            "member_host_name_is_required",
+        ),
+        (
+            "            and all(not r.unknown_tokens for r in parsed.policy.rules)",
+            "",
+            "unknown_rule_tokens_fail_the_zero_unknown_gate",
+        ),
+        (
+            "    if offset != len(raw):\n"
+            '        raise ValueError("record byte extraction left trailing bytes")',
+            "",
+            "record_extractor_independently_rejects_trailing_bytes",
+        ),
+    ],
+)
+def test_reviewer_surviving_finalizer_mutations_are_killed(tmp_path, old, new, test) -> None:
+    if "FIREWALL_FINALIZER_UNDER_TEST" in os.environ:
+        pytest.skip("avoid recursive mutation")
+    source = FINALIZER_PATH.read_text()
+    assert old in source
+    mutant = tmp_path / "mutant.py"
+    mutant.write_text(source.replace(old, new))
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", str(Path(__file__)), "-k", test],
+        env={**os.environ, "FIREWALL_FINALIZER_UNDER_TEST": str(mutant)},
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert "FAILED" in completed.stdout and test in completed.stdout
+
+
 def test_driver_binding_and_controller_only_expectation() -> None:
     driver = (ROOT / "scripts/windows-oracle/run-firewall-oracle.sh").read_text()
     for name, path in {**FINALIZER["LOCAL_FILES"], **FINALIZER["DEPLOYED_FILES"]}.items():
@@ -501,3 +628,185 @@ $result | ConvertTo-Json -Depth 6
     assert "StudioFwLane-synthetic" in (tmp_path / operations[0]["stdout"]).read_text(
         encoding="utf-8-sig"
     )
+
+
+def test_guest_cleans_create_then_logging_failure(evidence, tmp_path: Path) -> None:
+    import shutil
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell unavailable")
+    script = tmp_path / "create-then-throw.ps1"
+    script.write_text(r"""
+param($Harness, $Candidate, $OutputDir)
+$ErrorActionPreference = 'Stop'
+$laneRun = 'firewall-20261008123456-1234'
+$foreign = [pscustomobject]@{
+    DisplayName = 'StudioFwLane-firewall-20261008123456-9999-read'; Id = 'foreign'
+}
+$global:gpos = @($foreign)
+function Import-Module { }
+function Get-Module { [pscustomobject]@{Version = '1.0'} }
+function Get-CimInstance($ClassName) {
+    [pscustomobject]@{Name='LabMS01';Domain='synthetic.test';DomainRole=3;Caption='synthetic';BuildNumber='26100'}
+}
+function Get-NetFirewallRule { }
+function Get-GPO { $global:gpos }
+function New-GPO($Name, $Domain) {
+    $intentPath = Join-Path $OutputDir "$laneRun/intended-gpos.json"
+    $intent = Get-Content $intentPath -Raw | ConvertFrom-Json
+    if ($intent.read -ne $Name) { throw 'intent not recorded before creation' }
+    $gpo = [pscustomobject]@{ DisplayName=$Name; Id='11111111-1111-4111-8111-111111111111' }
+    $global:gpos += $gpo
+    $global:failLog = $true
+    return $gpo
+}
+function Out-String {
+    [CmdletBinding()]param([Parameter(ValueFromPipeline=$true)]$InputObject)
+    process {
+        if ($global:failLog) {
+            $global:failLog = $false; throw 'synthetic post-create logging failure'
+        }
+        "$InputObject"
+    }
+}
+function Remove-GPO($Guid) {
+    if ($Guid -eq 'foreign') { throw 'foreign GPO deletion attempted' }
+    $global:gpos = @($global:gpos | Where-Object { $_.Id -ne $Guid })
+}
+try {
+    & $Harness -CandidateZip (Join-Path $Candidate 'studio-firewall-backup.zip') `
+        -AuthoringJson (Join-Path $Candidate 'authoring.json') -OutputDir $OutputDir `
+        -RunId $laneRun -Domain 'synthetic.test' | Out-Null
+    throw 'guest should fail'
+} catch {
+    if ($_.Exception.Message -notlike '*synthetic post-create logging failure*') { throw }
+}
+if ($global:gpos.Count -ne 1 -or $global:gpos[0].Id -ne 'foreign') {
+    throw 'cleanup failed or foreign object changed'
+}
+Get-Content (Join-Path $OutputDir "$laneRun/result.json") -Raw
+""")
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "-Harness",
+            str(ROOT / FINALIZER["DEPLOYED_FILES"]["run-firewall-policy.ps1"]),
+            "-Candidate",
+            str(evidence[3]),
+            "-OutputDir",
+            str(tmp_path / "guest"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["cleanup_verified"] is True
+    assert result["cleanup_remaining"] == []
+    assert [op["name"] for op in result["operations"] if op["name"] == "Remove-GPO"] == [
+        "Remove-GPO"
+    ]
+    assert "synthetic post-create logging failure" in result["error"]
+
+
+def test_controller_cleanup_deletes_only_run_prefix(tmp_path: Path) -> None:
+    import shutil
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell unavailable")
+    script = tmp_path / "cleanup-test.ps1"
+    script.write_text(r"""
+param($Cleanup)
+$ErrorActionPreference = 'Stop'
+$id = 'firewall-20261008123456-1234'
+$global:gpos = @(
+    [pscustomobject]@{ DisplayName="StudioFwLane-$id-read"; Id='owned-read' },
+    [pscustomobject]@{ DisplayName="StudioFwLane-$id-write"; Id='owned-write' },
+    [pscustomobject]@{ DisplayName="StudioFwLane-$id-orphan"; Id='owned-orphan' },
+    [pscustomobject]@{ DisplayName="StudioFwLane-${id}5-read"; Id='foreign-suffix' },
+    [pscustomobject]@{ DisplayName="StudioFwLane-other-$id-read"; Id='foreign-middle' },
+    [pscustomobject]@{ DisplayName='StudioFwLane-candidate'; Id='foreign-candidate' }
+)
+function Import-Module { }
+function Get-GPO { $global:gpos }
+function Remove-GPO($Guid) {
+    if ($Guid -notlike 'owned-*') { throw 'foreign delete attempted' }
+    $global:gpos = @($global:gpos | Where-Object { $_.Id -ne $Guid })
+}
+& $Cleanup -RunId $id -Domain 'synthetic.test'
+# Repeat to prove absent objects are harmless.
+& $Cleanup -RunId $id -Domain 'synthetic.test'
+try { & $Cleanup -RunId '*' -Domain 'synthetic.test'; throw 'bad id accepted' }
+catch { if ($_.Exception.Message -ne 'invalid controller run id') { throw } }
+@($global:gpos.Id) | ConvertTo-Json
+""")
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "-Cleanup",
+            str(ROOT / FINALIZER["DEPLOYED_FILES"]["cleanup-firewall-policy.ps1"]),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(completed.stdout) == ["foreign-suffix", "foreign-middle", "foreign-candidate"]
+
+
+def test_controller_cleanup_runs_before_and_after_guest_timeout(tmp_path: Path) -> None:
+    # Mock transport/processes only. Run the actual shell driver's control flow.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "transport.jsonl"
+    transport = bin_dir / "pwsh"
+    transport.write_text(
+        f"#!{sys.executable}\n"
+        + r"""
+import json, os, sys
+from pathlib import Path
+with Path(os.environ['TEST_TRANSPORT_LOG']).open('a') as stream:
+    stream.write(json.dumps(sys.argv[1:]) + '\n')
+command = sys.argv[sys.argv.index('-Command') + 1] if '-Command' in sys.argv else ''
+if 'run-firewall-policy.ps1' in command:
+    sys.exit(124)  # guest finally never runs
+if 'Get-ChildItem' in command:
+    sys.exit(1)  # interruption left no result directory
+"""
+    )
+    transport.chmod(0o755)
+    uv = bin_dir / "uv"
+    uv.write_text("#!/bin/sh\nexit 0\n")
+    uv.chmod(0o755)
+    completed = subprocess.run(
+        ["bash", str(ROOT / "scripts/windows-oracle/run-firewall-oracle.sh")],
+        env={
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+            "TMPDIR": str(tmp_path),
+            "TEST_TRANSPORT_LOG": str(log),
+            "GPO_STUDIO_LAB_HOST": "synthetic-host",
+            "GPO_STUDIO_LAB_GUEST": "LabMS01",
+            "HYPERV_CONTROL_USERNAME": "synthetic",
+            "GUEST_BOOTSTRAP_USERNAME": "synthetic",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode != 0
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    commands = [c[c.index("-Command") + 1] for c in calls if "-Command" in c]
+    guest = next(i for i, c in enumerate(commands) if "run-firewall-policy.ps1" in c)
+    cleanup = [i for i, c in enumerate(commands) if "cleanup-firewall-policy.ps1" in c]
+    assert any(i < guest for i in cleanup) and any(i > guest for i in cleanup)
+    import re
+
+    ids = [re.search(r"-RunId '([^']+)'", commands[i])[1] for i in [guest, *cleanup]]
+    assert len(set(ids)) == 1
