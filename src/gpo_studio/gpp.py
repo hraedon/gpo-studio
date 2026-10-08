@@ -884,11 +884,14 @@ def serialize_gpp_registry(collection: GppCollection) -> bytes:
 # * Import records each typed item's index among its root's children as its
 #   ``document_position``, and each root unknown child's index in
 #   ``GppCollection.root_unknown_positions``.
-# * Within a family the LIST is authoritative. The family's recorded positions
-#   are the slots it holds in the document, and its positioned items fill them
-#   in list order. Reordering a family therefore swaps its items between its
-#   own slots without moving any past another family's items, and deleting an
-#   item frees its slot.
+# * Within a family the LIST is authoritative, always: no recorded position can
+#   reorder two items of one family against their list order. The family's
+#   recorded positions are the slots it holds in the document, and its
+#   positioned items fill them in list order. Reordering a family therefore
+#   swaps its items between its own slots without moving any past another
+#   family's items, and deleting an item frees its slot. Slots may tie: a
+#   legacy multi-value <Registry> expands into one item per <Properties>, all
+#   holding that element's slot, and list order then decides between them.
 # * An item without a position that sits between positioned items of its
 #   family is written straight after its list predecessor (straight before the
 #   first positioned item when it leads the list).
@@ -912,7 +915,17 @@ _REGISTRY_FILE = "Registry/Registry.xml"
 #: root unknown child (after de-duplication, see `_file_unknown_children`).
 DocumentToken = tuple[str, int]
 _UNKNOWN = "unknown"
-_SortKey = tuple[int, int, int, int, int]
+#: ``(0, slot, list index, family rank)`` for an entry placed by a slot, and
+#: ``(1, family rank, list index, 0)`` for one written after every slotted entry.
+#: Within a family the list index is strictly increasing along the list and the
+#: slot never decreases, so the list order always wins, ties included.
+_SortKey = tuple[int, int, int, int]
+
+#: Positions are indices among one root's element children, and the bounded XML
+#: parser refuses a document with more elements than this, so no imported
+#: position can reach it. A larger stored value cannot have come from an import
+#: and is refused rather than honoured.
+MAX_DOCUMENT_POSITION = _MAX_GPP_XML_ELEMENTS - 1
 
 
 def _gpp_file_families() -> dict[str, tuple[str, ...]]:
@@ -941,8 +954,17 @@ def _family_has_content(collection: GppCollection, key: str) -> bool:
 def _checked_position(value: object, context: str) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise GppError(f"Invalid document position {value!r} in {context}")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= MAX_DOCUMENT_POSITION
+    ):
+        shown = repr(value)
+        shown = shown if len(shown) <= 24 else shown[:21] + "..."
+        raise GppError(
+            f"Invalid document position {shown} in {context} "
+            f"(an integer from 0 to {MAX_DOCUMENT_POSITION})"
+        )
     return value
 
 
@@ -989,23 +1011,22 @@ def _family_sort_keys(
     ]
     positioned = [index for index, position in enumerate(positions) if position is not None]
     if not positioned:
-        return [(1, rank, index, 0, 0) for index in range(len(items))]
+        return [(1, rank, index, 0) for index in range(len(items))]
     slots = sorted(position for position in positions if position is not None)
     effective = dict(zip(positioned, slots, strict=True))
-    first, last = positioned[0], positioned[-1]
+    last = positioned[-1]
     keys: list[_SortKey] = []
-    anchor, sub = slots[0], 0
+    # A leading unpositioned item takes the first slot; one between positioned
+    # items takes its predecessor's. The list index breaks every tie, so it
+    # lands where the list puts it even when slots repeat (review P2).
+    anchor = slots[0]
     for index in range(len(items)):
         if index in effective:
-            anchor, sub = effective[index], 0
-            keys.append((0, anchor, 0, rank, index))
-        elif index < first:
-            keys.append((0, slots[0], index - first, rank, index))
+            anchor = effective[index]
         elif index > last:
-            keys.append((1, rank, index, 0, 0))
-        else:
-            sub += 1
-            keys.append((0, anchor, sub, rank, index))
+            keys.append((1, rank, index, 0))
+            continue
+        keys.append((0, anchor, index, rank))
     return keys
 
 
@@ -1036,9 +1057,9 @@ def _ordered_tokens(
             entries.append((sort_key, (key, index)))
     for index, (_raw, position) in enumerate(_file_unknown_children(collection, families)):
         unknown_key: _SortKey = (
-            (1, rank[_UNKNOWN], index, 0, 0)
+            (1, rank[_UNKNOWN], index, 0)
             if position is None or not recorded
-            else (0, position, 0, rank[_UNKNOWN], index)
+            else (0, position, index, rank[_UNKNOWN])
         )
         entries.append((unknown_key, (_UNKNOWN, index)))
     entries.sort(key=lambda entry: entry[0])
@@ -2235,12 +2256,71 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         registry_unknown_children=tuple(data.get("registry_unknown_children", [])),
         **_adapters_from_dict(data),
     )
-    return replace(
+    collection = replace(
         collection,
         root_unknown_positions=_root_unknown_positions_from_dict(
             data.get("root_unknown_positions"), collection
         ),
     )
+    _validate_document_positions(collection)
+    return collection
+
+
+def _validate_document_positions(collection: GppCollection) -> None:
+    """Refuse a stored order in which two root children claim one slot.
+
+    An import gives every root child of a file its own index, so a stored
+    collection whose positions collide was not written by an import: two
+    scheduled tasks at one slot, a task and an immediate task at one slot, two
+    retained children at one slot, or a typed item and a retained child at one
+    slot. Honouring it would let the tie-break, not the source, decide
+    processing order (review P2), so it is refused with the slot and both
+    claimants named. Gaps are fine: deleting items leaves them.
+
+    Two cases share a slot legitimately. A legacy multi-value <Registry>
+    expands into one item per <Properties>, all at that element's slot (list
+    order decides between them). And files whose root holds two families
+    (Groups.xml, ScheduledTasks.xml) record each retained root child once per
+    family; those copies must agree on the slot, and then count once.
+    """
+    recorded = dict(collection.root_unknown_positions)
+    for path, families in _gpp_file_families().items():
+        holders: dict[int, str] = {}
+        copies: dict[tuple[str, int], int] = {}
+        for key in families:
+            for index, item in enumerate(_family_items(collection, key)):
+                slot = item.document_position
+                if slot is None:
+                    continue
+                _claim_slot(
+                    holders, path, slot,
+                    "registry items" if key == "registry" else f"{key} item {index}",
+                )
+            positions = recorded.get(key, ())
+            occurrence: Counter[str] = Counter()
+            for raw, slot in zip(
+                getattr(collection, f"{key}_unknown_children"), positions, strict=False
+            ):
+                occurrence[raw] += 1
+                identity = (raw, occurrence[raw])
+                previous = copies.setdefault(identity, slot)
+                if previous != slot:
+                    raise GppError(
+                        f"{path}: the families sharing this root record one retained "
+                        f"root child at positions {previous} and {slot}"
+                    )
+                _claim_slot(
+                    holders, path, slot, f"retained root child #{list(copies).index(identity) + 1}"
+                )
+
+
+def _claim_slot(holders: dict[int, str], path: str, slot: int, holder: str) -> None:
+    other = holders.setdefault(slot, holder)
+    if other != holder:
+        raise GppError(
+            f"{path}: document position {slot} is claimed by both {other} and {holder}; "
+            "a stored order with colliding positions is refused"
+        )
 
 
 def _position_from_dict(value: object, context: str) -> int | None:

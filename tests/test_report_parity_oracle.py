@@ -1391,3 +1391,57 @@ def test_a_case_directory_other_than_the_candidates_fails(
     assert _finalize(run, candidate, monkeypatch)[
         "every_case_identity_matches_candidate"
     ] is False
+
+
+# ---------------------------------------------------------------------------
+# Independent review (Sol) P3: the exact-agreement check is never vacuous
+# ---------------------------------------------------------------------------
+
+
+def test_two_empty_inventories_do_not_agree_exactly(candidate: Path) -> None:
+    empty = Inventory(families=())
+    assert FINALIZER.agrees_exactly(empty, {"studio_inventory": empty.to_json(),
+                                            "expected_known": []}) is False
+    case = _case(candidate, "native-WI01A-Power-GPMC")
+    fresh = inventory_from_json(case["backup_report_inventory"])
+    # Either side empty fails too, and so does a case with no Studio inventory.
+    assert FINALIZER.agrees_exactly(empty, case) is False
+    assert FINALIZER.agrees_exactly(fresh, dict(case, studio_inventory=empty.to_json())) is False
+    missing = {k: v for k, v in case.items() if k != "studio_inventory"}
+    assert FINALIZER.agrees_exactly(fresh, missing) is False
+
+
+def test_emptied_pinned_comparisons_fail_the_exact_check(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Review reproduction: blank both sides of all three pinned cases."""
+    altered = tmp_path / "candidate"
+    shutil.copytree(candidate, altered)
+    expected = _expected(altered)
+    empty = Inventory(families=()).to_json()
+    for case in expected["cases"]:
+        if case["case_id"] not in BUILDER.MUST_AGREE_CASE_IDS:
+            continue
+        case["studio_inventory"] = case["backup_report_inventory"] = empty
+
+        def clear(root: ET.Element) -> None:
+            for parent in root.iter():
+                for child in list(parent):
+                    if child.tag.rsplit("}", 1)[-1] == "ExtensionData":
+                        parent.remove(child)
+
+        _edit_report(run, case["case_id"], clear)
+    (altered / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
+    verdict = _verdict(run, altered, monkeypatch)
+    assert verdict["passed"] is False
+    assert verdict["checks"]["fixed_work_item_cases_agree_exactly"] is False
+
+
+def test_a_run_missing_a_pinned_case_fails_the_exact_check(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _read_result(run)
+    result["cases"] = [c for c in result["cases"] if c["case_id"] != "native-WI01A-Power-GPMC"]
+    _write_result(run, result)
+    checks = _finalize(run, candidate, monkeypatch)
+    assert checks["fixed_work_item_cases_agree_exactly"] is False

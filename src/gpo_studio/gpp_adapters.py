@@ -3355,23 +3355,36 @@ _ITEM_SERIALIZE_FUNCTIONS: dict[str, Callable[..., ET.Element]] = {
     "immediate_tasks": _serialize_immediate_task,
 }
 
+#: The item serializers that take the collection's scope (WI-079).
+_SCOPED_ITEM_SERIALIZERS: frozenset[str] = frozenset({"scheduled_tasks"})
+
 
 def _build_adapter_root(
     adapter_key: str,
     items: tuple[Any, ...],
-    scope: GppScope,  # noqa: ARG001 - reserved for scope-specific CLSIDs
+    scope: GppScope,
 ) -> ET.Element:
     """Build the root ET.Element for an adapter without serializing to bytes.
 
-    Used by _serialize_adapter_files to merge multiple adapters that share a
-    single file path (e.g. local_users + local_groups → Groups\\Groups.xml).
+    Used by ``gpp.serialize_gpp`` to merge the adapters that share a file
+    (local users with groups in Groups\\Groups.xml, immediate with scheduled
+    tasks in ScheduledTasks\\ScheduledTasks.xml).
+
+    *scope* reaches every item serializer with a scope-dependent default. Only
+    Scheduled Tasks has one today: a TaskV2 with no ``run_as`` runs as
+    ``NT AUTHORITY\\System`` on the computer side and as
+    ``%LogonDomain%\\%LogonUser%`` on the user side, as every native capture
+    writes it. Until WI-079 this function dropped the scope, so a user-side task
+    got the computer default (``_SCOPED_ITEM_SERIALIZERS`` is pinned by a test
+    against every serializer's signature).
     """
     root_tag, root_clsid, _, _ = _ADAPTER_META[adapter_key]
     root = ET.Element(_ns(root_tag))
     root.set("clsid", root_clsid)
     serialize_item_fn = _ITEM_SERIALIZE_FUNCTIONS[adapter_key]
+    scoped = adapter_key in _SCOPED_ITEM_SERIALIZERS
     for item in items:
-        root.append(serialize_item_fn(item))
+        root.append(serialize_item_fn(item, scope) if scoped else serialize_item_fn(item))
     return root
 
 

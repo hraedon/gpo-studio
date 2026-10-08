@@ -577,3 +577,178 @@ def test_deleting_any_item_leaves_the_rest_in_document_order(
     remaining.remove((element.tag, element.get("name", "")))
     written = serialize_gpp(edited).get(path)
     assert (_children(written) if written is not None else []) == remaining
+
+
+# ---------------------------------------------------------------------------
+# Independent review (Sol) of 5a99823: list order always wins; collisions refused
+# ---------------------------------------------------------------------------
+
+REGISTRY_FILE = "Registry/Registry.xml"
+#: A legacy Studio <Registry>: one element, two <Properties>, expanded into two
+#: items that both hold the element's slot (synthetic key).
+_LEGACY_REGISTRY = (
+    b'<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+    b'<Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\\Synthetic">'
+    b'<Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Synthetic" '
+    b'name="A" type="REG_SZ" value="a"/>'
+    b'<Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Synthetic" '
+    b'name="B" type="REG_SZ" value="b"/>'
+    b"</Registry></RegistrySettings>"
+)
+
+
+def _registry_names(collection: GppCollection) -> list[str]:
+    root = ET.fromstring(serialize_gpp(collection)[REGISTRY_FILE])
+    names: list[str] = []
+    for item in root:
+        props = item.find("Properties")
+        assert props is not None
+        names.append(props.get("name", ""))
+    return names
+
+
+def test_a_legacy_registry_expansion_shares_one_slot() -> None:
+    collection = parse_gpp_collection("computer", {REGISTRY_FILE: _LEGACY_REGISTRY})
+    assert [r.document_position for r in collection.registry] == [0, 0]
+
+
+def test_an_item_inserted_between_tied_slots_lands_where_the_list_says(tmp_path: Path) -> None:
+    """Review P2: add a value, reorder it between A and B; dd491b1 wrote A, Between, B."""
+    from gpo_studio.gpp import GppRegistry, GppRegistryValue
+
+    collection = ensure_editor_ids(
+        parse_gpp_collection("computer", {REGISTRY_FILE: _LEGACY_REGISTRY})
+    )
+    with closing(WorkspaceStore(tmp_path / "legacy.db")) as store:
+        gpo = store.create_gpo("legacy", identity="t", reason="t", gpp_collections=(collection,))
+        gpo = store.put_gpp_registry(
+            gpo.guid, gpo.revision, "computer",
+            GppRegistry(
+                key="Software\\Synthetic",
+                value=GppRegistryValue(name="Between", value="new"),
+            ),
+            identity="t", reason="add",
+        )
+        a, b, new = gpo.gpp_collections[0].registry
+        gpo = store.reorder_gpp(
+            gpo.guid, gpo.revision, "computer", "registry", (a.id, new.id, b.id),
+            identity="t", reason="insert between",
+        )
+        stored = gpo.gpp_collections[0]
+    assert [r.value.name for r in stored.registry] == ["A", "Between", "B"]
+    assert _registry_names(stored) == ["A", "Between", "B"]
+    reloaded = gpp_collection_from_dict(gpp_collection_to_dict(stored))
+    assert _registry_names(reloaded) == ["A", "Between", "B"]
+
+
+@_FUZZ
+@given(
+    st.lists(
+        st.one_of(st.none(), st.integers(min_value=0, max_value=6)), min_size=1, max_size=8,
+    ),
+    st.lists(st.integers(min_value=0, max_value=6), max_size=4, unique=True),
+)
+def test_within_a_family_the_list_order_always_wins(
+    task_slots: list[int | None], immediate_slots: list[int],
+) -> None:
+    """Whatever the slots (ties, gaps, missing), one family's items keep list order."""
+    tasks = tuple(
+        GppScheduledTask(name=f"s{index}", document_position=slot)
+        for index, slot in enumerate(task_slots)
+    )
+    immediate = tuple(
+        GppImmediateTask(name=f"i{index}", document_position=slot)
+        for index, slot in enumerate(immediate_slots)
+    )
+    written = _children(serialize_gpp(GppCollection(
+        scope="computer", scheduled_tasks=tasks, immediate_tasks=immediate,
+    ))[TASKS_FILE])
+    assert [n for tag, n in written if tag == "TaskV2"] == [t.name for t in tasks]
+    assert [n for tag, n in written if tag == "ImmediateTaskV2"] == [t.name for t in immediate]
+
+
+def _tasks_dict() -> dict[str, Any]:
+    return gpp_collection_to_dict(GppCollection(
+        scope="computer",
+        scheduled_tasks=(
+            GppScheduledTask(name="S0", document_position=0),
+            GppScheduledTask(name="S2", document_position=2),
+        ),
+        immediate_tasks=(GppImmediateTask(name="I1", document_position=1),),
+        scheduled_tasks_unknown_children=('<Retained name="r3" />',),
+        immediate_tasks_unknown_children=('<Retained name="r3" />',),
+        root_unknown_positions=(("immediate_tasks", (3,)), ("scheduled_tasks", (3,))),
+    ))
+
+
+def test_the_review_fixture_loads_as_is() -> None:
+    """The control: shared root copies at one slot, distinct slots elsewhere."""
+    loaded = gpp_collection_from_dict(_tasks_dict())
+    assert _children(serialize_gpp(loaded)[TASKS_FILE]) == [
+        ("TaskV2", "S0"), ("ImmediateTaskV2", "I1"), ("TaskV2", "S2"), ("Retained", "r3"),
+    ]
+
+
+def _set(path: str, value: object) -> Any:
+    def mutate(data: dict[str, Any]) -> None:
+        family, index, field_name = path.split(".")
+        data[family][int(index)][field_name] = value
+
+    return mutate
+
+
+def _two_unknowns_on_one_slot(data: dict[str, Any]) -> None:
+    data.update(
+        scheduled_tasks_unknown_children=['<Retained name="r3" />', '<Retained name="r4" />'],
+        immediate_tasks_unknown_children=[],
+        root_unknown_positions=[["scheduled_tasks", [3, 3]]],
+    )
+
+
+def _copies_disagree(data: dict[str, Any]) -> None:
+    data["root_unknown_positions"] = [["immediate_tasks", [4]], ["scheduled_tasks", [3]]]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        # Same family: scheduled [0, 2] -> [0, 0] would write S0, S2, I1.
+        (
+            _set("scheduled_tasks.1.document_position", 0),
+            "scheduled_tasks item 0 and scheduled_tasks item 1",
+        ),
+        (
+            _set("immediate_tasks.0.document_position", 0),
+            "scheduled_tasks item 0 and immediate_tasks item 0",
+        ),
+        (
+            _set("immediate_tasks.0.document_position", 3),
+            "retained root child #1 and immediate_tasks item 0",
+        ),
+        (_copies_disagree, "at positions 3 and 4"),
+        (_two_unknowns_on_one_slot, "retained root child #1 and retained root child #2"),
+        (_set("immediate_tasks.0.document_position", 10**100), "an integer from 0 to 99999"),
+    ],
+    ids=["same-family", "cross-family", "typed-on-unknown", "copies-disagree", "unknown-pair",
+         "huge"],
+)
+def test_a_colliding_stored_order_is_refused_on_load(mutate: Any, message: str) -> None:
+    data = _tasks_dict()
+    mutate(data)
+    with pytest.raises(GppError, match=message):
+        gpp_collection_from_dict(data)
+
+
+def test_legitimate_shared_slots_and_gaps_load() -> None:
+    # Legacy Registry expansion: two items at one slot.
+    legacy = parse_gpp_collection("computer", {REGISTRY_FILE: _LEGACY_REGISTRY})
+    loaded = gpp_collection_from_dict(gpp_collection_to_dict(legacy))
+    assert [r.document_position for r in loaded.registry] == [0, 0]
+    # Groups.xml records its retained child once per family, at one slot.
+    groups = parse_gpp_collection("computer", {GROUPS_FILE: _interleaved_groups_xml()})
+    assert dict(groups.root_unknown_positions) == {"groups": (2,), "local_users": (2,)}
+    gpp_collection_from_dict(gpp_collection_to_dict(groups))
+    # Sparse positions (what deletions leave) are fine, up to the bound.
+    data = _tasks_dict()
+    data["scheduled_tasks"][1]["document_position"] = 99_999
+    gpp_collection_from_dict(data)

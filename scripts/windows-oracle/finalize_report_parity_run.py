@@ -234,9 +234,18 @@ def agrees_exactly(fresh: Inventory, expected: dict[str, Any]) -> bool:
     Studio's inventory and Windows' fresh report must be equal outright, and the
     expectation must name nothing for them. This holds independently of
     ``KNOWN_DIVERGENCES``: re-adding an allowance cannot let a regression pass.
+
+    Both sides must list settings: two empty inventories compare equal, and
+    each pinned case exists because Windows reports items for it (review P3).
     """
+    if expected.get("expected_known") != [] or "studio_inventory" not in expected:
+        return False
     studio = inventory_from_json(expected["studio_inventory"])
-    return expected.get("expected_known") == [] and compare(fresh, studio).equal
+    return (
+        any(family.items for family in fresh.families)
+        and any(family.items for family in studio.families)
+        and compare(fresh, studio).equal
+    )
 
 
 def grade_authored(
