@@ -133,3 +133,12 @@ def test_every_recorded_digest_resolves_at_the_frozen_commit(relative: str) -> N
             check=True,
         ).stdout
         assert hashlib.sha256(blob).hexdigest() == recorded, (relative, path)
+
+
+def test_no_run_was_produced_on_the_test_scope_stand_in() -> None:
+    """The batch-manifest gate on scope provenance (tests/batch_provenance.py):
+    a row the driver marked test_scope_tool: true is never evidence."""
+    from batch_provenance import scope_provenance_problems
+
+    manifest = json.loads((EVIDENCE / "wi062-batch.json").read_text(encoding="utf-8"))
+    assert scope_provenance_problems(manifest) == []

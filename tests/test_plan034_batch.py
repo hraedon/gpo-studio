@@ -401,3 +401,12 @@ def test_platform_lane_records_name_the_current_qualification() -> None:
     assert hosts["dc-ws2025"]["qualifying_run"] == _run("wp3-dc")["run_id"]
     assert hosts["member-ws2025-disposable"]["qualifying_run"] == _run("wp3-member")["run_id"]
     assert hosts["client-win11"]["qualifying_run"] == _run("endpoint")["run_id"]
+
+
+def test_no_run_was_produced_on_the_test_scope_stand_in() -> None:
+    """The batch-manifest gate on scope provenance (tests/batch_provenance.py):
+    a row the driver marked test_scope_tool: true is never evidence."""
+    from batch_provenance import scope_provenance_problems
+
+    manifest = json.loads((EVIDENCE / "plan034-batch.json").read_text(encoding="utf-8"))
+    assert scope_provenance_problems(manifest) == []

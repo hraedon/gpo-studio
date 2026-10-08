@@ -32,9 +32,10 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**7 open.**
+**8 open.**
 
 - [WI-079](#wi-079--a-user-side-scheduled-task-without-a-principal-was-written-to-run-as-system) - fixed in code (scope reaches the item serializer); closes when the requalification run banks.
+- [WI-078](#wi-078--the-psdirect-push-hung-above-256-kb-and-no-leg-had-a-wall-clock-bound) - closes when the requalification passes every lane on the chunked transport.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-075](#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not) - closes when the 1.1.0 requalification passes every lane at the batch-2 commit.
 - [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - fixed in code (document positions); closes when the requalification run banks.
@@ -3401,6 +3402,60 @@ WP-2 and endpoint to bind `export.py`; WP-1B also binds `gpp.py`,
 capability matrix GPP Registry and GPMC backup export rows are moved from
 "fixed, awaiting batch-2 requalification" to their certified wording. The
 default-value shape may stay refused at closure.
+
+## WI-078 — the psdirect push hung above 256 KB and no leg had a wall-clock bound
+
+**Opened:** 2026-10-08 (the report-parity lane's 1.45 MB candidate zip hung the
+requalification batch).
+**Status:** open -- fixed in `psdirect.ps1` and `run-requal-batch.sh`, awaiting
+the requalification those edits require.
+
+**What was measured** (Linux controller, pwsh 7.6.6 -> the Hyper-V host's
+Windows PowerShell 5.1, `MaxEnvelopeSizekb` 2048, random bytes, every probe
+wall-clock bounded): `Copy-Item -ToSession` completed at 200 and 256 KB and
+hung indefinitely at 300 KB and above, leaving the host staging leaf empty. The
+ceiling is per remoting command and is not specific to `Copy-Item`: a single
+`byte[]` argument completed at 276 KB and hung at 280 KB, deterministically;
+base64-string arguments (240 KB ok, 288 KB hung) and streamed pipeline input
+(16 x 16 KB ok, 18 x 16 KB hung) hit it too. The receive direction has no such
+ceiling (single 1 MB and 5 MB results, `Copy-Item -FromSession` to 10 MB), and
+the host <-> guest PowerShell Direct copies were clean to 20 MB both ways. Two
+further measurements shaped the fix: `Stop-Job` on a hung remote job blocks
+indefinitely, so a timed-out call can only be abandoned; and the Linux build
+has no `New-PSSessionOption`, so the open timeout is set on a
+`PSSessionOption` object directly.
+
+**The fix.** Pushes travel controller -> host as 64 KB chunks, one per bounded
+command, into a temp file private to the transfer ATTEMPT; each chunk asserts
+the offset it expects; a retry-safe fault (WI-048's command-ID collision, or a
+chunk that timed out) restarts the whole transfer in a fresh attempt on a fresh
+session, so a write that landed without its ack, or lands late, can only touch
+its abandoned attempt. Length and SHA-256 are verified on the host before the
+file is renamed into an attempt-specific verified path, and again in the guest
+before anything reaches the destination (every file of a directory push, after
+extraction). Pulls verify the same way and travel host -> controller as 1 MB
+reads. One deadline (`-DeadlineSeconds`, default `-TimeoutSeconds` + 300)
+bounds the session open, every command, every retry and teardown; exceeding it
+exits 124, and no success marker is printed until cleanup and a final
+deadline check have passed (review P1). A staging leaf that teardown could not
+remove (after a deadline, say) is only swept by a later push or pull on the
+same host, when it prepares staging and the leaf is over 12 hours old; there is
+no timer. A verified delivery with such a leftover still counts as success. The batch driver gives every lane a
+wall-clock budget (a column in its lane table) and runs it under
+`scripts/plan-033/lane-supervisor.py`, a child subreaper: whenever the lane
+ends -- by itself, with any status, or at its budget -- everything it started,
+detached or not, is killed and reaped before the next lane starts (review P2).
+A budget kill records `exit_status` 124 and `timed_out: true`. A batch run
+on the driver's test stand-in for that layer marks every progress row
+`test_scope_tool: true`, and every batch-manifest gate refuses such a row
+(`tests/batch_provenance.py`); manifests at schema 2 and later must state
+`test_scope_tool: false` on every run and successor. The live probe results are
+in the commit that introduced this; `tests/test_psdirect_transport.py` and
+`tests/test_requal_batch_driver.py` hold the control flow.
+
+**Closes when:** the requalification passes every lane at a commit carrying
+this transport -- `psdirect.ps1` is bound by all of them -- with report-parity's
+full-size candidate delivered by it.
 
 ## WI-079 — a user-side scheduled task without a principal was written to run as SYSTEM
 

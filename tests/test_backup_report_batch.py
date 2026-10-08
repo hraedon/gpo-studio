@@ -33,3 +33,12 @@ def test_targeted_successors_are_complete_clean_and_restored() -> None:
         previous = json.loads((EVIDENCE / run["replaces"]).read_text(encoding="utf-8"))
         assert previous["run_id"] != verdict["run_id"]
         assert previous["source"]["commit"] != verdict["source"]["commit"]
+
+
+def test_no_run_was_produced_on_the_test_scope_stand_in() -> None:
+    """The batch-manifest gate on scope provenance (tests/batch_provenance.py):
+    a row the driver marked test_scope_tool: true is never evidence."""
+    from batch_provenance import scope_provenance_problems
+
+    manifest = json.loads((EVIDENCE / "backup-report-batch.json").read_text(encoding="utf-8"))
+    assert scope_provenance_problems(manifest) == []
