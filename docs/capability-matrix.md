@@ -854,8 +854,9 @@ report family. Registry entries are matched by key, name and rendered value.
 Preference items are matched by element, name, `uid` and action, in order. A
 GPO authored on the guest with `Set-GPRegistryValue` matched with no
 divergence at all. Families covered: registry (`REG_SZ`/`REG_DWORD`), Drive
-Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Power
-Options, Printers, Scheduled Tasks, Services and Shortcuts.
+Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Printers,
+Scheduled Tasks, Services and Shortcuts. Power Options is not certified: its
+only case passes on the WI-072 divergence (the power plan is dropped on write).
 
 **What is NOT certified, and is not claimed.** Seven Studio families have no
 capture (Regional Options, Devices, Folder Options, Data Sources, Network

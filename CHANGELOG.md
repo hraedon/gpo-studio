@@ -18,8 +18,9 @@ Current version: `1.0.0`.
   typed import of the same backup. With this verdict, `backup` and `report`
   reach `yes` in Plan 034 for the families Studio models and the corpus
   exercises: registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files,
-  Folders, Ini Files, Local Users and Groups, Power Options, Printers,
-  Scheduled Tasks, Services and Shortcuts. The surfaces are the existing
+  Folders, Ini Files, Local Users and Groups, Printers, Scheduled Tasks,
+  Services and Shortcuts (Power Options is not certified: its only case passes
+  on the WI-072 divergence). The surfaces are the existing
   import and plain-text report. That closes Plan 034 WP-2 items 2 and 3.
   - The named exclusions are ADMX `<Policy>` rendering, Scripts, scope (links,
     security filtering, WMI filters) and preference properties beyond the

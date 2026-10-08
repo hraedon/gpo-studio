@@ -105,11 +105,17 @@ shown, and `tests/test_report_parity_evidence.py` pins that split.
 
 The `yes` in Plan 034 is scoped to **the families Studio models that this
 corpus exercises**: registry policy (`REG_SZ` and `REG_DWORD`), Drive Maps,
-Environment, Files, Folders, Ini Files, Local Users and Groups, Power Options
-(the XP-era `PowerScheme` only; see WI-072), Printers, Scheduled Tasks
-(membership, not interleaving order; see WI-073), Services and Shortcuts.
+Environment, Files, Folders, Ini Files, Local Users and Groups, Printers,
+Scheduled Tasks (membership, not interleaving order; see WI-073), Services and
+Shortcuts.
 
 Not covered, and not claimed:
+
+- **Power Options.** The corpus's only Power Options case (c10) carries a
+  `GlobalPowerOptionsV2` plan that Studio retains on import and drops on write
+  (WI-072), so Studio's inventory for it is empty and the case passes only on
+  that named divergence. No case contains an XP-era `PowerScheme` either. The
+  family is not certified until WI-072 is fixed and a lane re-runs it.
 
 - **Studio families with no capture:** Regional Options, Devices, Folder
   Options, Data Sources, Network Shares, Applications and GPP Registry. Their
