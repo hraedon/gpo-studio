@@ -3392,7 +3392,11 @@ wall-clock budget (a column in its lane table) and runs it under
 `scripts/plan-033/lane-supervisor.py`, a child subreaper: whenever the lane
 ends -- by itself, with any status, or at its budget -- everything it started,
 detached or not, is killed and reaped before the next lane starts (review P2).
-A budget kill records `exit_status` 124 and `timed_out: true`. The live probe results are
+A budget kill records `exit_status` 124 and `timed_out: true`. A batch run
+on the driver's test stand-in for that layer marks every progress row
+`test_scope_tool: true`, and every batch-manifest gate refuses such a row
+(`tests/batch_provenance.py`); manifests at schema 2 and later must state
+`test_scope_tool: false` on every run and successor. The live probe results are
 in the commit that introduced this; `tests/test_psdirect_transport.py` and
 `tests/test_requal_batch_driver.py` hold the control flow.
 

@@ -127,10 +127,9 @@ def test_no_caller_can_reach_the_fault_hook() -> None:
 
 
 _NATIVE_HARNESS = r"""
-param($Psdirect)
+param($Script)
 $ErrorActionPreference = 'Stop'
-$ast = [System.Management.Automation.Language.Parser]::ParseFile(
-    $Psdirect, [ref] $null, [ref] $null)
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Script, [ref] $null, [ref] $null)
 # Script blocks that run REMOTELY (on the host or in the guest) are not the
 # controller process; skip them.
 $remote = @($ast.FindAll({
@@ -138,55 +137,133 @@ $remote = @($ast.FindAll({
     $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     "$($n.Left)" -in '$script:GuestWork', '$script:HostBlocks'
 }, $true) | ForEach-Object { $_.Extent })
-$defined = @($ast.FindAll({
+function Test-Remote($node) {
+    $offset = $node.Extent.StartOffset
+    $hits = @($remote | Where-Object { $offset -ge $_.StartOffset -and $offset -lt $_.EndOffset })
+    return $hits.Count -gt 0
+}
+$functions = @($ast.FindAll({
     param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
-}, $true) | ForEach-Object { $_.Name })
-$bad = foreach ($cmd in $ast.FindAll({
-    param($n) $n -is [System.Management.Automation.Language.CommandAst]
-}, $true)) {
-    $offset = $cmd.Extent.StartOffset
-    $inside = { param($e) $offset -ge $e.StartOffset -and $offset -lt $e.EndOffset }
-    if (@($remote | Where-Object { & $inside $_ }).Count) {
-        continue
-    }
-    $name = $cmd.GetCommandName()
-    if (-not $name) {
-        # The one dynamic invocation: a transfer attempt's own script block.
-        if ("$($cmd.CommandElements[0])" -eq '$Body') { continue }
-        "unresolvable invocation: $($cmd.Extent.Text)"
-        continue
-    }
-    if ($name -in 'Start-Process', 'Invoke-Item', 'Invoke-Expression', 'Start-Job') {
-        "starts or evaluates a process: $name"
-        continue
-    }
-    if ($name -in $defined) { continue }
-    $found = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $found -or "$($found.CommandType)" -notin 'Cmdlet', 'Function', 'Alias') {
-        "not a cmdlet: $name"
+}, $true))
+$defined = @($functions | ForEach-Object { $_.Name })
+# The one audited dynamic invocation: Invoke-RestartableTransfer calling its
+# own parameter $Body, which must be typed [scriptblock].
+$audited = $functions | Where-Object { $_.Name -eq 'Invoke-RestartableTransfer' } | Where-Object {
+    $param = @($_.Body.ParamBlock.Parameters |
+        Where-Object { $_.Name.VariablePath.UserPath -eq 'Body' })
+    $param.Count -eq 1 -and @($param[0].Attributes | Where-Object {
+        $_ -is [System.Management.Automation.Language.TypeConstraintAst] -and
+        $_.TypeName.Name -eq 'scriptblock'
+    }).Count -eq 1
+} | Select-Object -First 1
+$processType = '(?i)(^|\.)Process(StartInfo)?$'
+$bad = foreach ($node in $ast.FindAll({ param($n) $true }, $true)) {
+    if (Test-Remote $node) { continue }
+    $line = $node.Extent.StartLineNumber
+    if ($node -is [System.Management.Automation.Language.CommandAst]) {
+        $name = $node.GetCommandName()
+        if (-not $name) {
+            $inAudited = $audited -and $node.Extent.StartOffset -ge $audited.Extent.StartOffset -and
+                $node.Extent.EndOffset -le $audited.Extent.EndOffset
+            if ($inAudited -and "$($node.CommandElements[0])" -eq '$Body') { continue }
+            "${line}: unresolvable invocation: $($node.Extent.Text)"
+            continue
+        }
+        if ($name -in 'Start-Process', 'Invoke-Item', 'Invoke-Expression', 'Start-Job') {
+            "${line}: starts or evaluates a process: $name"
+            continue
+        }
+        if ($name -eq 'New-Object' -and
+            @($node.CommandElements |
+                Where-Object { "$_" -match '(?i)Process(StartInfo)?$' }).Count) {
+            "${line}: constructs a process object: $($node.Extent.Text)"
+            continue
+        }
+        if ($name -in $defined) { continue }
+        $found = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $found -or "$($found.CommandType)" -notin 'Cmdlet', 'Function', 'Alias') {
+            "${line}: not a cmdlet: $name"
+        }
+    } elseif ($node -is [System.Management.Automation.Language.TypeExpressionAst] -or
+              $node -is [System.Management.Automation.Language.TypeConstraintAst]) {
+        if ($node.TypeName.FullName -match $processType) {
+            "${line}: process type: $($node.Extent.Text)"
+        }
+    } elseif ($node -is [System.Management.Automation.Language.InvokeMemberExpressionAst]) {
+        if ("$($node.Member)" -match '(?i)^Start$') {
+            "${line}: .Start() call: $($node.Extent.Text)"
+        }
+    } elseif ($node -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+        # C# handed to Add-Type, too.
+        if ($node.Value -match '(?i)Process\s*\.\s*Start\b|ProcessStartInfo') {
+            "${line}: process launch in a string"
+        }
     }
 }
 @($bad) | ConvertTo-Json -Compress
 """
 
 
-def test_the_controller_starts_no_native_process() -> None:
-    """[Console]::SetOut cannot redirect a native child's fd 1 (review N3)."""
+def _native_findings(script: Path) -> list[str]:
     if shutil.which("pwsh") is None:
         pytest.skip("pwsh is not installed")
     with tempfile.TemporaryDirectory() as tmp:
-        script = Path(tmp) / "native.ps1"
-        script.write_text(_NATIVE_HARNESS, encoding="utf-8")
+        harness = Path(tmp) / "native.ps1"
+        harness.write_text(_NATIVE_HARNESS, encoding="utf-8")
         completed = subprocess.run(
-            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script), "-Psdirect"]
-            + [str(PSDIRECT)],
+            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(harness)]
+            + ["-Script", str(script)],
             capture_output=True,
             text=True,
             timeout=120,
         )
     assert completed.returncode == 0, completed.stderr
     found = json.loads(completed.stdout.strip() or "[]")
-    assert (found if isinstance(found, list) else [found]) == []
+    return [str(f) for f in (found if isinstance(found, list) else [found])]
+
+
+def test_the_controller_starts_no_native_process() -> None:
+    """[Console]::SetOut cannot redirect a native child's fd 1 (review N3)."""
+    assert _native_findings(PSDIRECT) == []
+
+
+#: Negative controls (review round 4): every launch form the guard must
+#: catch, one per line, plus the forms it must allow. Lines are numbered so the
+#: assertion can say exactly which form slipped through.
+_NATIVE_CONTROLS = """\
+$script:HostBlocks = @{ Remote = { Start-Process allowed-remotely; & $anything } }
+& /bin/echo leak
+Start-Process sh
+[System.Diagnostics.Process]::Start('sh')
+[Diagnostics.Process]::Start('sh')
+$p = [System.Diagnostics.Process]::new()
+$q.Start()
+$i = New-Object System.Diagnostics.ProcessStartInfo 'sh'
+$si = [Diagnostics.ProcessStartInfo]::new('sh')
+Add-Type -TypeDefinition 'class X { void M() { System.Diagnostics.Process.Start("sh"); } }'
+$Body = 'sh'; & $Body
+function Invoke-RestartableTransfer { param([string] $Body) & $Body 1 }
+function Invoke-Other { param([scriptblock] $Body) & $Body 1 }
+Get-Item -LiteralPath .
+"""
+_EXPECTED_CONTROL_LINES = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+
+
+def test_the_native_guard_catches_every_launch_form(tmp_path: Path) -> None:
+    script = tmp_path / "controls.ps1"
+    script.write_text(_NATIVE_CONTROLS, encoding="utf-8")
+    findings = _native_findings(script)
+    lines = {int(f.split(":", 1)[0]) for f in findings}
+    assert lines == _EXPECTED_CONTROL_LINES, findings
+
+
+def test_the_body_exemption_holds_only_for_the_audited_typed_helper(tmp_path: Path) -> None:
+    script = tmp_path / "audited.ps1"
+    script.write_text(
+        "function Invoke-RestartableTransfer { param([scriptblock] $Body) & $Body 1 }\n",
+        encoding="utf-8",
+    )
+    assert _native_findings(script) == []
 
 
 def test_the_guest_work_is_never_inside_a_restartable_transfer() -> None:

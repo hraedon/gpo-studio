@@ -37,9 +37,8 @@ The rule throughout: only a positive, specific signal means "gone" or
 "empty". An error is never quietly turned into either -- that is what lets the
 driver tell "could not tell" from "nothing left".
 
-Only the driver calls this. Tests substitute a stand-in through
-GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL, which the driver honours only with
-GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE=1.
+Only the driver calls this. Its tests substitute a stand-in through the
+driver's test seam (see "TEST SEAM" in run-requal-batch.sh).
 """
 
 from __future__ import annotations

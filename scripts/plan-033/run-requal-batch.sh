@@ -15,6 +15,8 @@
 #   ACB_VAULT_ENV=~/.claude/evidence-lab.env \
 #     bash scripts/plan-033/run-requal-batch.sh <batch-dir> [lane ...]
 #
+# (Tests alone add a leading `--test-scope-tool <path>`; see TEST SEAM below.)
+#
 # With no lane names, every lane in LANES runs. The tree must be clean: a
 # verdict minted from a dirty tree is refused by its finalizer anyway, and
 # failing here costs no estate time.
@@ -39,10 +41,26 @@
 # whose supervisor is stopped by a signal is recorded cancelled, with 128 + the
 # signal, and also stops the batch (exit 5).
 set -euo pipefail
+# Everything this driver writes -- progress, logs, reports, ownership proofs,
+# and whatever its lanes write under TMPDIR -- is private to this user,
+# whatever umask it was started with.
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 : "${GPO_STUDIO_LAB_HOST:?GPO_STUDIO_LAB_HOST not set}"
+# TEST SEAM selection is a command-line flag, so an inherited environment can
+# never select it on its own (it also needs GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE=1,
+# checked below). The former environment variable is refused, not ignored.
+TEST_SCOPE_TOOL=""
+if [[ "${1:-}" == "--test-scope-tool" ]]; then
+    TEST_SCOPE_TOOL="${2:?--test-scope-tool needs a path}"
+    shift 2
+fi
+if [[ -n "${GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL:-}" ]]; then
+    echo "refusing: GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL is no longer honoured; the test seam is a command-line flag" >&2
+    exit 2
+fi
 BATCH_DIR="${1:?usage: run-requal-batch.sh <batch-dir> [lane ...]}"
 shift
 
@@ -110,18 +128,48 @@ if [[ -n "$(git status --porcelain)" ]]; then
     exit 2
 fi
 COMMIT="$(git rev-parse HEAD)"
-# The batch directory holds every lane's ownership proof and report: nobody
-# else may be able to write in it. Created private; an existing one must not
-# be group- or world-writable unless it is sticky and ours.
-(umask 077 && mkdir -p "$BATCH_DIR" "$BATCH_DIR/logs")
-read -r batch_mode batch_owner < <(stat -c '%a %u' -- "$BATCH_DIR")
-if (( 8#$batch_mode & 8#022 )) && ! (( 8#$batch_mode & 8#1000 && batch_owner == $(id -u) )); then
-    echo "refusing: <batch-dir> $BATCH_DIR is writable by others (mode $batch_mode)" >&2
+# The batch directory holds every lane's ownership proof, report, log and
+# progress row: nothing in it may be writable by anyone else. Directories are
+# created 0700 and files 0600 (umask 077 above). What already exists is
+# checked, never repaired: the batch directory must be ours and not group- or
+# world-writable unless it is sticky; logs/ and tmp/ must be ours, not
+# symlinks, and writable by nobody else; and so must every file already in
+# the batch directory or logs/ (progress.jsonl and earlier lane logs, which
+# this batch appends to or overwrites).
+me="$(id -u)"
+refuse_unsafe() {
+    echo "refusing: $1" >&2
     exit 2
-fi
+}
+check_private() {  # check_private <path> <dir|file> [sticky-ok]
+    local path=$1 kind=$2 mode owner
+    [[ -L "$path" ]] && refuse_unsafe "$path is a symlink"
+    if [[ $kind == dir ]]; then
+        [[ -d "$path" ]] || refuse_unsafe "$path is not a directory"
+    else
+        [[ -f "$path" ]] || refuse_unsafe "$path is not a regular file"
+    fi
+    read -r mode owner < <(stat -c '%a %u' -- "$path")
+    [[ "$owner" == "$me" ]] || refuse_unsafe "$path is not owned by this user"
+    if (( 8#$mode & 8#022 )); then
+        # Only the batch directory itself may be shared, and only if sticky
+        # (nobody can then rename or remove what is ours in it).
+        if [[ "${3:-}" != sticky-ok ]] || ! (( 8#$mode & 8#1000 )); then
+            refuse_unsafe "$path is writable by others (mode $mode)"
+        fi
+    fi
+}
+mkdir -p "$BATCH_DIR"
+check_private "$BATCH_DIR" dir sticky-ok
+mkdir -p "$BATCH_DIR/logs"
+check_private "$BATCH_DIR/logs" dir
 PROGRESS="$BATCH_DIR/progress.jsonl"
 export TMPDIR="$BATCH_DIR/tmp"
-(umask 077 && mkdir -p "$TMPDIR")
+mkdir -p "$TMPDIR"
+check_private "$TMPDIR" dir
+for existing in "$PROGRESS" "$BATCH_DIR"/logs/*; do
+    [[ -e "$existing" || -L "$existing" ]] && check_private "$existing" file
+done
 
 wanted=("$@")
 known=()
@@ -166,22 +214,25 @@ BATCH_CANCELLED=5
 # /sys/fs/cgroup directly, so cleanup and its verification never depend on
 # the user manager answering.
 #
-# TEST SEAM. GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL substitutes a stand-in for
-# lane-scope.py, so the containment contracts run in CI without a user
-# manager. It is honoured only with GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE=1, it
-# is announced on stderr, and every progress row it touches records
-# test_scope_tool true -- such a batch is never evidence. No script in this
-# repository sets either variable (tests/test_requal_batch_driver.py holds it).
+# TEST SEAM. `--test-scope-tool <path>` (the first argument) substitutes a
+# stand-in for lane-scope.py, so the containment contracts run in CI without
+# a user manager. It needs GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE=1 as well -- a
+# flag on the command line AND an opt-in in the environment, so neither an
+# inherited environment nor a stray argument selects it alone. It is
+# announced on stderr, and every progress row records test_scope_tool (true
+# here); the batch-manifest gates refuse any row that is not explicitly false
+# (tests/batch_provenance.py). Nothing outside tests/ may use either
+# (tests/test_requal_batch_driver.py scans the repository).
 SCOPE_TOOL=(python3 "$SCRIPT_DIR/lane-scope.py")
 TEST_SCOPE=0
-if [[ -n "${GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL:-}" ]]; then
+if [[ -n "$TEST_SCOPE_TOOL" ]]; then
     if [[ "${GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE:-}" != "1" ]]; then
-        echo "refusing: GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL is for tests and needs GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE=1" >&2
+        echo "refusing: --test-scope-tool is for tests and needs GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE=1" >&2
         exit 2
     fi
-    SCOPE_TOOL=("$GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL")
+    SCOPE_TOOL=("$TEST_SCOPE_TOOL")
     TEST_SCOPE=1
-    echo "WARNING: test scope tool in use ($GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL); this batch is not evidence" >&2
+    echo "WARNING: test scope tool in use ($TEST_SCOPE_TOOL); this batch is not evidence" >&2
 fi
 # Unit names carry a random nonce per batch, so they cannot collide with a
 # unit this batch did not create -- and if creation fails anyway, nothing is
@@ -379,7 +430,10 @@ for row in "${LANES[@]}"; do
 import json, sys
 (path, name, runner, commit, started, completed, status, run_dir, budget, timed_out, strays,
  cancelled, lost, scope_failed, test_scope) = sys.argv[1:]
-with open(path, "a", encoding="utf-8") as fh:
+import os
+# 0600 on creation, whatever the umask; the driver checked any existing file.
+fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, "a", encoding="utf-8") as fh:
     fh.write(json.dumps({
         "name": name, "runner": runner, "commit": commit,
         "started_utc": started, "completed_utc": completed,

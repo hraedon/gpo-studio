@@ -197,7 +197,8 @@ def _scope_env(tmp_path: Path, scope: str = "fake", mode: str = "") -> dict[str,
         tool.write_text(_FAKE_SCOPE_TOOL, encoding="utf-8")
         tool.chmod(0o755)
     return {
-        "GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL": str(tool),
+        # Not read by the driver: _driver() turns it into --test-scope-tool.
+        "FAKE_SCOPE_TOOL_PATH": str(tool),
         "GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE": "1",
         "GPO_STUDIO_REQUAL_TEST_SCOPE_ATTEMPTS": "2",
         "FAKE_SCOPE_MODE": mode,
@@ -206,6 +207,15 @@ def _scope_env(tmp_path: Path, scope: str = "fake", mode: str = "") -> dict[str,
 
 
 SCOPES = pytest.mark.parametrize("scope", ["fake", "real"])
+
+
+def _driver(clone: Path, env: dict[str, str], *args: str) -> list[str]:
+    """The driver's command line; with the fake scope, `--test-scope-tool`
+    comes first, as the seam requires."""
+    command = ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh")]
+    if "FAKE_SCOPE_TOOL_PATH" in env:
+        command += ["--test-scope-tool", env["FAKE_SCOPE_TOOL_PATH"]]
+    return command + list(args)
 
 
 def _run(
@@ -220,12 +230,7 @@ def _run(
         "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
     }
     return subprocess.run(
-        [
-            "bash",
-            str(clone / "scripts/plan-033/run-requal-batch.sh"),
-            str(tmp_path / "batch"),
-            *lanes,
-        ],
+        _driver(clone, env, str(tmp_path / "batch"), *lanes),
         cwd=clone,
         env=env,
         capture_output=True,
@@ -464,13 +469,7 @@ def _run_watchdog_batch(
     }
     started = time.monotonic()
     result = subprocess.run(
-        [
-            "bash",
-            str(clone / "scripts/plan-033/run-requal-batch.sh"),
-            str(tmp_path / "batch"),
-            "wp1b",
-            "wp2",
-        ],
+        _driver(clone, env, str(tmp_path / "batch"), "wp1b", "wp2"),
         cwd=clone,
         env=env,
         capture_output=True,
@@ -610,13 +609,7 @@ def _start_batch(
         "GPO_STUDIO_LANE_KILL_GRACE_SECONDS": "2",
     }
     proc = subprocess.Popen(
-        [
-            "bash",
-            str(clone / "scripts/plan-033/run-requal-batch.sh"),
-            str(tmp_path / "batch"),
-            "wp1b",
-            "wp2",
-        ],
+        _driver(clone, env, str(tmp_path / "batch"), "wp1b", "wp2"),
         cwd=clone,
         env=env,
         stdout=subprocess.PIPE,
@@ -867,7 +860,7 @@ def test_the_test_scope_tool_needs_its_gate(tmp_path: Path) -> None:
         "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
     }
     result = subprocess.run(
-        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(tmp_path / "b"), "wp1b"],
+        _driver(clone, env, str(tmp_path / "b"), "wp1b"),
         cwd=clone,
         env=env,
         capture_output=True,
@@ -887,17 +880,32 @@ def test_a_batch_on_the_test_scope_tool_says_so_in_every_row(tmp_path: Path) -> 
     assert [r["test_scope_tool"] for r in _rows(tmp_path)] == [True]
 
 
-def test_no_script_selects_the_test_scope_tool() -> None:
+def test_nothing_outside_the_tests_selects_the_test_scope_tool() -> None:
+    """Scripts, CI workflows, Makefiles, docs -- anything git tracks outside
+    tests/ (and the driver, which defines the seam)."""
+    tracked = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "-z"], check=True, capture_output=True
+    ).stdout.decode("utf-8").split("\0")
     offenders = []
-    for path in (REPO_ROOT / "scripts").rglob("*"):
-        if not path.is_file() or path in (DRIVER, SCOPE_TOOL):
+    for relative in tracked:
+        if not relative or relative.startswith("tests/"):
+            continue
+        path = REPO_ROOT / relative
+        if path == DRIVER or not path.is_file():
             continue
         try:
             text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, OSError):
             continue
-        if "GPO_STUDIO_REQUAL_TEST_SCOPE" in text or "GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE" in text:
-            offenders.append(str(path.relative_to(REPO_ROOT)))
+        if any(
+            marker in text
+            for marker in (
+                "--test-scope-tool",
+                "GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE",
+                "GPO_STUDIO_REQUAL_TEST_SCOPE",
+            )
+        ):
+            offenders.append(relative)
     assert offenders == []
 
 
@@ -930,10 +938,11 @@ def test_a_batch_dir_others_can_write_is_refused(tmp_path: Path) -> None:
     shared = tmp_path / "shared"
     shared.mkdir()
     shared.chmod(0o775)
+    env = _plain_env(tmp_path)
     result = subprocess.run(
-        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(shared), "wp1b"],
+        _driver(clone, env, str(shared), "wp1b"),
         cwd=clone,
-        env=_plain_env(tmp_path),
+        env=env,
         capture_output=True,
         text=True,
     )
@@ -944,15 +953,96 @@ def test_a_batch_dir_others_can_write_is_refused(tmp_path: Path) -> None:
 
 def test_the_batch_creates_its_directories_private_under_a_loose_umask(tmp_path: Path) -> None:
     clone = _clone(tmp_path)
-    driver = str(clone / "scripts/plan-033/run-requal-batch.sh")
+    env = _plain_env(tmp_path)
     result = subprocess.run(
-        ["bash", "-c", 'umask 002 && exec bash "$0" "$1" wp1b', driver, str(tmp_path / "batch")],
+        ["bash", "-c", 'umask 002 && exec "$@"', "--",
+         *_driver(clone, env, str(tmp_path / "batch"), "wp1b")],
         cwd=clone,
-        env=_plain_env(tmp_path),
+        env=env,
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    for sub in ("", "logs", "tmp"):
-        mode = (tmp_path / "batch" / sub).stat().st_mode & 0o777
-        assert mode & 0o022 == 0, (sub, oct(mode))
+    batch = tmp_path / "batch"
+    for path in (batch, batch / "logs", batch / "tmp"):
+        assert path.stat().st_mode & 0o777 == 0o700, (path, oct(path.stat().st_mode))
+    for path in (batch / "progress.jsonl", batch / "logs" / "wp1b.log"):
+        assert path.stat().st_mode & 0o777 == 0o600, (path, oct(path.stat().st_mode))
+
+
+def test_an_owned_sticky_batch_dir_keeps_its_records_private(tmp_path: Path) -> None:
+    """Review round 4: under umask 002 progress.jsonl came out 0664 in a 1777
+    batch directory, where others can create and read files."""
+    clone = _clone(tmp_path)
+    sticky = tmp_path / "sticky"
+    sticky.mkdir()
+    sticky.chmod(0o1777)
+    env = _plain_env(tmp_path)
+    result = subprocess.run(
+        ["bash", "-c", 'umask 002 && exec "$@"', "--", *_driver(clone, env, str(sticky), "wp1b")],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (sticky / "progress.jsonl").stat().st_mode & 0o777 == 0o600
+    assert (sticky / "logs").stat().st_mode & 0o777 == 0o700
+    assert (sticky / "tmp").stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["shared-logs", "shared-tmp", "symlinked-logs", "shared-progress", "shared-old-log"],
+)
+def test_existing_shared_children_of_the_batch_dir_are_refused(tmp_path: Path, case: str) -> None:
+    clone = _clone(tmp_path)
+    batch = tmp_path / "batch"
+    batch.mkdir(mode=0o700)
+    if case == "shared-logs":
+        offending = batch / "logs"
+        offending.mkdir()
+        offending.chmod(0o775)
+    elif case == "shared-tmp":
+        offending = batch / "tmp"
+        offending.mkdir()
+        offending.chmod(0o777)
+    elif case == "symlinked-logs":
+        (tmp_path / "elsewhere").mkdir(mode=0o700)
+        offending = batch / "logs"
+        offending.symlink_to(tmp_path / "elsewhere")
+    elif case == "shared-progress":
+        offending = batch / "progress.jsonl"
+        offending.write_text("")
+        offending.chmod(0o664)
+    else:
+        (batch / "logs").mkdir(mode=0o700)
+        offending = batch / "logs" / "wp2.log"
+        offending.write_text("")
+        offending.chmod(0o666)
+    env = _plain_env(tmp_path)
+    result = subprocess.run(
+        _driver(clone, env, str(batch), "wp1b"), cwd=clone, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 2, result.stderr
+    assert f"refusing: {offending} " in result.stderr
+    assert not (tmp_path / "acb.log").exists()
+
+
+def test_an_inherited_environment_alone_cannot_select_the_test_scope(tmp_path: Path) -> None:
+    """Review round 4: the seam was selected by two exported variables. It now
+    needs the command-line flag, and the old variable is refused outright."""
+    clone = _clone(tmp_path)
+    env = _plain_env(tmp_path)
+    env["GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL"] = env.pop("FAKE_SCOPE_TOOL_PATH")
+    result = subprocess.run(
+        _driver(clone, env, str(tmp_path / "b"), "wp1b"),
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "no longer honoured" in result.stderr
+    assert not (tmp_path / "acb.log").exists()
+    assert not (tmp_path / "scope.log").exists()
