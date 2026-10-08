@@ -68,6 +68,26 @@ order** — but it is explicitly a *stop-counting* order: the module must not
 appear in any roadmap or status summary as progress toward a capability, because
 the capability has now been ruled out of scope.
 
+**2026-10-07 — deleted (operator ruling,
+[`direction-2026-10-07`](direction-2026-10-07-plan-034-completion.md)).** The
+paragraph above said this was not a deletion order. The 2026-10-07 ruling made
+it one, as part of finishing Plan 034: every module that plan lists must leave
+either at `yes` or with a recorded ruling, and this one could only leave with a
+ruling. The module had no consumer outside its own tests. Native Software
+Installation content in an imported backup is kept by `cse_metadata`, not by
+this module, so preserve-only still holds without it.
+`src/gpo_studio/software_install.py` (487 lines) and
+`tests/test_software_install.py` (341) are removed, and version control keeps
+both. This follows the
+[`certification.py` precedent](#decision-2--oracle_evidencepy-is-the-parity-framework-certificationpy-is-superseded)
+below (WI-056): the ruling's safety property, that nothing counts this module
+as progress, is now supplied by its absence.
+
+The rest of the decision is unchanged. Writing is still out of scope, and the
+trigger for revisiting it is still a second estate that uses the CSE. A reader,
+if one is ever wanted, starts from a `Backup-GPO` capture, not from the deleted
+workspace model.
+
 ### What this ruling does not decide
 
 It does not rule on **reading**. Parsing a native backup's Software Installation
