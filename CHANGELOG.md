@@ -59,7 +59,7 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 - **GPP Registry no longer offers native GPMC backup export.** Native GPP
   output is an allowlist of captured families (Plan 033 WP-2, WI-046). The
   Studio bundle still carries GPP Registry.
-- **Do not run 1.0.0's `workspace check` on a backup** (WI-072). It writes into
+- **Do not run 1.0.0's `workspace check` on a backup** (WI-074). It writes into
   the checked file, and the backup can then no longer be restored. Verify a
   pre-upgrade backup by restoring it to a throwaway path and checking that
   copy, as the updated runbooks do.
@@ -452,7 +452,7 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 Operator-facing:
 
 - *New in this draft:* `gpo-studio workspace check` no longer changes the
-  database it checks (WI-072). It recorded its result in `workspace_meta`, so
+  database it checks (WI-074). It recorded its result in `workspace_meta`, so
   checking a backup changed the file after its sidecar recorded the SHA-256,
   and `workspace restore` then refused the backup with `Backup database
   checksum mismatch`. The runbooks prescribed exactly that check before a
@@ -698,7 +698,7 @@ is a capability by itself; see Added for what an operator can reach.
   drops a record type fails (checked by mutation). The provenance pins the
   writer: the `v1.0.0` commit, its `uv.lock` digest and a digest of the
   installed package files, which the test re-derives from the tag. It also
-  records 1.0.0's `workspace check` invalidating a backup copy (WI-072).
+  records 1.0.0's `workspace check` invalidating a backup copy (WI-074).
   The upgrade rehearsal
   (`scripts/rehearse_upgrade_rollback.py`), which CI and the release run
   against the built wheel, now covers this workspace as well as the synthetic

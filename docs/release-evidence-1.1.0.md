@@ -170,7 +170,7 @@ Gaps, stated rather than implied:
 - `scripts/rehearse_upgrade_rollback.py`, run in CI and against the exact
   release wheel, now rehearses this fixture as well as the synthetic schema-0
   one.
-- **Known issue in 1.0.0 (WI-072):** `workspace check` writes into the file
+- **Known issue in 1.0.0 (WI-074):** `workspace check` writes into the file
   it checks, so checking a backup makes it unrestorable (`Backup database
   checksum mismatch`). Observed with 1.0.0 and recorded in the fixture's
   provenance. 1.1.0's check is read-only. The runbooks verify a backup through

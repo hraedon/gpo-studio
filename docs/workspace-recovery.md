@@ -44,7 +44,7 @@ version and its row counts. The check then proves the restored copy is intact.
 Verify every backup after creating it. A restore re-verifies the checksum
 itself, so restoring from a backup needs no separate step first.
 
-> **Known issue in 1.0.0 (WI-072).** 1.0.0's `workspace check` writes its
+> **Known issue in 1.0.0 (WI-074).** 1.0.0's `workspace check` writes its
 > result into the database it checks. On a backup, that changes the file after
 > the sidecar recorded its SHA-256, and every later restore fails with
 > `Backup database checksum mismatch`. The data in such a backup is intact,

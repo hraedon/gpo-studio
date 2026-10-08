@@ -26,7 +26,7 @@ It then records, in ``<output-dir>/provenance.json``:
    release has upgraded it, and when asked to restore a backup of it;
 4. that restoring the pre-upgrade backup with the legacy release recovers a
    workspace the legacy release can serve again;
-5. WI-072: the legacy ``workspace check --full`` changing a copy of the backup,
+5. WI-074: the legacy ``workspace check --full`` changing a copy of the backup,
    and the legacy restore then refusing it.
 
 Steps 3 and 4 are the documented rollback procedure, observed rather than
@@ -568,7 +568,7 @@ def main() -> int:
             args.legacy_cli, "workspace", "restore", str(upgraded_backup),
             str(tmp / "restored-from-upgraded.db"),
         )
-        # Known issue (WI-072): 1.0.0's `workspace check` writes into the file it
+        # Known issue (WI-074): 1.0.0's `workspace check` writes into the file it
         # checks. Observe it on a disposable copy of the backup and sidecar.
         probe = tmp / "check-probe" / BACKUP_NAME
         probe.parent.mkdir()

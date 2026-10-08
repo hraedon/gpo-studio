@@ -570,7 +570,7 @@ def test_the_writer_is_pinned_to_the_v1_0_0_tag_its_lockfile_and_its_installed_b
 
 
 def test_known_issue_1_0_0_check_full_invalidated_a_backup() -> None:
-    """WI-072, observed on a copy of the 1.0.0-written backup by 1.0.0 itself.
+    """WI-074, observed on a copy of the 1.0.0-written backup by 1.0.0 itself.
 
     1.0.0's ``workspace check`` records its result in the checked file, so the
     sidecar's SHA-256 goes stale and 1.0.0's own restore refuses the backup.

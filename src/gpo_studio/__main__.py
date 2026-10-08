@@ -22,7 +22,7 @@ from .workspace_ops import (
 def _open_read_only(db_path: str) -> sqlite3.Connection:
     """Open ``db_path`` so that nothing this process does can change its bytes.
 
-    WI-072: ``workspace check`` used to record its result in the database it
+    WI-074: ``workspace check`` used to record its result in the database it
     checked. On a backup that changed the file after its sidecar recorded the
     SHA-256, so the documented "verify, then restore" sequence ended in
     ``Backup database checksum mismatch``. ``mode=ro`` makes SQLite refuse any

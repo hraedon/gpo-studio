@@ -116,7 +116,7 @@ seconds or longer on a large database.
 
 From 1.1.0 the check opens the database read-only and changes nothing. In
 1.0.0 it recorded its result in the checked file, which invalidates a backup's
-recorded SHA-256 (WI-072), so never run it on a backup with 1.0.0. To verify a
+recorded SHA-256 (WI-074), so never run it on a backup with 1.0.0. To verify a
 backup, restore it to a throwaway path and check that copy (see below).
 
 #### `gpo-studio workspace backup`

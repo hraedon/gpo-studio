@@ -1,4 +1,4 @@
-"""WI-072: ``gpo-studio workspace check`` never changes the database it checks.
+"""WI-074: ``gpo-studio workspace check`` never changes the database it checks.
 
 1.0.0's check recorded its result (``last_full_check_at``) in the checked
 file. Run on a backup, that changed the bytes after the sidecar recorded their
@@ -44,7 +44,7 @@ def backup(tmp_path: Path) -> Path:
     workspace = tmp_path / "workspace.db"
     store = WorkspaceStore(workspace)
     try:
-        store.create_gpo("Check fixture", identity="tester", reason="WI-072")
+        store.create_gpo("Check fixture", identity="tester", reason="WI-074")
     finally:
         store.close()
     target = tmp_path / "backups" / "backup.db"
@@ -75,7 +75,7 @@ def test_check_reads_a_workspace_the_server_holds_open(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace.db"
     store = WorkspaceStore(workspace)
     try:
-        store.create_gpo("Open workspace", identity="tester", reason="WI-072")
+        store.create_gpo("Open workspace", identity="tester", reason="WI-074")
         result = _cli("workspace", "check", "--database", str(workspace), "--full")
         assert result.returncode == 0, result.stderr
         assert [gpo.name for gpo in store.list_gpos()] == ["Open workspace"]
@@ -87,7 +87,7 @@ def test_check_leaves_a_live_workspace_unchanged(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace.db"
     store = WorkspaceStore(workspace)
     try:
-        store.create_gpo("Live check", identity="tester", reason="WI-072")
+        store.create_gpo("Live check", identity="tester", reason="WI-074")
     finally:
         store.close()
     before = _sha(workspace)

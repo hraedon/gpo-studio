@@ -179,7 +179,7 @@ intact. Do not continue unless both commands succeed.
 > `workspace check` writes its result into the database it checks. Run on a
 > backup, that changes the file after its `.meta.json` sidecar recorded the
 > file's SHA-256, and every later restore of that backup fails with `Backup
-> database checksum mismatch` (WI-072). 1.1.0's check is read-only, but the
+> database checksum mismatch` (WI-074). 1.1.0's check is read-only, but the
 > procedures here must also work while 1.0.0 is installed, so they verify a
 > backup by restoring it to a throwaway file and checking that file instead.
 

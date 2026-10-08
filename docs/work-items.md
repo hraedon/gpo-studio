@@ -3027,7 +3027,7 @@ confirmed already correct), and a lane covering a user-side logon script and a
 computer-side shutdown script has a banked verdict.
 
 
-## WI-072 — `workspace check` changes the backup it was asked to verify
+## WI-074 — `workspace check` changes the backup it was asked to verify
 
 **Opened:** 2026-10-08 (Sol review of `release/1.1.0-prep`, finding 1).
 **Status:** closed 2026-10-08 for 1.1.0 by `tests/test_workspace_check_read_only.py`. 1.0.0 is affected and stays so; the runbooks route around it.
