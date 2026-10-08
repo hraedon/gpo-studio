@@ -11,6 +11,8 @@ import {initStarter} from './starter.mjs';
 import {initRsop} from './rsop.mjs';
 import {initSecurityTemplate} from './security-template.mjs';
 import {initFolderRedirection} from './folder-redirection.mjs';
+import {initScripts} from './scripts.mjs';
+import {initPublication} from './publication.mjs';
 
 const tabs=$$(".tab[role='tab']");
 
@@ -226,6 +228,8 @@ initStarter();
 initRsop();
 initSecurityTemplate();
 initFolderRedirection();
+initScripts();
+initPublication();
 initialisePressedGroups();
 setAppStatus("Loading policies…");
 loadList().then(()=>setAppStatus("")).catch(error=>{
