@@ -490,13 +490,13 @@
       <p id="scripts-availability" class="error-summary app-message" role="note" hidden></p>
       <section class="scripts-section" aria-labelledby="scripts-legacy-heading">
         <h3 id="scripts-legacy-heading">Startup scripts <span class="mono">(scripts.ini)</span></h3>
-        <p class="rsop-note">Batch, command or other non-PowerShell scripts. They run in the order listed.</p>
+        <p class="rsop-note">Batch, command or other non-PowerShell scripts. The backup lists them in this order. Windows kept that order when it imported the backup; when they actually run has not been tested.</p>
         <ul id="scripts-legacy-rows" class="script-rows"></ul>
         <button type="button" id="scripts-add-legacy">Add startup script</button>
       </section>
       <section class="scripts-section" aria-labelledby="scripts-powershell-heading">
         <h3 id="scripts-powershell-heading">PowerShell startup scripts <span class="mono">(psscripts.ini)</span></h3>
-        <p class="rsop-note">PowerShell scripts run before the other startup scripts. That is the only order that has been tested, so it is the only one offered.</p>
+        <p class="rsop-note">The backup asks Windows to run PowerShell scripts before the other startup scripts. That is the only setting a Windows import has been tested with, so it is the only one offered. Whether Windows then runs them in that order has not been tested.</p>
         <ul id="scripts-powershell-rows" class="script-rows"></ul>
         <button type="button" id="scripts-add-powershell">Add PowerShell script</button>
       </section>

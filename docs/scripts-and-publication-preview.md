@@ -15,8 +15,9 @@ the shipping code again. See the
 1. Select a policy, then open **Scripts** in the workspace sidebar.
 2. Add entries under **Startup scripts** (`scripts.ini`) and **PowerShell
    startup scripts** (`psscripts.ini`). Each entry is a command and optional
-   parameters. Entries run in the order listed; use **Move up** and **Move
-   down** to change it.
+   parameters. The backup lists entries in the order shown; use **Move up**
+   and **Move down** to change it. Windows kept that order on import; the
+   order in which scripts actually run has not been tested.
 3. Select **Preview** to see the two INI files exactly as the backup will carry
    them, with the backup ID and the ZIP's SHA-256.
 4. Select **Download backup** to save the ZIP. Import it with `Import-GPO` (or
