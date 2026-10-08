@@ -33,17 +33,26 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 #: wrong automatic answer is worse than an obviously manual one. Treat this
 #: tuple as part of the ruling, not as test scaffolding.
 #:
-#: **029 was removed on 2026-08-06** and is the only removal so far. It is the
-#: worked example of the exit condition rather than an exception to the rule:
-#: the Plan 033 oracle certified `rsop.py` against a real client across twelve
+#: **029 was removed on 2026-08-06**, the first removal. It is the worked
+#: example of the exit condition rather than an exception to the rule: the
+#: Plan 033 oracle certified `rsop.py` against a real client across twelve
 #: scenarios, and WI-030 then wired it to `/api/rsop/*`. Both halves, in that
 #: order. A plan leaves this tuple no other way.
+#:
+#: **026 and 030 were removed on 2026-10-08** by the same route. The Plan 034
+#: batch requalified the Scripts metadata and publication-completeness lanes,
+#: and the Scripts export and publication-preview endpoints then wired
+#: `script_policy.py` and `publication.py`. Their other modules do not hold
+#: them here, because each is a recorded out-of-scope ruling rather than an
+#: unexamined layer (Plan 034's exit is "a capability or a recorded
+#: out-of-scope ruling"): `artifact_store.py` was deleted, and `publisher.py`
+#: is out of scope for 1.x with its code retained, unreachable and not
+#: counted as a capability. A plan whose remaining modules are merely
+#: *unsurfaced*, like 025's `network_security.py`, stays in this tuple.
 DOMAIN_LAYER_PLANS: tuple[str, ...] = (
     "025",
-    "026",
     "027",
     "028",
-    "030",
     "031",
     "032",
 )
@@ -104,6 +113,8 @@ def test_domain_layer_plan_still_declares_itself_unsurfaced(number: str) -> None
 #: application whether the endpoint is really mounted.
 PROMOTED_DOMAIN_LAYER_PLANS: tuple[tuple[str, str], ...] = (
     ("029", "/api/rsop/compute"),
+    ("026", "/api/gpos/{guid}/gpmc-backup-with-scripts"),
+    ("030", "/api/gpos/{guid}/publication-plan"),
 )
 
 

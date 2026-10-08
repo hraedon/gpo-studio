@@ -124,3 +124,10 @@ both. It does **not** prove:
 `publication.py` therefore remains **unsurfaced**. Under the exit condition in
 `docs/domain-layer-status.md` a module needs both a re-runnable lane and a
 delivery surface; this supplies the first.
+
+**Update 2026-10-08: surfaced.** After the Plan 034 batch requalified this lane
+(`publication-completeness-20261008074904-1047`, 21/21), the review-only
+`GET /api/gpos/{guid}/publication-plan` and its browser panel supplied the
+second half. The surface marks each step with whether this lane measured it,
+and the boundary above still holds: nothing executes a plan. See
+[the operator guide](../scripts-and-publication-preview.md).

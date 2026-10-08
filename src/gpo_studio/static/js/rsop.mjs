@@ -57,9 +57,9 @@ export function splitPrincipals(text) {
 // One plain sentence per limitation code the API can return. The API's own
 // code and message are kept, unchanged, under "Technical detail". A code not
 // in this map falls back to its API message, so no limitation is ever hidden.
-// Sources: `_policy_family_limitations`, `_object_security_limitations` and
-// `_fdeploy_limitations` in api.py (`_rsop_limitations` currently returns
-// none).
+// Sources: `_policy_family_limitations`, `_object_security_limitations`,
+// `_fdeploy_limitations`, `_scripts_limitations` and `_publication_limitations`
+// in api.py (`_rsop_limitations` currently returns none).
 export const LIMITATION_SENTENCES = {
   // Security template: both families. The object-security message also covers
   // permissions and inheritance; that detail stays under "Technical detail".
@@ -90,6 +90,26 @@ export const LIMITATION_SENTENCES = {
     "Folder names come from Microsoft's documented list. Only Documents has been confirmed against a real file; an unknown folder is shown by its ID.",
   read_only_no_writer:
     "This screen only reads files. GPO Studio cannot create or edit Folder Redirection policy yet.",
+  // Scripts export.
+  payload_not_carried:
+    "The backup lists the scripts but does not contain them. Windows imported a backup like this and kept the entries without the script files; copy the scripts themselves separately.",
+  execution_unmeasured:
+    "These scripts have never been run as part of a test. Nothing here shows that a computer runs them, or in what order.",
+  gpme_editing_unmeasured:
+    "It has not been tested whether the Group Policy Management Editor can open and edit these script entries after import.",
+  one_entry_shape_measured:
+    "Windows was tested with two startup scripts and one PowerShell script on a policy with nothing else in it. Other lists use the same file format but were not tested themselves.",
+  // Publication preview.
+  nothing_here_writes:
+    "This is a review only. Nothing here writes to Active Directory or SYSVOL, and no step is run.",
+  ad_side_steps_unmeasured:
+    "Links, security filtering and WMI filter steps have never been tested: importing a backup does not restore them.",
+  one_shape_measured:
+    "Windows was tested with one policy: registry settings on both sides, one Services preference and one Drives preference. A step marked Measured is of a tested kind; that does not show every policy publishes the same way.",
+  out_of_model_content_not_planned:
+    "Scripts and security templates are not part of this plan. If you publish either with the policy, it writes files that are not listed here.",
+  rollback_unmeasured:
+    "No rollback step has ever been tested. They are listed so you can review the whole plan.",
 };
 
 export function plainLimitation(item) {
