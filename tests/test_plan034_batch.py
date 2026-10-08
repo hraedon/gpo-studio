@@ -198,8 +198,19 @@ def test_every_candidate_hash_resolves_to_the_banked_controller_candidate() -> N
         for relative, digest in (verdict.get("candidate") or {}).items():
             banked = (candidate_dir / relative).read_bytes()
             assert hashlib.sha256(banked).hexdigest() == digest, (run["name"], relative)
-        for digest in _delivery_digests(verdict.get("candidate_delivery"), run["name"]):
-            assert digest in {
+        delivery = verdict.get("candidate_delivery")
+        _delivery_digests(delivery, run["name"])
+        if isinstance(delivery, dict) and "controller_sha256" not in delivery:
+            # Per-file shape: each digest must be THAT file's, not any file's
+            # (review: swapping two banked candidate files must be caught).
+            for filename, entry in delivery.items():
+                banked = candidate_dir / filename
+                assert banked.is_file(), (run["name"], filename)
+                assert hashlib.sha256(banked.read_bytes()).hexdigest() == entry[
+                    "controller_sha256"
+                ], (run["name"], filename)
+        elif isinstance(delivery, dict):
+            assert delivery["controller_sha256"] in {
                 hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in candidate_dir.rglob("*") if p.is_file()
             }, run["name"]
