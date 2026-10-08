@@ -50,7 +50,7 @@ def _root(tmp_path: Path, version: str) -> Path:
     package = tmp_path / "src" / "gpo_studio"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text(
-        f'"""GPO Studio."""\n\n__version__ = "{version}"\n', encoding="utf-8"
+        f'"""GPO Studio."""\n\n__version__ = "{version}"\n', encoding="utf-8", newline="\n"
     )
     (tmp_path / "docs").mkdir()
     return tmp_path
@@ -93,7 +93,7 @@ def _release(
     if report is not None:
         body = report
     (root / "docs" / f"release-evidence-report-{base}.json").write_text(
-        json.dumps(body), encoding="utf-8"
+        json.dumps(body), encoding="utf-8", newline="\n"
     )
     return manifest
 
@@ -110,10 +110,10 @@ def _approve(manifest: Path, report: Path, status: str, version: str) -> None:
     """The documented approval: the JSON status/version and line 5, nothing else."""
     data = json.loads(report.read_text(encoding="utf-8"))
     data["status"], data["version"] = status, version
-    report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
     lines = manifest.read_text(encoding="utf-8").split("\n")
     lines[4] = gate.STATUS_LINES[status]
-    manifest.write_text("\n".join(lines), encoding="utf-8")
+    manifest.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
 
 # --- the stale-manifest hole and the documented transition -----------------
@@ -270,7 +270,7 @@ def test_the_version_must_be_bound_exactly_once_and_unambiguously(
     tmp_path: Path, source: str
 ) -> None:
     root = _root(tmp_path, "1.1.0")
-    (root / "src" / "gpo_studio" / "__init__.py").write_text(source, encoding="utf-8")
+    (root / "src" / "gpo_studio" / "__init__.py").write_text(source, encoding="utf-8", newline="\n")
     _release(root, "1.1.0")
     with pytest.raises(gate.ReleaseGateError, match="exactly once|Hatchling would read"):
         gate.check(root, "v1.1.0")
@@ -465,7 +465,9 @@ def test_the_report_schema_is_exact(tmp_path: Path, report: dict[str, object]) -
 def test_malformed_or_ambiguous_json_is_refused(tmp_path: Path, raw: str) -> None:
     root = _root(tmp_path, "1.1.0")
     _release(root, "1.1.0")
-    (root / "docs" / "release-evidence-report-1.1.0.json").write_text(raw, encoding="utf-8")
+    (root / "docs" / "release-evidence-report-1.1.0.json").write_text(
+        raw, encoding="utf-8", newline="\n"
+    )
     with pytest.raises(gate.ReleaseGateError):
         gate.check(root, "v1.1.0")
 
@@ -475,7 +477,10 @@ def test_a_duplicate_status_key_is_named(tmp_path: Path) -> None:
     _release(root, "1.1.0")
     path = root / "docs" / "release-evidence-report-1.1.0.json"
     text = path.read_text(encoding="utf-8")
-    path.write_text(text.replace('"status": "approved"', '"status": "draft", "status": "approved"'))
+    path.write_text(
+        text.replace('"status": "approved"', '"status": "draft", "status": "approved"'),
+        newline="\n",
+    )
     with pytest.raises(gate.ReleaseGateError, match="duplicate JSON keys"):
         gate.check(root, "v1.1.0")
 
@@ -648,7 +653,7 @@ def test_the_status_line_cannot_move_out_of_the_header(tmp_path: Path) -> None:
     manifest = _release(root, "1.1.0")
     lines = manifest.read_text(encoding="utf-8").split("\n")
     lines.insert(4, "> **Owner:** release manager")
-    manifest.write_text("\n".join(lines), encoding="utf-8")
+    manifest.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     with pytest.raises(gate.ReleaseGateError, match="line 5 must be the status line"):
         gate.check(root, "v1.1.0")
 
@@ -787,11 +792,11 @@ def tagged_remote(tmp_path: Path) -> tuple[Path, str, str]:
     work.mkdir()
     _git(work, "init", "-q")
     _git(work, "remote", "add", "origin", str(remote))
-    (work / "f").write_text("a", encoding="utf-8")
+    (work / "f").write_text("a", encoding="utf-8", newline="\n")
     _git(work, "add", "f")
     _git(work, "commit", "-q", "-m", "a")
     first = _git(work, "rev-parse", "HEAD")
-    (work / "f").write_text("b", encoding="utf-8")
+    (work / "f").write_text("b", encoding="utf-8", newline="\n")
     _git(work, "commit", "-q", "-am", "b")
     second = _git(work, "rev-parse", "HEAD")
     _git(work, "push", "-q", "origin", "HEAD:refs/heads/main")
