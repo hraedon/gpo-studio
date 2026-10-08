@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from .model import GPO, ValidationError, ValidationIssue
-from .store import gpo_from_dict
+from .store import gpo_from_dict, lf_line_breaks
 from .validation import validate_gpo
 
 MAX_ESTATE_GPO_COUNT = 1000
@@ -100,17 +100,23 @@ def parse_estate(data: dict[str, Any]) -> list[GPO]:
                 )
             )
             continue
+        wmi_raw = raw.get("wmi_filter")
+        if isinstance(wmi_raw, dict) and isinstance(wmi_raw.get("description"), str):
+            wmi_raw = {**wmi_raw, "description": lf_line_breaks(wmi_raw["description"])}
         gpo_dict: dict[str, Any] = {
             "guid": original_guid,
             "name": raw.get("display_name", ""),
-            "description": raw.get("description", ""),
+            # Normalised BEFORE `validate_gpo` below: XML-writable text refuses
+            # CR (XML reads it back as LF), and a GPMC comment carries
+            # Windows line breaks (batch-2 delta review).
+            "description": lf_line_breaks(raw.get("description", "")),
             "domain": raw.get("domain", "studio.local"),
             "computer_enabled": raw.get("computer_enabled", True),
             "user_enabled": raw.get("user_enabled", True),
             "settings": raw.get("settings", []),
             "links": raw.get("links", []),
             "security_filters": raw.get("security_filters", []),
-            "wmi_filter": raw.get("wmi_filter"),
+            "wmi_filter": wmi_raw,
             "cse_metadata": raw.get("cse_metadata", []),
             "status": "archived",
             "source_guid": original_guid,

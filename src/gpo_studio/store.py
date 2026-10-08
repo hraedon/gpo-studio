@@ -286,6 +286,23 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
     return _assign_legacy_gpp_ids(gpo)
 
 
+def lf_line_breaks(text: Any) -> Any:
+    """A GPMC comment's line breaks as LF (CRLF and bare CR alike).
+
+    GPMC stores a GPO's comment, and a WMI filter's description, with Windows
+    line breaks. Studio refuses a carriage return in any text written into XML
+    -- an XML parser reads it back as LF, so the value would not survive a
+    native export -- and these comments are written into XML. Their line breaks
+    are line breaks, not data, so they are normalised here rather than
+    refusing the GPO. `estate.parse_estate` applies it before its own
+    validation, and `WorkspaceStore.import_baseline_gpos` for direct callers. Non-text values are
+    returned unchanged for `gpo_from_dict` and validation to judge.
+    """
+    if not isinstance(text, str):
+        return text
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 class WorkspaceStore:
     """Persist editable GPO snapshots and their audit history."""
 
@@ -861,8 +878,10 @@ class WorkspaceStore:
                 name=gpo.name.strip(),
                 # A GPMC comment arrives with Windows line endings; XML (where
                 # the description is written) reads CR back as LF, so line
-                # breaks are normalised to LF here rather than refusing the GPO.
-                description=gpo.description.replace("\r\n", "\n").replace("\r", "\n").strip(),
+                # breaks are normalised to LF rather than refusing the GPO. The
+                # same rule `estate.parse_estate` applies first on
+                # the API path; this covers direct callers.
+                description=lf_line_breaks(gpo.description).strip(),
                 revision=1,
                 created_at=timestamp,
                 updated_at=timestamp,
