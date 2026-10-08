@@ -279,7 +279,8 @@ def test_the_required_cases_are_the_four_the_ruling_names(candidate: Path) -> No
     assert [c["case_id"] for c in _expected(candidate)["cases"]] == list(BUILDER.REQUIRED_CASE_IDS)
     with zipfile.ZipFile(candidate / "fdeploy-cases.zip") as archive:
         tops = {name.split("/")[1] for name in archive.namelist()}
-    assert tops == set(BUILDER.REQUIRED_CASE_IDS)
+    assert tops == {"c1", "c2", "c3", "c4"}
+    assert [c["case_dir"] for c in _expected(candidate)["cases"]] == ["c1", "c2", "c3", "c4"]
 
 
 def test_the_builder_copies_the_domain_neutral_descriptor() -> None:
@@ -291,7 +292,7 @@ def test_the_builder_copies_the_domain_neutral_descriptor() -> None:
 def test_the_backup_skeleton_follows_what_windows_wrote(candidate: Path) -> None:
     case = _expected(candidate)["cases"][0]
     with zipfile.ZipFile(candidate / "fdeploy-cases.zip") as archive:
-        backup_xml = archive.read(f"cases/{case['case_id']}/{case['backup_id']}/Backup.xml")
+        backup_xml = archive.read(f"cases/{case['case_dir']}/{case['backup_id']}/Backup.xml")
     text = backup_xml.decode("utf-8")
     assert 'bkp:ReEvaluateFunction="FRValidateSettings"' in text
     assert f"<![CDATA[{BUILDER.USER_EXTENSION_PAIR}]]>" in text
@@ -339,7 +340,7 @@ def test_the_probe_table_is_the_notes_reading() -> None:
 # A simulated run, graded by the real finalizer
 # ---------------------------------------------------------------------------
 
-_RUN_ID = "fdeploy-lane-20261008000000-1234"
+_RUN_ID = "fd-20261008000000-1234"
 _PREFIX = f"zz-studio-fd-{_RUN_ID}"
 _DOMAIN = "lab.test"
 
@@ -364,6 +365,7 @@ def _write_backup(run: Path, record: dict[str, Any], files: dict[str, bytes],
         "source_gpo_id": "{" + record["owned_gpo_id"] + "}",
         "backup_id": record["rebackup_id"],
         "display_name": record["target_name"],
+        "domain": _DOMAIN.upper(),
     }
     BUILDER.stage_case(root, identity, files["fdeploy.ini"], files["fdeploy1.ini"])
     (root / record["rebackup_id"] / "gpreport.xml").write_bytes(report)
@@ -395,14 +397,15 @@ def _simulated_run(candidate: Path, run: Path) -> dict[str, Any]:
             owned.upper(), target, _DOMAIN, [tuple(r) for r in case["expected_report"]],
             options=BUILDER.PROBE_20261008_OPTIONS[case["flags"]],
         )
-        (run / "reports" / f"{case_id}.xml").write_bytes(report)
-        commands = run / "commands" / case_id
+        key = case["case_dir"]
+        (run / "reports" / f"{key}.xml").write_bytes(report)
+        commands = run / "commands" / key
         commands.mkdir(parents=True)
         for name in ("import", "report", "backup"):
             for stream in ("stdout", "stderr"):
                 (commands / f"{name}.{stream}.txt").write_text("", encoding="utf-8")
         record: dict[str, Any] = {
-            "case_id": case_id, "target_name": target,
+            "case_dir": key, "target_name": target,
             "backup_id": case["backup_id"], "source_gpo_id": case["source_gpo_id"],
             "owned_gpo_id": owned, "import_succeeded": True,
             "user_extension_names": BUILDER.USER_EXTENSION_PAIR,
@@ -411,18 +414,20 @@ def _simulated_run(candidate: Path, run: Path) -> dict[str, Any]:
                  "sha256": FINALIZER._sha_bytes(files[name])}
                 for name in sorted(files)
             ],
-            "report_file": f"reports/{case_id}.xml",
+            "report_file": f"reports/{key}.xml",
             "report_sha256": FINALIZER._sha_bytes(report), "report_links_to_count": 0,
             "rebackup_succeeded": True,
             "rebackup_id": "{" + str(uuid.uuid5(uuid.NAMESPACE_URL, f"rb/{case_id}")).upper() + "}",
-            "rebackup_dir": f"backups/{case_id}", "rebackup_files": None,
-            "cleanup_succeeded": True, "absence_confirmed": True, "error": None,
+            "rebackup_dir": f"backups/{key}", "rebackup_files": None,
+            "cleanup_succeeded": True, "absence_confirmed": True, "foreign_residue": [],
+            "error": None,
         }
         _write_backup(run, record, files, report)
         cases.append(record)
     result = {
-        "schema_version": 1, "run_id": _RUN_ID, "domain": _DOMAIN.upper(), "cases": cases,
-        "cleanup_state_restored": True, "environment": environment, "error": None,
+        "schema_version": 2, "run_id": _RUN_ID, "domain": _DOMAIN.upper(), "cases": cases,
+        "cleanup_state_restored": True, "residue": [], "environment": environment,
+        "error": None,
     }
     _write_result(run, result)
     return result
@@ -823,6 +828,204 @@ def test_each_harness_check_fires(
     assert verdict["passed"] is False
 
 
+# ---------------------------------------------------------------------------
+# Review findings 3 and 4 (2026-10-08): the re-export's own metadata
+# ---------------------------------------------------------------------------
+
+
+def _rebackup_file(run: Path, name: str, index: int = 0) -> Path:
+    record = _case(run, index)
+    return cast(Path, run / record["rebackup_dir"] / record["rebackup_id"] / name)
+
+
+def _rebackup_identity(run: Path, index: int = 0, **changes: str) -> dict[str, str]:
+    record = _case(run, index)
+    return {
+        "source_gpo_id": "{" + record["owned_gpo_id"] + "}",
+        "backup_id": record["rebackup_id"],
+        "display_name": record["target_name"],
+        "domain": _DOMAIN.upper(),
+        **changes,
+    }
+
+
+def test_an_empty_bkup_info_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _rebackup_file(run, "bkupInfo.xml").write_bytes(b"")
+    verdict = _verdict(run, candidate, monkeypatch)
+    assert verdict["passed"] is False
+    assert "every_case_rebackup_is_of_owned_gpo" in _failing(verdict["checks"])
+    assert "bkupInfo.xml unreadable" in verdict["comparison_error"]
+
+
+def test_a_bkup_info_naming_another_gpo_and_backup_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's probe: metadata for an unrelated GPO and backup ID."""
+    _rebackup_file(run, "bkupInfo.xml").write_bytes(BUILDER.bkup_info_xml({
+        "source_gpo_id": "{11111111-2222-3333-4444-555555555555}",
+        "backup_id": "{22222222-2222-3333-4444-555555555555}",
+        "display_name": "unrelated-gpo",
+    }))
+    verdict = _verdict(run, candidate, monkeypatch)
+    assert verdict["passed"] is False
+    assert "every_case_rebackup_is_of_owned_gpo" in _failing(verdict["checks"])
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("display_name", "unrelated-gpo"), ("domain", "foreign.test")],
+)
+def test_backup_metadata_must_name_the_owned_gpo_in_every_field(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: str,
+) -> None:
+    """Manifest and bkupInfo.xml agreeing with each other is not enough."""
+    identity = _rebackup_identity(run, **{field: value})
+    root = run / _case(run)["rebackup_dir"]
+    (root / "manifest.xml").write_bytes(BUILDER.manifest_xml(identity))
+    _rebackup_file(run, "bkupInfo.xml").write_bytes(BUILDER.bkup_info_xml(identity))
+    assert _failing(_finalize(run, candidate, monkeypatch)) == {
+        "every_case_rebackup_is_of_owned_gpo",
+    }
+
+
+@pytest.mark.parametrize("field", ["GPOGuid", "GPODomain", "ID", "GPODisplayName"])
+def test_a_bkup_info_missing_any_identity_field_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, field: str,
+) -> None:
+    path = _rebackup_file(run, "bkupInfo.xml")
+    text = path.read_text("utf-8")
+    path.write_text(re.sub(rf"<{field}>.*?</{field}>", f"<{field}></{field}>", text), "utf-8")
+    verdict = _verdict(run, candidate, monkeypatch)
+    assert verdict["passed"] is False
+    assert f"lacks {field}" in verdict["comparison_error"]
+
+
+def test_import_readiness_refuses_disagreeing_backup_metadata(tmp_path: Path) -> None:
+    identity = BUILDER.case_identity("r3-flags-1021")
+    marker, policy = BUILDER.r3_bytes()
+    BUILDER.stage_case(tmp_path, identity, marker, policy)
+    assert BUILDER.import_readiness(tmp_path) == (identity["backup_id"], identity["source_gpo_id"])
+    info = tmp_path / identity["backup_id"] / "bkupInfo.xml"
+    info.write_bytes(BUILDER.bkup_info_xml({**identity, "display_name": "other"}))
+    assert "different GPO" in BUILDER.import_readiness(tmp_path)
+    info.write_bytes(b"")
+    assert "bkupInfo.xml unreadable" in BUILDER.import_readiness(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "name,domain",
+    [("unrelated-gpo", None), (None, "foreign.test"), ("unrelated-gpo", "foreign.test")],
+)
+def test_the_backup_report_must_name_the_owned_gpo(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch,
+    name: str | None, domain: str | None,
+) -> None:
+    """Review finding 4: the same GUID under another name or domain fails."""
+    record = _case(run)
+    _rebackup_file(run, "gpreport.xml").write_bytes(_fr_report(
+        record["owned_gpo_id"], name or record["target_name"], domain or _DOMAIN, [R3_ROW],
+    ))
+    assert _failing(_finalize(run, candidate, monkeypatch)) == {
+        "every_case_rebackup_report_matches_fresh_report",
+    }
+
+
+def test_a_backup_report_with_no_name_or_domain_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's probe: identity elements removed, GUID kept."""
+    import xml.etree.ElementTree as ET
+
+    path = _rebackup_file(run, "gpreport.xml")
+    root = ET.fromstring(path.read_bytes())
+    ident = root.find(f"{{{SETTINGS_NS}}}Identifier")
+    assert ident is not None
+    domain = ident.find(f"{{{TYPES_NS}}}Domain")
+    name = root.find(f"{{{SETTINGS_NS}}}Name")
+    assert domain is not None and name is not None
+    ident.remove(domain)
+    root.remove(name)
+    path.write_bytes(ET.tostring(root, encoding="utf-16"))
+    assert _failing(_finalize(run, candidate, monkeypatch)) == {
+        "every_case_rebackup_report_matches_fresh_report",
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda r: r.update(residue=["11111111-2222-3333-4444-555555555555 x"]),
+        lambda r: r.update(residue=None),
+        lambda r: r["cases"][0].update(foreign_residue=["11111111-2222-3333-4444-555555555555"]),
+        lambda r: r["cases"][0].update(foreign_residue=None),
+    ],
+)
+def test_foreign_residue_or_its_absence_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, mutate: Any,
+) -> None:
+    result = _read_result(run)
+    mutate(result)
+    _write_result(run, result)
+    assert _failing(_finalize(run, candidate, monkeypatch)) == {"no_foreign_residue"}
+
+
+# ---------------------------------------------------------------------------
+# MAX_PATH: the guest's longest path, measured from the real root
+# ---------------------------------------------------------------------------
+
+
+def test_the_longest_guest_path_is_bounded(candidate: Path) -> None:
+    expected = _expected(candidate)
+    assert expected["longest_guest_path"] <= BUILDER.GUEST_PATH_LIMIT == 200
+    with zipfile.ZipFile(candidate / "fdeploy-cases.zip") as archive:
+        names = archive.namelist()
+    longest = BUILDER.longest_guest_path(names, ["c1", "c2", "c3", "c4"])
+    assert len(longest) == expected["longest_guest_path"]
+    assert "Documents & Settings\\fdeploy1.ini" in longest
+
+
+def test_the_path_bound_is_composed_from_the_real_driver_and_guest() -> None:
+    """The bound is only as good as its root: hold it to the scripts that use it."""
+    driver = DRIVER_PATH.read_text(encoding="utf-8")
+    guest = GUEST_PATH.read_text(encoding="utf-8")
+    assert 'STAMP="$(date +%Y%m%d%H%M%S)-$$"' in driver
+    assert f'GUEST_ROOT="{BUILDER.GUEST_ROOT_PREFIX}\\$STAMP"' in driver
+    assert f'GUEST_OUT="$GUEST_ROOT\\{BUILDER.GUEST_OUT_LEAF}"' in driver
+    assert "-OutputDir '$GUEST_OUT'" in driver
+    run_id = (
+        '$runId = "fd-$(Get-Date -Format yyyyMMddHHmmss)-'
+        '$(Get-Random -Minimum 1000 -Maximum 9999)"'
+    )
+    assert run_id in guest
+    assert len(BUILDER.GUEST_RUN_ID_WORST) == len("fd-") + 14 + 1 + 4
+    assert len(BUILDER.GUEST_STAMP_WORST) == 14 + 1 + 7  # Linux pid_max is 2**22
+    for leaf in ("input", "backups", "commands"):
+        assert f"Join-Path $work '{leaf}'" in guest
+    assert "Join-Path $inputRoot 'cases'" in guest
+
+
+def test_the_builder_refuses_a_candidate_past_the_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(BUILDER, "GUEST_PATH_LIMIT", 150)
+    with pytest.raises(ValueError, match="exceeds 150"):
+        BUILDER.build(tmp_path)
+
+
+def test_the_old_layout_would_have_exceeded_the_bound(candidate: Path) -> None:
+    """The reviewer measured 205 characters for the first layout."""
+    with zipfile.ZipFile(candidate / "fdeploy-cases.zip") as archive:
+        names = [n.replace("/c1/", "/r3-flags-1021/") for n in archive.namelist()]
+    old_work = (
+        "C:\\gpo-studio\\runs\\fdeploy-20261008123456-12345\\out"
+        "\\fdeploy-lane-20261008123456-9998"
+    )
+    old = max((f"{old_work}\\input\\" + n.replace("/", "\\") for n in names), key=len)
+    assert len(old) > BUILDER.GUEST_PATH_LIMIT
+
+
 @pytest.mark.parametrize("status", [1, -1, None])
 def test_a_failed_or_unreported_guest_can_never_pass(
     run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch, status: int | None,
@@ -835,7 +1038,7 @@ def test_a_failed_or_unreported_guest_can_never_pass(
 def test_missing_command_output_fails(
     run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (run / "commands" / "r3-flags-1023" / "backup.stderr.txt").unlink()
+    (run / "commands" / "c3" / "backup.stderr.txt").unlink()
     assert _failing(_finalize(run, candidate, monkeypatch)) == {"raw_command_artifacts_complete"}
 
 
@@ -973,26 +1176,38 @@ def test_the_guest_script_never_interpolates_a_variable_before_a_colon() -> None
                 assert name.casefold() in scopes, (number, string)
 
 
-def test_the_guest_removes_only_names_it_registered() -> None:
+def test_the_guest_removes_only_what_it_registered_and_owns() -> None:
     script = GUEST_PATH.read_text(encoding="utf-8")
     register = script.index("function Register-Target")
     assert script.index('StartsWith("$prefix-")', register) < script.index(
-        "[void]$registeredNames.Add($name)", register
+        "$registered[$name] = $null", register
     )
-    assert "if (-not $registeredNames.Contains($name)) { return $true }" in script
+    assert "if (-not $registered.Contains($name)) { return $true }" in script
+    # Registration precedes creation, and ownership is recorded the moment
+    # New-GPO returns, so cleanup can go by GUID from then on.
     assert script.count("Register-Target $target\n") == 1
-    chunk = script.split("Register-Target $target\n")[1]
-    assert chunk.lstrip().startswith("$owned = New-GPO")
+    chunk = script.split("Register-Target $target\n")[1].lstrip()
+    assert chunk.startswith("$owned = New-GPO")
+    assert chunk.index("Set-Owned $target $ownedId") < chunk.index("Import-GPO")
+    # Removal by name happens only on the branch where no GUID is known.
+    removal = script[script.index("function Remove-Registered"):]
+    removal = removal[: removal.index("\n}\n")]
+    by_id, _, by_name = removal.partition("} else {")
+    assert "Get-ByName" not in by_id and "Get-ByName" in by_name
 
 
 #: In-memory Group Policy and AD cmdlets. Functions shadow cmdlets in
 #: PowerShell's command resolution, so the real guest script runs unchanged.
+#: The modes after ``create-then-throw`` are the 2026-10-08 review's probes.
 _MOCK_HARNESS = r"""
 param([string]$Script, [string]$Zip, [string]$Out, [string]$StatePath, [string]$Mode)
 $ErrorActionPreference = 'Stop'
 $global:Store = [ordered]@{}
 $global:RemoveFailures = @{}
 $global:Thrown = $false
+$global:Deleted = @()
+$global:Reused = $false
+$global:RenamedGuid = $null
 $global:Store["$([guid]::NewGuid())"] = 'unrelated-gpo'
 function Import-Module { [CmdletBinding()] param([Parameter(Position = 0)]$Name) }
 function New-GPO {
@@ -1009,11 +1224,22 @@ function New-GPO {
 function Get-GPO {
     [CmdletBinding()] param([switch]$All, $Guid, [string]$Domain, [string]$Name)
     if ($All) {
+        # name-reused: another party creates a GPO under a name this run
+        # registered, once the run's own GPO of that name has been removed.
+        if ($Mode -eq 'name-reused' -and $global:Deleted.Count -gt 0 -and -not $global:Reused) {
+            $global:Reused = $true
+            $global:Store['11111111-2222-3333-4444-555555555555'] = $global:Deleted[0]
+        }
         return @($global:Store.Keys | ForEach-Object {
             [pscustomobject]@{ Id = [guid]$_; DisplayName = $global:Store[$_]; Path = "cn={$_}" } })
     }
     $k = "$Guid"
-    if (-not $global:Store.Contains($k)) { throw "GPO $k not found" }
+    $gone = $global:Deleted.Count -gt 0 -and -not $global:Store.Contains($k)
+    if (($Mode -eq 'guid-query-fails' -and $gone) -or
+        ($Mode -eq 'renamed-and-query-fails' -and $global:RenamedGuid -eq $k)) {
+        throw 'directory query failed: access denied'
+    }
+    if (-not $global:Store.Contains($k)) { throw "A GPO with ID {$k} was not found in lab.test." }
     [pscustomobject]@{ Id = [guid]$k; DisplayName = $global:Store[$k]; Path = "cn={$k}" }
 }
 function Remove-GPO {
@@ -1023,7 +1249,8 @@ function Remove-GPO {
         $global:RemoveFailures[$k]--
         throw 'transient failure'
     }
-    if (-not $global:Store.Contains($k)) { throw "GPO $k not found" }
+    if (-not $global:Store.Contains($k)) { throw "A GPO with ID {$k} was not found in lab.test." }
+    $global:Deleted += $global:Store[$k]
     $global:Store.Remove($k)
 }
 function Import-GPO {
@@ -1047,6 +1274,12 @@ function Get-GPOReport {
 }
 function Backup-GPO {
     [CmdletBinding()] param($Guid, $Domain, $Path)
+    # renamed-and-query-fails: the owned GPO is renamed and its GUID becomes
+    # unreadable (access denied) before cleanup.
+    if ($Mode -eq 'renamed-and-query-fails' -and -not $global:RenamedGuid) {
+        $global:RenamedGuid = "$Guid"
+        $global:Store["$Guid"] = 'renamed-owned-gpo'
+    }
     $id = [guid]::NewGuid()
     New-Item -ItemType Directory -Force -Path (Join-Path $Path "{$id}") | Out-Null
     [pscustomobject]@{ Id = $id; GpoId = $Guid }
@@ -1061,8 +1294,8 @@ function Start-Sleep { param($Seconds) }
 $status = 0
 try { & $Script -CandidateZip $Zip -OutputDir $Out -Domain 'lab.test' } catch { $status = 1 }
 finally {
-    @{ status = $status; remaining = @($global:Store.Values) } | ConvertTo-Json |
-        Set-Content -LiteralPath $StatePath
+    @{ status = $status; remaining = @($global:Store.Values); deleted = @($global:Deleted) } |
+        ConvertTo-Json | Set-Content -LiteralPath $StatePath
 }
 """
 
@@ -1074,7 +1307,7 @@ def _mock_candidate(path: Path) -> None:
         "<ID>{BBBBBBBB-0000-0000-0000-000000000001}</ID></BackupInst></Backups>"
     )
     with zipfile.ZipFile(path, "w") as archive:
-        for case in ("case-a", "case-b"):
+        for case in ("c1", "c2"):
             archive.writestr(f"cases/{case}/manifest.xml", manifest)
 
 
@@ -1100,42 +1333,87 @@ def _run_mocked_guest(tmp_path: Path, mode: str) -> dict[str, Any]:
     return final
 
 
-def _remaining(state: dict[str, Any]) -> list[str]:
-    remaining = state["remaining"]
-    return [remaining] if isinstance(remaining, str) else list(remaining)
+def _listed(value: object) -> list[Any]:
+    """ConvertTo-Json writes a one-element array as its element; undo that."""
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else [value]
 
 
 def test_the_mocked_guest_run_leaves_only_what_it_found(tmp_path: Path) -> None:
     """The control: a clean run removes every GPO it made and nothing else."""
     state = _run_mocked_guest(tmp_path, "normal")
     assert state["status"] == 0
-    assert _remaining(state) == ["unrelated-gpo"]
+    assert _listed(state["remaining"]) == ["unrelated-gpo"]
     result = state["result"]
     assert set(result) == FINALIZER._RESULT_KEYS
-    assert result["cleanup_state_restored"] is True
+    assert result["schema_version"] == FINALIZER._RESULT_SCHEMA_VERSION
+    assert result["cleanup_state_restored"] is True and result["residue"] == []
     assert len(result["cases"]) == 2
     for record in result["cases"]:
         assert set(record) == FINALIZER._CASE_KEYS
         assert record["cleanup_succeeded"] and record["absence_confirmed"]
+        assert record["foreign_residue"] == []
         assert record["target_name"].startswith(f"zz-studio-fd-{result['run_id']}-")
         assert record["user_extension_names"] == "[{A}{B}]"
         assert [f["name"] for f in record["rebackup_files"]] == list(FINALIZER.FDEPLOY_FILES)
         assert all(set(f) == FINALIZER._REBACKUP_FILE_KEYS for f in record["rebackup_files"])
+    assert [c["case_dir"] for c in result["cases"]] == ["c1", "c2"]
 
 
 def test_a_transient_removal_failure_is_retried(tmp_path: Path) -> None:
     state = _run_mocked_guest(tmp_path, "remove-fails-once")
-    assert _remaining(state) == ["unrelated-gpo"]
+    assert _listed(state["remaining"]) == ["unrelated-gpo"]
     assert state["status"] == 0
     assert state["result"]["cleanup_state_restored"] is True
 
 
 def test_a_gpo_created_without_a_returned_id_is_removed_by_name(tmp_path: Path) -> None:
     state = _run_mocked_guest(tmp_path, "create-then-throw")
-    assert _remaining(state) == ["unrelated-gpo"]
+    assert _listed(state["remaining"]) == ["unrelated-gpo"]
     assert state["status"] == 1  # the case still fails honestly
     first = state["result"]["cases"][0]
     assert first["import_succeeded"] is False
     assert first["owned_gpo_id"] is None
     assert first["absence_confirmed"] is True
     assert state["result"]["cleanup_state_restored"] is True
+
+
+def test_a_foreign_gpo_under_a_registered_name_is_reported_never_deleted(tmp_path: Path) -> None:
+    """Review finding 1 (high): name reuse after removal must not be cleaned up."""
+    state = _run_mocked_guest(tmp_path, "name-reused")
+    result = state["result"]
+    first = result["cases"][0]
+    # The foreign GPO survives: only the two GPOs the run created were removed.
+    assert len(_listed(state["deleted"])) == 2
+    assert first["target_name"] in _listed(state["remaining"])
+    assert _listed(first["foreign_residue"]) == ["11111111-2222-3333-4444-555555555555"]
+    assert "foreign GPO(s) hold" in first["error"]
+    # The run's own GPO is gone and that much is still reported truthfully.
+    assert first["cleanup_succeeded"] is True and first["absence_confirmed"] is True
+    assert result["cleanup_state_restored"] is False
+    assert _listed(result["residue"]) == [
+        f"11111111-2222-3333-4444-555555555555 {first['target_name']}"
+    ]
+    assert state["status"] == 1
+
+
+def test_a_lookup_failure_after_removal_is_not_absence(tmp_path: Path) -> None:
+    """Review finding 2: only not-found counts; access denied fails cleanup."""
+    state = _run_mocked_guest(tmp_path, "guid-query-fails")
+    first = state["result"]["cases"][0]
+    assert first["cleanup_succeeded"] is False
+    assert first["absence_confirmed"] is False
+    assert "access denied" in first["error"]
+    assert state["status"] == 1
+
+
+def test_a_renamed_owned_gpo_whose_lookup_fails_fails_cleanup(tmp_path: Path) -> None:
+    """Review finding 2: the reviewer's renamed-and-unreadable survivor."""
+    state = _run_mocked_guest(tmp_path, "renamed-and-query-fails")
+    first = state["result"]["cases"][0]
+    assert "renamed-owned-gpo" in _listed(state["remaining"])
+    assert first["cleanup_succeeded"] is False
+    assert first["absence_confirmed"] is False
+    assert "access denied" in first["error"]
+    assert state["status"] == 1

@@ -17,7 +17,10 @@ param(
     [string]$Domain = $env:USERDNSDOMAIN
 )
 $ErrorActionPreference = 'Stop'
-$runId = "fdeploy-lane-$(Get-Date -Format yyyyMMddHHmmss)-$(Get-Random -Minimum 1000 -Maximum 9999)"
+# Kept short on purpose: Windows PowerShell 5.1's Expand-Archive and file APIs
+# stop at MAX_PATH (260), and a backup nests seven levels below this directory.
+# build-fdeploy-candidate.py bounds the longest guest path from this format.
+$runId = "fd-$(Get-Date -Format yyyyMMddHHmmss)-$(Get-Random -Minimum 1000 -Maximum 9999)"
 $work = Join-Path $OutputDir $runId
 $inputRoot = Join-Path $work 'input'
 $commands = Join-Path $work 'commands'
@@ -36,11 +39,12 @@ $Domain = if ([string]::IsNullOrWhiteSpace($Domain)) { "$($cs.Domain)" } else { 
 $gpModule = Get-Module -ListAvailable GroupPolicy | Select-Object -First 1
 
 $result = [ordered]@{
-    schema_version         = 1
+    schema_version         = 2
     run_id                 = $runId
     domain                 = $Domain
     cases                  = @()
     cleanup_state_restored = $false
+    residue                = @()
     environment            = [ordered]@{
         server_caption              = "$($os.Caption)"
         server_build                = "$($os.BuildNumber)"
@@ -117,60 +121,115 @@ function Get-FdeployFiles([string]$settingsDir) {
     return @($files.ToArray())
 }
 
-# Cleanup owns only what this run registered. A target name is registered
-# after the collision check and BEFORE New-GPO runs, so a GPO whose creation
-# succeeded but whose response was lost (no ID ever returned) is still found
-# and removed by its exact name. Every registered name carries this run's id;
-# nothing else is ever removed.
-$registeredNames = New-Object System.Collections.ArrayList
+# Cleanup owns only what this run created. A target name is registered after
+# the collision check and BEFORE New-GPO runs, and the GPO's GUID is recorded
+# against it the moment New-GPO returns.
+#
+# * Once the GUID is known, removal and the absence check go by that GUID
+#   ONLY. A GPO that later turns up under the registered name with any other
+#   GUID is not this run's: it is reported as foreign residue, never removed,
+#   and the run fails.
+# * Only when New-GPO succeeded but its response was lost (no GUID ever
+#   returned) does removal fall back to the exact, run-unique registered name.
+# * Only a not-found answer counts as absence. Any other lookup failure (access
+#   denied, a directory error) propagates and fails cleanup.
+$registered = [ordered]@{}
 $removalAttempts = 5
 
 function Register-Target([string]$name) {
     if (-not $name.StartsWith("$prefix-")) { throw "refusing to register a name outside this run: $name" }
     Assert-NameFree $name
-    [void]$registeredNames.Add($name)
+    $registered[$name] = $null
 }
 
-function Find-Owned([string]$name, $id) {
-    $found = @()
-    if ($id) {
-        try { $found += @(Get-GPO -Guid $id -Domain $Domain -ErrorAction Stop) } catch { }
+function Set-Owned([string]$name, $id) {
+    if (-not $registered.Contains($name)) { throw "refusing to own an unregistered name: $name" }
+    $registered[$name] = "$id"
+}
+
+function Test-NotFound($errorRecord) {
+    $fqid = "$($errorRecord.FullyQualifiedErrorId)"
+    $message = "$($errorRecord.Exception.Message)"
+    return ("$($errorRecord.CategoryInfo.Category)" -eq 'ObjectNotFound') -or
+        ($fqid -like '*NotFound*') -or ($message -match 'was not found|not found')
+}
+
+# The GPO with this GUID, or $null when the directory says it does not exist.
+# Every other failure is rethrown: it is not evidence of absence.
+function Get-OwnedById([string]$id) {
+    try {
+        return (Get-GPO -Guid $id -Domain $Domain -ErrorAction Stop)
+    } catch {
+        if (Test-NotFound $_) { return $null }
+        throw "lookup of ${id} failed: $($_.Exception.Message)"
     }
-    $found += @(Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object { $_.DisplayName -eq $name })
-    return @($found | Sort-Object { "$($_.Id)" } -Unique)
 }
 
-# Remove the run's GPO by ID and by exact registered name, retrying, and
-# return $true only once a re-query finds neither. A survivor whose name is
-# not the registered one is never removed: it is not this run's.
-function Remove-Registered([string]$name, $id) {
-    if (-not $registeredNames.Contains($name)) { return $true }
+function Get-ByName([string]$name) {
+    return @(Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object { $_.DisplayName -eq $name })
+}
+
+function Test-Absent([string]$name) {
+    $id = $registered[$name]
+    if ($id) { return ($null -eq (Get-OwnedById $id)) }
+    return (@(Get-ByName $name).Count -eq 0)
+}
+
+# GUIDs of GPOs holding a registered name other than the owned one.
+function Get-ForeignResidue([string]$name) {
+    $id = $registered[$name]
+    if (-not $id) { return @() }
+    return @(Get-ByName $name | Where-Object { "$($_.Id)" -ne $id } | ForEach-Object { "$($_.Id)" })
+}
+
+# Remove the run's GPO -- by owned GUID when known, else by the registered
+# name -- retrying, and return $true only once a re-query confirms absence.
+function Remove-Registered([string]$name) {
+    if (-not $registered.Contains($name)) { return $true }
+    $id = $registered[$name]
     $lastError = $null
     for ($attempt = 1; $attempt -le $removalAttempts; $attempt++) {
-        $targets = @(Find-Owned $name $id)
-        if ($targets.Count -eq 0) { return $true }
+        if ($id) {
+            if ($null -eq (Get-OwnedById $id)) { return $true }
+            $targets = @($id)
+        } else {
+            $targets = @(Get-ByName $name | ForEach-Object { "$($_.Id)" })
+            if ($targets.Count -eq 0) { return $true }
+        }
         foreach ($t in $targets) {
-            if ($t.DisplayName -ne $name) { throw "GPO $($t.Id) is not this run's ($($t.DisplayName)); not removing" }
-            try { Remove-GPO -Guid $t.Id -Domain $Domain -Confirm:$false -ErrorAction Stop | Out-Null }
+            try { Remove-GPO -Guid $t -Domain $Domain -Confirm:$false -ErrorAction Stop | Out-Null }
             catch { $lastError = "$($_.Exception.Message)" }
         }
         Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 10))
     }
-    if (@(Find-Owned $name $id).Count -eq 0) { return $true }
+    if (Test-Absent $name) { return $true }
     throw "could not remove ${name} after $removalAttempts attempts: $lastError"
 }
 
-function Remove-Owned($id, [string]$name, $record) {
+function Add-RecordError($record, [string]$message) {
+    $record.error = (@($record.error, $message) | Where-Object { $_ }) -join '; '
+}
+
+function Remove-Owned([string]$name, $record) {
     try {
-        $record.cleanup_succeeded = [bool](Remove-Registered $name $id)
+        $record.cleanup_succeeded = [bool](Remove-Registered $name)
     } catch {
-        $record.error = (@($record.error, "remove: $($_.Exception.Message)") | Where-Object { $_ }) -join '; '
+        Add-RecordError $record "remove: $($_.Exception.Message)"
     }
     try {
-        $record.absence_confirmed = @(Find-Owned $name $id).Count -eq 0
+        $record.absence_confirmed = [bool](Test-Absent $name)
     } catch {
         $record.absence_confirmed = $false
-        $record.error = (@($record.error, "absence: $($_.Exception.Message)") | Where-Object { $_ }) -join '; '
+        Add-RecordError $record "absence: $($_.Exception.Message)"
+    }
+    try {
+        $record.foreign_residue = @(Get-ForeignResidue $name)
+        if ($record.foreign_residue.Count -ne 0) {
+            Add-RecordError $record "foreign GPO(s) hold ${name}; not removed: $($record.foreign_residue -join ', ')"
+        }
+    } catch {
+        $record.foreign_residue = $null
+        Add-RecordError $record "residue: $($_.Exception.Message)"
     }
 }
 
@@ -182,13 +241,15 @@ try {
     $index = 0
     foreach ($caseDir in @(Get-ChildItem -LiteralPath (Join-Path $inputRoot 'cases') -Directory | Sort-Object Name)) {
         $index++
-        $caseId = $caseDir.Name
-        $caseCommands = Join-Path $commands $caseId
-        $caseBackup = Join-Path $backups $caseId
+        # Case directories are short (c1, c2, ...) to stay inside MAX_PATH; the
+        # controller maps each back to its case id.
+        $caseKey = $caseDir.Name
+        $caseCommands = Join-Path $commands $caseKey
+        $caseBackup = Join-Path $backups $caseKey
         New-Item -ItemType Directory -Force -Path $caseCommands, $caseBackup | Out-Null
         $target = "$prefix-$index"
         $record = [ordered]@{
-            case_id               = $caseId
+            case_dir              = $caseKey
             target_name           = $target
             backup_id             = $null
             source_gpo_id         = $null
@@ -201,10 +262,11 @@ try {
             report_links_to_count = $null
             rebackup_succeeded    = $false
             rebackup_id           = $null
-            rebackup_dir          = "backups/$caseId"
+            rebackup_dir          = "backups/$caseKey"
             rebackup_files        = $null
             cleanup_succeeded     = $false
             absence_confirmed     = $false
+            foreign_residue       = $null
             error                 = $null
         }
         $ownedId = $null
@@ -219,6 +281,7 @@ try {
             Register-Target $target
             $owned = New-GPO -Name $target -Domain $Domain -ErrorAction Stop
             $ownedId = $owned.Id
+            Set-Owned $target $ownedId
             $record.owned_gpo_id = "$ownedId"
 
             Import-GPO -BackupId $backupId -Path $caseDir.FullName -TargetGuid $ownedId -Domain $Domain `
@@ -235,7 +298,7 @@ try {
             $sysvol = [string](Flatten $adObj.gPCFileSysPath)
             $record.sysvol_files = @(Get-FileList (Join-Path $sysvol $settingsRelative))
 
-            $reportName = "$caseId.xml"
+            $reportName = "$caseKey.xml"
             $reportPath = Join-Path $reports $reportName
             Get-GPOReport -Guid $ownedId -Domain $Domain -ReportType XML -Path $reportPath `
                 -ErrorAction Stop 2> (Join-Path $caseCommands 'report.stderr.txt')
@@ -255,7 +318,7 @@ try {
         } catch {
             $record.error = "$($_.Exception.Message)"
         } finally {
-            Remove-Owned $ownedId $target $record
+            Remove-Owned $target $record
         }
         [void]$caseRecords.Add($record)
     }
@@ -263,15 +326,19 @@ try {
     Add-Error "$($_.Exception.Message)"
 } finally {
     $result.cases = @($caseRecords.ToArray())
-    # Last sweep: anything still carrying a registered name is removed (with
-    # retries) before the state is scanned. Only registered names are touched.
-    foreach ($name in @($registeredNames.ToArray())) {
-        try { [void](Remove-Registered $name $null) } catch { Add-Error "sweep: $($_.Exception.Message)" }
+    # Last sweep: every registered GPO is removed again (with retries) before
+    # the state is scanned -- by its owned GUID when known, by its registered
+    # name only when no GUID was ever returned. Anything still under this run's
+    # prefix afterwards is reported as residue and left alone.
+    foreach ($name in @($registered.Keys)) {
+        try { [void](Remove-Registered $name) } catch { Add-Error "sweep: $($_.Exception.Message)" }
     }
     try {
         $remaining = @(Get-GPO -All -Domain $Domain -ErrorAction Stop |
             Where-Object { $_.DisplayName -like "$prefix-*" })
+        $result.residue = @($remaining | ForEach-Object { "$($_.Id) $($_.DisplayName)" })
         $result.cleanup_state_restored = $remaining.Count -eq 0
+        if ($remaining.Count -ne 0) { Add-Error "residue left under ${prefix}: $($result.residue -join ', ')" }
     } catch {
         Add-Error "cleanup scan: $($_.Exception.Message)"
     }
@@ -281,7 +348,8 @@ try {
 
 $failed = @($result.cases | Where-Object {
     -not ($_.import_succeeded -and $_.report_sha256 -and $_.rebackup_succeeded -and
-          $_.cleanup_succeeded -and $_.absence_confirmed)
+          $_.cleanup_succeeded -and $_.absence_confirmed -and
+          $null -ne $_.foreign_residue -and @($_.foreign_residue).Count -eq 0)
 })
 if ($result.cases.Count -eq 0 -or $failed.Count -ne 0 -or -not $result.cleanup_state_restored -or $result.error) {
     throw "fdeploy lane failed: $($failed.Count) case(s); $($result.error)"

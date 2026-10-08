@@ -22,9 +22,12 @@ psdirect() {
 }
 
 STAMP="$(date +%Y%m%d%H%M%S)-$$"
-GUEST_ROOT="C:\gpo-studio\runs\fdeploy-$STAMP"
-GUEST_SCRIPTS="$GUEST_ROOT\scripts"
-GUEST_OUT="$GUEST_ROOT\out"
+# Short on purpose: Windows PowerShell 5.1 stops at MAX_PATH (260) and a
+# re-exported backup nests deep below the run directory. The candidate builder
+# bounds the longest guest path from these three lines (GUEST_PATH_LIMIT).
+GUEST_ROOT="C:\gpo-studio\fd\$STAMP"
+GUEST_SCRIPTS="$GUEST_ROOT\s"
+GUEST_OUT="$GUEST_ROOT\o"
 CANDIDATE_DIR="${TMPDIR:-/tmp}/gpo-studio/fdeploy-candidate-$STAMP"
 LOCAL_DIR="${TMPDIR:-/tmp}/gpo-studio/fdeploy-run-$STAMP"
 BUILDER_STDOUT="$CANDIDATE_DIR/builder.stdout.txt"

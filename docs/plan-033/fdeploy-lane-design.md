@@ -1,9 +1,14 @@
 # fdeploy lane design
 
-Status: **built, not yet run on the estate** (2026-10-08). The lane has no
-verdict, so nothing here is Windows-verified. Its claims about what
-`Import-GPO`, `Backup-GPO` and `Get-GPOReport` do with these bytes are
-hypotheses until the first run.
+Status: **first estate run passed at `379e59b` (28/28, 2026-10-08); the
+lane was then hardened after review, so that verdict binds superseded source
+and the lane must re-run.** The first run showed R3's bytes byte-identical
+through `Import-GPO` and `Backup-GPO`, the reader agreeing with Windows'
+report, and the option rendering matching the probe. The cross-lineage review
+of that commit failed it on four findings, all about the harness rather than
+the measurement. Each is fixed here with a regression test (see
+[Review hardening](#review-hardening-2026-10-08)). The hardening edits the
+guest, the builder and the finalizer, which that verdict binds.
 
 This is the exit the [2026-10-07 direction](../direction-2026-10-07-plan-034-completion.md)
 set for `fdeploy.py`: "banked R3 bytes go through `Import-GPO`, then
@@ -133,10 +138,24 @@ The steps run in this order:
 6. Run `Backup-GPO`. Read the re-exported `fdeploy1.ini` and `fdeploy.ini`
    into `result.json` as base64 plus SHA-256. The whole backup directory is
    also pulled.
-7. Remove the GPO by ID and by registered name, with retries and backoff, then
-   strictly re-query by ID and by name to confirm it is gone. A final sweep
-   removes anything that still holds a registered name. Nothing unregistered is
-   ever touched.
+7. Remove the GPO **by its owned GUID only**, with retries and backoff, then
+   re-query that GUID until the directory says it was not found. Exact-name
+   removal is used only when `New-GPO` succeeded but returned no GUID. A GPO
+   found later under a registered name with a different GUID is foreign: it is
+   reported in `foreign_residue` and the run-level `residue`, never removed, and
+   it fails the run. Only a not-found answer counts as absence. Access denied,
+   or any other lookup error, propagates as a cleanup failure. The final sweep
+   follows the same rules.
+
+Case directories in the candidate are `c1` to `c4`, and the run id is
+`fd-<stamp>-<n>` under `C:\gpo-studio\fd\<stamp>\o`. This is because Windows
+PowerShell 5.1 stops at MAX_PATH (260), which is where the report-parity
+lane's `Expand-Archive` failed. The builder composes the longest path the
+guest touches from the driver's and guest's own formats, at worst case (a
+7-digit PID). It refuses to build past 200 characters, and it records the
+figure (`longest_guest_path`, 174 today; the first layout measured 205). The
+result records each case by `case_dir`, and the finalizer maps it back to its
+case id.
 
 ### What a passing verdict asserts
 
@@ -148,7 +167,10 @@ Per case (each is `every_case_<name>` in the verdict):
   owned GPO's and its name equals the registered target. The domain is
   compared ignoring case. A replayed or foreign report fails.
 - `rebackup_is_of_owned_gpo`: the re-export's manifest names the owned GPO,
-  and its backup ID is the one the guest reported.
+  and its backup ID is the one the guest reported. `bkupInfo.xml` is parsed,
+  and an empty file or a missing field fails. Its GPO GUID, backup ID, domain
+  and display name must agree with the manifest entry, and with the owned GPO,
+  the reported backup ID, the run's domain and the registered target name.
 - `rebackup_bytes_delivered_intact`: the guest's base64 decodes to bytes whose
   SHA-256 and length match what the guest recorded, and equal the pulled file.
 - `imported_sysvol_holds_candidate_bytes`: after `Import-GPO`, SYSVOL holds
@@ -169,7 +191,8 @@ Per case (each is `every_case_<name>` in the verdict):
 - `studio_reader_agrees_with_windows_report`: Studio's reading of Windows'
   backup and Windows' fresh rendering agree row for row. An empty rendering or
   an error never counts as agreement.
-- `rebackup_report_matches_fresh_report`: the backup's `gpreport.xml`
+- `rebackup_report_matches_fresh_report`: the backup's `gpreport.xml` passes
+  the same identity test as the fresh report (GUID, name and domain), and its
   rendering, options included, equals the fresh one.
 
 Whole-run checks follow the report-parity lane:
@@ -181,6 +204,8 @@ Whole-run checks follow the report-parity lane:
 - Every owned GPO ID is a unique GUID under this run's prefix.
 - Every GPO was unlinked, removed, and confirmed absent, and the cleanup scan
   is clean.
+- No foreign residue: the run-level `residue` and every case's
+  `foreign_residue` are empty lists. A missing list fails too.
 - No harness error was reported.
 - The host is a member server, and its environment matches the frozen spec.
 - Raw stdout and stderr exist for every import, report and backup.
@@ -221,6 +246,32 @@ that case's checks and names the error.
   a later case can add them without a code change.
 - **The variant cases are not GPMC output.** Only `r3-flags-1021` is bytes
   Windows wrote.
+
+## Review hardening (2026-10-08)
+
+The review of `379e59b` reproduced four defects, using only scratch-directory
+mutations and a mocked guest. Each fix carries the reviewer's probe as a
+regression test in `tests/test_fdeploy_lane.py`.
+
+| Finding | Fix | Regression test |
+|---|---|---|
+| **High.** Cleanup removed every exact-name match even when the owned GUID was known. A foreign GPO created under the name after removal was deleted, and the guest exited 0 | Remove and confirm by owned GUID only. A different GUID under the registered name becomes `foreign_residue`/`residue`, is never removed, and fails the run (`no_foreign_residue`) | `test_a_foreign_gpo_under_a_registered_name_is_reported_never_deleted` (mode `name-reused`) |
+| GUID lookups swallowed every exception, so access denied read as confirmed absence. A renamed survivor passed | Only a not-found answer counts as absence (`Test-NotFound`). Anything else propagates as a cleanup failure | `test_a_lookup_failure_after_removal_is_not_absence`, `test_a_renamed_owned_gpo_whose_lookup_fails_fails_cleanup` |
+| `bkupInfo.xml` was checked only for existence. An empty or foreign one passed 28/28 | `import_readiness` parses it, requires all four identity fields, and requires agreement with the manifest. The finalizer also reconciles them with the owned GPO, the reported backup ID, the domain and the target name | `test_an_empty_bkup_info_fails`, `test_a_bkup_info_naming_another_gpo_and_backup_fails`, `test_backup_metadata_must_name_the_owned_gpo_in_every_field`, `test_a_bkup_info_missing_any_identity_field_fails` |
+| The backup's `gpreport.xml` was compared by rendering only; its GUID came through `read_backup` alone | The fresh report's full identity test (GUID, name, domain) now applies to it too | `test_the_backup_report_must_name_the_owned_gpo`, `test_a_backup_report_with_no_name_or_domain_fails` |
+
+Run against `379e59b`'s guest script, the three guest probes all exit 0. In
+`name-reused` the foreign GPO is deleted, and in `renamed-and-query-fails` the
+renamed survivor is reported absent. Against this commit, all three exit 1,
+and the foreign GPO survives.
+
+**One assumption to watch.** `Test-NotFound` recognizes a missing GPO by
+`CategoryInfo.Category = ObjectNotFound`, by a `FullyQualifiedErrorId`
+containing `NotFound`, or by a message containing "not found". The exact error
+`Get-GPO -Guid` raises for a deleted GPO on LabMS01 is believed to be "A GPO
+with ID {…} was not found in the … domain", but this repository has not banked
+it. If none of the three tests matches, cleanup reports failure, which fails
+safe. The next run will show it in the case's `error`.
 
 ## What a pass would and would not mean
 

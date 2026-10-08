@@ -223,11 +223,16 @@ def _cdata(value: str) -> str:
     return f"<![CDATA[{value}]]>"
 
 
+def _domain(identity: dict[str, str]) -> str:
+    return identity.get("domain", DOMAIN)
+
+
 def _backup_inst(identity: dict[str, str]) -> str:
-    domain_guid = "{" + str(uuid5(NAMESPACE_DNS, DOMAIN)) + "}"
+    domain = _domain(identity)
+    domain_guid = "{" + str(uuid5(NAMESPACE_DNS, domain.casefold())) + "}"
     fields = (
         ("GPOGuid", identity["source_gpo_id"]),
-        ("GPODomain", DOMAIN),
+        ("GPODomain", domain),
         ("GPODomainGuid", domain_guid),
         ("GPODomainController", "UNKNOWN"),
         ("BackupTime", _BACKUP_TIME),
@@ -256,7 +261,7 @@ def backup_xml(identity: dict[str, str]) -> bytes:
     gpo = identity["source_gpo_id"]
 
     def source(relative: str) -> str:
-        return rf"\\UNKNOWN\SYSVOL\{DOMAIN}\Policies\{gpo}\{relative}"
+        return rf"\\UNKNOWN\SYSVOL\{_domain(identity)}\Policies\{gpo}\{relative}"
 
     settings = r"Documents & Settings"
 
@@ -270,7 +275,7 @@ def backup_xml(identity: dict[str, str]) -> bytes:
 
     core = "".join((
         f"<ID>{_cdata(gpo)}</ID>",
-        f"<Domain>{_cdata(DOMAIN)}</Domain>",
+        f"<Domain>{_cdata(_domain(identity))}</Domain>",
         f"<SecurityDescriptor>{DOMAIN_NEUTRAL_SD}</SecurityDescriptor>",
         f"<DisplayName>{_cdata(identity['display_name'])}</DisplayName>",
         f"<Options>{_cdata('0')}</Options>",
@@ -314,11 +319,45 @@ def _text(elem: ET.Element | None) -> str:
     return (elem.text or "").strip() if elem is not None else ""
 
 
+#: The identity fields a ``BackupInst`` (manifest entry or ``bkupInfo.xml``)
+#: must carry, as the probe's native backup carries them.
+BACKUP_INST_FIELDS = ("GPOGuid", "GPODomain", "ID", "GPODisplayName")
+
+
+def backup_inst_fields(element: ET.Element) -> dict[str, str] | str:
+    """The identity fields of one ``BackupInst``, or why it has none to give."""
+    if element.tag != f"{{{_MANIFEST_NS}}}BackupInst":
+        return f"not a BackupInst: {element.tag}"
+    fields = {
+        name: _text(element.find(f"{{{_MANIFEST_NS}}}{name}")) for name in BACKUP_INST_FIELDS
+    }
+    empty = [name for name, value in fields.items() if not value]
+    if empty:
+        return f"BackupInst lacks {', '.join(empty)}"
+    return fields
+
+
+def backup_info(backup: Path, backup_id: str) -> dict[str, str] | str:
+    """Parse ``{ID}/bkupInfo.xml``: its identity fields, or why they are unusable."""
+    try:
+        root = ET.fromstring((backup / backup_id / "bkupInfo.xml").read_bytes())
+    except (OSError, ET.ParseError) as exc:
+        return f"bkupInfo.xml unreadable: {exc}"
+    return backup_inst_fields(root)
+
+
+def same_guid(left: str, right: str) -> bool:
+    return left.strip().strip("{}").casefold() == right.strip().strip("{}").casefold()
+
+
 def import_readiness(backup: Path) -> tuple[str, str] | str:
     """Return (backup id, GPO id), or the reason Import-GPO cannot take it.
 
     The same offline check the report-parity lane makes of a native backup,
-    restated here so this lane binds no other lane's builder.
+    restated here so this lane binds no other lane's builder -- plus what that
+    check lacked (review finding 3): ``bkupInfo.xml`` is parsed, every identity
+    field in it and in the manifest entry must be present, and the two must
+    name the same GPO, backup ID, domain and display name.
     """
     try:
         manifest = ET.fromstring((backup / "manifest.xml").read_bytes())
@@ -345,6 +384,19 @@ def import_readiness(backup: Path) -> tuple[str, str] | str:
         return f"Backup.xml unreadable: {exc}"
     if _text(core).casefold() != gpo_id.casefold():
         return "Backup.xml core ID does not match the manifest GPO GUID"
+    listed = backup_inst_fields(insts[0])
+    if isinstance(listed, str):
+        return f"manifest.xml: {listed}"
+    info = backup_info(backup, backup_id)
+    if isinstance(info, str):
+        return info
+    if not (
+        same_guid(info["GPOGuid"], listed["GPOGuid"])
+        and same_guid(info["ID"], listed["ID"])
+        and info["GPODomain"].casefold() == listed["GPODomain"].casefold()
+        and info["GPODisplayName"] == listed["GPODisplayName"]
+    ):
+        return "bkupInfo.xml names a different GPO, backup, domain or name than manifest.xml"
     return backup_id, gpo_id
 
 
@@ -399,6 +451,42 @@ def check_staged(case_id: str, staged: Path, identity: dict[str, str], flags: in
         raise ValueError(f"{case_id}: read_backup and read_fdeploy disagree")
 
 
+def case_dir(case_id: str) -> str:
+    """The short directory a case travels in: ``c1``, ``c2``, ... (MAX_PATH)."""
+    return f"c{REQUIRED_CASE_IDS.index(case_id) + 1}"
+
+
+#: The guest run directory at its longest, composed from the formats the
+#: driver and guest script use (tests/test_fdeploy_lane.py holds them equal):
+#: ``GUEST_ROOT="C:\gpo-studio\fd\$STAMP"``, ``GUEST_OUT="$GUEST_ROOT\o"``, the
+#: stamp ``date +%Y%m%d%H%M%S`` plus ``-$$`` (a Linux PID, at most 7 digits),
+#: and the guest's ``fd-<yyyyMMddHHmmss>-<4 digits>`` run id.
+GUEST_ROOT_PREFIX = "C:\\gpo-studio\\fd"
+GUEST_OUT_LEAF = "o"
+GUEST_STAMP_WORST = "20261008123456-" + "9" * 7
+GUEST_RUN_ID_WORST = "fd-20261008123456-9999"
+GUEST_WORK_WORST = "\\".join(
+    (GUEST_ROOT_PREFIX, GUEST_STAMP_WORST, GUEST_OUT_LEAF, GUEST_RUN_ID_WORST)
+)
+#: Windows PowerShell 5.1 fails at MAX_PATH (260); the report-parity lane's
+#: Expand-Archive did. 200 leaves room for anything this does not model.
+GUEST_PATH_LIMIT = 200
+#: What Backup-GPO writes below a case's backup directory, at its deepest.
+_REBACKUP_TAIL = (
+    "{00000000-0000-0000-0000-000000000000}\\DomainSysvol\\GPO\\User\\"
+    "Documents & Settings\\fdeploy1.ini"
+)
+
+
+def longest_guest_path(archive_names: list[str], case_dirs: list[str]) -> str:
+    """The longest path the guest touches: the expanded input or a re-export."""
+    work = GUEST_WORK_WORST
+    paths = [f"{work}\\input\\" + name.replace("/", "\\") for name in archive_names]
+    paths += [f"{work}\\backups\\{d}\\{_REBACKUP_TAIL}" for d in case_dirs]
+    paths += [f"{work}\\commands\\{d}\\import.stderr.txt" for d in case_dirs]
+    return max(paths, key=len)
+
+
 def _zip(root: Path) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -426,11 +514,12 @@ def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:
             if (case_id == VERBATIM_CASE) != (policy == r3_policy):
                 raise ValueError(f"{case_id}: verbatim flag disagrees with the bytes")
             identity = case_identity(case_id)
-            staged = staging / case_id
+            staged = staging / case_dir(case_id)
             stage_case(staged, identity, marker, policy)
             check_staged(case_id, staged, identity, flags, policy)
             cases.append({
                 "case_id": case_id,
+                "case_dir": case_dir(case_id),
                 "flags": flags,
                 "verbatim_r3": policy == r3_policy,
                 **identity,
@@ -441,11 +530,19 @@ def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:
                 "probe_20261008_options": PROBE_20261008_OPTIONS[flags],
             })
         archive = _zip(staging.parent)
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        names = bundle.namelist()
+    longest = longest_guest_path(names, [case_dir(case_id) for case_id in REQUIRED_CASE_IDS])
+    if len(longest) > GUEST_PATH_LIMIT:
+        raise ValueError(
+            f"guest path of {len(longest)} chars exceeds {GUEST_PATH_LIMIT}: {longest}"
+        )
     (out / ARCHIVE_NAME).write_bytes(archive)
     expectation: dict[str, object] = {
         "schema_version": 1,
         "cases": cases,
         "domain": DOMAIN,
+        "longest_guest_path": len(longest),
         "user_extension_pair": USER_EXTENSION_PAIR,
         "flags_note": FLAGS_ARE_UNDECODED,
         "excluded_flags": EXCLUDED_FLAGS,

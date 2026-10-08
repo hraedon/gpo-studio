@@ -2699,7 +2699,7 @@ all (`FRSettingRead failed`). For 765 and 2045 it renders the folder with an emp
 `DestinationPath` even though the file carries a `FullPath`. That bounds question 3
 (interpretation) and does not answer it: what GPMC *writes* per checkbox is still R12's.
 The fdeploy lane ([design](plan-033/fdeploy-lane-design.md)) records Windows' option
-rendering per case as data for this item and asserts none of it. Built, not yet run.
+rendering per case as data for this item and asserts none of it. The first run (2026-10-08, `379e59b`) matched the probe on all four values; a re-run is owed after review hardening.
 
 **Closes when:** R12 is captured (one GPMC session on LabMS01; no lane, no harness change)
 and its result row answers questions 3 and 4 or names what it still does not answer. The

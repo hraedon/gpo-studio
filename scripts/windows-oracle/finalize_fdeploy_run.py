@@ -95,15 +95,17 @@ LOCAL_FILES = {
     "r3-provenance.json": "tests/fixtures/native-folder-redirection-gpmc/provenance.json",
 }
 
+_RESULT_SCHEMA_VERSION = 2
 _RESULT_KEYS = frozenset({
     "schema_version", "run_id", "domain", "cases", "cleanup_state_restored",
-    "environment", "error",
+    "residue", "environment", "error",
 })
 _CASE_KEYS = frozenset({
-    "case_id", "target_name", "backup_id", "source_gpo_id", "owned_gpo_id",
+    "case_dir", "target_name", "backup_id", "source_gpo_id", "owned_gpo_id",
     "import_succeeded", "user_extension_names", "sysvol_files", "report_file",
     "report_sha256", "report_links_to_count", "rebackup_succeeded", "rebackup_id",
-    "rebackup_dir", "rebackup_files", "cleanup_succeeded", "absence_confirmed", "error",
+    "rebackup_dir", "rebackup_files", "cleanup_succeeded", "absence_confirmed",
+    "foreign_residue", "error",
 })
 _REBACKUP_FILE_KEYS = frozenset({"name", "present", "length", "sha256", "base64"})
 
@@ -145,6 +147,7 @@ REQUIRED_CHECKS = frozenset({
     "every_disposable_gpo_unlinked",
     "every_gpo_removed_and_absent",
     "cleanup_state_restored",
+    "no_foreign_residue",
     "harness_reported_no_error",
     "member_server_host_role",
     "raw_command_artifacts_complete",
@@ -213,7 +216,7 @@ def candidate_files(archive: Path, case: dict[str, Any]) -> dict[str, bytes]:
     with zipfile.ZipFile(archive) as bundle:
         return {
             name: bundle.read(
-                f"cases/{case['case_id']}/{case['backup_id']}/{SETTINGS_PATH}/{name}"
+                f"cases/{case['case_dir']}/{case['backup_id']}/{SETTINGS_PATH}/{name}"
             )
             for name in FDEPLOY_FILES
         }
@@ -310,12 +313,24 @@ def grade_case(
     if isinstance(readiness, str):
         raise ValueError(f"re-export is not a native backup: {readiness}")
     backup_id, backup_gpo = readiness
+    # import_readiness has already refused an empty or unreadable bkupInfo.xml,
+    # one missing an identity field, and one disagreeing with the manifest.
+    # What is left is to reconcile those fields with what the run owned.
+    info = builder.backup_info(backup_root, backup_id)
+    summary["rebackup_info"] = info
     checks["rebackup_is_of_owned_gpo"] = (
         record.get("rebackup_succeeded") is True
         and _is_guid(record.get("rebackup_id"))
         and _guid(backup_id) == _guid(record.get("rebackup_id"))
         and _is_guid(record.get("owned_gpo_id"))
         and _guid(backup_gpo) == _guid(record.get("owned_gpo_id"))
+        and isinstance(info, dict)
+        and _guid(info["GPOGuid"]) == _guid(record.get("owned_gpo_id"))
+        and _guid(info["ID"]) == _guid(record.get("rebackup_id"))
+        and isinstance(domain, str)
+        and bool(domain)
+        and info["GPODomain"].casefold() == domain.casefold()
+        and info["GPODisplayName"] == record.get("target_name")
     )
     checks["rebackup_bytes_delivered_intact"] = _delivered(record, backup_root, backup_id)
 
@@ -360,10 +375,14 @@ def grade_case(
     gpreport = backup_root / backup_id / "gpreport.xml"
     summary["rebackup_report"] = None
     if gpreport.is_file():
-        rebackup_rendering = folder_redirection_rendering(gpreport.read_bytes())
+        gpreport_bytes = gpreport.read_bytes()
+        rebackup_rendering = folder_redirection_rendering(gpreport_bytes)
         summary["rebackup_report"] = rebackup_rendering.to_json()
+        # The same identity test as the fresh report: GUID, name and domain.
         checks["rebackup_report_matches_fresh_report"] = (
-            bool(fresh.redirections) and rebackup_rendering == fresh
+            identifies(report_identity(gpreport_bytes), record, domain)
+            and bool(fresh.redirections)
+            and rebackup_rendering == fresh
         )
 
     # Recorded, never asserted: Windows' option rendering, for WI-066.
@@ -444,27 +463,31 @@ def main() -> int:
     ]
     expected_ids = [c.get("case_id") for c in expected_cases]
     required_ids = list(builder.REQUIRED_CASE_IDS)
+    # The guest only knows each case by its short directory (MAX_PATH); the
+    # candidate maps every directory back to its case id.
+    by_dir = {c.get("case_dir"): c for c in expected_cases}
+    required_dirs = [builder.case_dir(case_id) for case_id in required_ids]
 
     checks: dict[str, bool] = {
         "guest_exited_zero": args.guest_status == 0,
         "result_schema_exact": set(result) == _RESULT_KEYS
         and type(result.get("schema_version")) is int
-        and result["schema_version"] == 1
+        and result["schema_version"] == _RESULT_SCHEMA_VERSION
         and isinstance(raw_cases, list)
         and len(cases) == len(raw_cases)
         and all(set(c) == _CASE_KEYS for c in cases),
         "candidate_carries_the_required_cases": bool(required_ids)
-        and expected_ids == required_ids,
+        and expected_ids == required_ids
+        and [c.get("case_dir") for c in expected_cases] == required_dirs,
         "every_expected_case_ran_once": bool(cases)
-        and sorted(str(c.get("case_id")) for c in cases) == sorted(required_ids),
+        and sorted(str(c.get("case_dir")) for c in cases) == sorted(required_dirs),
         "every_case_imported": bool(cases)
         and all(c.get("import_succeeded") is True for c in cases),
         "every_case_identity_matches_candidate": bool(cases) and all(
-            any(
-                _guid(c.get("backup_id")) == _guid(e.get("backup_id"))
-                and _guid(c.get("source_gpo_id")) == _guid(e.get("source_gpo_id"))
-                for e in expected_cases if e.get("case_id") == c.get("case_id")
-            )
+            c.get("case_dir") in by_dir
+            and _guid(c.get("backup_id")) == _guid(by_dir[c.get("case_dir")].get("backup_id"))
+            and _guid(c.get("source_gpo_id"))
+            == _guid(by_dir[c.get("case_dir")].get("source_gpo_id"))
             for c in cases
         ),
         "every_owned_gpo_is_this_runs": prefix is not None and bool(cases) and all(
@@ -483,11 +506,15 @@ def main() -> int:
             for c in cases
         ),
         "cleanup_state_restored": result.get("cleanup_state_restored") is True,
+        # Review finding 1: a GPO under a registered name with a GUID the run
+        # did not create is reported, never removed, and fails the run.
+        "no_foreign_residue": result.get("residue") == [] and bool(cases)
+        and all(c.get("foreign_residue") == [] for c in cases),
         "harness_reported_no_error": "error" in result and result["error"] is None
         and all("error" in c and c["error"] is None for c in cases),
         "member_server_host_role": _member(result.get("environment")),
         "raw_command_artifacts_complete": bool(cases) and all(
-            (run / "commands" / str(c.get("case_id")) / f"{n}.{s}.txt").is_file()
+            (run / "commands" / str(c.get("case_dir")) / f"{n}.{s}.txt").is_file()
             for c in cases for n in ("import", "report", "backup") for s in ("stdout", "stderr")
         )
         and (run / "builder.stdout.txt").is_file(),
@@ -509,11 +536,10 @@ def main() -> int:
     except (AttributeError, KeyError, OSError, TypeError, ValueError) as exc:
         checks["candidate_rebuilds_from_bound_builder"] = False
         errors.append(f"rebuild: {type(exc).__name__}: {exc}")
-    by_id = {c.get("case_id"): c for c in expected_cases}
     for case in cases:
-        case_id = str(case.get("case_id"))
+        case_id = str(by_dir.get(case.get("case_dir"), {}).get("case_id", case.get("case_dir")))
         try:
-            expectation = by_id[case_id]
+            expectation = by_dir[case.get("case_dir")]
             case_checks, summary = grade_case(
                 run, case, expectation, candidate_files(candidate, expectation),
                 result.get("domain"), builder,
