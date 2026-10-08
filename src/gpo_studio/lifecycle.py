@@ -585,7 +585,7 @@ def _scope_and_warnings(
     warnings: list[str] = []
     if manifest.has_wmi_filter and row["wmi_association"] == "kept":
         warnings.append(
-            "the backup links a WMI filter; whether that filter still exists in "
+            "the source GPO links a WMI filter; whether that filter still exists in "
             "the domain is not checked"
         )
     for dim in _RESCOPED_DIMENSIONS:
