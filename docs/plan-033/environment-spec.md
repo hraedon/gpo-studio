@@ -25,10 +25,14 @@ batch (WI-069). One verdict was superseded the same hour: `8b1a5b4` changed
 run is the successor `object-security-20261008082348-9729` at
 `1fb3f56ac7431e0044c69c32edc4350b2ab84151`.
 
-The firewall lane is newer than the batch. Its first certification,
-`firewall-20261008094055-2092337` (36/36) at
-`a6e0002dac0d65d6ae2b969a23636bf284061da1`, ran on the same member server and
-frozen profile; see [the firewall results](firewall-results.md).
+Three lanes are newer than the batch, and each first certification ran on the
+same member server and frozen profile: lifecycle
+(`lifecycle-20261008093248-2000-c76d10eb3f2849fe`;
+[results](lifecycle-results.md)), report parity
+(`report-parity-20261008104512-7480`; [results](report-parity-results.md)) and
+the firewall (`firewall-20261008094055-2092337`, 36/36 at
+`a6e0002dac0d65d6ae2b969a23636bf284061da1`;
+[results](firewall-results.md)).
 
 The estate ran at real time on its 2026-09-20 clock-seeded baselines, with no
 forward clock jump. The client's checkpoints and the DC's domain-joined
@@ -69,6 +73,8 @@ produced a verdict.
 | object-security | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `object-security-20261008082348-9729` (`pass`) |
 | scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `scripts-r10-20261008074828-8492` (`pass`) |
 | publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `publication-completeness-20261008074904-1047` (`pass`) |
+| lifecycle | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `lifecycle-20261008093248-2000-c76d10eb3f2849fe` (`pass`) |
+| report-parity | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `report-parity-20261008104512-7480` (`pass`) |
 | endpoint | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `endpoint-observe-20261008075004-5187` (`pass`) |
 | lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `rsop-observe-20261008075254-6590` (`pass`) |
 | disabled-block-enforced | estate, member server + client (26200) | `psdirect` | 2026-10-08 | `rsop-observe-20261008075447-5315` (`pass`) |
@@ -86,9 +92,11 @@ produced a verdict.
 | firewall | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-08 | `firewall-20261008094055-2092337` (`pass`) |
 
 Object security binds the successor revision
-(`1fb3f56ac7431e0044c69c32edc4350b2ab84151`) and the firewall lane, which the
-batch never ran, binds its own first certification at
-`a6e0002dac0d65d6ae2b969a23636bf284061da1`; every other row binds
+(`1fb3f56ac7431e0044c69c32edc4350b2ab84151`). The three lanes the batch never
+ran bind their own first certifications: lifecycle at
+`35130528d89761ed1e6990001d086241e5655025`, report parity at
+`a1c280b8a1ec31b03397437dc2e6d947022b4857` and the firewall at
+`a6e0002dac0d65d6ae2b969a23636bf284061da1`. Every other row binds
 `263f19640529d469c2a54c18b43d228db5378279`. The shared byte guard and finalizer
 inputs are part of the recorded evidence.
 

@@ -1,0 +1,1126 @@
+{
+  "artifacts": {
+    "authored-backup/manifest.xml": "a1521494731eddc533564bf856ef6073af9be6bdf8f3d99c3b21839e6a5b77bb",
+    "authored-backup/{24F46A07-989C-4C92-8FFF-EF56363C022A}/Backup.xml": "ed2157e50b25e56bc14a7bc539ad86051b3c8264f824be723a5999d14cf4a39c",
+    "authored-backup/{24F46A07-989C-4C92-8FFF-EF56363C022A}/DomainSysvol/GPO/Machine/registry.pol": "92bc2319d58b3edab56dedea7ef0f2edf340d961497f096d2a3b8f340523c4e4",
+    "authored-backup/{24F46A07-989C-4C92-8FFF-EF56363C022A}/DomainSysvol/GPO/User/registry.pol": "1496141767047dcc2d2224f26a2fd5e98de427ef434624f7aef9712a78a06625",
+    "authored-backup/{24F46A07-989C-4C92-8FFF-EF56363C022A}/bkupInfo.xml": "63935e4aa578c04f2597e90c9561f9b99d03d6c3cd3366437a74ae75c9e144b3",
+    "authored-backup/{24F46A07-989C-4C92-8FFF-EF56363C022A}/gpreport.xml": "2285af8bbb91d638915c46849481824125fef5b06ca825a0eef3159ed228c5ba",
+    "builder.stdout.txt": "b1505b7f20a8bab2e9aa775d7195f611253fbb92a369710c9d6dd9532260c1a1",
+    "candidate.zip": "10e69d57088b8f5d9e2750e8aa5b76dee3a46614aed6594f36c2cd99910410dc",
+    "commands/authored/backup.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/authored/backup.stdout.txt": "421652e4ec36eae87c46ee216af2ba392eee7e823673f3f8a132bb2e00fc5cf9",
+    "commands/authored/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/authored/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/authored/set.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/authored/set.stdout.txt": "8d3db39081b08f306367a0cf0982e464c22c6a3a41badf92c9c737a4be9ec816",
+    "commands/c01/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c01/import.stdout.txt": "b90eb53604a493d9a93f071cbd15d5b4aad8f3707cbe724205e6c8b1e8386684",
+    "commands/c01/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c01/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c02/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c02/import.stdout.txt": "f8652624d08c6a2ccce5fda6dde4a742456a4d78ae87a986de238b97e21391a5",
+    "commands/c02/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c02/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c03/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c03/import.stdout.txt": "1d921ffc6306b59c5bc682df3a88f743047a805648c0d1b39e4f971ec1e9857a",
+    "commands/c03/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c03/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c04/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c04/import.stdout.txt": "5c7ae26835f08d63a1bf7f15420a4c00520da41dc9d74b06d3c6376dfcc5daa0",
+    "commands/c04/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c04/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c05/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c05/import.stdout.txt": "4fad3b04a33a53ecf5d5e761c359ff3191cc4f578e958ccfde10473c24daef2e",
+    "commands/c05/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c05/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c06/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c06/import.stdout.txt": "57be7c14dd86f2f9c8df2203363b2db98e55bb6c437caac82d2453b6365a1c2d",
+    "commands/c06/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c06/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c07/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c07/import.stdout.txt": "022ed78ac6c38dd619ba2cb96e0b42852211b79fe7da032a980321d15f791676",
+    "commands/c07/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c07/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c08/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c08/import.stdout.txt": "dc09836ec71d0b447f1940d3440a6693e9b72d41ac141069ddbe7c692d3c15d8",
+    "commands/c08/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c08/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c09/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c09/import.stdout.txt": "84517ed79050a78760668ae0ceda8a8898113dc23d20e14b9641e32381ebbbbc",
+    "commands/c09/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c09/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c10/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c10/import.stdout.txt": "6449cc410fc82978ecf5e5645e9fff35ac488e515ab61d80fbb3546bb1473689",
+    "commands/c10/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c10/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c11/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c11/import.stdout.txt": "c7d3d47fdd8765f2f5548d2da9e5c06b5fe35d86129aecfa737cb0900b5431df",
+    "commands/c11/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c11/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c12/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c12/import.stdout.txt": "f9d358a98c16d17e259ab9abb4a8f5500529a8ea88feb2990773b300baeb1f22",
+    "commands/c12/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c12/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c13/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c13/import.stdout.txt": "3de6116e2ee4265f838770df805e3353b3bb974e91578ea76bdbdbb2e9fd986f",
+    "commands/c13/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c13/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c14/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c14/import.stdout.txt": "51df84ea8951b7cd55084c6057759504b50abd1b049cf57d6e6973ea1e3129fe",
+    "commands/c14/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c14/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c15/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c15/import.stdout.txt": "6706bccb357d4a0094ea6f28f2169d669a8679ec5086cda31ddd4649a3dcc014",
+    "commands/c15/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c15/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c16/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c16/import.stdout.txt": "15034703e084d4be6c4bc10da1712ad60e32a0a61966593b48c7b6ea5e5fe521",
+    "commands/c16/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c16/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c17/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c17/import.stdout.txt": "3dd6bcf7a488c4030a4638e85ef0ce3327a17f7337822f5a117dbce31a5136ee",
+    "commands/c17/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c17/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c18/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c18/import.stdout.txt": "1c3eb07074bd1cc7ba6421fad27d607c426c5f2063fd6b7a5514d596b24cc298",
+    "commands/c18/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c18/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c19/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c19/import.stdout.txt": "2def55ce061dcefc7ad6966c0362b848e24001199104c6def7ef8f233bc6a3d6",
+    "commands/c19/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c19/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c20/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c20/import.stdout.txt": "d016623af0b4770af8a23c1eec0c2d351d9a1c31692231c9bfca29f2f4c2fb7a",
+    "commands/c20/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c20/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c21/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c21/import.stdout.txt": "75f4e444b43440568ef2162d97758d775e920efb92fdaeec316d92cc399a092c",
+    "commands/c21/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c21/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c22/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c22/import.stdout.txt": "a4d81bfd27a32ee5e3fe080dcb25895d05cfdcc5fbc31f12edfc27145072d109",
+    "commands/c22/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c22/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c23/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c23/import.stdout.txt": "fb70686fa8cd09d5681d0ae837c1d7cb1152c542928e510325b1a3be946cf123",
+    "commands/c23/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c23/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c24/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c24/import.stdout.txt": "57829f83d5e4a4b6fb1b8d71f302fe8aa1f3e1bbbafc2b4c4fb69b3fd86e0f5e",
+    "commands/c24/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c24/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c25/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c25/import.stdout.txt": "5dc242ccc285324ca4c8e8c6001c4a4ae60c990bd93758ee764cb986274846bf",
+    "commands/c25/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c25/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c26/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c26/import.stdout.txt": "43a2ecd09f33f14583f79af277c6e54ebe45275c53f88ffedcd0eb22f6f18ac8",
+    "commands/c26/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c26/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c27/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c27/import.stdout.txt": "f8c41cb59d343a57f4bc6c748ca1d0a7cb86f3c3ba3db701be7322238708f649",
+    "commands/c27/report.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/c27/report.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "deployed/run-report-parity.ps1": "beeeea16b786135c24461d7fca02dc5f7ee8576caf30706093f5857d239092ab",
+    "in/cases/c01/gpreport-verify.xml": "45ac1e001b6de4fe734f170d370f2e33c8a180caa34f6edc40082bca86855cda",
+    "in/cases/c01/manifest.xml": "2d889679af64128bfc7ef0310a1595957e7a260f98a23e7c11400f8007e02ec5",
+    "in/cases/c01/semantic-manifest.json": "97876990eaa56fd79713d6c1f11015f22828418b5da144977970d43977098a16",
+    "in/cases/c01/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/Backup.xml": "43da663abca99e3a9222ae668235962369b27bf40cc31684979a6df0d3eedfcd",
+    "in/cases/c01/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "592f2564dbd9fb7e03a16322017897ec96c2f1433b5a08dd3ec4eba4564d7449",
+    "in/cases/c01/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/bkupInfo.xml": "0f9820742f2a040fa81d25e2b1effc9f228b2113b3d76b144353a7ecd2c8ddf6",
+    "in/cases/c01/{E9F0A681-9B36-419E-A16E-C2C59DC44DAD}/gpreport.xml": "c80d7d4644b27127c595ed8d5c35e28934b3cd3455911a3372fe14609f69155d",
+    "in/cases/c02/gpreport-verify.xml": "0340d2bd8349b899cfe24ea5ec7cca01fd7f3325f967946c9aa20a32263f3e86",
+    "in/cases/c02/manifest.xml": "9eeba2e46df296be0961f3ff03ea1a1365cd83b467bab17df92dedb85332777d",
+    "in/cases/c02/{C0D041DC-6028-47C1-AC0A-149759CBE7CF}/Backup.xml": "200b52140de7c0422635d80edc97be93c71ed7414aaeb28a3d5a8f62bf811129",
+    "in/cases/c02/{C0D041DC-6028-47C1-AC0A-149759CBE7CF}/DomainSysvol/GPO/User/Preferences/EnvironmentVariables/EnvironmentVariables.xml": "a23e2859906c96ba11cd8b0bc0b417a8bfcf0f9ad7d643ad81bafe07aeb0cb81",
+    "in/cases/c02/{C0D041DC-6028-47C1-AC0A-149759CBE7CF}/bkupInfo.xml": "3a28268e97636f2f2b07b9b8a42bf88efe02b8b65e74fa7ddea6068c7a24db90",
+    "in/cases/c02/{C0D041DC-6028-47C1-AC0A-149759CBE7CF}/gpreport.xml": "36ff009eeca61706302e388afdd62bd40e87c8937acce2679b622500bc77489c",
+    "in/cases/c03/gpreport-verify.xml": "e2787894075ea6b8552789ace943a2596a6f74dbaeb43e860fe4aa5391d08e09",
+    "in/cases/c03/manifest.xml": "1afbbffa2450879c587d7e6e1664c05951e86ea67b650295b268158512e8f367",
+    "in/cases/c03/{6B7C7DD9-6845-43A0-ADEF-6E58B17790B2}/Backup.xml": "d94d684c32296e041a40fafed02f07d051f6d386543f7dac1f94f30af6ca5600",
+    "in/cases/c03/{6B7C7DD9-6845-43A0-ADEF-6E58B17790B2}/DomainSysvol/GPO/User/Preferences/Files/Files.xml": "10412655ee123ef03dcde4d8f81024531705783e4c17fecfe5f8f409efb9ba51",
+    "in/cases/c03/{6B7C7DD9-6845-43A0-ADEF-6E58B17790B2}/bkupInfo.xml": "2a181a1f7debc75b443e4a87a605839c61a65b1f10919f0ac1ada8466d8b8da8",
+    "in/cases/c03/{6B7C7DD9-6845-43A0-ADEF-6E58B17790B2}/gpreport.xml": "60b493c4bf5968e2cabb780c63055b95df6d4c2a15213f869dfe8f2d9b85c60b",
+    "in/cases/c04/gpreport-verify.xml": "e1b0558e1a9610d0225722e7768bdbc08d1a3200c0707e50506f9b035e661a17",
+    "in/cases/c04/manifest.xml": "cdd31dd4dff38c5072bd660f87a62cb66c59379e05acaca659c163b17e6d77eb",
+    "in/cases/c04/{409B579A-3F14-40E4-990B-836AB03F333D}/Backup.xml": "ead680c5770792db29fb6dd8b313da918a7849ba7a56e8cf6bc42b853a93e59d",
+    "in/cases/c04/{409B579A-3F14-40E4-990B-836AB03F333D}/DomainSysvol/GPO/User/Preferences/Folders/Folders.xml": "62cdb9231a9eec688060be8963b0934d5a2dc15a6c3394cdd0f3e326fbc3dee1",
+    "in/cases/c04/{409B579A-3F14-40E4-990B-836AB03F333D}/bkupInfo.xml": "1e53bc03ce203f2cc79d40df5bad5d7c179e52ce96c9d6a7ad46be651e6c37f4",
+    "in/cases/c04/{409B579A-3F14-40E4-990B-836AB03F333D}/gpreport.xml": "4565f06421f920b16647493307c6ad0b07d7a7fd01cd762240c33124c475abee",
+    "in/cases/c05/gpreport-verify.xml": "7f067a83d2b6850dfcd30b60a3a0b6df4c767f65e472491009ab90b10315eec9",
+    "in/cases/c05/manifest.xml": "83341cc0b16abe9ac7ffc6b094556165aca793cabee3323cf0ffab06bce041f2",
+    "in/cases/c05/{CAB85C5B-BAF0-4FC9-8949-8993F936F4C9}/Backup.xml": "823c52bcbaa71a446b8528e2df54efca60079fcc410870312868c3521e2ad904",
+    "in/cases/c05/{CAB85C5B-BAF0-4FC9-8949-8993F936F4C9}/DomainSysvol/GPO/User/Preferences/IniFiles/IniFiles.xml": "6e2b1da78638d568b7296eed034b757c973504bb73b6e7b488ec0fb3f61e572b",
+    "in/cases/c05/{CAB85C5B-BAF0-4FC9-8949-8993F936F4C9}/bkupInfo.xml": "9a90dee1cddae1b89f9640194e78d790f272f5ed2461f849c3d97542175444db",
+    "in/cases/c05/{CAB85C5B-BAF0-4FC9-8949-8993F936F4C9}/gpreport.xml": "579f3a4aecff5a61cda64f44d13dce6cdc8f26b9342635a018958be247aa3305",
+    "in/cases/c06/gpreport-verify.xml": "e7fbea9794c01f8831cca135369415b369e13f87f9353b9b93db47023773fa7a",
+    "in/cases/c06/manifest.xml": "1789a3f6acca5d7a0c6dec6c5f74b7b2cf7aa5a54b24358bb4eb7bba2e07499d",
+    "in/cases/c06/semantic-manifest.json": "97e246b7485913b84397a516455b976d1aee754cf76a1c0ddcd7ae8b1752275c",
+    "in/cases/c06/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/Backup.xml": "2d96def096f91e53e91631cac9a4b28a80a5a6b30f55420299e182ba08d06f70",
+    "in/cases/c06/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml": "4a37a9a331f3c19cb861c1d86e48b46c5ea1b241979ea09ba502111816e47372",
+    "in/cases/c06/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/DomainSysvol/GPO/User/Preferences/Groups/Groups.xml": "e93a41079221616a950e8bc1f3f9704a60aef480138a3393916da8500b4365ca",
+    "in/cases/c06/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/bkupInfo.xml": "e3d3a342ebf8a89b17717ad390d5590ab4c599eabd49e62375b33a5189dd1d9a",
+    "in/cases/c06/{33EF766F-4F9C-4FAC-B54F-98F3F81679C6}/gpreport.xml": "30e0f251bc2e655987541c9353edbf2d294f971be2f1e78b073f716b3e182eb2",
+    "in/cases/c07/gpreport-verify.xml": "54442df094d8f4176d50d5c9e55778d750b3d1e50d8fcb3d56ed26f8709596d8",
+    "in/cases/c07/manifest.xml": "c9e0e3f4b1bf0c9570b4dc831d2dd4db6d9828423111313fd93b98a80569fb20",
+    "in/cases/c07/semantic-manifest.json": "a269e5f135bac35652d86ab9d5e2f1e1b04b2024437c866f56efbaf3faaba05d",
+    "in/cases/c07/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/Backup.xml": "d9179eb42368364622b848bbba88046c965f74a7fb333050145b37b8fdd55b95",
+    "in/cases/c07/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml": "07a11c72a914ca889fc3dfe32d818f793b959e0c488667356aaf0d31def2bbe6",
+    "in/cases/c07/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml": "e0e97ef40cfdfe808e8e701f6a9e0e3a3b6ae0871e58dc9ad876b6c60417c624",
+    "in/cases/c07/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "0a7bc1190311b35c5d5063d379339ab4f66fade72d258baf59daa63ed6e6b825",
+    "in/cases/c07/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/bkupInfo.xml": "4c69b7af0c6db9f5007f8caedeac328c8657e9eaa511988136ec1e5aa000debb",
+    "in/cases/c07/{37A0AB45-6DBF-42C1-A6D1-B69681ACC943}/gpreport.xml": "5e0334ef6d9df32a9b956b999e6f8820eb275f261c9c1ef9dbf710e8ab1c661c",
+    "in/cases/c08/gpreport-verify.xml": "d8e2b489bc202d91b8a04a960edc5373447d4c9a303b1f9683ee3f5e61161112",
+    "in/cases/c08/manifest.xml": "0ac46d0eb3696e79629daa6b188726e4fb8452bb114aa6bbb599abeb45e3fd96",
+    "in/cases/c08/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/Backup.xml": "33bd3908d6ff135912c26b04d570df670cd4f88777a13de3843c5582425f408f",
+    "in/cases/c08/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "cfa6f0cdceb3d9c080e1eb93972c7c9ac61fb0c9327ec7e293fdff5f948d5e14",
+    "in/cases/c08/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/bkupInfo.xml": "a7365131171a8fa6ea74c3bc1dfcf8142b419bb55083eb78367bce8dc8dc550e",
+    "in/cases/c08/{EB1B8D88-4002-475F-BF2F-8F101FEE4BDF}/gpreport.xml": "6fe55eff7bdff7caad4a0e1d6dced8d1c36dba9ef34be3a52815d15a9784f799",
+    "in/cases/c09/gpreport-verify.xml": "23c3c89f365d457e1333a048f403d0bdd206854c7f46adbb8dd584a9850e3b9f",
+    "in/cases/c09/manifest.xml": "be7af655eecaffd268b57dcfc0350f1ca8b78f8cb364693d1d5ea0c9d8d89ddb",
+    "in/cases/c09/{B88DAB7B-4B81-4FE3-AA70-3A859853C1E9}/Backup.xml": "f71351129dc3f260d4628fbdd62e48f392a91ec337e7889857f44295685f7b3e",
+    "in/cases/c09/{B88DAB7B-4B81-4FE3-AA70-3A859853C1E9}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "f52cbeefc246f250ab625f8bf4666d5c230c52932583981e349c3a785f0ee70d",
+    "in/cases/c09/{B88DAB7B-4B81-4FE3-AA70-3A859853C1E9}/bkupInfo.xml": "5970b7e5ff0b211c35928751c9f1d4c32a0a864ac3d6e7104237aa451df931f9",
+    "in/cases/c09/{B88DAB7B-4B81-4FE3-AA70-3A859853C1E9}/gpreport.xml": "4982fc9f4a5e5be7ec056a4a71320c8654ac1d72ac9e66025aa1614ea0e00143",
+    "in/cases/c10/gpreport-verify.xml": "a19c71162cd6c4f244ff418adb5235d698da20d60922ecade72bd949cbc70393",
+    "in/cases/c10/manifest.xml": "c5884cdcdcd4c1dc57e6196df0cc4caf2c6d1bd8e448f2d6b858541c954b30e5",
+    "in/cases/c10/{63016C49-AC34-45B7-BF33-269F0AA85008}/Backup.xml": "0d4e2c16733a414742f2f42fde295dfb2717c9b46901c4298b0a125d5a4cdbe1",
+    "in/cases/c10/{63016C49-AC34-45B7-BF33-269F0AA85008}/DomainSysvol/GPO/User/Preferences/PowerOptions/PowerOptions.xml": "7750b07e7fcad00695f09272a8174b1b49b6b423e4d38b002d3ddf9e14241fa3",
+    "in/cases/c10/{63016C49-AC34-45B7-BF33-269F0AA85008}/bkupInfo.xml": "d918a48079d268fe77bcd55336469ad95348854c478fe07aa714f2221a209cd8",
+    "in/cases/c10/{63016C49-AC34-45B7-BF33-269F0AA85008}/gpreport.xml": "f3d5d577efe748bd7b2a4dba4aa0cae6ccad34e595fa8072e11d5c2193f56761",
+    "in/cases/c11/gpreport-verify.xml": "6af1def5a2d8861ea790e838d78877277620b5cf1a3de5b4ad559d867ef7cfa1",
+    "in/cases/c11/manifest.xml": "8bf30b3a2c903e31c2995341ce56979a614cac7eb5365a7695270097db78ea84",
+    "in/cases/c11/{95AD77B1-2F66-49A9-98BD-176270FA5288}/Backup.xml": "faf4ab5224dc068653b956fad64d0f7c6e0464bc2ea883d56b292904def161e1",
+    "in/cases/c11/{95AD77B1-2F66-49A9-98BD-176270FA5288}/DomainSysvol/GPO/User/Preferences/Printers/Printers.xml": "5faa38703ba5906d64c66c5247043a274c0e892a352bd2b892002febfb8d3bbb",
+    "in/cases/c11/{95AD77B1-2F66-49A9-98BD-176270FA5288}/bkupInfo.xml": "48c7ef18000ad6135b0d2c845ab28b56b64915f1f625b3957321317d17f5ff5f",
+    "in/cases/c11/{95AD77B1-2F66-49A9-98BD-176270FA5288}/gpreport.xml": "9872a76f0afd8ca5c2edabe7ab64a6008a402d95a919e0397eaeb9a6a3422ee7",
+    "in/cases/c12/gpreport-verify.xml": "e590e2f198ba161554a6e9ea10e7bc3d223022dce610ea4ac350b9d1d9556b4b",
+    "in/cases/c12/manifest.xml": "e1180fe436a77c494b1772c9f387408d75e208ceb5a49ff747eef745e6900d8d",
+    "in/cases/c12/semantic-manifest.json": "8d3e46128aa2daeaace3fb5148a6adeade862241af8422144b6a19e319ef13f0",
+    "in/cases/c12/{6C864157-BBBD-401A-8959-2D697AD3A52A}/Backup.xml": "686bb6e30f92b5bc7dff2923810e98665c3cfd3d0a684e168cf6d095d1a74606",
+    "in/cases/c12/{6C864157-BBBD-401A-8959-2D697AD3A52A}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml": "852ee955f570a17352fb382e18a75bc8d2e9cd0ff83840c021441829e180e693",
+    "in/cases/c12/{6C864157-BBBD-401A-8959-2D697AD3A52A}/DomainSysvol/GPO/User/Preferences/ScheduledTasks/ScheduledTasks.xml": "4555cac4c5c915b66610877896bab17084569a8ee95bce807744fed532e3c175",
+    "in/cases/c12/{6C864157-BBBD-401A-8959-2D697AD3A52A}/bkupInfo.xml": "d13149433d94190a6a478853c6b06eb1fc443d03992a11b751c42ddc3830399d",
+    "in/cases/c12/{6C864157-BBBD-401A-8959-2D697AD3A52A}/gpreport.xml": "76604c4139a76852a3b99f0c44266e86aac1db13a92a4532894beb1262dc6014",
+    "in/cases/c13/gpreport-verify.xml": "9b5e1b1e7c73da483324931c6e10e20e408a5d4eaf806655e9073856dc966985",
+    "in/cases/c13/manifest.xml": "b20fcb18365dcfa8a1192986b116f12f097d028fef3ed0508ec923f99f04f644",
+    "in/cases/c13/{F57CACDF-9C94-4AED-BD89-FC1295151BE3}/Backup.xml": "5f2d98cebe7e286cc80465961d8031a352c0ea95830c5885a8450952f0640924",
+    "in/cases/c13/{F57CACDF-9C94-4AED-BD89-FC1295151BE3}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml": "ac428b4006aa4f82af3a1a89cb07979b19e04a4e4bd2b5dad307759b1ca169e8",
+    "in/cases/c13/{F57CACDF-9C94-4AED-BD89-FC1295151BE3}/DomainSysvol/GPO/User/Preferences/ScheduledTasks/ScheduledTasks.xml": "4555cac4c5c915b66610877896bab17084569a8ee95bce807744fed532e3c175",
+    "in/cases/c13/{F57CACDF-9C94-4AED-BD89-FC1295151BE3}/bkupInfo.xml": "ed0e177109aa028c715d291033ab21d0043051361316ebacbc66a8776ab03326",
+    "in/cases/c13/{F57CACDF-9C94-4AED-BD89-FC1295151BE3}/gpreport.xml": "c72d90ceedbe409f76eab982f86bfdeb9de8d711756afdf8dcb22325e5d360fa",
+    "in/cases/c14/gpreport-verify.xml": "c2239a62157a9a8db65449fc2c2c77a2657c59422588a2545fcd0f17e55568d5",
+    "in/cases/c14/manifest.xml": "dd2bc2601089408aa0b28ea31886b1d1b0f50e0037199ef9349e9e561c966da5",
+    "in/cases/c14/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/Backup.xml": "479d67493fa539ccd78efbaeaf49df0f435525b0213c8b4ee005cbef43f6ab09",
+    "in/cases/c14/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml": "28b30cbb78565db4f837564c5c9d3e5f4517b0f1c53aeedea44ab84106461221",
+    "in/cases/c14/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/bkupInfo.xml": "840b15df3b6326d9204814e112b5cdad4e2cb82361b9abb355ad65f9d7e16b79",
+    "in/cases/c14/{BFC38120-130B-43A1-AB13-80D3A4D0E6C1}/gpreport.xml": "3de597527dea143aec4a65b654b572ed1a0e0ba35747c1f2518d21366f2ad2aa",
+    "in/cases/c15/gpreport-verify.xml": "74b661c7eaf88c98257de3135c68a733cb887d026732eba766ff8571487a9e22",
+    "in/cases/c15/manifest.xml": "dd5fe46c4f1d4042a01704b9c38a86de8b6247b2162feeffadc3b527cafd0f4c",
+    "in/cases/c15/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/Backup.xml": "c9b940cab9fbd204aea8e373bac123716c29835281757b323123caf76e4c6996",
+    "in/cases/c15/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml": "b7fba837f39c4be11e609a5ac5b95412dd539ea633c2f478f0f2bf67024edcac",
+    "in/cases/c15/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/bkupInfo.xml": "e8811ba7712b5b72ef537762a19b87ca35b3e501f17f03c903163aa2e59d315c",
+    "in/cases/c15/{8A722525-0F66-42EB-9BCE-2EEBC38BDEA8}/gpreport.xml": "fcc5e90400e7595d75c2317848f91f34b4bd32426f2c9e837e0186d0ed9b6775",
+    "in/cases/c16/gpreport-verify.xml": "e0dc081abad80b29e915833c3b44a0061fa2a23f4b3596659a93f18d62c324c5",
+    "in/cases/c16/manifest.xml": "86cbf7e848fa832e7fbd576eb3b6442e007be35c39f9f3276d9aeb9f7d5f12c0",
+    "in/cases/c16/{68D5F5AF-6859-4AC4-A48A-67A71AA5759C}/Backup.xml": "3d7a96c512170ddeb8e1206184d2bf15fa84b253d3381ec137d0166534ce7cf7",
+    "in/cases/c16/{68D5F5AF-6859-4AC4-A48A-67A71AA5759C}/DomainSysvol/GPO/User/Preferences/Shortcuts/Shortcuts.xml": "c4b3e963a0aa859efe5781577a19c17f64fa01c6c2d6dbfc29d17f76c3d4a051",
+    "in/cases/c16/{68D5F5AF-6859-4AC4-A48A-67A71AA5759C}/bkupInfo.xml": "9f4da00227f8c912fe21144788466ed04f51041d2320599783a769538f342f15",
+    "in/cases/c16/{68D5F5AF-6859-4AC4-A48A-67A71AA5759C}/gpreport.xml": "8f18c0a7a053cf878c5f7a8ba42703bf42e15dbca94a9cc1b41fb84a4ea3fdc0",
+    "in/cases/c17/manifest.xml": "8e39e9ac88d2b886266df8ce559a61b360bec6a2dafdc60edce257dfd2dffab5",
+    "in/cases/c17/{195DBB5B-8274-441D-804E-907EECDB14C5}/Backup.xml": "baaf4891cc4456a285c13bd10db575c836d7d0cd1c1c1c1d32ab585ceaf896df",
+    "in/cases/c17/{195DBB5B-8274-441D-804E-907EECDB14C5}/DomainSysvol/GPO/GPO.cmt": "083b73413ff5e3192a9414f1e83312d0f941aa7cbc004d85c1a9050c9bfcbfd6",
+    "in/cases/c17/{195DBB5B-8274-441D-804E-907EECDB14C5}/DomainSysvol/GPO/Machine/registry.pol": "33006aa22bc14dbe7c11e274408f0e0ac31386e925b0565839e124c7caabaaa9",
+    "in/cases/c17/{195DBB5B-8274-441D-804E-907EECDB14C5}/DomainSysvol/GPO/User/registry.pol": "655af407f6fe68986811b3ecb09c9ade191eb97b3bdefeacf0f5455ed02a9a6a",
+    "in/cases/c17/{195DBB5B-8274-441D-804E-907EECDB14C5}/bkupInfo.xml": "ba16f80aea95dddc06f71b0ac053dab12d72279d051c12800d3ea649561be2ae",
+    "in/cases/c17/{195DBB5B-8274-441D-804E-907EECDB14C5}/gpreport.xml": "f1624b676581d79f5eeaf553b8069a1a593d0e4dc67fb7fbc6a9c09d51ea90c0",
+    "in/cases/c18/manifest.xml": "04a95c28076aced497106abe78adb315b093ecfe36ce0db88cb4aa73f6479e06",
+    "in/cases/c18/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/Backup.xml": "06ea5cddf3c6cbfe368a68a4e6e8ced96160fd98494708b71195578b02e436f7",
+    "in/cases/c18/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/DomainSysvol/GPO/GPO.cmt": "4623b9b2fe51cce8b54d9e61f3b626e72630d582d251115d3168835b0ab82381",
+    "in/cases/c18/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/DomainSysvol/GPO/Machine/Scripts/PSscripts.ini": "a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b",
+    "in/cases/c18/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/DomainSysvol/GPO/Machine/Scripts/scripts.ini": "46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c",
+    "in/cases/c18/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/bkupInfo.xml": "1fbc766a78483553174fefcc1bceb139f5295476d3bb2ba67b0265bd46a48fac",
+    "in/cases/c18/{4A26C746-C855-49FA-8FA7-65CA78D86A7C}/gpreport.xml": "42305ee6f9731fb95edea604bcf3a8e637d2eaabb5107f08ac216aa6009836fc",
+    "in/cases/c19/manifest.xml": "06be9a54c677380fc7594ce3584aeed5cae7fc7e9dd3ada58144c3080b86e9bc",
+    "in/cases/c19/{F1EB5F60-231B-4997-9ED5-D87D08548239}/Backup.xml": "7ffbaed99a8b81169144023cd451dcf1b2049c964c4fc498495c0f9b4a1a75fc",
+    "in/cases/c19/{F1EB5F60-231B-4997-9ED5-D87D08548239}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "2252553aa8e772a99ab45cc0784f95484afed0db414f289986bc9fd3443494a5",
+    "in/cases/c19/{F1EB5F60-231B-4997-9ED5-D87D08548239}/bkupInfo.xml": "77e7e92e5c0ad554bab8e56cc4bf410183b473772cf7483966d7f10796016c88",
+    "in/cases/c19/{F1EB5F60-231B-4997-9ED5-D87D08548239}/gpreport.xml": "0b82be63d65fdd2666223f2acd871f9fe81927b0454372261d09ef6fc1ca7a60",
+    "in/cases/c20/manifest.xml": "6511f47b4d72f2d53d6c76c7b1006f4007eacd00860d5203605b81f5629eb36b",
+    "in/cases/c20/{AA686540-32C4-45E3-A6C6-A57C1FEDE8BA}/Backup.xml": "d6d7a7a8cf38062bd5e8de7b0bd85b83cae8235a0589a70333815fe6d74d9546",
+    "in/cases/c20/{AA686540-32C4-45E3-A6C6-A57C1FEDE8BA}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml": "dd294a21e89805121309b1e0f43c68e2ba40a9627a04d3842775acd0c01d0631",
+    "in/cases/c20/{AA686540-32C4-45E3-A6C6-A57C1FEDE8BA}/bkupInfo.xml": "78b1006ad8be80ca00b91294ca445e6769fba52dc4640469230bd9b06a360085",
+    "in/cases/c20/{AA686540-32C4-45E3-A6C6-A57C1FEDE8BA}/gpreport.xml": "9403ba1b58d93b0024ad46ae1df87310f12ac2111fe56813ec18b2ac1c9e7c69",
+    "in/cases/c21/manifest.xml": "4975ea6377ff8a57bac80b8e8e0ed0c5e9b1ff22e0bf02aef12d89456f712ffd",
+    "in/cases/c21/{A9297AE3-FF2B-4052-9018-B1AA7387DC54}/Backup.xml": "1b84078ceecf3f9941c67626675a9407d50f63c3099f28bbea4d757f305d25cf",
+    "in/cases/c21/{A9297AE3-FF2B-4052-9018-B1AA7387DC54}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml": "5443b61f67063586b7a9d3d63abc078da14c2272047943d9f7739b0f39c85ca4",
+    "in/cases/c21/{A9297AE3-FF2B-4052-9018-B1AA7387DC54}/bkupInfo.xml": "ca79fdf25e4e4141574e91d3b1a9d6640163c37141246cb2be2f90dd5cc7ee67",
+    "in/cases/c21/{A9297AE3-FF2B-4052-9018-B1AA7387DC54}/gpreport.xml": "3d6d6afcacb81bf4094abd886f84ffb7e77d4f896b32409760618c0bffbdf600",
+    "in/cases/c22/manifest.xml": "c2f0931ddda9e7311f18cb372b8c4500fb4db453679f84bf356fc89d1aea5304",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/Backup.xml": "96200b69e6bc259b6a1217d747e67b166a70c26d71f60e00bf63caefd7ea2d02",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/DomainSysvol/GPO/Machine/Preferences/Groups/Groups.xml": "66fb2e23199b7a575c4af69f30f2aebdb3539fb59ee62f31317814f73d39bdbf",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml": "c1771cd7e7f692eee42b915f0117662604f6f512c4130b60027f3b6fa47b64f2",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml": "1377afc3dee6ce93af47d87480df0fe7f969b40fbccae78219321465708c59e6",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/DomainSysvol/GPO/Machine/registry.pol": "88608afa75b7f71ab3ee60e5466479977a6a4b3ec989b8479491efaedabab4cd",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/DomainSysvol/GPO/User/Preferences/Drives/Drives.xml": "2252553aa8e772a99ab45cc0784f95484afed0db414f289986bc9fd3443494a5",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/DomainSysvol/GPO/User/registry.pol": "14490ed676d9b80e4a425e6de2de50a71ec6635ea3f2b2031556ab8214ab4048",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/bkupInfo.xml": "70254371a5af68b3306bae4c84a09c702fced30f9941bf2e83831d1f3eb31a37",
+    "in/cases/c22/{3436A698-8BD2-4901-9F4C-3DBC0D5AA476}/gpreport.xml": "ebd0b80267acf3f951aa0c802038d8841ecf629e0edc9fd1b869ef4f57876d09",
+    "in/cases/c23/manifest.xml": "67cb430bb1ae6047cf3450576cd8e865476830bf816f7ef319f7c1768a2224c2",
+    "in/cases/c23/{805DE351-B208-47E3-9CE6-183C31435F43}/Backup.xml": "8588be36a09f05dd468444b8524f7f642020f954fd13da67ff432abf0ca364b5",
+    "in/cases/c23/{805DE351-B208-47E3-9CE6-183C31435F43}/DomainSysvol/GPO/Machine/registry.pol": "88608afa75b7f71ab3ee60e5466479977a6a4b3ec989b8479491efaedabab4cd",
+    "in/cases/c23/{805DE351-B208-47E3-9CE6-183C31435F43}/DomainSysvol/GPO/User/registry.pol": "14490ed676d9b80e4a425e6de2de50a71ec6635ea3f2b2031556ab8214ab4048",
+    "in/cases/c23/{805DE351-B208-47E3-9CE6-183C31435F43}/bkupInfo.xml": "36290bff2c405e845f913d6a0899a8cdd012aece845d18a72579fbfecec85435",
+    "in/cases/c23/{805DE351-B208-47E3-9CE6-183C31435F43}/gpreport.xml": "e2b4f7c9b95ee593aa288a15781d6abdb7f50c267cfddd2a8ce02f581910c77e",
+    "in/cases/c24/manifest.xml": "49ac61b49335d60e5922a9fd870ed1097c50cc51723de136f141e205cedbc1ab",
+    "in/cases/c24/{4BBA6A5C-1560-477B-B8AE-CA6C05223FB3}/Backup.xml": "11f117c9f4b7b3348aaa892e8a084969fb21f6578a1606d4274f126d6564eece",
+    "in/cases/c24/{4BBA6A5C-1560-477B-B8AE-CA6C05223FB3}/DomainSysvol/GPO/Machine/Preferences/ScheduledTasks/ScheduledTasks.xml": "c1771cd7e7f692eee42b915f0117662604f6f512c4130b60027f3b6fa47b64f2",
+    "in/cases/c24/{4BBA6A5C-1560-477B-B8AE-CA6C05223FB3}/bkupInfo.xml": "d808eb7e50929ad1de806e81c0dd210c47bb038a36907754d3826933cc6b93a4",
+    "in/cases/c24/{4BBA6A5C-1560-477B-B8AE-CA6C05223FB3}/gpreport.xml": "38548182298e400a54bd5ee952849f5003923ee32a7a4e64649f08152d780db7",
+    "in/cases/c25/manifest.xml": "c97fb7077e6efee1829c924aabddd90f73050b125d4c27e70570ce6a7722cf96",
+    "in/cases/c25/{5F090181-A940-4E37-BFBC-D78FF015891F}/Backup.xml": "0d89076d11391727c7f41701400a923d82c731cce9bcf1a623ef165d13b2767f",
+    "in/cases/c25/{5F090181-A940-4E37-BFBC-D78FF015891F}/DomainSysvol/GPO/Machine/Preferences/Services/Services.xml": "1377afc3dee6ce93af47d87480df0fe7f969b40fbccae78219321465708c59e6",
+    "in/cases/c25/{5F090181-A940-4E37-BFBC-D78FF015891F}/bkupInfo.xml": "1e4dd064f35000dcc7dbdb54d20b0a68772e3a4eeb363b0e1524527ae4181174",
+    "in/cases/c25/{5F090181-A940-4E37-BFBC-D78FF015891F}/gpreport.xml": "47ec0c21d84038521d740c355a9b5cb30f273e038721eaf0c9178f38b96168ab",
+    "in/cases/c26/manifest.xml": "5db85c3ac3c30b7a80e787bdcdd2b9fee42890a90ccfc2cdb6867d8c994fc6eb",
+    "in/cases/c26/{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}/Backup.xml": "f9b8828d6586230465f4b4eb85c10be680623bc187f2438e5c43d1a71d20ffaa",
+    "in/cases/c26/{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}/DomainSysvol/GPO/Machine/registry.pol": "f8dea3be075fc11c60877dd29c1a8ddd58506829aa8baa6c8f4de16a7950ce37",
+    "in/cases/c26/{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}/DomainSysvol/GPO/User/registry.pol": "6ab052452b6453f4b2153cc7486d2cd025c8ef802e311a5f4fdccf4644bed23e",
+    "in/cases/c26/{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}/bkupInfo.xml": "dec7a2e1e35710055ae77e15721a453dc471c7676088189e30cac746bd46ba1f",
+    "in/cases/c26/{FDF7359A-FC2E-4DF1-804F-3FF39D5707AD}/gpreport.xml": "8c749a8f2546ce16f509964fd445f19ac2f3f3d506f5ed107514abe9d0933276",
+    "in/cases/c27/manifest.xml": "5173a840a8ebc1d74d27ee04327e12c8c74ffccd1121d490cfeca15f0ca14292",
+    "in/cases/c27/{BB0A91EB-0598-4CAA-8424-4E0FB159B03B}/Backup.xml": "402a5135679065bda5ecb88fdd4279e887e7b367f94910b7430da08e7075e37d",
+    "in/cases/c27/{BB0A91EB-0598-4CAA-8424-4E0FB159B03B}/DomainSysvol/GPO/GPO.cmt": "4623b9b2fe51cce8b54d9e61f3b626e72630d582d251115d3168835b0ab82381",
+    "in/cases/c27/{BB0A91EB-0598-4CAA-8424-4E0FB159B03B}/DomainSysvol/GPO/Machine/Scripts/PSscripts.ini": "a3ca0141246757996da50edb587a03961f53b6ca9fdceb6c923b024967fd790b",
+    "in/cases/c27/{BB0A91EB-0598-4CAA-8424-4E0FB159B03B}/DomainSysvol/GPO/Machine/Scripts/scripts.ini": "46972fdf555a6314947dadd01ad1c0eb799570b5d138a8b77c977f4dbb89172c",
+    "in/cases/c27/{BB0A91EB-0598-4CAA-8424-4E0FB159B03B}/bkupInfo.xml": "dc4d49520b72adec37962fc4644ae45031face90f19865d45e791bd3ae432bd7",
+    "in/cases/c27/{BB0A91EB-0598-4CAA-8424-4E0FB159B03B}/gpreport.xml": "d28ec80f83ed6af3e08beaaa20fb8e73c834959e864bc9ff8aef312d5039a790",
+    "in/cases/index.tsv": "f703cda4cb6b1f2f54467ba0f2b2634e41611e99c3b594ef350caeba68d331fb",
+    "reports/authored.xml": "efffc69c998913e8c42c373055621a0c3c831f8b6070ff13b1f573959df2547c",
+    "reports/c01.xml": "bc687c2370949246f7e563fb7ec3ffcb21799860f1ebda30420c1aee844b082b",
+    "reports/c02.xml": "b8d449ce7374b131590a5241d3c49e05f3cb9c43d5fded7aa126d88e365315b0",
+    "reports/c03.xml": "099c3c160d4e3d532b40e4b14f24bcead3d9e14b99dcefaa1787e0c64cd2b582",
+    "reports/c04.xml": "bc4a3080f0b4b6d7383959565ab251e161f223b19b42f28af1f1602957ab67b2",
+    "reports/c05.xml": "8953b34ba9ec1b01f34c94816b7265c1e3c4cd38e7e05f29749d46b9b5041c70",
+    "reports/c06.xml": "aabb8d449fecfa742faea410da54e85ef153d725e041f6054858cc860ec3dfe3",
+    "reports/c07.xml": "b6b5e8a1425b45901b88921595dfd0b1fc0c2d6898ff5911395f8f768f1b5974",
+    "reports/c08.xml": "92aae97af5061c1705b56262554af91953402928ce908e5cae080d80b4d753f2",
+    "reports/c09.xml": "4f285ecd9278319b5fa0bbc4cc438da41d26b39402f4cc69c8a4922d093e8d8c",
+    "reports/c10.xml": "b50830afe6ef8422faf4c064bd71e040a97525866e9a9d3831458f7d0dcddc60",
+    "reports/c11.xml": "9980fcf49c62ecc396e5c163d2d45786f44360cd546ef9e69a0bc8bc47659425",
+    "reports/c12.xml": "36819120741042b0b8e2e5c72921c2eac1ef41acb9b7f611482d4d6f835bb4b0",
+    "reports/c13.xml": "32aa688489eac28baa303ff9e25b3ba657e65128f07992644842bc44311684e9",
+    "reports/c14.xml": "fdae56f686558727189e74bc480793e9692103a3c2378b6d8fbd37091369f889",
+    "reports/c15.xml": "f2942876a76da28ecc8351fb0e49840e0c6f1922f5a0223a93f565968ac7508b",
+    "reports/c16.xml": "fdc038d01a449b11947b1b0f530f49853b42ab025ac982213a6c5b9b2def6284",
+    "reports/c17.xml": "fdafd0256b181280b8d2953be8a7653af762193aa655bd59148ab3f5fc2aef66",
+    "reports/c18.xml": "1b85b54edad6876192088df52b9435a4d5fbdd72a452819288c6bd8ebe9dc688",
+    "reports/c19.xml": "027b379191793ab36bcac29e4d84421b9be1675203e756f26d00a9439d2f9ab6",
+    "reports/c20.xml": "fc6e301187e7502d9f8e68f6d0980385b21a59b62498896a6574aa1267dfcdc2",
+    "reports/c21.xml": "ad9dbad0fac2b5dd7d29244bc01b184d23e8e5d165d37a83fa7cf8d25639d997",
+    "reports/c22.xml": "79ffc224f1ebd2e2a0c7a2d9de93c1e69d564e2d7976e2815b8a73c95ad22aba",
+    "reports/c23.xml": "5ba106e2494608c855f74b521e70d4005bc6d5fb7abf0d89272ca862c576d992",
+    "reports/c24.xml": "edd1961ad520d49b55dee2c518e67b469dd4083d054b5d66be30d45b8535425e",
+    "reports/c25.xml": "941571fada21d7630d8fed545f23a07cfbfa52e7b8510ad7c12307b2a1cbf231",
+    "reports/c26.xml": "f7fd4c0d54a80672e6fe5c3bc493d38214e04c71b1a4affbf7b32fcb71b27548",
+    "reports/c27.xml": "2bf68941294a09a113f340e3592d23271e4d2a7395908eba159063241443a336",
+    "result.json": "628e785cca7ffaed30041224c34282cf372d50ee58fa9b5ca0e7091b3716a1f2"
+  },
+  "candidate": {
+    "builder.stdout.txt": "b1505b7f20a8bab2e9aa775d7195f611253fbb92a369710c9d6dd9532260c1a1",
+    "expected.json": "81f4e6496e87634f00a29c53e966f4731c3b20ffd120eb08f1199ff491850e0b",
+    "report-parity-cases.zip": "10e69d57088b8f5d9e2750e8aa5b76dee3a46614aed6594f36c2cd99910410dc"
+  },
+  "candidate_delivery": {
+    "controller_sha256": "10e69d57088b8f5d9e2750e8aa5b76dee3a46614aed6594f36c2cd99910410dc",
+    "guest_sha256": "10e69d57088b8f5d9e2750e8aa5b76dee3a46614aed6594f36c2cd99910410dc"
+  },
+  "checks": {
+    "authored_fresh_report_matches_backup_report": true,
+    "authored_report_lists_exactly_the_authored_values": true,
+    "authored_steps_succeeded": true,
+    "authored_studio_import_equals_report": true,
+    "candidate_carries_the_required_corpus": true,
+    "candidate_delivered_intact": true,
+    "candidate_rebuilds_from_bound_builder": true,
+    "cleanup_state_restored": true,
+    "deployed_harness_matches_source": true,
+    "environment_matches_frozen_spec": true,
+    "every_case_identity_matches_candidate": true,
+    "every_case_imported": true,
+    "every_case_studio_matches_fresh_report": true,
+    "every_disposable_gpo_unlinked": true,
+    "every_expected_case_ran_once": true,
+    "every_fresh_report_identifies_its_owned_gpo": true,
+    "every_gpo_removed_and_absent": true,
+    "every_owned_gpo_is_this_runs": true,
+    "fresh_reports_delivered_intact": true,
+    "guest_exited_zero": true,
+    "harness_reported_no_error": true,
+    "member_server_host_role": true,
+    "raw_command_artifacts_complete": true,
+    "result_schema_exact": true,
+    "source_tree_clean": true
+  },
+  "checks_complete": true,
+  "comparison": {
+    "authored": {
+      "checks": {
+        "authored_fresh_report_matches_backup_report": true,
+        "authored_report_lists_exactly_the_authored_values": true,
+        "authored_studio_import_equals_report": true
+      },
+      "divergences": [],
+      "expected": {
+        "computer/RegistrySettings": [
+          "Software\\Policies\\GPOStudio\\ReportParity :: MachineDword = Number:4242",
+          "Software\\Policies\\GPOStudio\\ReportParity :: MachineString = String:report-parity-machine"
+        ],
+        "user/RegistrySettings": [
+          "Software\\Policies\\GPOStudio\\ReportParity :: UserDword = Number:2424",
+          "Software\\Policies\\GPOStudio\\ReportParity :: UserString = String:report-parity-user"
+        ]
+      },
+      "windows": {
+        "computer/RegistrySettings": [
+          "Software\\Policies\\GPOStudio\\ReportParity :: MachineDword = Number:4242",
+          "Software\\Policies\\GPOStudio\\ReportParity :: MachineString = String:report-parity-machine"
+        ],
+        "user/RegistrySettings": [
+          "Software\\Policies\\GPOStudio\\ReportParity :: UserDword = Number:2424",
+          "Software\\Policies\\GPOStudio\\ReportParity :: UserString = String:report-parity-user"
+        ]
+      }
+    },
+    "cases": {
+      "evidence-backup-report-20260908-scripts-metadata-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": false,
+            "family": "Scripts",
+            "side": "computer",
+            "studio_count": 0,
+            "windows_count": 3
+          }
+        ],
+        "known": {
+          "scripts-not-modeled": {
+            "divergences": [
+              "computer/Scripts: missing_in_studio: Script 'zz-studio-marker.cmd'",
+              "computer/Scripts: missing_in_studio: Script 'zz-studio-second.cmd'",
+              "computer/Scripts: missing_in_studio: Script 'zz-studio-marker.ps1'"
+            ],
+            "work_item": null
+          }
+        },
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-scripts-metadata-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": false,
+            "family": "Scripts",
+            "side": "computer",
+            "studio_count": 0,
+            "windows_count": 3
+          }
+        ],
+        "known": {
+          "scripts-not-modeled": {
+            "divergences": [
+              "computer/Scripts: missing_in_studio: Script 'zz-studio-marker.cmd'",
+              "computer/Scripts: missing_in_studio: Script 'zz-studio-second.cmd'",
+              "computer/Scripts: missing_in_studio: Script 'zz-studio-marker.ps1'"
+            ],
+            "work_item": null
+          }
+        },
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp0-backup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "computer",
+            "studio_count": 2,
+            "windows_count": 2
+          },
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp1b-drives-user-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": false,
+            "family": "DriveMapSettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {
+          "legacy-studio-drive-name": {
+            "divergences": [
+              "user/DriveMapSettings: missing_in_studio: Drive 'P' [U]",
+              "user/DriveMapSettings: extra_in_studio: Drive 'P:' [U]"
+            ],
+            "work_item": null
+          }
+        },
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp1b-groups-machine-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "LugsSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp1b-localusers-machine-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "LugsSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp1b-mixed-all-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "LugsSettings",
+            "side": "computer",
+            "studio_count": 2,
+            "windows_count": 2
+          },
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": true,
+            "family": "ScheduledTasksSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": true,
+            "family": "ServiceSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": false,
+            "family": "DriveMapSettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {
+          "legacy-studio-drive-name": {
+            "divergences": [
+              "user/DriveMapSettings: missing_in_studio: Drive 'P' [U]",
+              "user/DriveMapSettings: extra_in_studio: Drive 'P:' [U]"
+            ],
+            "work_item": null
+          }
+        },
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp1b-registry-both-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp1b-scheduledtasks-machine-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "ScheduledTasksSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp1b-services-machine-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "ServiceSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "evidence-wi059-20260908-wp2-rebackup": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": true,
+            "family": "RegistrySettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-DriveMaps-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "DriveMapSettings",
+            "side": "user",
+            "studio_count": 4,
+            "windows_count": 4
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-EnvVars-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "EnvironmentVariablesSettings",
+            "side": "user",
+            "studio_count": 10,
+            "windows_count": 10
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-Files-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "FilesSettings",
+            "side": "user",
+            "studio_count": 3,
+            "windows_count": 3
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-Folders-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "FoldersSettings",
+            "side": "user",
+            "studio_count": 2,
+            "windows_count": 2
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-IniFiles-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "IniFilesSettings",
+            "side": "user",
+            "studio_count": 4,
+            "windows_count": 4
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-LocalGroups-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "LugsSettings",
+            "side": "computer",
+            "studio_count": 3,
+            "windows_count": 3
+          },
+          {
+            "equal": true,
+            "family": "LugsSettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-MixedCSE-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "LugsSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": true,
+            "family": "ScheduledTasksSettings",
+            "side": "computer",
+            "studio_count": 1,
+            "windows_count": 1
+          },
+          {
+            "equal": true,
+            "family": "DriveMapSettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-NestedILT-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "DriveMapSettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-OS-ILT": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "DriveMapSettings",
+            "side": "user",
+            "studio_count": 1,
+            "windows_count": 1
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-Power-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": false,
+            "family": "PowerOptionsSettings",
+            "side": "user",
+            "studio_count": 0,
+            "windows_count": 1
+          }
+        ],
+        "known": {
+          "adapter-root-unknowns-dropped": {
+            "divergences": [
+              "user/PowerOptionsSettings: missing_in_studio: GlobalPowerOptionsV2 'Power Plan (At least Windows 7)' [U] {D5130C45-053D-4B8B-B6D7-001FFC3C25D4}"
+            ],
+            "work_item": "WI-072"
+          }
+        },
+        "unexplained": []
+      },
+      "native-WI01A-Printers-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "PrintersSettings",
+            "side": "user",
+            "studio_count": 5,
+            "windows_count": 5
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-SchedTasks-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": false,
+            "family": "ScheduledTasksSettings",
+            "side": "computer",
+            "studio_count": 3,
+            "windows_count": 3
+          },
+          {
+            "equal": true,
+            "family": "ScheduledTasksSettings",
+            "side": "user",
+            "studio_count": 2,
+            "windows_count": 2
+          }
+        ],
+        "known": {
+          "scheduled-task-order": {
+            "divergences": [
+              "computer/ScheduledTasksSettings: order: windows TaskV2 'GpoStudio-Cleanup' [U] {FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}, ImmediateTaskV2 'GpoStudio-Init' [C] {61200875-7625-4876-AAF3-A1C7F04411A7}, TaskV2 'Replace Test' [R] {6D6BA8D4-AC9C-4348-BD22-7B9C389A3471} | studio TaskV2 'GpoStudio-Cleanup' [U] {FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}, TaskV2 'Replace Test' [R] {6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}, ImmediateTaskV2 'GpoStudio-Init' [C] {61200875-7625-4876-AAF3-A1C7F04411A7}"
+            ],
+            "work_item": "WI-073"
+          }
+        },
+        "unexplained": []
+      },
+      "native-WI01A-SchedTasksFull-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": false,
+            "family": "ScheduledTasksSettings",
+            "side": "computer",
+            "studio_count": 4,
+            "windows_count": 4
+          },
+          {
+            "equal": true,
+            "family": "ScheduledTasksSettings",
+            "side": "user",
+            "studio_count": 2,
+            "windows_count": 2
+          }
+        ],
+        "known": {
+          "scheduled-task-order": {
+            "divergences": [
+              "computer/ScheduledTasksSettings: order: windows TaskV2 'GpoStudio-Cleanup' [U] {FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}, ImmediateTaskV2 'GpoStudio-Init' [C] {61200875-7625-4876-AAF3-A1C7F04411A7}, TaskV2 'Replace Test' [R] {6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}, ImmediateTaskV2 'Defender-Activation' [C] {28B8AB5E-628B-4488-B9B3-10A41E009EFA} | studio TaskV2 'GpoStudio-Cleanup' [U] {FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}, TaskV2 'Replace Test' [R] {6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}, ImmediateTaskV2 'GpoStudio-Init' [C] {61200875-7625-4876-AAF3-A1C7F04411A7}, ImmediateTaskV2 'Defender-Activation' [C] {28B8AB5E-628B-4488-B9B3-10A41E009EFA}"
+            ],
+            "work_item": "WI-073"
+          }
+        },
+        "unexplained": []
+      },
+      "native-WI01A-Services-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "ServiceSettings",
+            "side": "computer",
+            "studio_count": 3,
+            "windows_count": 3
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-ServicesRecovery-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "ServiceSettings",
+            "side": "computer",
+            "studio_count": 2,
+            "windows_count": 2
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      },
+      "native-WI01A-Shortcuts-GPMC": {
+        "checks": {
+          "fresh_report_lists_settings": true,
+          "fresh_report_matches_capture_time_report": true,
+          "known_divergences_exactly_as_expected": true,
+          "no_unexplained_divergence": true
+        },
+        "families": [
+          {
+            "equal": true,
+            "family": "ShortcutSettings",
+            "side": "user",
+            "studio_count": 3,
+            "windows_count": 3
+          }
+        ],
+        "known": {},
+        "unexplained": []
+      }
+    }
+  },
+  "comparison_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33438",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "excluded_cases": [],
+  "exclusions": [
+    "admx-policy-rendering",
+    "scripts-not-modeled",
+    "links-filters-wmi (lifecycle lane)",
+    "preference Properties attributes (identity, uid and action only)"
+  ],
+  "guest_status": 0,
+  "harness_error": null,
+  "passed": true,
+  "run_id": "report-parity-20261008104512-7480",
+  "schema_version": 2,
+  "source": {
+    "banked_copies": [
+      "run-report-parity.ps1"
+    ],
+    "commit": "a1c280b8a1ec31b03397437dc2e6d947022b4857",
+    "dirty": false,
+    "files": {
+      "backup.py": "cbe374ad0e2a00baa96353940f87ffc1ce43746eb23f84e023dea54859556f0d",
+      "backup_inventory.py": "d28a9638f51df8ca15353b2843cb2326e22b7514c42751318321311e684c4440",
+      "build-report-parity-candidate.py": "373ee8a436ae9289731b272c867486f4ce215d86669733c417ad0831cfb8e9c3",
+      "finalize_report_parity_run.py": "fec91f413cc8f76a947f43051ef7ea0db6627974db20149bb3e171fca41275a9",
+      "gpp.py": "09b8ed054ea3b856545908a847c2cd7361e90f9f83d43267822c06605abf5494",
+      "gpp_adapters.py": "83b4c09f643d9bb3eec91bc3a86af137a8354a2217ed9b28ff6bd79ea439ac88",
+      "import_export.py": "1cae03e129811a72e157cc88209ad1fee13aef162b367e70cddf7d9eecc4c559",
+      "model.py": "a02e3958cd7d18f3e3d90f9b8da84668f73332f7a74cd8bbf87f8b09574f75ab",
+      "oracle_evidence.py": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "psdirect.ps1": "fdb7138603d5077ade6b14b9ede3c8e21f83b0657f8ddd59339d98fbf2d296f6",
+      "registry_pol.py": "893014badac42eb3c98c5c951564a5969d886018e81b7431138e50e1486ecc3a",
+      "report_parity.py": "418f84250c72736c44d1d23182daeaf46985ea232728fad752daed89cdbeb745",
+      "run-report-parity-oracle.sh": "90e8a025c1dd658ac13c72397fd87644cfcb41c19a21933be335ba4d35403fc1",
+      "run-report-parity.ps1": "beeeea16b786135c24461d7fca02dc5f7ee8576caf30706093f5857d239092ab",
+      "xml_safety.py": "8f9a65060cd904c081d06023324990504674e49b603630f1696f32fa269cfb53"
+    },
+    "paths": {
+      "backup.py": "src/gpo_studio/backup.py",
+      "backup_inventory.py": "src/gpo_studio/backup_inventory.py",
+      "build-report-parity-candidate.py": "scripts/plan-033/build-report-parity-candidate.py",
+      "finalize_report_parity_run.py": "scripts/windows-oracle/finalize_report_parity_run.py",
+      "gpp.py": "src/gpo_studio/gpp.py",
+      "gpp_adapters.py": "src/gpo_studio/gpp_adapters.py",
+      "import_export.py": "src/gpo_studio/import_export.py",
+      "model.py": "src/gpo_studio/model.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "registry_pol.py": "src/gpo_studio/registry_pol.py",
+      "report_parity.py": "src/gpo_studio/report_parity.py",
+      "run-report-parity-oracle.sh": "scripts/windows-oracle/run-report-parity-oracle.sh",
+      "run-report-parity.ps1": "scripts/windows-oracle/run-report-parity.ps1",
+      "xml_safety.py": "src/gpo_studio/xml_safety.py"
+    }
+  },
+  "transport": "psdirect"
+}
