@@ -5,9 +5,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  # release.yml calls this gate on the tagged commit. The denylist secret must
+  # be passed explicitly by the caller; without it a public repo fails closed.
+  workflow_call:
+    secrets:
+      GPO_STUDIO_FORBIDDEN_IDENTIFIERS:
+        required: true
 
+# Literal group name: see ci.yml (a called workflow sees the caller's name).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: identifier-gate-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

@@ -51,7 +51,7 @@ python -m venv .venv
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install gpo_studio-1.0.0-py3-none-any.whl
+.venv/bin/pip install gpo_studio-<version>-py3-none-any.whl
 .venv/bin/gpo-studio run
 ```
 
@@ -113,6 +113,11 @@ gpo-studio workspace check --database gpo-studio.db --full
 Without `--full` it runs `PRAGMA quick_check`, which takes milliseconds. With
 `--full` it runs `PRAGMA integrity_check`, which is thorough and can take
 seconds or longer on a large database.
+
+From 1.1.0 the check opens the database read-only and changes nothing. In
+1.0.0 it recorded its result in the checked file, which invalidates a backup's
+recorded SHA-256 (WI-074), so never run it on a backup with 1.0.0. To verify a
+backup, restore it to a throwaway path and check that copy (see below).
 
 #### `gpo-studio workspace backup`
 
@@ -321,6 +326,11 @@ release:
 uv sync --extra dev
 ```
 
+You also see this error if you reinstall an older release after a newer one
+has opened (and so upgraded) the workspace. There is no downgrade migration:
+to go back, restore the backup you made before the upgrade. See
+[upgrading and rolling back](workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change).
+
 ```text
 WorkspaceError: Workspace schema version N is too old. Minimum supported
 version is 0.
@@ -442,8 +452,10 @@ gpo-studio workspace backup \
   --database gpo-studio.db \
   --output backups/workspace-$(date +%Y%m%d).db
 
-# Verify
-gpo-studio workspace check --database backups/workspace-20260716.db --full
+# Verify: restore a throwaway copy, check the copy, never the backup itself
+gpo-studio workspace restore backups/workspace-20260716.db /tmp/verify-copy.db
+gpo-studio workspace check --database /tmp/verify-copy.db --full
+rm -f /tmp/verify-copy.db /tmp/verify-copy.db.lock
 
 # Restore to a new path (recommended), or replace in place
 gpo-studio workspace restore backups/workspace-20260716.db new-workspace.db

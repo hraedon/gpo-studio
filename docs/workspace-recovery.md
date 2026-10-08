@@ -30,11 +30,27 @@ of a live workspace.
 
 ### Verify a backup
 
+Verify a backup by restoring it to a throwaway path and checking the copy.
+Never point `workspace check` at the backup itself:
+
 ```bash
-gpo-studio workspace check --database backups/workspace-20260714.db --full
+gpo-studio workspace restore backups/workspace-20260714.db /tmp/verify-copy.db
+gpo-studio workspace check --database /tmp/verify-copy.db --full
+rm -f /tmp/verify-copy.db /tmp/verify-copy.db.lock
 ```
 
-Verify every backup after creating it and again before restoring from it.
+The restore verifies the backup's SHA-256 against its sidecar, its schema
+version and its row counts. The check then proves the restored copy is intact.
+Verify every backup after creating it. A restore re-verifies the checksum
+itself, so restoring from a backup needs no separate step first.
+
+> **Known issue in 1.0.0 (WI-074).** 1.0.0's `workspace check` writes its
+> result into the database it checks. On a backup, that changes the file after
+> the sidecar recorded its SHA-256, and every later restore fails with
+> `Backup database checksum mismatch`. The data in such a backup is intact,
+> but `workspace restore` will not accept it. From 1.1.0, `workspace check`
+> opens the database read-only and changes nothing. The procedure above is
+> safe with either release.
 
 ### Restore to a new path (recommended)
 
@@ -53,6 +69,75 @@ gpo-studio workspace restore backups/workspace-20260714.db workspace.db --replac
 
 If `workspace.db` exists, it is renamed to `workspace.db.<timestamp>.bak`
 before the restore, so the old database is kept.
+
+## Upgrading and rolling back across a schema change
+
+Each release supports one workspace schema version, and it reads every older
+one back to version 0. The workspace records its version in `workspace_meta`.
+`gpo-studio workspace backup` prints it, the backup's `.meta.json` sidecar
+stores it, and `/api/health` reports it as `schema_version`.
+
+| Release | Workspace schema |
+|---------|------------------|
+| 1.0.0   | 1                |
+| 1.1.0   | 4                |
+
+**Upgrading is automatic, in place, and makes no backup.** The first time a
+newer release opens an older workspace (normally when `gpo-studio run`
+starts), it applies the forward-only migrations in one transaction. If a
+migration fails, the transaction is rolled back and the file stays at its old
+version. If they succeed, the file is now at the new version. Migrating a
+1.0.0 workspace rewrites no stored GPO snapshot: every revision is kept byte
+for byte. `tests/test_release_upgrade_from_1_0_0.py` checks this against a
+workspace the 1.0.0 release wrote.
+
+**There is no downgrade migration.** An older release refuses a workspace
+whose schema is newer than it supports:
+
+```text
+WorkspaceError: Workspace schema version 4 is newer than this version of
+GPO Studio supports (1). Upgrade GPO Studio.
+```
+
+It also refuses to restore a backup of one:
+
+```text
+error: Backup schema version 4 is newer than this version of GPO Studio supports (1). Upgrade GPO Studio.
+```
+
+So rolling back an upgrade is a **restore**, not a downgrade:
+
+1. Before upgrading, stop the server and take a backup **with the release
+   you are upgrading from** (see [Create a backup](#create-a-backup)), then
+   verify it as in [Verify a backup](#verify-a-backup), through a throwaway
+   copy. This backup is the rollback point. A backup taken after the upgrade
+   holds the new schema and is useless to the older release.
+2. To roll back, stop the server and reinstall the older release.
+3. Restore the pre-upgrade backup over the workspace, then check the restored
+   workspace (not the backup):
+
+   ```bash
+   gpo-studio workspace restore backups/pre-upgrade.db workspace.db --replace
+   gpo-studio workspace check --database workspace.db --full
+   ```
+
+   The restore refuses a backup whose SHA-256 no longer matches its sidecar,
+   so it verifies the backup on the way in.
+
+   The upgraded file is kept as `workspace.db.<timestamp>.bak`. Changes made
+   after the upgrade live only in that file. The older release cannot open it,
+   so keep it until you either upgrade again or decide to discard those
+   changes.
+4. Start the older release and confirm that `/api/health` reports the older
+   `version` and the expected `schema_version`.
+
+Restore does not migrate. A pre-upgrade backup restored by the *newer* release
+stays at its old schema until a server opens it. This is how the release
+rehearsal (`scripts/rehearse_upgrade_rollback.py`) proves that the same backup
+can still go back to the older release.
+
+The Windows commands for this procedure are in the
+[Windows quickstart](windows-quickstart.md#roll-back-an-upgrade).
 
 ## Integrity check procedures
 
@@ -153,8 +238,8 @@ Recommended:
 - Keep at least the 3–5 most recent backups.
 - Use a cron job or other scheduler to remove `.bak` files older than your
   retention window (for example, 30 days).
-- Check a backup (`gpo-studio workspace check --database <backup.db>`) before
-  deleting older ones.
+- Verify a backup (see [Verify a backup](#verify-a-backup)) before deleting
+  older ones.
 
 ## WAL handling
 

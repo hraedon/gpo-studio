@@ -4,7 +4,7 @@ This guide installs GPO Studio for one Windows administrator, reachable only
 from that computer. You do not need Administrator rights, IIS, a Windows
 service, Git, `uv`, or permission to run PowerShell scripts.
 
-GPO Studio 1.0 is a local application for a single operator. The supported
+GPO Studio is a local application for a single operator. The supported
 Windows deployment is:
 
 ```text
@@ -14,7 +14,7 @@ your browser -> http://127.0.0.1:8765 -> GPO Studio -> local SQLite workspace
 Do not change `127.0.0.1` to a server name or `0.0.0.0`. GPO Studio has no
 login screen and does not terminate TLS. A shared or unattended deployment
 would need an authenticated reverse proxy, TLS, service lifecycle management
-and a separate security review, and is not a supported 1.0 installation. An
+and a separate security review, and is not a supported installation. An
 authenticated multi-user service is tracked in
 [`Plan 032`](../plans/032-hardened-hosted-control-plane.md).
 
@@ -164,8 +164,24 @@ $BackupFolder = Join-Path $Root "backups"
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $Backup = Join-Path $BackupFolder "workspace-$Stamp.db"
 & $App workspace backup --database $Database --output $Backup
-& $App workspace check --database $Backup --full
+# Verify the backup without touching it: restore a throwaway copy and check that.
+$Probe = Join-Path $BackupFolder "verify-$Stamp.db"
+& $App workspace restore $Backup $Probe
+& $App workspace check --database $Probe --full
+Remove-Item "$Probe*"  # the copy and its lock file
 ```
+
+The restore itself verifies the backup's SHA-256 against its sidecar, its
+schema version and its row counts; the check then proves the restored copy is
+intact. Do not continue unless both commands succeed.
+
+> **Never run `workspace check` on a backup file.** In GPO Studio 1.0.0,
+> `workspace check` writes its result into the database it checks. Run on a
+> backup, that changes the file after its `.meta.json` sidecar recorded the
+> file's SHA-256, and every later restore of that backup fails with `Backup
+> database checksum mismatch` (WI-074). 1.1.0's check is read-only, but the
+> procedures here must also work while 1.0.0 is installed, so they verify a
+> backup by restoring it to a throwaway file and checking that file instead.
 
 Keep both the `.db` file and its `.meta.json` sidecar, and copy important
 backups to a separately protected location. Restore and retention are covered
@@ -174,7 +190,10 @@ in [workspace backup and recovery](workspace-recovery.md).
 ## Upgrade to another release
 
 1. Stop GPO Studio with **Ctrl+C**.
-2. Create and verify a backup using the commands above.
+2. Create and verify a backup using the commands above. Make it **before**
+   you install the new wheel, with the release you are upgrading from, and
+   note the backup's file name: it is your only way back (see
+   [Roll back an upgrade](#roll-back-an-upgrade)).
 3. Download the new wheel and its `SHA256SUMS` into an otherwise empty folder.
 4. Run the checksum block from step 2.
 5. Run this block in the same PowerShell window:
@@ -188,10 +207,56 @@ $App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
 ```
 
 6. Start GPO Studio and confirm the health endpoint and existing policies.
+   The health result reports the new `version` and the workspace's
+   `schema_version`.
+
+A release can change the workspace format. The first start of such a release
+upgrades the workspace file in place, and it does not make a backup for you.
+After that, the earlier release refuses to open the file. For example, 1.1.0
+moves the workspace from schema 1 to schema 4, and 1.0.0 then stops at start-up
+with `Workspace schema version 4 is newer than this version of GPO Studio
+supports (1)`. That is why the backup in step 2 must come first.
 
 If the upgrade fails, stop the application and follow the
 [backup and restore procedures](workspace-recovery.md#backup-and-restore-procedures).
 Do not delete the backup that preceded the upgrade.
+
+### Roll back an upgrade
+
+Rolling back means reinstalling the earlier wheel **and** restoring the backup
+you made before the upgrade. Reinstalling the wheel alone is not enough once
+the new release has started, because the earlier release cannot read the
+upgraded workspace. Changes made after the upgrade are not in that backup.
+The restore keeps the upgraded file beside it as a `.bak` file, so those
+changes are not deleted.
+
+1. Stop GPO Studio with **Ctrl+C**.
+2. Put the earlier release's wheel and its `SHA256SUMS` in an otherwise empty
+   folder and run the checksum block from step 2 of the install.
+3. In the same PowerShell window, set `$Backup` to the pre-upgrade backup and
+   run:
+
+```powershell
+$Root = Join-Path $env:LOCALAPPDATA "GPO Studio"
+$Python = Join-Path $Root "venv\Scripts\python.exe"
+$App = Join-Path $Root "venv\Scripts\gpo-studio.exe"
+$Database = Join-Path $Root "data\gpo-studio.db"
+$Backup = Join-Path $Root "backups\workspace-YYYYMMDD-HHMMSS.db"  # your pre-upgrade backup
+& $Python -m pip install $Wheel.FullName
+& $App workspace restore $Backup $Database --replace
+& $App workspace check --database $Database --full
+```
+
+`workspace restore` refuses a backup whose SHA-256 no longer matches its
+sidecar, so it is the verification step for the backup. The check runs on the
+restored workspace, never on the backup.
+
+4. Start GPO Studio and confirm the health endpoint reports the earlier
+   `version` and that your policies are present.
+
+Never restore a backup taken *after* the upgrade into the earlier release: it
+holds the upgraded format, and the earlier release refuses it. More detail is
+in [workspace recovery](workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change).
 
 ## Uninstall
 

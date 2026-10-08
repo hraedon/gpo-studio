@@ -3118,6 +3118,43 @@ captures and accepted it on those two cases only, as a known divergence.
 captures (their pins become full equality), a test covers an interleaved `Groups.xml`, and
 the lanes binding the changed files have re-run.
 
+## WI-074 — `workspace check` changes the backup it was asked to verify
+
+**Opened:** 2026-10-08 (Sol review of `release/1.1.0-prep`, finding 1).
+**Status:** closed 2026-10-08 for 1.1.0 by `tests/test_workspace_check_read_only.py`. 1.0.0 is affected and stays so; the runbooks route around it.
+
+**What was wrong.** `gpo-studio workspace check` called `record_integrity_check`,
+which writes `last_<kind>_check_ok` and `last_<kind>_check_at` into
+`workspace_meta` of the database it checked. On a live workspace that is
+harmless. On a backup it changes the file after the `.meta.json` sidecar recorded
+the file's SHA-256, so `workspace restore` then refuses the backup with
+`Backup database checksum mismatch`. The runbooks told operators to do exactly
+that: back up, then `check --full` the backup, then (at rollback time) check it
+again and restore. The documented verification step destroyed the documented
+rollback point. Observed with the 1.0.0 release itself on a copy of the
+1.0.0-written backup (`legacy_check_full_on_a_backup_copy` in
+`tests/fixtures/release-1.0.0-workspace/provenance.json`), and reproduced by the
+release review against v1.0.0 source.
+
+**The fix (1.1.0).** The CLI check opens the database with SQLite's `mode=ro`
+(and `immutable=1` when no WAL side files exist, so it leaves none beside a
+backup), and no longer records anything. A future edit that records again fails
+at SQLite rather than silently. The server's integrity endpoint still records,
+on the live workspace it owns.
+
+**The 1.0.0 half.** No release can fix 1.0.0. The Windows quickstart, the
+workspace recovery runbook and `installation.md` now verify a backup by
+restoring it to a throwaway path and checking that copy, and verify the backup
+at rollback time through `workspace restore`'s own checksum check, then check the
+restored workspace. Those steps were executed end to end with the v1.0.0 wheel
+and a 1.1.0-labelled wheel of this tree.
+
+**Pinning tests:** `tests/test_workspace_check_read_only.py` (the CLI leaves a
+backup's bytes, a live workspace's bytes and the backup's directory unchanged,
+and a 1.0.0-written backup still restores after a check) and
+`tests/test_release_upgrade_from_1_0_0.py::test_known_issue_1_0_0_check_full_invalidated_a_backup`.
+
+
 ## WI-076 — firewall codec needs a write lane before a surface
 
 **Opened:** 2026-10-07 (Plan 034 firewall-only operator ruling).

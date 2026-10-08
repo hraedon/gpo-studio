@@ -8,12 +8,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  # release.yml calls this workflow so every job here runs, and must pass, on
+  # the exact tagged commit before anything is published.
+  workflow_call:
 
 # Supersede in-flight runs for the same ref so an amend-and-force-push does not
 # leave the previous run's jobs holding runner slots. Only for pull_request:
 # main-branch runs are the record of what landed and are left to complete.
+#
+# The group is spelled with a literal name, not `github.workflow`: when
+# release.yml calls this workflow, `github.workflow` is the caller's name, and
+# this group would then collide with identifier-gate.yml's in the same run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
