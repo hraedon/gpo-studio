@@ -110,10 +110,18 @@ if [[ -n "$(git status --porcelain)" ]]; then
     exit 2
 fi
 COMMIT="$(git rev-parse HEAD)"
-mkdir -p "$BATCH_DIR" "$BATCH_DIR/logs"
+# The batch directory holds every lane's ownership proof and report: nobody
+# else may be able to write in it. Created private; an existing one must not
+# be group- or world-writable unless it is sticky and ours.
+(umask 077 && mkdir -p "$BATCH_DIR" "$BATCH_DIR/logs")
+read -r batch_mode batch_owner < <(stat -c '%a %u' -- "$BATCH_DIR")
+if (( 8#$batch_mode & 8#022 )) && ! (( 8#$batch_mode & 8#1000 && batch_owner == $(id -u) )); then
+    echo "refusing: <batch-dir> $BATCH_DIR is writable by others (mode $batch_mode)" >&2
+    exit 2
+fi
 PROGRESS="$BATCH_DIR/progress.jsonl"
 export TMPDIR="$BATCH_DIR/tmp"
-mkdir -p "$TMPDIR"
+(umask 077 && mkdir -p "$TMPDIR")
 
 wanted=("$@")
 known=()
@@ -194,41 +202,44 @@ if [[ $TEST_SCOPE -eq 1 && -n "${GPO_STUDIO_REQUAL_TEST_SCOPE_ATTEMPTS:-}" ]]; t
     SCOPE_CLEAR_ATTEMPTS=$GPO_STUDIO_REQUAL_TEST_SCOPE_ATTEMPTS
 fi
 
-# scope_state <cgroup-file>: prints "empty", "populated <pids...>" or
-# "unknown", retrying an unknown answer. Never mistakes "could not tell" for
-# "nothing left".
+# scope_state <unit> <proof>: prints "empty", "populated [pids...]" or
+# "unknown". "empty" only on lane-scope's certified EMPTY (two consistent
+# reads) or confirmed GONE; an UNKNOWN answer is retried, and still unknown
+# after SCOPE_QUERY_ATTEMPTS it stays "unknown" -- never "empty".
 scope_state() {
     local pids rc i
     for ((i = 1; i <= SCOPE_QUERY_ATTEMPTS; i++)); do
-        pids="$("${SCOPE_TOOL[@]}" procs "$1" 2>/dev/null)"
+        pids="$("${SCOPE_TOOL[@]}" procs "$1" "$2" 2>/dev/null)"
         rc=$?
-        if [[ $rc -eq 3 || ( $rc -eq 0 && -z "${pids//[[:space:]]/}" ) ]]; then
-            echo empty
-            return 0
-        fi
-        if [[ $rc -eq 0 ]]; then
-            echo "populated $(tr '\n' ' ' <<<"$pids")"
-            return 0
-        fi
+        case $rc in
+            0 | 3) echo empty; return 0 ;;
+            1) echo "populated $(tr '\n' ' ' <<<"$pids")"; return 0 ;;
+        esac
         (( i < SCOPE_QUERY_ATTEMPTS )) && sleep 1
     done
     echo unknown
 }
 
-# clear_scope <cgroup-file> <log>: kill everything in the lane's cgroup and
+# clear_scope <unit> <proof> <log>: kill everything in the lane's cgroup and
 # VERIFY it emptied. Every kill is checked; returns 0 only on verified empty.
 clear_scope() {
-    local cgroup_file=$1 log=$2 state="" i
+    local unit=$1 proof=$2 log=$3 state="" i
     for ((i = 1; i <= SCOPE_CLEAR_ATTEMPTS; i++)); do
-        if ! "${SCOPE_TOOL[@]}" kill "$cgroup_file" >/dev/null 2>&1; then
+        if ! "${SCOPE_TOOL[@]}" kill "$unit" "$proof" >/dev/null 2>&1; then
             echo "=== watchdog: kill of the lane's cgroup failed (attempt $i)" >>"$log"
         fi
         sleep 1
-        state="$(scope_state "$cgroup_file")"
+        state="$(scope_state "$unit" "$proof")"
         [[ "$state" == empty ]] && return 0
     done
     echo "=== watchdog: the lane's cgroup could NOT be verified empty: $state" >>"$log"
     return 1
+}
+
+# Remove an invocation's private directory -- only ever one mktemp made here.
+drop_work() {
+    [[ -n "$1" && "$1" == "$TMPDIR"/tmp.* ]] && rm -rf -- "$1"
+    return 0
 }
 
 # run_bounded <deadline-epoch> <log> <command...>
@@ -244,10 +255,14 @@ clear_scope() {
 # scope is not verifiably empty afterwards (the scope is then killed and
 # verified), and adds to PROCESSES_KILLED every process cleanup signalled.
 run_bounded() {
-    local deadline=$1 log=$2 report cgroup_file status unit state parsed valid
+    local deadline=$1 log=$2 work report cgroup_file status unit state parsed valid
     shift 2
-    report="$(mktemp)"
-    cgroup_file="$(mktemp)"
+    # A private (0700) directory per invocation for the report and the
+    # ownership proof, which lane-scope.py publishes at 0600 and refuses to
+    # read from anywhere others can write.
+    work="$(mktemp -d)"
+    report="$work/report.json"
+    cgroup_file="$work/scope-proof"
     SCOPE_SEQ=$((SCOPE_SEQ + 1))
     unit="gpo-studio-lane-$SCOPE_NONCE-$SCOPE_SEQ"
     "${SCOPE_TOOL[@]}" start "$unit" "$SCOPE_NONCE" "$cgroup_file" -- \
@@ -260,10 +275,10 @@ run_bounded() {
         # to touch: nothing is killed or stopped by name.
         SCOPE_FAILED=1
         echo "=== watchdog: SCOPE NOT CREATED (status $status) for $unit; the lane never started and nothing was cleaned up by name" >>"$log"
-        rm -f "$report" "$report.partial" "$cgroup_file" "$cgroup_file.partial"
+        drop_work "$work"
         return "$CONTAINMENT_LOST_STATUS"
     fi
-    state="$(scope_state "$cgroup_file")"
+    state="$(scope_state "$unit" "$cgroup_file")"
     # The report is believed only if it is exactly what the supervisor writes:
     # a JSON object with these four fields and these types. Anything else -- a
     # missing, truncated or garbled report -- means containment is unknown.
@@ -294,14 +309,14 @@ print(r["status"], int(r["timed_out"]), int(r["cancelled"]), r["killed"])' "$rep
             read -ra leftover <<<"${state#populated }"
             PROCESSES_KILLED=$((PROCESSES_KILLED + ${#leftover[@]}))
         fi
-        if [[ "$state" == empty ]] || clear_scope "$cgroup_file" "$log"; then
+        if [[ "$state" == empty ]] || clear_scope "$unit" "$cgroup_file" "$log"; then
             echo "=== watchdog: scope $unit verified empty" >>"$log"
         fi
-        rm -f "$report" "$report.partial" "$cgroup_file" "$cgroup_file.partial"
+        drop_work "$work"
         return "$CONTAINMENT_LOST_STATUS"
     fi
     read -r status sup_timed_out sup_cancelled sup_killed <<<"$parsed"
-    rm -f "$report" "$report.partial" "$cgroup_file" "$cgroup_file.partial"
+    drop_work "$work"
     [[ $sup_timed_out -eq 1 ]] && WATCHDOG_FIRED=1
     [[ $sup_cancelled -eq 1 ]] && CANCELLED=1
     PROCESSES_KILLED=$((PROCESSES_KILLED + sup_killed))

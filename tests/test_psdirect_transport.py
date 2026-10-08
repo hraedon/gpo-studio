@@ -25,6 +25,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,69 @@ def test_no_caller_can_reach_the_fault_hook() -> None:
         if "-TestFault" in text or "GPO_STUDIO_PSDIRECT_ALLOW_TEST_FAULT" in text:
             offenders.append(str(path.relative_to(REPO_ROOT)))
     assert offenders == []
+
+
+_NATIVE_HARNESS = r"""
+param($Psdirect)
+$ErrorActionPreference = 'Stop'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $Psdirect, [ref] $null, [ref] $null)
+# Script blocks that run REMOTELY (on the host or in the guest) are not the
+# controller process; skip them.
+$remote = @($ast.FindAll({
+    param($n)
+    $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    "$($n.Left)" -in '$script:GuestWork', '$script:HostBlocks'
+}, $true) | ForEach-Object { $_.Extent })
+$defined = @($ast.FindAll({
+    param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
+}, $true) | ForEach-Object { $_.Name })
+$bad = foreach ($cmd in $ast.FindAll({
+    param($n) $n -is [System.Management.Automation.Language.CommandAst]
+}, $true)) {
+    $offset = $cmd.Extent.StartOffset
+    $inside = { param($e) $offset -ge $e.StartOffset -and $offset -lt $e.EndOffset }
+    if (@($remote | Where-Object { & $inside $_ }).Count) {
+        continue
+    }
+    $name = $cmd.GetCommandName()
+    if (-not $name) {
+        # The one dynamic invocation: a transfer attempt's own script block.
+        if ("$($cmd.CommandElements[0])" -eq '$Body') { continue }
+        "unresolvable invocation: $($cmd.Extent.Text)"
+        continue
+    }
+    if ($name -in 'Start-Process', 'Invoke-Item', 'Invoke-Expression', 'Start-Job') {
+        "starts or evaluates a process: $name"
+        continue
+    }
+    if ($name -in $defined) { continue }
+    $found = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $found -or "$($found.CommandType)" -notin 'Cmdlet', 'Function', 'Alias') {
+        "not a cmdlet: $name"
+    }
+}
+@($bad) | ConvertTo-Json -Compress
+"""
+
+
+def test_the_controller_starts_no_native_process() -> None:
+    """[Console]::SetOut cannot redirect a native child's fd 1 (review N3)."""
+    if shutil.which("pwsh") is None:
+        pytest.skip("pwsh is not installed")
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "native.ps1"
+        script.write_text(_NATIVE_HARNESS, encoding="utf-8")
+        completed = subprocess.run(
+            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script), "-Psdirect"]
+            + [str(PSDIRECT)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    assert completed.returncode == 0, completed.stderr
+    found = json.loads(completed.stdout.strip() or "[]")
+    assert (found if isinstance(found, list) else [found]) == []
 
 
 def test_the_guest_work_is_never_inside_a_restartable_transfer() -> None:

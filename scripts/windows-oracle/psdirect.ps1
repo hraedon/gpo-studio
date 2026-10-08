@@ -1235,6 +1235,13 @@ $stamp = "$(Get-Date -Format 'yyyyMMddHHmmss')-$([guid]::NewGuid().ToString('N')
 # stdout writer IS stderr: whatever the host, a warning or anything else
 # writes lands there. The real stdout is kept aside, and the held success
 # output is written to it, formatted, only after Complete-PsDirect.
+#
+# CONSTRAINT: SetOut swaps the .NET writer, not file descriptor 1. A NATIVE
+# child process started from this script would inherit fd 1 -- the real
+# stdout -- and could write ahead of the outcome. None is started on the
+# controller today (every remote leg is a cmdlet over a PSSession), and
+# tests/test_psdirect_transport.py fails if a controller-side command that
+# resolves to an application, or any unresolvable invocation, is added.
 $stdout = [Console]::Out
 [Console]::SetOut([Console]::Error)
 $held = [System.Collections.Generic.List[object]]::new()

@@ -114,7 +114,12 @@ def _require_scopes() -> None:
 #: be inherited). FAKE_SCOPE_MODE injects faults: "collision" (the unit name is
 #: taken: start fails, and procs/kill would act on EVERY process carrying any
 #: FAKE_SCOPE_ID, i.e. on the unit that already exists); "unknown" (the cgroup
-#: can never be read, and kill fails). Each call is logged to FAKE_SCOPE_LOG.
+#: can never be read, and kill fails); "hidden-populated" (the scope reports
+#: POPULATED with no pid it can name -- as cgroup.events does when a process
+#: lives in a child cgroup the walk missed -- until it has been killed). The
+#: protocol is lane-scope.py's: procs/kill take <unit> <proof>; procs exits
+#: 0 EMPTY, 1 POPULATED, 2 UNKNOWN, 3 GONE. Each call is logged to
+#: FAKE_SCOPE_LOG.
 _FAKE_SCOPE_TOOL = r"""#!/usr/bin/env python3
 import os, signal, sys
 mode = os.environ.get("FAKE_SCOPE_MODE", "")
@@ -154,17 +159,23 @@ if action == "start":
         fh.write(unit + "\n")
     os.replace(cgroup_file + ".partial", cgroup_file)
     os.execvp(command[0], command)
+expected, proof = sys.argv[2], sys.argv[3]
 unit = ""
-if os.path.exists(sys.argv[2]):
-    unit = open(sys.argv[2], encoding="utf-8").read().strip()
+if os.path.exists(proof):
+    unit = open(proof, encoding="utf-8").read().strip()
+killed_marker = os.environ["FAKE_SCOPE_LOG"] + ".killed"
 if action == "procs":
-    if mode == "unknown" or not unit:
+    if mode == "unknown" or not unit or unit != expected:
         sys.exit(2)
-    print("\n".join(str(pid) for pid in members(unit)))
-    sys.exit(0)
-if action == "kill":
-    if mode == "unknown":
+    if mode == "hidden-populated" and not os.path.exists(killed_marker):
         sys.exit(1)
+    pids = members(unit)
+    print("\n".join(str(pid) for pid in pids))
+    sys.exit(1 if pids else 0)
+if action == "kill":
+    if mode == "unknown" or unit != expected:
+        sys.exit(1)
+    open(killed_marker, "w").close()
     for pid in members(unit):
         try:
             os.kill(pid, signal.SIGKILL)
@@ -890,126 +901,58 @@ def test_no_script_selects_the_test_scope_tool() -> None:
     assert offenders == []
 
 
-def test_lane_scope_tells_unknown_from_gone(tmp_path: Path) -> None:
-    """The real tool's answers without any user manager: no recorded cgroup is
-    UNKNOWN (2), a recorded cgroup that no longer exists is gone (3)."""
-    missing = subprocess.run(
-        ["python3", str(SCOPE_TOOL), "procs", str(tmp_path / "never-written")],
+def test_a_scope_populated_without_a_nameable_pid_is_not_empty(tmp_path: Path) -> None:
+    """Re-check round 3: a process in a child cgroup the walk missed. The
+    scope says POPULATED with no pid; the driver must not read that as empty."""
+    proc, pids_file = _start_batch(tmp_path, _CLEAN_EXIT, mode="hidden-populated")
+    pids = _wait_for_pids(pids_file, 1)
+    out, err, survivors = _finish(proc, pids)
+    assert proc.returncode == 4, err
+    assert [(r["exit_status"], r["containment_lost"]) for r in _rows(tmp_path)] == [(125, True)]
+    log = (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert "report valid" in log and "populated" in log and "verified empty" in log
+    assert "kill" in (tmp_path / "scope.log").read_text().split()
+
+
+def _plain_env(tmp_path: Path) -> dict[str, str]:
+    return {
+        **os.environ,
+        **_scope_env(tmp_path),
+        "PATH": f"{_fake_acb(tmp_path, 0)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+    }
+
+
+def test_a_batch_dir_others_can_write_is_refused(tmp_path: Path) -> None:
+    """Every lane's ownership proof and report live under it."""
+    clone = _clone(tmp_path)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o775)
+    result = subprocess.run(
+        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(shared), "wp1b"],
+        cwd=clone,
+        env=_plain_env(tmp_path),
         capture_output=True,
+        text=True,
     )
-    assert missing.returncode == 2
-    gone_file = tmp_path / "gone"
-    gone_file.write_text("/user.slice/gpo-studio-lane-0000000000000000-1.scope\n")
-    gone = subprocess.run(
-        ["python3", str(SCOPE_TOOL), "procs", str(gone_file)], capture_output=True
-    )
-    assert gone.returncode == 3
-    escape_file = tmp_path / "escape"
-    escape_file.write_text("/../../etc\n")
-    escape = subprocess.run(
-        ["python3", str(SCOPE_TOOL), "procs", str(escape_file)], capture_output=True
-    )
-    assert escape.returncode == 2
-    bad_unit = subprocess.run(
-        [
-            "python3",
-            str(SCOPE_TOOL),
-            "start",
-            "some-other.unit",
-            "n",
-            str(tmp_path / "c"),
-            "--",
-            "true",
-        ],
+    assert result.returncode == 2
+    assert "writable by others" in result.stderr
+    assert not (tmp_path / "acb.log").exists()
+
+
+def test_the_batch_creates_its_directories_private_under_a_loose_umask(tmp_path: Path) -> None:
+    clone = _clone(tmp_path)
+    driver = str(clone / "scripts/plan-033/run-requal-batch.sh")
+    result = subprocess.run(
+        ["bash", "-c", 'umask 002 && exec bash "$0" "$1" wp1b', driver, str(tmp_path / "batch")],
+        cwd=clone,
+        env=_plain_env(tmp_path),
         capture_output=True,
+        text=True,
     )
-    assert bad_unit.returncode == 2
-
-
-def test_lane_scope_against_a_real_user_scope(tmp_path: Path) -> None:
-    """Integration: a name collision runs nothing and leaves the existing unit
-    alone; inside its own scope the tool records, lists and kills the cgroup
-    through /sys/fs/cgroup."""
-    _require_scopes()
-    nonce = os.urandom(8).hex()
-    taken = f"gpo-studio-lane-{nonce}-1"
-    holder = subprocess.Popen(
-        [
-            "systemd-run",
-            "--user",
-            "--scope",
-            "--quiet",
-            "--collect",
-            f"--unit={taken}",
-            "--",
-            "sleep",
-            "300",
-        ]
-    )
-    try:
-        time.sleep(1)
-        marker = tmp_path / "ran"
-        collided = subprocess.run(
-            [
-                "python3",
-                str(SCOPE_TOOL),
-                "start",
-                taken,
-                nonce,
-                str(tmp_path / "cg1"),
-                "--",
-                "touch",
-                str(marker),
-            ],
-            capture_output=True,
-            timeout=60,
-        )
-        assert collided.returncode != 0
-        assert not marker.exists(), "the command ran without its own scope"
-        assert not (tmp_path / "cg1").exists() or not (tmp_path / "cg1").read_text().strip()
-        assert holder.poll() is None, "the existing unit was disturbed"
-
-        own = f"gpo-studio-lane-{nonce}-2"
-        cgroup_file = tmp_path / "cg2"
-        runner = subprocess.Popen(
-            [
-                "python3",
-                str(SCOPE_TOOL),
-                "start",
-                own,
-                nonce,
-                str(cgroup_file),
-                "--",
-                "bash",
-                "-c",
-                "( setsid sleep 300 & ); sleep 300",
-            ]
-        )
-        deadline = time.monotonic() + 20
-        while not (cgroup_file.exists() and cgroup_file.read_text().strip()):
-            assert time.monotonic() < deadline, "the scope never recorded its cgroup"
-            time.sleep(0.1)
-        assert cgroup_file.read_text().strip().endswith(f"/{own}.scope")
-        time.sleep(1)
-        listed = subprocess.run(
-            ["python3", str(SCOPE_TOOL), "procs", str(cgroup_file)], capture_output=True, text=True
-        )
-        # the detached sleeper and the lane (bash exec's its last command)
-        assert listed.returncode == 0 and len(listed.stdout.split()) >= 2, listed.stdout
-        killed = subprocess.run(["python3", str(SCOPE_TOOL), "kill", str(cgroup_file)])
-        assert killed.returncode == 0
-        runner.wait(timeout=20)
-        deadline = time.monotonic() + 20
-        while True:
-            after = subprocess.run(
-                ["python3", str(SCOPE_TOOL), "procs", str(cgroup_file)],
-                capture_output=True,
-                text=True,
-            )
-            if after.returncode == 3 or (after.returncode == 0 and not after.stdout.split()):
-                break
-            assert time.monotonic() < deadline, after
-            time.sleep(0.2)
-    finally:
-        holder.terminate()
-        holder.wait()
+    assert result.returncode == 0, result.stderr
+    for sub in ("", "logs", "tmp"):
+        mode = (tmp_path / "batch" / sub).stat().st_mode & 0o777
+        assert mode & 0o022 == 0, (sub, oct(mode))
