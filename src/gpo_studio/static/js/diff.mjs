@@ -8,7 +8,12 @@ function formatLink(l){if(!l)return '—';return `${l.target} · ${l.enabled?'en
 function formatGppGroup(g){if(!g)return '—';const members=(g.members||[]).map(m=>m.name||m.sid).filter(Boolean).join(', ');return `${g.name||'(unnamed)'} · ${g.action} · sid ${g.sid||'—'}${members?` · members: ${members}`:''}`}
 function formatGppRegistry(r){if(!r)return '—';const v=Array.isArray(r.value)?(r.value[0]||null):r.value;if(!v)return `${r.key||'(no key)'} · ${r.action||''}`;const valStr=`${v.name||'(default)'}=${Array.isArray(v.value)?v.value.join(';'):String(v.value)}`;return `${r.key||'(no key)'} · ${r.action||''} · ${valStr}`}
 function formatCse(c){if(!c)return '—';return `${c.guid||''} · ${c.side||''} · ${(c.files||[]).length} file(s)`}
-function formatRedirection(r){if(!r)return '—';return `${r.full_path||'(no FullPath)'} · Flags ${r.flags_text||'(absent)'}`}
+// Backend equality (fdeploy.redirections_equal) covers every row entry, so the
+// cell shows every entry too: FullPath and Flags first, then each remaining
+// entry in file order. Showing only the first two let a change to any other
+// entry render as a "modified" row whose Old and New cells were identical.
+function redirectionExtras(r){const shown={fullpath:r.full_path||'',flags:r.flags_text||''},used=new Set();return (r.entries||[]).filter(([k,v])=>{const key=String(k).toLowerCase();if(key in shown&&!used.has(key)&&String(v)===shown[key]){used.add(key);return false}return true}).map(([k,v])=>`${k}=${v}`)}
+function formatRedirection(r){if(!r)return '—';return [`${r.full_path||'(no FullPath)'}`,`Flags ${r.flags_text||'(absent)'}`,...redirectionExtras(r)].join(' · ')}
 function redirectionLabel(c){return `${c.folder_guid||''} for ${c.principal||''}`}
 function kindClass(kind){return kind==='added'?'diff-added':kind==='removed'?'diff-removed':'diff-modified'}
 

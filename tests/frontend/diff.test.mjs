@@ -63,6 +63,77 @@ describe("renderDiff and imported fdeploy1.ini rows (WI-068)", () => {
     expect(html).not.toContain("No differences found");
   });
 
+  test("a change to an entry other than FullPath or Flags is visible", () => {
+    // Backend equality covers every entry; the cells must differ when it does.
+    const withEntry = (value) => ({
+      ...rule("\\\\server\\a"),
+      entries: [
+        ["FullPath", "\\\\server\\a"],
+        ["Flags", "1021"],
+        ["FutureSetting", value],
+      ],
+    });
+    const html = render({
+      fdeploy: [
+        {
+          kind: "modified",
+          folder_guid: FOLDER,
+          principal: "s-1-1-0",
+          old: withEntry("alpha"),
+          new: withEntry("<beta>"),
+        },
+      ],
+    });
+    expect(html).toContain("FutureSetting=alpha");
+    expect(html).toContain("FutureSetting=&lt;beta&gt;");
+    // FullPath and Flags are not repeated as raw entries.
+    expect(html).not.toContain("FullPath=");
+    expect(html).not.toContain("Flags=1021");
+  });
+
+  test("a duplicated FullPath entry is shown rather than folded away", () => {
+    const html = render({
+      fdeploy: [
+        {
+          kind: "modified",
+          folder_guid: FOLDER,
+          principal: "s-1-1-0",
+          old: rule("\\\\server\\a"),
+          new: {
+            ...rule("\\\\server\\a"),
+            entries: [
+              ["FullPath", "\\\\server\\a"],
+              ["FullPath", "\\\\server\\b"],
+            ],
+          },
+        },
+      ],
+    });
+    expect(html).toContain("FullPath=\\\\server\\b");
+  });
+
+  test("a conflict shows every differing entry in each column", () => {
+    const withEntry = (value) => ({
+      ...rule("\\\\server\\a"),
+      entries: [["FutureSetting", value]],
+    });
+    const html = render({
+      fdeploy_conflicts: [
+        {
+          folder_guid: FOLDER,
+          principal: "s-1-1-0",
+          baseline: withEntry("one"),
+          draft: withEntry("two"),
+          observed: withEntry("three"),
+        },
+      ],
+    });
+    expect(html).toContain("CONFLICT: Folder Redirection (1)");
+    for (const value of ["one", "two", "three"]) {
+      expect(html).toContain(`FutureSetting=${value}`);
+    }
+  });
+
   test("a response without the fields still renders", () => {
     expect(render({ settings: [], links: [], security_filters: [] })).toContain(
       "No differences found",
