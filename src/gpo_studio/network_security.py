@@ -1,13 +1,22 @@
 """Network and public-key security families.
 
-Windows Firewall with Advanced Security, IPsec connection security rules,
-public key (certificate) policies, and wired/wireless network policies.
+**The firewall half is `firewall_policy.py`, re-exported** (WI-076, 2026-10-08).
+`FirewallPolicy`, `FirewallRule`, `FirewallProfileSettings` and the firewall
+literal types below are the capture-backed codec's own classes, which the
+firewall lane certified (`firewall-20261008094055-2092337`) and
+`/api/network-security/firewall/*` surfaces. The legacy firewall model that
+used to live here assumed one global set of profile values, protocol names and
+free-form port strings; it could not represent the native capture, so it was
+replaced rather than aliased. Its rule-level advice (broad inbound allows,
+disabled logging) went with it: the codec's `validate()` reports what Windows
+was measured to accept, not what an administrator should prefer.
 
-Unlike the account and object families in :mod:`policy_families` and
-:mod:`object_security`, these families are not stored in the INF security
-template; they use dedicated Group Policy Client-Side Extension (CSE) formats.
-This module therefore exposes typed models with validation and aggregate risk
-assessment, keeping the core independent from FastAPI.
+**IPsec connection security, Public Key and wired/wireless network policy are
+out of scope for 1.x** (operator ruling 2026-10-07). Their typed models remain
+below, reachable from no API endpoint, UI module or export path, and none has
+Windows evidence. They are retained code, not capabilities.
+
+This module stays independent from FastAPI.
 """
 
 from __future__ import annotations
@@ -17,16 +26,24 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
+from .firewall_policy import (
+    FirewallAction,
+    FirewallDirection,
+    FirewallParseResult,
+    FirewallPolicy,
+    FirewallProfile,
+    FirewallProfileSettings,
+    FirewallRule,
+    FirewallValidationError,
+    UnknownFirewallToken,
+    from_registry_records,
+    to_registry_settings,
+)
 from .model import ValidationIssue
 
 # ---------------------------------------------------------------------------
-# Type aliases
+# Type aliases (out-of-scope families)
 # ---------------------------------------------------------------------------
-
-FirewallDirection = Literal["inbound", "outbound"]
-FirewallAction = Literal["allow", "block", "bypass"]
-FirewallProtocol = Literal["tcp", "udp", "icmpv4", "icmpv6", "any"]
-FirewallProfile = Literal["domain", "private", "public"]
 
 IpsecMode = Literal["transport", "tunnel"]
 IpsecAuthentication = Literal["kerberos", "certificate", "preshared_key", "ntlm"]
@@ -46,38 +63,6 @@ _THUMBPRINT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 # ---------------------------------------------------------------------------
 
 
-def _validate_port_string(port: str) -> bool:
-    """Return ``True`` if a port specification is well-formed.
-
-    Accepts empty (no restriction), ``"*"`` (any), single ports (``"80"``),
-    ranges (``"1024-2048"``), and comma-separated lists of the above.
-    """
-    stripped = port.strip()
-    if not stripped or stripped == "*":
-        return True
-    for part in stripped.split(","):
-        part = part.strip()
-        if not part or part == "*":
-            continue
-        if "-" in part:
-            bounds = part.split("-", 1)
-            try:
-                low = int(bounds[0].strip())
-                high = int(bounds[1].strip())
-            except (ValueError, IndexError):
-                return False
-            if not (0 <= low <= 65535) or not (0 <= high <= 65535) or low > high:
-                return False
-        else:
-            try:
-                value = int(part)
-            except ValueError:
-                return False
-            if not (0 <= value <= 65535):
-                return False
-    return True
-
-
 def _is_expired(not_after: str) -> bool:
     """Return ``True`` if *not_after* parses to a past date/time.
 
@@ -94,145 +79,6 @@ def _is_expired(not_after: str) -> bool:
     if parsed.tzinfo is not None:
         return parsed < datetime.now(parsed.tzinfo)
     return parsed < datetime.now()
-
-
-# ---------------------------------------------------------------------------
-# Windows Firewall with Advanced Security
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class FirewallRule:
-    rule_id: str = ""
-    name: str = ""
-    direction: FirewallDirection = "inbound"
-    action: FirewallAction = "block"
-    protocol: FirewallProtocol = "any"
-    local_port: str = ""
-    remote_port: str = ""
-    local_address: str = ""
-    remote_address: str = ""
-    profiles: tuple[FirewallProfile, ...] = ("domain", "private", "public")
-    enabled: bool = True
-    description: str = ""
-    program: str = ""
-    service: str = ""
-
-    def validate(self) -> tuple[ValidationIssue, ...]:
-        issues: list[ValidationIssue] = []
-        ident = self.name.strip() or self.rule_id.strip() or "?"
-        path = f"FirewallPolicy/rules/{ident}"
-        if not self.name.strip():
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "firewall_rule_empty_name",
-                    "Firewall rule has an empty name.",
-                    "FirewallPolicy/rules",
-                )
-            )
-        if not _validate_port_string(self.local_port):
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "firewall_rule_invalid_local_port",
-                    f"Local port specification '{self.local_port}' is invalid.",
-                    f"{path}/local_port",
-                )
-            )
-        if not _validate_port_string(self.remote_port):
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "firewall_rule_invalid_remote_port",
-                    f"Remote port specification '{self.remote_port}' is invalid.",
-                    f"{path}/remote_port",
-                )
-            )
-        if (
-            self.action == "allow"
-            and self.direction == "inbound"
-            and self.remote_address.strip() in ("", "*")
-        ):
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "firewall_broad_inbound_allow",
-                    "Inbound allow rule with any remote address is overly permissive.",
-                    f"{path}/remote_address",
-                )
-            )
-        if self.protocol in ("icmpv4", "icmpv6") and (
-            self.local_port.strip() or self.remote_port.strip()
-        ):
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "firewall_icmp_port_ignored",
-                    "Port settings are ignored for ICMP rules.",
-                    f"{path}/protocol",
-                )
-            )
-        return tuple(issues)
-
-
-@dataclass(frozen=True, slots=True)
-class FirewallPolicy:
-    rules: tuple[FirewallRule, ...] = field(default_factory=tuple)
-    domain_profile_enabled: bool = True
-    private_profile_enabled: bool = True
-    public_profile_enabled: bool = True
-    default_inbound_action: FirewallAction = "block"
-    default_outbound_action: FirewallAction = "allow"
-    logging_enabled: bool = False
-    log_path: str = ""
-    log_size_limit_kb: int = 4096
-
-    def validate(self) -> tuple[ValidationIssue, ...]:
-        issues: list[ValidationIssue] = []
-        if not (
-            self.domain_profile_enabled
-            or self.private_profile_enabled
-            or self.public_profile_enabled
-        ):
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "firewall_all_profiles_disabled",
-                    "All firewall profiles are disabled; the firewall is "
-                    "effectively off.",
-                    "FirewallPolicy/profiles",
-                )
-            )
-        if self.default_inbound_action == "allow":
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "firewall_permissive_default_inbound",
-                    "Default inbound action is set to allow, which is permissive.",
-                    "FirewallPolicy/default_inbound_action",
-                )
-            )
-        if not self.logging_enabled:
-            issues.append(
-                ValidationIssue(
-                    "warning",
-                    "firewall_logging_disabled",
-                    "Firewall logging is disabled.",
-                    "FirewallPolicy/logging_enabled",
-                )
-            )
-        for rule in self.rules:
-            issues.extend(rule.validate())
-        return tuple(issues)
-
-    def rules_for_profile(self, profile: FirewallProfile) -> tuple[FirewallRule, ...]:
-        return tuple(rule for rule in self.rules if profile in rule.profiles)
-
-    def rules_for_direction(
-        self, direction: FirewallDirection
-    ) -> tuple[FirewallRule, ...]:
-        return tuple(rule for rule in self.rules if rule.direction == direction)
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +339,8 @@ def assess_network_security(
 
     Risk rules (highest priority first):
 
-    * Firewall disabled **and** no IPsec rules → ``critical``
+    * Firewall explicitly disabled on every profile **and** no IPsec rules
+      → ``critical``
     * Any error → ``high``
     * Weak encryption anywhere (IPsec ``none``/``des`` or WEP wireless) → ``high``
     * Only warnings → ``medium``
@@ -504,10 +351,13 @@ def assess_network_security(
     pki_issues = pki.validate()
     network_issues = networks.validate()
 
-    firewall_disabled = not (
-        firewall.domain_profile_enabled
-        or firewall.private_profile_enabled
-        or firewall.public_profile_enabled
+    # `None` is "not configured by this policy", so the local default
+    # (enabled) applies; only an explicit False on every profile is "off".
+    # The codec refuses an explicit False (unmeasured), so such a policy also
+    # carries an error below.
+    firewall_disabled = all(
+        profile.enabled is False
+        for profile in (firewall.domain, firewall.private, firewall.public)
     )
     no_ipsec = len(ipsec.rules) == 0
 
@@ -548,10 +398,12 @@ __all__ = [
     "CertificateTrustEntry",
     "FirewallAction",
     "FirewallDirection",
+    "FirewallParseResult",
     "FirewallPolicy",
     "FirewallProfile",
-    "FirewallProtocol",
+    "FirewallProfileSettings",
     "FirewallRule",
+    "FirewallValidationError",
     "IpsecAuthentication",
     "IpsecEncryption",
     "IpsecMode",
@@ -562,5 +414,8 @@ __all__ = [
     "NetworkSecurityAssessment",
     "NetworkSecurityFamily",
     "PublicKeyPolicy",
+    "UnknownFirewallToken",
     "assess_network_security",
+    "from_registry_records",
+    "to_registry_settings",
 ]

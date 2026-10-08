@@ -9,6 +9,85 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- Added the firewall surface (Plan 034, WI-076), over the firewall lane's first
+  certification, `firewall-20261008094055-2092337` (36/36 at `a6e0002`, on
+  LabMS01, WS2025 26100, PowerShell 5.1), now banked under
+  `docs/plan-033/wp3-evidence/firewall-20261008/` and live. Its read leg parses
+  rules Windows authored with `New-NetFirewallRule -PolicyStore` with zero
+  unrecognised records; its write leg imports Studio's backup with
+  `Import-GPO` and gets Studio's Registry.pol back byte for byte. See
+  [the results](docs/plan-033/firewall-results.md).
+  - **Render.** `POST /api/network-security/firewall/render` turns typed rules
+    and per-profile settings into `registry_settings` in the shape
+    `POST /api/gpos/{guid}/settings` accepts, plus the raw rule strings. It
+    writes nothing. Anything outside the measured tranche is a 422 with the
+    codec's issue code. A test holds the output for the certified request
+    equal to the lane builder's, and shows those settings, posted to a GPO and
+    exported, give the Registry.pol Windows returned.
+  - **Decode.** `GET /api/gpos/{guid}/firewall-policy` decodes a GPO's firewall
+    records, imported GPOs included (`empty`, `decoded`, `legacy` or
+    `refused`), with unknown rule tokens preserved and flagged. A test holds
+    the decode of the banked native fixture equal to the finalizer's parse.
+  - Every response carries `policy_store_readback_not_application`,
+    `representative_tranche_only`, `ipsec_pki_wired_wireless_out_of_scope`,
+    `gpme_display_unmeasured` and `single_build_measured`.
+  - **Breaking (unsurfaced module):** `network_security.py`'s legacy
+    `FirewallRule`, `FirewallPolicy` and `FirewallProtocol` are removed; the
+    module re-exports `firewall_policy`'s classes under explicit names, and
+    `assess_network_security` treats the firewall as disabled only when every
+    profile is explicitly `enabled=False`. IPsec, Public Key, wired and
+    wireless stay out of scope for 1.x.
+  - The capability matrix marks the firewall `lane-backed and surfaced`, Plan
+    034's row reaches `yes` for the firewall, and Plan 025 leaves the
+    unsurfaced domain-layer set. WI-076 is closed. WI-077 records the one
+    observation the lane made without asserting: Studio's export registers the
+    `D02B1F72` tool GUID where native authoring registers `B05566AC`; GPMC's
+    report rendered both, and GPME display is unmeasured.
+  - The firewall lane binds the export chain, so with the lifecycle and
+    report-parity lanes also banked, `gpp.py`, `model.py`, `registry_pol.py`
+    and `xml_safety.py` now cost four lanes, `canonical.py`, `export.py` and
+    `validation.py` three, and `publication.py` two (`bound-source-cost.md`
+    regenerated).
+
+- Banked the same-domain lifecycle lane and added its restore-plan surface
+  (Plan 034). Run `lifecycle-20261008093248-2000-c76d10eb3f2849fe` passed at
+  `3513052` on a clean tree, on LabMS01 (WS2025, PowerShell 5.1). All 30 cells
+  of `lifecycle.SCOPE_SURVIVAL` (five GPMC operations by six scope dimensions)
+  agreed with what Windows did, as did the five plan-identity claims and the
+  backup bridge, and cleanup was proven empty. The pack is
+  `docs/plan-033/wp7-evidence/lifecycle/`. `tests/test_lifecycle_verdict.py`
+  re-grades its raw `result.json` with the shipping finalizer and holds the
+  table equal to the observed cells. See
+  [the results](docs/plan-033/lifecycle-results.md), which also record the
+  `Backup.xml` WMI wire shape (`MSFT_SomFilter.ID="{id}",Domain="DOMAIN"` plus
+  `WMIFilterName`), the DC/member clock-skew finding from exploratory run 1,
+  and the one residual that cannot be closed from the client.
+  - **Restore plan.** `POST /api/lifecycle/restore-plan` takes a workspace GPO
+    imported from a Windows backup, an operation (`restore_in_place`,
+    `import_into_existing`, `import_as_new`, `copy`, `copy_with_acl`), the
+    target arguments and optional `existing_gpo_names`. It returns
+    `generate_restore_plan`'s plan: cmdlet, target identity,
+    `requires_target_absent`, preconditions and warnings. Each survival cell
+    is marked measured and cites the run, except a WMI cell for a backup
+    whose `WMIFilter` reference is not the measured `MSFT_SomFilter` shape in
+    the GPO's own domain with a `WMIFilterName`: that cell is `measured: false`
+    with an `unmeasured_reason`. Every response carries six
+    limitations: `studio_executes_nothing`, `same_domain_only`,
+    `cross_domain_out_of_scope`, `one_topology_measured`,
+    `deleted_gpo_restore_unmeasured` and `target_state_unchecked`. These are
+    refused with 422 and a code: GPOs authored in Studio and forks of an import
+    (the lane measured Windows backups only). Which GPOs count as the direct
+    import of a backup is read from their own immutable revision 1 and retained
+    `Backup.xml`, never from fields an edit can change. `import_into_existing`
+    by `-TargetName` (the lane used `-TargetGuid` only), cross-domain targets,
+    taken target names, and malformed target arguments. The surface composes in
+    `api.py` and touches no bound file.
+  - `lifecycle` reaches `yes` for its same-domain half in Plan 034's table and
+    is `lane-backed and surfaced` in the capability matrix. Cross-domain stays
+    out of scope by the 2026-10-07 ruling. Plan 028 leaves the unsurfaced
+    domain-layer set: `gpmc_interop`, its other module, was reduced to the one
+    type `publication` imports.
+
 - Banked the report-parity lane's certifying run,
   `report-parity-20261008104512-7480`: 25/25 checks on LabMS01 (Windows Server
   2025, build 26100, PowerShell 5.1) at clean commit `a1c280b`, over all 27
@@ -88,9 +167,10 @@ Current version: `1.0.0`.
   `bound-source-cost.md` is regenerated: `model.py`, `gpp.py` and `xml_safety.py`
   now cost three lanes, and `backup.py`, `backup_inventory.py`, `safe_io.py`,
   `fdeploy.py` and `fdeploy_parity.py` cost one.
-  With the report-parity lane also live (merged from `main`), the regenerated
-  table prices `model.py`, `gpp.py` and `xml_safety.py` at four lanes,
-  `registry_pol.py` at three, and `backup.py` and `backup_inventory.py` at two.
+  With the report-parity, firewall and lifecycle lanes also live (merged from
+  `main`), the regenerated table prices `model.py`, `gpp.py` and `xml_safety.py`
+  at five lanes, `registry_pol.py` at four, `backup.py` at three and
+  `backup_inventory.py` at two.
 
 - Added two Plan 034 surfaces over the lanes the
   [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:

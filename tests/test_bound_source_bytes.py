@@ -100,12 +100,14 @@ def test_discovery_covers_every_finalizer_and_its_declared_paths() -> None:
     # report parity, fdeploy) land on separate branches, and an exact count
     # makes every pair of them conflict here. The set equality above is what
     # catches an undiscovered finalizer.
-    assert len(lanes) >= 11
+    assert len(lanes) >= 13
+    assert "scripts/windows-oracle/run-firewall-policy.ps1" in lanes["finalize_firewall_run.py"]
     for name, paths in lanes.items():
         assert paths, name
         assert all((ROOT / p).is_file() for p in paths), name
     assert "tests/fixtures/recipes/synthetic-registry-basic.json" in lanes["finalize_oracle_run.py"]
     assert "src/gpo_studio/export.py" in lanes["finalize_publication_run.py"]
+    assert "src/gpo_studio/lifecycle.py" in lanes["finalize_lifecycle_run.py"]
     assert "scripts/windows-oracle/run-rsop-user-observe.ps1" in lanes["finalize_rsop_user_run.py"]
     assert "src/gpo_studio/fdeploy_parity.py" in lanes["finalize_fdeploy_run.py"]
     assert "src/gpo_studio/report_parity.py" in lanes["finalize_report_parity_run.py"]

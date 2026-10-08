@@ -13,20 +13,22 @@ import re
 import time
 import uuid as uuid_module
 import zipfile
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Literal, assert_never, cast, get_args
+from typing import Annotated, Any, Literal, assert_never, cast, get_args
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
+from starlette.routing import Match
 from starlette.types import Scope
 
 from . import __version__
@@ -51,7 +53,7 @@ from .admx import (
     PolicyDefinition,
     find_policy,
 )
-from .backup import BackupError, read_backup
+from .backup import BackupError, BackupGpo, GpmcBackup, read_backup
 from .canonical import policy_semantic_sha256, review_model_sha256
 from .delegation import (
     EffectiveRights,
@@ -89,6 +91,18 @@ from .fdeploy import (
     read_fdeploy,
     validate_fdeploy,
 )
+from .firewall_policy import (
+    FIREWALL_KEY,
+    FirewallAction,
+    FirewallDirection,
+    FirewallPolicy,
+    FirewallProfile,
+    FirewallProfileSettings,
+    FirewallRule,
+    FirewallValidationError,
+    from_registry_records,
+    to_registry_settings,
+)
 from .gpp import (
     _GROUP_KNOWN_CHILDREN,
     _GROUP_PROPS_KNOWN_ATTRS,
@@ -124,6 +138,15 @@ from .import_export import (
     collect_gpp_collections,
     extract_side_settings,
     resolve_gpo,
+)
+from .lifecycle import (
+    SCOPE_DIMENSIONS,
+    SCOPE_SURVIVAL,
+    BackupManifest,
+    WindowsOperation,
+    generate_restore_plan,
+    manifest_from_backup,
+    parse_wmi_filter_reference,
 )
 from .model import (
     GPO,
@@ -1942,6 +1965,62 @@ def _is_loopback_host(host: str) -> bool:
     return any(host.startswith(known + ":") for known in _LOOPBACK_HOSTS)
 
 
+#: Route path -> the limitations that route promises on EVERY response,
+#: refusals included. A surface whose limits travel only with its 200s tells a
+#: caller who was refused (422), who named the wrong GPO (404) or whose request
+#: never reached the handler (400/403/413/421 from the middleware below, or a
+#: body FastAPI could not parse) nothing about what the surface could never
+#: have answered. Every refusal path in this module builds its body through
+#: `_error_body`, which adds `limitations` beside the error for a registered
+#: route. The route is the one the router matched (`scope["route"]`) or, for
+#: the middleware, which refuses before routing, the one the router would
+#: match (`_routed_template`). The firewall surface registers itself where it
+#: is defined.
+_ROUTE_LIMITATIONS: dict[str, Callable[[], list[dict[str, str]]]] = {}
+
+
+def _routed_template(scope: Scope) -> str | None:
+    """The path template of the route the router picks (or picked) for *scope*.
+
+    A matched route is in the scope once routing has run; that is the answer.
+    Before routing (the middleware refusals) the router's own choice is
+    replayed: `Route.matches` over `app.routes` in order, the first full match
+    winning and otherwise the first partial (path matched, method not, which
+    the router answers with 405). This uses the decoded ASGI path and root-path
+    handling the router uses. Re-parsing `request.url` would not: a decoded
+    `?` or `#` in the path becomes a URL delimiter there (Sol, PR 96).
+    """
+    matched = scope.get("route")
+    if matched is not None:
+        template = getattr(matched, "path", None)
+        return template if isinstance(template, str) else None
+    if scope.get("type") != "http":
+        return None
+    partial: str | None = None
+    for route in app.routes:
+        match, _child = route.matches(scope)
+        template = getattr(route, "path", None)
+        if match is Match.FULL:
+            return template if isinstance(template, str) else None
+        if match is Match.PARTIAL and partial is None and isinstance(template, str):
+            partial = template
+    return partial
+
+
+def _error_body(
+    request: Request, detail: Any, *, key: str = "error"
+) -> dict[str, Any]:
+    body: dict[str, Any] = {key: detail}
+    template = _routed_template(request.scope)
+    if template is not None and template in _ROUTE_LIMITATIONS:
+        body["limitations"] = _ROUTE_LIMITATIONS[template]()
+    return body
+
+
+def _refusal(request: Request, message: str, status_code: int) -> JSONResponse:
+    return JSONResponse(_error_body(request, {"message": message}), status_code=status_code)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
@@ -1969,10 +2048,7 @@ class HostValidationMiddleware(BaseHTTPMiddleware):
         if not _is_unsafe_mode():
             host = request.headers.get("host", "")
             if not _is_loopback_host(host):
-                return JSONResponse(
-                    {"error": {"message": "Host header not allowed"}},
-                    status_code=421,
-                )
+                return _refusal(request, "Host header not allowed", 421)
         return await call_next(request)
 
 
@@ -1984,28 +2060,16 @@ class OriginValidationMiddleware(BaseHTTPMiddleware):
             origin = request.headers.get("origin", "")
             if origin:
                 if origin == "null":
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
                 try:
                     parsed = urlparse(origin)
                 except ValueError:
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
                 if parsed.scheme not in ("http", "https"):
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
                 origin_host = parsed.hostname or ""
                 if not origin_host or not _is_loopback_host(origin_host):
-                    return JSONResponse(
-                        {"error": {"message": "Origin not allowed"}},
-                        status_code=403,
-                    )
+                    return _refusal(request, "Origin not allowed", 403)
         return await call_next(request)
 
 
@@ -2015,34 +2079,22 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     ) -> StarletteResponse:
         te = request.headers.get("transfer-encoding", "").lower()
         if "chunked" in te:
-            return JSONResponse(
-                {"error": {"message": "Chunked transfer encoding not supported"}},
-                status_code=400,
-            )
+            return _refusal(request, "Chunked transfer encoding not supported", 400)
         content_length = request.headers.get("content-length")
         if content_length:
             try:
                 cl = int(content_length)
             except ValueError:
-                return JSONResponse(
-                    {"error": {"message": "Invalid Content-Length"}},
-                    status_code=400,
-                )
+                return _refusal(request, "Invalid Content-Length", 400)
             if cl < 0 or cl > MAX_REQUEST_BODY_BYTES:
-                return JSONResponse(
-                    {"error": {"message": "Request body too large"}},
-                    status_code=413,
-                )
+                return _refusal(request, "Request body too large", 413)
 
         if request.method in _MUTATION_METHODS:
             body = bytearray()
             async for chunk in request.stream():
                 body.extend(chunk)
                 if len(body) > MAX_REQUEST_BODY_BYTES:
-                    return JSONResponse(
-                        {"error": {"message": "Request body too large"}},
-                        status_code=413,
-                    )
+                    return _refusal(request, "Request body too large", 413)
             request._body = bytes(body)
 
         return await call_next(request)
@@ -2176,7 +2228,7 @@ app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
 
 
 @app.exception_handler(StudioError)
-async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
+async def studio_error(request: Request, error: StudioError) -> JSONResponse:
     status = (
         404
         if isinstance(error, NotFoundError)
@@ -2193,7 +2245,7 @@ async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
         detail["code"] = "revision_conflict"
         detail["expected_revision"] = error.expected_revision
         detail["current_revision"] = error.current_revision
-    return JSONResponse({"error": detail}, status_code=status)
+    return JSONResponse(_error_body(request, detail), status_code=status)
 
 
 @app.exception_handler(AmbiguousPolicyError)
@@ -2226,14 +2278,24 @@ async def fdeploy_error(_request: Request, error: FdeployError) -> JSONResponse:
     return JSONResponse({"error": {"message": str(error)}}, status_code=400)
 
 
-def _json_safe_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
+def _json_default(value: object) -> str:
+    """A JSON stand-in for what a validation issue can carry and JSON cannot.
+
+    A non-JSON body (`text/plain`, form data) reaches the model as `bytes`,
+    and pydantic echoes it as the issue's `input`; serializing that raised
+    inside the error handler and turned a 422 into a 500. The bytes are
+    summarized rather than echoed: the caller already has them.
+    """
+    if isinstance(value, bytes | bytearray):
+        return f"<{len(value)} bytes, not JSON>"
+    return str(value)
+
+
+def _json_safe(value: Any) -> Any:
     try:
-        safe = json.loads(json.dumps(ctx, default=str))
+        return json.loads(json.dumps(value, default=_json_default))
     except (TypeError, ValueError):
-        return {str(k): str(v) for k, v in ctx.items()}
-    if isinstance(safe, dict):
-        return cast(dict[str, Any], safe)
-    return {str(k): str(v) for k, v in ctx.items()}
+        return str(value)
 
 
 def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
@@ -2242,25 +2304,42 @@ def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
         if not isinstance(issue, dict):
             sanitized.append({"issue": str(issue)})
             continue
-        clean: dict[str, Any] = {}
-        for key, value in issue.items():
-            if key == "ctx" and isinstance(value, dict):
-                clean[key] = _json_safe_ctx(value)
-            else:
-                clean[key] = value
-        sanitized.append(clean)
+        safe = _json_safe(issue)
+        sanitized.append(
+            cast(dict[str, Any], safe)
+            if isinstance(safe, dict)
+            else {"issue": str(issue)}
+        )
     return sanitized
 
 
-@app.exception_handler(RequestValidationError)
-async def request_validation(_request: Request, error: RequestValidationError) -> JSONResponse:
+@app.exception_handler(StarletteHTTPException)
+async def http_exception(request: Request, error: StarletteHTTPException) -> Response:
+    """Starlette's default body (`{"detail": ...}`), plus a route's limitations.
+
+    FastAPI raises this itself for a body it cannot parse (400) before any
+    handler runs. Status 204/304 carry no body, as in the default handler.
+    """
+    headers = getattr(error, "headers", None)
+    if error.status_code in (204, 304):
+        return Response(status_code=error.status_code, headers=headers)
     return JSONResponse(
-        {
-            "error": {
+        _error_body(request, error.detail, key="detail"),
+        status_code=error.status_code,
+        headers=headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation(request: Request, error: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        _error_body(
+            request,
+            {
                 "message": "Invalid request",
                 "issues": _sanitize_validation_issues(error.errors()),
-            }
-        },
+            },
+        ),
         status_code=422,
     )
 
@@ -5869,4 +5948,812 @@ def publication_plan_preview(
         "issues": [asdict(issue) for issue in issues],
         "absences": absences,
         "limitations": _publication_limitations(),
+    }
+
+
+# --------------------------------------------------------------------------
+# Plan 034: the firewall surface (WI-076).
+#
+# `firewall_policy.py` is bound by the firewall lane's verdict
+# (`firewall-20261008094055-2092337`, 36/36 at a6e0002), as are the builder and
+# the export chain, so the composition lives here, in a file no lane binds.
+# The render endpoint emits exactly what `to_registry_settings` emits, in the
+# shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
+# `tests/test_firewall_surface.py` holds its output for the certified request
+# equal to `build-firewall-candidate.py`'s, and the decode endpoint's output on
+# the banked native fixture equal to what `finalize_firewall_run.py` parses.
+#
+# The codec refuses everything outside the measured tranche. The surface
+# passes that refusal on as a 422 with the codec's issue codes rather than
+# emitting the request with a warning.
+# --------------------------------------------------------------------------
+
+
+class FirewallRuleData(BaseModel):
+    """One rule, in `firewall_policy.FirewallRule`'s vocabulary.
+
+    Every field maps one to one; the codec decides which combinations were
+    measured. Numbers and booleans are strict so that `true` cannot become
+    protocol 1 and `"6"` cannot become TCP on the way in.
+    """
+
+    rule_id: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=1024)
+    direction: FirewallDirection = "inbound"
+    action: FirewallAction = "allow"
+    enabled: StrictBool = True
+    #: IANA protocol number; omitted means Any (no Protocol token).
+    protocol: StrictInt | None = None
+    #: Empty means Any, not all three profiles.
+    profiles: list[FirewallProfile] = Field(default_factory=list, max_length=3)
+    local_port: str | None = Field(default=None, max_length=32)
+    remote_port: StrictInt | None = None
+    remote_port_range: tuple[StrictInt, StrictInt] | None = None
+    icmp4: str | None = Field(default=None, max_length=32)
+    local_address: str | None = Field(default=None, max_length=64)
+    remote_addresses: list[str] = Field(default_factory=list, max_length=2)
+    program: str | None = Field(default=None, max_length=1024)
+    service: str | None = Field(default=None, max_length=256)
+    interface_type: str | None = Field(default=None, max_length=32)
+    description: str | None = Field(default=None, max_length=1024)
+    group: str | None = Field(default=None, max_length=1024)
+    edge_traversal: StrictBool | None = None
+    remote_machine: str | None = Field(default=None, max_length=1024)
+    security: str | None = Field(default=None, max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FirewallProfileData(BaseModel):
+    """Per-profile settings; an omitted field is not configured, never a default."""
+
+    enabled: StrictBool | None = None
+    default_inbound_action: FirewallAction | None = None
+    default_outbound_action: FirewallAction | None = None
+    disable_notifications: StrictBool | None = None
+    log_dropped_packets: StrictBool | None = None
+    log_successful_connections: StrictBool | None = None
+    log_file_size_kb: StrictInt | None = None
+    log_file_path: str | None = Field(default=None, max_length=1024)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FirewallRenderRequest(BaseModel):
+    """A machine firewall policy: typed rules plus per-profile settings.
+
+    `policy_version` defaults to 545, the only value measured and the one the
+    codec requires whenever anything is configured.
+    """
+
+    policy_version: StrictInt | None = 545
+    domain: FirewallProfileData = Field(default_factory=FirewallProfileData)
+    private: FirewallProfileData = Field(default_factory=FirewallProfileData)
+    public: FirewallProfileData = Field(default_factory=FirewallProfileData)
+    rules: list[FirewallRuleData] = Field(default_factory=list, max_length=500)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FirewallRegistrySettingResponse(BaseModel):
+    """Exactly the body `setting` of `POST /api/gpos/{guid}/settings`.
+
+    DWORD values are canonical decimal strings, as that endpoint requires.
+    """
+
+    side: str
+    hive: str
+    key: str
+    value_name: str
+    registry_type: str
+    value: str
+    action: str
+    comment: str
+
+
+class FirewallRuleStringResponse(BaseModel):
+    rule_id: str
+    value: str
+
+
+class FirewallLimitation(BaseModel):
+    code: str
+    message: str
+
+
+class FirewallRenderResponse(BaseModel):
+    registry_settings: list[FirewallRegistrySettingResponse]
+    rule_strings: list[FirewallRuleStringResponse]
+    issues: list[ValidationIssueResponse]
+    limitations: list[FirewallLimitation]
+
+
+class FirewallUnknownTokenResponse(BaseModel):
+    position: int
+    text: str
+
+
+class FirewallRuleResponse(BaseModel):
+    rule_id: str
+    name: str
+    direction: str
+    action: str
+    enabled: bool
+    protocol: int | None
+    profiles: list[str]
+    local_port: str | None
+    remote_port: int | None
+    remote_port_range: list[int] | None
+    icmp4: str | None
+    local_address: str | None
+    remote_addresses: list[str]
+    program: str | None
+    service: str | None
+    interface_type: str | None
+    description: str | None
+    group: str | None
+    edge_traversal: bool | None
+    remote_machine: str | None
+    security: str | None
+    unknown_tokens: list[FirewallUnknownTokenResponse]
+    #: The REG_SZ value exactly as stored on the GPO.
+    rule_string: str
+
+
+class FirewallProfileResponse(BaseModel):
+    enabled: bool | None
+    default_inbound_action: str | None
+    default_outbound_action: str | None
+    disable_notifications: bool | None
+    log_dropped_packets: bool | None
+    log_successful_connections: bool | None
+    log_file_size_kb: int | None
+    log_file_path: str | None
+
+
+class FirewallRecordResponse(BaseModel):
+    side: str
+    hive: str
+    key: str
+    value_name: str
+    registry_type: str
+    value: str | int | list[str]
+    action: str
+
+
+FirewallDecodeStatus = Literal["empty", "decoded", "legacy", "refused"]
+
+
+class FirewallPolicyDecodeResponse(BaseModel):
+    gpo_guid: str
+    #: `empty`: no record under the firewall key. `decoded`: the measured
+    #: tranche, parsed. `legacy`: firewall records without PolicyVersion, kept
+    #: uninterpreted. `refused`: a known record outside the tranche; nothing is
+    #: interpreted and every firewall record is returned unrecognised.
+    status: FirewallDecodeStatus
+    policy_version: int | None
+    profiles: dict[str, FirewallProfileResponse]
+    rules: list[FirewallRuleResponse]
+    unrecognised_records: list[FirewallRecordResponse]
+    #: Settings on the GPO outside the firewall key, which the decode does not
+    #: look at. A count, so a reader knows the GPO carries more than this.
+    settings_outside_firewall_key: int
+    issues: list[ValidationIssueResponse]
+    limitations: list[FirewallLimitation]
+
+
+_FIREWALL_RUN_ID = "firewall-20261008094055-2092337"
+_FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
+_FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
+
+
+def _firewall_limitations(*, unmodeled_tokens: bool = False) -> list[dict[str, str]]:
+    """What the firewall lane did not reach, carried in every response."""
+    limitations = [
+        {
+            "code": "policy_store_readback_not_application",
+            "message": (
+                f"The certification behind this surface ({_FIREWALL_RUN_ID}) "
+                "reads policy back from the GPO: Windows' Registry.pol, the "
+                "NetSecurity cmdlets against -PolicyStore, and Get-GPOReport. "
+                "Nothing was linked and no endpoint processed the policy, so "
+                "this is not evidence of resultant firewall state on a client."
+            ),
+        },
+        {
+            "code": "representative_tranche_only",
+            "message": (
+                "One tranche was measured: 13 rule shapes and the Domain and "
+                "Private profile literals in docs/plan-033/firewall-codec.md, "
+                "on a GPO carrying only that firewall policy. The codec "
+                "refuses every other protocol, profile combination, address "
+                "form, port keyword, profile value and Public profile "
+                "setting, rather than emitting it with a warning. Within a "
+                "shape, names, numeric ports, paths and addresses vary; the "
+                "lane measured one concrete value for each."
+            ),
+        },
+        {
+            "code": "ipsec_pki_wired_wireless_out_of_scope",
+            "message": (
+                "Connection security (IPsec), Public Key, wired and wireless "
+                "network policy are out of scope for 1.x (operator ruling "
+                "2026-10-07). IFType=Lan is part of the firewall rule "
+                "vocabulary and does not qualify wired network policy."
+            ),
+        },
+        {
+            "code": "gpme_display_unmeasured",
+            "message": (
+                "Studio's GPMC backup registers the Registry extension with "
+                "the Administrative Templates tool GUID "
+                "{D02B1F72-3407-48AE-BA88-E8213C6761F1}; native firewall "
+                "authoring registers {B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}. "
+                "Import-GPO, byte-identical Registry.pol, cmdlet readback and "
+                "the GPMC report's firewall extension all held with Studio's "
+                "GUID. Whether the Group Policy Management Editor shows and "
+                "edits these rules under its firewall node was not measured "
+                "(WI-077)."
+            ),
+        },
+        {
+            "code": "single_build_measured",
+            "message": (
+                "Measured on one build: Windows Server 2025 (26100), Windows "
+                "PowerShell 5.1, rule format v2.33 and PolicyVersion 545."
+            ),
+        },
+    ]
+    if unmodeled_tokens:
+        limitations.append({
+            "code": "unmodeled_tokens_preserved_not_editable",
+            "message": (
+                "At least one rule carries tokens the codec does not model. "
+                "They are returned with their positions and text, unchanged, "
+                "but such a rule cannot be rendered: re-emitting it would "
+                "need a measurement of those tokens."
+            ),
+        })
+    return limitations
+
+
+def firewall_policy_from_request(body: FirewallRenderRequest) -> FirewallPolicy:
+    """The request as the codec's dataclasses, field for field.
+
+    Public because `test_firewall_surface.py` holds it against the lane
+    builder's `candidate_policy()`.
+    """
+
+    def profile(data: FirewallProfileData) -> FirewallProfileSettings:
+        return FirewallProfileSettings(**data.model_dump())
+
+    rules = []
+    for rule in body.rules:
+        fields = rule.model_dump()
+        fields["profiles"] = tuple(rule.profiles)
+        fields["remote_addresses"] = tuple(rule.remote_addresses)
+        fields["remote_port_range"] = (
+            None if rule.remote_port_range is None else tuple(rule.remote_port_range)
+        )
+        rules.append(FirewallRule(**fields))
+    return FirewallPolicy(
+        policy_version=body.policy_version,
+        domain=profile(body.domain),
+        private=profile(body.private),
+        public=profile(body.public),
+        rules=tuple(rules),
+    )
+
+
+def _firewall_setting_body(setting: RegistrySetting) -> dict[str, str]:
+    value = setting.value
+    if isinstance(value, list):  # pragma: no cover - the codec emits no MULTI_SZ
+        raise TypeError("firewall settings are REG_DWORD or REG_SZ")
+    return {
+        "side": setting.side,
+        "hive": setting.hive,
+        "key": setting.key,
+        "value_name": setting.value_name,
+        "registry_type": setting.registry_type,
+        "value": str(value),
+        "action": setting.action,
+        "comment": "",
+    }
+
+
+@app.post("/api/network-security/firewall/render", response_model=FirewallRenderResponse)
+def render_firewall_policy(body: FirewallRenderRequest) -> dict[str, Any]:
+    """Render a machine firewall policy as registry settings. Writes nothing.
+
+    `registry_settings` is what `to_registry_settings` emits, each item in the
+    body shape `POST /api/gpos/{guid}/settings` accepts; `rule_strings` are the
+    REG_SZ rule values among them. A request outside the measured tranche is a
+    422 carrying the codec's issue codes. `issues` holds non-blocking GPO
+    validation warnings, normally none. Read `limitations` before deploying.
+    """
+    policy = firewall_policy_from_request(body)
+    try:
+        settings = to_registry_settings(policy)
+    except FirewallValidationError as error:
+        raise ValidationError(list(error.issues)) from error
+    probe = GPO(
+        guid=_FIREWALL_RENDER_GPO_GUID,
+        name="firewall-render",
+        settings=tuple(settings),
+    )
+    issues = validate_gpo(probe)
+    if any(issue.severity == "error" for issue in issues):
+        raise ValidationError(issues)
+    return {
+        "registry_settings": [_firewall_setting_body(s) for s in settings],
+        "rule_strings": [
+            {"rule_id": s.value_name, "value": str(s.value)}
+            for s in settings
+            if s.key.casefold() == _FIREWALL_RULES_KEY
+        ],
+        "issues": [asdict(issue) for issue in issues],
+        "limitations": _firewall_limitations(),
+    }
+
+
+def _is_firewall_record(setting: RegistrySetting) -> bool:
+    key = setting.key.casefold()
+    root = FIREWALL_KEY.casefold()
+    return key == root or key.startswith(root + "\\")
+
+
+def _firewall_record_body(setting: RegistrySetting) -> dict[str, Any]:
+    return {
+        "side": setting.side,
+        "hive": setting.hive,
+        "key": setting.key,
+        "value_name": setting.value_name,
+        "registry_type": setting.registry_type,
+        "value": setting.value,
+        "action": setting.action,
+    }
+
+
+@app.get("/api/gpos/{guid}/firewall-policy", response_model=FirewallPolicyDecodeResponse)
+def firewall_policy_decode(request: Request, guid: str) -> dict[str, Any]:
+    """Decode a GPO's firewall records, read only. Imported GPOs included.
+
+    Only settings under the firewall key are decoded, on either side; a
+    user-side or non-HKLM one comes back unrecognised. A known record outside
+    the measured tranche makes the whole decode `refused` (200, with the
+    codec's issues): a partial interpretation would hide which records the
+    codec could not read.
+    """
+    gpo = _store(request).get_gpo(guid)
+    records = [s for s in gpo.settings if _is_firewall_record(s)]
+    empty_profile = asdict(FirewallProfileSettings())
+    response: dict[str, Any] = {
+        "gpo_guid": gpo.guid,
+        "status": "empty",
+        "policy_version": None,
+        "profiles": {name: dict(empty_profile) for name in ("domain", "private", "public")},
+        "rules": [],
+        "unrecognised_records": [],
+        "settings_outside_firewall_key": len(gpo.settings) - len(records),
+        "issues": [],
+        "limitations": _firewall_limitations(),
+    }
+    if not records:
+        return response
+    try:
+        parsed = from_registry_records(records)
+    except FirewallValidationError as error:
+        response.update(
+            status="refused",
+            unrecognised_records=[_firewall_record_body(s) for s in records],
+            issues=[asdict(issue) for issue in error.issues],
+        )
+        return response
+    # Only machine records can be the source of a decoded rule; a same-named
+    # user-side or HKCU record is unrecognised and must not supply its text.
+    raw = {
+        s.value_name: str(s.value)
+        for s in records
+        if s.side == "computer"
+        and s.hive == "HKLM"
+        and s.key.casefold() == _FIREWALL_RULES_KEY
+    }
+    rules = []
+    for rule in parsed.policy.rules:
+        body = asdict(rule)
+        body["profiles"] = list(rule.profiles)
+        body["remote_addresses"] = list(rule.remote_addresses)
+        body["remote_port_range"] = (
+            None if rule.remote_port_range is None else list(rule.remote_port_range)
+        )
+        body["unknown_tokens"] = [asdict(token) for token in rule.unknown_tokens]
+        body["rule_string"] = raw[rule.rule_id]
+        rules.append(body)
+    policy = parsed.policy
+    legacy = any(i.code == "firewall_legacy_without_policy_version" for i in parsed.issues)
+    response.update(
+        status="legacy" if legacy else "decoded",
+        policy_version=policy.policy_version,
+        profiles={
+            "domain": asdict(policy.domain),
+            "private": asdict(policy.private),
+            "public": asdict(policy.public),
+        },
+        rules=rules,
+        unrecognised_records=[
+            _firewall_record_body(r)
+            for r in parsed.unrecognised_records
+            if isinstance(r, RegistrySetting)
+        ],
+        issues=[asdict(issue) for issue in parsed.issues],
+        limitations=_firewall_limitations(
+            unmodeled_tokens=any(rule.unknown_tokens for rule in policy.rules)
+        ),
+    )
+    return response
+
+
+_ROUTE_LIMITATIONS["/api/network-security/firewall/render"] = _firewall_limitations
+_ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
+
+
+# --------------------------------------------------------------------------
+# Plan 034: the same-domain restore plan (review only).
+#
+# `lifecycle.generate_restore_plan` names the GPMC cmdlet an operation means,
+# whose GUID the result carries, and what happens to each part of the GPO's
+# scope. That last part is `lifecycle.SCOPE_SURVIVAL`. The module's own
+# docstring still calls the table "predictions", because `lifecycle.py` is
+# bound by the lane and cannot be edited without expiring it. The lane has
+# since measured every cell: `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
+# agreed with all 30 (docs/plan-033/lifecycle-results.md), and
+# `tests/test_lifecycle_verdict.py` holds the table equal to what that run
+# observed. That is why each cell this endpoint returns is marked measured and
+# cites the run.
+#
+# The lane measured operations over a backup Windows wrote with `Backup-GPO`,
+# so the plan is built only for a workspace GPO that IS such a backup's
+# import: it carries the retained `Backup.xml` and the import's provenance
+# line, and its `source_guid` is the domain GPO the backup was taken from. A
+# GPO authored in Studio, or a fork of an import, is refused rather than
+# planned by analogy. Which is which is read from the GPO's own revision 1,
+# never from fields an edit can change. The
+# WMI association is read from the retained `Backup.xml` by
+# `manifest_from_backup`, the bridge the lane checked against the real tree.
+#
+# A cell is marked measured only where the request and the backup are the
+# shapes the lane measured (banking review, 2026-10-08):
+#
+# * `import_into_existing` is planned only by `-TargetGuid`. The lane never ran
+#   the `-TargetName` form, so a target name is refused, not certified.
+# * The lane's backup linked a WMI filter by the measured reference,
+#   `MSFT_SomFilter.ID="{id}",Domain="DOMAIN"` with a `WMIFilterName`, in the
+#   GPO's own domain. `manifest_from_backup` keeps any other text verbatim and
+#   still reports a filter, so a backup whose reference is malformed, in another
+#   shape (the directory attribute's `[domain;{id};0]`, say) or in another domain
+#   gets its WMI cell marked unmeasured with the reason. The check uses the
+#   bridge's own parser, `parse_wmi_filter_reference`.
+#
+# Nothing executes. This module composes the plan; `lifecycle.py` stays
+# offline, and the operator runs the cmdlet.
+# --------------------------------------------------------------------------
+
+#: The certifying run the survival cells are cited from. Held equal to the
+#: banked verdict by `tests/test_lifecycle_restore_plan_surface.py`.
+LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261008093248-2000-c76d10eb3f2849fe"
+LIFECYCLE_VERDICT_COMMIT = "35130528d89761ed1e6990001d086241e5655025"
+LIFECYCLE_VERDICT_PATH = "docs/plan-033/wp7-evidence/lifecycle/verification.json"
+
+#: The provenance line `import_gpmc_backup` writes into an imported GPO's
+#: description. Archived imports are immutable, so it is still the backup's id.
+_IMPORT_PROVENANCE = re.compile(
+    r"^Imported from GPMC backup (\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}"
+    r"-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\})$"
+)
+_BARE_GUID = re.compile(
+    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$"
+)
+#: `BackupManifest.created_at` must be non-empty, and the workspace import
+#: does not retain `BackupTime`. The value never reaches a response.
+_UNRECORDED_BACKUP_TIME = "unrecorded"
+
+
+class LifecycleRestorePlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The workspace GPO: the import of the backup to plan over.
+    gpo_guid: str = Field(min_length=1, max_length=64)
+    operation: WindowsOperation
+    #: `Import-GPO -TargetName` / `Copy-GPO -TargetName`; required by the
+    #: creating operations, optional for `import_into_existing`.
+    target_name: str = Field(default="", max_length=255)
+    #: `Import-GPO -TargetGuid`, for `import_into_existing` only.
+    target_gpo_guid: str = Field(default="", max_length=64)
+    #: Defaults to the backup's domain; any other domain is refused.
+    target_domain: str = Field(default="", max_length=255)
+    #: The domain's CURRENT GPO names, if the caller has them. With the list,
+    #: only it decides whether a creating operation's target name is taken.
+    existing_gpo_names: list[Annotated[str, Field(max_length=255)]] | None = Field(
+        default=None, max_length=10000
+    )
+
+
+class LifecycleSurvivalCell(BaseModel):
+    dimension: str
+    survival: str
+    #: True when the lane measured this cell for a backup of this shape (see
+    #: `evidence`); False with `unmeasured_reason` otherwise.
+    measured: bool
+    unmeasured_reason: str | None
+
+
+class LifecycleEvidence(BaseModel):
+    lane: str
+    run_id: str
+    commit: str
+    verdict: str
+    cells_measured: int
+    cells_agreeing: int
+
+
+class LifecycleRestorePlanResponse(BaseModel):
+    gpo_guid: str
+    backup_id: str
+    source_gpo_guid: str
+    operation: str
+    domain: str
+    cmdlet: str
+    target_identity: str
+    #: Known in advance only for `restore_in_place` (the source) and
+    #: `import_into_existing` by GUID; Windows assigns it otherwise.
+    target_gpo_guid: str | None
+    target_name: str
+    requires_target_absent: bool
+    preconditions: list[str]
+    warnings: list[str]
+    survival: list[LifecycleSurvivalCell]
+    evidence: LifecycleEvidence
+    limitations: list[SurfaceLimitation]
+
+
+def _lifecycle_limitations() -> list[dict[str, str]]:
+    """Limits that hold for every restore plan this surface returns."""
+    return [
+        {
+            "code": "studio_executes_nothing",
+            "message": (
+                "This is a plan to review. Studio runs no cmdlet and writes nothing "
+                "to Active Directory or SYSVOL; the operator runs the named cmdlet."
+            ),
+        },
+        {
+            "code": "same_domain_only",
+            "message": (
+                "Every cell was measured with the source, the backup and the target "
+                "in one domain. A plan is only produced for the backup's own domain."
+            ),
+        },
+        {
+            "code": "cross_domain_out_of_scope",
+            "message": (
+                "Cross-domain restore, import and copy (migration tables, principal "
+                "translation, WMI filters missing from the target) are out of scope "
+                "by ruling (2026-10-07) and are refused."
+            ),
+        },
+        {
+            "code": "one_topology_measured",
+            "message": (
+                "The lane measured one source GPO and one target, on one member "
+                "server against one domain controller. Multi-DC replication, "
+                "Import-GPO -TargetName into an existing GPO, deny ACEs and the WMI "
+                "filter object itself were not measured."
+            ),
+        },
+        {
+            "code": "deleted_gpo_restore_unmeasured",
+            "message": (
+                "Restore-GPO was measured on a GPO that still existed, so links "
+                "'replaced' means the current links are left alone. Restoring a "
+                "deleted GPO was not measured, and links are not in a backup."
+            ),
+        },
+        {
+            "code": "target_state_unchecked",
+            "message": (
+                "The plan has no live domain data. Whether the WMI filter still "
+                "exists, whether the DACL's principals resolve, and whether a target "
+                "name is free (beyond the names the caller supplied) are not checked."
+            ),
+        },
+    ]
+
+
+def _lifecycle_refusal(code: str, message: str, path: str) -> ValidationError:
+    return ValidationError([ValidationIssue("error", code, message, path)])
+
+
+def _unmeasured_wmi_reason(manifest: BackupManifest) -> str | None:
+    """Why the WMI cell is outside what the lane measured, or `None`."""
+    if not manifest.has_wmi_filter:
+        return None
+    parsed = parse_wmi_filter_reference(manifest.wmi_filter_reference)
+    if parsed is None:
+        return (
+            "The backup's WMIFilter reference is not the measured "
+            'MSFT_SomFilter.ID="{id}",Domain="DOMAIN" shape, so the lane did not '
+            "measure what happens to it."
+        )
+    if parsed[1].casefold() != manifest.domain.casefold():
+        return (
+            "The backup's WMIFilter reference names a domain other than the GPO's "
+            "own; the lane measured a filter in the GPO's domain only."
+        )
+    if not manifest.wmi_filter_name:
+        return (
+            "The backup carries no WMIFilterName beside its WMIFilter; the lane "
+            "measured a backup that carried both."
+        )
+    return None
+
+
+def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
+    """The Windows backup a workspace GPO is the direct import of, or a refusal.
+
+    Decided only from immutable facts: the GPO's own revision 1, which no later
+    edit, restore or fork can change, and its retained `Backup.xml` bytes.
+    Never from a current description, name, status or domain, and never from
+    another GPO's fields, all of which an ordinary edit can change (banking
+    re-review, 2026-10-08: a fork of a fork passed once its parent's
+    description was edited).
+
+    `POST /api/backups/import` writes revision 1 `archived`, with the
+    provenance line naming the backup id, `source_guid` set to the Windows GPO
+    the backup was taken from, and the retained inventory. `fork_gpo` writes a
+    fork's revision 1 as a `draft` whose `source_guid` is its parent's
+    workspace GUID. An estate snapshot carries no inventory. So:
+
+    * revision 1 carries no retained backup: not a backup import;
+    * it carries one but is not the import's shape (a fork, or anything
+      derived from an import): refused as a derivative;
+    * the current retained `Backup.xml` differs from revision 1's: refused,
+      because the plan would describe bytes the import did not record.
+
+    The manifest is built from revision 1's values, so editing the GPO's
+    name or domain afterwards does not change which backup is planned over.
+    """
+    try:
+        first = gpo_from_dict(store.get_revision(gpo.guid, 1).snapshot)
+    except NotFoundError as error:
+        raise _lifecycle_refusal(
+            "not_a_windows_backup_import",
+            "This GPO has no first revision to establish that it is a backup import.",
+            "gpo_guid",
+        ) from error
+    if first.backup_inventory is None:
+        raise _lifecycle_refusal(
+            "not_a_windows_backup_import",
+            "A restore plan is built only for a GPO imported from a backup Windows "
+            "wrote with Backup-GPO (POST /api/backups/import). That is the input the "
+            "lifecycle lane measured; a GPO authored in Studio is not one.",
+            "gpo_guid",
+        )
+    provenance = _IMPORT_PROVENANCE.match(first.description)
+    if (
+        first.status != "archived"
+        or provenance is None
+        or not _BARE_GUID.match(first.source_guid)
+    ):
+        raise _lifecycle_refusal(
+            "fork_of_an_import",
+            "This GPO was created from a workspace GPO (a fork, or a fork of a fork), "
+            "not by importing the Windows backup, so it is not the backup. Plan over "
+            "the import itself.",
+            "gpo_guid",
+        )
+    if (
+        gpo.backup_inventory is None
+        or gpo.backup_inventory.backup_xml_base64 != first.backup_inventory.backup_xml_base64
+    ):
+        raise _lifecycle_refusal(
+            "retained_backup_changed",
+            "The GPO's retained Backup.xml is not the one its import recorded.",
+            "gpo_guid",
+        )
+    return GpmcBackup(
+        backup_time=_UNRECORDED_BACKUP_TIME,
+        backup_id=provenance.group(1),
+        gpos=(
+            BackupGpo(
+                guid=first.source_guid,
+                display_name=first.name,
+                domain=first.domain,
+                computer_enabled=first.computer_enabled,
+                user_enabled=first.user_enabled,
+                backup_inventory=first.backup_inventory,
+            ),
+        ),
+    )
+
+
+@app.post("/api/lifecycle/restore-plan", response_model=LifecycleRestorePlanResponse)
+def lifecycle_restore_plan(
+    request: Request, body: LifecycleRestorePlanRequest
+) -> dict[str, Any]:
+    """Plan one same-domain GPMC operation over an imported backup. Review only.
+
+    A refusal is a 422 whose `issues` carry the code: the workspace GPO is not
+    the direct import of a Windows backup (`not_a_windows_backup_import`,
+    `fork_of_an_import`, `retained_backup_changed`), the target domain differs from the backup's
+    (`cross_domain_out_of_scope`), a creating operation's target name is taken
+    (`target_name_exists`), or the operation's target arguments are missing or
+    malformed (the planner's own codes), or `import_into_existing` names its
+    target by name (`import_target_name_unmeasured`). An unknown operation is a
+    422 from request validation.
+    """
+    if body.operation == "import_into_existing" and body.target_name:
+        raise _lifecycle_refusal(
+            "import_target_name_unmeasured",
+            "The lifecycle lane measured Import-GPO into an existing GPO only by "
+            "-TargetGuid. The -TargetName form was not measured; name the target "
+            "by target_gpo_guid.",
+            "target_name",
+        )
+    store = _store(request)
+    gpo = store.get_gpo(body.gpo_guid)
+    backup = _backup_for_restore_plan(store, gpo)
+    try:
+        manifest = manifest_from_backup(backup)
+    except BackupError as error:
+        # The retained Backup.xml is untrusted import content; do not reflect it.
+        raise _lifecycle_refusal(
+            "retained_backup_unreadable",
+            "The imported GPO's retained Backup.xml could not be read as one backup.",
+            "gpo_guid",
+        ) from error
+    plan = generate_restore_plan(
+        manifest,
+        body.operation,
+        target_gpo_guid=body.target_gpo_guid,
+        target_name=body.target_name,
+        target_domain=body.target_domain,
+        existing_gpo_names=body.existing_gpo_names,
+    )
+    cells = len(SCOPE_SURVIVAL) * len(SCOPE_DIMENSIONS)
+    wmi_reason = _unmeasured_wmi_reason(manifest)
+    warnings = list(plan.warnings)
+    if wmi_reason is not None:
+        warnings.append(f"wmi_association is unmeasured for this backup: {wmi_reason}")
+    survival: list[dict[str, Any]] = []
+    for cell in plan.scope:
+        reason = wmi_reason if cell.dimension == "wmi_association" else None
+        survival.append({
+            "dimension": cell.dimension,
+            "survival": cell.survival,
+            "measured": reason is None,
+            "unmeasured_reason": reason,
+        })
+    return {
+        "gpo_guid": gpo.guid,
+        "backup_id": plan.backup_id,
+        "source_gpo_guid": plan.source_gpo_guid,
+        "operation": plan.mode,
+        "domain": plan.domain,
+        "cmdlet": plan.cmdlet,
+        "target_identity": plan.target_identity,
+        "target_gpo_guid": plan.target_gpo_guid or None,
+        "target_name": plan.target_name,
+        "requires_target_absent": plan.requires_target_absent,
+        "preconditions": list(plan.preconditions),
+        "warnings": warnings,
+        "survival": survival,
+        "evidence": {
+            "lane": "lifecycle-same-domain",
+            "run_id": LIFECYCLE_VERDICT_RUN_ID,
+            "commit": LIFECYCLE_VERDICT_COMMIT,
+            "verdict": LIFECYCLE_VERDICT_PATH,
+            "cells_measured": cells,
+            "cells_agreeing": cells,
+        },
+        "limitations": _lifecycle_limitations(),
     }

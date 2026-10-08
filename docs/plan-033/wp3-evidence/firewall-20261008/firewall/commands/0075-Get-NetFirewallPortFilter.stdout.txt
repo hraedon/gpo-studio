@@ -1,0 +1,11 @@
+﻿
+
+Protocol      : TCP
+LocalPort     : RPCEPMap
+RemotePort    : Any
+IcmpType      : Any
+DynamicTarget : Any
+
+
+
+

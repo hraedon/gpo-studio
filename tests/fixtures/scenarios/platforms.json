@@ -278,6 +278,28 @@
       "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by publication-completeness-20261008074904-1047. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
     },
     {
+      "lane_id": "lifecycle-same-domain",
+      "plan_wp": "WP-7",
+      "boundaries": [
+        "gpo-backup-content",
+        "gpo-ad-object-security",
+        "wmi-filter-object-association",
+        "som-link-block-inheritance"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "Native Backup-GPO, Restore-GPO, Import-GPO (into an existing GPO and with -CreateIfNeeded) and Copy-GPO (with and without -CopyAcl) on the member server, every call pinned to the PDC emulator. After each operation the target is read back (Get-GPO, Get-GPRegistryValue, Get-GPPermission -All, gPCWQLFilter, and Get-GPInheritance on the run's OUs), and each of six dimensions (settings, GUID, DACL, WMI association, links, description) is classified kept/replaced/lost/defaulted against the source, the target's prior state and an untouched New-GPO control. The expectation (lifecycle.SCOPE_SURVIVAL plus each restore plan's claims) is built on the controller and never sent to the guest.",
+      "status": "partial",
+      "notes": "Certified 2026-10-08 at 35130528d89761ed1e6990001d086241e5655025 by lifecycle-20261008093248-2000-c76d10eb3f2849fe: all 30 survival cells, the five plan-identity claims and the Backup.xml bridge agreed, and cleanup was proven empty. Partial because one topology was measured (one source, one target, one member server, one DC); a deleted GPO's restore, multi-DC replication, Import-GPO -TargetName into an existing GPO, deny ACEs and the WMI filter object are not covered. The cross-domain half is out of scope by ruling (2026-10-07)."
+    },
+    {
       "lane_id": "report-parity-gpmc",
       "plan_wp": "WP-2",
       "boundaries": [
@@ -295,6 +317,26 @@
       "oracle": "For each Windows-produced corpus backup: New-GPO, Import-GPO, then a fresh Get-GPOReport -ReportType Xml, whose settings inventory (by side and report family) is compared with Studio's typed import of the same backup; plus one GPO authored on the guest with Set-GPRegistryValue and backed up with Backup-GPO. The expectation is built on the controller and never reaches the guest.",
       "status": "partial",
       "notes": "Qualified 2026-10-08 at a1c280b8a1ec31b03397437dc2e6d947022b4857 by report-parity-20261008104512-7480 (25/25 checks, 27/27 cases plus the authored case). It supersedes the earlier pass at 1a31feb, which stopped binding when the candidate builder's archive order was made platform-independent. Covers the families the corpus exercises: registry (REG_SZ/REG_DWORD), Drive Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks, Services, Shortcuts. Item identity (element, name, uid, action) and order only; preference Properties beyond action, ADMX <Policy> rendering, Scripts, links, security filtering and WMI filters are named exclusions. WI-072 and WI-073 are accepted only as pinned known divergences."
+    },
+    {
+      "lane_id": "firewall-policy-gpmc",
+      "plan_wp": "WP-3",
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "netsecurity",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "Two legs on disposable unlinked GPOs. Read: New-NetFirewallRule/Set-NetFirewallProfile -PolicyStore author the policy and Studio's codec parses Windows' Registry.pol. Write: Import-GPO of Studio's backup, then Windows' Registry.pol is compared byte for byte with the candidate's. Both legs read the policy back through the NetSecurity cmdlets and Get-GPOReport. Endpoint application is outside this lane.",
+      "status": "partial",
+      "notes": "Certified 2026-10-08 at a6e0002dac0d65d6ae2b969a23636bf284061da1 by firewall-20261008094055-2092337 (36/36). The 13 measured rule shapes and the Domain/Private profile tranche parse with zero unrecognised records, Windows returns Studio's Registry.pol unchanged after Import-GPO, and cmdlet readback matches on both legs including six named normalizations. Studio's export registers the Administrative Templates tool GUID (D02B1F72) where native authoring registers the firewall one (B05566AC); GPMC's report rendered the firewall extension for both, and GPME editability was not measured. One build (WS2025 26100) was measured. IPsec, Public Key, wired and wireless policy are out of scope."
     },
     {
       "lane_id": "fdeploy-gpmc",

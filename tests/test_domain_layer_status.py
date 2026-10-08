@@ -48,7 +48,25 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 #: out-of-scope ruling"): `artifact_store.py` was deleted, and `publisher.py`
 #: is out of scope for 1.x with its code retained, unreachable and not
 #: counted as a capability. A plan whose remaining modules are merely
-#: *unsurfaced*, like 025's `network_security.py`, stays in this tuple.
+#: *unsurfaced* stays in this tuple.
+#:
+#: **025 was removed on 2026-10-08**, the same way. The firewall lane certified
+#: `firewall_policy.py` (`firewall-20261008094055-2092337`) and
+#: `/api/network-security/firewall/render` then surfaced it; WI-076 replaced
+#: `network_security.py`'s firewall half with explicit re-exports of that
+#: codec. Its other half (IPsec, Public Key, wired, wireless) is a recorded
+#: out-of-scope ruling (2026-10-07), with the code retained and unreachable.
+#: `policy_families.py` and `object_security.py` were surfaced on 2026-09-11,
+#: and `security_template.py` exits through them. Every Plan 025 module is
+#: therefore a capability or ruled out.
+#:
+#: **028 was removed on 2026-10-08** by the same route. The same-domain
+#: lifecycle lane certified `lifecycle.py`
+#: (`lifecycle-20261008093248-2000-c76d10eb3f2849fe`, all 30 survival cells
+#: agreeing), and `POST /api/lifecycle/restore-plan` then wired it. Its other
+#: module, `gpmc_interop.py`, was reduced by ruling (2026-10-07) to the one
+#: type `publication.py` imports, which is a recorded ruling rather than an
+#: unexamined layer. The cross-domain half is out of scope by the same ruling.
 #:
 #: **027 was removed on 2026-10-08**, the same way. Both of its modules were
 #: deleted on 2026-10-07: `software_install.py` by the 2026-09-06
@@ -59,8 +77,6 @@ RULING_DOC = REPO_ROOT / "docs" / "domain-layer-status.md"
 #: already mounted. The deferred writer (WI-066) is a recorded ruling, not an
 #: unexamined layer.
 DOMAIN_LAYER_PLANS: tuple[str, ...] = (
-    "025",
-    "028",
     "031",
     "032",
 )
@@ -124,6 +140,8 @@ PROMOTED_DOMAIN_LAYER_PLANS: tuple[tuple[str, str], ...] = (
     ("026", "/api/gpos/{guid}/gpmc-backup-with-scripts"),
     ("030", "/api/gpos/{guid}/publication-plan"),
     ("027", "/api/folder-redirection/fdeploy"),
+    ("025", "/api/network-security/firewall/render"),
+    ("028", "/api/lifecycle/restore-plan"),
 )
 
 
