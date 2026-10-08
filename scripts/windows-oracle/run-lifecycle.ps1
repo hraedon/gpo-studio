@@ -85,7 +85,7 @@ $prefix = "zz-studio-lifecycle-$stamp"
 $short = '{0:D6}' -f (Get-Random -Minimum 0 -Maximum 999999)
 # Set on every directory object by the call that creates it; cleanup deletes
 # only objects that carry it.
-$marker = "gpo-studio-lifecycle:$runId:$([guid]::NewGuid())"
+$marker = "gpo-studio-lifecycle:${runId}:$([guid]::NewGuid())"
 
 # Every name this run can create, generated before anything is created.
 $names = [ordered]@{
