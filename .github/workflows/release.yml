@@ -36,6 +36,8 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
+      - name: Install the release gate's pinned parser
+        run: pip install --require-hashes -r scripts/release-gate-requirements.txt
       - name: Check tag, version and evidence manifest
         id: manifest
         run: >-
@@ -113,6 +115,8 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
+      - name: Install the release gate's pinned parser
+        run: pip install --require-hashes -r scripts/release-gate-requirements.txt
       - name: Verify immutable release identity
         id: manifest
         env:
@@ -134,6 +138,16 @@ jobs:
           for artifact in dist/*; do
             cmp "$artifact" "dist-repro/$(basename "$artifact")"
           done
+      # What is published must be what was approved: the version Hatchling wrote
+      # into the wheel's METADATA and the sdist's PKG-INFO, not only the one the
+      # gate read from __init__.py.
+      - name: Require the built distributions to carry the approved version
+        run: |
+          mapfile -t WHEELS < <(find dist -maxdepth 1 -name 'gpo_studio-*.whl')
+          mapfile -t SDISTS < <(find dist -maxdepth 1 -name 'gpo_studio-*.tar.gz')
+          test "${#WHEELS[@]}" -eq 1 && test "${#SDISTS[@]}" -eq 1
+          python scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" \
+            --wheel "${WHEELS[0]}" --sdist "${SDISTS[0]}"
       - name: Validate exact wheel
         run: |
           WHEEL=$(find dist -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)

@@ -11,13 +11,17 @@ string. That file is the 1.0.0 manifest, so any later tag would have passed on
    beside ``docs/release-evidence-report-<X.Y.Z>.json``. Only 1.0.0, which
    predates the rule, uses the unversioned names.
 3. The manifest names the version in its title and in its ``Application
-   version`` line, and carries exactly one ``Status`` line, which must be the
-   approval marker for a final tag or the candidate marker for an RC tag. A
-   draft, a stale copy or a second Status line fails.
+   version`` line, and carries exactly one status line, which must be the
+   approval marker for a final tag or the candidate marker for an RC tag. The
+   manifest is parsed as CommonMark (see ``status_problems``): a draft, a
+   stale copy, a second status mention anywhere, an approval in a code block,
+   list or nested quote, or any raw HTML fails.
 4. The JSON report names the same version in ``release_version`` (not checked
    for the legacy 1.0.0 report, which predates the field).
 5. With ``--remote-tag-sha``, the remote tag still peels to the commit the run
    built, so a tag moved mid-run cannot receive another commit's artifacts.
+6. With ``--wheel``/``--sdist``, the built artifacts' metadata versions equal
+   the approved version, so what is published is what was approved.
 
 Anything unexpected fails closed. With ``--github-output`` the resolved paths
 are written for later workflow steps, so publication attaches the manifest
@@ -32,78 +36,160 @@ import json
 import re
 import subprocess
 import sys
+import tarfile
 import unicodedata
+import zipfile
 from dataclasses import dataclass
+from email.parser import BytesParser
+from html.parser import HTMLParser
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from markdown_it.token import Token
 
 APPROVED = "> **Status:** approved for release"
 CANDIDATE = "> **Status:** release candidate; final approval pending"
 
-# A status *declaration* is any line a reader could take for one, however it is
-# spelled: indented or not, in a blockquote or not, bold or not, any case,
-# ``Status:`` or a ``## Status`` heading. The exact marker above is compared
-# only after this broad match has found exactly one declaration, so a second,
-# differently spelled draft line cannot sit unnoticed beside an approval.
-_STATUS_LIKE = re.compile(
-    r"""^[ \t]*(?:>[ \t]*)*          # indentation and blockquote markers
-        (?:\#{1,6}[ \t]*)?             # or a heading
-        [*_]*[ \t]*status[ \t]*[*_]*    # the word, optionally emphasised
-        [ \t]*(?::|$)                   # then a colon, or nothing (a heading)
-    """,
-    re.IGNORECASE | re.VERBOSE,
+# A status *mention* is the word "status" followed by a colon, however it is
+# spelled: any case, emphasis or code markers between, after NFKC folding, with
+# zero-width characters removed and common Cyrillic/Greek look-alikes folded to
+# ASCII. Every mention in the manifest counts, wherever CommonMark puts it.
+_STATUS_MENTION = re.compile(r"\bstatus\b[\s*_`~]*:", re.IGNORECASE)
+_STATUS_WORD = re.compile(r"\bstatus\b", re.IGNORECASE)
+_FOLD = str.maketrans(
+    {
+        **dict.fromkeys(map(ord, "\u00ad\u034f\u200b\u200c\u200d\u200e\u200f\u2060\ufeff")),
+        "\u0405": "S", "\u0455": "s", "\u0422": "T", "\u0442": "t", "\u03a4": "T",
+        "\u03c4": "t", "\u0410": "A", "\u0430": "a", "\u0391": "A", "\u03b1": "a",
+        "\u03c5": "u", "\u057d": "u", "\u0446": "u",
+    }
 )
-_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u200e\u200f\u2060\ufeff"))
-_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 
 
-def status_declarations(text: str) -> tuple[list[str], list[str]]:
-    """Return (visible status-like lines, status lines in hidden regions).
+def _fold(text: str) -> str:
+    return unicodedata.normalize("NFKC", text).translate(_FOLD)
 
-    Hidden regions are fenced code blocks and HTML comments. A renderer does not
-    show them as the document's status, so an approval there must not count,
-    and a declaration there is ambiguous enough to refuse outright: inside a
-    fence any status-like line is refused, and inside a comment any mention of
-    "status" is.
+
+class _TextOnly(HTMLParser):
+    """Collect the text a browser would show; comments and tags are dropped."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+_STATUS_HEADING = re.compile(r"^[\W_]*status[\W_]*$", re.IGNORECASE)
+_HEADER_PARAGRAPH = ("blockquote_open", "paragraph_open")
+_BULLET_ITEM = ("bullet_list_open", "list_item_open", "paragraph_open")
+_TITLE = ("heading_open",)
+
+
+def _inline_contexts(tokens: list[Token]) -> dict[int, tuple[str, ...]]:
+    """Map each source line to the block context of the inline text on it.
+
+    Lines that belong to code blocks, fences or HTML blocks get the leaf
+    token's type (``("fence",)`` and so on), so they never look like prose.
     """
-    visible: list[str] = []
-    hidden: list[str] = []
-    fence: str | None = None
-    in_comment = False
-    for raw in text.splitlines():
-        line = unicodedata.normalize("NFKC", raw).translate(_ZERO_WIDTH)
-        if fence is not None:
-            closing = _FENCE.match(line)
-            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
-                fence = None
-            elif _STATUS_LIKE.match(line):
-                hidden.append(raw)
+    contexts: dict[int, tuple[str, ...]] = {}
+    stack: list[str] = []
+    for token in tokens:
+        if token.nesting == 1:
+            stack.append(token.type)
             continue
-        if in_comment:
-            if "status" in line.lower():
-                hidden.append(raw)
-            if "-->" in line:
-                in_comment = False
+        if token.nesting == -1:
+            stack.pop()
             continue
-        opening = _FENCE.match(line)
-        if opening:
-            fence = opening.group(1)
+        if token.map is None:
             continue
-        if "<!--" in line:
-            before, after = line.split("<!--", 1)
-            if "status" in after.lower():
-                hidden.append(raw)
-            if "-->" not in after:
-                in_comment = True
-            if _STATUS_LIKE.match(before):
-                visible.append(raw)
-            continue
-        if _STATUS_LIKE.match(line):
-            visible.append(raw)
-    if fence is not None:
-        hidden.append(f"<unterminated {fence} fence>")
-    if in_comment:
-        hidden.append("<unterminated HTML comment>")
-    return visible, hidden
+        context = (*stack, token.type) if token.type != "inline" else tuple(stack)
+        for line in range(token.map[0], token.map[1]):
+            contexts[line] = context
+    return contexts
+
+
+def manifest_problems(text: str, title: str, application: str, required: str) -> list[str]:
+    """Why ``text`` is not an unambiguous manifest carrying ``required``.
+
+    The manifest is parsed as CommonMark (markdown-it-py), so code blocks,
+    blockquote-nested fences, HTML blocks and lazy continuations are decided
+    the way a renderer decides them, not by a line heuristic. The rules:
+
+    * the manifest contains no raw HTML at all: an HTML block can hide a
+      status (``<details>``) or show one Markdown does not;
+    * the title is the level-1 heading on the first line, and the
+      ``- Application version`` line is a plain bullet-list item;
+    * no heading is named "Status";
+    * exactly one status mention exists, counted on the source lines and again
+      on the rendered text (which catches entity-encoded spellings);
+    * that mention is in a plain paragraph directly inside a top-level
+      blockquote (the manifest's header block), not in a list, table, code
+      block or nested quote, and its source line is exactly ``required``.
+
+    An empty list means the manifest passes.
+    """
+    from markdown_it import MarkdownIt
+
+    md = MarkdownIt("commonmark")
+    raw_lines = text.splitlines()
+    folded = _fold(text)
+    folded_lines = folded.splitlines()
+    tokens = md.parse(folded)
+    contexts = _inline_contexts(tokens)
+    problems: list[str] = []
+
+    html_lines = sorted(
+        {
+            line
+            for token in tokens
+            if token.map is not None
+            and (
+                token.type == "html_block"
+                or any(child.type == "html_inline" for child in (token.children or []))
+            )
+            for line in range(token.map[0], token.map[1])
+        }
+    )
+    if html_lines:
+        problems.append(f"raw HTML is not allowed in a manifest (source lines {html_lines})")
+
+    if not raw_lines or raw_lines[0] != title or contexts.get(0) != _TITLE:
+        problems.append(f"the first line must be the level-1 heading {title!r}")
+    application_lines = [i for i, line in enumerate(raw_lines) if line == application]
+    if len(application_lines) != 1 or contexts.get(application_lines[0]) != _BULLET_ITEM:
+        problems.append(f"{application!r} must appear once, as a plain bullet-list item")
+
+    problems.extend(
+        f"a heading is named {token.content!r}"
+        for token in tokens
+        if token.type == "inline"
+        and token.map is not None
+        and contexts.get(token.map[0], ())[-1:] == ("heading_open",)
+        and _STATUS_HEADING.match(token.content)
+    )
+
+    mentions = [index for index, line in enumerate(folded_lines) if _STATUS_MENTION.search(line)]
+    renderer = _TextOnly()
+    renderer.feed(md.render(folded))
+    rendered_mentions = len(_STATUS_MENTION.findall(_fold("".join(renderer.parts))))
+    if len(mentions) != 1 or rendered_mentions != 1:
+        problems.append(
+            f"exactly one status line is allowed; found {len(mentions)} in the source "
+            f"({[raw_lines[i] for i in mentions]!r}) and {rendered_mentions} in the "
+            "rendered text"
+        )
+    elif contexts.get(mentions[0]) != _HEADER_PARAGRAPH:
+        problems.append(
+            f"the status line {raw_lines[mentions[0]]!r} is not in a plain paragraph of a "
+            f"top-level blockquote (its context is {contexts.get(mentions[0])!r})"
+        )
+    elif raw_lines[mentions[0]] != required:
+        problems.append(f"the status line is {raw_lines[mentions[0]]!r}, not {required!r}")
+    return problems
+
 
 #: Manifests written before versioned names existed. Never add to this.
 LEGACY_MANIFESTS: dict[str, tuple[str, str]] = {
@@ -127,20 +213,113 @@ class ReleaseManifest:
     report: str
 
 
+# Hatchling's regex version source (``[tool.hatch.version] path``) reads the
+# first line matching this, which need not be what Python executes: a line inside
+# a docstring matches it, and a parenthesised assignment does not.
+_HATCH_VERSION_LINE = re.compile(
+    r"""^(__version__|VERSION) *= *(['"])v?(?P<version>.+?)\2""", re.MULTILINE
+)
+
+
+def _binds_version(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id == "__version__" and isinstance(node.ctx, (ast.Store, ast.Del))
+    if isinstance(node, ast.alias):
+        return (node.asname or node.name) == "__version__"
+    if isinstance(node, (ast.Global, ast.Nonlocal)):
+        return "__version__" in node.names
+    return False
+
+
 def package_version(root: Path) -> str:
-    """Read ``__version__`` without importing the package."""
-    source = (root / "src" / "gpo_studio" / "__init__.py").read_text(encoding="utf-8")
-    for node in ast.parse(source).body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == "__version__"
-            and isinstance(node.value, ast.Constant)
-            and isinstance(node.value.value, str)
-        ):
-            return node.value.value
-    raise ReleaseGateError("src/gpo_studio/__init__.py assigns no literal __version__")
+    """Read ``__version__`` without importing the package, refusing ambiguity.
+
+    There must be exactly one binding of ``__version__`` anywhere in the module
+    (assignment, annotated or augmented assignment, tuple target, ``for``,
+    ``with``, walrus, import alias or ``global``), a plain module-level
+    ``__version__ = "<literal>"``, and it must be the only line Hatchling's
+    version regex matches. The built wheel's metadata is also checked against
+    the approved version (``--wheel``), so this is the early half of the check.
+    """
+    path = root / "src" / "gpo_studio" / "__init__.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    bindings = [node for node in ast.walk(tree) if _binds_version(node)]
+    simple = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "__version__"
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    ]
+    if len(bindings) != 1 or len(simple) != 1:
+        raise ReleaseGateError(
+            f"{path.name} must bind __version__ exactly once, as a plain string assignment; "
+            f"found {len(bindings)} binding(s), {len(simple)} plain"
+        )
+    node = simple[0]
+    assert isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+    version = node.value.value
+    hatch = [match["version"] for match in _HATCH_VERSION_LINE.finditer(source)]
+    if hatch != [version]:
+        raise ReleaseGateError(
+            f"{path.name}: Hatchling would read {hatch!r} as the version, "
+            f"but Python assigns {version!r}"
+        )
+    return version
+
+
+def distribution_versions(wheel: Path | None, sdist: Path | None) -> dict[str, str]:
+    """The version recorded in a built wheel's METADATA and sdist's PKG-INFO."""
+    found: dict[str, str] = {}
+    if wheel is not None:
+        with zipfile.ZipFile(wheel) as archive:
+            names = [n for n in archive.namelist() if re.fullmatch(r"[^/]+\.dist-info/METADATA", n)]
+            if len(names) != 1:
+                raise ReleaseGateError(f"{wheel.name} has {len(names)} dist-info METADATA files")
+            found[f"{wheel.name} METADATA"] = _metadata_version(archive.read(names[0]))
+        match = re.fullmatch(r"gpo_studio-([^-]+)-.+\.whl", wheel.name)
+        if match is None:
+            raise ReleaseGateError(f"unexpected wheel file name {wheel.name!r}")
+        found[f"{wheel.name} file name"] = match.group(1)
+    if sdist is not None:
+        with tarfile.open(sdist) as archive:
+            names = [
+                m.name for m in archive.getmembers() if re.fullmatch(r"[^/]+/PKG-INFO", m.name)
+            ]
+            if len(names) != 1:
+                raise ReleaseGateError(f"{sdist.name} has {len(names)} top-level PKG-INFO files")
+            member = archive.extractfile(names[0])
+            if member is None:
+                raise ReleaseGateError(f"{sdist.name}: PKG-INFO is not a regular file")
+            found[f"{sdist.name} PKG-INFO"] = _metadata_version(member.read())
+    return found
+
+
+def _metadata_version(data: bytes) -> str:
+    message = BytesParser().parsebytes(data, headersonly=True)
+    versions = message.get_all("Version") or []
+    if len(versions) != 1:
+        raise ReleaseGateError(f"metadata carries {len(versions)} Version headers")
+    return str(versions[0]).strip()
+
+
+def verify_distributions(version: str, wheel: Path | None, sdist: Path | None) -> None:
+    """Every built artifact must carry the version the manifest approved."""
+    if wheel is None and sdist is None:
+        return
+    mismatched = {
+        where: found
+        for where, found in distribution_versions(wheel, sdist).items()
+        if found != version
+    }
+    if mismatched:
+        raise ReleaseGateError(
+            f"built distributions do not carry the approved version {version!r}: {mismatched!r}"
+        )
 
 
 def manifest_paths(base_version: str) -> tuple[str, str]:
@@ -178,24 +357,15 @@ def check(root: Path, tag: str) -> ReleaseManifest:
     if not report_path.is_file():
         raise ReleaseGateError(f"no evidence report for {base}: {report_rel} does not exist")
 
-    lines = manifest_path.read_text(encoding="utf-8").splitlines()
-    title = f"# Release evidence manifest — GPO Studio {base}"
-    if not lines or lines[0] != title:
-        raise ReleaseGateError(f"{manifest_rel} must begin with {title!r}")
-    if f"- Application version: {base}" not in lines:
-        raise ReleaseGateError(f"{manifest_rel} has no '- Application version: {base}' line")
-    visible, hidden = status_declarations("\n".join(lines))
-    required = CANDIDATE if rc else APPROVED
-    if hidden:
-        raise ReleaseGateError(
-            f"{manifest_rel} has status lines inside a code block or HTML comment, "
-            f"which cannot approve and make the status ambiguous: {hidden!r}"
-        )
-    if visible != [required]:
-        raise ReleaseGateError(
-            f"{manifest_rel} must carry exactly one status line, {required!r}; "
-            f"found {visible!r}"
-        )
+    text = manifest_path.read_text(encoding="utf-8")
+    problems = manifest_problems(
+        text,
+        title=f"# Release evidence manifest — GPO Studio {base}",
+        application=f"- Application version: {base}",
+        required=CANDIDATE if rc else APPROVED,
+    )
+    if problems:
+        raise ReleaseGateError(f"{manifest_rel}: " + "; ".join(problems))
 
     if base not in LEGACY_MANIFESTS:
         try:
@@ -276,12 +446,21 @@ def main(argv: list[str] | None = None) -> int:
         help="also require the remote tag to peel to this commit (GITHUB_SHA)",
     )
     parser.add_argument("--remote", default="origin", help="remote for --remote-tag-sha")
+    parser.add_argument("--wheel", type=Path, help="require this built wheel's version to match")
+    parser.add_argument("--sdist", type=Path, help="require this built sdist's version to match")
     args = parser.parse_args(argv)
     try:
         result = check(args.root, args.tag)
+        verify_distributions(result.version, args.wheel, args.sdist)
         if args.remote_tag_sha is not None:
             verify_remote_tag(args.root, args.remote, args.tag, args.remote_tag_sha)
-    except (ReleaseGateError, OSError, subprocess.SubprocessError) as error:
+    except (
+        ReleaseGateError,
+        OSError,
+        subprocess.SubprocessError,
+        zipfile.BadZipFile,
+        tarfile.TarError,
+    ) as error:
         print(f"release gate: FAIL: {error}", file=sys.stderr)
         return 1
     if args.github_output is not None:

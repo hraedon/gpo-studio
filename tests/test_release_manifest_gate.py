@@ -10,12 +10,15 @@ workflow to running it, and the CI and identifier gates, before publishing.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import zipfile
 from pathlib import Path
 from types import ModuleType
 
@@ -62,13 +65,26 @@ def _manifest(
     title = title or f"# Release evidence manifest — GPO Studio {base}"
     application = application or base
     (root / "docs" / f"release-evidence-{base}.md").write_text(
-        f"{title}\n\n{status}\n{extra}\n## Schema and artifact identity\n\n"
+        f"{title}\n\n{status}\n\n{extra}\n\n## Schema and artifact identity\n\n"
         f"- Application version: {application}\n",
         encoding="utf-8",
     )
     (root / "docs" / f"release-evidence-report-{base}.json").write_text(
         json.dumps({"release_version": report_version or base}), encoding="utf-8"
     )
+
+
+def _committed(root: Path, base: str = "1.1.0") -> Path:
+    for name in (f"release-evidence-{base}.md", f"release-evidence-report-{base}.json"):
+        shutil.copyfile(REPO_ROOT / "docs" / name, root / "docs" / name)
+    return root / "docs" / f"release-evidence-{base}.md"
+
+
+def _set_status(manifest: Path, status: str) -> None:
+    text = manifest.read_text(encoding="utf-8")
+    flipped, count = re.subn(r"^> \*\*Status:\*\*.*$", status, text, flags=re.MULTILINE)
+    assert count == 1, "the committed manifest must have exactly one status line to flip"
+    manifest.write_text(flipped, encoding="utf-8")
 
 
 # --- the stale-manifest hole ------------------------------------------------
@@ -95,27 +111,40 @@ def test_a_copied_manifest_still_naming_1_0_0_is_refused(tmp_path: Path) -> None
     (root / "docs" / "release-evidence-report-1.1.0.json").write_text(
         json.dumps({"release_version": "1.1.0"}), encoding="utf-8"
     )
-    with pytest.raises(gate.ReleaseGateError, match="must begin with"):
+    with pytest.raises(gate.ReleaseGateError, match="level-1 heading"):
         gate.check(root, "v1.1.0")
 
 
-def test_the_committed_1_1_0_draft_cannot_release(tmp_path: Path) -> None:
+def test_a_draft_manifest_cannot_release(tmp_path: Path) -> None:
+    """Draft rejection, on an independent fixture.
+
+    The committed manifest is not used here: it is meant to change to approved
+    at the release cut, and a test that required it to stay a draft would fail
+    the very CI run that publishes (Sol re-review, finding 3).
+    """
     root = _root(tmp_path, "1.1.0")
-    for name in ("release-evidence-1.1.0.md", "release-evidence-report-1.1.0.json"):
-        shutil.copyfile(REPO_ROOT / "docs" / name, root / "docs" / name)
-    with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
+    _manifest(root, "1.1.0", "> **Status:** DRAFT — not approved for release")
+    with pytest.raises(gate.ReleaseGateError, match="the status line is"):
         gate.check(root, "v1.1.0")
-    # It does name its own version correctly, so only approval is missing.
-    (root / "docs" / "release-evidence-1.1.0.md").write_text(
-        re.sub(
-            r"^> \*\*Status:\*\*.*$",
-            gate.APPROVED,
-            (root / "docs" / "release-evidence-1.1.0.md").read_text(encoding="utf-8"),
-            flags=re.MULTILINE,
-        ),
-        encoding="utf-8",
-    )
-    assert gate.check(root, "v1.1.0").manifest == "docs/release-evidence-1.1.0.md"
+
+
+@pytest.mark.parametrize(
+    ("version", "tag", "status"),
+    [("1.1.0", "v1.1.0", gate.APPROVED), ("1.1.0rc1", "v1.1.0-rc.1", gate.CANDIDATE)],
+)
+def test_the_committed_manifest_passes_once_its_status_is_flipped(
+    tmp_path: Path, version: str, tag: str, status: str
+) -> None:
+    """The documented cut: change only the status line (and the version), and it passes.
+
+    Holds whatever the committed status is today, so it keeps passing after the
+    cut as well as before it.
+    """
+    root = _root(tmp_path, version)
+    _set_status(_committed(root), status)
+    result = gate.check(root, tag)
+    assert result.manifest == "docs/release-evidence-1.1.0.md"
+    assert result.is_candidate == ("rc" in version)
 
 
 def test_the_released_1_0_0_manifest_still_satisfies_its_own_tag(tmp_path: Path) -> None:
@@ -157,6 +186,92 @@ def test_unreleasable_versions_are_refused(tmp_path: Path, version: str) -> None
         gate.check(root, f"v{version}")
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        # Sol re-review, finding 2: Hatchling built 1.2.0 from this; the gate read 1.1.0.
+        '(__version__) = "1.1.0"\n__version__ = "1.2.0"\n',
+        '__version__ = "1.1.0"\n__version__ = "1.2.0"\n',
+        '__version__ = "1.1.0"\nif True:\n    __version__ = "1.2.0"\n',
+        '__version__ = "1.1.0"\n__version__ += "-x"\n',
+        '__version__ = "1.1.0"\nfor __version__ in ["1.2.0"]:\n    pass\n',
+        '__version__ = "1.1.0"\nfrom os import sep as __version__\n',
+        '__version__ = __version__ = "1.1.0"\n',
+        '__version__: str = "1.1.0"\n',
+        '__version__ = ("1.1.0")\n__version__ = "1.2.0"\n',
+        '__version__ = "1." + "1.0"\n',
+        # Hatchling's regex reads the first matching line, even inside a docstring.
+        '"""\n__version__ = "1.2.0"\n"""\n__version__ = "1.1.0"\n',
+        "__version__ = '1.1.0'  # fine\nVERSION = '1.2.0'\n",
+    ],
+)
+def test_the_version_must_be_bound_exactly_once_and_unambiguously(
+    tmp_path: Path, source: str
+) -> None:
+    root = _root(tmp_path, "1.1.0")
+    (root / "src" / "gpo_studio" / "__init__.py").write_text(source, encoding="utf-8")
+    _manifest(root, "1.1.0", gate.APPROVED)
+    with pytest.raises(gate.ReleaseGateError, match="exactly once|Hatchling would read"):
+        gate.check(root, "v1.1.0")
+
+
+def test_the_committed_package_version_reads_cleanly() -> None:
+    assert gate._VERSION.match(gate.package_version(REPO_ROOT)) is not None
+
+
+def _wheel(path: Path, version: str, *, name_version: str | None = None) -> Path:
+    wheel = path / f"gpo_studio-{name_version or version}-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(
+            f"gpo_studio-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.4\nName: gpo-studio\nVersion: {version}\n\nbody\n",
+        )
+    return wheel
+
+
+def _sdist(path: Path, version: str) -> Path:
+    sdist = path / f"gpo_studio-{version}.tar.gz"
+    data = f"Metadata-Version: 2.4\nName: gpo-studio\nVersion: {version}\n".encode()
+    with tarfile.open(sdist, "w:gz") as archive:
+        info = tarfile.TarInfo(f"gpo_studio-{version}/PKG-INFO")
+        info.size = len(data)
+        archive.addfile(info, io.BytesIO(data))
+    return sdist
+
+
+def test_built_distributions_must_carry_the_approved_version(tmp_path: Path) -> None:
+    root = _root(tmp_path / "repo", "1.1.0")
+    _manifest(root, "1.1.0", gate.APPROVED)
+    good_wheel, good_sdist = _wheel(tmp_path, "1.1.0"), _sdist(tmp_path, "1.1.0")
+    base = ["--tag", "v1.1.0", "--root", str(root)]
+    assert gate.main([*base, "--wheel", str(good_wheel), "--sdist", str(good_sdist)]) == 0
+
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(gate.ReleaseGateError, match="do not carry the approved version"):
+        gate.verify_distributions("1.1.0", _wheel(other, "1.2.0"), None)
+    with pytest.raises(gate.ReleaseGateError, match="do not carry the approved version"):
+        gate.verify_distributions("1.1.0", _wheel(other, "1.2.0", name_version="1.1.0"), None)
+    with pytest.raises(gate.ReleaseGateError, match="do not carry the approved version"):
+        gate.verify_distributions("1.1.0", None, _sdist(other, "1.2.0"))
+    assert gate.main([*base, "--wheel", str(_wheel(other, "1.2.0"))]) == 1
+
+
+def test_a_wheel_without_exactly_one_metadata_version_is_refused(tmp_path: Path) -> None:
+    wheel = tmp_path / "gpo_studio-1.1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("a.dist-info/METADATA", "Name: gpo-studio\nVersion: 1.1.0\n")
+        archive.writestr("b.dist-info/METADATA", "Name: gpo-studio\nVersion: 1.2.0\n")
+    with pytest.raises(gate.ReleaseGateError, match="METADATA files"):
+        gate.verify_distributions("1.1.0", wheel, None)
+    double = tmp_path / "double" / "gpo_studio-1.1.0-py3-none-any.whl"
+    double.parent.mkdir()
+    with zipfile.ZipFile(double, "w") as archive:
+        archive.writestr("x.dist-info/METADATA", "Version: 1.1.0\nVersion: 1.2.0\n")
+    with pytest.raises(gate.ReleaseGateError, match="Version headers"):
+        gate.verify_distributions("1.1.0", double, None)
+
+
 # --- the manifest's own claims -----------------------------------------------
 
 
@@ -172,35 +287,31 @@ def test_a_candidate_tag_needs_the_candidate_marker_not_approval(tmp_path: Path)
     _manifest(root, "1.1.0", gate.CANDIDATE)
     assert gate.check(root, "v1.1.0-rc.2").is_candidate
     _manifest(root, "1.1.0", gate.APPROVED)
-    with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
+    with pytest.raises(gate.ReleaseGateError, match="the status line is"):
         gate.check(root, "v1.1.0-rc.2")
 
 
 @pytest.mark.parametrize(
-    "status",
+    ("status", "reason"),
     [
-        "> **Status:** DRAFT — not approved",
-        "> **Status:** release candidate; final approval pending",
-        "> **Status:**  approved for release",
-        "",
+        ("> **Status:** DRAFT — not approved", "the status line is"),
+        ("> **Status:** release candidate; final approval pending", "the status line is"),
+        ("> **Status:**  approved for release", "the status line is"),
+        ("**Status:** approved for release", "not in a plain paragraph"),
+        ("", "exactly one status line"),
     ],
 )
-def test_a_final_tag_needs_the_exact_approval_marker(tmp_path: Path, status: str) -> None:
+def test_a_final_tag_needs_the_exact_approval_marker(
+    tmp_path: Path, status: str, reason: str
+) -> None:
     root = _root(tmp_path, "1.1.0")
     _manifest(root, "1.1.0", status)
-    with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
-        gate.check(root, "v1.1.0")
-
-
-def test_a_second_status_line_is_refused(tmp_path: Path) -> None:
-    root = _root(tmp_path, "1.1.0")
-    _manifest(root, "1.1.0", gate.APPROVED, extra="> **Status:** DRAFT\n")
-    with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
+    with pytest.raises(gate.ReleaseGateError, match=reason):
         gate.check(root, "v1.1.0")
 
 
 # Each of these sat beside a valid approval line. The first three are the
-# bypasses the 2026-10-08 Sol review demonstrated against the prefix match.
+# bypasses the first Sol review demonstrated against the prefix match.
 @pytest.mark.parametrize(
     "second",
     [
@@ -211,56 +322,94 @@ def test_a_second_status_line_is_refused(tmp_path: Path) -> None:
         "**Status**: draft",
         "> **Status** : draft",
         "> > **status:** draft",
-        "## Status",
+        "- **Status:** DRAFT",
         "> **Sta​tus:** DRAFT",
         "> **Status：** DRAFT",
+        "> **Ѕtatus:** DRAFT",
         "_Status:_ draft",
+        "`Status:` draft",
+        "[x]: https://example.invalid 'Status: draft'",
     ],
 )
-def test_any_second_status_declaration_is_refused(tmp_path: Path, second: str) -> None:
+def test_any_second_status_mention_is_refused(tmp_path: Path, second: str) -> None:
     root = _root(tmp_path, "1.1.0")
-    _manifest(root, "1.1.0", gate.APPROVED, extra=second + "\n")
+    _manifest(root, "1.1.0", gate.APPROVED, extra=second)
     with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
         gate.check(root, "v1.1.0")
 
 
-@pytest.mark.parametrize(
-    "hidden",
-    [
-        # Sol's third bypass: the only approval in an example block, the real
-        # (draft) status indented so the old prefix match missed it.
-        "```\n> **Status:** approved for release\n```",
-        "~~~markdown\n> **Status:** DRAFT\n~~~",
-        "```yaml\nstatus: draft\n```",
-        "<!-- > **Status:** DRAFT -->",
-        "<!--\n> **Status:** DRAFT\n-->",
-        "```\nunterminated fence",
-        "<!-- unterminated comment",
-    ],
-)
-def test_status_lines_in_code_blocks_or_comments_are_refused(tmp_path: Path, hidden: str) -> None:
+def test_an_entity_encoded_second_status_is_counted_in_the_rendered_text(tmp_path: Path) -> None:
     root = _root(tmp_path, "1.1.0")
-    _manifest(root, "1.1.0", gate.APPROVED, extra=hidden + "\n")
-    with pytest.raises(gate.ReleaseGateError, match="code block or HTML comment"):
+    _manifest(root, "1.1.0", gate.APPROVED, extra="> **Sta&#116;us:** DRAFT")
+    with pytest.raises(gate.ReleaseGateError, match=r"1 in the source .* 2 in the rendered"):
         gate.check(root, "v1.1.0")
 
 
-def test_an_approval_only_inside_a_fence_does_not_approve(tmp_path: Path) -> None:
+def test_a_heading_named_status_is_refused(tmp_path: Path) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", gate.APPROVED, extra="## Status\n\nDRAFT")
+    with pytest.raises(gate.ReleaseGateError, match="a heading is named"):
+        gate.check(root, "v1.1.0")
+
+
+# The approval is the ONLY status mention in each of these, so the count passes;
+# the parser must still see that it is not in the manifest's header paragraph.
+@pytest.mark.parametrize(
+    "status",
+    [
+        # Sol re-review, finding 1: an approval only inside a quoted code fence.
+        "> ```\n> **Status:** approved for release\n> ```",
+        "```\n> **Status:** approved for release\n```",
+        "~~~\n> **Status:** approved for release\n~~~",
+        "    > **Status:** approved for release",
+        "> > **Status:** approved for release",
+        "- > **Status:** approved for release",
+        "> - **Status:** approved for release",
+    ],
+)
+def test_an_approval_outside_the_header_paragraph_does_not_approve(
+    tmp_path: Path, status: str
+) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", status)
+    with pytest.raises(gate.ReleaseGateError, match="not in a plain paragraph|the status line is"):
+        gate.check(root, "v1.1.0")
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        # Sol re-review, finding 1: approval inside HTML blocks.
+        "<details>\n\n> **Status:** approved for release\n\n</details>",
+        "<div>\n> **Status:** approved for release\n</div>",
+        "<!--\n> **Status:** approved for release\n-->",
+        "> **Status:** approved for release <!-- DRAFT -->",
+    ],
+)
+def test_raw_html_is_refused_outright(tmp_path: Path, status: str) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _manifest(root, "1.1.0", status)
+    with pytest.raises(gate.ReleaseGateError, match="raw HTML is not allowed"):
+        gate.check(root, "v1.1.0")
+
+
+def test_a_listed_draft_beside_a_quoted_fence_approval_is_refused(tmp_path: Path) -> None:
+    """Sol re-review, finding 1, as reported: a listed DRAFT plus a fenced approval."""
     root = _root(tmp_path, "1.1.0")
     _manifest(
         root,
         "1.1.0",
-        "    > **Status:** DRAFT",
-        extra="```\n> **Status:** approved for release\n```\n",
+        "- **Status:** DRAFT",
+        extra="> ```\n> > **Status:** approved for release\n> ```",
     )
-    with pytest.raises(gate.ReleaseGateError):
+    with pytest.raises(gate.ReleaseGateError, match="exactly one status line"):
         gate.check(root, "v1.1.0")
 
 
-def test_an_approval_only_inside_a_comment_does_not_approve(tmp_path: Path) -> None:
+def test_an_unclosed_fence_cannot_swallow_the_version_line(tmp_path: Path) -> None:
     root = _root(tmp_path, "1.1.0")
-    _manifest(root, "1.1.0", "<!--\n> **Status:** approved for release\n-->")
-    with pytest.raises(gate.ReleaseGateError):
+    _manifest(root, "1.1.0", gate.APPROVED, extra="```\nunterminated fence")
+    with pytest.raises(gate.ReleaseGateError, match="plain bullet-list item"):
         gate.check(root, "v1.1.0")
 
 
@@ -268,7 +417,8 @@ def test_prose_that_mentions_status_is_not_a_declaration(tmp_path: Path) -> None
     root = _root(tmp_path, "1.1.0")
     prose = (
         "The gate reads the status line above.\n"
-        "status line changes are recorded in the changelog.\n"
+        "status line changes are recorded in the changelog.\n\n"
+        "## Lab status\n\n"
         "```\nprint('no declaration here')\n```\n"
     )
     _manifest(root, "1.1.0", gate.APPROVED, extra=prose)
@@ -278,7 +428,7 @@ def test_prose_that_mentions_status_is_not_a_declaration(tmp_path: Path) -> None
 def test_the_title_must_name_the_version(tmp_path: Path) -> None:
     root = _root(tmp_path, "1.1.0")
     _manifest(root, "1.1.0", gate.APPROVED, title="# Release evidence manifest — GPO Studio 1.0.0")
-    with pytest.raises(gate.ReleaseGateError, match="must begin with"):
+    with pytest.raises(gate.ReleaseGateError, match="level-1 heading"):
         gate.check(root, "v1.1.0")
 
 
@@ -348,7 +498,7 @@ def test_release_workflow_no_longer_greps_the_unversioned_manifest() -> None:
     text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     assert "grep -q '^> " not in text
     assert "cp docs/release-evidence.md" not in text
-    assert text.count("python scripts/check_release_manifest.py") == 3
+    assert text.count("python scripts/check_release_manifest.py") == 4
 
 
 def test_publish_needs_identity_ci_identifier_gate_and_verify() -> None:
@@ -491,3 +641,40 @@ def test_publish_checks_the_remote_tag_immediately_before_creating_the_release()
         "the tag check must be the step right before publication"
     )
     assert '--remote-tag-sha "${GITHUB_SHA}"' in _job_block(text, "release-identity")
+
+
+def test_publish_checks_the_built_distributions_before_anything_is_attested() -> None:
+    publish = _job_block((WORKFLOWS / "release.yml").read_text(encoding="utf-8"), "publish")
+    build = publish.index("python -m build --outdir dist\n")
+    check = publish.index('--wheel "${WHEELS[0]}" --sdist "${SDISTS[0]}"')
+    attest = publish.index("actions/attest-build-provenance")
+    assert build < check < attest
+
+
+def test_both_gate_jobs_install_the_hash_pinned_parser_first() -> None:
+    text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    install = "pip install --require-hashes -r scripts/release-gate-requirements.txt"
+    for job in ("release-identity", "publish"):
+        block = _job_block(text, job)
+        assert block.index(install) < block.index("python scripts/check_release_manifest.py"), job
+
+
+def test_the_gate_requirements_match_the_lockfile() -> None:
+    import tomllib
+
+    pinned = dict(
+        re.findall(
+            r"^([A-Za-z0-9_.-]+)==(\S+)",
+            (REPO_ROOT / "scripts" / "release-gate-requirements.txt").read_text("utf-8"),
+            re.MULTILINE,
+        )
+    )
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    locked = {pkg["name"]: pkg for pkg in lock["package"]}
+    assert set(pinned) == {"markdown-it-py", "mdurl"}
+    requirements = (REPO_ROOT / "scripts" / "release-gate-requirements.txt").read_text("utf-8")
+    for name, version in pinned.items():
+        assert locked[name]["version"] == version, name
+        hashes = [locked[name]["sdist"]["hash"]] + [w["hash"] for w in locked[name]["wheels"]]
+        for digest in hashes:
+            assert f"--hash={digest}" in requirements, (name, digest)

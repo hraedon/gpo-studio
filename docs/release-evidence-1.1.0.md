@@ -44,9 +44,13 @@ The publish job also requires, for the exact tagged commit:
 - immediately before `gh release create`, the remote tag to still peel to the
   commit the run built.
 
-A status declaration is any line a reader could take for one, whatever its
-case, indentation, blockquote or emphasis. A status line inside a code block or
-HTML comment is refused outright.
+The manifest is parsed as CommonMark. Exactly one status mention (the word and a colon) may
+exist anywhere in it, in any spelling, and it must be a plain paragraph in the
+top-level blockquote at the head of the file. A status in a code block (including
+one nested in a quote), list, nested quote or heading fails, and so does any raw
+HTML. `__version__` must be bound exactly once, and Hatchling must read the same
+value. Before anything is attested, the built wheel's `METADATA` and the
+sdist's `PKG-INFO` must carry the approved version.
 
 ## What 1.1.0 is
 
@@ -140,7 +144,7 @@ Gaps, stated rather than implied:
   Security template and Folder Redirection panels, the dark theme and the
   sticky row actions have had no hands-on screen-reader session. Whether 1.1.0
   requires one before approval is an operator decision that has **not** been
-  made. Status: not run.
+  made. It has not been run.
 
 ## Upgrade and rollback
 

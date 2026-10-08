@@ -637,10 +637,15 @@ Lab and development tooling:
   `scripts/check_release_manifest.py` now requires
   `docs/release-evidence-<version>.md` and its JSON report to name the tagged
   version, and requires exactly one status declaration, the right one for
-  the tag. Any line a reader could take for a status counts, whatever its case,
-  indentation, blockquote or emphasis. A status line inside a code block or
-  HTML comment is refused, so an approval cannot sit in an example block beside
-  a draft. It fails closed on anything else. Before publishing, the workflow
+  the tag. The manifest is parsed as CommonMark (markdown-it-py, a pinned,
+  hash-checked dev and release-job dependency): every "status:" mention counts,
+  in any spelling, and the one allowed must be a plain paragraph in the
+  top-level blockquote. Code blocks (including fences nested in quotes), lists,
+  nested quotes, headings and any raw HTML are refused, so an approval cannot
+  hide in an example block or a `<details>` element beside a draft.
+  `__version__` must be bound exactly once and match what Hatchling reads, and
+  the built wheel's and sdist's metadata versions must equal the approved
+  version before anything is attested. It fails closed on anything else. Before publishing, the workflow
   also requires every `ci.yml` job (including `test-windows`), the identifier
   gate and the existing verify job to pass on the tagged commit, and the commit
   to be on `main`. Immediately before `gh release create`, it requires the
