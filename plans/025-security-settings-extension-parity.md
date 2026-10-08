@@ -12,12 +12,14 @@ areas remain open. The `Windows-verified` claim in this plan's scope is
 `POST /api/security-template/policy-families` and `object_security.py` at
 `POST /api/security-template/object-security` (Plan 034 WP-3), each in the
 emission direction its lanes certified and no further: both render families as
-INF and neither parses one back, because the read direction has no cmdlet
-oracle. They are the first modules of this plan to satisfy both halves of the
+INF and neither parses one back: no cmdlet oracle reads a GPME-authored
+`GptTmpl.inf`, although the lanes do parse the INF Windows exports through
+`secedit /export` (`finalize_wp3_run.py`). They are the first modules of this plan to satisfy both halves of the
 exit condition in the order
 [`domain-layer-status.md`](../docs/domain-layer-status.md) requires — lane
-first, then surface. The plan stays unsurfaced because two modules still are;
-this line exists so that fact is not read as covering all four.
+first, then surface. Under the 2026-10-07 ruling `security_template.py` exits through those two
+consumers, which leaves `network_security.py` as the one module still
+unsurfaced; this line exists so that fact is not read as covering all four.
 
 **Rulings of 2026-10-07** ([Plan 034 completion](../docs/direction-2026-10-07-plan-034-completion.md)).
 `security_template.py` **exits through its consumers**: three live verdicts

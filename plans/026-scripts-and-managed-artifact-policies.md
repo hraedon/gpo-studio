@@ -5,10 +5,12 @@ Status: implemented (domain layer) — **not surfaced**. `script_policy.py` and
 path. Updated 2026-10-07:
 
 - `script_policy.py` is **lane-backed and unsurfaced**. The Scripts metadata
-  lane passes 21/21 on a clean member server
-  (`scripts-r10-20260908013518-2476`, see
-  [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md)), so the
-  Windows-verified half is met for the metadata it measures. Payload execution
+  lane passed 21/21 on a clean member server (live pack:
+  `scripts-r10-20260905191308-8174` from the WI-062 batch; the earlier
+  `scripts-r10-20260908013518-2476`, see
+  [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md), is
+  retired history). Its runner is one of the eight WI-063 left unparseable,
+  so the lane is re-runnable again only after the requalification batch. Payload execution
   and endpoint processing are not measured. By the 2026-10-07 ruling the stale
   pre-R2 `scripts.ini` writer and parser are deleted in the requalification
   batch, and its exit is this lane plus a Scripts export surface.

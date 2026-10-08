@@ -74,8 +74,9 @@ paragraph above said this was not a deletion order. The 2026-10-07 ruling made
 it one, as part of finishing Plan 034: every module that plan lists must leave
 either at `yes` or with a recorded ruling, and this one could only leave with a
 ruling. The module had no consumer outside its own tests. Native Software
-Installation content in an imported backup is kept by `cse_metadata`, not by
-this module, so preserve-only still holds without it.
+Installation files in an imported backup keep their metadata (path, size,
+SHA-256) in `cse_metadata`, not in this module; the original bytes are not
+stored. Preserve-only, in that metadata sense, still holds without it.
 `src/gpo_studio/software_install.py` (487 lines) and
 `tests/test_software_install.py` (341) are removed, and version control keeps
 both. This follows the
