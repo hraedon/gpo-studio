@@ -66,6 +66,14 @@ Software Installation, Folder Redirection and the legacy IE extension remain
 outside this measured corpus. Plan 034's broader family investigation remains
 open.
 
+**Update 2026-10-08: report parity.** The report-parity lane has since compared
+Studio's typed import of all 27 backups with a fresh `Get-GPOReport -ReportType
+Xml` on Windows, plus one GPO authored on the guest:
+`report-parity-20261008104512-7480`, 25/25 at `a1c280b`. It covers item
+identity and order for the families the corpus exercises, and pins WI-072 and
+WI-073 as known divergences. See [the results](report-parity-results.md) for
+its scope and exclusions.
+
 ## Affected Windows qualifications
 
 Only the Scripts metadata and publication-completeness finalizers bind the

@@ -278,6 +278,25 @@
       "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by publication-completeness-20261008074904-1047. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
     },
     {
+      "lane_id": "report-parity-gpmc",
+      "plan_wp": "WP-2",
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "For each Windows-produced corpus backup: New-GPO, Import-GPO, then a fresh Get-GPOReport -ReportType Xml, whose settings inventory (by side and report family) is compared with Studio's typed import of the same backup; plus one GPO authored on the guest with Set-GPRegistryValue and backed up with Backup-GPO. The expectation is built on the controller and never reaches the guest.",
+      "status": "partial",
+      "notes": "Qualified 2026-10-08 at a1c280b8a1ec31b03397437dc2e6d947022b4857 by report-parity-20261008104512-7480 (25/25 checks, 27/27 cases plus the authored case). It supersedes the earlier pass at 1a31feb, which stopped binding when the candidate builder's archive order was made platform-independent. Covers the families the corpus exercises: registry (REG_SZ/REG_DWORD), Drive Maps, Environment, Files, Folders, Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks, Services, Shortcuts. Item identity (element, name, uid, action) and order only; preference Properties beyond action, ADMX <Policy> rendering, Scripts, links, security filtering and WMI filters are named exclusions. WI-072 and WI-073 are accepted only as pinned known divergences."
+    },
+    {
       "lane_id": "fdeploy-gpmc",
       "plan_wp": "WP-4",
       "boundaries": [

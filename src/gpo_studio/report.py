@@ -15,6 +15,7 @@ from .fdeploy import (
 )
 from .gpp import GppCollection
 from .model import GPO
+from .report_parity import ReportParityError, studio_inventory
 from .validation import validate_gpo
 
 
@@ -47,6 +48,22 @@ def _gpp_item_counts(collection: GppCollection) -> tuple[tuple[str, int], ...]:
 def _section(title: str, lines: Iterable[str]) -> list[str]:
     body = list(lines)
     return [title, "-" * len(title), *(body or ["(none)"]), ""]
+
+
+def _inventory_lines(gpo: GPO) -> list[str]:
+    """The inventory the report-parity lane compares with Get-GPOReport."""
+    try:
+        inventory = studio_inventory(gpo)
+    except ReportParityError as error:
+        return [f"(inventory unavailable: {error})"]
+    return [
+        line
+        for family in inventory.families
+        for line in (
+            f"{family.side}/{family.family}: {len(family.items)} item(s)",
+            *(f"  {item.label()}" for item in family.items),
+        )
+    ]
 
 
 def _format_value(value: str | int | list[str]) -> str:
@@ -147,6 +164,7 @@ def policy_report(gpo: GPO) -> str:
             for collection in gpo.gpp_collections
         ),
     )
+    lines += _section("Settings inventory (Windows report families)", _inventory_lines(gpo))
     if gpo.fdeploy is not None:
         lines += _section("Folder Redirection (fdeploy1.ini)", _fdeploy_lines(gpo.fdeploy))
     lines += _section(
