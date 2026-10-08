@@ -609,10 +609,20 @@ def _refuse_existing_target(
     mode: WindowsOperation,
     target_name: str,
     existing_gpo_names: Collection[str] | None,
-) -> None:
-    taken = target_name.casefold() == manifest.gpo_display_name.casefold()
-    if existing_gpo_names is not None:
-        taken = taken or target_name.casefold() in {n.casefold() for n in existing_gpo_names}
+) -> tuple[str, ...]:
+    """Refuse a target name known to be taken; return any warning about it.
+
+    With ``existing_gpo_names`` the caller has stated the domain's CURRENT
+    names, and only that list decides: the backup's display name is historical
+    (the source may have been renamed or deleted since), so matching it is a
+    warning, not a refusal. Without a list, the backup's own name is the one
+    name known to have existed in this domain, and it is refused by default.
+    """
+    historical = target_name.casefold() == manifest.gpo_display_name.casefold()
+    if existing_gpo_names is None:
+        taken = historical
+    else:
+        taken = target_name.casefold() in {n.casefold() for n in existing_gpo_names}
     if target_name and taken:
         raise ValidationError(
             [
@@ -626,6 +636,12 @@ def _refuse_existing_target(
                 )
             ]
         )
+    if target_name and historical:
+        return (
+            f"{target_name!r} is the backup's own GPO name; the supplied current names "
+            "say it is free, so the source must have been renamed or deleted",
+        )
+    return ()
 
 
 def generate_restore_plan(
@@ -654,11 +670,11 @@ def generate_restore_plan(
     require that no GPO named ``target_name`` exists: ``Import-GPO
     -CreateIfNeeded`` would otherwise import into it, and the plan's promised
     identity and survival would be wrong. The plan states that precondition
-    (``requires_target_absent``). It refuses a target named like the backup's
-    own GPO, which exists in the same domain unless it was deleted (and then
-    ``restore_in_place`` is the operation), and it refuses any name in
-    ``existing_gpo_names`` when the caller supplies the domain's names. Without
-    them, the absence is stated as unchecked.
+    (``requires_target_absent``). When the caller supplies the domain's current
+    names (``existing_gpo_names``), only that list decides: a listed name is
+    refused, and the backup's own (historical) name is merely warned about.
+    Without the list, absence is stated as unchecked and the backup's own name
+    -- the one name known to exist in this domain -- is refused by default.
 
     Raises :class:`ValidationError` if the resulting plan has error-severity
     issues.
@@ -694,7 +710,10 @@ def generate_restore_plan(
         case "import_as_new" | "copy" | "copy_with_acl":
             scope, warnings = _scope_and_warnings(manifest, mode)
             requires_absent = True
-            _refuse_existing_target(manifest, mode, name, existing_gpo_names)
+            warnings = (
+                *warnings,
+                *_refuse_existing_target(manifest, mode, name, existing_gpo_names),
+            )
             preconditions = (
                 f"no GPO named {name!r} exists in {domain!r} when {cmdlet_for(mode).split()[0]} "
                 "runs; if one does, the result is that GPO (import_into_existing "

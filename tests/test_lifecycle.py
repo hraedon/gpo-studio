@@ -671,3 +671,39 @@ def test_a_target_name_the_caller_reports_as_taken_is_refused() -> None:
     )
     assert free.requires_target_absent is True
     assert not any("not checked" in w and "Free" in w for w in free.warnings)
+
+
+@pytest.mark.parametrize("names", [[], ["renamed-source"]])
+def test_an_explicit_current_name_list_decides_over_the_historical_name(
+    names: list[str],
+) -> None:
+    """Re-review P2(d): after a rename or delete, the backup's old name can be free.
+
+    Import-GPO -CreateIfNeeded creates on the target's CURRENT absence, so a
+    caller-supplied list of current names decides; the historical name is a
+    warning, not a refusal.
+    """
+    manifest = manifest_from_backup(read_backup(_NATIVE / "WI01A-DriveMaps-GPMC"))
+    plan = generate_restore_plan(
+        manifest, "import_as_new", target_name=manifest.gpo_display_name,
+        existing_gpo_names=names,
+    )
+    assert plan.requires_target_absent is True
+    assert any("backup's own GPO name" in w for w in plan.warnings)
+    assert not any("is not checked" in w and "absence" in w for w in plan.warnings)
+
+
+def test_without_a_name_list_the_historical_name_is_still_refused() -> None:
+    manifest = manifest_from_backup(read_backup(_NATIVE / "WI01A-DriveMaps-GPMC"))
+    with pytest.raises(ValidationError) as excinfo:
+        generate_restore_plan(manifest, "import_as_new", target_name=manifest.gpo_display_name)
+    assert excinfo.value.issues[0].code == "target_name_exists"
+
+
+def test_a_listed_historical_name_is_refused() -> None:
+    manifest = manifest_from_backup(read_backup(_NATIVE / "WI01A-DriveMaps-GPMC"))
+    with pytest.raises(ValidationError):
+        generate_restore_plan(
+            manifest, "import_as_new", target_name=manifest.gpo_display_name,
+            existing_gpo_names=[manifest.gpo_display_name.upper()],
+        )
