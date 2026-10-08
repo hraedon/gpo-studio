@@ -1,30 +1,46 @@
 # Plan 026 — Scripts and managed-artifact policies
 
-Status: implemented (domain layer) — **not surfaced**. `script_policy.py` is
-reachable from no API endpoint, UI module, or export path. Updated 2026-10-07:
+Status: **surfaced and lane-backed** (updated 2026-10-08). Every module this
+plan landed is now either a capability or ruled out:
 
-- `script_policy.py` is **lane-backed and unsurfaced**. The certified
-  `scripts.ini` / `psscripts.ini` writer is `gpmc_backup_bundle(gpo, scripts=...)`
-  in `export.py`, which the Scripts metadata lane measures. That lane passed on a
-  clean member server (live pack, 20/20 checks:
-  `scripts-r10-20261008074828-8492` from the
-  [Plan 034 batch](../docs/plan-033/plan034-batch.md), 2026-10-08; the WI-062
-  batch's `scripts-r10-20260905191308-8174` and the earlier
-  `scripts-r10-20260908013518-2476`, see
-  [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md), are
-  retired history). That batch also deleted the stale pre-R2 `scripts.ini`
-  writer and parser.
-  Payload execution and endpoint processing are not measured. Its exit is this
-  lane plus a Scripts export surface.
-- `artifact_store.py` (WP-1) was **deleted** in the requalification batch:
-  delivering script or executable payloads is out of scope for 1.x, and so is
-  WP-4's typed executable publication.
+- `script_policy.py` is a **capability** (`lane-backed and surfaced` in the
+  capability matrix, `yes` in Plan 034's table). Both halves of the
+  [`domain-layer-status.md`](../docs/domain-layer-status.md) exit hold, in
+  order:
+  1. **Lane.** The certified `scripts.ini` / `psscripts.ini` writer is
+     `gpmc_backup_bundle(gpo, scripts=...)` in `export.py`, which the Scripts
+     metadata lane measures on a clean member server. Its live verdict is
+     `scripts-r10-20261008074828-8492` (20/20 checks, frozen commit `263f196`)
+     from the [Plan 034 batch](../docs/plan-033/plan034-batch.md), 2026-10-08.
+     The WI-062 batch's `scripts-r10-20260905191308-8174` and the earlier
+     `scripts-r10-20260908013518-2476` (see
+     [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md)) are
+     retired history. That batch also deleted the stale pre-R2 `scripts.ini`
+     writer and parser.
+  2. **Surface.** `POST /api/gpos/{guid}/gpmc-backup-with-scripts` (and
+     `/preview`) and the Scripts browser panel, landed 2026-10-08, pass
+     scripts to that writer unchanged and compose in `api.py`, which no lane
+     binds. See [the operator guide](../docs/scripts-and-publication-preview.md).
 
-See [the rulings](../docs/direction-2026-10-07-plan-034-completion.md).
+  The surface exports only the shape the lane measured (computer startup
+  entries, PowerShell first, on a GPO with no other content and both sides
+  enabled) and refuses everything else: user-side scripts (WI-071),
+  shutdown/logon/logoff, the other PowerShell orders, and GPOs with registry
+  or preference content. Payload execution and endpoint processing are not
+  measured, and the backup does not carry the script files.
+- `artifact_store.py` (WP-1) was **deleted** in the requalification batch by
+  the 2026-10-07 operator ruling: delivering script or executable payloads is
+  out of scope for 1.x, and so is WP-4's typed executable publication.
 
-**Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
-behaviour of this layer is a hypothesis about Windows until an evidence lane
-certifies it, and every layer examined so far has needed correction. See
+So this plan left `DOMAIN_LAYER_PLANS` in `tests/test_domain_layer_status.py`
+on 2026-10-08, by `script_policy.py`'s surface. See
+[the rulings](../docs/direction-2026-10-07-plan-034-completion.md).
+
+**Unproven draft, not an asset** (operator ruling 2026-07-29), outside the one
+shape the Scripts lane certified: the wire behaviour of the rest of this layer
+(user-side scripts, other triggers, `preview_script_policy`) is a hypothesis
+about Windows until an evidence lane certifies it, and every layer examined so
+far has needed correction. See
 [`docs/domain-layer-status.md`](../docs/domain-layer-status.md).
 
 Scope: startup/shutdown/logon/logoff and PowerShell script policy with a secure,

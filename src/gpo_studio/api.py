@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import io
 import json
 import logging
 import os
+import re
 import time
 import uuid as uuid_module
+import zipfile
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
@@ -60,7 +64,15 @@ from .delegation import (
 from .diff import diff_gpos, three_way_diff
 from .estate import parse_estate
 from .export import (
+    _GPP_EXTENSION_PROFILES,
+    _REGISTRY_CSE_GUID,
+    _REGISTRY_MACHINE_TOOL_GUID,
+    _REGISTRY_USER_TOOL_GUID,
+    _SCRIPTS_CSE_GUID,
+    _SCRIPTS_TOOL_GUID,
+    _ZERO_GUID,
     export_bundle,
+    extension_registration,
     gpmc_backup_bundle,
     native_backup_id,
     native_backup_refusal,
@@ -95,6 +107,7 @@ from .gpp import (
     _normalize_hive,
     _validate_unknown_attrs,
     _validate_unknown_children,
+    serialize_gpp,
 )
 from .identity import ClaimedIdentity, claimed_identity
 from .ilt import (
@@ -154,6 +167,13 @@ from .policy_families import (
     SecurityOptionsFamily,
     UserRightsFamily,
 )
+from .publication import (
+    PublicationStep,
+    PublicationTarget,
+    generate_publication_plan,
+    planned_sysvol_paths,
+    validate_publication_plan,
+)
 from .registry_pol import RegistryPolError
 from .report import policy_report
 from .rsop import (
@@ -161,6 +181,13 @@ from .rsop import (
     RsopTarget,
     compare_rsop_results,
     compute_rsop,
+)
+from .script_policy import (
+    PowerShellExecutionOrder,
+    PowerShellScriptEntry,
+    ScriptEntry,
+    ScriptPolicy,
+    ScriptType,
 )
 from .sddl import SddlError, parse_sddl
 from .security_template import (
@@ -1818,6 +1845,12 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
                 "format": "text",
                 "reason": plan_reason,
             },
+            "scripts_export": _scripts_export_capability(
+                gpo,
+                blocked=blocked,
+                preserved_files=preserved_files,
+                backup_reason=backup_reason,
+            ),
             "policy_report": {"enabled": True, "format": "text"},
             "preserved_content": {
                 "present": preserved_files > 0,
@@ -4942,4 +4975,898 @@ def diff_fdeploy_documents(body: FdeployDiffRequest) -> dict[str, Any]:
             for change in diff_fdeploy(old, new)
         ],
         "limitations": _fdeploy_limitations(),
+    }
+
+
+# --------------------------------------------------------------------------
+# Plan 034: the Scripts export surface.
+#
+# `script_policy.py` models scripts; the certified writer is
+# `export.gpmc_backup_bundle(gpo, scripts=...)`, which the scripts-metadata
+# lane (R10) measures through `scripts/plan-033/build-scripts-backup-candidate.py`.
+# This block calls that function and `native_backup_refusal` UNCHANGED -- the
+# exact path the lane builder uses -- and composes nothing of its own on the
+# wire. `tests/test_scripts_surface.py` holds the endpoint's bytes equal to
+# the builder's for the certified request.
+#
+# What the lane measured is narrow, and this surface refuses rather than warns
+# outside it. The candidate was a GPO with no other content: two legacy and one
+# PowerShell machine-side STARTUP entry, PowerShell ordered first. So:
+#
+# * user-side scripts are refused -- the user side reuses the machine tool GUID
+#   unmeasured (WI-071 tracks extending the lane);
+# * shutdown (and logon/logoff) triggers are refused;
+# * PowerShell entries are accepted only with "run Windows PowerShell scripts
+#   first": `run_windows_powershell_scripts_last` writes a value no lane has
+#   imported, and `not_configured` writes no [ScriptsConfig] at all, a shape
+#   the R2 capture saw but the lane never imported;
+# * a GPO that also carries registry settings or preferences is refused: no
+#   candidate combined Scripts with other content, and the relative order of
+#   the Scripts group against the registry/GPP groups in the extension list
+#   "was not captured in any single transaction" (export.py's own comment). The
+#   publication-completeness candidate carries registry and GPP but no
+#   scripts, so neither lane covers the combination;
+# * a GPO with a disabled side is refused: the candidate's `Options` was 0.
+#
+# Fields the native INI cannot carry and `export.py` would silently drop
+# (`timeout_seconds`, `legacy_scripts_first`) are not in the request model at
+# all, so sending one is a 422 rather than a value that vanishes. Fields
+# `export.py` refuses (`execution`, the PowerShell switches, the sync flags)
+# ARE in the model, so its own refusal reaches the caller with its own code.
+# --------------------------------------------------------------------------
+
+#: Bounds that keep a hostile request from building a huge INI before any
+#: refusal runs. The parameter bound is `script_policy`'s own command-line
+#: limit; the entry count is generous against the three the lane measured.
+_MAX_SCRIPT_ENTRIES = 64
+_MAX_SCRIPT_COMMAND_LENGTH = 1024
+_MAX_SCRIPT_PARAMETERS_LENGTH = 8191
+
+
+class ScriptEntryData(BaseModel):
+    """One script line: what runs, and the arguments it gets.
+
+    Order is the entry's position in its list. The native INI numbers entries
+    by position (`0CmdLine`, `1CmdLine`, ...), and that numbering is the only
+    order Windows reads, so there is no separate order field to disagree with
+    it.
+    """
+
+    command: str = Field(min_length=1, max_length=_MAX_SCRIPT_COMMAND_LENGTH)
+    parameters: str = Field(default="", max_length=_MAX_SCRIPT_PARAMETERS_LENGTH)
+    execution: Literal["synchronous", "asynchronous"] = "synchronous"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PowerShellScriptEntryData(ScriptEntryData):
+    no_profile: bool = False
+    non_interactive: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ScriptPolicyData(BaseModel):
+    """One side's Scripts policy, in `ScriptPolicy`'s vocabulary."""
+
+    startup: list[ScriptEntryData] = Field(default_factory=list, max_length=_MAX_SCRIPT_ENTRIES)
+    shutdown: list[ScriptEntryData] = Field(default_factory=list, max_length=_MAX_SCRIPT_ENTRIES)
+    logon: list[ScriptEntryData] = Field(default_factory=list, max_length=_MAX_SCRIPT_ENTRIES)
+    logoff: list[ScriptEntryData] = Field(default_factory=list, max_length=_MAX_SCRIPT_ENTRIES)
+    powershell_startup: list[PowerShellScriptEntryData] = Field(
+        default_factory=list, max_length=_MAX_SCRIPT_ENTRIES
+    )
+    powershell_shutdown: list[PowerShellScriptEntryData] = Field(
+        default_factory=list, max_length=_MAX_SCRIPT_ENTRIES
+    )
+    powershell_logon: list[PowerShellScriptEntryData] = Field(
+        default_factory=list, max_length=_MAX_SCRIPT_ENTRIES
+    )
+    powershell_logoff: list[PowerShellScriptEntryData] = Field(
+        default_factory=list, max_length=_MAX_SCRIPT_ENTRIES
+    )
+    powershell_order: PowerShellExecutionOrder = "not_configured"
+    run_logon_scripts_sync: bool = False
+    run_logoff_scripts_sync: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ScriptsExportRequest(BaseModel):
+    computer: ScriptPolicyData | None = None
+    user: ScriptPolicyData | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SurfaceLimitation(BaseModel):
+    """What this answer does not say, delivered with the answer.
+
+    The same contract as `PolicyFamilyLimitation` and `FdeployLimitation`.
+    """
+
+    code: str
+    message: str
+
+
+class ScriptsFileResponse(BaseModel):
+    #: GPO-relative SYSVOL path, as the backup lays it out.
+    path: str
+    #: The file decoded for reading (UTF-16LE, BOM removed). Windows reads the
+    #: bytes; `sha256` and `size` are of the bytes in the ZIP.
+    text: str
+    sha256: str
+    size: int
+
+
+class ScriptsPreviewResponse(BaseModel):
+    backup_id: str
+    #: SHA-256 of the exact ZIP the download endpoint returns for this request.
+    bundle_sha256: str
+    bundle_size: int
+    files: list[ScriptsFileResponse]
+    machine_extension_names: str
+    user_extension_names: str
+    #: `script_policy` validation that did not block the export (warnings).
+    #: Errors are refused with 422 and never reach this list.
+    issues: list[ValidationIssueResponse]
+    limitations: list[SurfaceLimitation]
+
+
+_SCRIPT_TRIGGERS: tuple[ScriptType, ...] = ("startup", "shutdown", "logon", "logoff")
+#: Characters that would let a value start a new INI line or truncate one.
+_SCRIPT_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _scripts_limitations() -> list[dict[str, str]]:
+    """Three limits that hold for every answer, plus the shape the lane read.
+
+    None is conditional on the request: every export carries no payload, has
+    never been executed, and has never been opened in GPME. The refusals above
+    keep a request inside the measured shape; `one_entry_shape_measured` says
+    how far inside.
+    """
+    return [
+        {
+            "code": "payload_not_carried",
+            "message": (
+                "The backup carries scripts.ini/psscripts.ini metadata only, no "
+                "script bodies. The R10 lane imported such a backup with no "
+                "payload files, and Windows accepted and re-backed up the "
+                "metadata in their absence. Delivering the scripts themselves "
+                "is out of scope for 1.x (2026-10-07 ruling)."
+            ),
+        },
+        {
+            "code": "execution_unmeasured",
+            "message": (
+                "No lane has run these scripts. Import, report exposure and "
+                "Backup-GPO round-trip fidelity were measured; endpoint "
+                "processing, execution and application order were not."
+            ),
+        },
+        {
+            "code": "gpme_editing_unmeasured",
+            "message": (
+                "Whether the Group Policy Management Editor can open and edit "
+                "the imported Scripts policy has not been measured."
+            ),
+        },
+        {
+            "code": "one_entry_shape_measured",
+            "message": (
+                "The lane measured one shape: two legacy and one PowerShell "
+                "machine-side startup entry, PowerShell ordered first, on a GPO "
+                "with no other content. Other entry counts, commands and "
+                "parameters use the same encoding but were not themselves "
+                "imported."
+            ),
+        },
+    ]
+
+
+def _gpo_has_preference_content(gpo: GPO) -> bool:
+    """Whether any GPP collection would emit a file.
+
+    Asked of the serializer rather than restated field by field, so a family
+    added later counts the day it lands. A collection the serializer refuses
+    has content by definition.
+    """
+    for collection in gpo.gpp_collections:
+        try:
+            if serialize_gpp(collection):
+                return True
+        except GppError:
+            return True
+    return False
+
+
+def _scripts_gpo_refusals(gpo: GPO) -> list[ValidationIssue]:
+    """Why *gpo* is outside the Scripts lane's measured GPO shape.
+
+    Request-independent, so the `scripts_export` capability and the endpoint
+    ask the same function and cannot disagree.
+    """
+    issues: list[ValidationIssue] = []
+    if gpo.settings or _gpo_has_preference_content(gpo):
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_with_other_content_unmeasured",
+                message=(
+                    "This GPO also carries registry settings or preferences. The "
+                    "Scripts lane measured a GPO with scripts and nothing else, and "
+                    "the publication lane measured registry and preferences without "
+                    "scripts; no lane has imported the combination, including the "
+                    "order of the Scripts entry in the extension list. Export the "
+                    "scripts from a GPO that holds only scripts."
+                ),
+                path="gpo",
+            )
+        )
+    if not (gpo.computer_enabled and gpo.user_enabled):
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_disabled_side_unmeasured",
+                message=(
+                    "This GPO has a disabled side. The Scripts lane imported a GPO "
+                    "with both sides enabled, so a backup with scripts and a "
+                    "disabled side is unmeasured."
+                ),
+                path="gpo",
+            )
+        )
+    return issues
+
+
+def _script_entry_refusals(entry: ScriptEntryData, path: str) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    for name, value in (("command", entry.command), ("parameters", entry.parameters)):
+        if _SCRIPT_CONTROL_CHARACTERS.search(value):
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="script_control_character",
+                    message=(
+                        f"The {name} contains a control character (such as a line "
+                        "break), which would start a new line in the INI file."
+                    ),
+                    path=f"{path}.{name}",
+                )
+            )
+    if not entry.command.strip():
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="script_command_empty",
+                message="The command is blank.",
+                path=f"{path}.command",
+            )
+        )
+    return issues
+
+
+def _powershell_order_refusals(data: ScriptPolicyData) -> list[ValidationIssue]:
+    order = data.powershell_order
+    match order:
+        case "run_windows_powershell_scripts_first":
+            return []
+        case "run_windows_powershell_scripts_last":
+            message = (
+                "Running PowerShell scripts last writes StartExecutePSFirst=false, "
+                "which no lane has imported. The lane measured PowerShell scripts "
+                "first."
+            )
+        case "not_configured":
+            if not data.powershell_startup:
+                return []
+            message = (
+                "PowerShell entries need an explicit order. Not configured writes "
+                "no [ScriptsConfig] section, which no lane has imported; the lane "
+                "measured PowerShell scripts first."
+            )
+        case _:
+            assert_never(order)
+    return [
+        ValidationIssue(
+            severity="error",
+            code="scripts_powershell_order_unmeasured",
+            message=message,
+            path="computer.powershell_order",
+        )
+    ]
+
+
+def _scripts_request_refusals(body: ScriptsExportRequest) -> list[ValidationIssue]:
+    """Why the requested scripts are outside the lane's measured shape."""
+    issues: list[ValidationIssue] = []
+    if body.user is not None:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_user_side_unmeasured",
+                message=(
+                    "User-side scripts are refused. The Scripts lane measured the "
+                    "computer side only, and the user side would register the "
+                    "machine tool GUID unmeasured (WI-071)."
+                ),
+                path="user",
+            )
+        )
+    computer = body.computer
+    if computer is None:
+        if body.user is None:
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="scripts_policy_empty",
+                    message="No scripts were supplied. Add a computer startup entry.",
+                    path="computer",
+                )
+            )
+        return issues
+    for trigger in ("shutdown", "logon", "logoff"):
+        if getattr(computer, trigger) or getattr(computer, f"powershell_{trigger}"):
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="scripts_trigger_unmeasured",
+                    message=(
+                        f"{trigger.capitalize()} scripts are refused. The Scripts "
+                        "lane measured startup scripts only."
+                    ),
+                    path=f"computer.{trigger}",
+                )
+            )
+    if not computer.startup and not computer.powershell_startup:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="scripts_policy_empty",
+                message=(
+                    "The computer side has no startup entries. An empty policy "
+                    "would register the Scripts extension with no file to process."
+                ),
+                path="computer.startup",
+            )
+        )
+    issues.extend(_powershell_order_refusals(computer))
+    for index, entry in enumerate(computer.startup):
+        issues.extend(_script_entry_refusals(entry, f"computer.startup[{index}]"))
+    for index, ps_entry in enumerate(computer.powershell_startup):
+        issues.extend(
+            _script_entry_refusals(ps_entry, f"computer.powershell_startup[{index}]")
+        )
+    return issues
+
+
+def _script_policy_model(scope: str, data: ScriptPolicyData) -> ScriptPolicy:
+    """`ScriptPolicy` for one side, with ids derived from list position.
+
+    `script_id`/`artifact_id` never reach the wire (the INI carries the command
+    and parameters only) and no artifact store exists any more, so both are
+    the entry's position: stable, unique and meaningful in a refusal message.
+    `order` is the position too, which keeps `ScriptPolicy.validate`'s unique-
+    order rule satisfied by construction.
+    """
+    legacy: dict[str, tuple[ScriptEntry, ...]] = {}
+    powershell: dict[str, tuple[PowerShellScriptEntry, ...]] = {}
+    for trigger in _SCRIPT_TRIGGERS:
+        legacy_data: list[ScriptEntryData] = getattr(data, trigger)
+        powershell_data: list[PowerShellScriptEntryData] = getattr(
+            data, f"powershell_{trigger}"
+        )
+        legacy[trigger] = tuple(
+            ScriptEntry(
+                script_id=f"{scope}-{trigger}-{index}",
+                artifact_id=f"{scope}-{trigger}-{index}",
+                original_name=entry.command,
+                parameters=entry.parameters,
+                order=index + 1,
+                script_type=trigger,
+                execution=entry.execution,
+            )
+            for index, entry in enumerate(legacy_data)
+        )
+        powershell[trigger] = tuple(
+            PowerShellScriptEntry(
+                script_id=f"{scope}-powershell-{trigger}-{index}",
+                artifact_id=f"{scope}-powershell-{trigger}-{index}",
+                original_name=ps_entry.command,
+                parameters=ps_entry.parameters,
+                order=index + 1,
+                script_type=trigger,
+                execution=ps_entry.execution,
+                no_profile=ps_entry.no_profile,
+                non_interactive=ps_entry.non_interactive,
+            )
+            for index, ps_entry in enumerate(powershell_data)
+        )
+    return ScriptPolicy(
+        startup=legacy["startup"],
+        shutdown=legacy["shutdown"],
+        logon=legacy["logon"],
+        logoff=legacy["logoff"],
+        powershell_startup=powershell["startup"],
+        powershell_shutdown=powershell["shutdown"],
+        powershell_logon=powershell["logon"],
+        powershell_logoff=powershell["logoff"],
+        powershell_order=data.powershell_order,
+        run_logon_scripts_sync=data.run_logon_scripts_sync,
+        run_logoff_scripts_sync=data.run_logoff_scripts_sync,
+    )
+
+
+def _scripts_export(
+    request: Request, guid: str, body: ScriptsExportRequest
+) -> tuple[GPO, dict[str, ScriptPolicy], bytes, list[ValidationIssue]]:
+    """Refuse, or build the bundle through the certified path.
+
+    Returns the GPO, the policies handed to `gpmc_backup_bundle`, the ZIP and
+    the non-blocking validation warnings. Every refusal is a `ValidationError`
+    (422) carrying its code. The GPO-level checks are `gpmc_backup`'s, in the
+    same order, so a GPO this route refuses is refused for the same reason
+    the plain backup route would give.
+    """
+    gpo = _store(request).get_gpo(guid)
+    errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
+    if errors:
+        raise ValidationError(errors)
+    if gpo.cse_metadata:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="unknown_cse_content",
+                message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
+                path="cse_metadata",
+            )
+        ])
+    refusals = _scripts_gpo_refusals(gpo) + _scripts_request_refusals(body)
+    if refusals:
+        raise ValidationError(refusals)
+    policies: dict[str, ScriptPolicy] = {}
+    if body.computer is not None:
+        policies["computer"] = _script_policy_model("computer", body.computer)
+    validation = [issue for policy in policies.values() for issue in policy.validate()]
+    blocking = [issue for issue in validation if issue.severity == "error"]
+    if blocking:
+        raise ValidationError(blocking)
+    refusal = native_backup_refusal(gpo, scripts=policies)
+    if refusal is not None:
+        raise ValidationError([refusal])
+    bundle = gpmc_backup_bundle(gpo, scripts=policies)
+    warnings = [issue for issue in validation if issue.severity == "warning"]
+    return gpo, policies, bundle, warnings
+
+
+@app.post("/api/gpos/{guid}/gpmc-backup-with-scripts")
+def gpmc_backup_with_scripts(
+    request: Request, guid: str, body: ScriptsExportRequest
+) -> Response:
+    """Return a GPMC backup ZIP carrying Scripts metadata for this GPO.
+
+    Built by `gpmc_backup_bundle(gpo, scripts=...)`, the function the
+    scripts-metadata lane measures. A ZIP has nowhere to put `limitations`, so
+    their codes ride in the `X-GPO-Studio-Limitations` header; the preview
+    endpoint returns them with their messages and the same bytes' SHA-256.
+    """
+    gpo, _policies, bundle, warnings = _scripts_export(request, guid, body)
+    backup_id = native_backup_id(gpo)
+    fname = f"{_safe_filename(backup_id.strip('{}'))}-gpmc-backup-scripts.zip"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "X-GPO-Backup-Id": backup_id,
+        "X-GPO-Studio-Limitations": ", ".join(
+            item["code"] for item in _scripts_limitations()
+        ),
+    }
+    if warnings:
+        headers["X-GPO-Studio-Warnings"] = ", ".join(issue.code for issue in warnings)
+    return Response(bundle, media_type="application/zip", headers=headers)
+
+
+@app.post(
+    "/api/gpos/{guid}/gpmc-backup-with-scripts/preview",
+    response_model=ScriptsPreviewResponse,
+)
+def gpmc_backup_with_scripts_preview(
+    request: Request, guid: str, body: ScriptsExportRequest
+) -> dict[str, Any]:
+    """Review what the download would contain, read out of the ZIP itself.
+
+    The INI texts are decoded from the bundle the download endpoint returns for
+    the same request, not re-rendered, so a reviewer reads the bytes that
+    would ship.
+    """
+    gpo, policies, bundle, warnings = _scripts_export(request, guid, body)
+    marker = "/DomainSysvol/GPO/"
+    files: list[dict[str, Any]] = []
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        for name in archive.namelist():
+            if marker not in name or "/Scripts/" not in name:
+                continue
+            content = archive.read(name)
+            text_bytes = content[2:] if content.startswith(b"\xff\xfe") else content
+            files.append({
+                "path": name.split(marker, 1)[1],
+                "text": text_bytes.decode("utf-16-le", errors="replace"),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size": len(content),
+            })
+    registration = extension_registration(gpo, scripts=policies)
+    return {
+        "backup_id": native_backup_id(gpo),
+        "bundle_sha256": hashlib.sha256(bundle).hexdigest(),
+        "bundle_size": len(bundle),
+        "files": files,
+        "machine_extension_names": registration.machine,
+        "user_extension_names": registration.user,
+        "issues": [asdict(issue) for issue in warnings],
+        "limitations": _scripts_limitations(),
+    }
+
+
+def _scripts_export_capability(
+    gpo: GPO, *, blocked: bool, preserved_files: int, backup_reason: str
+) -> dict[str, Any]:
+    """The `scripts_export` artifact capability, from the endpoint's own checks.
+
+    Request-independent only: whether the GPO can carry scripts at all. A
+    request can still be refused for what it asks (user side, shutdown, the
+    PowerShell order), which no capability flag can know in advance.
+    """
+    reason = ""
+    if blocked:
+        reason = "Validation errors block this artifact."
+    elif preserved_files or gpo.cse_metadata:
+        # `gpo.cse_metadata`, not only the file count: the route refuses any
+        # preserved extension entry, including one that inventories no file.
+        reason = "Preserved extension content cannot be emitted as a GPMC backup."
+    elif backup_reason:
+        reason = backup_reason
+    else:
+        refusals = _scripts_gpo_refusals(gpo)
+        if refusals:
+            reason = refusals[0].message
+    return {
+        "enabled": not reason,
+        "format": "zip",
+        "reason": reason,
+        "measured_shape": "computer startup scripts on a GPO with no other content",
+    }
+
+
+# --------------------------------------------------------------------------
+# Plan 034: the publication-plan preview (review only).
+#
+# `publication.py` builds a typed account of what publishing a GPO would take.
+# The publication-completeness lane compares that account with what Windows
+# produces after `Import-GPO`, for one GPO shape. This endpoint shows the
+# account, marks each step with whether the lane measured it, and writes
+# nothing: there is no write path behind it, and `publisher.py` is not
+# imported. Publication itself goes through the native GPMC backup and
+# `Import-GPO` plus `apply.ps1` (2026-10-07 ruling).
+#
+# Coverage is held equal to what the lane asserts by
+# `tests/test_publication_surface.py`, which derives the sets below from
+# `scripts/plan-033/build-publication-candidate.py` rather than restating
+# them. `measured` is narrower than "the planner emits this kind": the lane
+# imported one Services (computer) and one Drives (user) preference, so a
+# `copy_gpp_xml` step for any other family is `unmeasured` even though export
+# knows its extension pair. The same holds for `update_extension_lists`: a list
+# that registers any family/side beyond the candidate's (registry on both
+# sides, computer Services, user Drives) is `unmeasured`, with a reason naming
+# the families, because its extra entries and their order were never compared.
+#
+# Refused steps are read off `validate_publication_plan`: a step whose
+# operation is the `check` of an error the validator reports is `refused`.
+# That keeps this surface's idea of a refusal identical to the planner's own,
+# including refusals added after this was written.
+# --------------------------------------------------------------------------
+
+#: Step kinds the certified candidate's plan contains, each of which the
+#: lane's finalizer grades against Windows (file set, extension lists, GPT.INI
+#: version half).
+_PUBLICATION_MEASURED_OPERATIONS: frozenset[str] = frozenset({
+    "update_gpt_ini",
+    "write_registry_pol",
+    "copy_gpp_xml",
+    "update_extension_lists",
+})
+#: Step kinds the lane asserts only by their ABSENCE: the candidate has no
+#: description, and the lane checks that the plan names no `GPO.cmt` and
+#: Windows writes none. A plan that does contain the step is unmeasured.
+_PUBLICATION_ABSENCE_MEASURED_OPERATIONS: frozenset[str] = frozenset({
+    "write_gpo_comment",
+})
+#: `(side directory, GPP family)` pairs the candidate imported.
+_PUBLICATION_MEASURED_GPP_FAMILIES: frozenset[tuple[str, str]] = frozenset({
+    ("Machine", "Services"),
+    ("User", "Drives"),
+})
+#: `(side directory, extension family)` registrations the candidate's
+#: extension lists carried, and so the only ones whose entries -- and order --
+#: the lane compared with what Windows wrote. "Registry" is the registry.pol
+#: pair; a GPP family is named as `_GPP_EXTENSION_PROFILES` names it.
+_PUBLICATION_MEASURED_EXTENSION_FAMILIES: frozenset[tuple[str, str]] = frozenset({
+    ("Machine", "Registry"),
+    ("Machine", "Services"),
+    ("User", "Registry"),
+    ("User", "Drives"),
+})
+#: Where each absence-measured step would write, for the absence claim.
+_PUBLICATION_ABSENCE_PATHS: dict[str, str] = {"write_gpo_comment": "GPO.cmt"}
+#: The side directory each extension-list attribute belongs to.
+_EXTENSION_ATTRIBUTE_SIDES: dict[str, str] = {
+    "gPCMachineExtensionNames": "Machine",
+    "gPCUserExtensionNames": "User",
+}
+#: The family each GUID an extension list can carry registers, from export's
+#: own vocabulary. The zero GUID only opens the GPP aggregation group, whose
+#: other members are the families' tool halves, so it names no family.
+_EXTENSION_GUID_FAMILIES: dict[str, str] = {
+    _REGISTRY_CSE_GUID: "Registry",
+    _REGISTRY_MACHINE_TOOL_GUID: "Registry",
+    _REGISTRY_USER_TOOL_GUID: "Registry",
+    _SCRIPTS_CSE_GUID: "Scripts",
+    _SCRIPTS_TOOL_GUID: "Scripts",
+    **{
+        guid.upper(): family
+        for family, pair in _GPP_EXTENSION_PROFILES.items()
+        for guid in pair
+    },
+}
+_EXTENSION_LIST_SHAPE = re.compile(r"(?:\[(?:\{[0-9A-Fa-f-]{36}\})+\])+")
+_EXTENSION_GUID = re.compile(r"\{[0-9A-Fa-f-]{36}\}")
+
+StepCoverage = Literal["measured", "unmeasured", "refused"]
+
+
+class PublicationStepResponse(BaseModel):
+    step_id: str
+    operation: str
+    target: str
+    detail: str
+    artifact_ids: list[str]
+    version_half: str | None
+    sysvol_path: str | None
+    directory_attribute: str | None
+    directory_value: str | None
+    coverage: StepCoverage
+    #: Why a step is `unmeasured`, where that is narrower than its operation
+    #: (a preference family or extension registration the lane never
+    #: imported); `None` otherwise.
+    coverage_reason: str | None
+
+
+class PublicationIssueResponse(BaseModel):
+    check: str
+    level: str
+    message: str
+    component: str
+
+
+class PublicationAbsenceResponse(BaseModel):
+    operation: str
+    sysvol_path: str
+    coverage: StepCoverage
+    detail: str
+
+
+class PublicationPlanResponse(BaseModel):
+    gpo_guid: str
+    gpo_name: str
+    target: str
+    risk_level: str
+    requires_enhanced_approval: bool
+    #: True when `validate_publication_plan` reports any error.
+    refused: bool
+    steps: list[PublicationStepResponse]
+    rollback_steps: list[PublicationStepResponse]
+    planned_sysvol_paths: list[str]
+    payload_digest: str
+    issues: list[PublicationIssueResponse]
+    #: Files the plan claims publication will NOT write, where the lane
+    #: measured that claim.
+    absences: list[PublicationAbsenceResponse]
+    limitations: list[SurfaceLimitation]
+
+
+def _publication_limitations() -> list[dict[str, str]]:
+    """Limits that hold for every plan this surface returns."""
+    return [
+        {
+            "code": "nothing_here_writes",
+            "message": (
+                "This is a review of a plan. Nothing here writes to Active "
+                "Directory or SYSVOL, and no step is executed. Publication goes "
+                "through the GPMC backup, Import-GPO and the reviewed apply.ps1."
+            ),
+        },
+        {
+            "code": "ad_side_steps_unmeasured",
+            "message": (
+                "Steps that change the directory beyond the extension lists -- "
+                "update_gplink, update_nt_security_descriptor and "
+                "associate_wmi_filter -- have no lane coverage: Import-GPO "
+                "restores settings, not links, security filtering or WMI filter "
+                "associations."
+            ),
+        },
+        {
+            "code": "one_shape_measured",
+            "message": (
+                "The publication-completeness lane measured one GPO: registry "
+                "settings on both sides, a computer-side Services preference and "
+                "a user-side Drives preference, no description. Steps of the "
+                "kinds it graded are marked measured; that does not show the "
+                "file set generalises to every GPO."
+            ),
+        },
+        {
+            "code": "out_of_model_content_not_planned",
+            "message": (
+                "Scripts and security templates are not part of the GPO model, so "
+                "the plan has no steps for them. A GPO published with a Scripts "
+                "export or a GptTmpl.inf would write files this plan does not list."
+            ),
+        },
+        {
+            "code": "rollback_unmeasured",
+            "message": (
+                "No lane has executed a rollback step. They are listed so the plan "
+                "can be reviewed as a whole, not because any was measured."
+            ),
+        },
+    ]
+
+
+def _gpp_family_of(sysvol_path: str | None) -> tuple[str, str] | None:
+    """`(side directory, family)` of a `copy_gpp_xml` path, or `None`."""
+    if sysvol_path is None:
+        return None
+    parts = sysvol_path.split("/")
+    if len(parts) < 4 or parts[1] != "Preferences":
+        return None
+    return parts[0], parts[2]
+
+
+def extension_list_families(
+    attribute: str | None, value: str | None
+) -> frozenset[tuple[str, str]] | None:
+    """`(side directory, family)` registrations an extension-list value carries.
+
+    Read off the value the step would write, not re-derived from the GPO, so
+    coverage grades the plan's own claim. `None` when the attribute is not an
+    extension list or the value is not a list of bracketed GUID groups; a GUID
+    export's vocabulary does not know is named by the GUID itself, which no
+    measured set contains.
+    """
+    side = _EXTENSION_ATTRIBUTE_SIDES.get(attribute or "")
+    if side is None or not value or _EXTENSION_LIST_SHAPE.fullmatch(value) is None:
+        return None
+    families: set[tuple[str, str]] = set()
+    for token in _EXTENSION_GUID.findall(value):
+        guid = token.upper()
+        if guid == _ZERO_GUID:
+            continue
+        families.add((side, _EXTENSION_GUID_FAMILIES.get(guid, guid)))
+    return frozenset(families)
+
+
+def publication_step_coverage(
+    step: PublicationStep, refused_checks: frozenset[str]
+) -> tuple[StepCoverage, str | None]:
+    """Whether the completeness lane measured *step*, or the planner refused it.
+
+    Returns the mark and, for an `unmeasured` step whose operation the lane
+    does grade, the reason this instance falls outside what it graded.
+    """
+    if step.operation in refused_checks:
+        return "refused", None
+    if step.operation not in _PUBLICATION_MEASURED_OPERATIONS:
+        return "unmeasured", None
+    if step.operation == "copy_gpp_xml":
+        family = _gpp_family_of(step.sysvol_path)
+        if family not in _PUBLICATION_MEASURED_GPP_FAMILIES:
+            named = " ".join(family) if family else (step.sysvol_path or "this file")
+            return "unmeasured", (
+                f"The publication-completeness lane imported no {named} preference."
+            )
+    if step.operation == "update_gpt_ini" and step.version_half is None:
+        # The lane grades the half a plan declares; a plan that declares none
+        # asserted nothing the lane could grade.
+        return "unmeasured", "The plan declares no GPT.INI version half to grade."
+    if step.operation == "update_extension_lists":
+        # The lane compared the candidate's exact lists with Windows'. A list
+        # that registers any other family carries entries -- and an ordering
+        # among them -- that no run compared, so the operation being graded
+        # is not enough.
+        carried = extension_list_families(step.directory_attribute, step.directory_value)
+        if carried is None:
+            return "unmeasured", "The step's extension-list value could not be read."
+        unmeasured = sorted(carried - _PUBLICATION_MEASURED_EXTENSION_FAMILIES)
+        if unmeasured:
+            named = ", ".join(" ".join(pair) for pair in unmeasured)
+            return "unmeasured", (
+                f"This list registers {named}, which the publication-completeness "
+                "lane never imported, so these entries and their order were not "
+                "compared with Windows."
+            )
+    return "measured", None
+
+
+def _publication_step_response(
+    step: PublicationStep, coverage: StepCoverage, reason: str | None = None
+) -> dict[str, Any]:
+    return {
+        "step_id": step.step_id,
+        "operation": step.operation,
+        "target": step.target,
+        "detail": step.detail,
+        "artifact_ids": list(step.artifact_ids),
+        "version_half": step.version_half,
+        "sysvol_path": step.sysvol_path,
+        "directory_attribute": step.directory_attribute,
+        "directory_value": step.directory_value,
+        "coverage": coverage,
+        "coverage_reason": reason,
+    }
+
+
+@app.get("/api/gpos/{guid}/publication-plan", response_model=PublicationPlanResponse)
+def publication_plan_preview(
+    request: Request,
+    guid: str,
+    target: PublicationTarget = "both",
+) -> dict[str, Any]:
+    """Return the review-only publication plan for a GPO, with lane coverage.
+
+    `plan_id` is omitted: it is random and unrelated to the plan's content, and
+    `payload_digest` is what binds the plan's actions. A refusal is a `refused`
+    step plus an error in `issues`, as the planner reports it, and `refused`
+    is true. The response is still 200, because the plan explaining the
+    refusal is the answer. An unknown `target` is a 422.
+    """
+    gpo = _store(request).get_gpo(guid)
+    plan = generate_publication_plan(gpo, target=target)
+    issues = validate_publication_plan(plan)
+    refused_checks = frozenset(issue.check for issue in issues if issue.level == "error")
+    planned_operations = {step.operation for step in plan.steps}
+    absences: list[dict[str, Any]] = []
+    if target in ("sysvol", "both"):
+        for operation in sorted(_PUBLICATION_ABSENCE_MEASURED_OPERATIONS - planned_operations):
+            path = _PUBLICATION_ABSENCE_PATHS[operation]
+            absences.append({
+                "operation": operation,
+                "sysvol_path": path,
+                "coverage": "measured",
+                "detail": (
+                    f"The plan writes no {path}, and the lane measured that Windows "
+                    "writes none for a GPO without a description."
+                ),
+            })
+    return {
+        "gpo_guid": plan.gpo_guid,
+        "gpo_name": plan.gpo_name,
+        "target": plan.target,
+        "risk_level": plan.risk_level,
+        "requires_enhanced_approval": plan.requires_enhanced_approval,
+        "refused": bool(refused_checks),
+        "steps": [
+            _publication_step_response(step, *publication_step_coverage(step, refused_checks))
+            for step in plan.steps
+        ],
+        "rollback_steps": [
+            _publication_step_response(
+                step, "refused" if step.operation in refused_checks else "unmeasured"
+            )
+            for step in plan.rollback_plan
+        ],
+        "planned_sysvol_paths": list(planned_sysvol_paths(plan)),
+        "payload_digest": plan.payload_digest,
+        "issues": [asdict(issue) for issue in issues],
+        "absences": absences,
+        "limitations": _publication_limitations(),
     }
