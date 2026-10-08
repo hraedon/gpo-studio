@@ -1,10 +1,15 @@
 # Publication completeness — Windows results
 
-**Current qualification (2026-09-08):** `publication-completeness-20260908013539-2644`, 21/21,
-on clean frozen `b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`.
-[Complete successor evidence](wp1b-evidence/backup-report-20260908/publication/verification.json) and the
-[reason for the targeted refresh](backup-report-fidelity.md). Earlier results
-below remain records of their original revisions and scope.
+**Current qualification (2026-10-08):** `publication-completeness-20261008074904-1047`, 21/21,
+on clean frozen `263f19640529d469c2a54c18b43d228db5378279`
+([evidence](wp1b-evidence/plan034-20261008/publication/verification.json),
+[Plan 034 batch](plan034-batch.md)). Its 21st check grades the AD
+`versionNumber` separately from `GPT.INI`'s version. Earlier results below,
+including the 2026-09-08 qualification
+`publication-completeness-20260908013539-2644` (21/21 at `b5ccbabd`;
+[successor evidence](wp1b-evidence/backup-report-20260908/publication/verification.json),
+[reason for that refresh](backup-report-fidelity.md)), remain records of their
+original revisions and scope.
 
 
 Plan 034 WP-1's `publication` item. Run
@@ -119,3 +124,10 @@ both. It does **not** prove:
 `publication.py` therefore remains **unsurfaced**. Under the exit condition in
 `docs/domain-layer-status.md` a module needs both a re-runnable lane and a
 delivery surface; this supplies the first.
+
+**Update 2026-10-08: surfaced.** After the Plan 034 batch requalified this lane
+(`publication-completeness-20261008074904-1047`, 21/21), the review-only
+`GET /api/gpos/{guid}/publication-plan` and its browser panel supplied the
+second half. The surface marks each step with whether this lane measured it,
+and the boundary above still holds: nothing executes a plan. See
+[the operator guide](../scripts-and-publication-preview.md).

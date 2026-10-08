@@ -32,16 +32,10 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**8 open.**
+**2 open.**
 
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
-- [WI-070](#wi-070--a-publication-plan-has-no-step-for-a-disabled-side) - fixed in batch; awaiting requalification of the publication lane.
-- [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
-- [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - implemented in the batch; re-run the publication and scripts-metadata lanes.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
-- [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - fixed in the requalification batch; closes when the object-security lane re-runs.
-- [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - fixed and candidate rows added in the batch; closes when the object-security lane certifies them.
-- [WI-063](#wi-063--eight-lane-runners-are-committed-with-crlf-and-no-longer-parse) - renormalized in the requalification batch; closes when its lanes re-run.
 
 ---
 
@@ -2406,7 +2400,7 @@ requalifies the estate. This belongs to the next batch that does that anyway.
 ## WI-063 — eight lane runners are committed with CRLF and no longer parse
 
 **Opened:** 2026-09-11 (review of PR #72).
-**Status:** open.
+**Status:** closed 2026-10-08. The [Plan 034 batch](plan-033/plan034-batch.md) re-ran every lane on the renormalized LF bytes at `263f196`; all 21 lane verdicts and WP-0 passed and bind them (for example `rsop-observe-20261008075254-6590` and `wp3-security-template-20261008074639-3419`), and every `run-*-oracle.sh` parses.
 
 **What is wrong.** Commit `f5cad577` changed the line endings of sixteen controller-side
 harness files to CRLF: eight `run-*-oracle.sh` and eight `finalize_*_run.py`. The Python
@@ -2468,10 +2462,24 @@ now fails if `.gitattributes` returns these trees to `-text`
 19 verdicts that bound the CRLF bytes are expired, not re-earned. The item stays open
 until the batch's lanes run on the estate and their verdicts bind the LF bytes.
 
+**Closed 2026-10-08.** Every closing condition is met. The trees are declared
+`text eol=lf` (`17448d5`) and `tests/test_lane_runner_line_endings.py` fails if they
+return to `-text`. All sixteen files are LF and every runner passes `bash -n`; the batch
+itself invoked each runner through `bash` from a clean tree. The
+[Plan 034 batch](plan-033/plan034-batch.md) re-ran all 22 lanes on those bytes at `263f196`, and every verdict
+whose binding WI-063 expired was replaced by a verdict that binds the LF bytes: WP-2
+`wp2-native-import-20261008074557-7463`, WP-3 `wp3-security-template-20261008074639-3419`
+and `wp3-security-template-20261008074709-2998`, Scripts
+`scripts-r10-20261008074828-8492`, publication `publication-completeness-20261008074904-1047`,
+endpoint `endpoint-observe-20261008075004-5187`, the twelve RSoP runs listed in the batch
+note, and object security (the successor `object-security-20261008082348-9729` at
+`1fb3f56`, after `8b1a5b4` expired the batch's own run).
+
+
 ## WI-064 — the restricted-groups writer emits a bare SID where Windows emits a star-SID
 
 **Opened:** 2026-09-11 (scoping the WP-3 object-security surface).
-**Status:** open.
+**Status:** closed 2026-10-08. `object-security-20261008082348-9729` (20/20, at `1fb3f56`, after the `8b1a5b4` serializer fix) shows Windows accepting and re-exporting exactly the `[Group Membership]` rows `RestrictedGroupsFamily` builds, star-SID keys included.
 
 **What is wrong.** `RestrictedGroupsFamily.to_template_entries()` writes the
 `[Group Membership]` key as `S-1-5-32-544__Members`. Windows writes
@@ -2542,11 +2550,37 @@ database is a prediction, not a measurement. If it does not, that is a finding f
 to explain. POST `/api/security-template/object-security` still omits the family, and its
 `restricted_groups_not_surfaced` limitation says the serializer is not certified.
 
+**Requalified at `263f196`, then closed 2026-10-08 on the re-run.** The
+[Plan 034 batch](plan-033/plan034-batch.md)'s object-security run (`object-security-20261008074755-6711`) passed with
+the WI-064 serializer, but after the freeze DeepSeek's batch review (B1) found that the
+fix starred **every** principal, so a native name-keyed row (`Power Users__Members =
+Administrator`) would have been written back as `*Power Users` / `*Administrator`.
+`8b1a5b4` stars a principal only when it is a SID, with a regression test built from the
+native shape (`test_a_name_keyed_group_is_written_back_unstarred`). That edit expired the
+263f196 verdict, so the lane was re-run at `1fb3f56` on the same driver:
+`object-security-20261008082348-9729`, 20/20 checks, `candidate_group_membership_exact`
+and `windows_export_group_membership_exact` both true. All three closing conditions hold:
+
+- the key is emitted in star form for a SID (`*S-1-5-32-551__Members`), and a name
+  stays unstarred;
+- the candidate's three `[Group Membership]` rows are built by `RestrictedGroupsFamily`;
+- Windows accepted and re-exported them exactly, including the `__Memberof` row that was
+  a prediction until this run.
+
+**What the run does not cover.** The candidate's rows are all SID-keyed, so the
+unstarred-name path is bound by the verdict (through the `object_security.py` hash) and
+pinned by the unit test, but no lane has exercised it. The family is still **not
+surfaced**: `POST /api/security-template/object-security` omits it, and its
+`restricted_groups_not_surfaced` limitation still says no lane run has shown Windows
+accepting the rows, which is no longer true. Surfacing the family, and correcting that
+message with it, is surface work, not part of this item.
+
+
 ## WI-065 — "could not be parsed" is reported for SDDL nothing tried to parse
 
 **Opened:** 2026-09-11 (building the WP-3 object-security surface; found by the
 surface's first test run, not by reading).
-**Status:** open.
+**Status:** closed 2026-10-08. `object-security-20261008082348-9729` (20/20, at `1fb3f56`) re-earned the verdict on the corrected `validate` and on a candidate whose services carry parsed descriptors and are validated before the build.
 
 **What is wrong.** `SystemServicesFamily.validate` raises `unparseable_service_sddl` when
 `raw_sddl` is set and `security_descriptor is None`. Only `from_template` populates
@@ -2596,6 +2630,17 @@ fails when the check is corrected. That failure is the prompt to re-run the lane
 - The pinning test now asserts the corrected behaviour. The surface's `_parsed_sddl`
   workaround in `api.py` was removed as redundant. The surface builds models from
   `raw_sddl` alone, and the certified descriptor still validates clean.
+
+**Requalified at `263f196`, then closed 2026-10-08 on the re-run.** The
+[Plan 034 batch](plan-033/plan034-batch.md)'s object-security run passed with this fix, and the verdict that now
+binds it is the successor `object-security-20261008082348-9729` at `1fb3f56` (the
+batch's own run was expired by the unrelated `8b1a5b4` change to the same file; see
+WI-064). Closing conditions: `validate` parses `raw_sddl` on demand and reports
+`unparseable_service_sddl` only when that parse fails; the candidate builder's services
+carry parsed descriptors, and the builder refuses to build if any family reports an issue,
+which put the validator on the lane's path; and the re-run passed with the three service
+rows re-exported exactly.
+
 
 ## WI-066 — R3 answered one of the four questions it was designed to answer
 
@@ -2708,7 +2753,7 @@ note there that does not exist.
 ## WI-068 — a parsed redirection reaches no GPO, so no report or diff shows it
 
 **Opened:** 2026-09-11 (landing the Plan 034 WP-4 read ruling).
-**Status:** open.
+**Status:** closed 2026-10-08. The [Plan 034 batch](plan-033/plan034-batch.md) re-ran both lanes that bind `model.py`, `canonical.py` and `export.py` on the implementation: publication `publication-completeness-20261008074904-1047` (21/21) and Scripts metadata `scripts-r10-20261008074828-8492` (20/20), both at `263f196`.
 
 **What is missing.** `fdeploy.py` reads and renders the artifact, and operators reach it
 through `POST /api/folder-redirection/fdeploy`. The part the scope brief asked for by name
@@ -2785,10 +2830,33 @@ The positive tests import a composite backup: the native Scripts rebackup with R
 files added. Windows never wrote that GPO, so the composite proves Studio's wiring, not
 anything about Windows. No lane reads this artifact.
 
+**Update, 2026-10-08: the stored form no longer grows per revision (review finding N1).**
+The `asdict` form above put `raw_text` and every derived view into each revision's
+snapshot, which is WI-061's O(revisions x document) growth again. The store now reduces
+the document at its write boundary to the native file bytes (BOM plus `raw_text` in
+UTF-16LE), files them in `retained_documents` under WI-061's rule (SHA-256 of the exact
+native bytes, so the digest equals `native_digest()` and the inventory row for
+`fdeploy1.ini`), and leaves `{"native_digest": ...}` in the snapshot. The read boundary
+checks the bytes against the digest, re-parses them and writes the full `asdict` form
+back, so GPOs and revision snapshots served through the API are unchanged. Snapshots
+written in the inline form read back as stored; no migration. Only
+`snapshot_documents.py` and `store.py` changed, which no verdict binds.
+`tests/test_fdeploy_snapshot_dedup.py` pins it.
+
+**Closed 2026-10-08.** The last closing bullet, the publication and
+scripts-metadata re-runs, is met by the [Plan 034 batch](plan-033/plan034-batch.md):
+`publication-completeness-20261008074904-1047` and `scripts-r10-20261008074828-8492` at
+`263f196` bind the `model.py`, `canonical.py` and `export.py` that carry `GPO.fdeploy`.
+The N1 storage change (`6c57714`) touched only unbound files. Neither lane's candidate
+carries an `fdeploy1.ini`, so these runs re-earn the bindings; they do not measure the
+redirection. That is the fdeploy lane's job, which the 2026-10-07 ruling scopes
+separately (and WI-066 still owns the writer).
+
+
 ## WI-069 — the estate repair the batch owes has no number and no plan
 
 **Opened:** 2026-09-11 (looking for the item that tracks the WI-062 blocker).
-**Status:** open.
+**Status:** closed 2026-10-08. The lane was unblocked around the failure; the mechanism was not identified. The computer group-deny lane passed (`rsop-observe-20261008081929-9918`, [Plan 034 batch](plan-033/plan034-batch.md)) at real time on re-baselined checkpoints, and its WI-059 verdict left `PENDING_REQUALIFICATION` for `RETIRED_VERDICTS`.
 
 **What is missing.** The computer group-deny lane's verdict is in
 `PENDING_REQUALIFICATION`, with the reason "the estate repair described in the batch
@@ -2848,11 +2916,29 @@ real time so no jump happens.
 identified, or the lane unblocked around it. Don't close it by paying one debt without
 saying so; that is how this became an unnumbered paragraph.
 
+**Closed 2026-10-08: the lane was unblocked around it.** This entry asks
+to be told which debt was paid. The second one, the lane, was paid, and the first, the
+mechanism, was not. The [Plan 034 batch](plan-033/plan034-batch.md) ran on the estate's 2026-09-20 clock-seeded
+baselines **at real time**: no revert to a frozen clock and no forward clock jump, which
+is the repair doc's "re-baseline the estate at real time" route. LabCL01's client
+checkpoints and LabDC01's domain-joined checkpoint were re-minted on 2026-10-08
+(00:36–00:38 MST) before the batch, to repair a stale autologon password: the DC baseline
+predated the client's password, and the 2026-09-25 DC restore had rolled it back. The
+group-deny lane, which reboots the client mid-run, then passed:
+`rsop-observe-20261008081929-9918` at `263f196`, its first pass since the WI-059 batch.
+The WI-059 verdict is retired, and `PENDING_REQUALIFICATION` is empty.
+
+**The mechanism of the old DNS deletion was never identified.** On the
+2026-09-05-generation baseline the DC-locator records vanished after a forward jump, four
+times. The 2026-09-25 experiment did not reproduce that on the newer generation, and the
+three-phase collector never captured the original failure. If a future estate needs a
+forward clock jump on an old-generation baseline, that is still unexplained.
+
+
 ## WI-070 — a publication plan has no step for a disabled side
 
 **Opened:** 2026-10-07 (retiring the publication script branch).
-**Status:** open — fixed in batch `batch/retire-publication-script`, awaiting
-requalification of the publication lane.
+**Status:** closed 2026-10-08. The publication completeness lane re-ran on a commit containing the refusal: `publication-completeness-20261008074904-1047` (21/21) at `263f196`, banked in the [Plan 034 batch](plan-033/plan034-batch.md).
 
 **What was wrong.** A GPO can have its computer side, its user side, or both disabled
 (`GPO.computer_enabled` / `GPO.user_enabled`). On the directory object that state is the
@@ -2882,6 +2968,13 @@ attribute.
 
 **Pinning tests:** `tests/test_publication.py::test_a_disabled_side_is_refused_rather_than_published_enabled`
 and its control, `test_an_enabled_gpo_carries_no_side_refusal`.
+
+**Closed 2026-10-08.** `publication-completeness-20261008074904-1047` at
+`263f196` binds the `publication.py` that carries the `unsupported_side_status` refusal.
+As this entry predicted, the candidate has both sides enabled, so the run re-earns the
+binding on the unchanged path and does not exercise the refusal. The two pinning tests
+hold the refusal itself.
+
 
 ## WI-071 — the Scripts metadata lane measures one side and one trigger
 

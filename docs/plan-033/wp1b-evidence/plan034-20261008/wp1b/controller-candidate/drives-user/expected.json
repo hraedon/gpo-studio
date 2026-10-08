@@ -1,0 +1,47 @@
+{
+  "backup_id": "{5659232E-17FC-50FC-AC6D-AE4C1BD8842C}",
+  "gpo_name": "GPOStudio WP1B drives-user",
+  "native_shape_findings": [],
+  "settings": [],
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-000000000002}",
+  "summary": {
+    "preferences": {
+      "computer": {
+        "drives": [],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      },
+      "user": {
+        "drives": [
+          {
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "ilt": null,
+            "label": "WP1B Conformance Share",
+            "letter": "P",
+            "path": "\\\\gpostudio-wp1b.invalid\\share\\conformance",
+            "persistent": true,
+            "use_letter": true
+          }
+        ],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      }
+    },
+    "registry": {
+      "computer": [],
+      "user": []
+    },
+    "version": "gpo-studio.writer-conformance.v1"
+  }
+}

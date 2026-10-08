@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "settings": [
+    {
+      "key": "MinimumPasswordAge",
+      "section": "System Access",
+      "value": "1"
+    },
+    {
+      "key": "MaximumPasswordAge",
+      "section": "System Access",
+      "value": "42"
+    },
+    {
+      "key": "MinimumPasswordLength",
+      "section": "System Access",
+      "value": "14"
+    },
+    {
+      "key": "PasswordComplexity",
+      "section": "System Access",
+      "value": "1"
+    },
+    {
+      "key": "PasswordHistorySize",
+      "section": "System Access",
+      "value": "12"
+    },
+    {
+      "key": "ClearTextPassword",
+      "section": "System Access",
+      "value": "0"
+    },
+    {
+      "key": "LockoutBadCount",
+      "section": "System Access",
+      "value": "5"
+    },
+    {
+      "key": "LockoutDuration",
+      "section": "System Access",
+      "value": "30"
+    },
+    {
+      "key": "ResetLockoutCount",
+      "section": "System Access",
+      "value": "30"
+    },
+    {
+      "key": "AuditSystemEvents",
+      "section": "Event Audit",
+      "value": "3"
+    },
+    {
+      "key": "AuditLogonEvents",
+      "section": "Event Audit",
+      "value": "1"
+    },
+    {
+      "key": "AuditObjectAccess",
+      "section": "Event Audit",
+      "value": "0"
+    },
+    {
+      "key": "AuditPrivilegeUse",
+      "section": "Event Audit",
+      "value": "0"
+    },
+    {
+      "key": "AuditPolicyChange",
+      "section": "Event Audit",
+      "value": "3"
+    },
+    {
+      "key": "AuditAccountManage",
+      "section": "Event Audit",
+      "value": "0"
+    },
+    {
+      "key": "AuditDSAccess",
+      "section": "Event Audit",
+      "value": "0"
+    },
+    {
+      "key": "AuditAccountLogon",
+      "section": "Event Audit",
+      "value": "0"
+    },
+    {
+      "key": "AuditProcessTracking",
+      "section": "Event Audit",
+      "value": "0"
+    },
+    {
+      "key": "SeBackupPrivilege",
+      "section": "Privilege Rights",
+      "value": "*S-1-5-32-544,*S-1-5-32-551"
+    },
+    {
+      "key": "SeRestorePrivilege",
+      "section": "Privilege Rights",
+      "value": "*S-1-5-32-544"
+    },
+    {
+      "key": "MACHINE\\Software\\StudioLab\\Sz",
+      "section": "Registry Values",
+      "value": "1,\"studio sz value\""
+    },
+    {
+      "key": "MACHINE\\Software\\StudioLab\\ExpandSz",
+      "section": "Registry Values",
+      "value": "2,\"%SystemRoot%\\studio\""
+    },
+    {
+      "key": "MACHINE\\Software\\StudioLab\\Dword",
+      "section": "Registry Values",
+      "value": "4,1"
+    },
+    {
+      "key": "MACHINE\\Software\\StudioLab\\MultiSz",
+      "section": "Registry Values",
+      "value": "7,alpha,beta"
+    },
+    {
+      "key": "*S-1-5-32-551__Members",
+      "section": "Group Membership",
+      "value": "*S-1-5-32-544"
+    },
+    {
+      "key": "Power Users__Members",
+      "section": "Group Membership",
+      "value": "Administrator"
+    }
+  ]
+}

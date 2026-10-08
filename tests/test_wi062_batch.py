@@ -52,17 +52,24 @@ def test_every_batch_artifact_matches_its_banked_hash() -> None:
     # after the last lane -- is recorded in the batch note instead.
 
 
-def test_the_batch_registers_every_verdict_except_the_owed_lane() -> None:
-    """20 live schema-version-2 verdicts; the group-deny lane is pending, not retired."""
+def test_the_batch_is_registered_and_now_history() -> None:
+    """The batch's 20 verdicts stay registered, and all of them are retired.
+
+    Until 2026-10-08 this asserted the live set was exactly this batch, with
+    the group-deny lane's WI-059 verdict pending. The Plan 034 batch
+    (`plan034-batch.json`) superseded every one of the 20 and ran the owed
+    group-deny lane, so the truth this test now pins is historical: each
+    verdict is still mapped (so the consistency and digest checks keep
+    reading it), none is live, and the debt it left is no longer pending.
+    """
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     new_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(new_verdicts) == 20
-    assert set(registry["PENDING_REQUALIFICATION"]) == {GROUP_DENY}
-    live = set(registry["LIVE_VERDICTS"])
-    assert live == new_verdicts, (
-        "The live set must be exactly this batch's verdicts; anything else is "
-        "either an unretired stale binding or a missing registration."
-    )
+    assert new_verdicts <= set(registry["LANE_VERDICTS"])
+    assert new_verdicts <= set(registry["RETIRED_VERDICTS"])
+    assert not (new_verdicts & set(registry["LIVE_VERDICTS"]))
+    assert GROUP_DENY in registry["RETIRED_VERDICTS"]
+    assert GROUP_DENY not in registry["PENDING_REQUALIFICATION"]
 
 
 def test_every_lane_verdict_is_schema_version_2() -> None:

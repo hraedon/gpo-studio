@@ -5,8 +5,9 @@ Plan 034 WP-4 ruled Folder Redirection a **read target** on 2026-09-11
 the read half. It does not write.
 
 The distinction matters more here than the word "reader" usually carries.
-``folder_redirection.py`` models redirection as ``User Shell Folders`` registry
-policy -- what the client-side extension writes on the endpoint -- and R3
+``folder_redirection.py`` (deleted 2026-10-07 as superseded by this module)
+modelled redirection as ``User Shell Folders`` registry policy -- what the
+client-side extension writes on the endpoint -- and R3
 measured that the GPO carries something else entirely: a UTF-16LE INI at
 ``User/Documents & Settings/fdeploy1.ini``, beside an empty ``fdeploy.ini``
 marker. Neither file was addressed by any code in this package. So this is not
@@ -20,7 +21,7 @@ it through :func:`fdeploy_report_lines` and :func:`diff_fdeploy`.
 (R3, GPMC on Windows Server 2025, banked at
 ``tests/fixtures/native-folder-redirection-gpmc/``). It shows one folder, one
 principal, and ``Flags=1021``. That is a single observation of a ten-bit word
-against the four booleans ``folder_redirection.py`` models, so no bit is
+against the four booleans ``folder_redirection.py`` modelled, so no bit is
 attributable to any option and this module attributes none: ``Flags`` is
 carried as the integer Windows wrote and rendered as decimal and binary, never
 as a set of named options. WI-066 owes the capture (R12) that would make the

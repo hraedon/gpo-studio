@@ -9,9 +9,16 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
-- Added two Plan 034 surfaces, both **lane-backed and awaiting
-  requalification**; no capability-matrix row moves to `yes` until the batch
-  verdicts exist. See [the operator guide](docs/scripts-and-publication-preview.md).
+- Added two Plan 034 surfaces over the lanes the
+  [Plan 034 batch](docs/plan-033/plan034-batch.md) requalified:
+  Scripts metadata (`scripts-r10-20261008074828-8492`, 20/20) and publication
+  completeness (`publication-completeness-20261008074904-1047`, 21/21), both
+  at frozen commit `263f196`. Neither surface touches a bound file: both
+  compose in `api.py`. With a current verdict and a delivery surface each,
+  `script_policy` and `publication` reach `yes` in Plan 034's table and are
+  `lane-backed and surfaced` in the capability matrix, and Plans 026 and 030
+  leave the unsurfaced domain-layer set (`publisher.py` stays out of scope for
+  1.x, code retained). See [the operator guide](docs/scripts-and-publication-preview.md).
   - **Scripts export.** `POST /api/gpos/{guid}/gpmc-backup-with-scripts`
     returns a GPMC backup carrying `scripts.ini`/`psscripts.ini`, built by
     `gpmc_backup_bundle(gpo, scripts=...)` and `native_backup_refusal`
@@ -41,6 +48,33 @@ Current version: `1.0.0`.
     preview" button beside the export actions opens the plan grouped by SYSVOL
     and Active Directory, with coverage badges, limitations on top, and a
     banner saying nothing here writes.
+
+- Banked the Plan 034 requalification batch
+  ([batch note](docs/plan-033/plan034-batch.md)). All 22 lanes passed on frozen
+  commit `263f196`, driven by `scripts/plan-033/run-requal-batch.sh`, on an
+  estate running at real time: WP-0 plus 21 schema-version-2 lane verdicts,
+  including the computer group-deny lane, which last passed in the WI-059
+  batch. `8b1a5b4` changed `object_security.py` after the freeze (a
+  `[Group Membership]` principal is starred only when it is a SID), so the
+  object-security lane was re-run at `1fb3f56`
+  (`object-security-20261008082348-9729`, 20/20), and that successor is the
+  live verdict. The 20 WI-062 verdicts, the pending WI-059 group-deny verdict
+  and the batch's own superseded object-security verdict are retired, with
+  their packs and tags unchanged. `PENDING_REQUALIFICATION` is empty.
+  `tests/test_plan034_batch.py` pins the manifest, every banked hash, the
+  digests at each commit, the live set, the cleanup capture, and regrades of
+  the RSoP, endpoint and WP-1B records by today's finalizers.
+  `environment-spec.md`, `platforms.json`, the capability matrix and the
+  bound-source cost table now cite these runs.
+  - Closed WI-063 (the LF-renormalized runners are re-earned), WI-064 (Windows
+    re-exported the star-SID `[Group Membership]` rows that
+    `RestrictedGroupsFamily` builds, including the predicted `__Memberof`),
+    WI-065, WI-068, WI-069 and WI-070. WI-069 closed because the lane was
+    unblocked by re-baselining at real time. The mechanism of the old DNS
+    deletion was never identified.
+  - Restricted groups are lane-certified but still not surfaced. The
+    object-security endpoint's `restricted_groups_not_surfaced` message
+    predates the certifying run.
 
 - Requalification batch: retired the PowerShell publication script and the
   modules the 2026-10-07 operator ruling puts out of scope. The affected lanes
@@ -86,6 +120,23 @@ Current version: `1.0.0`.
   writer for the file (WI-066). The edit touches `model.py`, `canonical.py` and
   `export.py`, so WI-068 stays open until the publication and scripts-metadata
   lanes re-run in the estate requalification batch.
+- Acted on the 2026-10-07 Plan 034 completion rulings
+  ([the rulings](docs/direction-2026-10-07-plan-034-completion.md)) for the
+  modules no lane binds, so no evidence expires:
+  - Deleted `software_install.py` (writing was ruled out on 2026-09-06, and it
+    had no consumer) and `folder_redirection.py` (superseded by `fdeploy.py`),
+    with their tests. Both scope decisions carry a dated addendum.
+  - Reduced `gpmc_interop.py` to `InteropIssue`, which `publication.py`
+    imports. The interop checks are deleted. The importable predicate treated
+    "Studio cannot emit this" as "GPMC cannot import this", and would have
+    flagged 15 of the 26 production GPOs in the R6 census. `is_gpmc_editable`
+    had no oracle. A test pins the remaining type's shape.
+  - Recorded the remaining rulings in the capability matrix, Plan 034 and the
+    Plans 025–032 status lines: `security_template` exits through its
+    consumers; `publisher` and `hosting` are out of scope for 1.x and kept;
+    IPsec, Public Key, wired and wireless policy are out of scope for 1.x;
+    `artifact_store` is deleted in the requalification batch. The matrix's
+    Scripts row now says lane-backed rather than capture-backed.
 
 - Added a Folder Redirection browser panel that reviews native `fdeploy` files
   and compares an earlier copy with a current one, through the existing API. It

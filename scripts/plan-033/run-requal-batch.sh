@@ -59,6 +59,15 @@ LANES=(
 )
 
 cd "$REPO_ROOT"
+mkdir -p "$BATCH_DIR"
+batch_real="$(cd "$BATCH_DIR" && pwd -P)"
+repo_real="$(pwd -P)"
+if [[ "$batch_real/" == "$repo_real/"* ]]; then
+    # The per-lane clean-tree guard would see the batch's own logs as a tree
+    # move and refuse the second lane; bank packs into the repo afterwards.
+    echo "refusing: <batch-dir> must be outside the repository ($batch_real)" >&2
+    exit 2
+fi
 if [[ -n "$(git status --porcelain)" ]]; then
     echo "refusing: the tree is dirty; a batch runs on one clean commit" >&2
     exit 2
@@ -103,9 +112,8 @@ for row in "${LANES[@]}"; do
     echo "=== $name ($runner) started $started"
     set +e
     # shellcheck disable=SC2086 # the lane's KEY=VALUE pairs split on purpose
-    # The lane's environment rides INSIDE the acb exec: acb hands its child a
-    # minimal environment, so anything set outside it (TMPDIR included) is
-    # not what the runner sees.
+    # The lane's environment is set INSIDE the acb exec, so what the runner
+    # sees is exactly this table plus acb's credential variables.
     # `env -u` first: a computer-scope lane must not inherit the principal the
     # user lanes need, and its candidate builder refuses one it was handed.
     acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \

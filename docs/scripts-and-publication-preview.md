@@ -4,11 +4,14 @@ Two panels, both added under Plan 034. Neither writes to Active Directory or
 SYSVOL. The Scripts panel produces a GPMC backup for an administrator to import.
 The publication preview only shows a plan.
 
-Both surfaces are **lane-backed and awaiting requalification**: the lanes that
-measured them (Scripts metadata and publication completeness) must re-run on
-the estate after the 2026-10 requalification batch before their verdicts bind
-the shipping code again. See the
-[capability matrix](capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced).
+Both surfaces are **lane-backed**: the lanes that measured them were
+requalified in the [Plan 034 batch](plan-033/plan034-batch.md) on 2026-10-08,
+at frozen commit `263f196`. The Scripts metadata verdict is
+`scripts-r10-20261008074828-8492` (20/20) and the publication-completeness
+verdict is `publication-completeness-20261008074904-1047` (21/21). Neither
+surface changes a file those verdicts bind. What each lane did not measure is
+refused or marked below, not implied. See the
+[capability matrix](capability-matrix.md#reconciled-post-10-layers--certified-and-surfaced).
 
 ## Export startup scripts
 

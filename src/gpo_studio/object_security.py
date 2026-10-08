@@ -250,8 +250,24 @@ def _parse_member_list(value: str) -> tuple[RestrictedGroupMember, ...]:
     return tuple(result)
 
 
+_SID_PRINCIPAL = re.compile(r"S-1-\d+(?:-\d+)+", re.IGNORECASE)
+
+
+def _principal_wire(principal: str) -> str:
+    """A [Group Membership] principal as MS-GPSB writes it.
+
+    Star a SID, and only a SID: an unstarred principal is a *name*, so a bare
+    SID names nothing (WI-064), and a starred name names a principal called
+    ``*Power Users``. Windows writes both forms -- the R4 export carries
+    ``*S-1-5-32-544__Members`` and native templates carry
+    ``Power Users__Members = Administrator`` -- so the reader keeps whichever
+    it was given and this puts the star back only where it belongs.
+    """
+    return f"*{principal}" if _SID_PRINCIPAL.fullmatch(principal) else principal
+
+
 def _format_member_list(members: tuple[RestrictedGroupMember, ...]) -> str:
-    return ",".join(f"*{m.sid}" for m in members)
+    return ",".join(_principal_wire(m.sid) for m in members)
 
 
 def _parse_group_key(key: str) -> tuple[str, str | None]:
@@ -359,18 +375,17 @@ class RestrictedGroupsFamily:
     def to_template_entries(self) -> dict[str, dict[str, str]]:
         if not self.groups:
             return {}
-        # The group in the key is starred, exactly as each member in the value
-        # is: under MS-GPSB an unstarred principal there is a *name*, so
-        # ``S-1-5-32-544__Members`` would name a group called "S-1-5-32-544".
+        # The group in the key follows the same rule as each member in the
+        # value (``_principal_wire``): a SID is starred, a name is not.
         # Windows exports ``*S-1-5-32-544__Members`` (R4); WI-064.
         entries: dict[str, str] = {}
         for group in self.groups:
             if group.members:
-                entries[f"*{group.group_sid}__Members"] = _format_member_list(
+                entries[f"{_principal_wire(group.group_sid)}__Members"] = _format_member_list(
                     group.members
                 )
             if group.member_of:
-                entries[f"*{group.group_sid}__Memberof"] = _format_member_list(
+                entries[f"{_principal_wire(group.group_sid)}__Memberof"] = _format_member_list(
                     group.member_of
                 )
         if not entries:

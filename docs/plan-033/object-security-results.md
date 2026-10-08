@@ -1,5 +1,14 @@
 # Object-security serialization lane
 
+**Current qualification (2026-10-08):** `object-security-20261008082348-9729`,
+20/20, on clean `1fb3f56ac7431e0044c69c32edc4350b2ab84151`
+([evidence](wp3-evidence/plan034-rerun-20261008/object-security/verification.json)).
+It is the successor to the [Plan 034 batch](plan034-batch.md)'s run, after
+`8b1a5b4` changed the serializer. Since that batch the candidate also carries
+three `[Group Membership]` rows built by `RestrictedGroupsFamily`, which
+Windows re-exported exactly (WI-064). The results below are the lane's first
+qualification and remain records of their original revision and scope.
+
 Plan 034 WP-1 extends the R4/R9 observations into a repeatable, non-applying
 `secedit` lane. A clean member-server run passed all 19 checks on 2026-09-07
 (`object-security-20260907075319-7408`, source
