@@ -39,6 +39,7 @@ guest never sees it.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
 import re
@@ -159,7 +160,6 @@ FIXTURE_KEYS = frozenset(
         "target_wmi_filter_id",
         "source_wmi_filter_name",
         "target_wmi_filter_name",
-        "import_as_new_name",
         "source_group_name",
         "target_group_name",
         "domain_dn",
@@ -183,6 +183,12 @@ _RUN_ID = re.compile(r"^lifecycle-\d{14}-\d{4}-[0-9a-f]{16}$")
 _STAMP = re.compile(r"^\d{14}-\d{4}-[0-9a-f]{16}$")
 _GROUP_NAME = re.compile(r"^zzlc-(\d{6})-(src|tgt)$")
 _NIL_GUID = "00000000-0000-0000-0000-000000000000"
+_UTC_SECOND = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+#: The guest's creation proof for a GPO a creating operation returned, exactly
+#: as Confirm-GpoCreated writes it.
+_CREATION_EVIDENCE = re.compile(
+    rf"^in_snapshot=(True|False);when_created_utc=({_UTC_SECOND});dc_start_utc=({_UTC_SECOND})$"
+)
 _WMI_CONTAINER = "CN=SOM,CN=WMIPolicy,CN=System,"
 #: The GPO display-name suffix the guest generates for each inventory role.
 GPO_NAME_SUFFIX = {
@@ -456,9 +462,42 @@ def _fixture_names_are_generated(fixture: Mapping[str, Any]) -> bool:
         [fixture["ou_parent_dn"], fixture["ou_source_dn"], fixture["ou_target_dn"]] == ous
         and fixture["source_wmi_filter_name"] == f"{prefix}-src-wmi"
         and fixture["target_wmi_filter_name"] == f"{prefix}-tgt-wmi"
-        and fixture["import_as_new_name"] == f"{prefix}-{GPO_NAME_SUFFIX['import_as_new']}"
         and _bare(fixture["source_wmi_filter_id"]) != _bare(fixture["target_wmi_filter_id"])
     )
+
+
+def creation_proven(evidence: object) -> bool:
+    """Does a creation_evidence record, parsed completely, prove creation?
+
+    Re-review 5: a prefix check let ``in_snapshot=False;garbage`` and evidence
+    recording a creation BEFORE the DC baseline both pass. Every field must be
+    present and typed, nothing else may be present, the id must have been
+    absent from the snapshot, and whenCreated must not precede dc_start.
+    """
+    if not isinstance(evidence, str):
+        return False
+    match = _CREATION_EVIDENCE.fullmatch(evidence)
+    if match is None:
+        return False
+    try:
+        created = dt.datetime.strptime(match.group(2), "%Y-%m-%dT%H:%M:%SZ")
+        started = dt.datetime.strptime(match.group(3), "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return match.group(1) == "False" and created >= started
+
+
+def operation_target_nonce(name: object, prefix: str, suffix: str) -> str | None:
+    """The per-operation nonce in a creating operation's target name, or None.
+
+    Each creating operation names its target ``<prefix>-<suffix>-<nonce>``
+    with a fresh 64-bit nonce of its own (re-review 5): the run nonce in
+    ``prefix`` is public from the first OU onward.
+    """
+    if not isinstance(name, str):
+        return None
+    match = re.fullmatch(rf"{re.escape(prefix)}-{re.escape(suffix)}-([0-9a-f]{{16}})", name)
+    return match.group(1) if match else None
 
 
 def _inventory_complete(
@@ -494,6 +533,11 @@ def _inventory_complete(
     prefix = f"zz-studio-lifecycle-{fixture['stamp']}"
     by_role = {entry["role"]: entry for entry in entries}
     ids = [entry["id"] for entry in entries]
+    run_nonce = fixture["stamp"].rsplit("-", 1)[-1]
+    op_nonces = {
+        operation_target_nonce(by_role[role]["name"], prefix, GPO_NAME_SUFFIX[role])
+        for role in NEW_GPO_ROLES
+    }
     return (
         all(entry["owned"] is True for entry in entries)
         # New-GPO results carry no creation evidence; the creating operations'
@@ -501,14 +545,16 @@ def _inventory_complete(
         and all(entry["creation_evidence"] is None for entry in entries
                 if entry["role"] in ("control", "source", "target"))
         and all(
-            isinstance(entry["creation_evidence"], str)
-            and entry["creation_evidence"].startswith("in_snapshot=False;")
+            creation_proven(entry["creation_evidence"])
             for entry in entries if entry["role"] in NEW_GPO_ROLES
         )
         and all(
-            by_role[role]["name"] == f"{prefix}-{suffix}"
-            for role, suffix in GPO_NAME_SUFFIX.items()
+            by_role[role]["name"] == f"{prefix}-{GPO_NAME_SUFFIX[role]}"
+            for role in ("control", "source", "target")
         )
+        and len(op_nonces) == len(NEW_GPO_ROLES)
+        and None not in op_nonces
+        and run_nonce not in op_nonces
         and all(
             isinstance(i, str) and bool(_BARE_GUID.match(i)) and _bare(i) != _NIL_GUID
             for i in ids
@@ -518,6 +564,17 @@ def _inventory_complete(
             _bare(by_role[role]["id"]) == _bare(gpo_id) for role, gpo_id in ids_by_role.items()
         )
     )
+
+
+def _inventory_names(created: object, role: str) -> list[str]:
+    """The names the inventory records for a role (for cross-checks only)."""
+    if not isinstance(created, dict) or not isinstance(created.get("gpos"), list):
+        return []
+    return [
+        entry["name"] for entry in created["gpos"]
+        if isinstance(entry, dict) and entry.get("role") == role
+        and isinstance(entry.get("name"), str)
+    ]
 
 
 def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
@@ -565,8 +622,14 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
         )
         and all(
             not isinstance(operations[op].get("target_after"), dict)
-            or operations[op]["target_after"].get("display_name")
-            == f"zz-studio-lifecycle-{fixture['stamp']}-{GPO_NAME_SUFFIX[op]}"
+            or operation_target_nonce(
+                operations[op]["target_after"].get("display_name"),
+                f"zz-studio-lifecycle-{fixture['stamp']}",
+                GPO_NAME_SUFFIX[op],
+            )
+            is not None
+            and operations[op]["target_after"].get("display_name")
+            in _inventory_names(result["created"], op)
             for op in NEW_GPO_ROLES
         ),
         # Re-review P2(c): the perturbed object must BE the source being

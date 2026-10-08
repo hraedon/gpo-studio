@@ -110,9 +110,21 @@ so the next reader knows what each guard is for:
   A GPO that fails either check is recorded as foreign, never owned and never
   deleted, and the run fails. A GPO found under an intended name after a failed
   create is likewise reported and left in place. A window remains between the
-  snapshot and the cmdlet's own create step. Every run name therefore carries
-  a 64-bit nonce from a fresh GUID that no other process knows before the
-  first create, so taking a name inside that window means guessing it.
+  snapshot and the cmdlet's own create step. Each creating operation's target
+  name therefore carries a 64-bit nonce of its own, from a fresh GUID generated
+  immediately before that operation. That nonce is written nowhere (not the
+  directory, not any output) before the operation's create step, and the
+  result records it only afterwards. The run's own nonce cannot serve, because
+  it is public from the first OU onward, and a racer could derive a target name
+  from it (re-review 5).
+* **The residual risk, stated plainly.** Two cases cannot be told apart from
+  a genuine creation on the client side. One is a creator who can learn an
+  unpublished in-process nonce, for example by observing the absence lookup
+  on the DC or reading the guest's memory. The other is a GPO another party
+  creates inside the window under a guessed 64-bit name. Either would pass
+  both the snapshot and the DC-clock checks and be owned and deleted. Closing
+  this would need a marker on the GPO, and a GPO has nowhere to carry one
+  without changing something the lane measures.
 * **Creating operations have no before-state.** A non-null `target_before` on
   a copy or `import_as_new` record is refused as malformed. It is never
   ignored.
@@ -122,6 +134,14 @@ so the next reader knows what each guard is for:
 * **Snapshots must name what the run made.** `run_id` must be
   `lifecycle-<stamp>`, and every baseline, and every creating operation's
   result, must carry the display name the run generated.
+* **Creation evidence is parsed completely.** The guest's `creation_evidence`
+  must match `in_snapshot=…;when_created_utc=…;dc_start_utc=…` exactly, with
+  nothing extra. It must show `in_snapshot=False` and `whenCreated >= dc_start`
+  (re-review 5).
+* **Single-valued backup elements stay single.** A second
+  `GroupPolicyCoreSettings`, `WMIFilter` or `WMIFilterName` in `Backup.xml` is
+  refused, not resolved by whichever comes first or last. Which one Windows
+  would honour is unmeasured.
 * **No coercion.** The finalizer type-checks every value it grades: GUID syntax,
   SIDs, `SID|level|denied` permission entries, and booleans. A `null` is a
   harness error and never becomes the string `"None"`. A `gPCWQLFilter` that is
@@ -176,6 +196,10 @@ LabMS01 (WS2025 build 26100, PowerShell 5.1.26100):
   described above, so their 18 cells are ungraded.
 * The backup bridge failed on the then-unknown `Backup.xml` WMI shape, which
   is now measured and handled.
+
+Exploratory run 2 at `a3f24d1` passed: the harness was valid, all 30
+predictions agreed, and cleanup was clean. It is not banked, because the lane
+is re-run and banked from `main` after the Plan 034 batch.
 
 ## What it cannot assert
 

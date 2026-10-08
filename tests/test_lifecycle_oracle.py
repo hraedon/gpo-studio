@@ -83,7 +83,12 @@ _OU_SRC, _OU_TGT = f"OU=src-link,{_PARENT}", f"OU=tgt-link,{_PARENT}"
 _WMI_SRC = "{bbbbbbbb-0000-0000-0000-000000000001}"
 _WMI_TGT = "{bbbbbbbb-0000-0000-0000-000000000002}"
 _SOM = "CN=SOM,CN=WMIPolicy,CN=System,DC=synthetic,DC=test"
-_IMPORT_NAME = f"{_PREFIX}-imported"
+#: Each creating operation's target name carries its own nonce (re-review 5).
+_OP_NAMES = {
+    "copy": f"{_PREFIX}-copy-1111111111111111",
+    "copy_with_acl": f"{_PREFIX}-copy_with_acl-2222222222222222",
+    "import_as_new": f"{_PREFIX}-imported-3333333333333333",
+}
 
 _FIXTURE = {
     "stamp": _STAMP,
@@ -104,7 +109,6 @@ _FIXTURE = {
     "target_wmi_filter_id": _WMI_TGT,
     "source_wmi_filter_name": f"{_PREFIX}-src-wmi",
     "target_wmi_filter_name": f"{_PREFIX}-tgt-wmi",
-    "import_as_new_name": _IMPORT_NAME,
     "source_group_name": "zzlc-000001-src",
     "target_group_name": "zzlc-000001-tgt",
     "domain_dn": _DOMAIN_DN,
@@ -199,8 +203,7 @@ def _after(op: str, before: dict[str, Any] | None) -> dict[str, Any]:
             _set(after, key, list(_DEFAULT_ACL))
     if before is None:
         # The creating operations name their result; the guest generated it.
-        suffix = "imported" if op == "import_as_new" else op
-        after["display_name"] = f"{_PREFIX}-{suffix}"
+        after["display_name"] = _OP_NAMES[op]
     return after
 
 
@@ -225,7 +228,7 @@ def _result() -> dict[str, Any]:
          "creation_evidence": None},
     ]
     for op in ("copy", "copy_with_acl", "import_as_new"):
-        name = _IMPORT_NAME if op == "import_as_new" else f"{_PREFIX}-{op}"
+        name = _OP_NAMES[op]
         gpos.append(
             {"role": op, "name": name, "id": operations[op]["target_after"]["gpo_id"],
              "owned": True,
@@ -1268,7 +1271,7 @@ def test_every_create_is_registered_before_it_runs(intent: str, create: str) -> 
 def test_the_guest_measures_import_as_new_target_absence_first() -> None:
     guest = _GUEST_PATH.read_text(encoding="utf-8")
     block = guest[guest.index("$op = $operations['import_as_new']"):]
-    assert block.index("Find-GpoByName -Name $names.gpo_import_as_new") < block.index(
+    assert block.index("Find-GpoByName -Name $importName") < block.index(
         "Import-GPO"
     )
     assert "throw \"import_as_new target" in block
@@ -1444,3 +1447,131 @@ def test_the_run_stamp_carries_a_guid_nonce() -> None:
     validate = cast(Callable[[object], object], _FINALIZER["validate_fixture"])
     with pytest.raises(ValueError, match="stamp"):
         validate(dict(_FIXTURE, stamp="20261007000000-0001"))
+
+
+# ---------------------------------------------------------------------------
+# Re-review 5: per-operation nonces; complete creation evidence
+# ---------------------------------------------------------------------------
+
+
+def _set_evidence(r: dict[str, Any], role: str, evidence: object) -> None:
+    for entry in r["created"]["gpos"]:
+        if entry["role"] == role:
+            entry["creation_evidence"] = evidence
+
+
+def _set_inventory_name(r: dict[str, Any], role: str, name: str) -> None:
+    for entry in r["created"]["gpos"]:
+        if entry["role"] == role:
+            entry["name"] = name
+    if role in r["operations"] and r["operations"][role]["target_after"] is not None:
+        r["operations"][role]["target_after"]["display_name"] = name
+
+
+_GOOD_EVIDENCE = (
+    "in_snapshot=False;when_created_utc=2026-10-07T00:00:05Z;dc_start_utc=2026-10-07T00:00:05Z"
+)
+
+
+@pytest.mark.parametrize(
+    "case,evidence",
+    [
+        # Sol's round-5 mutations: both received an overall PASS.
+        ("garbage_after_prefix", "in_snapshot=False;garbage"),
+        (
+            "created_before_dc_baseline",
+            "in_snapshot=False;when_created_utc=2026-10-07T00:00:04Z;"
+            "dc_start_utc=2026-10-07T00:00:05Z",
+        ),
+        ("in_snapshot_true", _GOOD_EVIDENCE.replace("in_snapshot=False", "in_snapshot=True")),
+        ("extra_field", _GOOD_EVIDENCE + ";owner=me"),
+        ("missing_field", "in_snapshot=False;when_created_utc=2026-10-07T00:00:05Z"),
+        ("not_a_time", _GOOD_EVIDENCE.replace("2026-10-07T00:00:05Z", "2026-13-45T99:99:99Z")),
+        ("null", None),
+    ],
+)
+def test_creation_evidence_must_parse_completely_and_prove_creation(
+    tmp_path: Path, case: str, evidence: object
+) -> None:
+    result = _result()
+    _set_evidence(result, "copy", evidence)
+    code, verdict = _verdict(tmp_path, result)
+    assert code == 1, case
+    assert verdict["checks"]["creation_inventory_complete"] is False, case
+
+
+def test_creation_evidence_parser() -> None:
+    proven = cast(Callable[[object], bool], _FINALIZER["creation_proven"])
+    assert proven(_GOOD_EVIDENCE) is True
+    later = _GOOD_EVIDENCE.replace("when_created_utc=2026-10-07T00:00:05Z",
+                                   "when_created_utc=2026-10-07T00:01:00Z")
+    assert proven(later) is True
+    assert proven(" " + _GOOD_EVIDENCE) is False
+    assert proven(_GOOD_EVIDENCE + "\n") is False
+
+
+@pytest.mark.parametrize(
+    "case,role,name",
+    [
+        ("no_operation_nonce", "copy", f"{_PREFIX}-copy"),
+        ("run_nonce_reused", "import_as_new", f"{_PREFIX}-imported-{_STAMP.rsplit('-', 1)[-1]}"),
+        ("operation_nonces_shared", "copy_with_acl", f"{_PREFIX}-copy_with_acl-1111111111111111"),
+        ("short_nonce", "copy", f"{_PREFIX}-copy-1234"),
+        ("wrong_suffix", "copy", f"{_PREFIX}-imported-4444444444444444"),
+    ],
+)
+def test_each_creating_operation_needs_its_own_unpublished_nonce(
+    tmp_path: Path, case: str, role: str, name: str
+) -> None:
+    """Re-review 5 P1: the run nonce is public from the first OU onward."""
+    result = _result()
+    _set_inventory_name(result, role, name)
+    code, verdict = _verdict(tmp_path, result)
+    assert code == 1, case
+    assert verdict["checks"]["creation_inventory_complete"] is False, case
+
+
+def test_a_creating_result_named_unlike_its_inventory_entry_fails(tmp_path: Path) -> None:
+    result = _result()
+    result["operations"]["copy"]["target_after"]["display_name"] = (
+        f"{_PREFIX}-copy-5555555555555555"
+    )
+    code, verdict = _verdict(tmp_path, result)
+    assert code == 1
+    assert verdict["checks"]["snapshot_names_match_inventory"] is False
+
+
+def test_creating_operation_names_are_generated_inside_each_operation() -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    header = guest[: guest.index("# --- 0. Ownership guard")]
+    for retired in ("gpo_copy", "gpo_copy_with_acl", "gpo_import_as_new"):
+        assert retired not in guest, retired
+    assert "New-OperationTargetName -Suffix" not in header
+    body = _function_body(guest, "New-OperationTargetName")
+    assert "[guid]::NewGuid().ToString('N').Substring(0, 16)" in body
+    for start, name_var, create in (
+        ("foreach ($name in 'copy', 'copy_with_acl')", "$targetName", "Copy-GPO -SourceGuid"),
+        ("$op = $operations['import_as_new']", "$importName", "Import-GPO -BackupId"),
+    ):
+        block = guest[guest.index(start):]
+        generated = block.index(f"{name_var} = New-OperationTargetName")
+        assert generated < block.index(f"Find-GpoByName -Name {name_var}") < block.index(create)
+    # Not written into the result before the operation runs.
+    assert "import_as_new_name" not in guest
+
+
+def test_duplicate_wmi_elements_in_the_backup_fail_the_bridge(tmp_path: Path) -> None:
+    """Re-review 5 (Sol's conflicting-XML mutation): target then source passed."""
+    run = _run_dir(tmp_path, _result(), wmi=None)
+    backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
+    doubled = (
+        _wmi_elements(_som(_WMI_TGT), _FIXTURE["target_wmi_filter_name"]).decode()
+        + f"<WMIFilter><![CDATA[{_som(_WMI_SRC)}]]></WMIFilter>"
+        + f"<WMIFilterName><![CDATA[{_FIXTURE['source_wmi_filter_name']}]]></WMIFilterName>"
+    )
+    backup_xml.write_bytes(backup_xml.read_bytes().replace(b"<WMIFilter/>", doubled.encode()))
+    completed = _finalize(run, _candidate(tmp_path))
+    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
+    assert completed.returncode == 1
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
+    assert "WMIFilter elements" in verdict["comparison"]["backup_bridge"]["error"]
