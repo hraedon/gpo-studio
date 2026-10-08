@@ -39,8 +39,10 @@ is refused on purpose. Each refusal names its rule and suggests a rephrasing:
   `X.Y.Z` rather than a placeholder in angle brackets.
 - **no-entities:** no character references (an ampersand followed by `#`, or
   by a name and a semicolon). Spell the character out instead.
-- **no-code-blocks:** no code fences and no line indented four or more spaces.
-  Use inline code, and indent list continuations by two or three spaces.
+- **no-code-blocks:** no code fences and no indented code, including inside
+  quotes and list items (no fence after a `>` or list marker, and never four or
+  more spaces after one). Use inline code, and indent list continuations by two
+  or three spaces.
 - **plain-links:** links only as `[text](path)` or `[text][ref]`, with a bare
   path or URL (no spaces, parentheses or title), and never touching a letter or
   digit on either side. A `[` straight after a letter is refused even in

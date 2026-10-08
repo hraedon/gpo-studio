@@ -20,7 +20,8 @@ that made that possible and checks the bytes:
 * printable ASCII and LF only (no tabs, CR, control or non-ASCII characters);
 * no ``<`` (so no raw HTML or autolinks) and no character references
   (``&#...``, ``&name;``);
-* no code fences and no line indented four or more spaces (so no code blocks);
+* no code fences and no line indented four or more spaces, also after
+  blockquote and list markers (so no code blocks, nested or not);
 * links only in the plain forms ``[text](destination)`` and ``[text][ref]``,
   with no parentheses or whitespace in the destination and never glued to a
   letter or digit on either side (so a link cannot splice a word together);
@@ -79,8 +80,12 @@ ARTIFACT_HASH_KEYS = frozenset({"wheel_sha256", "sdist_sha256", "sbom_sha256"})
 
 _ALLOWED_BYTES = frozenset(range(0x20, 0x7F)) | {0x0A}
 _ENTITY = re.compile(r"&(?:#|[A-Za-z][A-Za-z0-9]*;)")
-_FENCE = re.compile(r"^\s*(?:`{3,}|~{3,})")
+_FENCE = re.compile(r"^ *(?:`{3,}|~{3,})")
 _DEEP_INDENT = re.compile(r"^ {4,}\S")
+# One container marker: a blockquote '>' or a list marker, with the spaces
+# after it. Stripped repeatedly before looking for code, because
+# "> ```" and ">     text" are code blocks inside a quote (Sol, 764fb29).
+_CONTAINER = re.compile(r"^ {0,3}(>|[-*+]|\d{1,9}[.)])( *)")
 _INLINE_LINK = re.compile(r"\]\(([^()\s]*)\)")
 _REFERENCE_LINK = re.compile(r"\]\[([^\[\]]*)\]")
 _GLUED_OPEN = re.compile(r"[A-Za-z0-9]!?\[")
@@ -92,6 +97,27 @@ _SETEXT_UNDERLINE = re.compile(rf"^{_BLOCK_PREFIX} {{0,3}}(?:=+|-+) *$")
 _LEADING_MARKERS = re.compile(r"^[\s>#+\-*\d.)]*")
 
 STATUS_LINE_INDEX = 4  # line 5
+
+
+def _container_content(line: str) -> tuple[str, bool]:
+    """Strip blockquote and list markers; report whether any opened a code block.
+
+    A list marker counts only when a space or the end of the line follows it,
+    so ``**bold**``, ``1.5`` and ``---`` are content, not containers. Four or
+    more spaces after a marker are indented code in CommonMark (strictly, a
+    blockquote marker eats one of them; refusing four is the stricter reading).
+    """
+    rest = line
+    while True:
+        match = _CONTAINER.match(rest)
+        if match is None:
+            return rest, False
+        marker, spaces = match.groups()
+        if marker != ">" and not spaces and match.end() < len(rest):
+            return rest, False
+        if len(spaces) >= 4:
+            return rest, True
+        rest = rest[match.end() :]
 
 
 def _skeleton(line: str) -> str:
@@ -123,12 +149,13 @@ def manifest_problems(data: bytes, base: str, status: str) -> list[str]:
             "Type the character itself (ASCII only) or spell it out, e.g. 'and' for '&amp;'"
         )
     for number, line in enumerate(lines, start=1):
-        if _FENCE.match(line):
+        content, indented_code = _container_content(line)
+        if _FENCE.match(line) or _FENCE.match(content):
             problems.append(
                 f"line {number}: rule no-code-blocks: code fences are not allowed. "
                 "Use `inline code` on ordinary lines instead"
             )
-        if _DEEP_INDENT.match(line):
+        if _DEEP_INDENT.match(line) or indented_code or _DEEP_INDENT.match(content):
             problems.append(
                 f"line {number}: rule no-code-blocks: indentation of four or more spaces "
                 "makes a code block. Indent list continuations by two or three spaces"

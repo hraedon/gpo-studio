@@ -515,8 +515,9 @@ BYPASS_PROBES = [
     "<!--\n> **Status:** DRAFT\n-->",
     "```\nunterminated fence",
     "<!-- unterminated comment",
-    # round 2
-    "> ```\n> **Status:** approved for release\n> ```",
+    # round 2 (the quoted fence now carries ordinary text, so the probe tests
+    # fence rejection itself rather than a second status declaration)
+    "> ```\n> ordinary example\n> ```",
     "- **Status:** DRAFT\n\n> ```\n> > **Status:** approved for release\n> ```",
     "<details>\n\n> **Status:** approved for release\n\n</details>",
     "<div>\n> **Status:** approved for release\n</div>",
@@ -569,6 +570,53 @@ def test_every_bypass_from_every_round_is_refused(tmp_path: Path, probe: str) ->
     _release(root, "1.1.0", extra=probe)
     with pytest.raises(gate.ReleaseGateError, match="release-evidence-1.1.0.md"):
         gate.check(root, "v1.1.0")
+
+
+# Sol, 764fb29: code blocks inside containers. Ordinary text only, so the only
+# rule that can refuse these is no-code-blocks.
+NESTED_CODE_PROBES = [
+    "> ```\n> ordinary example\n> ```",
+    "> ~~~\n> ordinary example\n> ~~~",
+    ">     ordinary example",
+    "> >     ordinary example",
+    "> > ```\n> > ordinary example\n> > ```",
+    "- ```\n  ordinary example\n  ```",
+    "-     ordinary example",
+    "* ~~~\n  ordinary example\n  ~~~",
+    "1. ```\n   ordinary example\n   ```",
+    "1)     ordinary example",
+    "> - ```\n>   ordinary example\n>   ```",
+    "- > ```\n  > ordinary example\n  > ```",
+    "   > ```\n   > ordinary example\n   > ```",
+]
+
+
+@pytest.mark.parametrize("probe", NESTED_CODE_PROBES)
+def test_code_blocks_inside_quotes_and_lists_are_refused(tmp_path: Path, probe: str) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _release(root, "1.1.0", extra=probe)
+    with pytest.raises(gate.ReleaseGateError) as caught:
+        gate.check(root, "v1.1.0")
+    message = str(caught.value)
+    assert "rule no-code-blocks" in message
+    assert "one-status" not in message
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "> An ordinary quoted paragraph with `inline code`.",
+        "> > A nested quote.",
+        "- A list item\n  with a continuation line.",
+        "1. A numbered step\n   with a continuation.\n   - and a nested item",
+        "**Bold** at the start of a line, and 1.5 million, and a rule:\n\n---",
+        "*Emphasis* starting a line.",
+    ],
+)
+def test_ordinary_quotes_and_lists_still_pass(tmp_path: Path, prose: str) -> None:
+    root = _root(tmp_path, "1.1.0")
+    _release(root, "1.1.0", extra=prose)
+    assert gate.check(root, "v1.1.0").version == "1.1.0"
 
 
 @pytest.mark.parametrize(
