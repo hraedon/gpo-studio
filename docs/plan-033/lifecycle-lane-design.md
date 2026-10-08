@@ -90,24 +90,37 @@ so the next reader knows what each guard is for:
   it will use and asks the directory whether any of them exist. On a collision
   it aborts having created nothing, and its cleanup deletes nothing. There is no
   deletion by name pattern anywhere.
-* **Intent recorded before each create.** Each OU, group, WMI filter and GPO
-  enters the inventory before the command that creates it. Cleanup and the
-  residual check then look each one up by its exact generated name, so a create
-  that commits and then throws is still found.
+* **Intent recorded before each create, but ownership proven separately.**
+  Each object enters the inventory before the command that creates it, so a
+  create that commits and then throws is still found. Intent is not ownership,
+  though: another creator can take a name between the guard and the create
+  (re-review P1). Each directory object (OU, group, WMI filter) therefore
+  carries a run-unique marker set by its own create call (`description`, or
+  `msWMI-Parm1` for a filter), and cleanup deletes it only if the marker it
+  reads back is this run's. A GPO counts as owned only if its create returned
+  it. A GPO found under an intended name after a failed create is reported and
+  left in place, and the run fails.
 * **No coercion.** The finalizer type-checks every value it grades: GUID syntax,
   SIDs, `SID|level|denied` permission entries, and booleans. A `null` is a
   harness error and never becomes the string `"None"`. A `gPCWQLFilter` that is
   present but unparseable is a harness error, never "no filter".
-* **One perturbation snapshot.** The restore is graded only if its `before`
-  state is the very snapshot whose perturbation was verified.
+* **One perturbation snapshot, on the source.** The restore is graded only if
+  its `before` state is the very snapshot whose perturbation was verified, and
+  that snapshot's GPO id is the source's.
 * **Cleanup proof.** The proof needs exactly the five named residual
-  categories, plus a creation inventory that matches the GPO ids the guest read
-  back. The control must be an untouched `New-GPO` (Authenticated Users holds
+  categories. It also needs a creation inventory equal, DN for DN, to the
+  objects the run's stamp generates: the OUs, the two groups under the run's
+  OU, and the two `msWMI-Som` objects in `CN=SOM,CN=WMIPolicy,CN=System`.
+  Every GPO entry must be owned, carry its generated name, and have the id the
+  guest read back. The control must be an untouched `New-GPO` (Authenticated Users holds
   Apply), so that "defaulted" means something.
-* **Bridge evidence.** The backup's WMI reference must name the source filter
-  (by id or by name) and must not name the target's.
+* **Bridge evidence.** The backup's WMI reference must identify the source
+  filter exactly, in one of three forms: `[domain;{id};n]` with exactly its id,
+  the bare braced id, or exactly its name. Substring matches never count.
 * **The `-CreateIfNeeded` precondition.** The creating plans set
-  `requires_target_absent` and refuse a name known to exist. The guest measures
+  `requires_target_absent`. When the caller supplies the domain's current
+  names, only that list decides, and the backup's historical name only draws a
+  warning. Without the list, the backup's own name is refused by default. The guest measures
   absence immediately before each creating operation, and the finalizer requires
   that measurement.
 * **An independent control.** The end-to-end control uses the frozen-spec

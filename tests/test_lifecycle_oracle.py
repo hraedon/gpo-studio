@@ -73,15 +73,18 @@ _BASE = [f"{_DA}|GpoEditDeleteModifySecurity|False", f"{_SYS}|GpoEditDeleteModif
 _DEFAULT_ACL = sorted([f"{_AU}|GpoApply|False", *_BASE])
 _SRC_ACL = sorted([f"{_AU}|GpoRead|False", f"{_SRC_SID}|GpoApply|False", *_BASE])
 _TGT_ACL = sorted([f"{_AU}|GpoRead|False", f"{_TGT_SID}|GpoApply|False", *_BASE])
-_PARENT = "OU=zz-studio-lifecycle-x,DC=synthetic,DC=test"
+_STAMP = "20261007000000-0001"
+_PREFIX = f"zz-studio-lifecycle-{_STAMP}"
+_DOMAIN_DN = "DC=synthetic,DC=test"
+_PARENT = f"OU={_PREFIX},{_DOMAIN_DN}"
 _OU_SRC, _OU_TGT = f"OU=src-link,{_PARENT}", f"OU=tgt-link,{_PARENT}"
 _WMI_SRC = "{bbbbbbbb-0000-0000-0000-000000000001}"
 _WMI_TGT = "{bbbbbbbb-0000-0000-0000-000000000002}"
 _SOM = "CN=SOM,CN=WMIPolicy,CN=System,DC=synthetic,DC=test"
-_IMPORT_NAME = "zz-studio-lifecycle-x-imported"
+_IMPORT_NAME = f"{_PREFIX}-imported"
 
 _FIXTURE = {
-    "stamp": "x",
+    "stamp": _STAMP,
     "policy_key": r"HKLM\Software\Policies\StudioLab",
     "value_name": "LifecycleMarker",
     "source_value": "source-x",
@@ -97,9 +100,13 @@ _FIXTURE = {
     "target_group_sid": _TGT_SID,
     "source_wmi_filter_id": _WMI_SRC,
     "target_wmi_filter_id": _WMI_TGT,
-    "source_wmi_filter_name": "zz-studio-lifecycle-x-src-wmi",
-    "target_wmi_filter_name": "zz-studio-lifecycle-x-tgt-wmi",
+    "source_wmi_filter_name": f"{_PREFIX}-src-wmi",
+    "target_wmi_filter_name": f"{_PREFIX}-tgt-wmi",
     "import_as_new_name": _IMPORT_NAME,
+    "source_group_name": "zzlc-000001-src",
+    "target_group_name": "zzlc-000001-tgt",
+    "domain_dn": _DOMAIN_DN,
+    "ownership_marker": f"gpo-studio-lifecycle:lifecycle-{_STAMP}:synthetic",
 }
 
 
@@ -189,16 +196,19 @@ def _result() -> dict[str, Any]:
             "target_after": _after(op, before),
         }
     gpos = [
-        {"role": "control", "name": "zz-studio-lifecycle-x-control", "id": _CTRL},
-        {"role": "source", "name": "zz-studio-lifecycle-x-source", "id": _SRC},
-        {"role": "target", "name": "zz-studio-lifecycle-x-target", "id": _TGT},
+        {"role": "control", "name": f"{_PREFIX}-control", "id": _CTRL, "owned": True},
+        {"role": "source", "name": f"{_PREFIX}-source", "id": _SRC, "owned": True},
+        {"role": "target", "name": f"{_PREFIX}-target", "id": _TGT, "owned": True},
     ]
     for op in ("copy", "copy_with_acl", "import_as_new"):
-        name = _IMPORT_NAME if op == "import_as_new" else f"zz-studio-lifecycle-x-{op}"
-        gpos.append({"role": op, "name": name, "id": operations[op]["target_after"]["gpo_id"]})
+        name = _IMPORT_NAME if op == "import_as_new" else f"{_PREFIX}-{op}"
+        gpos.append(
+            {"role": op, "name": name, "id": operations[op]["target_after"]["gpo_id"],
+             "owned": True}
+        )
     return {
         "schema_version": 1,
-        "run_id": "lifecycle-20261007000000-0001",
+        "run_id": f"lifecycle-{_STAMP}",
         "domain": "synthetic.test",
         "ownership_established": True,
         "fixture": dict(_FIXTURE),
@@ -458,7 +468,60 @@ def _mutate_run_id_null(r: dict[str, Any]) -> None:
     r["run_id"] = None
 
 
+def _mutate_duplicate_group_inventory(r: dict[str, Any]) -> None:
+    r["created"]["groups"] = [r["created"]["groups"][0]] * 2
+
+
+def _mutate_unrelated_group_inventory(r: dict[str, Any]) -> None:
+    r["created"]["groups"] = [f"CN=unrelated-1,{_PARENT}", f"CN=unrelated-2,{_PARENT}"]
+
+
+def _mutate_wmi_inventory_outside_container(r: dict[str, Any]) -> None:
+    r["created"]["wmi_filters"] = [
+        f"CN={_WMI_SRC},OU=unrelated,DC=synthetic,DC=test",
+        f"CN={_WMI_TGT},OU=unrelated,DC=synthetic,DC=test",
+    ]
+
+
+def _mutate_restore_perturbed_on_target(r: dict[str, Any]) -> None:
+    for state in (r["restore_perturbed"], r["operations"]["restore_in_place"]["target_before"]):
+        state["gpo_id"] = _TGT
+
+
+def _mutate_unowned_gpo_in_inventory(r: dict[str, Any]) -> None:
+    r["created"]["gpos"][0]["owned"] = False
+
+
+def _mutate_gpo_inventory_name_not_generated(r: dict[str, Any]) -> None:
+    r["created"]["gpos"][1]["name"] = "someone-elses-gpo"
+
+
+def _mutate_wmi_name_not_generated(r: dict[str, Any]) -> None:
+    r["fixture"]["source_wmi_filter_name"] = "some-other-filter"
+
+
+def _mutate_nil_copy_guid(r: dict[str, Any]) -> None:
+    r["operations"]["copy"]["target_after"]["gpo_id"] = "00000000-0000-0000-0000-000000000000"
+
+
 _MUTATIONS: dict[str, tuple[Callable[[dict[str, Any]], None], str]] = {
+    # Re-review (2026-10-08) cases, each of which received an overall PASS.
+    "duplicate_group_inventory": (_mutate_duplicate_group_inventory, "creation_inventory_complete"),
+    "wrong_group_inventory": (_mutate_unrelated_group_inventory, "creation_inventory_complete"),
+    "wrong_wmi_dn_inventory": (
+        _mutate_wmi_inventory_outside_container, "creation_inventory_complete"
+    ),
+    "restore_perturbed_wrong_guid": (
+        _mutate_restore_perturbed_on_target, "restore_perturbation_landed"
+    ),
+    "unowned_gpo_in_inventory": (_mutate_unowned_gpo_in_inventory, "creation_inventory_complete"),
+    "gpo_inventory_name_not_generated": (
+        _mutate_gpo_inventory_name_not_generated, "creation_inventory_complete"
+    ),
+    "wmi_filter_name_not_generated": (
+        _mutate_wmi_name_not_generated, "fixture_names_are_generated"
+    ),
+    "nil_copy_guid": (_mutate_nil_copy_guid, "result_gradable"),
     # name: (mutation, a check that must fail)
     "null_new_guid": (_mutate_null_copy_guid, "result_gradable"),
     "same_guid_all_new_targets": (_mutate_same_guid_for_new_targets, "creation_inventory_complete"),
@@ -509,6 +572,73 @@ def test_a_wmi_reference_naming_another_filter_fails_the_bridge(tmp_path: Path) 
     assert code == 1
     assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
     assert verdict["comparison"]["backup_bridge"]["wmi_reference_names_source_filter"] is False
+
+
+def _bridge_with_reference(tmp_path: Path, reference: str) -> tuple[int, dict[str, Any]]:
+    run = _run_dir(tmp_path, _result(), wmi=None)
+    backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
+    backup_xml.write_bytes(
+        backup_xml.read_bytes().replace(
+            b"<WMIFilter/>", f"<WMIFilter>{reference}</WMIFilter>".encode()
+        )
+    )
+    completed = _finalize(run, _candidate(tmp_path))
+    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
+    return completed.returncode, cast(dict[str, Any], verdict)
+
+
+@pytest.mark.parametrize(
+    "case,reference",
+    [
+        # Sol's re-review mutations: both received an overall PASS by containment.
+        ("name_contains_source_name", f"{_FIXTURE['source_wmi_filter_name']}-other-filter"),
+        (
+            "wrong_guid_with_source_name",
+            "[synthetic.test;{bbbbbbbb-0000-0000-0000-000000000099};0] "
+            + _FIXTURE["source_wmi_filter_name"],
+        ),
+        ("source_id_embedded_in_other_text", f"x{_WMI_SRC}x"),
+        ("both_filters_named", f"{_wql(_WMI_SRC)}{_wql(_WMI_TGT)}"),
+    ],
+)
+def test_a_wmi_reference_that_does_not_exactly_identify_the_source_fails(
+    tmp_path: Path, case: str, reference: str
+) -> None:
+    """Re-review P2(a): identity is exact equality, never containment."""
+    code, verdict = _bridge_with_reference(tmp_path, reference)
+    assert code == 1, case
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False, case
+
+
+@pytest.mark.parametrize(
+    "reference", [_wql(_WMI_SRC), _WMI_SRC.upper(), _FIXTURE["source_wmi_filter_name"]]
+)
+def test_each_exact_wmi_reference_shape_identifies_the_source(
+    tmp_path: Path, reference: str
+) -> None:
+    code, verdict = _bridge_with_reference(tmp_path, reference)
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is True
+    assert code == 0
+
+
+def test_wmi_reference_identity_is_exact() -> None:
+    identifies = cast(Callable[[str, str, str], bool], _FINALIZER["wmi_reference_identifies"])
+    name = "flt"
+    assert identifies(f"[d;{_WMI_SRC};0]", _WMI_SRC, name) is True
+    assert identifies(f"[d;{_WMI_TGT};0]", _WMI_SRC, name) is False
+    assert identifies(_WMI_SRC, _WMI_SRC, name) is True
+    assert identifies("flt", _WMI_SRC, name) is True
+    assert identifies("flt-2", _WMI_SRC, name) is False
+    assert identifies("FLT", _WMI_SRC, name) is False
+    assert identifies(f"[d;{_WMI_TGT};0] flt", _WMI_SRC, name) is False
+
+
+def test_the_expected_inventory_is_exact_dns() -> None:
+    expected = cast(Callable[[dict[str, Any]], dict[str, list[str]]],
+                    _FINALIZER["expected_inventory"])(_FIXTURE)
+    created = _result()["created"]
+    for key in ("ous", "groups", "wmi_filters"):
+        assert expected[key] == created[key], key
 
 
 def test_a_wmi_reference_naming_the_target_filter_fails_the_bridge(tmp_path: Path) -> None:
@@ -1041,3 +1171,52 @@ def test_the_driver_parses_under_bash() -> None:
     if completed.returncode != 0 and not completed.stderr:  # pragma: no cover - WSL stub
         pytest.skip("bash here cannot syntax-check a file")
     assert completed.returncode == 0, completed.stderr
+
+
+# ---------------------------------------------------------------------------
+# Re-review P1: intent is not ownership
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "create",
+    [
+        "New-ADOrganizationalUnit -Name $prefix -Path $domainDn",
+        "New-ADOrganizationalUnit -Name $child -Path $parentDn",
+        "New-ADGroup -Name $groupName",
+    ],
+)
+def test_every_directory_create_sets_the_run_marker_in_the_same_call(create: str) -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    call = guest[guest.index(create):]
+    call = call[: call.index("-ErrorAction Stop")]
+    assert "-Description $marker" in call, create
+
+
+def test_the_wmi_filter_create_carries_the_run_marker() -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    call = guest[guest.index("New-ADObject -Name $filterId"):]
+    call = call[: call.index("-ErrorAction Stop")]
+    assert "'msWMI-Parm1'        = $marker" in call
+
+
+def test_directory_deletes_are_gated_on_the_marker_and_gpo_deletes_on_ownership() -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    cleanup = guest[guest.index("} finally {"):]
+    first_ad_delete = min(
+        cleanup.index(c)
+        for c in ("Remove-ADObject", "Remove-ADGroup", "Remove-ADOrganizationalUnit")
+    )
+    assert cleanup.rindex("Get-AdOwnership", 0, first_ad_delete) < first_ad_delete
+    assert "} elseif ($ownership -eq 'ours') {" in cleanup
+    remove_gpo = cleanup.index("Remove-GPO -Guid")
+    assert cleanup.rindex("if (-not $gpo.owned) { continue }", 0, remove_gpo) < remove_gpo
+    # The name lookup no longer adopts an id: a found name is reported only.
+    assert "$gpo.id = ([string]$found.Id)" not in cleanup
+
+
+def test_ownership_is_recorded_only_from_a_returned_object() -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    assert guest.count(".owned = $true") == 4
+    for line in (ln for ln in guest.splitlines() if ".owned = $true" in ln):
+        assert line.strip().startswith(("$entry.owned", "$controlEntry.owned")), line

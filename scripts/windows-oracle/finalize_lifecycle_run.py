@@ -160,6 +160,10 @@ FIXTURE_KEYS = frozenset(
         "source_wmi_filter_name",
         "target_wmi_filter_name",
         "import_as_new_name",
+        "source_group_name",
+        "target_group_name",
+        "domain_dn",
+        "ownership_marker",
     }
 )
 OPERATION_KEYS = frozenset(
@@ -173,6 +177,19 @@ _SID = re.compile(r"^S-1-\d+(?:-\d+)+$")
 _PERMISSION = re.compile(r"^S-1-\d+(?:-\d+)+\|Gpo[A-Za-z]+\|(?:True|False)$")
 _WQL = re.compile(rf"^\[[^;\]]+;(\{{{_HEX_GUID}\}});\d+\]$")
 _RUN_ID = re.compile(r"^lifecycle-\d{14}-\d{4}$")
+_STAMP = re.compile(r"^\d{14}-\d{4}$")
+_GROUP_NAME = re.compile(r"^zzlc-(\d{6})-(src|tgt)$")
+_NIL_GUID = "00000000-0000-0000-0000-000000000000"
+_WMI_CONTAINER = "CN=SOM,CN=WMIPolicy,CN=System,"
+#: The GPO display-name suffix the guest generates for each inventory role.
+GPO_NAME_SUFFIX = {
+    "control": "control",
+    "source": "source",
+    "target": "target",
+    "copy": "copy",
+    "copy_with_acl": "copy_with_acl",
+    "import_as_new": "imported",
+}
 
 Value = str | frozenset[str]
 
@@ -217,8 +234,8 @@ def validate_state(raw: object, label: str) -> Mapping[str, Any]:
         _strings(state[key], f"{label}.{key}")
     if not isinstance(state["gpo_cmt_present"], bool):
         raise ValueError(f"{label}.gpo_cmt_present is not a boolean")
-    if not _BARE_GUID.match(state["gpo_id"]):
-        raise ValueError(f"{label}.gpo_id {state['gpo_id']!r} is not a GUID")
+    if not _BARE_GUID.match(state["gpo_id"]) or _bare(state["gpo_id"]) == _NIL_GUID:
+        raise ValueError(f"{label}.gpo_id {state['gpo_id']!r} is not a GPO GUID")
     for entry in state["permissions"]:
         if not _PERMISSION.match(entry):
             raise ValueError(f"{label}.permissions entry {entry!r} is not SID|level|denied")
@@ -246,6 +263,18 @@ def validate_fixture(raw: object) -> Mapping[str, Any]:
     for key in ("source_wmi_filter_id", "target_wmi_filter_id"):
         if not _BRACED_GUID.match(fixture[key]):
             raise ValueError(f"fixture.{key} is not a braced GUID")
+    if not _STAMP.match(fixture["stamp"]):
+        raise ValueError("fixture.stamp is not the guest's yyyyMMddHHmmss-nnnn stamp")
+    source_group = _GROUP_NAME.match(fixture["source_group_name"])
+    target_group = _GROUP_NAME.match(fixture["target_group_name"])
+    if (
+        source_group is None
+        or target_group is None
+        or source_group.group(2) != "src"
+        or target_group.group(2) != "tgt"
+        or source_group.group(1) != target_group.group(1)
+    ):
+        raise ValueError("fixture group names are not the guest's zzlc-NNNNNN-src/tgt pair")
     return fixture
 
 
@@ -378,43 +407,83 @@ def _validate_expectation(expected: Mapping[str, Any]) -> None:
             raise ValueError(f"expectation {op} requires_target_absent is not a boolean")
 
 
+def expected_inventory(fixture: Mapping[str, Any]) -> dict[str, list[str]]:
+    """Every directory object the guest generates, by exact DN, from the fixture.
+
+    Re-review P2(b): counts, suffixes and substrings let a duplicated group DN,
+    unrelated groups under the run's OU, or filter DNs outside the WMI
+    container all pass. The inventory must equal this list exactly.
+    """
+    prefix = f"zz-studio-lifecycle-{fixture['stamp']}"
+    domain = fixture["domain_dn"]
+    parent = f"OU={prefix},{domain}"
+    return {
+        "ous": [parent, f"OU=src-link,{parent}", f"OU=tgt-link,{parent}"],
+        "groups": [
+            f"CN={fixture['source_group_name']},{parent}",
+            f"CN={fixture['target_group_name']},{parent}",
+        ],
+        "wmi_filters": [
+            f"CN={fixture['source_wmi_filter_id']},{_WMI_CONTAINER}{domain}",
+            f"CN={fixture['target_wmi_filter_id']},{_WMI_CONTAINER}{domain}",
+        ],
+    }
+
+
+def _fixture_names_are_generated(fixture: Mapping[str, Any]) -> bool:
+    """The fixture's own DNs and names are the ones the guest's stamp generates."""
+    prefix = f"zz-studio-lifecycle-{fixture['stamp']}"
+    ous = expected_inventory(fixture)["ous"]
+    return (
+        [fixture["ou_parent_dn"], fixture["ou_source_dn"], fixture["ou_target_dn"]] == ous
+        and fixture["source_wmi_filter_name"] == f"{prefix}-src-wmi"
+        and fixture["target_wmi_filter_name"] == f"{prefix}-tgt-wmi"
+        and fixture["import_as_new_name"] == f"{prefix}-{GPO_NAME_SUFFIX['import_as_new']}"
+        and _bare(fixture["source_wmi_filter_id"]) != _bare(fixture["target_wmi_filter_id"])
+    )
+
+
 def _inventory_complete(
     created: object,
     fixture: Mapping[str, Any],
     ids_by_role: Mapping[str, str],
 ) -> bool:
-    """Did the guest record every object it created, under the ids it read back?
+    """Did the guest record exactly the objects it created, under the ids it read back?
 
-    Review finding 6: empty inventories alongside successful operations meant
-    the residual re-query had nothing to look for, and passed.
+    Review finding 6 and re-review P2(b): every DN and GPO name must be the
+    exact one the run generated, each GPO must be owned (its create returned
+    it), and its id must be the one read back.
     """
     inventory = _mapping(created, frozenset({"ous", "groups", "wmi_filters", "gpos"}), "created")
-    ous = _strings(inventory["ous"], "created.ous")
-    groups = _strings(inventory["groups"], "created.groups")
-    filters = _strings(inventory["wmi_filters"], "created.wmi_filters")
+    expected = expected_inventory(fixture)
+    for key in ("ous", "groups", "wmi_filters"):
+        recorded = _strings(inventory[key], f"created.{key}")
+        if [dn.casefold() for dn in recorded] != [dn.casefold() for dn in expected[key]]:
+            return False
     gpos = inventory["gpos"]
     if not isinstance(gpos, list):
         raise ValueError("created.gpos is not a list")
     entries = [
-        _mapping(entry, frozenset({"role", "name", "id"}), "created.gpos[]") for entry in gpos
+        _mapping(entry, frozenset({"role", "name", "id", "owned"}), "created.gpos[]")
+        for entry in gpos
     ]
     roles = [entry["role"] for entry in entries]
+    if sorted(roles) != sorted(INVENTORY_ROLES):
+        return False
+    prefix = f"zz-studio-lifecycle-{fixture['stamp']}"
     by_role = {entry["role"]: entry for entry in entries}
     ids = [entry["id"] for entry in entries]
-    parent = fixture["ou_parent_dn"].casefold()
     return (
-        [dn.casefold() for dn in ous]
-        == [parent, fixture["ou_source_dn"].casefold(), fixture["ou_target_dn"].casefold()]
-        and len(groups) == 2
-        and all(dn.casefold().endswith("," + parent) for dn in groups)
-        and len(filters) == 2
-        and _bare(fixture["source_wmi_filter_id"]) in filters[0].casefold()
-        and _bare(fixture["target_wmi_filter_id"]) in filters[1].casefold()
-        and sorted(roles) == sorted(INVENTORY_ROLES)
-        and all(isinstance(entry["name"], str) and entry["name"] for entry in entries)
-        and all(isinstance(i, str) and _BARE_GUID.match(i) for i in ids)
+        all(entry["owned"] is True for entry in entries)
+        and all(
+            by_role[role]["name"] == f"{prefix}-{suffix}"
+            for role, suffix in GPO_NAME_SUFFIX.items()
+        )
+        and all(
+            isinstance(i, str) and bool(_BARE_GUID.match(i)) and _bare(i) != _NIL_GUID
+            for i in ids
+        )
         and len({_bare(i) for i in ids}) == len(ids)
-        and by_role["import_as_new"]["name"] == fixture["import_as_new_name"]
         and all(
             _bare(by_role[role]["id"]) == _bare(gpo_id) for role, gpo_id in ids_by_role.items()
         )
@@ -448,7 +517,12 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
     lane: dict[str, bool] = {
         "source_authored_as_specified": _authored(source, fixture, "source"),
         "target_authored_as_specified": _authored(target, fixture, "target"),
-        "restore_perturbation_landed": _authored(perturbed, fixture, "perturbed"),
+        # Re-review P2(c): the perturbed object must BE the source being
+        # restored, not some other GPO in the perturbed shape.
+        "restore_perturbation_landed": _authored(perturbed, fixture, "perturbed")
+        and _bare(perturbed["gpo_id"]) == _bare(source["gpo_id"])
+        and _bare(perturbed["gpo_id"]) != _bare(target["gpo_id"]),
+        "fixture_names_are_generated": _fixture_names_are_generated(fixture),
         "control_is_an_untouched_new_gpo": _untouched_new_gpo(control),
         "backup_names_the_source": _bare(_text(backup, "source_gpo_id", "backup"))
         == _bare(source["gpo_id"])
@@ -544,6 +618,24 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
     return lane, claims, comparison
 
 
+def wmi_reference_identifies(reference: str, filter_id: str, filter_name: str) -> bool:
+    """Does a backup's WMIFilter text identify exactly this filter?
+
+    Re-review P2(a): containment let ``<name>-other-filter`` and a wrong GUID
+    beside the right name both pass. Only three exact shapes are accepted --
+    the gPCWQLFilter form ``[domain;{id};n]`` with exactly this id, the bare
+    braced id, or exactly this name -- because the populated shape has never
+    been captured; this lane's verdict records which one Windows writes.
+    """
+    text = reference.strip()
+    match = _WQL.match(text)
+    if match is not None:
+        return _bare(match.group(1)) == _bare(filter_id)
+    if _BRACED_GUID.match(text):
+        return _bare(text) == _bare(filter_id)
+    return text == filter_name
+
+
 def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
     """Does ``manifest_from_backup(read_backup(...))`` read the real backup right?
 
@@ -562,12 +654,11 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
         manifest = manifest_from_backup(read_backup(run / relative))
     except (BackupError, ValidationError, OSError, KeyError, ValueError) as exc:
         return False, {"error": f"{type(exc).__name__}: {exc}"}
-    reference = manifest.wmi_filter_reference.casefold()
-
-    def names(prefix: str) -> bool:
-        return (
-            _bare(fixture[f"{prefix}_wmi_filter_id"]) in reference
-            or fixture[f"{prefix}_wmi_filter_name"].casefold() in reference
+    def identifies(prefix: str) -> bool:
+        return wmi_reference_identifies(
+            manifest.wmi_filter_reference,
+            fixture[f"{prefix}_wmi_filter_id"],
+            fixture[f"{prefix}_wmi_filter_name"],
         )
 
     data = {
@@ -579,8 +670,8 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
         # The populated Backup.xml WMIFilter shape: never captured before
         # this lane, recorded so the bridge can stop keeping it verbatim.
         "wmi_filter_reference": manifest.wmi_filter_reference,
-        "wmi_reference_names_source_filter": names("source"),
-        "wmi_reference_names_target_filter": names("target"),
+        "wmi_reference_names_source_filter": identifies("source"),
+        "wmi_reference_names_target_filter": identifies("target"),
         "files": [f.relative_path for f in manifest.files],
     }
     ok = (
