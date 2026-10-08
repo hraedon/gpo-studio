@@ -73,3 +73,7 @@ docs/plan-033/wi062-cleanup/** -text -whitespace
 docs/plan-033/*-evidence/plan034-20261008/** -text -whitespace
 docs/plan-033/*-evidence/plan034-rerun-20261008/** -text -whitespace
 docs/plan-033/plan034-cleanup/** -text -whitespace
+
+# Workspace written by the released 1.0.0 application; provenance.json banks the
+# SHA-256 of every file beside it, so no checkout may normalize them.
+tests/fixtures/release-1.0.0-workspace/** -text

@@ -51,7 +51,7 @@ python -m venv .venv
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install gpo_studio-1.0.0-py3-none-any.whl
+.venv/bin/pip install gpo_studio-<version>-py3-none-any.whl
 .venv/bin/gpo-studio run
 ```
 
@@ -320,6 +320,11 @@ release:
 ```bash
 uv sync --extra dev
 ```
+
+You also see this error if you reinstall an older release after a newer one
+has opened (and so upgraded) the workspace. There is no downgrade migration:
+to go back, restore the backup you made before the upgrade. See
+[upgrading and rolling back](workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change).
 
 ```text
 WorkspaceError: Workspace schema version N is too old. Minimum supported

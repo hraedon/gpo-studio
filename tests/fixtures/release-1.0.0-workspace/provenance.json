@@ -1,0 +1,632 @@
+{
+  "baseline": {
+    "gpos": {
+      "5f418667-b635-480b-b56d-1b05b4358d70": {
+        "detail": {
+          "artifact_capabilities": {
+            "gpmc_export": {
+              "enabled": true,
+              "format": "zip",
+              "reason": ""
+            },
+            "policy_report": {
+              "enabled": true,
+              "format": "text"
+            },
+            "powershell_plan": {
+              "enabled": true,
+              "format": "text"
+            },
+            "preserved_content": {
+              "file_count": 0,
+              "present": false
+            },
+            "studio_export": {
+              "enabled": true,
+              "format": "zip"
+            }
+          },
+          "gpo": {
+            "computer_enabled": true,
+            "created_at": "2026-10-08T09:00:48+00:00",
+            "cse_metadata": [],
+            "description": "Synthetic workspace written by the released application",
+            "domain": "studio.local",
+            "gpp_collections": [],
+            "guid": "5f418667-b635-480b-b56d-1b05b4358d70",
+            "links": [
+              {
+                "enabled": true,
+                "enforced": true,
+                "id": "6ac18d0e-4cde-4174-8a35-a8028d8732d4",
+                "order": 1,
+                "target": "OU=Workstations,DC=studio,DC=local"
+              }
+            ],
+            "name": "Release Fixture Registry Baseline",
+            "revision": 15,
+            "security_filters": [
+              {
+                "id": "163f6e2a-f626-4bf1-992b-8e7893ff22f2",
+                "inheritable": true,
+                "permission": "apply",
+                "principal": "STUDIO\\FixtureWorkstations",
+                "sid": "S-1-5-21-1000000001-1000000002-1000000003-1104",
+                "target_type": "group"
+              }
+            ],
+            "settings": [
+              {
+                "action": "set",
+                "comment": "",
+                "hive": "HKLM",
+                "id": "f615da6f-2d44-4968-bab5-8d41f3fe00c1",
+                "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+                "registry_type": "REG_SZ",
+                "side": "computer",
+                "value": "Synthetic banner",
+                "value_name": "Banner"
+              },
+              {
+                "action": "set",
+                "comment": "",
+                "hive": "HKLM",
+                "id": "a8ee755b-cb33-46e7-aaab-a6818be7dbac",
+                "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+                "registry_type": "REG_EXPAND_SZ",
+                "side": "computer",
+                "value": "%SystemRoot%\\Studio",
+                "value_name": "Path"
+              },
+              {
+                "action": "set",
+                "comment": "",
+                "hive": "HKLM",
+                "id": "b97eea76-2883-4abb-b530-ef24d892e6f2",
+                "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+                "registry_type": "REG_QWORD",
+                "side": "computer",
+                "value": "18446744073709551615",
+                "value_name": "Quota"
+              },
+              {
+                "action": "delete",
+                "comment": "",
+                "hive": "HKLM",
+                "id": "054f8f36-bd38-4482-a387-7adf1c61dd7f",
+                "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+                "registry_type": "REG_SZ",
+                "side": "computer",
+                "value": "",
+                "value_name": "Retired"
+              },
+              {
+                "action": "set",
+                "comment": "",
+                "hive": "HKLM",
+                "id": "3e0237ec-d9c6-48df-9c11-0f6d27bac931",
+                "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+                "registry_type": "REG_MULTI_SZ",
+                "side": "computer",
+                "value": [
+                  "alpha",
+                  "beta"
+                ],
+                "value_name": "Servers"
+              },
+              {
+                "action": "set",
+                "comment": "",
+                "hive": "HKLM",
+                "id": "d5a92172-91d1-4f67-92c5-cbd516d6f215",
+                "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+                "registry_type": "REG_DWORD",
+                "side": "computer",
+                "value": "1800",
+                "value_name": "Timeout"
+              },
+              {
+                "action": "set",
+                "comment": "",
+                "hive": "HKCU",
+                "id": "005dbe00-15dc-4d28-a808-2444c01cd343",
+                "key": "Software\\Policies\\StudioFixture\\Release",
+                "registry_type": "REG_SZ",
+                "side": "user",
+                "value": "Grüße, 世界",
+                "value_name": "Greeting"
+              }
+            ],
+            "source_guid": "",
+            "status": "ready",
+            "updated_at": "2026-10-08T09:00:48+00:00",
+            "user_enabled": true,
+            "wmi_filter": {
+              "description": "",
+              "id": "c662d55e-d5d6-4234-a398-37153af3ed90",
+              "language": "WQL",
+              "name": "Fixture Windows 11",
+              "query": "SELECT * FROM Win32_OperatingSystem WHERE BuildNumber >= 22000"
+            }
+          },
+          "policy_semantic_sha256": "b70fc35863a355fd939c1a81bc6916519949ea27a5d94fe3b9c59a1cd061c346",
+          "review_model_sha256": "a6000261d0ab6750eb94a136cd2ad8d4b58a40f2c9735e93b4a69dd52cb55eb7",
+          "validation": []
+        },
+        "export_registry_pol_base64": {
+          "Machine/Registry.pol": "UFJlZwEAAABbAFMATwBGAFQAVwBBAFIARQBcAFAAbwBsAGkAYwBpAGUAcwBcAFMAdAB1AGQAaQBvAEYAaQB4AHQAdQByAGUAXABSAGUAbABlAGEAcwBlAAAAOwBCAGEAbgBuAGUAcgAAADsAAQAAADsAIgAAADsAUwB5AG4AdABoAGUAdABpAGMAIABiAGEAbgBuAGUAcgAAAF0AWwBTAE8ARgBUAFcAQQBSAEUAXABQAG8AbABpAGMAaQBlAHMAXABTAHQAdQBkAGkAbwBGAGkAeAB0AHUAcgBlAFwAUgBlAGwAZQBhAHMAZQAAADsAUABhAHQAaAAAADsAAgAAADsAKAAAADsAJQBTAHkAcwB0AGUAbQBSAG8AbwB0ACUAXABTAHQAdQBkAGkAbwAAAF0AWwBTAE8ARgBUAFcAQQBSAEUAXABQAG8AbABpAGMAaQBlAHMAXABTAHQAdQBkAGkAbwBGAGkAeAB0AHUAcgBlAFwAUgBlAGwAZQBhAHMAZQAAADsAUQB1AG8AdABhAAAAOwALAAAAOwAIAAAAOwD//////////10AWwBTAE8ARgBUAFcAQQBSAEUAXABQAG8AbABpAGMAaQBlAHMAXABTAHQAdQBkAGkAbwBGAGkAeAB0AHUAcgBlAFwAUgBlAGwAZQBhAHMAZQAAADsAKgAqAGQAZQBsAC4AUgBlAHQAaQByAGUAZAAAADsAAQAAADsAAgAAADsAAABdAFsAUwBPAEYAVABXAEEAUgBFAFwAUABvAGwAaQBjAGkAZQBzAFwAUwB0AHUAZABpAG8ARgBpAHgAdAB1AHIAZQBcAFIAZQBsAGUAYQBzAGUAAAA7AFMAZQByAHYAZQByAHMAAAA7AAcAAAA7ABgAAAA7AGEAbABwAGgAYQAAAGIAZQB0AGEAAAAAAF0AWwBTAE8ARgBUAFcAQQBSAEUAXABQAG8AbABpAGMAaQBlAHMAXABTAHQAdQBkAGkAbwBGAGkAeAB0AHUAcgBlAFwAUgBlAGwAZQBhAHMAZQAAADsAVABpAG0AZQBvAHUAdAAAADsABAAAADsABAAAADsACAcAAF0A",
+          "User/Registry.pol": "UFJlZwEAAABbAFMAbwBmAHQAdwBhAHIAZQBcAFAAbwBsAGkAYwBpAGUAcwBcAFMAdAB1AGQAaQBvAEYAaQB4AHQAdQByAGUAXABSAGUAbABlAGEAcwBlAAAAOwBHAHIAZQBlAHQAaQBuAGcAAAA7AAEAAAA7ABQAAAA7AEcAcgD8AN8AZQAsACAAFk5MdQAAXQA="
+        },
+        "revisions": {
+          "items": [
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Mark ready",
+              "revision": 15
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Attach a synthetic WMI filter",
+              "revision": 14
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Filter to a synthetic group",
+              "revision": 13
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Link to a synthetic OU",
+              "revision": 12
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Remove the binary value",
+              "revision": 11
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Edit the DWORD",
+              "revision": 10
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add a delete action",
+              "revision": 9
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add Unicode value",
+              "revision": 8
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add REG_EXPAND_SZ",
+              "revision": 7
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add REG_BINARY",
+              "revision": 6
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add REG_MULTI_SZ",
+              "revision": 5
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add REG_QWORD at its maximum",
+              "revision": 4
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add REG_DWORD",
+              "revision": 3
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add REG_SZ",
+              "revision": 2
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Create the release fixture baseline",
+              "revision": 1
+            }
+          ]
+        }
+      },
+      "cdc7af00-9136-43c3-8942-e478b4d9e903": {
+        "detail": {
+          "artifact_capabilities": {
+            "gpmc_export": {
+              "enabled": true,
+              "format": "zip",
+              "reason": ""
+            },
+            "policy_report": {
+              "enabled": true,
+              "format": "text"
+            },
+            "powershell_plan": {
+              "enabled": true,
+              "format": "text"
+            },
+            "preserved_content": {
+              "file_count": 0,
+              "present": false
+            },
+            "studio_export": {
+              "enabled": true,
+              "format": "zip"
+            }
+          },
+          "gpo": {
+            "computer_enabled": true,
+            "created_at": "2026-10-08T09:00:48+00:00",
+            "cse_metadata": [],
+            "description": "",
+            "domain": "studio.local",
+            "gpp_collections": [
+              {
+                "groups": [
+                  {
+                    "action": "update",
+                    "description": "",
+                    "id": "dc426d28-2b77-4e4b-b0fc-e3af1c2ac725",
+                    "ilt_filter": null,
+                    "members": [
+                      {
+                        "action": "add",
+                        "id": "9f688dc4-a47b-4a8d-ac94-5cc886c52ff7",
+                        "name": "STUDIO\\FixtureAdmins",
+                        "sid": "S-1-5-21-1000000001-1000000002-1000000003-1105",
+                        "unknown_attrs": []
+                      }
+                    ],
+                    "name": "Administrators (built-in)",
+                    "remove_all_groups": false,
+                    "remove_all_users": false,
+                    "sid": "S-1-5-32-544",
+                    "unknown_attrs": [],
+                    "unknown_children": [],
+                    "unknown_props_attrs": []
+                  }
+                ],
+                "groups_unknown_attrs": [],
+                "groups_unknown_children": [],
+                "registry": [
+                  {
+                    "action": "update",
+                    "hive": "HKEY_LOCAL_MACHINE",
+                    "id": "0c34659b-da70-4419-a1bf-5ee8124c8ce7",
+                    "ilt_filter": null,
+                    "key": "SOFTWARE\\StudioFixture\\Preferences",
+                    "uid": "0c12c469-4bc3-5293-9e7c-ee73dcbd5ae5",
+                    "unknown_attrs": [],
+                    "unknown_children": [],
+                    "value": {
+                      "action": "update",
+                      "default": false,
+                      "id": "4fb2a55d-0e3f-49e9-bdac-c2e50c628ec3",
+                      "name": "Mode",
+                      "registry_type": "REG_DWORD",
+                      "unknown_attrs": [],
+                      "value": "2"
+                    }
+                  }
+                ],
+                "registry_unknown_attrs": [],
+                "registry_unknown_children": [],
+                "scope": "computer"
+              }
+            ],
+            "guid": "cdc7af00-9136-43c3-8942-e478b4d9e903",
+            "links": [],
+            "name": "Release Fixture Preferences",
+            "revision": 4,
+            "security_filters": [],
+            "settings": [],
+            "source_guid": "",
+            "status": "draft",
+            "updated_at": "2026-10-08T09:00:48+00:00",
+            "user_enabled": false,
+            "wmi_filter": null
+          },
+          "policy_semantic_sha256": "73d58ff7856b98e05e316b98219d171dcb420b89f2884edf44d1fdde408eb8bb",
+          "review_model_sha256": "5633b6e0ce7b46c76a5fe580965414de0e848165bfeec8c38713fc08077862fb",
+          "validation": []
+        },
+        "export_registry_pol_base64": {
+          "Machine/Registry.pol": "UFJlZwEAAAA=",
+          "User/Registry.pol": "UFJlZwEAAAA="
+        },
+        "revisions": {
+          "items": [
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Disable the user side",
+              "revision": 4
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add a GPP registry value",
+              "revision": 3
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Add a GPP local group",
+              "revision": 2
+            },
+            {
+              "actor": "release-fixture",
+              "created_at": "2026-10-08T09:00:48+00:00",
+              "reason": "Create the preferences fixture",
+              "revision": 1
+            }
+          ]
+        }
+      }
+    },
+    "list": {
+      "count": 2,
+      "items": [
+        {
+          "computer_enabled": true,
+          "created_at": "2026-10-08T09:00:48+00:00",
+          "cse_metadata": [],
+          "description": "",
+          "domain": "studio.local",
+          "gpp_collections": [
+            {
+              "groups": [
+                {
+                  "action": "update",
+                  "description": "",
+                  "id": "dc426d28-2b77-4e4b-b0fc-e3af1c2ac725",
+                  "ilt_filter": null,
+                  "members": [
+                    {
+                      "action": "add",
+                      "id": "9f688dc4-a47b-4a8d-ac94-5cc886c52ff7",
+                      "name": "STUDIO\\FixtureAdmins",
+                      "sid": "S-1-5-21-1000000001-1000000002-1000000003-1105",
+                      "unknown_attrs": []
+                    }
+                  ],
+                  "name": "Administrators (built-in)",
+                  "remove_all_groups": false,
+                  "remove_all_users": false,
+                  "sid": "S-1-5-32-544",
+                  "unknown_attrs": [],
+                  "unknown_children": [],
+                  "unknown_props_attrs": []
+                }
+              ],
+              "groups_unknown_attrs": [],
+              "groups_unknown_children": [],
+              "registry": [
+                {
+                  "action": "update",
+                  "hive": "HKEY_LOCAL_MACHINE",
+                  "id": "0c34659b-da70-4419-a1bf-5ee8124c8ce7",
+                  "ilt_filter": null,
+                  "key": "SOFTWARE\\StudioFixture\\Preferences",
+                  "uid": "0c12c469-4bc3-5293-9e7c-ee73dcbd5ae5",
+                  "unknown_attrs": [],
+                  "unknown_children": [],
+                  "value": {
+                    "action": "update",
+                    "default": false,
+                    "id": "4fb2a55d-0e3f-49e9-bdac-c2e50c628ec3",
+                    "name": "Mode",
+                    "registry_type": "REG_DWORD",
+                    "unknown_attrs": [],
+                    "value": "2"
+                  }
+                }
+              ],
+              "registry_unknown_attrs": [],
+              "registry_unknown_children": [],
+              "scope": "computer"
+            }
+          ],
+          "guid": "cdc7af00-9136-43c3-8942-e478b4d9e903",
+          "links": [],
+          "name": "Release Fixture Preferences",
+          "revision": 4,
+          "security_filters": [],
+          "settings": [],
+          "source_guid": "",
+          "status": "draft",
+          "updated_at": "2026-10-08T09:00:48+00:00",
+          "user_enabled": false,
+          "wmi_filter": null
+        },
+        {
+          "computer_enabled": true,
+          "created_at": "2026-10-08T09:00:48+00:00",
+          "cse_metadata": [],
+          "description": "Synthetic workspace written by the released application",
+          "domain": "studio.local",
+          "gpp_collections": [],
+          "guid": "5f418667-b635-480b-b56d-1b05b4358d70",
+          "links": [
+            {
+              "enabled": true,
+              "enforced": true,
+              "id": "6ac18d0e-4cde-4174-8a35-a8028d8732d4",
+              "order": 1,
+              "target": "OU=Workstations,DC=studio,DC=local"
+            }
+          ],
+          "name": "Release Fixture Registry Baseline",
+          "revision": 15,
+          "security_filters": [
+            {
+              "id": "163f6e2a-f626-4bf1-992b-8e7893ff22f2",
+              "inheritable": true,
+              "permission": "apply",
+              "principal": "STUDIO\\FixtureWorkstations",
+              "sid": "S-1-5-21-1000000001-1000000002-1000000003-1104",
+              "target_type": "group"
+            }
+          ],
+          "settings": [
+            {
+              "action": "set",
+              "comment": "",
+              "hive": "HKLM",
+              "id": "f615da6f-2d44-4968-bab5-8d41f3fe00c1",
+              "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+              "registry_type": "REG_SZ",
+              "side": "computer",
+              "value": "Synthetic banner",
+              "value_name": "Banner"
+            },
+            {
+              "action": "set",
+              "comment": "",
+              "hive": "HKLM",
+              "id": "a8ee755b-cb33-46e7-aaab-a6818be7dbac",
+              "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+              "registry_type": "REG_EXPAND_SZ",
+              "side": "computer",
+              "value": "%SystemRoot%\\Studio",
+              "value_name": "Path"
+            },
+            {
+              "action": "set",
+              "comment": "",
+              "hive": "HKLM",
+              "id": "b97eea76-2883-4abb-b530-ef24d892e6f2",
+              "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+              "registry_type": "REG_QWORD",
+              "side": "computer",
+              "value": "18446744073709551615",
+              "value_name": "Quota"
+            },
+            {
+              "action": "delete",
+              "comment": "",
+              "hive": "HKLM",
+              "id": "054f8f36-bd38-4482-a387-7adf1c61dd7f",
+              "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+              "registry_type": "REG_SZ",
+              "side": "computer",
+              "value": "",
+              "value_name": "Retired"
+            },
+            {
+              "action": "set",
+              "comment": "",
+              "hive": "HKLM",
+              "id": "3e0237ec-d9c6-48df-9c11-0f6d27bac931",
+              "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+              "registry_type": "REG_MULTI_SZ",
+              "side": "computer",
+              "value": [
+                "alpha",
+                "beta"
+              ],
+              "value_name": "Servers"
+            },
+            {
+              "action": "set",
+              "comment": "",
+              "hive": "HKLM",
+              "id": "d5a92172-91d1-4f67-92c5-cbd516d6f215",
+              "key": "SOFTWARE\\Policies\\StudioFixture\\Release",
+              "registry_type": "REG_DWORD",
+              "side": "computer",
+              "value": "1800",
+              "value_name": "Timeout"
+            },
+            {
+              "action": "set",
+              "comment": "",
+              "hive": "HKCU",
+              "id": "005dbe00-15dc-4d28-a808-2444c01cd343",
+              "key": "Software\\Policies\\StudioFixture\\Release",
+              "registry_type": "REG_SZ",
+              "side": "user",
+              "value": "Grüße, 世界",
+              "value_name": "Greeting"
+            }
+          ],
+          "source_guid": "",
+          "status": "ready",
+          "updated_at": "2026-10-08T09:00:48+00:00",
+          "user_enabled": true,
+          "wmi_filter": {
+            "description": "",
+            "id": "c662d55e-d5d6-4234-a398-37153af3ed90",
+            "language": "WQL",
+            "name": "Fixture Windows 11",
+            "query": "SELECT * FROM Win32_OperatingSystem WHERE BuildNumber >= 22000"
+          }
+        }
+      ]
+    }
+  },
+  "description": "Synthetic workspace written by the released application through its own HTTP API. Generated by scripts/generate_release_workspace_fixture.py.",
+  "files": {
+    "pre-upgrade-backup.db": "380dbf5e06dd1827af0dcd715d674034f675c87d9ca79c8924ffee2d72fcc3dd",
+    "pre-upgrade-backup.db.meta.json": "19f58378b9801e08e9a8ef69bbc489dadf68a0f36415a3a9c41736d51e98f83a",
+    "workspace.db": "efba4391531bf5fee18e3909b5d9df65265af32c003906710064ebf245ff3b08"
+  },
+  "rollback_observations": {
+    "legacy_restore_of_pre_upgrade_backup": {
+      "exit_code": 0,
+      "served_baseline_again": true
+    },
+    "legacy_restore_of_upgraded_backup": {
+      "argv": [
+        "gpo-studio",
+        "workspace",
+        "restore",
+        "<tmp>/upgraded-backup.db",
+        "<tmp>/restored-from-upgraded.db"
+      ],
+      "exit_code": 1,
+      "schema_lines": [
+        "error: Backup schema version 4 is newer than this version of GPO Studio supports (1). Upgrade GPO Studio."
+      ]
+    },
+    "legacy_run_on_upgraded_workspace": {
+      "argv": [
+        "gpo-studio",
+        "run",
+        "--database",
+        "<tmp>/upgraded.db"
+      ],
+      "exit_code": 3,
+      "schema_lines": [
+        "gpo_studio.schema.SchemaError: Workspace schema version 4 is newer than this version of GPO Studio supports (1). Upgrade GPO Studio.",
+        "gpo_studio.model.WorkspaceError: Workspace schema version 4 is newer than this version of GPO Studio supports (1). Upgrade GPO Studio."
+      ]
+    }
+  },
+  "upgraded_by_tree_version": "1.0.0",
+  "upgraded_schema_version": 4,
+  "written_by_version": "1.0.0"
+}
