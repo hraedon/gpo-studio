@@ -2785,6 +2785,19 @@ The positive tests import a composite backup: the native Scripts rebackup with R
 files added. Windows never wrote that GPO, so the composite proves Studio's wiring, not
 anything about Windows. No lane reads this artifact.
 
+**Update, 2026-10-08: the stored form no longer grows per revision (review finding N1).**
+The `asdict` form above put `raw_text` and every derived view into each revision's
+snapshot, which is WI-061's O(revisions x document) growth again. The store now reduces
+the document at its write boundary to the native file bytes (BOM plus `raw_text` in
+UTF-16LE), files them in `retained_documents` under WI-061's rule (SHA-256 of the exact
+native bytes, so the digest equals `native_digest()` and the inventory row for
+`fdeploy1.ini`), and leaves `{"native_digest": ...}` in the snapshot. The read boundary
+checks the bytes against the digest, re-parses them and writes the full `asdict` form
+back, so GPOs and revision snapshots served through the API are unchanged. Snapshots
+written in the inline form read back as stored; no migration. Only
+`snapshot_documents.py` and `store.py` changed, which no verdict binds.
+`tests/test_fdeploy_snapshot_dedup.py` pins it.
+
 ## WI-069 — the estate repair the batch owes has no number and no plan
 
 **Opened:** 2026-09-11 (looking for the item that tracks the WI-062 blocker).
