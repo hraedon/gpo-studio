@@ -23,7 +23,10 @@
 # GPO_STUDIO_LANE_BUDGET_SECONDS). A lane that exceeds it has its whole process
 # tree killed -- acb, the runner, every pwsh beneath it, and the finalizer --
 # and is recorded with exit_status 124 and timed_out true; the batch moves on
-# to the next lane. Nothing is retried.
+# to the next lane. Whenever a lane ends -- on its own, with any status, or at
+# its budget -- anything it left running (detached or not) is killed before the
+# next lane starts, and the count is recorded as processes_killed. Nothing is
+# retried; a lane's own exit status is recorded as it was.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -125,74 +128,43 @@ for knob in GPO_STUDIO_LANE_BUDGET_SECONDS GPO_STUDIO_LANE_KILL_GRACE_SECONDS; d
         exit 2
     fi
 done
-# Seconds between SIGTERM and SIGKILL when a lane is out of budget.
+# Seconds between SIGTERM and SIGKILL when a lane ends with processes left.
 LANE_KILL_GRACE="${GPO_STUDIO_LANE_KILL_GRACE_SECONDS:-15}"
-# A lane that runs out of budget is recorded with this status (timeout(1)'s).
-TIMED_OUT_STATUS=124
-
-# Every process below $1, depth first. Collected BEFORE any signal is sent:
-# once a parent dies its children are re-parented and the walk loses them.
-descendants() {
-    local child
-    for child in $(pgrep -P "$1" 2>/dev/null); do
-        echo "$child"
-        descendants "$child"
-    done
-}
-
-# Kill a lane's whole tree: its process group (the lane runs as the leader of
-# a new session, so acb, bash, the runner, every pwsh and every child share
-# it) and, for anything that left the group with its own setsid, every
-# descendant found by walking the tree. TERM first, KILL after the grace.
-kill_lane() {
-    local leader=$1 pids pid _
-    pids="$(descendants "$leader")"
-    kill -TERM -- "-$leader" 2>/dev/null
-    for pid in $pids; do kill -TERM "$pid" 2>/dev/null; done
-    for _ in $(seq 1 "$LANE_KILL_GRACE"); do
-        local alive=0
-        kill -0 -- "-$leader" 2>/dev/null && alive=1
-        for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive=1; done
-        [[ $alive -eq 0 ]] && return 0
-        sleep 1
-    done
-    pids="$pids $(descendants "$leader")"
-    kill -KILL -- "-$leader" 2>/dev/null
-    for pid in $pids; do kill -KILL "$pid" 2>/dev/null; done
-    return 0
-}
+SUPERVISOR="$SCRIPT_DIR/lane-supervisor.py"
 
 # run_bounded <deadline-epoch> <log> <command...>
-# Run the command as a new session leader, appending to <log>. Returns its
-# status, or TIMED_OUT_STATUS after killing its whole tree at the deadline --
-# and then sets WATCHDOG_FIRED, because a lane may exit 124 on its own (a
-# psdirect deadline does) and that is a failure, not a watchdog kill.
+# Run the command under lane-supervisor.py: a new session, the log appended,
+# and -- whether the command exits by itself or the deadline passes -- every
+# process it started, detached or not, TERM'd, KILL'd after the grace, and
+# reaped before this returns. Returns the command's own status (124 when the
+# deadline killed it). Sets WATCHDOG_FIRED when the deadline did the killing
+# (a lane may exit 124 by itself; psdirect does on its own deadline) and adds
+# to PROCESSES_KILLED every process cleanup had to signal.
 run_bounded() {
-    local deadline=$1 log=$2 pid
+    local deadline=$1 log=$2 report status
     shift 2
-    if (( $(date +%s) >= deadline )); then
-        echo "=== watchdog: no budget left to start: $*" >>"$log"
-        WATCHDOG_FIRED=1
-        return "$TIMED_OUT_STATUS"
+    report="$(mktemp)"
+    python3 "$SUPERVISOR" --deadline "$deadline" --grace "$LANE_KILL_GRACE" \
+        --log "$log" --report "$report" -- "$@"
+    status=$?
+    if [[ ! -s "$report" ]]; then
+        # The supervisor itself failed: the lane may not even have started,
+        # and nothing vouches for its containment. Never a pass.
+        echo "=== watchdog: lane-supervisor.py failed (status $status)" >>"$log"
+        rm -f "$report"
+        [[ $status -eq 0 ]] && status=125
+        return "$status"
     fi
-    # No job control in this script, so the background child is not a group
-    # leader and setsid makes it one without forking: $! IS the new group.
-    setsid "$@" >>"$log" 2>&1 </dev/null &
-    pid=$!
-    while kill -0 "$pid" 2>/dev/null; do
-        if (( $(date +%s) >= deadline )); then
-            echo "=== watchdog: lane budget exhausted; killing process group $pid" >>"$log"
-            kill_lane "$pid"
-            wait "$pid" 2>/dev/null
-            WATCHDOG_FIRED=1
-            return "$TIMED_OUT_STATUS"
-        fi
-        sleep 1
-    done
-    wait "$pid"
+    read -r status sup_timed_out sup_killed < <(python3 -c '
+import json, sys
+r = json.load(open(sys.argv[1]))
+print(r["status"], int(r["timed_out"]), r["killed"])' "$report")
+    rm -f "$report"
+    [[ $sup_timed_out -eq 1 ]] && WATCHDOG_FIRED=1
+    PROCESSES_KILLED=$((PROCESSES_KILLED + sup_killed))
+    return "$status"
 }
 
-set +m
 for row in "${LANES[@]}"; do
     IFS='|' read -r name runner budget envs <<<"$row"
     selected "$name" || continue
@@ -212,6 +184,7 @@ for row in "${LANES[@]}"; do
     deadline=$(( $(date +%s) + budget ))
     : >"$log"
     WATCHDOG_FIRED=0
+    PROCESSES_KILLED=0
     set +e
     # shellcheck disable=SC2086 # the lane's KEY=VALUE pairs split on purpose
     # The lane's environment is set INSIDE the acb exec, so what the runner
@@ -239,15 +212,16 @@ for row in "${LANES[@]}"; do
     completed="$(date -u +%Y-%m-%dT%H:%M:%S.%6N+00:00)"
     run_dir="$(sed -n 's/^LOCAL_RUN_DIR=//p' "$log" | tail -1)"
     python3 - "$PROGRESS" "$name" "$runner" "$COMMIT" "$started" "$completed" "$status" "$run_dir" \
-        "$budget" "$timed_out" <<'PY'
+        "$budget" "$timed_out" "$PROCESSES_KILLED" <<'PY'
 import json, sys
-path, name, runner, commit, started, completed, status, run_dir, budget, timed_out = sys.argv[1:]
+path, name, runner, commit, started, completed, status, run_dir, budget, timed_out, strays = sys.argv[1:]
 with open(path, "a", encoding="utf-8") as fh:
     fh.write(json.dumps({
         "name": name, "runner": runner, "commit": commit,
         "started_utc": started, "completed_utc": completed,
         "exit_status": int(status), "local_run_dir": run_dir or None,
         "budget_seconds": int(budget), "timed_out": timed_out == "1",
+        "processes_killed": int(strays),
     }) + "\n")
 PY
     if [[ $timed_out -eq 1 ]]; then

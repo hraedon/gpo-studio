@@ -23,6 +23,7 @@ tests/fixtures/native-scripts-gpmc/*.txt text eol=lf
 # such an edit visible to `assert_bound_source_bytes` as worktree/HEAD drift.
 scripts/plan-033/build-*.py text eol=lf
 scripts/plan-033/*.sh       text eol=lf
+scripts/plan-033/lane-supervisor.py text eol=lf
 scripts/windows-oracle/**   text eol=lf
 src/gpo_studio/policy_families.py text eol=lf
 src/gpo_studio/security_template.py text eol=lf

@@ -86,7 +86,12 @@ def test_no_hung_job_is_stopped_or_removed_synchronously() -> None:
 
 def test_the_process_ends_through_environment_exit() -> None:
     """An abandoned job's thread must not be able to hold the process open."""
-    assert _code_lines()[-1].strip() == "[Environment]::Exit($exitCode)"
+    lines = [line.strip() for line in _code_lines()]
+    assert lines[-1] == "[Environment]::Exit($outcome.ExitCode)"
+    # Output is released once, after the outcome is decided, never before.
+    release = [i for i, line in enumerate(lines) if "$outcome.Output | Out-Default" in line]
+    decide = next(i for i, line in enumerate(lines) if line.startswith("$outcome = Complete-"))
+    assert len(release) == 1 and release[0] > decide
 
 
 def test_the_fault_hook_is_refused_without_its_environment_gate() -> None:
@@ -469,3 +474,289 @@ def test_the_backstop_exits_124_when_the_process_is_stuck(tmp_path: Path) -> Non
     assert completed.returncode == 124, completed.stderr
     assert "backstop fired" in completed.stderr
     assert time.monotonic() - started < 30
+
+
+# --- the whole script, end to end, over stand-in remoting cmdlets -----------
+#
+# Review P1 (Sol, 80d9bb9): a teardown that timed out was swallowed, the
+# success marker had already been produced, and the process exited 0. These
+# run the REAL script top to bottom -- parameter binding, Invoke-PsDirect,
+# teardown, the outcome decision, [Environment]::Exit -- with global functions
+# standing in for the remoting cmdlets (a function shadows a cmdlet of the
+# same name). Only the remoting is fake.
+
+_E2E_HARNESS = r"""
+param($Psdirect, $Work, $Scenario)
+$ErrorActionPreference = 'Stop'
+$env:HYPERV_CONTROL_USERNAME = 'LAB\control'
+$env:HYPERV_CONTROL_PASSWORD = 'not-a-secret'
+$env:GUEST_BOOTSTRAP_USERNAME = 'LAB\bootstrap'
+$env:GUEST_BOOTSTRAP_PASSWORD = 'not-a-secret'
+$global:Scenario = $Scenario
+
+# The evidence the "guest" packed: a zip holding one file.
+$source = Join-Path $Work 'evidence'
+New-Item -ItemType Directory -Path $source | Out-Null
+Set-Content -LiteralPath (Join-Path $source 'result.json') -Value '{"ok": true}'
+$global:Zip = Join-Path $Work 'packed.zip'
+Compress-Archive -Path (Join-Path $source '*') -DestinationPath $global:Zip
+
+function global:New-PSSession {
+    [CmdletBinding()] param($ComputerName, $Credential, $Authentication, $SessionOption)
+    [pscustomobject] @{ Name = 'stand-in' }
+}
+function global:Remove-PSSession { [CmdletBinding()] param([Parameter(Position = 0)] $Session) }
+function global:Remove-Job { [CmdletBinding()] param($Job, [switch] $Force) }
+function global:Invoke-Command {
+    [CmdletBinding()]
+    param($Session, [switch] $AsJob, [scriptblock] $ScriptBlock, [object[]] $ArgumentList)
+    $text = $ScriptBlock.ToString()
+    $job = [pscustomobject] @{
+        State = 'Completed'; Output = @(); Hang = $false; Fail = $null; ChildJobs = @()
+    }
+    if ($text -match 'Import-Module Hyper-V') {
+        $length = (Get-Item -LiteralPath $global:Zip).Length
+        $sha = (Get-FileHash -LiteralPath $global:Zip -Algorithm SHA256).Hash
+        $job.Output = @("SOURCE=$($global:Zip)", 'EXPECTED_FILES=1', "EXPECTED_LENGTH=$length",
+                        "EXPECTED_SHA256=$sha",
+        "EXPECTED_DIRS=$(if ($global:Scenario -eq 'dir-mismatch') { 3 } else { 0 })")
+    } elseif ($text -match 'pull read past end') {
+        $chunk = & $ScriptBlock @ArgumentList
+        $job.Output = @(, $chunk)
+    } elseif ($text -match 'LEFT=') {
+        if ($global:Scenario -eq 'teardown-timeout') { $job.Hang = $true }
+        if ($global:Scenario -eq 'teardown-error') {
+            $job.Fail = 'Access to the staging leaf is denied.'
+        }
+        $job.Output = @('REMOVED')
+    }
+    $job
+}
+function global:Wait-Job {
+    [CmdletBinding()] param($Job, $Timeout)
+    if ($Job.Hang) { return $null }
+    $Job
+}
+function global:Receive-Job {
+    [CmdletBinding()] param($Job)
+    if ($Job.Fail) { throw $Job.Fail }
+    foreach ($item in $Job.Output) { , $item }
+}
+
+$local = Join-Path $Work 'pulled'
+& $Psdirect -Action pull -LabHost 'host.example.invalid' -Guest 'Guest01' `
+    -RemotePath 'C:\gpo-studio\runs\x' -LocalPath $local
+"""
+
+
+def _run_e2e(tmp_path: Path, scenario: str) -> subprocess.CompletedProcess[str]:
+    if shutil.which("pwsh") is None:
+        pytest.skip("pwsh is not installed")
+    script = tmp_path / "e2e.ps1"
+    script.write_text(_E2E_HARNESS, encoding="utf-8")
+    return subprocess.run(
+        [
+            "pwsh", "-NoProfile", "-NonInteractive", "-File", str(script),
+            "-Psdirect", str(PSDIRECT), "-Work", str(tmp_path), "-Scenario", scenario,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def test_end_to_end_a_clean_pull_reports_success(tmp_path: Path) -> None:
+    """The stand-ins are faithful enough to pass a good run: the failures
+    below are the script's, not the harness's."""
+    completed = _run_e2e(tmp_path, "ok")
+    assert completed.returncode == 0, completed.stderr
+    assert f"PULLED={tmp_path / 'pulled'}" in completed.stdout
+    assert (tmp_path / "pulled" / "result.json").is_file()
+
+
+def test_end_to_end_a_teardown_timeout_exits_124_without_a_success_marker(
+    tmp_path: Path,
+) -> None:
+    completed = _run_e2e(tmp_path, "teardown-timeout")
+    assert completed.returncode == 124, completed.stdout + completed.stderr
+    assert "PULLED=" not in completed.stdout
+    assert "staging teardown" in completed.stderr
+
+
+def test_end_to_end_a_pull_missing_directories_fails(tmp_path: Path) -> None:
+    """The guest packed three directories the archive does not hold."""
+    completed = _run_e2e(tmp_path, "dir-mismatch")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert "PULLED=" not in completed.stdout
+    flat = re.sub(r"\s*\|?\s+", " ", re.sub(r"\x1b\[[0-9;]*m", "", completed.stderr))
+    assert "delivered 0 directories but the guest packed 3" in flat
+
+
+def test_end_to_end_a_teardown_error_fails_without_a_success_marker(tmp_path: Path) -> None:
+    completed = _run_e2e(tmp_path, "teardown-error")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert "PULLED=" not in completed.stdout
+    assert "Access to the staging leaf is denied." in completed.stderr
+
+
+# --- the outcome decision, and the guest's directory delivery ---------------
+
+_OUTCOME_HARNESS = r"""
+param($Psdirect, $Work)
+$ErrorActionPreference = 'Stop'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $Psdirect, [ref] $null, [ref] $null)
+$isFunction = { param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }
+foreach ($fn in $ast.FindAll($isFunction, $false)) { . ([scriptblock]::Create($fn.Extent.Text)) }
+foreach ($assignment in $ast.EndBlock.Statements) {
+    if ($assignment -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        "$($assignment.Left)" -match '^\$script:(MaxManifestChars)$') {
+        . ([scriptblock]::Create($assignment.Extent.Text))
+    }
+}
+$script:DeadlineSeconds = 600
+function Get-Error([object] $Exception) { try { throw $Exception } catch { $_ } }
+function Show([object] $o) {
+    [ordered] @{ exit = $o.ExitCode; output = @($o.Output); errors = @($o.Errors).Count }
+}
+
+$results = [ordered] @{}
+$script:DeadlineUtc = [DateTime]::UtcNow.AddSeconds(600)
+$results.success = Show (Complete-PsDirect -Output @('PUSHED=x') -PrimaryError $null `
+    -TeardownError $null)
+$results.teardownTimeout = Show (Complete-PsDirect -Output @('PUSHED=x') -PrimaryError $null `
+    -TeardownError (Get-Error (New-DeadlineError 'staging teardown')))
+$results.teardownError = Show (Complete-PsDirect -Output @('PUSHED=x') -PrimaryError $null `
+    -TeardownError (Get-Error 'denied'))
+$results.failedThenTeardownTimeout = Show (Complete-PsDirect -Output @() `
+    -PrimaryError (Get-Error 'Guest path does not exist') `
+    -TeardownError (Get-Error ([System.TimeoutException]::new('psdirect timeout: teardown'))))
+$results.guestBound = Show (Complete-PsDirect -Output @() `
+    -PrimaryError (Get-Error "Guest call against 'LabMS01' exceeded 42 s.") -TeardownError $null)
+$script:DeadlineUtc = [DateTime]::UtcNow.AddSeconds(-1)
+$results.pastDeadline = Show (Complete-PsDirect -Output @('PULLED=x') -PrimaryError $null `
+    -TeardownError $null)
+
+# The guest's directory finalizer, run here on local paths.
+$isFinalizer = {
+    param($n)
+    $n -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and
+    $n.Extent.Text -match '^\{\s*param\(\$dest, \$temp, \$guestPart'
+}
+$finalizerText = $ast.Find($isFinalizer, $true).Extent.Text.Trim()
+$finalizer = [scriptblock]::Create($finalizerText.TrimStart('{').TrimEnd('}'))
+
+function Invoke-Delivery([string] $Name, [scriptblock] $Build, [scriptblock] $Tamper = $null) {
+    $tree = Join-Path $Work "$Name-src"
+    New-Item -ItemType Directory -Path $tree | Out-Null
+    & $Build $tree
+    $out = Join-Path $Work "$Name-payload"
+    New-Item -ItemType Directory -Path $out | Out-Null
+    $payload = New-PushPayload -Path $tree -WorkDir $out
+    $manifest = @($payload.Manifest)
+    $dirs = @($payload.Dirs)
+    if ($Tamper) { $manifest, $dirs = & $Tamper $manifest $dirs }
+    $guest = Join-Path $Work "$Name-guest"
+    New-Item -ItemType Directory -Path $guest | Out-Null
+    $part = Join-Path $guest '~pdtest.part'
+    Copy-Item -LiteralPath $payload.File -Destination $part
+    $dest = Join-Path $guest 'delivered'
+    $result = [ordered] @{ dirs = $dirs.Count; files = $manifest.Count }
+    try {
+        $result.answer = "$(& $finalizer $dest (Join-Path $guest '~pdtest') $part 'directory' `
+            $payload.Length $payload.Sha256 ([string[]] $manifest) ([string[]] $dirs) $false)"
+        $result.deliveredDirs = @(Get-ChildItem -LiteralPath $dest -Recurse -Force -Directory).Count
+        $result.deliveredFiles = @(Get-ChildItem -LiteralPath $dest -Recurse -Force -File).Count
+    } catch { $result.error = "$($_.Exception.Message)" }
+    $result.leftovers = @(Get-ChildItem -LiteralPath $guest -Force -Filter '~pd*').Count
+    $result.destExists = Test-Path -LiteralPath $dest
+    return $result
+}
+
+$results.mixed = Invoke-Delivery 'mixed' {
+    param($t)
+    New-Item -ItemType Directory -Path (Join-Path $t 'a/b'), (Join-Path $t 'e1/e2') | Out-Null
+    Set-Content -LiteralPath (Join-Path $t '.hidden') -Value 'h'
+    Set-Content -LiteralPath (Join-Path $t 'a/b/deep.txt') -Value 'd'
+}
+$results.empty = Invoke-Delivery 'empty' { param($t) }
+$results.onlyEmptyDirs = Invoke-Delivery 'onlyempty' {
+    param($t)
+    New-Item -ItemType Directory -Path (Join-Path $t 'x/y/z'), (Join-Path $t 'w') | Out-Null
+}
+$results.missingDir = Invoke-Delivery 'missingdir' {
+    param($t) New-Item -ItemType Directory -Path (Join-Path $t 'kept') | Out-Null
+} { param($m, $d) , $m; , @($d + 'not-delivered') }
+$results.extraFile = Invoke-Delivery 'extrafile' {
+    param($t) Set-Content -LiteralPath (Join-Path $t 'one.txt') -Value '1'
+    Set-Content -LiteralPath (Join-Path $t 'two.txt') -Value '2'
+} { param($m, $d) , @($m | Select-Object -First 1); , $d }
+
+$results | ConvertTo-Json -Depth 6 -Compress
+"""
+
+
+@pytest.fixture(scope="module")
+def outcome(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    if shutil.which("pwsh") is None:
+        pytest.skip("pwsh is not installed")
+    work = tmp_path_factory.mktemp("outcome")
+    script = work / "outcome.ps1"
+    script.write_text(_OUTCOME_HARNESS, encoding="utf-8")
+    completed = subprocess.run(
+        [
+            "pwsh", "-NoProfile", "-NonInteractive", "-File", str(script),
+            "-Psdirect", str(PSDIRECT), "-Work", str(work),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    return dict(json.loads(completed.stdout.strip().splitlines()[-1]))
+
+
+def test_success_is_declared_only_when_nothing_failed_and_the_deadline_holds(
+    outcome: dict[str, Any],
+) -> None:
+    assert outcome["success"] == {"exit": 0, "output": ["PUSHED=x"], "errors": 0}
+    assert outcome["teardownTimeout"] == {"exit": 124, "output": [], "errors": 1}
+    assert outcome["teardownError"] == {"exit": 1, "output": [], "errors": 1}
+    # A timeout anywhere exits 124, even behind a different primary failure.
+    assert outcome["failedThenTeardownTimeout"] == {"exit": 124, "output": [], "errors": 2}
+    assert outcome["guestBound"] == {"exit": 124, "output": [], "errors": 1}
+    assert outcome["pastDeadline"] == {"exit": 124, "output": [], "errors": 1}
+
+
+def test_a_directory_with_hidden_files_and_nested_empty_directories_is_delivered_exactly(
+    outcome: dict[str, Any],
+) -> None:
+    mixed = outcome["mixed"]
+    assert "error" not in mixed, mixed
+    assert mixed["answer"].startswith("VERIFIED=")
+    # a, a/b, e1, e1/e2
+    assert (mixed["dirs"], mixed["deliveredDirs"]) == (4, 4)
+    assert (mixed["files"], mixed["deliveredFiles"]) == (2, 2)
+    assert mixed["leftovers"] == 0
+
+
+def test_an_empty_directory_and_one_of_only_empty_directories_are_delivered(
+    outcome: dict[str, Any],
+) -> None:
+    empty = outcome["empty"]
+    assert "error" not in empty, empty
+    assert empty["destExists"] and empty["deliveredDirs"] == 0 and empty["deliveredFiles"] == 0
+    only = outcome["onlyEmptyDirs"]
+    assert "error" not in only, only
+    assert (only["dirs"], only["deliveredDirs"], only["deliveredFiles"]) == (4, 4, 0)
+    assert empty["leftovers"] == 0 and only["leftovers"] == 0
+
+
+def test_a_delivery_whose_file_or_directory_set_differs_is_refused(
+    outcome: dict[str, Any],
+) -> None:
+    assert "directory set differs" in outcome["missingDir"]["error"]
+    assert "file set differs" in outcome["extraFile"]["error"]
+    for case in ("missingDir", "extraFile"):
+        assert outcome[case]["destExists"] is False, case
+        assert outcome[case]["leftovers"] == 0, case

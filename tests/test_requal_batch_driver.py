@@ -15,11 +15,13 @@ import signal
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DRIVER = REPO_ROOT / "scripts" / "plan-033" / "run-requal-batch.sh"
+SUPERVISOR = REPO_ROOT / "scripts" / "plan-033" / "lane-supervisor.py"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("bash") is None or os.name == "nt",
@@ -36,6 +38,7 @@ def _clone(tmp_path: Path) -> Path:
     )
     # The driver under test is the working-tree copy, which may be ahead of HEAD.
     shutil.copy2(DRIVER, clone / "scripts" / "plan-033" / "run-requal-batch.sh")
+    shutil.copy2(SUPERVISOR, clone / "scripts" / "plan-033" / "lane-supervisor.py")
     subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
     subprocess.run(
         [
@@ -259,15 +262,41 @@ def _alive(pid: int) -> bool:
     return stat.rsplit(")", 1)[1].split()[0] != "Z"
 
 
-def _hanging_acb(tmp_path: Path) -> Path:
-    """A fake acb whose FIRST invocation builds a process tree and hangs.
+#: First invocation of the tree-kill fake: a plain child, a grandchild under a
+#: parent that ignores SIGTERM (so only the KILL fallback can end either), and
+#: a child that left the process group with its own setsid -- then it hangs.
+_TREE_AND_HANG = (
+    '    sleep 300 & echo $! >> "$FAKE_PIDS"\n'
+    "    bash -c 'trap \"\" TERM; sleep 300 & echo $! >> \"$FAKE_PIDS\"; wait' &\n"
+    '    echo $! >> "$FAKE_PIDS"\n'
+    '    setsid sleep 300 & echo $! >> "$FAKE_PIDS"\n'
+    '    echo $$ >> "$FAKE_PIDS"\n'
+    "    wait\n"
+)
 
-    The tree holds a plain child, a grandchild under a parent that ignores
-    SIGTERM (so only the KILL fallback can end either), and a child that left
-    the process group with its own setsid -- the three ways a lane's pwsh
-    descendants could outlive a kill aimed at the wrong target. Later
-    invocations exit 0, so the test can see the batch continue.
-    """
+#: Review P2 (a): a grandchild that detached -- setsid inside a subshell that
+#: exits at once -- so it is re-parented BEFORE the deadline, out of reach of a
+#: tree walk from the lane's leader. Then the leader hangs.
+_DETACH_THEN_HANG = (
+    '    ( setsid sleep 300 & echo $! >> "$FAKE_PIDS" )\n'
+    "    sleep 1\n"
+    '    echo $$ >> "$FAKE_PIDS"\n'
+    "    sleep 300\n"
+)
+
+#: Review P2 (b): the leader exits 42 by itself and leaves an ordinary child
+#: and a detached one running.
+_LEAVE_CHILDREN_AND_EXIT_42 = (
+    '    sleep 300 & echo $! >> "$FAKE_PIDS"\n'
+    '    ( setsid sleep 300 & echo $! >> "$FAKE_PIDS" )\n'
+    "    sleep 0.5\n"
+    "    exit 42\n"
+)
+
+
+def _scripted_acb(tmp_path: Path, first: str) -> Path:
+    """A fake acb that runs `first` on its FIRST invocation and exits 0 on
+    every later one, so a test can see the batch continue."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     acb = bin_dir / "acb"
@@ -276,14 +305,7 @@ def _hanging_acb(tmp_path: Path) -> Path:
         'n=$(cat "$FAKE_COUNT" 2>/dev/null || echo 0)\n'
         'echo $((n + 1)) > "$FAKE_COUNT"\n'
         'printf \'%s\\n\' "$*" >> "$FAKE_ACB_LOG"\n'
-        "if [[ $n -eq 0 ]]; then\n"
-        '    sleep 300 & echo $! >> "$FAKE_PIDS"\n'
-        "    bash -c 'trap \"\" TERM; sleep 300 & echo $! >> \"$FAKE_PIDS\"; wait' &\n"
-        '    echo $! >> "$FAKE_PIDS"\n'
-        '    setsid sleep 300 & echo $! >> "$FAKE_PIDS"\n'
-        '    echo $$ >> "$FAKE_PIDS"\n'
-        "    wait\n"
-        "fi\n"
+        "if [[ $n -eq 0 ]]; then\n" + first + "fi\n"
         "exit 0\n",
         encoding="utf-8",
     )
@@ -291,14 +313,17 @@ def _hanging_acb(tmp_path: Path) -> Path:
     return bin_dir
 
 
-def test_a_lane_over_budget_is_killed_with_its_whole_tree_and_the_batch_continues(
-    tmp_path: Path,
-) -> None:
+def _run_watchdog_batch(tmp_path: Path, first: str) -> tuple[
+    subprocess.CompletedProcess[str], list[dict[str, Any]], list[int], list[int], float
+]:
+    """Run lanes wp1b (the scripted one) and wp2 under a 3 s budget. Returns the
+    result, the progress rows, the recorded pids, the ones still alive
+    afterwards (killed here so nothing leaks), and the elapsed seconds."""
     clone = _clone(tmp_path)
     pids_file = tmp_path / "pids"
     env = {
         **os.environ,
-        "PATH": f"{_hanging_acb(tmp_path)}{os.pathsep}{os.environ['PATH']}",
+        "PATH": f"{_scripted_acb(tmp_path, first)}{os.pathsep}{os.environ['PATH']}",
         "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
         "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
         "FAKE_COUNT": str(tmp_path / "count"),
@@ -322,19 +347,23 @@ def test_a_lane_over_budget_is_killed_with_its_whole_tree_and_the_batch_continue
         timeout=120,
     )
     elapsed = time.monotonic() - started
-    pids = [int(p) for p in pids_file.read_text().split()]
-    deadline = time.monotonic() + 10
-    while any(_alive(p) for p in pids) and time.monotonic() < deadline:
-        time.sleep(0.2)
+    pids = [int(p) for p in pids_file.read_text().split()] if pids_file.exists() else []
+    # Survivors are judged at the moment the batch returned: the driver must
+    # not move on while any of them is still running.
     survivors = [p for p in pids if _alive(p)]
     for p in survivors:  # never leak a sleeper past the test, even on failure
         os.kill(p, signal.SIGKILL)
+    progress = tmp_path / "batch/progress.jsonl"
+    rows = [json.loads(line) for line in progress.read_text().splitlines()]
+    return result, rows, pids, survivors, elapsed
 
+
+def test_a_lane_over_budget_is_killed_with_its_whole_tree_and_the_batch_continues(
+    tmp_path: Path,
+) -> None:
+    result, rows, pids, survivors, elapsed = _run_watchdog_batch(tmp_path, _TREE_AND_HANG)
     assert result.returncode == 1, result.stderr
     assert elapsed < 60, f"the watchdog took {elapsed:.0f}s to end a 3s lane"
-    rows = [
-        json.loads(line) for line in (tmp_path / "batch/progress.jsonl").read_text().splitlines()
-    ]
     assert [(r["name"], r["exit_status"], r["timed_out"], r["budget_seconds"]) for r in rows] == [
         ("wp1b", 124, True, 3),
         ("wp2", 0, False, 3),
@@ -343,6 +372,33 @@ def test_a_lane_over_budget_is_killed_with_its_whole_tree_and_the_batch_continue
     assert "=== watchdog: lane budget exhausted" in (tmp_path / "batch/logs/wp1b.log").read_text()
     assert len(pids) == 5
     assert not survivors, "the watchdog left part of the lane's tree running"
+
+
+def test_a_grandchild_detached_before_the_deadline_is_killed_too(tmp_path: Path) -> None:
+    """Review P2 (a): it was re-parented away from the leader before expiry."""
+    result, rows, pids, survivors, _ = _run_watchdog_batch(tmp_path, _DETACH_THEN_HANG)
+    assert result.returncode == 1, result.stderr
+    assert [(r["name"], r["exit_status"], r["timed_out"]) for r in rows] == [
+        ("wp1b", 124, True),
+        ("wp2", 0, False),
+    ]
+    assert len(pids) == 2
+    assert not survivors, "a detached grandchild outlived its timed-out lane"
+
+
+def test_a_lane_that_exits_by_itself_leaves_nothing_running(tmp_path: Path) -> None:
+    """Review P2 (b): exit 42 is recorded as-is, and its children die with it."""
+    result, rows, pids, survivors, _ = _run_watchdog_batch(tmp_path, _LEAVE_CHILDREN_AND_EXIT_42)
+    assert result.returncode == 1, result.stderr
+    assert [(r["name"], r["exit_status"], r["timed_out"]) for r in rows] == [
+        ("wp1b", 42, False),
+        ("wp2", 0, False),
+    ]
+    assert rows[0]["processes_killed"] == 2
+    assert rows[1]["processes_killed"] == 0
+    assert "outlived the lane's leader" in (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert len(pids) == 2
+    assert not survivors, "the batch moved on with the lane's children running"
 
 
 def test_a_lane_that_exits_124_itself_is_not_recorded_as_a_watchdog_kill(

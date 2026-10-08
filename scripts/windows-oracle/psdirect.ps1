@@ -591,7 +591,8 @@ $script:GuestWork = {
         'push' {
             # $push: promoted (the verified host file), kind (file|directory),
             # leaf, bytes, sha256, manifest ("relpath|length|sha256" lines),
-            # tag (unique per invocation), corruptGuest (test fault).
+            # dirs (every directory's relpath, empty ones included), tag
+            # (unique per invocation), corruptGuest (test fault).
             $plan = Invoke-Guest -ArgumentList @($remotePath, $push['kind'], $push['leaf'], $push['tag']) -Body {
                 param($remotePath, $kind, $leaf, $tag)
                 $ErrorActionPreference = 'Stop'
@@ -621,26 +622,46 @@ $script:GuestWork = {
             } finally {
                 Remove-PSSession $guestSession -ErrorAction SilentlyContinue
             }
+            # An empty list must arrive as an empty list, not as one empty
+            # string: @($null) has one element.
+            $manifest = [string[]] @($push['manifest'] | Where-Object { $_ })
+            $dirs = [string[]] @($push['dirs'] | Where-Object { $_ })
             Invoke-Guest -ArgumentList @($dest, $temp, $guestPart, $push['kind'], [long] $push['bytes'],
-                                         $push['sha256'], [string[]] @($push['manifest']),
+                                         $push['sha256'], $manifest, $dirs,
                                          [bool] $push['corruptGuest']) -Body {
-                param($dest, $temp, $guestPart, $kind, [long] $length, $sha256, [string[]] $manifest, [bool] $corrupt)
+                param($dest, $temp, $guestPart, $kind, [long] $length, $sha256, $manifest, $dirs, [bool] $corrupt)
                 $ErrorActionPreference = 'Stop'
                 function Get-Sha([string] $p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToUpperInvariant() }
-                function Assert-Tree([string] $root, [string[]] $entries, [switch] $Exact) {
+                function Get-SortedSet($names) {
+                    $set = [string[]] @($names | Where-Object { $_ })
+                    [Array]::Sort($set, [StringComparer]::Ordinal)
+                    return ($set -join "`n")
+                }
+                function Get-RelativeNames([string] $root, [switch] $Directory) {
+                    $prefix = (Get-Item -LiteralPath $root -Force).FullName.TrimEnd('\') + '\'
+                    if ($Directory) { $items = @(Get-ChildItem -LiteralPath $root -Recurse -Force -Directory) }
+                    else { $items = @(Get-ChildItem -LiteralPath $root -Recurse -Force -File) }
+                    # '/' only ever appears off Windows (the offline tests); never in a guest name.
+                    return @($items | ForEach-Object { $_.FullName.Substring($prefix.Length).Replace('/', '\') })
+                }
+                function Assert-Tree([string] $root, $entries, $directories) {
+                    # The delivered tree must hold EXACTLY the controller's
+                    # files and directories (empty ones included), and every
+                    # file its exact bytes.
+                    $entries = @($entries | Where-Object { $_ })
+                    $wantFiles = Get-SortedSet @($entries | ForEach-Object { $_.Split('|')[0] })
+                    if ((Get-SortedSet (Get-RelativeNames $root)) -cne $wantFiles) {
+                        throw "Guest delivery's file set differs from the controller's."
+                    }
+                    if ((Get-SortedSet (Get-RelativeNames $root -Directory)) -cne (Get-SortedSet $directories)) {
+                        throw "Guest delivery's directory set differs from the controller's."
+                    }
                     foreach ($entry in $entries) {
                         $rel, $len, $sha = $entry.Split('|')
                         $file = Join-Path $root $rel
-                        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Guest delivery is missing '$rel'." }
                         $item = Get-Item -LiteralPath $file -Force
                         if ($item.Length -ne [long] $len -or (Get-Sha $file) -ne $sha) {
                             throw "Guest delivery of '$rel' does not match the controller's bytes."
-                        }
-                    }
-                    if ($Exact) {
-                        $count = @(Get-ChildItem -LiteralPath $root -Recurse -Force -File).Count
-                        if ($count -ne $entries.Count) {
-                            throw "Guest delivery holds $count files; the controller sent $($entries.Count)."
                         }
                     }
                 }
@@ -661,10 +682,13 @@ $script:GuestWork = {
                         if ((Get-Sha $dest) -ne $sha256) { throw "Guest file '$dest' changed during promotion." }
                     } else {
                         Add-Type -AssemblyName System.IO.Compression.FileSystem
+                        # Created first, so an archive with no entries (an
+                        # empty directory) still yields its directory.
+                        New-Item -ItemType Directory -Path $temp | Out-Null
                         [System.IO.Compression.ZipFile]::ExtractToDirectory($guestPart, $temp)
-                        Assert-Tree $temp $manifest -Exact
+                        Assert-Tree $temp $manifest $dirs
                         [System.IO.Directory]::Move($temp, $dest)
-                        Assert-Tree $dest $manifest -Exact
+                        Assert-Tree $dest $manifest $dirs
                     }
                     "VERIFIED=$dest"
                 } finally {
@@ -705,7 +729,11 @@ $script:GuestWork = {
                 # HIDDEN in every Backup-GPO tree. This count is the pull's
                 # completeness check, so it has to see what the archive sees.
                 $files = @(Get-ChildItem -LiteralPath $remotePath -Recurse -Force -File)
-                if ($isContainer -and $files.Count -eq 0) { return 'EMPTY' }
+                # Directories count too: a tree of only empty directories is
+                # delivered as that tree, not as nothing.
+                $dirs = @()
+                if ($isContainer) { $dirs = @(Get-ChildItem -LiteralPath $remotePath -Recurse -Force -Directory) }
+                if ($isContainer -and $files.Count -eq 0 -and $dirs.Count -eq 0) { return 'EMPTY' }
 
                 # NOT Compress-Archive: with a wildcard path it silently
                 # SKIPS hidden files. That dropped 14 of 146 files on the
@@ -731,11 +759,11 @@ $script:GuestWork = {
                 }
                 $length = (Get-Item -LiteralPath $zip).Length
                 $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToUpperInvariant()
-                return "$zip|$($files.Count)|$length|$sha"
+                return "$zip|$($files.Count)|$length|$sha|$($dirs.Count)"
             }
             if (-not $packed) { throw "Guest path '$remotePath' does not exist on '$guest'." }
             if ($packed -eq 'EMPTY') { 'SOURCE=' } else {
-                $guestZip, $expectedCount, $expectedLength, $expectedSha = "$packed".Split('|')
+                $guestZip, $expectedCount, $expectedLength, $expectedSha, $expectedDirs = "$packed".Split('|')
                 $hostPart = Join-Path $stagePath 'pull.part'
                 $hostZip = Join-Path $stagePath 'pull.zip'
                 try {
@@ -764,6 +792,7 @@ $script:GuestWork = {
                 [System.IO.File]::Move($hostPart, $hostZip)
                 "SOURCE=$hostZip"
                 "EXPECTED_FILES=$expectedCount"
+                "EXPECTED_DIRS=$expectedDirs"
                 "EXPECTED_LENGTH=$expectedLength"
                 "EXPECTED_SHA256=$expectedSha"
             }
@@ -787,7 +816,10 @@ function New-PushPayload {
             $relative = $file.FullName.Substring($root.Length).Replace('/', '\')
             '{0}|{1}|{2}' -f $relative, $file.Length, (Get-Sha256Hex $file.FullName)
         })
-        if (($manifest -join "`n").Length -gt $script:MaxManifestChars) {
+        $dirs = @(Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -Directory | ForEach-Object {
+            $_.FullName.Substring($root.Length).Replace('/', '\')
+        })
+        if ((($manifest + $dirs) -join "`n").Length -gt $script:MaxManifestChars) {
             throw "Directory push of '$Path': its manifest exceeds $($script:MaxManifestChars) characters."
         }
         $zip = Join-Path $WorkDir 'payload.zip'
@@ -808,6 +840,7 @@ function New-PushPayload {
         $kind = 'file'
         $leaf = $item.Name
         $manifest = @()
+        $dirs = @()
     }
     return [pscustomobject]@{
         Kind     = $kind
@@ -816,6 +849,7 @@ function New-PushPayload {
         Length   = (Get-Item -LiteralPath $file -Force).Length
         Sha256   = Get-Sha256Hex $file
         Manifest = [string[]] $manifest
+        Dirs     = [string[]] $dirs
     }
 }
 
@@ -924,6 +958,34 @@ function Receive-StagedFile {
     }
 }
 
+function Test-TimeoutError {
+    # A guest bound fires on the host and arrives as a remote error; it is a
+    # timeout all the same.
+    param($ErrorRecord)
+    return ($ErrorRecord.Exception -is [System.TimeoutException]) -or
+           ("$($ErrorRecord.Exception.Message)" -match 'psdirect (deadline|timeout):|Guest call against .+ exceeded \d+ s\.')
+}
+
+function Complete-PsDirect {
+    # Decide the invocation's outcome AFTER everything, cleanup included, has
+    # finished. Success needs no primary error, no teardown error, and the
+    # deadline still unspent; only then is the output (the PUSHED=/PULLED=
+    # marker, or exec's result) released. Any timeout anywhere exits 124.
+    param([object[]] $Output, $PrimaryError, $TeardownError)
+    $errors = @(@($PrimaryError, $TeardownError) | Where-Object { $null -ne $_ })
+    if ($errors.Count -eq 0 -and (Get-TotalSecondsLeft) -lt 0) {
+        $errors = @(try { throw (New-DeadlineError 'the invocation finished past its deadline') } catch { $_ })
+    }
+    $exitCode = 0
+    if ($errors.Count -gt 0) {
+        $exitCode = 1
+        if (@($errors | Where-Object { Test-TimeoutError $_ }).Count -gt 0) { $exitCode = 124 }
+    }
+    $released = @()
+    if ($exitCode -eq 0) { $released = @($Output | Where-Object { $null -ne $_ }) }
+    return [pscustomobject]@{ ExitCode = $exitCode; Output = $released; Errors = $errors }
+}
+
 function Get-ResultValue {
     param([object[]] $Lines, [string] $Key)
     $line = @($Lines) | Where-Object { "$_" -like "$Key=*" } | Select-Object -First 1
@@ -949,6 +1011,7 @@ function Invoke-PsDirect {
     )
     $script:session = $null
     $script:sessionPoisoned = $false
+    $script:TeardownError = $null
     $stagePath = $null
     $localWork = $null
     try {
@@ -973,6 +1036,7 @@ function Invoke-PsDirect {
                 bytes        = $payload.Length
                 sha256       = $payload.Sha256
                 manifest     = $payload.Manifest
+                dirs         = $payload.Dirs
                 tag          = $Stamp.Substring($Stamp.Length - 6)
                 corruptGuest = (Test-Fault 'corrupt-guest' 1)
             }
@@ -1025,22 +1089,40 @@ function Invoke-PsDirect {
             # that packing and transit lost nothing -- and does not care
             # what else already sits in the destination.
             $expected = [int](Get-ResultValue $result 'EXPECTED_FILES')
+            $dirsLine = Get-ResultValue $result 'EXPECTED_DIRS'
+            if ($null -eq $dirsLine) { throw 'Guest staging did not report the directory count it packed.' }
+            $expectedDirs = [int] $dirsLine
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             $archive = [System.IO.Compression.ZipFile]::OpenRead($localArchive)
             try {
                 # Directory entries have an empty Name and are not files.
                 $arrived = @($archive.Entries | Where-Object { $_.Name }).Count
+                # A zip names only EMPTY directories; the rest are implied by
+                # the paths beneath them. Count both.
+                $dirSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+                foreach ($entry in $archive.Entries) {
+                    $parts = $entry.FullName.Replace('\', '/').TrimEnd('/').Split('/')
+                    $depth = if ($entry.Name) { $parts.Count - 1 } else { $parts.Count }
+                    for ($i = 1; $i -le $depth; $i++) { [void] $dirSet.Add(($parts[0..($i - 1)] -join '/')) }
+                }
+                $arrivedDirs = $dirSet.Count
             } finally { $archive.Dispose() }
             if ($arrived -ne $expected) {
                 throw "Pull of '$RemotePath' delivered $arrived files but the guest packed $expected."
+            }
+            if ($arrivedDirs -ne $expectedDirs) {
+                throw "Pull of '$RemotePath' delivered $arrivedDirs directories but the guest packed $expectedDirs."
             }
             Expand-Archive -LiteralPath $localArchive -DestinationPath $LocalPath -Force
         }
         return "PULLED=$LocalPath"
     } finally {
         if ($localWork) { Remove-Item -LiteralPath $localWork -Recurse -Force -ErrorAction SilentlyContinue }
-        # Teardown spends the reserved tail of the budget and never masks the
-        # primary outcome: a leftover staging leaf is reaped by a later run.
+        # Teardown spends the reserved tail of the budget. It never MASKS the
+        # primary outcome, but it is part of the outcome: a teardown that
+        # throws (a timeout above all) is recorded and fails the invocation in
+        # Complete-PsDirect. A leaf that Remove-Item merely could not empty is
+        # only reported -- the payload was verified, and a later run reaps it.
         if ($stagePath -and $Action -ne 'exec') {
             try {
                 $left = Invoke-HostCommand -What 'staging teardown' -Teardown `
@@ -1048,7 +1130,7 @@ function Invoke-PsDirect {
                     -ScriptBlock $script:HostBlocks.RemoveTree -ArgumentList @($stagePath)
                 if ("$left" -ne 'REMOVED') { Write-TransportNote "staging teardown left '$stagePath' behind." }
             } catch {
-                Write-TransportNote "staging teardown of '$stagePath' did not complete: $($_.Exception.Message)"
+                $script:TeardownError = $_
             }
         }
         if ($script:session -and -not $script:sessionPoisoned) {
@@ -1135,21 +1217,24 @@ if ($guestUser -notmatch '^[A-Za-z][A-Za-z0-9._-]{1,19}$') {
 # able to read or clobber each other's payloads mid-flight.
 $stamp = "$(Get-Date -Format 'yyyyMMddHHmmss')-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 
+# The output is HELD until the invocation is over -- cleanup and the final
+# deadline check included -- so a success marker can never precede a failure.
 # Exit through [Environment]::Exit, so a thread still blocked in an abandoned
 # remote job cannot keep the process alive; 124 marks a timeout or deadline.
-$exitCode = 0
+$held = @()
+$primaryError = $null
 try {
-    Invoke-PsDirect -Action $Action -Guest $Guest -NetBiosName $NetBiosName -GuestUser $guestUser `
+    $held = @(Invoke-PsDirect -Action $Action -Guest $Guest -NetBiosName $NetBiosName -GuestUser $guestUser `
         -Command $Command -LocalPath $LocalPath -RemotePath $RemotePath `
-        -HostStagingRoot $HostStagingRoot -TimeoutSeconds $TimeoutSeconds -Stamp $stamp
+        -HostStagingRoot $HostStagingRoot -TimeoutSeconds $TimeoutSeconds -Stamp $stamp)
 } catch {
-    # A guest bound fires on the host and arrives as a remote error; it is a
-    # timeout all the same.
-    $timedOut = ($_.Exception -is [System.TimeoutException]) -or
-                ("$($_.Exception.Message)" -match 'psdirect deadline:|Guest call against .+ exceeded \d+ s\.')
-    $exitCode = if ($timedOut) { 124 } else { 1 }
-    [Console]::Error.WriteLine(($_ | Out-String).TrimEnd())
-    if ($_.ScriptStackTrace) { [Console]::Error.WriteLine($_.ScriptStackTrace) }
+    $primaryError = $_
 }
+$outcome = Complete-PsDirect -Output $held -PrimaryError $primaryError -TeardownError $script:TeardownError
+foreach ($failure in $outcome.Errors) {
+    [Console]::Error.WriteLine(($failure | Out-String).TrimEnd())
+    if ($failure.ScriptStackTrace) { [Console]::Error.WriteLine($failure.ScriptStackTrace) }
+}
+if ($outcome.ExitCode -eq 0 -and @($outcome.Output).Count -gt 0) { $outcome.Output | Out-Default }
 [Console]::Out.Flush()
-[Environment]::Exit($exitCode)
+[Environment]::Exit($outcome.ExitCode)

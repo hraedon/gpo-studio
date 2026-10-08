@@ -3383,9 +3383,13 @@ before anything reaches the destination (every file of a directory push, after
 extraction). Pulls verify the same way and travel host -> controller as 1 MB
 reads. One deadline (`-DeadlineSeconds`, default `-TimeoutSeconds` + 300)
 bounds the session open, every command, every retry and teardown; exceeding it
-exits 124. The batch driver gives every lane a wall-clock budget (a column in
-its lane table) and kills the lane's whole process tree when it is spent,
-recording `exit_status` 124 and `timed_out: true`. The live probe results are
+exits 124, and no success marker is printed until cleanup and a final
+deadline check have passed (review P1). The batch driver gives every lane a
+wall-clock budget (a column in its lane table) and runs it under
+`scripts/plan-033/lane-supervisor.py`, a child subreaper: whenever the lane
+ends -- by itself, with any status, or at its budget -- everything it started,
+detached or not, is killed and reaped before the next lane starts (review P2).
+A budget kill records `exit_status` 124 and `timed_out: true`. The live probe results are
 in the commit that introduced this; `tests/test_psdirect_transport.py` and
 `tests/test_requal_batch_driver.py` hold the control flow.
 
