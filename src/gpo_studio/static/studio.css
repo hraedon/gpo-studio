@@ -68,3 +68,9 @@ dialog{max-height:calc(100dvh - 30px);overflow:hidden}dialog form{max-height:cal
 /* Keep every dialog's close button beside its title. With wrapping allowed, a title wider than a
    390 px dialog pushed the × onto its own line under the heading; the title shrinks and wraps instead. */
 .dialog-head{flex-wrap:nowrap;align-items:flex-start}.dialog-head>div:first-child{flex:1 1 auto}.dialog-head>.icon{flex:none}
+
+/* Let the rail shrink to the viewport. Below 850 px the shell is one `1fr` (minmax(auto,1fr)) column
+   and the rail's automatic minimum width was its min-content: the sum of every no-wrap policy name
+   in the sideways-scrolling list, so one long name widened the whole page past a 390 px viewport.
+   With min-width:0 the list scrolls inside the rail and each name ellipsizes (full name in `title`). */
+.rail,.rail nav{min-width:0}

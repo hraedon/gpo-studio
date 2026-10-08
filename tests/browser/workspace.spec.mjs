@@ -284,3 +284,40 @@ test("the dark theme toggles, persists, and passes the same accessibility bar", 
   await toggle.click();
   await expect(toggle).toHaveText("Auto");
 });
+
+test("a long policy name in the rail does not widen the page at 390px", async ({
+  page,
+  request,
+}, testInfo) => {
+  // Below 850px the rail list is one sideways-scrolling row of no-wrap names,
+  // and the rail's automatic minimum width used to be that row's full text
+  // width, so a single long name made the whole page scroll horizontally.
+  const name = `Synthetic Long Policy Name ${testInfo.project.name} ${Date.now()} ${"Unbroken".repeat(12)}`;
+  const response = await request.post("/api/gpos", {
+    data: {
+      name,
+      actor: "browser-test",
+      reason: "Seed a long policy name for the 390px rail check",
+    },
+  });
+  expect(response.status()).toBe(201);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const item = page.locator(".gpo-item", { hasText: name });
+  await expect(item).toBeVisible();
+  // Ellipsized in the rail, with the whole name available as a tooltip.
+  await expect(item.locator("strong")).toHaveAttribute("title", name);
+
+  for (const step of ["list", "selected"]) {
+    if (step === "selected") {
+      await item.click();
+      await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
+    }
+    const { scrollWidth, innerWidth } = await page.evaluate(() => ({
+      scrollWidth: globalThis.document.documentElement.scrollWidth,
+      innerWidth: globalThis.innerWidth,
+    }));
+    expect(scrollWidth, step).toBeLessThanOrEqual(innerWidth);
+  }
+});
