@@ -17,7 +17,8 @@
 #
 # (Tests alone add a leading `--test-scope-tool <path>`; see TEST SEAM below.)
 #
-# <batch-dir> must be outside the repository and PRIVATE: this user's, mode
+# <batch-dir> must be outside the repository, given as a canonical absolute
+# path (no '.', '..' or symlink components), and PRIVATE: this user's, mode
 # 0700 (created so if missing), with every ancestor owned by root or this user
 # and writable by nobody else unless sticky. A shared batch directory is not
 # supported. Stopping the driver with TERM, INT or HUP cancels the lane in
@@ -122,7 +123,14 @@ cd "$REPO_ROOT"
 # Resolve WITHOUT creating: the refusals below must leave nothing behind, and
 # an in-repo <batch-dir> created first would litter the tree it refuses to
 # dirty (review N8). `realpath -m` resolves symlinks in the existing prefix.
-batch_real="$(realpath -m -- "$BATCH_DIR")"
+if [[ "$BATCH_DIR" != /* ]]; then
+    echo "refusing: <batch-dir> must be an absolute path ($BATCH_DIR)" >&2
+    exit 2
+fi
+if ! batch_real="$(realpath -m -- "$BATCH_DIR" 2>&1)"; then
+    echo "refusing: <batch-dir> $BATCH_DIR cannot be resolved ($batch_real)" >&2
+    exit 2
+fi
 repo_real="$(pwd -P)"
 if [[ "$batch_real/" == "$repo_real/"* ]]; then
     # The per-lane clean-tree guard would see the batch's own logs as a tree
@@ -138,9 +146,10 @@ COMMIT="$(git rev-parse HEAD)"
 # The batch directory holds every lane's ownership proof, report, log and
 # progress row. It must be PRIVATE: a directory owned by this user with mode
 # 0700 (created so if missing; anything else is refused, not repaired), and
-# every ancestor up to / -- along the path as given and as resolved -- owned
-# by root or this user and not writable by others unless sticky, so nobody
-# else can rename or replace any directory on the way to it. With that, no
+# its path CANONICAL (absolute; no '.', '..', '//', trailing '/' or symlink
+# component), and every ancestor up to / owned by root or this user and not
+# writable by others unless sticky -- the user's private group counts as
+# others -- so nobody else can rename or replace any directory on the way. With that, no
 # other user can create or alter anything inside it; progress.jsonl is still
 # reserved exclusively at 0600 before any lane runs, and checked on every
 # append.
@@ -162,12 +171,19 @@ check_private() {  # check_private <path> <dir|file>: ours, not a symlink, writa
     (( 8#$mode & 8#022 )) && refuse_unsafe "$path is writable by others (mode $mode)"
     return 0
 }
-mkdir -p "$BATCH_DIR"
-python3 - "$BATCH_DIR" <<'PY' || exit 2
+# check_batch_dir <before|after>: the batch directory's path must already be
+# CANONICAL -- absolute, with no `.`, `..`, empty or trailing components and
+# no symlink anywhere along it -- so the one path checked is the one used.
+# Every existing ancestor must be owned by root or this user and not writable
+# by others unless sticky. Before creation the leaf (and any missing parents)
+# may be absent; after it, the batch directory must be this user's with mode
+# 0700 exactly.
+check_batch_dir() {
+    python3 - "$BATCH_DIR" "$1" <<'PY'
 import os, stat, sys
 
 uid = os.getuid()
-path = sys.argv[1]
+path, phase = sys.argv[1], sys.argv[2]
 
 
 def refuse(where, why):
@@ -175,34 +191,53 @@ def refuse(where, why):
     sys.exit(2)
 
 
-st = os.lstat(path)
-mode = stat.S_IMODE(st.st_mode)
-if stat.S_ISLNK(st.st_mode):
-    refuse(path, "(the batch directory) is a symlink")
-if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or mode != 0o700:
-    refuse(path, f"(the batch directory) must be this user's, with mode 0700 (it is {mode:04o})")
+if not path.startswith("/"):
+    refuse(path, "(the batch directory) must be an absolute path")
+parts = path.split("/")[1:]
+if path == "/" or any(part in ("", ".", "..") for part in parts):
+    refuse(path, "(the batch directory) must be canonical: no '.', '..', '//' or trailing '/'")
 
-
-def ancestors(p):
-    while p != "/":
-        p = os.path.dirname(p)
-        yield p
-
-
-for chain in (os.path.abspath(path), os.path.realpath(path)):
-    for directory in ancestors(chain):
-        st = os.lstat(directory)
-        if st.st_uid not in (0, uid):
-            refuse(directory, "(an ancestor of the batch directory) is owned by another user")
-        if stat.S_ISLNK(st.st_mode):
-            continue  # its own entry is guarded by its parent; the resolved chain is walked too
-        if st.st_mode & 0o022 and not st.st_mode & stat.S_ISVTX:
-            refuse(
-                directory,
-                f"(an ancestor of the batch directory) is writable by others and not sticky "
-                f"(mode {stat.S_IMODE(st.st_mode):04o})",
-            )
+prefix = ""
+for i, part in enumerate(parts):
+    prefix += "/" + part
+    leaf = i == len(parts) - 1
+    try:
+        st = os.lstat(prefix)
+    except FileNotFoundError:
+        if phase == "after":
+            refuse(prefix, "vanished while the batch directory was being set up")
+        break  # the rest is created by this driver, 0700 and ours
+    except OSError as error:
+        refuse(prefix, f"cannot be examined: {error}")
+    if stat.S_ISLNK(st.st_mode):
+        refuse(prefix, "is a symlink; the batch directory's path must be canonical")
+    if not stat.S_ISDIR(st.st_mode):
+        refuse(prefix, "is not a directory")
+    if leaf:
+        mode = stat.S_IMODE(st.st_mode)
+        if st.st_uid != uid or mode != 0o700:
+            refuse(prefix, f"(the batch directory) must be this user's, with mode 0700 (it is {mode:04o})")
+        continue
+    if st.st_uid not in (0, uid):
+        refuse(prefix, "(an ancestor of the batch directory) is owned by another user")
+    if st.st_mode & 0o022 and not st.st_mode & stat.S_ISVTX:
+        refuse(
+            prefix,
+            f"(an ancestor of the batch directory) is writable by others and not sticky "
+            f"(mode {stat.S_IMODE(st.st_mode):04o}); fix: chmod g-w,o-w {prefix}, or choose "
+            "a batch directory under a private parent",
+        )
+for directory in ("/",):
+    st = os.lstat(directory)
+    if st.st_uid not in (0, uid) or (st.st_mode & 0o022 and not st.st_mode & stat.S_ISVTX):
+        refuse(directory, "(the root directory) is writable by others")
+if phase == "after" and os.path.realpath(path) != path:
+    refuse(path, "(the batch directory) does not resolve to itself")
 PY
+}
+check_batch_dir before || exit 2
+mkdir -p "$BATCH_DIR"
+check_batch_dir after || exit 2
 mkdir -p "$BATCH_DIR/logs"
 check_private "$BATCH_DIR/logs" dir
 PROGRESS="$BATCH_DIR/progress.jsonl"
@@ -340,15 +375,20 @@ clear_scope() {
 }
 
 # Stopping the driver. TERM, INT or HUP to this process cancels the lane in
-# flight: the signal is forwarded to its supervisor (which kills the lane and
-# reports a cancellation); run_bounded then checks the lane's scope with the
-# usual rules and clears it if anything is left; the lane is recorded
-# cancelled with 128 + the signal; no finalizer runs; the batch exits 5 (4 if
-# containment was lost on the way). A second signal while stopping changes
-# nothing: the driver never exits before the scope is verified empty or the
-# loss of containment is recorded.
+# flight. The trap only records the signal and creates the lane's CANCEL FILE,
+# which the supervisor checks before it starts the lane and on every poll --
+# so there is no window: a stop before a launch prevents it, a stop after the
+# fork but before the supervisor is ready is seen the moment it is, and a
+# stop while the lane runs makes the supervisor kill it and report a
+# cancellation. run_bounded then checks the lane's scope with the usual rules
+# and clears it if anything is left; the lane is recorded cancelled with
+# 128 + the signal; no finalizer runs; the batch exits 5 (4 if containment
+# was lost on the way). A second signal while stopping changes nothing: the
+# driver never exits before the scope is verified empty or the loss of
+# containment is recorded.
 STOP_SIGNAL=0
 ACTIVE_SUPERVISOR=""
+ACTIVE_CANCEL=""
 SUPERVISOR_STOP_GRACE=$((LANE_KILL_GRACE + 15))
 on_stop() {
     if [[ $STOP_SIGNAL -ne 0 ]]; then
@@ -357,11 +397,17 @@ on_stop() {
     fi
     STOP_SIGNAL=$1
     echo "driver: signal $1 received; cancelling the batch" >&2
-    if [[ -n "$ACTIVE_SUPERVISOR" ]]; then
-        kill -TERM "$ACTIVE_SUPERVISOR" 2>/dev/null || true
+    if [[ -n "$ACTIVE_CANCEL" ]]; then
+        : >"$ACTIVE_CANCEL" 2>/dev/null || true
     fi
     return 0
 }
+# TEST HOOK, honoured only on the test scope stand-in: pause between the last
+# check for a stop and the launch, so a test can land a signal exactly there.
+TEST_PAUSE_BEFORE_LAUNCH=""
+if [[ $TEST_SCOPE -eq 1 ]]; then
+    TEST_PAUSE_BEFORE_LAUNCH="${GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_LAUNCH:-}"
+fi
 trap 'on_stop 15' TERM
 trap 'on_stop 2' INT
 trap 'on_stop 1' HUP
@@ -395,11 +441,22 @@ run_bounded() {
     cgroup_file="$work/scope-proof"
     SCOPE_SEQ=$((SCOPE_SEQ + 1))
     unit="gpo-studio-lane-$SCOPE_NONCE-$SCOPE_SEQ"
+    # The cancel file is armed BEFORE the last check: from here on, a stop
+    # either prevents the launch or reaches the supervisor through the file.
+    ACTIVE_CANCEL="$work/cancel"
+    if [[ $STOP_SIGNAL -ne 0 ]]; then
+        echo "=== watchdog: stopped before launch (signal $STOP_SIGNAL); not started: $*" >>"$log"
+        ACTIVE_CANCEL=""
+        drop_work "$work"
+        CANCELLED=1
+        return $((128 + STOP_SIGNAL))
+    fi
+    [[ -n "$TEST_PAUSE_BEFORE_LAUNCH" ]] && sleep "$TEST_PAUSE_BEFORE_LAUNCH"
     # In the background, so a signal to this driver runs its trap at once
     # (a foreground child would defer it); `wait` is then the place it lands.
     "${SCOPE_TOOL[@]}" start "$unit" "$SCOPE_NONCE" "$cgroup_file" -- \
         python3 "$SUPERVISOR" --deadline "$deadline" --grace "$LANE_KILL_GRACE" \
-        --log "$log" --report "$report" -- "$@" &
+        --log "$log" --report "$report" --cancel-file "$ACTIVE_CANCEL" -- "$@" &
     ACTIVE_SUPERVISOR=$!
     local stop_seen_at=""
     while kill -0 "$ACTIVE_SUPERVISOR" 2>/dev/null; do
@@ -408,7 +465,7 @@ run_bounded() {
             wait "$ACTIVE_SUPERVISOR" 2>/dev/null
             continue
         fi
-        # Stopping: the supervisor was told (trap). Poll rather than wait, so
+        # Stopping: the supervisor was told (cancel file). Poll rather than wait, so
         # a supervisor that does not finish its own cleanup in time is
         # killed; the scope check below then treats the missing report as
         # lost containment and clears the scope itself.
@@ -422,6 +479,7 @@ run_bounded() {
     wait "$ACTIVE_SUPERVISOR" 2>/dev/null
     status=$?
     ACTIVE_SUPERVISOR=""
+    ACTIVE_CANCEL=""
     if [[ ! -s "$cgroup_file" ]]; then
         # The scope was never established, so the supervisor -- and the lane
         # -- never started. Whatever already holds this unit name is not ours

@@ -147,6 +147,10 @@ def main() -> int:
     parser.add_argument("--grace", type=float, default=15.0)
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    # The driver's cancellation channel: a file it creates when it is stopped.
+    # Unlike a signal it cannot arrive before this process is ready for it --
+    # it is checked before the lane is started and on every poll.
+    parser.add_argument("--cancel-file", type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -184,6 +188,13 @@ def main() -> int:
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
 
+    def cancel_requested() -> bool:
+        return args.cancel_file is not None and args.cancel_file.exists()
+
+    if cancel_requested():
+        log_line(args.log, "lane cancelled before it started; not a verdict")
+        return report(128 + signal.SIGTERM, False, 0, cancelled=True)
+
     with args.log.open("ab") as out:
         proc = subprocess.Popen(
             command,
@@ -203,6 +214,8 @@ def main() -> int:
                 f"lane budget exhausted; killing process group {leader} and every descendant",
             )
             break
+        if not stopping and cancel_requested():
+            stopping = signal.SIGTERM
         if stopping:
             log_line(args.log, "supervisor stopped; killing the lane")
             break

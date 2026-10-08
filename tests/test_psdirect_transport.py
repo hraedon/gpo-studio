@@ -180,7 +180,14 @@ $bad = foreach ($node in $ast.FindAll({ param($n) $true }, $true)) {
         }
         # Resolve what will actually run: a module-qualified name to its
         # command, and an alias to its target.
-        if ($name -match '\\') { $name = $name.Split('\')[-1] }
+        # Only Module\Command is unwrapped; any other path spelling -- .\x,
+        # C:\x, \\host\share, /usr/bin/x, x.exe -- names a native program.
+        if ($name -match '^[A-Za-z][\w.]*\\[A-Za-z][\w-]*$') {
+            $name = $name.Split('\')[-1]
+        } elseif ($name -match '[\\/:]|^\.|\.(exe|com|bat|cmd)$') {
+            "${line}: native path: $name"
+            continue
+        }
         $found = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($found -and "$($found.CommandType)" -eq 'Alias' -and $found.ResolvedCommand) {
             $name = $found.ResolvedCommand.Name
@@ -271,8 +278,12 @@ Set-Alias pstart Start-Process
 pstart sh
 New-Alias -Name other -Value Start-Process
 gci .
+& .\\tool.exe
+& C:\\x\\y.exe
+& \\\\host\\share\\x
+tool.exe
 """
-_EXPECTED_CONTROL_LINES = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18}
+_EXPECTED_CONTROL_LINES = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21, 22, 23}
 
 
 def test_the_native_guard_catches_every_launch_form(tmp_path: Path) -> None:

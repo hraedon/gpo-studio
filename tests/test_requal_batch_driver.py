@@ -12,8 +12,11 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
+import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +31,48 @@ pytestmark = pytest.mark.skipif(
     shutil.which("bash") is None or os.name == "nt",
     reason="the driver is a POSIX controller script",
 )
+
+
+def _unsafe_ancestor(path: Path) -> Path | None:
+    """The first directory on `path` (itself included) that the driver's batch
+    directory rule would refuse as an ancestor, or None."""
+    uid = os.getuid()
+    for directory in [path, *path.parents]:
+        st = directory.lstat()
+        if stat.S_ISLNK(st.st_mode) or st.st_uid not in (0, uid):
+            return directory
+        if st.st_mode & 0o022 and not st.st_mode & stat.S_ISVTX:
+            return directory
+    return None
+
+
+@pytest.fixture
+def tmp_path(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """A private, canonical base for this module's batch directories.
+
+    The driver refuses a batch directory with any ancestor others can write
+    (strictly: the user's private group too), so these tests must not depend
+    on where TMPDIR lives. pytest's own directory is used when its ancestry is
+    safe; otherwise a fresh 0700 directory under /tmp or /var/tmp (sticky,
+    root-owned); otherwise the test is skipped, saying which directory to fix.
+    """
+    own = tmp_path_factory.mktemp("driver").resolve()
+    unsafe = _unsafe_ancestor(own)
+    if unsafe is None:
+        yield own
+        return
+    for root in ("/tmp", "/var/tmp"):
+        if os.path.isdir(root) and _unsafe_ancestor(Path(root).resolve()) is None:
+            base = Path(tempfile.mkdtemp(prefix="gpo-studio-driver-", dir=root)).resolve()
+            try:
+                yield base
+            finally:
+                shutil.rmtree(base, ignore_errors=True)
+            return
+    pytest.skip(
+        f"no private base for a batch directory: {unsafe} is writable by others "
+        f"(chmod g-w,o-w {unsafe}, or set TMPDIR under a private parent)"
+    )
 
 
 def _clone(tmp_path: Path, supervisor: str | None = None) -> Path:
@@ -121,7 +166,7 @@ def _require_scopes() -> None:
 #: 0 EMPTY, 1 POPULATED, 2 UNKNOWN, 3 GONE. Each call is logged to
 #: FAKE_SCOPE_LOG.
 _FAKE_SCOPE_TOOL = r"""#!/usr/bin/env python3
-import os, signal, sys
+import os, signal, sys, time
 mode = os.environ.get("FAKE_SCOPE_MODE", "")
 action = sys.argv[1]
 with open(os.environ["FAKE_SCOPE_LOG"], "a", encoding="utf-8") as fh:
@@ -154,6 +199,7 @@ if action == "start":
         print(f"Failed to start transient scope unit: Unit {unit}.scope already exists.",
               file=sys.stderr)
         sys.exit(1)
+    time.sleep(float(os.environ.get("FAKE_SCOPE_START_DELAY") or 0))
     os.environ["FAKE_SCOPE_ID"] = unit
     with open(cgroup_file + ".partial", "w", encoding="utf-8") as fh:
         fh.write(unit + "\n")
@@ -928,6 +974,7 @@ def test_nothing_outside_the_tests_selects_the_test_scope_tool() -> None:
                 "--test-scope-tool",
                 "GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE",
                 "GPO_STUDIO_REQUAL_TEST_SCOPE",
+                "GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_LAUNCH",
             )
         ):
             offenders.append(relative)
@@ -1038,7 +1085,9 @@ def test_a_replaceable_ancestor_is_refused_by_name(tmp_path: Path) -> None:
     assert not (tmp_path / "acb.log").exists()
 
 
-def test_a_replaceable_ancestor_reached_through_a_symlink_is_refused(tmp_path: Path) -> None:
+def test_a_symlinked_component_is_refused(tmp_path: Path) -> None:
+    """Re-check of 42691dd: an intermediate symlink's target escaped the
+    ancestor walk. A batch directory path must now be canonical."""
     parent = tmp_path / "shared-parent"
     (parent / "real").mkdir(parents=True)
     (parent / "real").chmod(0o755)
@@ -1047,7 +1096,67 @@ def test_a_replaceable_ancestor_reached_through_a_symlink_is_refused(tmp_path: P
     link.symlink_to(parent / "real")
     result = _batch_at(tmp_path, link / "batch")
     assert result.returncode == 2
-    assert f"refusing: {parent} (an ancestor" in result.stderr
+    assert f"refusing: {link} is a symlink" in result.stderr
+    assert not (parent / "real" / "batch").exists()
+
+
+@pytest.mark.parametrize("form", ["dotdot", "dot", "double-slash", "trailing-slash"])
+def test_a_non_canonical_batch_dir_is_refused_before_anything_is_created(
+    tmp_path: Path, form: str
+) -> None:
+    """`..` discarded a component the walk never saw (re-check of 42691dd)."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o777)
+    spelled = {
+        "dotdot": f"{shared}/../batch",
+        "dot": f"{tmp_path}/./batch",
+        "double-slash": f"{tmp_path}//batch",
+        "trailing-slash": f"{tmp_path}/batch/",
+    }[form]
+    clone = _clone(tmp_path)
+    env = _plain_env(tmp_path)
+    result = subprocess.run(
+        _driver(clone, env, spelled, "wp1b"), cwd=clone, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 2, result.stderr
+    assert "must be canonical" in result.stderr
+    assert not (tmp_path / "batch").exists()
+    assert not (tmp_path / "acb.log").exists()
+
+
+def test_a_symlink_loop_is_refused(tmp_path: Path) -> None:
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    result = _batch_at(tmp_path, loop / "batch")
+    assert result.returncode == 2
+    assert f"refusing: <batch-dir> {loop}/batch cannot be resolved" in result.stderr
+    assert not (tmp_path / "acb.log").exists()
+
+
+def test_a_relative_batch_dir_is_refused(tmp_path: Path) -> None:
+    clone = _clone(tmp_path)
+    env = _plain_env(tmp_path)
+    result = subprocess.run(
+        _driver(clone, env, "relative-batch", "wp1b"),
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "must be an absolute path" in result.stderr
+    assert not (clone / "relative-batch").exists()
+
+
+def test_an_unsafe_ancestor_refusal_says_how_to_fix_it(tmp_path: Path) -> None:
+    parent = tmp_path / "group-writable"
+    parent.mkdir()
+    parent.chmod(0o770)  # the user-private group counts as others
+    result = _batch_at(tmp_path, parent / "batch")
+    assert result.returncode == 2
+    assert f"chmod g-w,o-w {parent}" in result.stderr
+    assert "under a private parent" in result.stderr
 
 
 def test_a_sticky_ancestor_is_accepted(tmp_path: Path) -> None:
@@ -1187,3 +1296,78 @@ def test_a_progress_record_altered_mid_batch_is_refused(tmp_path: Path) -> None:
     assert proc.returncode == 2, err
     assert "no longer a private file" in err
     assert progress.read_text() == ""
+
+
+# --- re-check of 42691dd: a stop racing a launch -------------------------------
+
+
+def _start_paused(tmp_path: Path, **extra: str) -> tuple[subprocess.Popen[str], Path]:
+    scope_env = _scope_env(tmp_path)
+    clone = _clone(tmp_path)
+    env = {
+        **os.environ,
+        **scope_env,
+        **extra,
+        "PATH": f"{_scripted_acb(tmp_path, _DETACH_AND_WAIT)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+        "FAKE_COUNT": str(tmp_path / "count"),
+        "FAKE_PIDS": str(tmp_path / "pids"),
+        "GPO_STUDIO_LANE_BUDGET_SECONDS": "90",
+        "GPO_STUDIO_LANE_KILL_GRACE_SECONDS": "2",
+    }
+    proc = subprocess.Popen(
+        _driver(clone, env, str(tmp_path / "batch"), "wp1b", "wp2"),
+        cwd=clone,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return proc, tmp_path / "batch"
+
+
+def _until(condition: Any, what: str) -> None:
+    deadline = time.monotonic() + 30
+    while not condition():
+        assert time.monotonic() < deadline, f"never saw {what}"
+        time.sleep(0.05)
+
+
+def _assert_cancelled_before_start(tmp_path: Path, proc: subprocess.Popen[str]) -> None:
+    out, err = proc.communicate(timeout=120)
+    assert proc.returncode == 5, err
+    rows = _rows(tmp_path)
+    assert [(r["exit_status"], r["cancelled"], r["containment_lost"]) for r in rows] == [
+        (143, True, False)
+    ]
+    assert not (tmp_path / "count").exists(), "the lane started after the stop"
+    assert not (tmp_path / "acb.log").exists()
+
+
+def test_a_stop_after_the_last_check_but_before_the_launch_prevents_the_lane(
+    tmp_path: Path,
+) -> None:
+    """Re-check of 42691dd: a stop landing between the eligibility check and
+    the launch let the lane start. The test pause sits exactly there."""
+    proc, batch = _start_paused(tmp_path, GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_LAUNCH="3")
+    # The invocation's private directory appears just before the pause.
+    _until(lambda: any((batch / "tmp").glob("tmp.*")), "the launch pause")
+    os.kill(proc.pid, signal.SIGTERM)
+    _assert_cancelled_before_start(tmp_path, proc)
+    assert "lane cancelled before it started" in (batch / "logs/wp1b.log").read_text()
+
+
+def test_a_stop_after_the_fork_but_before_the_supervisor_is_ready_prevents_the_lane(
+    tmp_path: Path,
+) -> None:
+    """The supervisor is launched but not yet running: the stop must reach it
+    anyway (through the cancel file it reads before starting the lane)."""
+    proc, batch = _start_paused(tmp_path, FAKE_SCOPE_START_DELAY="3")
+    _until(
+        lambda: (tmp_path / "scope.log").exists()
+        and "start" in (tmp_path / "scope.log").read_text().split(),
+        "the scope start",
+    )
+    os.kill(proc.pid, signal.SIGTERM)
+    _assert_cancelled_before_start(tmp_path, proc)
