@@ -13,6 +13,7 @@ from .backup import (
     BackupWmiFilter,
     read_file_bytes,
 )
+from .fdeploy import FDEPLOY_POLICY_PATH
 from .gpp import (
     GppCollection,
     GppScope,
@@ -118,7 +119,19 @@ _GPP_DISCOVERY_PATHS: frozenset[str] = frozenset(
 _HANDLED_GPP_FILES = _GPP_DISCOVERY_PATHS
 
 
+_FDEPLOY_USER_RELATIVE = FDEPLOY_POLICY_PATH.split("/", 1)[1].casefold()
+
+
 def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
+    """Inventory the extension files the model does not carry.
+
+    ``fdeploy1.ini`` leaves this list once ``read_backup`` has parsed it onto
+    ``GPO.fdeploy`` (WI-068): it is modeled then, read-only, with its text kept
+    verbatim, so "metadata only; original bytes not stored" would be false of
+    it. The empty ``fdeploy.ini`` marker beside it is not parsed and stays
+    here. Every file, ``fdeploy1.ini`` included, is still listed by path, size
+    and hash in the imported source inventory.
+    """
     metadata: list[CseMetadataEntry] = []
     for ext in (*backup_gpo.machine_extensions, *backup_gpo.user_extensions):
         if ext.guid == _REGISTRY_CSE_GUID:
@@ -131,6 +144,11 @@ def collect_cse_metadata(backup_gpo: BackupGpo) -> tuple[CseMetadataEntry, ...]:
             f for f in ext.files
             if f.relative_path.replace("\\", "/") not in _HANDLED_GPP_FILES
             and f.relative_path.casefold() != "registry.pol"
+            and not (
+                backup_gpo.fdeploy is not None
+                and ext.side == "user"
+                and f.relative_path.replace("\\", "/").casefold() == _FDEPLOY_USER_RELATIVE
+            )
         ]
         if not non_gpp_files:
             continue

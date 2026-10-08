@@ -7,15 +7,19 @@ verdict's bound file set, so the composition lives in `api.py` and this file is
 what stops the two drifting. Same shape as
 `test_policy_family_surface.py`, same reason.
 
-Certified by `object-security-20260905191252-4253` at `f5cad577`, 18/18 checks,
-succeeding `object-security-20260907075319-7408` (19/19) on the same lane.
+Certified by `object-security-20261008082348-9729` at `1fb3f56`, 20/20 checks
+(the Plan 034 batch's successor run), after `object-security-20260905191252-4253`
+(18/18) and `object-security-20260907075319-7408` (19/19) on the same lane.
 Three Registry Keys rows, three File Security rows and three Service General
 Setting rows, exercising propagation codes 0/1/2 and startup codes 2/3/4.
 
 **Restricted groups are not part of the surface**, and one test here exists to
-keep it that way. The candidate has no `[Group Membership]` rows, so the
-serializer for that family has never been read by an oracle -- and when it was
-looked at, it emitted a bare SID where Windows emits a star-SID (WI-064).
+keep it that way. Their writer emitted a bare SID where Windows emits a
+star-SID (WI-064); it is corrected, and the candidate's `[Group Membership]`
+rows built by `RestrictedGroupsFamily` were certified by the 2026-10-08 run.
+The surface still composes the candidate *minus* that section: adding the
+family is a surface change of its own, and the `restricted_groups_not_surfaced`
+message asserted below predates the certification.
 """
 
 from __future__ import annotations
@@ -45,6 +49,9 @@ BUILDER = REPO_ROOT / "scripts" / "plan-033" / "build-object-security-candidate.
 
 _BUILDER_SYMBOLS = runpy.run_path(str(BUILDER))
 _candidate_sections = _BUILDER_SYMBOLS["candidate_sections"]
+
+#: In the candidate, not on the surface: no verdict has certified it yet.
+_UNSURFACED_SECTION = "Group Membership"
 
 _REGISTRY_SDDL = "D:PAR(A;CI;KA;;;BA)(A;CI;KR;;;BU)"
 _FILE_SDDL = "D:PAR(A;OICI;FA;;;BA)"
@@ -87,9 +94,17 @@ def client() -> TestClient:
 
 
 def test_the_surface_composes_what_windows_certified() -> None:
-    """Section for section, entry for entry, against the bound builder."""
+    """Section for section, entry for entry, against the bound builder.
+
+    Everything but `[Group Membership]`, which the candidate carries for the
+    lane to measure and the surface does not offer (WI-064).
+    """
     request = ObjectSecurityRenderRequest.model_validate(CERTIFIED_REQUEST)
-    assert object_security_sections(request) == _candidate_sections()
+    candidate = _candidate_sections()
+    assert _UNSURFACED_SECTION in {section.name for section in candidate}
+    assert object_security_sections(request) == tuple(
+        section for section in candidate if section.name != _UNSURFACED_SECTION
+    )
 
 
 def test_the_section_order_is_this_lanes_order_not_the_other_ones() -> None:
@@ -219,19 +234,15 @@ def test_restricted_groups_cannot_be_sent_and_the_response_says_so(
     }
 
 
-def test_the_restricted_groups_writer_still_emits_the_unmeasured_key_form() -> None:
-    """WI-064, pinned: the defect that keeps the family off the surface.
+def test_the_restricted_groups_writer_emits_the_star_sid_key_windows_exports() -> None:
+    """WI-064: the key is starred, as the value always was.
 
-    Windows exports `*S-1-5-32-544__Members` (R4, `wp3-expansion-design.md`);
-    the serializer writes `S-1-5-32-544__Members`, while starring every SID in
-    the *value* of the same entry. The parser strips a leading star, so Studio
-    reads its own output back into the model that produced it and the round
-    trip is clean -- which is exactly why nothing noticed.
-
-    Asserting the wrong form on purpose. `object_security.py` is bound by the
-    live verdict, so the one-line fix expires it and costs an estate run; this
-    fails the moment someone fixes the writer without re-running the lane, and
-    that is the reminder the two have to move together.
+    Windows exports `*S-1-5-32-544__Members` (R4, `wp3-expansion-design.md`).
+    The serializer used to write `S-1-5-32-544__Members` while starring every
+    SID in the *value*; the parser strips a leading star, so the round trip was
+    clean and nothing noticed. The code half is fixed. The family stays off the
+    surface until the requalification batch's object-security run certifies
+    the candidate rows -- see the next test.
     """
     family = RestrictedGroupsFamily(
         groups=(
@@ -241,17 +252,24 @@ def test_the_restricted_groups_writer_still_emits_the_unmeasured_key_form() -> N
             ),
         )
     )
-    entries = family.to_template_entries()["Group Membership"]
-    assert list(entries) == ["S-1-5-32-544__Members"], (
-        "the restricted-groups key form changed. If it is now the star form "
-        "Windows exports, WI-064's code half is done -- the lane must re-run "
-        "with Group Membership rows in its candidate before the family is "
-        "surfaced, and this test comes out with that batch."
-    )
-    assert entries["S-1-5-32-544__Members"] == "*S-1-5-32-551", (
-        "the value is starred and the key is not, in the same call; that "
-        "self-disagreement is what makes WI-064 unambiguous"
-    )
+    assert family.to_template_entries() == {
+        "Group Membership": {"*S-1-5-32-544__Members": "*S-1-5-32-551"}
+    }
+
+
+def test_the_restricted_groups_limitation_does_not_claim_certification(
+    client: TestClient,
+) -> None:
+    """Fixing the writer is not certifying it; the response must not blur the two."""
+    limitations = {
+        limitation["code"]: limitation["message"]
+        for limitation in client.post(
+            "/api/security-template/object-security", json=CERTIFIED_REQUEST
+        ).json()["limitations"]
+    }
+    message = limitations["restricted_groups_not_surfaced"]
+    assert "not certified" in message
+    assert "WI-064" in message
 
 
 def test_every_answer_carries_all_four_limitations(client: TestClient) -> None:
@@ -272,7 +290,7 @@ def test_every_answer_carries_all_four_limitations(client: TestClient) -> None:
 def test_the_certified_service_descriptor_is_not_called_unparseable(
     client: TestClient,
 ) -> None:
-    """WI-065: the surface parses the SDDL, so `validate` means what it says.
+    """WI-065: `validate` parses on demand, so it means what it says here too.
 
     The lane's candidate uses `D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)` for
     all three services. Windows accepted it and re-exported it byte for byte,
@@ -285,21 +303,15 @@ def test_the_certified_service_descriptor_is_not_called_unparseable(
     assert response.json()["issues"] == []
 
 
-def test_the_family_still_misdiagnoses_an_unparsed_descriptor() -> None:
-    """WI-065, pinned at its source, so the mitigation above stays honest.
+def test_the_family_tells_unparsed_from_unparseable() -> None:
+    """WI-065, at its source: an unpopulated descriptor is not a failed parse.
 
-    `SystemServicesFamily.validate` reads `raw_sddl and security_descriptor is
-    None` as "could not be parsed". That field is only populated by
-    `from_template`; a directly constructed model carries `None` because
-    nothing tried, not because something failed. The candidate builder
-    constructs services exactly that way and never calls `validate`, which is
-    how a valid descriptor came to be reported as malformed with nobody seeing
-    it.
-
-    `object_security.py` is bound by the live verdict, so the fix costs an
-    estate run and this asserts the defect rather than its absence. When it
-    fails, the check has been corrected -- and the entry comes out with the
-    batch that re-runs the lane.
+    `security_descriptor` is only populated by `from_template`; a directly
+    constructed model carries `None` because nothing tried. `validate` used to
+    report that as "could not be parsed", which is why the surface parsed
+    every descriptor itself before building the models. `validate` now parses
+    on demand, so the surface builds them from `raw_sddl` alone and the
+    certified descriptor still validates clean (the test above).
     """
     from gpo_studio.object_security import ServiceSecurity, SystemServicesFamily
 
@@ -312,20 +324,15 @@ def test_the_family_still_misdiagnoses_an_unparsed_descriptor() -> None:
             ),
         )
     )
-    assert [issue.code for issue in family.validate()] == ["unparseable_service_sddl"], (
-        "the unparsed/unparseable conflation is gone. If the check now "
-        "distinguishes them, WI-065's code half is done: the lane must re-run "
-        "before the verdict binding this module is honest again, and this test "
-        "comes out with that batch."
-    )
+    assert family.services[0].security_descriptor is None
+    assert family.validate() == ()
 
 
 def test_genuinely_unparseable_sddl_is_still_reported(client: TestClient) -> None:
-    """The control: parsing at the surface must not silence the real case.
+    """The control: parsing on demand must not silence the real case.
 
-    Without this, `_parsed_sddl` could return a descriptor for anything and the
-    two tests above would still pass, having turned a misdiagnosis into a
-    blanket exemption.
+    Without this, `validate` could accept anything and the two tests above
+    would still pass, having turned a misdiagnosis into a blanket exemption.
     """
     response = client.post(
         "/api/security-template/object-security",

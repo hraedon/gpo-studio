@@ -1,0 +1,22 @@
+{
+  "backup_id": "{043EA4BF-4DC1-5374-8557-B85E805B5CE0}",
+  "settings": [
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\GPOStudio\\WP2",
+      "registry_type": "REG_DWORD",
+      "side": "computer",
+      "value": 42,
+      "value_name": "MachineValue"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\GPOStudio\\WP2",
+      "registry_type": "REG_SZ",
+      "side": "user",
+      "value": "synthetic-wp2-value",
+      "value_name": "UserValue"
+    }
+  ],
+  "source_gpo_id": "{11111111-2222-3333-4444-555555555555}"
+}

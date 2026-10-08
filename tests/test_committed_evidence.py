@@ -843,6 +843,109 @@ RETIRED_VERDICTS.update({
     'wp9-evidence/wi059-20260908/user-side-disabled/verification.json',
 })
 
+# The Plan 034 requalification batch, 2026-10-08: all 22 lanes on ONE frozen
+# commit, `263f196`, driven by `scripts/plan-033/run-requal-batch.sh`. The
+# batch carried every bound-file edit the programme could foresee -- WI-063's
+# LF renormalization of sixteen controller sources, the WI-064/WI-065
+# object-security fixes, WI-068's fdeploy field on `GPO`, WI-070's disabled-side
+# refusal, the publication-script and script-policy retirements, and the
+# review-driven finalizer hardening -- so every WI-062 verdict expired at once
+# and each of these re-earns its lane. The computer group-deny row is the first
+# pass of that lane since the WI-059 batch (WI-069).
+#
+# One verdict here was already stale when it was banked: `8b1a5b4` (DeepSeek
+# batch review B1) changed `object_security.py` after the freeze, so the
+# 263f196 object-security verdict is retired below and its successor,
+# re-run at `1fb3f56` on the same driver, is the live one.
+LANE_VERDICTS.update({
+    'wp1b-evidence/plan034-20261008/wp1b/verification.json': 'finalize_wp1b_run.py',
+    'wp2-evidence/plan034-20261008/wp2/verification.json': 'finalize_wp2_import_run.py',
+    'wp3-evidence/plan034-20261008/wp3-member/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/plan034-20261008/wp3-dc/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/plan034-20261008/object-security/verification.json': (
+        'finalize_object_security_run.py'
+    ),
+    'wp3-evidence/plan034-rerun-20261008/object-security/verification.json': (
+        'finalize_object_security_run.py'
+    ),
+    'wp1b-evidence/plan034-20261008/scripts-metadata/verification.json': (
+        'finalize_scripts_backup_run.py'
+    ),
+    'wp1b-evidence/plan034-20261008/publication/verification.json': (
+        'finalize_publication_run.py'
+    ),
+    'wp6-evidence/plan034-20261008/endpoint/verification.json': 'finalize_endpoint_run.py',
+    'wp6-evidence/plan034-20261008/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/plan034-20261008/disabled-block-enforced/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/plan034-20261008/wmi-filtering/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/plan034-20261008/wmi-filtering-error/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/plan034-20261008/computer-security-filtering/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/plan034-20261008/computer-security-filtering-deny-read/'
+    'verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/plan034-20261008/computer-security-filtering-group-deny/'
+    'verification.json': 'finalize_rsop_run.py',
+    'wp9-evidence/plan034-20261008/loopback-merge/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/plan034-20261008/loopback-replace/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/plan034-20261008/user-side-disabled/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/plan034-20261008/user-security-filtering/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/plan034-20261008/user-security-filtering-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/plan034-20261008/user-security-filtering-read-deny/'
+    'verification.json': 'finalize_rsop_user_run.py',
+})
+RETIRED_VERDICTS.update({
+    # The 20 WI-062 verdicts, superseded by the Plan 034 batch. WI-063
+    # renormalized the controller sources they bind (CRLF -> LF), and the
+    # batch's fixes and finalizer hardening moved the rest; they remain valid
+    # for `f5cad577`, and their packs and tags are preserved unchanged.
+    'wp1b-evidence/wi062-20260910/wp1b/verification.json',
+    'wp2-evidence/wi062-20260910/wp2/verification.json',
+    'wp3-evidence/wi062-20260910/wp3-member/verification.json',
+    'wp3-evidence/wi062-20260910/wp3-dc/verification.json',
+    'wp3-evidence/wi062-20260910/object-security/verification.json',
+    'wp1b-evidence/wi062-20260910/scripts-metadata/verification.json',
+    'wp1b-evidence/wi062-20260910/publication/verification.json',
+    'wp6-evidence/wi062-20260910/endpoint/verification.json',
+    'wp6-evidence/wi062-20260910/lsdou-precedence/verification.json',
+    'wp6-evidence/wi062-20260910/disabled-block-enforced/verification.json',
+    'wp6-evidence/wi062-20260910/wmi-filtering/verification.json',
+    'wp6-evidence/wi062-20260910/wmi-filtering-error/verification.json',
+    'wp6-evidence/wi062-20260910/computer-security-filtering/verification.json',
+    'wp6-evidence/wi062-20260910/computer-security-filtering-deny-read/verification.json',
+    'wp9-evidence/wi062-20260910/loopback-merge/verification.json',
+    'wp9-evidence/wi062-20260910/loopback-replace/verification.json',
+    'wp9-evidence/wi062-20260910/user-side-disabled/verification.json',
+    'wp9-evidence/wi062-20260910/user-security-filtering/verification.json',
+    'wp9-evidence/wi062-20260910/user-security-filtering-deny/verification.json',
+    'wp9-evidence/wi062-20260910/user-security-filtering-read-deny/verification.json',
+    # The WI-059 group-deny verdict, pending since the WI-062 batch could not
+    # run its lane (WI-069). The Plan 034 batch ran it at real time on
+    # re-baselined checkpoints, so the debt is paid and the old verdict is
+    # history for `4cfa9af4`.
+    'wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json',
+    # The batch's own object-security run at `263f196`: a pass, superseded
+    # within the hour. `8b1a5b4` changed `object_security.py` after the freeze
+    # (star a [Group Membership] principal only when it is a SID -- the WI-064
+    # fix had starred names too), so this verdict binds serializer bytes that
+    # no longer ship. Its successor, banked under `plan034-rerun-20261008/`, binds `1fb3f56`.
+    'wp3-evidence/plan034-20261008/object-security/verification.json',
+})
+
 
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
 #: estate batch owes. Enumerated, never pattern-matched, for the same reason
@@ -852,24 +955,13 @@ RETIRED_VERDICTS.update({
 #: matches the tree is live and must not be parked, and this set is a debt to
 #: be emptied by the batch, not a quieter neighbour of RETIRED_VERDICTS.
 #:
-#: The 2026-09-10 WI-062 batch emptied every entry but this one. The group-deny
-#: lane reboots the client mid-run, and on the post-checkpoint estate the
-#: rebooted client lands on a clock the reverted DC cannot reach: matching it
-#: needs a forward clock jump, and every forward jump deletes the DC-locator
-#: DNS records (reproduced four times, with DNS scavenging disabled and with
-#: lockout disabled). The lane's verdict is owed by the estate repair that
-#: restores the DC to real time without the DNS purge, not by any harness
-#: change; the batch note records the attempts.
-#:
-#: That repair is now **WI-069**, with a three-phase read-only capture plan and
-#: a collector in `docs/plan-033/estate-clock-dns-repair.md`. It was a debt
-#: named only in prose until 2026-09-11, which is the failure the work-item
-#: register exists to prevent -- and it also notes the step nobody took: that
-#: the records were *deleted* was concluded through a resolver, and absent,
-#: tombstoned and present-but-unserved are one symptom from there.
-PENDING_REQUALIFICATION = {
-    "wp6-evidence/wi059-20260908/computer-security-filtering-group-deny/verification.json",
-}
+#: EMPTY since the Plan 034 batch (2026-10-08). Its last entry was the WI-059
+#: computer group-deny verdict, owed since the WI-062 batch by the estate
+#: repair tracked as WI-069; the Plan 034 batch ran that lane and passed, and
+#: the old verdict is retired above. The set stays, empty, because the next
+#: verdict to need it should land here with a reason rather than invent a new
+#: mechanism.
+PENDING_REQUALIFICATION: set[str] = set()
 
 LIVE_VERDICTS = {
     relative: finalizer
@@ -1574,7 +1666,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/wi062-20260910/wp0/manifest.json")
+    manifest = _verdict("wp0-evidence/plan034-20261008/wp0/manifest.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (

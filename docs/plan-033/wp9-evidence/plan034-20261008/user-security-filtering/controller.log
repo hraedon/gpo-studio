@@ -1,0 +1,28 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=user-security-filtering
+built rsop candidate for user-security-filtering (4 GPOs) in /home/itadmin/gpo-batch-034/tmp/rsop-user-candidate-20261008081004
+  predicted winners: AllowOnly=1(Studio-RSOP-FilterAllow), Control=present(Studio-RSOP-UserControl), Filter=allow(Studio-RSOP-FilterAllow), NestedOnly=1(Studio-RSOP-FilterNested)
+  predicted denied:  Studio-RSOP-FilterReadOnly(security_filter_mismatch)
+RUN_ID=rsop-user-observe-20261008081032-7036
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261008081032-7036
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20261008081038-4557
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261008081038-4557
+--- re-establishing the interactive session (group 'StudioRsopGroup') ---
+[31;1mOperationStopped: [0m/projects/gpo-studio-batch/scripts/windows-oracle/psdirect.ps1:249[0m
+[31;1m[0m[36;1mLine |[0m
+[31;1m[0m[36;1m[36;1m 249 | [0m     [36;1m$result = Invoke-Command -Session $session `[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mharness exited 1[0m
+RUN_ID=rsop-user-observe-20261008081118-4505
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261008081118-4505
+RESESSION_PROBLEMS=
+RUN_ID=rsop-user-observe-20261008081133-5663
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261008081133-5663
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261008081038-4557","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-034/tmp/rsop-user-run-20261008081004
+CANDIDATE_DIR=/home/itadmin/gpo-batch-034/tmp/rsop-user-candidate-20261008081004
+
+run rsop-user-observe-20261008081133-5663: state=pass (source 263f19640529d469c2a54c18b43d228db5378279, dirty=False)
+  loopback intended='disabled' observed='disabled'

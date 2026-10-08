@@ -1,0 +1,172 @@
+{
+  "backup_id": "{B7CCB038-5F83-502D-9151-C5B86B049E35}",
+  "gpo_name": "GPOStudio WP1B mixed-all",
+  "native_shape_findings": [],
+  "settings": [
+    {
+      "hive": "HKLM",
+      "key": "Software\\Policies\\GPOStudio\\WP1B",
+      "registry_type": "REG_DWORD",
+      "side": "computer",
+      "value": 1101,
+      "value_name": "MachineValue"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\GPOStudio\\WP1B",
+      "registry_type": "REG_SZ",
+      "side": "user",
+      "value": "wp1b-conformance",
+      "value_name": "UserValue"
+    }
+  ],
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-000000000006}",
+  "summary": {
+    "preferences": {
+      "computer": {
+        "drives": [],
+        "groups": [
+          {
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "description": "Plan 033 WP-1B writer conformance",
+            "ilt": null,
+            "members": [
+              {
+                "action": "add",
+                "name": "GPOSTUDIO\\wp1b-member",
+                "sid": "S-1-5-21-1111111111-2222222222-3333333333-1101"
+              }
+            ],
+            "name": "GPOStudio-WP1B-Group",
+            "remove_all_groups": false,
+            "remove_all_users": false,
+            "sid": ""
+          }
+        ],
+        "local_users": [
+          {
+            "account_disabled": true,
+            "account_locked_out": false,
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "description": "Plan 033 WP-1B writer conformance",
+            "full_name": "WP1B Conformance User",
+            "ilt": null,
+            "password_never_expires": true,
+            "user_cannot_change_password": false,
+            "user_name": "wp1b-localuser"
+          }
+        ],
+        "scheduled_tasks": [
+          {
+            "action": "update",
+            "arguments": "/c exit 0",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "element_variant": "TaskV2",
+            "enabled": true,
+            "ilt": null,
+            "name": "GPOStudio WP1B Conformance Task",
+            "program": "C:\\Windows\\System32\\cmd.exe",
+            "run_as": "NT AUTHORITY\\System",
+            "start_in": "C:\\Windows\\System32",
+            "trigger_days": "",
+            "trigger_time": "03:15:00",
+            "trigger_type": "daily"
+          }
+        ],
+        "services": [
+          {
+            "account_name": "",
+            "append_failure_count": false,
+            "arguments": "",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "first_failure": "restart",
+            "ilt": null,
+            "interact_with_desktop": false,
+            "program": "",
+            "reset_fail_count_delay_seconds": 172800,
+            "restart_computer_delay_milliseconds": null,
+            "restart_message": "",
+            "restart_service_delay_milliseconds": 120000,
+            "second_failure": "restart",
+            "service_action": "start",
+            "service_name": "GPOStudio-WP1B-Service",
+            "startup_type": "automatic",
+            "third_failure": null,
+            "timeout_seconds": 45
+          }
+        ]
+      },
+      "user": {
+        "drives": [
+          {
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "ilt": null,
+            "label": "WP1B Conformance Share",
+            "letter": "P",
+            "path": "\\\\gpostudio-wp1b.invalid\\share\\conformance",
+            "persistent": true,
+            "use_letter": true
+          }
+        ],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      }
+    },
+    "registry": {
+      "computer": [
+        {
+          "hive": "HKLM",
+          "key": "Software\\Policies\\GPOStudio\\WP1B",
+          "registry_type": "REG_DWORD",
+          "value": 1101,
+          "value_name": "MachineValue"
+        }
+      ],
+      "user": [
+        {
+          "hive": "HKCU",
+          "key": "Software\\Policies\\GPOStudio\\WP1B",
+          "registry_type": "REG_SZ",
+          "value": "wp1b-conformance",
+          "value_name": "UserValue"
+        }
+      ]
+    },
+    "version": "gpo-studio.writer-conformance.v1"
+  }
+}

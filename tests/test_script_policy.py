@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from gpo_studio.artifact_store import ArtifactStore
 from gpo_studio.script_policy import (
     PowerShellScriptEntry,
     ScriptEntry,
     ScriptPolicy,
-    parse_script_policy_ini,
     preview_script_policy,
     quote_parameter,
-    serialize_script_policy_ini,
     validate_parameters,
 )
 
@@ -199,76 +194,6 @@ class TestQuoteParameter:
         assert quote_parameter("") == '""'
 
 
-class TestIniSerialization:
-    def test_legacy_round_trip(self) -> None:
-        policy = ScriptPolicy(
-            startup=(_entry(script_id="s1", original_name="a.bat", parameters="-q"),),
-            shutdown=(
-                _entry(
-                    script_id="s2",
-                    original_name="b.bat",
-                    parameters="-Confirm:$false",
-                ),
-            ),
-        )
-        ini = serialize_script_policy_ini(policy, powershell=False)
-        parsed = parse_script_policy_ini(ini, powershell=False)
-        assert len(parsed.startup) == 1
-        assert parsed.startup[0].original_name == "a.bat"
-        assert parsed.startup[0].parameters == "-q"
-        assert len(parsed.shutdown) == 1
-        assert parsed.shutdown[0].original_name == "b.bat"
-
-    def test_powershell_round_trip(self) -> None:
-        policy = ScriptPolicy(
-            powershell_startup=(
-                _ps_entry(
-                    script_id="p1",
-                    original_name="x.ps1",
-                    parameters="-Verbose",
-                    no_profile=True,
-                    non_interactive=True,
-                    execution="asynchronous",
-                ),
-            ),
-            run_logon_scripts_sync=True,
-            legacy_scripts_first=False,
-            powershell_order="run_windows_powershell_scripts_first",
-        )
-        ini = serialize_script_policy_ini(policy, powershell=True)
-        parsed = parse_script_policy_ini(ini, powershell=True)
-        assert len(parsed.powershell_startup) == 1
-        entry = parsed.powershell_startup[0]
-        assert entry.original_name == "x.ps1"
-        assert entry.parameters == "-Verbose"
-        assert entry.no_profile is True
-        assert entry.non_interactive is True
-        assert entry.execution == "asynchronous"
-        assert parsed.run_logon_scripts_sync is True
-        assert parsed.legacy_scripts_first is False
-        assert parsed.powershell_order == "run_windows_powershell_scripts_first"
-
-    def test_empty_sections(self) -> None:
-        policy = ScriptPolicy()
-        ini = serialize_script_policy_ini(policy, powershell=False)
-        assert "[Startup]" in ini
-        assert "[Shutdown]" in ini
-        assert "[Logon]" in ini
-        assert "[Logoff]" in ini
-        parsed = parse_script_policy_ini(ini, powershell=False)
-        assert parsed.startup == ()
-        assert parsed.shutdown == ()
-        assert parsed.logon == ()
-        assert parsed.logoff == ()
-
-    def test_missing_sections(self) -> None:
-        parsed = parse_script_policy_ini("[Startup]\n0CmdLine=x.bat\n", powershell=False)
-        assert len(parsed.startup) == 1
-        assert parsed.shutdown == ()
-        assert parsed.logon == ()
-        assert parsed.logoff == ()
-
-
 class TestExecutionPreview:
     def test_computer_side_runs_as_system(self) -> None:
         policy = ScriptPolicy(startup=(_entry(script_id="s1", original_name="a.bat"),))
@@ -299,17 +224,30 @@ class TestExecutionPreview:
         assert "powershell.exe" in previews[0].effective_command
         assert "ExecutionPolicy Bypass" in previews[0].effective_command
 
-    def test_preview_uses_artifact_name(self, tmp_path: Path) -> None:
-        store = ArtifactStore(str(tmp_path / "artifacts.db"))
-        meta = store.store_artifact(b"# script", "renamed.bat")
+    def test_preview_names_the_entry_by_its_original_name(self) -> None:
+        """The preview reads the entry itself; no artifact store is consulted."""
         policy = ScriptPolicy(
             startup=(
                 _entry(
                     script_id="s1",
-                    artifact_id=meta.artifact_id,
+                    artifact_id="b" * 64,
                     original_name="original.bat",
+                    parameters="/q",
                 ),
             )
         )
-        previews = preview_script_policy(policy, "computer", artifact_store=store)
-        assert previews[0].effective_command.startswith("renamed.bat")
+        previews = preview_script_policy(policy, "computer")
+        assert previews[0].effective_command == "original.bat /q"
+
+
+def test_the_pre_r2_ini_writer_and_parser_stay_deleted() -> None:
+    """2026-10-07 ruling: the certified writer is export.gpmc_backup_bundle.
+
+    The deleted pair wrote an unmeasured INI shape (a ``[Policy]`` section, a
+    ``NoProfile``/``NonInteractive``/``ExecutionMode`` key per entry, comment
+    stubs for empty triggers) that no Windows capture contains.
+    """
+    import gpo_studio.script_policy as script_policy
+
+    assert not hasattr(script_policy, "serialize_script_policy_ini")
+    assert not hasattr(script_policy, "parse_script_policy_ini")

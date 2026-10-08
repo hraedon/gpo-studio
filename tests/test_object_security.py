@@ -116,6 +116,56 @@ def test_restricted_groups_empty_family_entries() -> None:
     assert family.to_template_entries() == {}
 
 
+#: The R4 native shape (`docs/plan-033/wp3-expansion-design.md`): an entry
+#: authored as `Administrators__Members = Administrator,*S-1-5-32-544` was
+#: exported by Windows as this line. The machine half of the `-500` SID is
+#: replaced with a synthetic one.
+_R4_EXPORTED_LINE = "*S-1-5-32-544__Members = *S-1-5-32-544,*S-1-5-21-1-2-3-500"
+
+
+def test_restricted_groups_key_is_written_in_the_r4_star_sid_form() -> None:
+    """WI-064: the group in the key is starred, as Windows writes it.
+
+    Unstarred, MS-GPSB reads the key's principal as a *name*, so
+    `S-1-5-32-544__Members` names a group called "S-1-5-32-544". The reader
+    strips a leading star either way, so a round trip cannot catch the bare
+    form; only a comparison with the native bytes can.
+    """
+    family = RestrictedGroupsFamily(
+        groups=(
+            RestrictedGroup(
+                group_sid=_ADMIN,
+                members=(
+                    RestrictedGroupMember(sid=_ADMIN),
+                    RestrictedGroupMember(sid="S-1-5-21-1-2-3-500"),
+                ),
+                member_of=(RestrictedGroupMember(sid=_USERS),),
+            ),
+        )
+    )
+    entries = family.to_template_entries()
+    assert entries == {
+        "Group Membership": {
+            f"*{_ADMIN}__Members": f"*{_ADMIN},*S-1-5-21-1-2-3-500",
+            f"*{_ADMIN}__Memberof": f"*{_USERS}",
+        }
+    }
+    text = _entries_to_text(entries)
+    assert text.splitlines() == [
+        "[Group Membership]",
+        _R4_EXPORTED_LINE,
+        f"*{_ADMIN}__Memberof = *{_USERS}",
+    ]
+
+
+def test_restricted_groups_reproduce_the_r4_export_byte_for_byte() -> None:
+    """Read Windows' line and write it back: the same line, not a lookalike."""
+    template = parse_security_template(f"[Group Membership]\n{_R4_EXPORTED_LINE}\n")
+    family = RestrictedGroupsFamily.from_template(template)
+    rebuilt = _entries_to_text(family.to_template_entries())
+    assert rebuilt.splitlines() == ["[Group Membership]", _R4_EXPORTED_LINE]
+
+
 # ---------------------------------------------------------------------------
 # System Services
 # ---------------------------------------------------------------------------
@@ -208,6 +258,52 @@ BadSvc = 2,"NOT_VALID_SDDL"
         i.code == "unparseable_service_sddl" and i.severity == "error"
         for i in issues
     )
+
+
+def test_system_services_unparsed_descriptor_is_not_called_unparseable() -> None:
+    """WI-065: a directly built model carries no descriptor because nothing tried.
+
+    Only `from_template` populates `security_descriptor`. `validate` used to
+    read its absence as a parse failure, so the object-security lane's own
+    certified descriptor came back as an error. It now parses on demand.
+    """
+    family = SystemServicesFamily(
+        services=(
+            ServiceSecurity(
+                service_name="Spooler",
+                startup_mode="automatic",
+                raw_sddl="D:PAR(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)",
+            ),
+        )
+    )
+    assert family.validate() == ()
+
+
+def test_system_services_unparseable_descriptor_on_a_direct_model_is_reported() -> None:
+    """The control for the test above: parsing on demand still fails bad SDDL."""
+    family = SystemServicesFamily(
+        services=(ServiceSecurity(service_name="BadSvc", raw_sddl="NOT_VALID_SDDL"),)
+    )
+    assert [(i.severity, i.code) for i in family.validate()] == [
+        ("error", "unparseable_service_sddl")
+    ]
+
+
+def test_service_risk_counts_an_unparsed_descriptor_as_an_acl_change() -> None:
+    """The same conflation in the blast radius: unparsed is not absent (WI-065)."""
+    direct = ServiceSecurity(service_name="WinDefend", raw_sddl=_SDDL_ADMIN)
+    parsed = SystemServicesFamily.from_template(
+        parse_security_template(f'[Service General Setting]\nWinDefend = "{_SDDL_ADMIN}"\n')
+    ).services[0]
+    assert parsed.security_descriptor is not None
+    for svc in (direct, parsed):
+        items = assess_blast_radius(
+            SystemServicesFamily(services=(svc,)),
+            RegistrySecurityFamily(),
+            FileSystemSecurityFamily(),
+            RestrictedGroupsFamily(),
+        )
+        assert items[0].risk_level == "high"
 
 
 def test_system_services_empty_name_error() -> None:
@@ -808,3 +904,27 @@ def _entries_to_text(entries: dict[str, dict[str, str]]) -> str:
         )
     )
     return format_security_template(template)
+
+
+def test_a_name_keyed_group_is_written_back_unstarred() -> None:
+    """Review B1 (DeepSeek): only a SID is starred; a name stays a name.
+
+    Native templates carry name keys and name members, and the reader keeps
+    them; starring them on the way out would name principals called
+    ``*Power Users`` and ``*Administrator``.
+    """
+    from gpo_studio.security_template import parse_security_template
+
+    family = RestrictedGroupsFamily.from_template(
+        parse_security_template(
+            "[Group Membership]\n"
+            "Power Users__Members = Administrator,*S-1-5-32-545\n"
+            "*S-1-5-32-544__Memberof = Backup Operators\n"
+        )
+    )
+    assert family.to_template_entries() == {
+        "Group Membership": {
+            "Power Users__Members": "Administrator,*S-1-5-32-545",
+            "*S-1-5-32-544__Memberof": "Backup Operators",
+        }
+    }

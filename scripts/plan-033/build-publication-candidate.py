@@ -17,6 +17,15 @@ So this builder emits two artifacts:
   would write: its SYSVOL paths, its extension-list values, and which half of
   the packed GPT.INI version it moves.
 
+Every value in ``expected.json`` is read off the plan's steps. The extension
+lists in particular come from the plan's ``update_extension_lists`` steps and
+NOT from ``extension_registration(gpo)``: the backup Windows imports is built
+by the export path, which registers the extensions on its own, so an
+expectation derived from the same vocabulary would match Windows even for a
+plan that omitted both registration steps -- certifying the WI-057 omission
+this lane exists to catch. A plan with no step for a side claims an empty list
+for it, and Windows' populated attribute then fails the comparison.
+
 ``expected.json`` is built here, on the controller, and hash-bound by the
 finalizer (WI-025). That matters more than usual for this lane: the guest is
 the thing being measured, so an expectation the guest could supply would be a
@@ -49,18 +58,14 @@ import json
 import sys
 from pathlib import Path
 
-from gpo_studio.export import (
-    ExtensionRegistration,
-    extension_registration,
-    gpmc_backup_bundle,
-    native_backup_id,
-)
+from gpo_studio.export import gpmc_backup_bundle, native_backup_id
 from gpo_studio.gpp import GppCollection, GppDrive, GppService
 from gpo_studio.model import GPO, RegistrySetting, ValidationError
 from gpo_studio.publication import (
     PublicationPlan,
     generate_publication_plan,
     planned_sysvol_paths,
+    validate_publication_plan,
 )
 
 ARCHIVE_NAME = "studio-publication-backup.zip"
@@ -112,9 +117,39 @@ _GPO = GPO(
 )
 
 
-def _expectation(
-    gpo: GPO, plan: PublicationPlan, registration: ExtensionRegistration
-) -> dict[str, object]:
+#: The directory attribute each side's extension list lives in, keyed the way
+#: ``expected.json`` names them.
+_EXTENSION_ATTRIBUTES = {
+    "gPCMachineExtensionNames": "machine_extension_names",
+    "gPCUserExtensionNames": "user_extension_names",
+}
+
+
+def _planned_extension_lists(plan: PublicationPlan) -> dict[str, str]:
+    """The extension-list values *plan* says it would set, by expectation key.
+
+    Read from the ``update_extension_lists`` steps' typed fields, never from
+    the GPO. A side with no step is the plan claiming that attribute stays
+    empty, which is exactly what the lane must be able to catch.
+    """
+    planned = {key: "" for key in _EXTENSION_ATTRIBUTES.values()}
+    seen: set[str] = set()
+    for step in plan.steps:
+        if step.operation != "update_extension_lists":
+            continue
+        attribute = step.directory_attribute
+        if attribute is None or attribute not in _EXTENSION_ATTRIBUTES:
+            raise ValueError(f"step {step.step_id!r} names no extension-list attribute")
+        if not step.directory_value:
+            raise ValueError(f"step {step.step_id!r} sets {attribute} to nothing")
+        if attribute in seen:
+            raise ValueError(f"plan sets {attribute} twice")
+        seen.add(attribute)
+        planned[_EXTENSION_ATTRIBUTES[attribute]] = step.directory_value
+    return planned
+
+
+def _expectation(gpo: GPO, plan: PublicationPlan) -> dict[str, object]:
     halves = {
         step.version_half
         for step in plan.steps
@@ -130,8 +165,7 @@ def _expectation(
         "backup_id": native_backup_id(gpo),
         "plan_payload_digest": plan.payload_digest,
         "sysvol_paths": list(planned_sysvol_paths(plan)),
-        "machine_extension_names": registration.machine,
-        "user_extension_names": registration.user,
+        **_planned_extension_lists(plan),
         "version_half": halves.pop(),
         # Asserted as an absence, which is the only way to state it: an
         # undescribed GPO must produce no comment file.
@@ -149,27 +183,13 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
 
     plan = generate_publication_plan(_GPO, target="both")
-    registration = extension_registration(_GPO)
-    if registration.unverified_families:
-        print(
-            "candidate carries GPP families with no captured extension metadata: "
-            + ", ".join(registration.unverified_families),
-            file=sys.stderr,
-        )
-        return 2
-    refusals = [
-        step
-        for step in plan.steps
-        if step.operation
-        in {
-            "unsupported_cse_content",
-            "unsupported_extension_registration",
-            "extension_lists_unreachable",
-        }
-    ]
+    # Every refusal the planner can emit surfaces as a validation error, so the
+    # builder asks the validator rather than keeping its own list of refusal
+    # operations that a new refusal could slip past.
+    refusals = [issue for issue in validate_publication_plan(plan) if issue.level == "error"]
     if refusals:
-        for step in refusals:
-            print(f"plan refuses publication: {step.detail}", file=sys.stderr)
+        for issue in refusals:
+            print(f"plan refuses publication: {issue.check}: {issue.message}", file=sys.stderr)
         return 2
 
     try:
@@ -180,7 +200,7 @@ def main() -> int:
         return 2
 
     (out / ARCHIVE_NAME).write_bytes(bundle)
-    expectation = _expectation(_GPO, plan, registration)
+    expectation = _expectation(_GPO, plan)
     (out / EXPECTATION_NAME).write_bytes(
         json.dumps(expectation, indent=2, sort_keys=True).encode("utf-8") + b"\n"
     )

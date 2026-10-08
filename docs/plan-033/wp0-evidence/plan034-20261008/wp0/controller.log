@@ -1,0 +1,105 @@
+=== deploying harness ===
+REAPED_ORPHANS=0 
+=== running harness (mode=success) ===
+[2026-10-08 07:43:46] [INFO] === RUN: live-synthetic-registry-basic-20261008074346-9312 ===
+[2026-10-08 07:43:46] [INFO] Fixture: synthetic-registry-basic | GPO: WP0-DryRun-Registry-20261008-074346-3688 | Domain: AD.LABDOMAIN.DEV
+[2026-10-08 07:43:47] [INFO] === SETUP: Creating disposable GPO ===
+[2026-10-08 07:43:47] [INFO] Created GPO: fa7f4058-7614-4f1e-bf12-9bd9240be35a
+[2026-10-08 07:43:47] [INFO] === SETUP: Applying recipe settings ===
+[2026-10-08 07:43:47] [INFO] === COLLECT: Backup-GPO ===
+[2026-10-08 07:43:50] [INFO] Backup ID: 3e5f5c30-bd39-45b3-9fd7-a9921f9d2c0e
+[2026-10-08 07:43:50] [INFO] === COLLECT: Get-GPOReport ===
+[2026-10-08 07:43:50] [INFO] === COLLECT: Get-GPPermission ===
+[2026-10-08 07:43:50] [INFO] === CLEANUP: Removing disposable GPO ===
+[2026-10-08 07:43:50] [INFO] Removed GPO: fa7f4058-7614-4f1e-bf12-9bd9240be35a
+[2026-10-08 07:43:50] [INFO] Verified: GPO no longer exists (strict re-query)
+[2026-10-08 07:43:50] [INFO] === RAW MANIFEST: C:\gpo-studio\runs\20261008074318-2035833\out\live-synthetic-registry-basic-20261008074346-9312\manifest.raw.json ===
+[2026-10-08 07:43:50] [INFO] Commands: 6 | Artifacts: 10 | ExecutionFailed: False
+[2026-10-08 07:43:50] [INFO] Cleanup succeeded: True
+
+[32;1mPSComputerName   : [0mmvmhyperv01.ad.hraedon.com
+[32;1mRunspaceId       : [0m4b1d424c-3a1c-4005-a263-6d5a98570178
+[32;1mId               : [0mfa7f4058-7614-4f1e-bf12-9bd9240be35a
+[32;1mDisplayName      : [0mWP0-DryRun-Registry-20261008-074346-3688
+[32;1mPath             : [0mcn={fa7f4058-7614-4f1e-bf12-9bd9240be35a},cn=policies,cn=sys
+                   tem,DC=ad,DC=labdomain,DC=dev
+[32;1mOwner            : [0mLAB\Domain Admins
+[32;1mDomainName       : [0mad.labdomain.dev
+[32;1mCreationTime     : [0m10/8/2026 7:43:39 AM
+[32;1mModificationTime : [0m10/8/2026 7:43:39 AM
+[32;1mUser             : [0mMicrosoft.GroupPolicy.UserConfiguration
+[32;1mComputer         : [0mMicrosoft.GroupPolicy.ComputerConfiguration
+[32;1mGpoStatus        : [0mAllSettingsEnabled
+[32;1mWmiFilter        : [0m
+[32;1mDescription      : [0mPlan 033 WP-0 disposable fixture
+
+[32;1mPSComputerName   : [0mmvmhyperv01.ad.hraedon.com
+[32;1mRunspaceId       : [0m4b1d424c-3a1c-4005-a263-6d5a98570178
+[32;1mId               : [0mfa7f4058-7614-4f1e-bf12-9bd9240be35a
+[32;1mDisplayName      : [0mWP0-DryRun-Registry-20261008-074346-3688
+[32;1mPath             : [0mcn={fa7f4058-7614-4f1e-bf12-9bd9240be35a},cn=policies,cn=sys
+                   tem,DC=ad,DC=labdomain,DC=dev
+[32;1mOwner            : [0mLAB\Domain Admins
+[32;1mDomainName       : [0mad.labdomain.dev
+[32;1mCreationTime     : [0m10/8/2026 7:43:39 AM
+[32;1mModificationTime : [0m10/8/2026 7:43:39 AM
+[32;1mUser             : [0mMicrosoft.GroupPolicy.UserConfiguration
+[32;1mComputer         : [0mMicrosoft.GroupPolicy.ComputerConfiguration
+[32;1mGpoStatus        : [0mAllSettingsEnabled
+[32;1mWmiFilter        : [0m
+[32;1mDescription      : [0mPlan 033 WP-0 disposable fixture
+
+[32;1mPSComputerName   : [0mmvmhyperv01.ad.hraedon.com
+[32;1mRunspaceId       : [0m4b1d424c-3a1c-4005-a263-6d5a98570178
+[32;1mId               : [0mfa7f4058-7614-4f1e-bf12-9bd9240be35a
+[32;1mDisplayName      : [0mWP0-DryRun-Registry-20261008-074346-3688
+[32;1mPath             : [0mcn={fa7f4058-7614-4f1e-bf12-9bd9240be35a},cn=policies,cn=sys
+                   tem,DC=ad,DC=labdomain,DC=dev
+[32;1mOwner            : [0mLAB\Domain Admins
+[32;1mDomainName       : [0mad.labdomain.dev
+[32;1mCreationTime     : [0m10/8/2026 7:43:39 AM
+[32;1mModificationTime : [0m10/8/2026 7:43:39 AM
+[32;1mUser             : [0mMicrosoft.GroupPolicy.UserConfiguration
+[32;1mComputer         : [0mMicrosoft.GroupPolicy.ComputerConfiguration
+[32;1mGpoStatus        : [0mAllSettingsEnabled
+[32;1mWmiFilter        : [0m
+[32;1mDescription      : [0mPlan 033 WP-0 disposable fixture
+
+RAW_MANIFEST_PATH=C:\gpo-studio\runs\20261008074318-2035833\out\live-synthetic-registry-basic-20261008074346-9312\manifest.raw.json
+RUN_DIR=C:\gpo-studio\runs\20261008074318-2035833\out\live-synthetic-registry-basic-20261008074346-9312
+RUN_DIR=C:\gpo-studio\runs\20261008074318-2035833\out\live-synthetic-registry-basic-20261008074346-9312
+=== retrieving run dir ===
+=== retrieved files ===
+/tmp/opencode/oracle-run-success-20261008074318-2035833/backup/{3E5F5C30-BD39-45B3-9FD7-A9921F9D2C0E}/Backup.xml
+/tmp/opencode/oracle-run-success-20261008074318-2035833/backup/{3E5F5C30-BD39-45B3-9FD7-A9921F9D2C0E}/bkupInfo.xml
+/tmp/opencode/oracle-run-success-20261008074318-2035833/backup/{3E5F5C30-BD39-45B3-9FD7-A9921F9D2C0E}/DomainSysvol/GPO/GPO.cmt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/backup/{3E5F5C30-BD39-45B3-9FD7-A9921F9D2C0E}/DomainSysvol/GPO/Machine/registry.pol
+/tmp/opencode/oracle-run-success-20261008074318-2035833/backup/{3E5F5C30-BD39-45B3-9FD7-A9921F9D2C0E}/DomainSysvol/GPO/User/registry.pol
+/tmp/opencode/oracle-run-success-20261008074318-2035833/backup/{3E5F5C30-BD39-45B3-9FD7-A9921F9D2C0E}/gpreport.xml
+/tmp/opencode/oracle-run-success-20261008074318-2035833/backup/manifest.xml
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/backup-gpo.stderr.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/backup-gpo.stdout.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/cleanup-requery.stderr.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/cleanup-requery.stdout.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/get-gporeport.stderr.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/get-gporeport.stdout.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/get-gppermission.stderr.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/get-gppermission.stdout.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/new-gpo.stderr.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/new-gpo.stdout.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/set-gpregistryvalue.stderr.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/commands/set-gpregistryvalue.stdout.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/fixture-input.json
+/tmp/opencode/oracle-run-success-20261008074318-2035833/gpreport.xml
+/tmp/opencode/oracle-run-success-20261008074318-2035833/harness-inputs.json
+/tmp/opencode/oracle-run-success-20261008074318-2035833/manifest.raw.json
+/tmp/opencode/oracle-run-success-20261008074318-2035833/permissions.txt
+/tmp/opencode/oracle-run-success-20261008074318-2035833/scripts/common.psm1
+/tmp/opencode/oracle-run-success-20261008074318-2035833/scripts/recipe.json
+/tmp/opencode/oracle-run-success-20261008074318-2035833/scripts/run-evidence.ps1
+LOCAL_RUN_DIR=/tmp/opencode/oracle-run-success-20261008074318-2035833
+NEXT: uv run python scripts/windows-oracle/finalize_oracle_run.py /tmp/opencode/oracle-run-success-20261008074318-2035833 --repo-root /projects/gpo-studio-batch
+MANIFEST_PATH=/tmp/opencode/oracle-run-success-20261008074318-2035833/manifest.json
+EVIDENCE_STATE=pass
+CANONICAL_HASH=91bafc4fb75ca861adb468d3618972e54689fa83b0f0042ffdefba3d325c4952
+EVIDENCE_TAG=created evidence/live-synthetic-registry-basic-20261008074346-9312 at 263f19640529 — push it: git push origin evidence/live-synthetic-registry-basic-20261008074346-9312

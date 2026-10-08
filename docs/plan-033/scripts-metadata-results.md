@@ -1,10 +1,13 @@
 # Scripts metadata lane (R10)
 
-**Current qualification (2026-09-08):** `scripts-r10-20260908013518-2476`, 21/21,
-on clean frozen `b5ccbabd19b7ed661312915ca4b314dc27bbdd6e`.
-[Complete successor evidence](wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json) and the
-[reason for the targeted refresh](backup-report-fidelity.md). Earlier results
-below remain records of their original revisions and scope.
+**Current qualification (2026-10-08):** `scripts-r10-20261008074828-8492`, 20/20,
+on clean frozen `263f19640529d469c2a54c18b43d228db5378279`
+([evidence](wp1b-evidence/plan034-20261008/scripts-metadata/verification.json),
+[Plan 034 batch](plan034-batch.md)). Earlier results below, including the
+2026-09-08 qualification `scripts-r10-20260908013518-2476` (21/21 at
+`b5ccbabd`; [successor evidence](wp1b-evidence/backup-report-20260908/scripts-metadata/verification.json),
+[reason for that refresh](backup-report-fidelity.md)), remain records of their
+original revisions and scope.
 
 
 Plan 034 WP-1 extends Plan 033 WP-1B with a Windows-verified R10 Scripts

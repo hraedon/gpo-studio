@@ -1,0 +1,30 @@
+{
+  "control_gpo": "Studio-RSOP-UserControl",
+  "control_value_name": "Control",
+  "endpoint_user": "labauto1",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "merge",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-Loopback",
+      "isolates": "turns loopback merge on for the client"
+    },
+    {
+      "gpo": "Studio-RSOP-CompLocation",
+      "isolates": "user settings in the COMPUTER's container: applied at all only because loopback is on, and under merge they win the conflict"
+    },
+    {
+      "gpo": "Studio-RSOP-UserLocation",
+      "isolates": "user settings in the USER's container: kept under merge, discarded entirely under replace"
+    },
+    {
+      "gpo": "Studio-RSOP-UserControl",
+      "isolates": "CONTROL: in the COMPUTER's container, so it applies under either loopback mode. Absent => the experiment did not run."
+    }
+  ],
+  "scenario_id": "loopback-merge",
+  "scope": "user"
+}

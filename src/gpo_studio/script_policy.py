@@ -1,26 +1,24 @@
-"""Script policy model and INI serialization for GPO startup/shutdown/logon/logoff scripts.
+"""Script policy model for GPO startup/shutdown/logon/logoff scripts.
 
 Implements the domain model for both legacy (batch/VBScript/JScript) and
-PowerShell script policies, plus the Windows INI formats used in SYSVOL:
+PowerShell script policies, with parameter validation and an execution
+preview.
 
-* ``scripts.ini`` for legacy scripts.
-* ``psscripts.ini`` for PowerShell scripts.
-
-The editor never writes to SYSVOL directly; these helpers produce the content
-that is emitted as a reviewable artifact by the publication adapter.
+This module writes no INI. The certified writer for the native
+``scripts.ini`` / ``psscripts.ini`` byte shape is
+``gpo_studio.export.gpmc_backup_bundle(gpo, scripts=...)``, which the Plan 034
+Scripts metadata lane measures. The pre-R2 serializer and parser that used to
+live here wrote an unmeasured shape and were deleted by the 2026-10-07 operator
+ruling (``docs/direction-2026-10-07-plan-034-completion.md``).
 """
 
 from __future__ import annotations
 
-import configparser
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, assert_never
+from typing import Literal, assert_never
 
 from .model import ValidationIssue
-
-if TYPE_CHECKING:
-    from .artifact_store import ArtifactStore
 
 ScriptType = Literal["startup", "shutdown", "logon", "logoff"]
 ScriptExecution = Literal["synchronous", "asynchronous"]
@@ -365,207 +363,6 @@ def quote_parameter(value: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# INI serialization / parsing
-# ---------------------------------------------------------------------------
-
-_INI_SECTION_NAMES: dict[ScriptType, str] = {
-    "startup": "Startup",
-    "shutdown": "Shutdown",
-    "logon": "Logon",
-    "logoff": "Logoff",
-}
-
-_ORDER_TO_INI: dict[PowerShellExecutionOrder, str] = {
-    "not_configured": "NotConfigured",
-    "run_windows_powershell_scripts_first": "RunPowerShellFirst",
-    "run_windows_powershell_scripts_last": "RunPowerShellLast",
-}
-_INI_TO_ORDER: dict[str, PowerShellExecutionOrder] = {
-    v: k for k, v in _ORDER_TO_INI.items()
-}
-
-
-def _serialize_legacy_entries(entries: tuple[ScriptEntry, ...]) -> list[tuple[str, str]]:
-    lines: list[tuple[str, str]] = []
-    for idx, entry in enumerate(entries):
-        lines.append((f"{idx}CmdLine", entry.original_name))
-        lines.append((f"{idx}Parameters", entry.parameters))
-    return lines
-
-
-def _serialize_powershell_entries(
-    entries: tuple[PowerShellScriptEntry, ...],
-) -> list[tuple[str, str]]:
-    lines: list[tuple[str, str]] = []
-    for idx, entry in enumerate(entries):
-        lines.append((f"{idx}CmdLine", entry.original_name))
-        lines.append((f"{idx}Parameters", entry.parameters))
-        lines.append((f"{idx}NoProfile", "1" if entry.no_profile else "0"))
-        lines.append((f"{idx}NonInteractive", "1" if entry.non_interactive else "0"))
-        if entry.execution == "asynchronous":
-            lines.append((f"{idx}ExecutionMode", "1"))
-        elif entry.execution == "synchronous":
-            lines.append((f"{idx}ExecutionMode", "0"))
-    return lines
-
-
-def serialize_script_policy_ini(
-    policy: ScriptPolicy, powershell: bool = False
-) -> str:
-    """Serialize a script policy to Windows INI text.
-
-    *powershell* controls whether legacy or PowerShell entries are emitted.
-    """
-    lines: list[str] = []
-
-    for script_type in _SCRIPT_TYPES:
-        section = _INI_SECTION_NAMES[script_type]
-        lines.append(f"[{section}]")
-        if powershell:
-            entries = getattr(policy, f"powershell_{script_type}")
-            pairs = _serialize_powershell_entries(entries)
-        else:
-            entries = getattr(policy, script_type)
-            pairs = _serialize_legacy_entries(entries)
-        if pairs:
-            lines.extend(f"{key}={value}" for key, value in pairs)
-        else:
-            lines.append("; no scripts configured")
-        lines.append("")
-
-    if powershell:
-        lines.append("[Policy]")
-        lines.append(f"RunLogonScriptsSync={1 if policy.run_logon_scripts_sync else 0}")
-        lines.append(f"RunLogoffScriptsSync={1 if policy.run_logoff_scripts_sync else 0}")
-        lines.append(f"LegacyScriptsFirst={1 if policy.legacy_scripts_first else 0}")
-        lines.append(f"PowerShellOrder={_ORDER_TO_INI[policy.powershell_order]}")
-        lines.append("")
-
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def _parse_entry_key(key: str) -> tuple[int, str] | None:
-    """Parse a numbered key like ``0CmdLine`` into (0, 'CmdLine')."""
-    match = re.match(r"^(\d+)([A-Za-z]+)$", key)
-    if not match:
-        return None
-    return int(match.group(1)), match.group(2)
-
-
-def _parse_execution_mode(raw: str) -> ScriptExecution:
-    match raw:
-        case "1":
-            return "asynchronous"
-        case "0" | "":
-            return "synchronous"
-        case _:
-            return "synchronous"
-
-
-def _parse_bool(raw: str) -> bool:
-    return raw.strip().lower() in ("1", "true", "yes")
-
-
-def parse_script_policy_ini(ini_text: str, powershell: bool = False) -> ScriptPolicy:
-    """Parse a Windows scripts/psscripts INI into a ScriptPolicy."""
-    parser = configparser.ConfigParser(
-        delimiters=("=",),
-        comment_prefixes=(";",),
-        empty_lines_in_values=False,
-    )
-    parser.optionxform = lambda option: option  # type: ignore[assignment,method-assign]  # preserve key case
-    parser.read_string(ini_text)
-
-    sections: dict[ScriptType, str] = {
-        "startup": "Startup",
-        "shutdown": "Shutdown",
-        "logon": "Logon",
-        "logoff": "Logoff",
-    }
-
-    legacy_entries: dict[ScriptType, list[ScriptEntry]] = {
-        t: [] for t in _SCRIPT_TYPES
-    }
-    ps_entries: dict[ScriptType, list[PowerShellScriptEntry]] = {
-        t: [] for t in _SCRIPT_TYPES
-    }
-
-    for script_type, section in sections.items():
-        if not parser.has_section(section):
-            continue
-        entries: dict[int, dict[str, str]] = {}
-        for key, value in parser.items(section):
-            parsed = _parse_entry_key(key)
-            if parsed is None:
-                continue
-            idx, prop = parsed
-            entries.setdefault(idx, {})[prop] = value
-
-        for idx in sorted(entries):
-            props = entries[idx]
-            cmdline = props.get("CmdLine", "")
-            parameters = props.get("Parameters", "")
-            if powershell:
-                ps_entries[script_type].append(
-                    PowerShellScriptEntry(
-                        script_id=f"ps-{script_type}-{idx}",
-                        artifact_id="",
-                        original_name=cmdline,
-                        parameters=parameters,
-                        order=idx + 1,
-                        script_type=script_type,
-                        execution=_parse_execution_mode(props.get("ExecutionMode", "0")),
-                        no_profile=_parse_bool(props.get("NoProfile", "0")),
-                        non_interactive=_parse_bool(props.get("NonInteractive", "1")),
-                    )
-                )
-            else:
-                legacy_entries[script_type].append(
-                    ScriptEntry(
-                        script_id=f"{script_type}-{idx}",
-                        artifact_id="",
-                        original_name=cmdline,
-                        parameters=parameters,
-                        order=idx + 1,
-                        script_type=script_type,
-                    )
-                )
-
-    kwargs: dict[str, tuple[ScriptEntry, ...] | tuple[PowerShellScriptEntry, ...]] = {}
-    for script_type in _SCRIPT_TYPES:
-        if powershell:
-            kwargs[f"powershell_{script_type}"] = tuple(ps_entries[script_type])
-        else:
-            kwargs[script_type] = tuple(legacy_entries[script_type])
-
-    run_logon_scripts_sync = False
-    run_logoff_scripts_sync = False
-    legacy_scripts_first = True
-    powershell_order: PowerShellExecutionOrder = "not_configured"
-
-    if powershell and parser.has_section("Policy"):
-        run_logon_scripts_sync = _parse_bool(
-            parser.get("Policy", "RunLogonScriptsSync", fallback="0")
-        )
-        run_logoff_scripts_sync = _parse_bool(
-            parser.get("Policy", "RunLogoffScriptsSync", fallback="0")
-        )
-        legacy_scripts_first = _parse_bool(
-            parser.get("Policy", "LegacyScriptsFirst", fallback="1")
-        )
-        order_raw = parser.get("Policy", "PowerShellOrder", fallback="NotConfigured")
-        powershell_order = _INI_TO_ORDER.get(order_raw, "not_configured")
-
-    return ScriptPolicy(
-        run_logon_scripts_sync=run_logon_scripts_sync,
-        run_logoff_scripts_sync=run_logoff_scripts_sync,
-        legacy_scripts_first=legacy_scripts_first,
-        powershell_order=powershell_order,
-        **kwargs,  # type: ignore[arg-type]
-    )
-
-
-# ---------------------------------------------------------------------------
 # Execution preview
 # ---------------------------------------------------------------------------
 
@@ -581,19 +378,9 @@ class ScriptExecutionPreview:
     risks: tuple[str, ...] = ()
 
 
-def _artifact_name_or_fallback(
-    artifact_store: ArtifactStore | None, artifact_id: str, fallback: str
-) -> str:
-    if not artifact_store or not artifact_id:
-        return fallback
-    artifact = artifact_store.get_artifact(artifact_id)
-    return artifact.metadata.original_name if artifact else fallback
-
-
 def preview_script_policy(
     policy: ScriptPolicy,
     side: Literal["computer", "user"],
-    artifact_store: ArtifactStore | None = None,
 ) -> tuple[ScriptExecutionPreview, ...]:
     """Generate execution previews for every script in *policy*."""
     match side:
@@ -626,10 +413,7 @@ def preview_script_policy(
         trigger = script_type.capitalize()
         for entry in getattr(policy, script_type):
             risks = _execution_risks(entry.execution, entry.timeout_seconds)
-            name = _artifact_name_or_fallback(
-                artifact_store, entry.artifact_id, entry.original_name
-            )
-            effective_command = f"{name} {entry.parameters}".strip()
+            effective_command = f"{entry.original_name} {entry.parameters}".strip()
             previews.append(
                 ScriptExecutionPreview(
                     script_id=entry.script_id,
@@ -649,11 +433,8 @@ def preview_script_policy(
                 risks.append("PowerShell profile is loaded")
             if not entry.non_interactive:
                 risks.append("PowerShell runs in interactive mode")
-            name = _artifact_name_or_fallback(
-                artifact_store, entry.artifact_id, entry.original_name
-            )
             effective_command = (
-                f"powershell.exe -ExecutionPolicy Bypass -File {name} "
+                f"powershell.exe -ExecutionPolicy Bypass -File {entry.original_name} "
                 f"{entry.parameters}".strip()
             )
             previews.append(

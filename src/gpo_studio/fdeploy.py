@@ -5,20 +5,23 @@ Plan 034 WP-4 ruled Folder Redirection a **read target** on 2026-09-11
 the read half. It does not write.
 
 The distinction matters more here than the word "reader" usually carries.
-``folder_redirection.py`` models redirection as ``User Shell Folders`` registry
-policy -- what the client-side extension writes on the endpoint -- and R3
+``folder_redirection.py`` (deleted 2026-10-07 as superseded by this module)
+modelled redirection as ``User Shell Folders`` registry policy -- what the
+client-side extension writes on the endpoint -- and R3
 measured that the GPO carries something else entirely: a UTF-16LE INI at
 ``User/Documents & Settings/fdeploy1.ini``, beside an empty ``fdeploy.ini``
 marker. Neither file was addressed by any code in this package. So this is not
 a second way to read a thing already read; it is the first time the artifact is
-read at all, and until the GPO model carries it (WI-068) the only way an
-operator reaches it is the endpoint that composes this module.
+read at all. Operators reach it two ways: the endpoint that composes this
+module, and -- since WI-068 -- an imported backup, where ``read_backup`` parses
+:data:`FDEPLOY_POLICY_PATH` onto ``GPO.fdeploy`` and the report and diff render
+it through :func:`fdeploy_report_lines` and :func:`diff_fdeploy`.
 
 **What is measured, and what is therefore not decoded.** One capture exists
 (R3, GPMC on Windows Server 2025, banked at
 ``tests/fixtures/native-folder-redirection-gpmc/``). It shows one folder, one
 principal, and ``Flags=1021``. That is a single observation of a ten-bit word
-against the four booleans ``folder_redirection.py`` models, so no bit is
+against the four booleans ``folder_redirection.py`` modelled, so no bit is
 attributable to any option and this module attributes none: ``Flags`` is
 carried as the integer Windows wrote and rendered as decimal and binary, never
 as a set of named options. WI-066 owes the capture (R12) that would make the
@@ -34,11 +37,12 @@ understand survives the round trip rather than being dropped or guessed at.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from .model import ValidationIssue
+from .model import StudioError, ValidationIssue
 
 _UTF16LE_BOM = b"\xff\xfe"
 _UTF32LE_BOM = b"\xff\xfe\x00\x00"
@@ -46,6 +50,11 @@ _UTF32LE_BOM = b"\xff\xfe\x00\x00"
 _MAX_FDEPLOY_SIZE = 1024 * 1024
 _MAX_SECTIONS = 5_000
 _MAX_SECTION_ENTRIES = 5_000
+
+#: Where the policy file sits in a GPO, relative to its content root. Banked
+#: from R3 (``native_path_in_backup`` in the fixture's provenance record). The
+#: empty ``fdeploy.ini`` marker beside it is not read onto the model.
+FDEPLOY_POLICY_PATH = "User/Documents & Settings/fdeploy1.ini"
 
 #: The section listing each redirected folder and the principals it is
 #: redirected for. Banked from R3; the name is Windows'.
@@ -459,6 +468,45 @@ def read_fdeploy(data: bytes) -> FdeployDocument:
     return parse_fdeploy(decode_fdeploy(data))
 
 
+def native_digest(document: FdeployDocument) -> tuple[str, int]:
+    """Return ``(SHA-256, size)`` of the native bytes *document* was read from.
+
+    ``decode_fdeploy`` is strict UTF-16LE after a two-byte BOM, so for a
+    document it produced, BOM + ``raw_text`` in UTF-16LE *is* the file, byte for
+    byte -- the digest equals the one the backup inventory records for the same
+    path, which is what lets a reviewer join the two. This hashes preserved
+    text; it composes nothing, and it is not :func:`encode_fdeploy` (which
+    normalizes line endings and so would not reproduce a file that mixed them).
+    """
+    native = _UTF16LE_BOM + document.raw_text.encode("utf-16-le")
+    return hashlib.sha256(native).hexdigest(), len(native)
+
+
+def fdeploy_from_dict(data: object) -> FdeployDocument:
+    """Rebuild a stored document (``asdict`` form) by re-parsing its ``raw_text``.
+
+    ``raw_text`` is the authority and every other key is a view derived from
+    it, so the derived keys are recomputed rather than trusted. Comparing them
+    against the re-parse instead would make every stored snapshot unreadable
+    the day the parser changes shape, and the views carry nothing the text
+    does not.
+
+    Refusals are :class:`~gpo_studio.model.StudioError`, as
+    ``inventory_from_dict`` gives for the sibling provenance field, not
+    :class:`FdeployError`: the API maps the latter to 400 as "the bytes you
+    sent", which is wrong for a snapshot read back from the workspace.
+    """
+    if not isinstance(data, dict):
+        raise StudioError("Invalid stored fdeploy document")
+    raw_text = data.get("raw_text")
+    if not isinstance(raw_text, str):
+        raise StudioError("Stored fdeploy document has no raw_text string")
+    try:
+        return parse_fdeploy(raw_text)
+    except FdeployError as error:
+        raise StudioError(f"Invalid stored fdeploy document: {error}") from error
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -707,7 +755,12 @@ class FdeployChange:
     new: FdeployRedirection | None = None
 
 
-def _redirections_equal(old: FdeployRedirection, new: FdeployRedirection) -> bool:
+def redirections_equal(old: FdeployRedirection, new: FdeployRedirection) -> bool:
+    """Whether two rows for the same ``(folder, principal)`` say the same thing.
+
+    The equality :func:`diff_fdeploy` uses, public so the GPO three-way diff
+    judges a conflict by the same rule rather than a copy of it.
+    """
     return (
         old.full_path == new.full_path
         and old.flags_text == new.flags_text
@@ -747,7 +800,7 @@ def diff_fdeploy(
             changes.append(
                 FdeployChange("added", rule.folder_guid, rule.principal, None, rule)
             )
-        elif not _redirections_equal(previous, rule):
+        elif not redirections_equal(previous, rule):
             changes.append(
                 FdeployChange("modified", rule.folder_guid, rule.principal, previous, rule)
             )

@@ -1,0 +1,18 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=loopback-replace
+built rsop candidate for loopback-replace (4 GPOs) in /home/itadmin/gpo-batch-034/tmp/rsop-user-candidate-20261008080533
+  predicted winners: CompOnly=1(Studio-RSOP-CompLocation), Control=present(Studio-RSOP-UserControl), Loop=computerLocation(Studio-RSOP-CompLocation)
+RUN_ID=rsop-user-observe-20261008080602-2424
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261008080602-2424
+PREFLIGHT_VALUES=
+RUN_ID=rsop-author-20261008080607-2683
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261008080607-2683
+RUN_ID=rsop-user-observe-20261008080612-1816
+WORK_DIR=C:\gpo-studio\out\rsop-user-observe-20261008080612-1816
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261008080607-2683","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":"CN=labauto1,CN=Users,DC=ad,DC=labdomain,DC=dev","user_restored":true,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-034/tmp/rsop-user-run-20261008080533
+CANDIDATE_DIR=/home/itadmin/gpo-batch-034/tmp/rsop-user-candidate-20261008080533
+
+run rsop-user-observe-20261008080612-1816: state=pass (source 263f19640529d469c2a54c18b43d228db5378279, dirty=False)
+  loopback intended='replace' observed='replace'

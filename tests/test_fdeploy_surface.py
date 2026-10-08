@@ -1,8 +1,12 @@
 """The fdeploy operator surface, held against the banked capture and the module contract.
 
 Plan 034 WP-4 ruled Folder Redirection a read target and `fdeploy.py` is the
-read half; this is the first route that reaches it at all (see that module's
-docstring). Same posture as `test_object_security_surface.py` and
+read half; this was the first route that reached it at all (see that module's
+docstring). Since WI-068 an imported backup reaches it too, through
+`GPO.fdeploy`, the policy report and the GPO diff; that path is
+`test_fdeploy_on_gpo.py`'s subject, which also holds the report's rendering
+equal to this endpoint's `report_lines`. Same posture as
+`test_object_security_surface.py` and
 `test_policy_family_surface.py`: the request/response shape is exercised
 through the FastAPI app, not by calling the module functions directly, so a
 mismatch between `api.py`'s composition and the module's own contract shows up
