@@ -18,8 +18,9 @@ out of scope until the estate has a second domain or a trust.
 a `manifest_from_backup` bridge from real `Backup-GPO` output, modes named after
 the cmdlets they mean, and a `SCOPE_SURVIVAL` table of *predictions*. The
 lifecycle state machine and the duplicate migration table were deleted. A lane
-that measures every survival cell is built but **not yet run**, so the layer is
-still not surfaced and not Windows-verified. See
+that measures every survival cell is built and had two exploratory estate runs
+on 2026-10-08. Run 2 passed, but no verdict is banked yet, so the layer is still
+not surfaced and not Windows-verified. See
 [`docs/plan-033/lifecycle-lane-design.md`](../docs/plan-033/lifecycle-lane-design.md).
 The cross-domain half is out of scope (ruling 2026-10-07).
 

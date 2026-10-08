@@ -96,7 +96,11 @@ def test_discovery_covers_every_finalizer_and_its_declared_paths() -> None:
     lanes = SYMBOLS["bound_source_paths"](ROOT)
     finalizers = {p.name for p in (ROOT / "scripts/windows-oracle").glob("finalize_*.py")}
     assert set(lanes) == finalizers
-    assert len(lanes) == 11
+    # A floor, not an exact count: the Plan 034 lanes (lifecycle, firewall,
+    # report parity, fdeploy) land on separate branches, and an exact count
+    # makes every pair of them conflict here. The set equality above is what
+    # catches an undiscovered finalizer.
+    assert len(lanes) >= 11
     for name, paths in lanes.items():
         assert paths, name
         assert all((ROOT / p).is_file() for p in paths), name
