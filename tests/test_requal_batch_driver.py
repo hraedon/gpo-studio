@@ -1371,3 +1371,88 @@ def test_a_stop_after_the_fork_but_before_the_supervisor_is_ready_prevents_the_l
     )
     os.kill(proc.pid, signal.SIGTERM)
     _assert_cancelled_before_start(tmp_path, proc)
+
+
+# --- re-check of 78d5e7e: the supervisor's launch gate ----------------------
+
+
+def _ready(batch: Path) -> bool:
+    return any((batch / "tmp").glob("tmp.*/ready"))
+
+
+def test_a_cancel_before_the_gate_opens_prevents_every_lane_command(tmp_path: Path) -> None:
+    """Re-check of 78d5e7e: a cancel between the supervisor's check and its
+    Popen let the lane run commands. The lane is now forked behind a gate and
+    the final check comes after the fork; the pause sits right before it."""
+    proc, batch = _start_paused(tmp_path, GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_CHECK="3")
+    _until(lambda: _ready(batch), "the supervisor ready")
+    time.sleep(0.3)
+    os.kill(proc.pid, signal.SIGTERM)
+    _assert_cancelled_before_start(tmp_path, proc)
+    assert "lane cancelled before it started" in (batch / "logs/wp1b.log").read_text()
+
+
+def test_a_cancel_after_the_final_check_is_a_mid_lane_cancellation(tmp_path: Path) -> None:
+    """Between the final check and the gate the cancellation signals are
+    blocked: the stop is delivered as the gate opens, and handled like any
+    mid-lane cancellation -- the lane killed, contained, recorded cancelled."""
+    proc, batch = _start_paused(tmp_path, GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_RELEASE="3")
+    _until(lambda: _ready(batch), "the supervisor ready")
+    time.sleep(0.3)
+    os.kill(proc.pid, signal.SIGTERM)
+    out, err = proc.communicate(timeout=120)
+    assert proc.returncode == 5, err
+    rows = _rows(tmp_path)
+    assert [(r["exit_status"], r["cancelled"], r["containment_lost"]) for r in rows] == [
+        (143, True, False)
+    ]
+    log = (batch / "logs/wp1b.log").read_text()
+    assert "supervisor stopped; killing the lane" in log
+    assert "lane cancelled before it started" not in log
+    pids_file = tmp_path / "pids"
+    pids = [int(p) for p in pids_file.read_text().split()] if pids_file.exists() else []
+    assert not [p for p in pids if _alive(p)]
+
+
+_PRINT_NEXT = '    echo "NEXT: touch $FAKE_FINALIZER_MARKER"\n'
+
+
+def test_a_stop_before_a_finalizer_launch_prevents_the_finalizer(tmp_path: Path) -> None:
+    """The same rule for WP-0's printed finalizer: a stop while it is about to
+    be launched leaves it unrun, and the lane is recorded cancelled."""
+    marker = tmp_path / "finalizer-ran"
+    scope_env = _scope_env(tmp_path)
+    clone = _clone(tmp_path)
+    env = {
+        **os.environ,
+        **scope_env,
+        "GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_LAUNCH": "3",
+        "FAKE_FINALIZER_MARKER": str(marker),
+        "PATH": f"{_scripted_acb(tmp_path, _PRINT_NEXT)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+        "FAKE_COUNT": str(tmp_path / "count"),
+        "FAKE_PIDS": str(tmp_path / "pids"),
+        "GPO_STUDIO_LANE_KILL_GRACE_SECONDS": "2",
+    }
+    proc = subprocess.Popen(
+        _driver(clone, env, str(tmp_path / "batch"), "wp0", "wp1b"),
+        cwd=clone,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    # The runner ran (and printed NEXT); the finalizer's launch is now paused.
+    _until(lambda: (tmp_path / "count").exists(), "the runner")
+    time.sleep(1.5)
+    os.kill(proc.pid, signal.SIGTERM)
+    out, err = proc.communicate(timeout=120)
+    assert proc.returncode == 5, err
+    rows = _rows(tmp_path)
+    assert [(r["name"], r["exit_status"], r["cancelled"]) for r in rows] == [("wp0", 143, True)]
+    assert not marker.exists(), "the finalizer ran after the stop"
+    log = (tmp_path / "batch/logs/wp0.log").read_text()
+    # Landing in the driver's pre-launch pause, the stop is caught either by
+    # the driver's last check or, just after it, by the supervisor's gate.
+    assert "stopped before launch" in log or "lane cancelled before it started" in log

@@ -389,6 +389,7 @@ clear_scope() {
 STOP_SIGNAL=0
 ACTIVE_SUPERVISOR=""
 ACTIVE_CANCEL=""
+ACTIVE_READY=""
 SUPERVISOR_STOP_GRACE=$((LANE_KILL_GRACE + 15))
 on_stop() {
     if [[ $STOP_SIGNAL -ne 0 ]]; then
@@ -400,13 +401,29 @@ on_stop() {
     if [[ -n "$ACTIVE_CANCEL" ]]; then
         : >"$ACTIVE_CANCEL" 2>/dev/null || true
     fi
+    # And, once the supervisor is ready for it, SIGUSR1 -- so a cancellation
+    # between its final check and its gate is delivered as a mid-lane
+    # cancellation the instant the gate opens. (Before it is ready, a signal
+    # could kill it; the cancel file, created first, covers that window.)
+    if [[ -n "$ACTIVE_SUPERVISOR" && -n "$ACTIVE_READY" && -e "$ACTIVE_READY" ]]; then
+        kill -USR1 "$ACTIVE_SUPERVISOR" 2>/dev/null || true
+    fi
     return 0
 }
-# TEST HOOK, honoured only on the test scope stand-in: pause between the last
-# check for a stop and the launch, so a test can land a signal exactly there.
+# TEST HOOKS, honoured only on the test scope stand-in: pauses at the points
+# a stop must not slip through -- between the driver's last check and the
+# launch, and inside the supervisor before its final check and before it opens
+# the lane's gate -- so a test can land a signal exactly there.
 TEST_PAUSE_BEFORE_LAUNCH=""
+TEST_SUPERVISOR_PAUSES=()
 if [[ $TEST_SCOPE -eq 1 ]]; then
     TEST_PAUSE_BEFORE_LAUNCH="${GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_LAUNCH:-}"
+    if [[ -n "${GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_CHECK:-}" ]]; then
+        TEST_SUPERVISOR_PAUSES+=(--test-pause-before-check "$GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_CHECK")
+    fi
+    if [[ -n "${GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_RELEASE:-}" ]]; then
+        TEST_SUPERVISOR_PAUSES+=(--test-pause-before-release "$GPO_STUDIO_REQUAL_TEST_PAUSE_BEFORE_RELEASE")
+    fi
 fi
 trap 'on_stop 15' TERM
 trap 'on_stop 2' INT
@@ -444,9 +461,11 @@ run_bounded() {
     # The cancel file is armed BEFORE the last check: from here on, a stop
     # either prevents the launch or reaches the supervisor through the file.
     ACTIVE_CANCEL="$work/cancel"
+    ACTIVE_READY="$work/ready"
     if [[ $STOP_SIGNAL -ne 0 ]]; then
         echo "=== watchdog: stopped before launch (signal $STOP_SIGNAL); not started: $*" >>"$log"
         ACTIVE_CANCEL=""
+        ACTIVE_READY=""
         drop_work "$work"
         CANCELLED=1
         return $((128 + STOP_SIGNAL))
@@ -456,7 +475,8 @@ run_bounded() {
     # (a foreground child would defer it); `wait` is then the place it lands.
     "${SCOPE_TOOL[@]}" start "$unit" "$SCOPE_NONCE" "$cgroup_file" -- \
         python3 "$SUPERVISOR" --deadline "$deadline" --grace "$LANE_KILL_GRACE" \
-        --log "$log" --report "$report" --cancel-file "$ACTIVE_CANCEL" -- "$@" &
+        --log "$log" --report "$report" --cancel-file "$ACTIVE_CANCEL" \
+        --ready-file "$ACTIVE_READY" "${TEST_SUPERVISOR_PAUSES[@]}" -- "$@" &
     ACTIVE_SUPERVISOR=$!
     local stop_seen_at=""
     while kill -0 "$ACTIVE_SUPERVISOR" 2>/dev/null; do
@@ -480,6 +500,7 @@ run_bounded() {
     status=$?
     ACTIVE_SUPERVISOR=""
     ACTIVE_CANCEL=""
+    ACTIVE_READY=""
     if [[ ! -s "$cgroup_file" ]]; then
         # The scope was never established, so the supervisor -- and the lane
         # -- never started. Whatever already holds this unit name is not ours

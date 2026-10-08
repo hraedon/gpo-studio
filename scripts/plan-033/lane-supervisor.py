@@ -141,6 +141,26 @@ def contain(reaper: Reaper, leader: int, grace: float) -> int:
     return len(initial)
 
 
+#: The launch gate's exec wrapper. It inherits the supervisor's blocked
+#: cancellation signals; it waits for the gate byte (EOF -- the supervisor
+#: cancelled -- means exit 125 having run nothing), then restores what the lane
+#: should start with -- those signals unblocked, SIGPIPE and SIGXFSZ at their
+#: defaults (Python ignores them, and an ignored disposition survives exec) --
+#: and execs the lane's command in its own place.
+GATE = """\
+import os, signal, sys
+fd = int(sys.argv[1])
+opened = os.read(fd, 1) == b"1"
+os.close(fd)
+if not opened:
+    os._exit(125)
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
+signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGUSR1})
+os.execvp(sys.argv[2], sys.argv[2:])
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--deadline", type=int, required=True, help="epoch seconds")
@@ -151,6 +171,13 @@ def main() -> int:
     # Unlike a signal it cannot arrive before this process is ready for it --
     # it is checked before the lane is started and on every poll.
     parser.add_argument("--cancel-file", type=Path)
+    # Created once this process is ready for SIGUSR1 (handlers installed and
+    # the cancellation signals blocked); the driver signals only after that.
+    parser.add_argument("--ready-file", type=Path)
+    # TEST ONLY (the driver passes them only on its test scope stand-in):
+    # pause before the final cancellation check, or between it and the gate.
+    parser.add_argument("--test-pause-before-check", type=float, default=0.0)
+    parser.add_argument("--test-pause-before-release", type=float, default=0.0)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -187,22 +214,56 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
+    # SIGUSR1 is the driver's "cancel now", sent in addition to the cancel file.
+    signal.signal(signal.SIGUSR1, lambda signum, frame: on_term(signal.SIGTERM, frame))
 
     def cancel_requested() -> bool:
         return args.cancel_file is not None and args.cancel_file.exists()
 
-    if cancel_requested():
-        log_line(args.log, "lane cancelled before it started; not a verdict")
-        return report(128 + signal.SIGTERM, False, 0, cancelled=True)
+    # THE LAUNCH GATE. The guarantee: a cancellation observed before the gate
+    # opens prevents every lane command; one that arrives after it is a
+    # mid-lane cancellation (the lane is killed, contained and recorded as
+    # cancelled by the loop below). There is no third case:
+    #   1. The cancellation signals are BLOCKED before the final check, so one
+    #      arriving from here on stays pending instead of being missed.
+    #   2. The lane is forked held behind a gate: a minimal exec wrapper
+    #      (GATE, below) whose first act is to read one byte from a pipe, and
+    #      only then exec the lane's command. Nothing of the lane has run.
+    #   3. Final check: the cancel file, and any cancellation signal pending.
+    #      If either is present the gate is closed without a byte -- the child
+    #      reads EOF and exits 125 without exec -- and the lane is recorded
+    #      cancelled having run nothing.
+    #   4. Otherwise the gate opens (one byte) and the signals are unblocked:
+    #      a signal that arrived after the check is delivered now, and is the
+    #      mid-lane cancellation of case "after".
+    cancel_signals = {signal.SIGTERM, signal.SIGINT, signal.SIGUSR1}
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, cancel_signals)
+    if args.ready_file is not None:
+        args.ready_file.touch()
 
+    gate_read, gate_write = os.pipe()
     with args.log.open("ab") as out:
         proc = subprocess.Popen(
-            command,
+            [sys.executable, "-I", "-c", GATE, str(gate_read), *command],
             stdin=subprocess.DEVNULL,
             stdout=out,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            pass_fds=(gate_read,),
         )
+    os.close(gate_read)
+    if args.test_pause_before_check:
+        time.sleep(args.test_pause_before_check)
+    if stopping or cancel_requested() or signal.sigpending() & cancel_signals:
+        os.close(gate_write)  # EOF: the child exits 125 without exec
+        proc.wait()
+        log_line(args.log, "lane cancelled before it started; not a verdict")
+        return report(128 + signal.SIGTERM, False, 0, cancelled=True)
+    if args.test_pause_before_release:
+        time.sleep(args.test_pause_before_release)
+    os.write(gate_write, b"1")
+    os.close(gate_write)
+    signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
     leader = proc.pid
     reaper = Reaper(leader)
     timed_out = False

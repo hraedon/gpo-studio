@@ -282,8 +282,15 @@ gci .
 & C:\\x\\y.exe
 & \\\\host\\share\\x
 tool.exe
+& C:\\x\\Get-Item
+& .\\Get-ChildItem
+& \\\\host\\share\\Get-Item
 """
-_EXPECTED_CONTROL_LINES = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21, 22, 23}
+# Lines 24-26 end in a cmdlet's name: a guard that matched only the basename
+# after the last backslash (as an earlier one did) would accept them.
+_EXPECTED_CONTROL_LINES = {
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26
+}
 
 
 def test_the_native_guard_catches_every_launch_form(tmp_path: Path) -> None:
