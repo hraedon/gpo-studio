@@ -146,8 +146,18 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
     assert "zz-studio" in collector
 
 
+#: Lanes first banked after the batch, each with its own certifying run. They
+#: are enumerated, not pattern-matched: a verdict joins the live set beside the
+#: batch only by being named here, so an unretired stale binding still fails.
+BANKED_AFTER_THE_BATCH = {
+    # report-parity-20261008104512-7480 at a1c280b (Plan 034 WP-2 items 2-3).
+    "wp2-evidence/report-parity/verification.json",
+}
+
+
 def test_the_batch_is_the_live_set() -> None:
-    """21 batch verdicts plus the successor are live; nothing else, nothing pending."""
+    """21 batch verdicts plus the successor are live, beside the lanes banked
+    after the batch; nothing else, nothing pending."""
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 21
@@ -155,11 +165,16 @@ def test_the_batch_is_the_live_set() -> None:
     assert (batch_verdicts | successor) <= set(registry["LANE_VERDICTS"])
     assert STALE_OBJECT_SECURITY in registry["RETIRED_VERDICTS"]
     assert set(registry["PENDING_REQUALIFICATION"]) == set()
-    expected_live = (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor
+    assert BANKED_AFTER_THE_BATCH.issubset(registry["LANE_VERDICTS"])
+    assert not BANKED_AFTER_THE_BATCH & (batch_verdicts | successor)
+    expected_live = (
+        (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor | BANKED_AFTER_THE_BATCH
+    )
     assert set(registry["LIVE_VERDICTS"]) == expected_live, (
         "The live set must be exactly this batch's verdicts with the successor in "
-        "place of the stale object-security run; anything else is either an "
-        "unretired stale binding or a missing registration."
+        "place of the stale object-security run, plus BANKED_AFTER_THE_BATCH; "
+        "anything else is either an unretired stale binding or a missing "
+        "registration."
     )
     for run in BATCH["successors"]:
         assert registry["LANE_VERDICTS"][run["replaces"]] == registry["LANE_VERDICTS"][
