@@ -190,11 +190,15 @@ Release and lab tooling, driven by `scripts/`: `conformance.py`,
 
 `src/` also holds Plans 025–032 domain layers that are landed and
 unit-tested but **not reachable from any operator surface**:
-`security_template`, `network_security`, `script_policy`, `artifact_store`,
-`software_install`, `folder_redirection`, `lifecycle`, `gpmc_interop`,
-`publication`, `publisher` and `hosting`. (`rsop`, `policy_families` and
-`object_security` now have endpoints; `certification` was deleted under
-WI-056.) See
+`network_security`, `script_policy`, `lifecycle`, `publication`, `publisher`
+and `hosting`. `script_policy` and `publication` have Windows evidence lanes,
+requalified in the Plan 034 batch (2026-10-08), but no surface yet. `publisher`
+and `hosting` are out of scope for 1.x and kept as seeds. `rsop`,
+`policy_families` and `object_security` have endpoints, and
+`security_template` is reached through the last two. `fdeploy` reads Folder
+Redirection files at its own endpoint. `gpmc_interop` holds only the issue type
+`publication` uses. `certification` (WI-056), `software_install`,
+`folder_redirection` and `artifact_store` (2026-10-07) were deleted. See
 [the capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced).
 
 ## License

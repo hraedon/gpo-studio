@@ -6,6 +6,14 @@ endpoint or UI module. Note that native GPMC backup emission itself
 (in `export.py`) *is* surfaced and carries Plan 033 WP-2 Windows evidence;
 this plan's lifecycle/migration/report layer does not.
 
+**Rulings of 2026-10-07** ([Plan 034 completion](../docs/direction-2026-10-07-plan-034-completion.md)).
+`gpmc_interop.py` is reduced to `InteropIssue`, the one type `publication.py`
+imports. Its interop checks are deleted: the importable predicate equated
+*Studio cannot emit this* with *GPMC cannot import this* and would flag 15 of
+the 26 R6 census GPOs, and `is_gpmc_editable` had no oracle. `lifecycle.py`
+gets a same-domain lane, then a restore-plan surface; its cross-domain half is
+out of scope until the estate has a second domain or a trust.
+
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane
 certifies it, and every layer examined so far has needed correction. See

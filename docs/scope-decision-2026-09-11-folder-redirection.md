@@ -12,6 +12,32 @@ files and compares an earlier copy with a current one, displaying evidence
 limits and both files' diagnostics. See the [review guide](folder-redirection-review.md).
 Its evidence remains the R3 capture; workspace integration remains WI-068.
 
+**2026-10-07 — `folder_redirection.py` deleted (operator ruling,
+[`direction-2026-10-07`](direction-2026-10-07-plan-034-completion.md)).** Item 4
+below said the module was untouched and that none of WP-4's options was a
+deletion order. The 2026-10-07 ruling deleted it as superseded by `fdeploy.py`,
+because Plan 034 now requires every module it lists to leave either at `yes` or
+with a recorded ruling. Nothing imported it outside its own tests.
+`src/gpo_studio/folder_redirection.py` (537 lines) and
+`tests/test_folder_redirection.py` (624) are removed, and version control keeps
+both. This follows the `certification.py` deletion (WI-056) recorded in
+[the 2026-09-06 decisions](scope-decision-2026-09-06-software-installation-and-certification.md).
+
+Two tests in `tests/test_folder_redirection_scope.py` measured the old module:
+three group rules collapsed to one registry tuple with no SIDs and no flags.
+They went with it. The measurement itself is still recorded in
+[the brief](scope-brief-2026-09-11-folder-redirection.md). The guard that no
+product module except `fdeploy.py` emits fdeploy bytes stays, and now also
+covers `format_fdeploy`. The rest of this decision is unchanged: Folder
+Redirection is a read target, and the writer is deferred behind R12 (WI-066).
+
+**Delivery update, 2026-10-07:** WI-068 is implemented in the estate
+requalification batch: an imported backup carries the parse on `GPO.fdeploy`,
+and the policy report and GPO diffs render it. The "not an import path" bullet
+below describes the state before that. The item stays open until the
+publication and scripts-metadata lanes re-run. Nothing writes the file: GPMC
+backup export refuses a GPO that carries one.
+
 This records a decision, not an argument for one. The argument is
 [`scope-brief-2026-09-11-folder-redirection.md`](scope-brief-2026-09-11-folder-redirection.md),
 which assembled everything a ruling needed and stopped there, as
@@ -34,7 +60,8 @@ read first"; that is what was ruled.
 3. **`Flags` is carried, not decoded.** No bit is named anywhere in the module,
    the report, or the endpoint's response. WI-066 owes the capture (R12) that
    would make the word readable.
-4. **`folder_redirection.py` is untouched.** Its 537 lines — the typed model,
+4. **`folder_redirection.py` is untouched** (since deleted, on 2026-10-07; see
+   the addendum above). Its 537 lines — the typed model,
    the path validation, `assess_redirection_migration` — keep doing what they
    did. The ruling says the module was never a Folder Redirection writer; it
    does not say the code in it is wrong, and

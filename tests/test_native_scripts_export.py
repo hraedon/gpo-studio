@@ -418,6 +418,11 @@ def test_inexpressible_script_states_are_refused_not_approximated(
         gpmc_backup_bundle(gpo, scripts={"computer": policy})
     issue = raised.value.issues[0]
     assert issue.code == "inexpressible_native_script_state"
+    # export_bundle carries no Scripts content, so a refusal that sent the
+    # reader there would point at an export that drops the scripts silently.
+    assert "Use the Studio publication bundle" not in issue.message
+    assert "gpmc_backup_bundle with scripts" in issue.message
+    assert "carries no scripts at all" in issue.message
     refusal = native_backup_refusal(gpo, scripts={"computer": policy})
     assert refusal is not None
     assert refusal.code == issue.code

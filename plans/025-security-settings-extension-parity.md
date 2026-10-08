@@ -1,11 +1,10 @@
 # Plan 025 — Security Settings extension parity
 
-Status: implemented (domain layer) — **not surfaced**. `security_template.py`
-and `network_security.py` are landed and unit-tested but are reachable from no
-API endpoint, UI module, or export path; their only consumers are their own
-test modules. Plan 033 now has a certified
-Studio-origin `secedit` writer tranche for account policy, event audit, and
-user rights, but platform wiring and the broader native corpus and security
+Status: implemented (domain layer) — **not surfaced**. `network_security.py`
+is reachable from no API endpoint, UI module, or export path, and
+`security_template.py` is reached only through the two surfaces below. Plan
+033 now has a certified Studio-origin `secedit` writer tranche for account
+policy, event audit, and user rights, but platform wiring and the broader native corpus and security
 areas remain open. The `Windows-verified` claim in this plan's scope is
 **not** met. A separate `firewall_policy.py` codec is now capture-backed
 (native tranche dated 2026-10-08), not surfaced or Windows-verified by a Studio
@@ -17,12 +16,23 @@ See [the codec and lane design](../docs/plan-033/firewall-codec.md).
 `POST /api/security-template/policy-families` and `object_security.py` at
 `POST /api/security-template/object-security` (Plan 034 WP-3), each in the
 emission direction its lanes certified and no further: both render families as
-INF and neither parses one back, because the read direction has no cmdlet
-oracle. They are the first modules of this plan to satisfy both halves of the
+INF and neither parses one back: no cmdlet oracle reads a GPME-authored
+`GptTmpl.inf`, although the lanes do parse the INF Windows exports through
+`secedit /export` (`finalize_wp3_run.py`). They are the first modules of this plan to satisfy both halves of the
 exit condition in the order
 [`domain-layer-status.md`](../docs/domain-layer-status.md) requires — lane
-first, then surface. The plan stays unsurfaced because two modules still are;
-this line exists so that fact is not read as covering all four.
+first, then surface. Under the 2026-10-07 ruling `security_template.py` exits through those two
+consumers, which leaves `network_security.py` as the one module still
+unsurfaced; this line exists so that fact is not read as covering all four.
+
+**Rulings of 2026-10-07** ([Plan 034 completion](../docs/direction-2026-10-07-plan-034-completion.md)).
+`security_template.py` **exits through its consumers**: three live verdicts
+bind it (`wp3-member`, `wp3-dc`, `object-security`) and both endpoints above
+emit through it, and reading a GPME-authored `GptTmpl.inf` is out of
+scope until a Security Settings import surface is proposed.
+`network_security.py`: IPsec, Public Key, wired and wireless policy are **out
+of scope for 1.x**; the firewall half is pending a lane, and is ruled out too
+if that lane has no verdict by about 2026-10-24.
 
 Surfacing `object_security.py` also found two defects a certified lane could
 not: WI-064 (the restricted-groups writer emits a bare SID where Windows

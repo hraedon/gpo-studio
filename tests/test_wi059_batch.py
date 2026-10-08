@@ -102,32 +102,7 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
         ).hexdigest()
 
 
-def test_platform_lane_records_name_the_current_qualification() -> None:
-    batch = json.loads((EVIDENCE / "wi059-batch.json").read_text(encoding="utf-8"))
-    runs = {run["name"]: run for run in batch["runs"]}
-    successors = json.loads((EVIDENCE / "backup-report-batch.json").read_text(encoding="utf-8"))
-    runs.update({run["name"]: run for run in successors["runs"]})
-    platforms = json.loads(
-        (ROOT / "tests/fixtures/scenarios/platforms.json").read_text(encoding="utf-8")
-    )
-    lanes = {lane["lane_id"]: lane for lane in platforms["lanes"]}
-    for lane_id, names in {
-        "gpp-writer-conformance": ("wp1b",),
-        "security-template-secedit": ("wp3-member", "wp3-dc"),
-        "scripts-metadata-gpmc": ("scripts-metadata",),
-        "object-security-secedit": ("object-security",),
-        "publication-completeness-gpmc": ("publication",),
-        "rsop-endpoint": (
-            "lsdou-precedence", "disabled-block-enforced", "wmi-filtering",
-            "wmi-filtering-error", "computer-security-filtering",
-            "computer-security-filtering-group-deny", "computer-security-filtering-deny-read",
-        ),
-        "rsop-user-loopback": (
-            "loopback-merge", "loopback-replace", "user-side-disabled",
-            "user-security-filtering", "user-security-filtering-deny",
-            "user-security-filtering-read-deny",
-        ),
-    }.items():
-        for name in names:
-            assert runs[name]["commit"] in lanes[lane_id]["notes"]
-            assert runs[name]["run_id"] in lanes[lane_id]["notes"]
+# `test_platform_lane_records_name_the_current_qualification` lived here while
+# this batch was the current qualification. platforms.json now names the Plan
+# 034 batch's runs (2026-10-08), so the check moved to `test_plan034_batch.py`;
+# asserting WI-059 run ids are "current" would pin a falsehood.

@@ -1,5 +1,14 @@
 # Object-security serialization lane
 
+**Current qualification (2026-10-08):** `object-security-20261008082348-9729`,
+20/20, on clean `1fb3f56ac7431e0044c69c32edc4350b2ab84151`
+([evidence](wp3-evidence/plan034-rerun-20261008/object-security/verification.json)).
+It is the successor to the [Plan 034 batch](plan034-batch.md)'s run, after
+`8b1a5b4` changed the serializer. Since that batch the candidate also carries
+three `[Group Membership]` rows built by `RestrictedGroupsFamily`, which
+Windows re-exported exactly (WI-064). The results below are the lane's first
+qualification and remain records of their original revision and scope.
+
 Plan 034 WP-1 extends the R4/R9 observations into a repeatable, non-applying
 `secedit` lane. A clean member-server run passed all 19 checks on 2026-09-07
 (`object-security-20260907075319-7408`, source
@@ -77,3 +86,14 @@ nothing tried to parse, which is why validating this lane's own candidate
 yields three errors for an SDDL Windows accepted (WI-065). Neither was
 reachable by the lane: the first has no rows in the candidate, and the second
 is on a path the candidate builder never calls.
+
+**Requalification batch, 2026-10-07** (branch `batch/wi064-wi065`, not yet
+run). Both defects are fixed in code, and the lane is extended so that the
+next run measures the fix. The candidate gains three `[Group Membership]` rows
+built by `RestrictedGroupsFamily`. The guest imports and exports the
+`group_mgmt` area. The finalizer requires starred keys and members and
+compares Windows' re-export as principal sets. The services in the candidate
+carry parsed descriptors, and the builder refuses any candidate the product
+reports issues for. The verdict above no longer binds the shipping files on
+that branch. WI-064 and WI-065 stay open until a run re-earns it, and until
+then restricted groups stay off the surface.

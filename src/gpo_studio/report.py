@@ -6,6 +6,13 @@ from collections.abc import Iterable
 
 from .backup_inventory import inventory_report_lines
 from .canonical import policy_semantic_sha256, review_model_sha256
+from .fdeploy import (
+    FDEPLOY_POLICY_PATH,
+    FdeployDocument,
+    fdeploy_report_lines,
+    native_digest,
+    validate_fdeploy,
+)
 from .gpp import GppCollection
 from .model import GPO
 from .validation import validate_gpo
@@ -46,6 +53,29 @@ def _format_value(value: str | int | list[str]) -> str:
     if isinstance(value, list):
         return "; ".join(value)
     return str(value)
+
+
+def _fdeploy_lines(document: FdeployDocument) -> list[str]:
+    """The imported Folder Redirection file, rendered for review (WI-068).
+
+    Opens with the path, size and SHA-256 of the native bytes so the section
+    joins to the same file's row in the imported source inventory, says what
+    Studio will and will not do with it, then hands the body to
+    ``fdeploy_report_lines`` -- the one renderer the endpoint also uses -- and
+    closes with ``validate_fdeploy``'s structural findings.
+    """
+    digest, size = native_digest(document)
+    lines = [
+        f"Source: {FDEPLOY_POLICY_PATH}: {size} bytes; SHA-256 {digest}",
+        "Read only: imported from the backup; Studio has no writer for this file "
+        "(WI-066), so it is not published or exported.",
+        *fdeploy_report_lines(document),
+    ]
+    lines += [
+        f"Structural [{issue.severity.upper()}] {issue.code} at {issue.path}: {issue.message}"
+        for issue in validate_fdeploy(document)
+    ]
+    return lines
 
 
 def policy_report(gpo: GPO) -> str:
@@ -117,6 +147,8 @@ def policy_report(gpo: GPO) -> str:
             for collection in gpo.gpp_collections
         ),
     )
+    if gpo.fdeploy is not None:
+        lines += _section("Folder Redirection (fdeploy1.ini)", _fdeploy_lines(gpo.fdeploy))
     lines += _section(
         "Unmodeled extension files (metadata only)",
         (

@@ -1,0 +1,42 @@
+﻿{
+    "run_id":  "endpoint-author-20261008074959-4917",
+    "work_dir":  "C:\\gpo-studio\\out\\endpoint-author-20261008074959-4917",
+    "command_dir":  "C:\\gpo-studio\\out\\endpoint-author-20261008074959-4917\\commands",
+    "author_computer":  "LABMS01",
+    "target_computer":  "LabCL01",
+    "domain":  "AD.LABDOMAIN.DEV",
+    "domain_controller":  "LabDC01.ad.labdomain.dev",
+    "original_dn":  "CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "original_parent":  "CN=Computers,DC=ad,DC=labdomain,DC=dev",
+    "domain_dn":  "DC=ad,DC=labdomain,DC=dev",
+    "lab_ou_name":  "GPOStudioLab-20261008075000",
+    "lab_ou_dn":  "OU=GPOStudioLab-20261008075000,DC=ad,DC=labdomain,DC=dev",
+    "target_gpo":  "Endpoint-20261008-075000-9724",
+    "imported_guid":  "1a346b73-7965-42f1-9b65-b0b1077dfcd8",
+    "ou_created":  true,
+    "computer_moved":  true,
+    "import_succeeded":  true,
+    "link_created":  true,
+    "setup_completed":  true,
+    "replication_run":  true,
+    "environment":  {
+                        "caption":  "Microsoft Windows Server 2025 Standard",
+                        "build":  "26100",
+                        "powershell_version":  "5.1.26100.33438",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US",
+                        "gp_module_version":  "1.0.0.0",
+                        "domain":  "AD.LABDOMAIN.DEV"
+                    },
+    "error":  null,
+    "cleanup":  {
+                    "computer_restored":  true,
+                    "link_removed":  true,
+                    "gpo_removed":  true,
+                    "ou_removed":  true,
+                    "errors":  [
+
+                               ]
+                },
+    "phase":  "cleanup"
+}

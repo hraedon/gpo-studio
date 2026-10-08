@@ -26,6 +26,12 @@ _fold = cast(Callable[[object], list[str]], _FINALIZER["_fold"])
 _unpack_version = cast(Callable[[int], tuple[int, int]], _FINALIZER["_unpack_version"])
 _version_half_matches = cast(Callable[[str, int], bool], _FINALIZER["_version_half_matches"])
 _observed_paths = cast(Callable[[dict[str, Any]], list[str]], _FINALIZER["_observed_paths"])
+_finalizer_grade = cast(
+    Callable[[dict[str, Any], dict[str, Any]], tuple[dict[str, bool], dict[str, Any]]],
+    _FINALIZER["_grade"],
+)
+_gpt_ini_version = cast(Callable[[object], int | None], _FINALIZER["_gpt_ini_version"])
+_guid = cast(Callable[[object], str | None], _FINALIZER["_guid"])
 
 
 def _builder() -> ModuleType:
@@ -57,19 +63,100 @@ def test_the_builder_is_deterministic(tmp_path: Path) -> None:
 
 def test_the_expectation_is_the_plans_own_claim(tmp_path: Path) -> None:
     """`expected.json` must be derived from the plan, not restated beside it."""
-    from gpo_studio.export import extension_registration
     from gpo_studio.publication import generate_publication_plan, planned_sysvol_paths
 
     module = _builder()
     gpo = cast(Any, module)._GPO
     plan = generate_publication_plan(gpo, target="both")
-    registration = extension_registration(gpo)
-    expectation = cast(Any, module)._expectation(gpo, plan, registration)
+    expectation = cast(Any, module)._expectation(gpo, plan)
+    registration_steps = {
+        step.directory_attribute: step.directory_value
+        for step in plan.steps
+        if step.operation == "update_extension_lists"
+    }
 
     assert expectation["sysvol_paths"] == list(planned_sysvol_paths(plan))
-    assert expectation["machine_extension_names"] == registration.machine
-    assert expectation["user_extension_names"] == registration.user
+    assert expectation["machine_extension_names"] == registration_steps["gPCMachineExtensionNames"]
+    assert expectation["user_extension_names"] == registration_steps["gPCUserExtensionNames"]
     assert expectation["plan_payload_digest"] == plan.payload_digest
+
+
+def _without_registration_steps(plan: Any, *attributes: str) -> Any:
+    from dataclasses import replace
+
+    return replace(
+        plan,
+        steps=tuple(
+            step
+            for step in plan.steps
+            if not (
+                step.operation == "update_extension_lists"
+                and step.directory_attribute in attributes
+            )
+        ),
+    )
+
+
+def test_a_plan_without_its_registration_steps_fails_grading() -> None:
+    """The review's finding 3: the WI-057 omission must not certify.
+
+    The backup Windows imports is built by the export path, which registers
+    the extensions itself -- so Windows' attributes come back populated no
+    matter what the plan says. If the expectation were re-derived from the GPO
+    (``extension_registration``) it would match them, and a plan with both
+    ``update_extension_lists`` steps deleted would grade clean. Read from the
+    plan, a missing step is a claim of an empty list, which Windows refutes.
+    """
+    from gpo_studio.publication import generate_publication_plan
+
+    module = cast(Any, _builder())
+    plan = generate_publication_plan(module._GPO, target="both")
+    windows = _result()
+    real = module._expectation(module._GPO, plan)
+    windows["ad_attributes"]["gPCMachineExtensionNames"] = real["machine_extension_names"]
+    windows["ad_attributes"]["gPCUserExtensionNames"] = real["user_extension_names"]
+    # Control: the unmodified plan grades clean against the same Windows result.
+    assert all(_finalizer_grade(windows, real)[0].values())
+
+    stripped = _without_registration_steps(
+        plan, "gPCMachineExtensionNames", "gPCUserExtensionNames"
+    )
+    expected = module._expectation(module._GPO, stripped)
+    assert expected["machine_extension_names"] == ""
+    assert expected["user_extension_names"] == ""
+    checks, _ = _finalizer_grade(windows, expected)
+    assert checks["machine_extension_names_exact"] is False
+    assert checks["user_extension_names_exact"] is False
+    assert not all(checks.values())
+
+    # One side at a time, so neither check can lean on the other.
+    for attribute, check in (
+        ("gPCMachineExtensionNames", "machine_extension_names_exact"),
+        ("gPCUserExtensionNames", "user_extension_names_exact"),
+    ):
+        one = module._expectation(module._GPO, _without_registration_steps(plan, attribute))
+        assert _finalizer_grade(windows, one)[0][check] is False, attribute
+
+
+def test_a_registration_step_without_its_typed_value_is_refused() -> None:
+    """A step the builder cannot read is not silently read as "no list"."""
+    from dataclasses import replace
+
+    from gpo_studio.publication import generate_publication_plan
+
+    module = cast(Any, _builder())
+    plan = generate_publication_plan(module._GPO, target="both")
+    blanked = replace(
+        plan,
+        steps=tuple(
+            replace(step, directory_value=None)
+            if step.operation == "update_extension_lists"
+            else step
+            for step in plan.steps
+        ),
+    )
+    with pytest.raises(ValueError, match="sets gPC"):
+        module._expectation(module._GPO, blanked)
 
 
 def test_the_candidate_gpo_is_undescribed_so_the_absence_is_assertable() -> None:
@@ -136,8 +223,8 @@ def test_a_declared_version_half_is_checked_in_both_directions(
     """Declaring "machine" must fail when the user half moved as well.
 
     A check that only asserted the declared half moved would pass a plan that
-    moved both, which is precisely the corruption `_bump_gpt_version` exists to
-    prevent.
+    moved both, which is precisely the corruption the plan's declared
+    `version_half` exists to rule out.
     """
     assert _version_half_matches(half, packed) is expected
 
@@ -205,34 +292,23 @@ def _result() -> dict[str, Any]:
                 "sha256": "4" * 64,
             },
         ],
+        "gpt_ini_text": "[General]\r\nVersion=65537\r\n",
         "ad_attributes": {
             "versionNumber": 65537,
             "gPCMachineExtensionNames": "[{MACHINE}]",
             "gPCUserExtensionNames": "[{USER}]",
             "gPCFileSysPath": _SYSVOL,
+            "computer_ds_version": 1,
+            "computer_sysvol_version": 1,
+            "user_ds_version": 1,
+            "user_sysvol_version": 1,
         },
     }
 
 
 def _grade(result: dict[str, Any], expected: dict[str, Any]) -> dict[str, bool]:
-    """Run only the comparison half of the finalizer, as `main` composes it."""
-    observed = _observed_paths(result)
-    planned = _fold(expected["sysvol_paths"])
-    seen = _fold(observed)
-    attributes = result["ad_attributes"]
-    packed = attributes.get("versionNumber")
-    return {
-        "plan_names_every_file_windows_wrote": not [p for p in seen if p not in planned],
-        "windows_wrote_every_file_the_plan_names": not [p for p in planned if p not in seen],
-        "machine_extension_names_exact": attributes.get("gPCMachineExtensionNames")
-        == expected["machine_extension_names"],
-        "user_extension_names_exact": attributes.get("gPCUserExtensionNames")
-        == expected["user_extension_names"],
-        "gpt_version_moved_the_declared_half": type(packed) is int
-        and _version_half_matches(str(expected["version_half"]), packed),
-        "gpo_cmt_present_only_if_planned": any(p.endswith("gpo.cmt") for p in seen)
-        is bool(expected["expects_gpo_cmt"]),
-    }
+    """The finalizer's own comparison, exactly as `main` runs it."""
+    return _finalizer_grade(result, expected)[0]
 
 
 def test_the_measured_windows_result_passes_every_comparison_check() -> None:
@@ -295,12 +371,140 @@ def test_an_unexpected_gpo_cmt_fails_the_control() -> None:
     assert checks["gpo_cmt_present_only_if_planned"] is False
 
 
-def test_a_wrong_version_half_fails_even_though_the_files_are_right() -> None:
+def test_a_wrong_ad_version_half_fails_even_though_the_files_are_right() -> None:
     result = _result()
     result["ad_attributes"]["versionNumber"] = 1  # machine only
+    result["ad_attributes"]["user_ds_version"] = 0
+    checks = _grade(result, _expectation())
+    assert checks["ad_version_number_moved_the_declared_half"] is False
+    assert checks["plan_names_every_file_windows_wrote"] is True
+
+
+def test_gpt_ini_at_version_zero_fails_although_ad_moved() -> None:
+    """The review's finding 4: the GPT.INI check must grade GPT.INI.
+
+    `update_gpt_ini` claims a half of GPT.INI's Version=. AD's versionNumber
+    is a different object; it can read 65537 while the file still says 0, and
+    a check that read only AD certified the planner's GPT.INI operation anyway.
+    """
+    result = _result()
+    result["gpt_ini_text"] = "[General]\r\nVersion=0\r\n"
     checks = _grade(result, _expectation())
     assert checks["gpt_version_moved_the_declared_half"] is False
-    assert checks["plan_names_every_file_windows_wrote"] is True
+    assert checks["ad_version_number_moved_the_declared_half"] is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        None,                                            # the guest found no GPT.INI
+        "",
+        "[General]\r\n",                                 # no Version= at all
+        "[General]\r\nVersion=\r\n",
+        "[General]\r\nVersion=0x10001\r\n",
+        "[General]\r\nVersion=65537\r\nVersion=65537\r\n",
+        "[Other]\r\nVersion=65537\r\n",                 # not the [General] key
+        "[General]\r\nVersion=1\r\n",                   # machine half only
+    ],
+)
+def test_gpt_ini_without_one_matching_version_fails(text: object) -> None:
+    result = _result()
+    result["gpt_ini_text"] = text
+    assert _grade(result, _expectation())["gpt_version_moved_the_declared_half"] is False
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("computer_sysvol_version", 0),
+        ("user_sysvol_version", 0),
+        ("user_sysvol_version", None),
+        ("computer_sysvol_version", True),   # a bool is not a version
+        ("computer_sysvol_version", "1"),
+    ],
+)
+def test_sysvol_version_halves_must_agree_with_gpt_ini(field: str, value: object) -> None:
+    """Get-GPO's SYSVOL halves are the same counter GPT.INI holds; both are graded."""
+    result = _result()
+    if value is None:
+        del result["ad_attributes"][field]
+    else:
+        result["ad_attributes"][field] = value
+    assert _grade(result, _expectation())["gpt_version_moved_the_declared_half"] is False
+
+
+def test_ad_version_number_disagreeing_with_its_ds_halves_fails() -> None:
+    result = _result()
+    result["ad_attributes"]["computer_ds_version"] = 2
+    assert _grade(result, _expectation())["ad_version_number_moved_the_declared_half"] is False
+
+
+def test_the_gpt_ini_parser_reads_the_measured_file() -> None:
+    assert _gpt_ini_version("[General]\r\nVersion=65537\r\n") == 65537
+    assert _gpt_ini_version("[general]\nversion = 131082\ndisplayName=x\n") == 131082
+
+
+@pytest.mark.parametrize("owned", ["", None, "not-a-guid", "{72328d56-2b38}", "{72328d56"])
+def test_an_owned_gpo_id_that_is_not_a_guid_fails_ownership(owned: object) -> None:
+    """The review's finding 5: ``"" in path`` is true for every path."""
+    result = _result()
+    result["owned_gpo_id"] = owned
+    assert _grade(result, _expectation())["sysvol_path_is_the_owned_gpos"] is False
+
+
+def test_a_sysvol_path_naming_another_gpo_fails_ownership() -> None:
+    result = _result()
+    result["owned_gpo_id"] = "11111111-2222-3333-4444-555555555555"
+    assert _grade(result, _expectation())["sysvol_path_is_the_owned_gpos"] is False
+
+
+def test_an_owned_id_that_is_only_a_substring_of_the_path_fails() -> None:
+    """The owned GUID must be the path's last component, not appear somewhere in it."""
+    result = _result()
+    nested = _SYSVOL + r"\Machine"
+    result["sysvol_path"] = nested
+    result["ad_attributes"]["gPCFileSysPath"] = nested
+    assert _grade(result, _expectation())["sysvol_path_is_the_owned_gpos"] is False
+
+
+def test_empty_sysvol_paths_fail_ownership() -> None:
+    result = _result()
+    result["sysvol_path"] = ""
+    result["ad_attributes"]["gPCFileSysPath"] = ""
+    assert _grade(result, _expectation())["sysvol_path_is_the_owned_gpos"] is False
+
+
+def test_empty_identities_fail_the_manifest_identity_check() -> None:
+    for field in ("backup_id", "source_gpo_id"):
+        result = _result()
+        result[field] = ""
+        assert _grade(result, _expectation())["candidate_identity_matches_manifest"] is False
+
+
+def test_the_guid_normaliser_accepts_only_whole_guids() -> None:
+    assert _guid("{72328D56-2B38-4FF3-8DBE-DA86559915C1}") == (
+        "72328d56-2b38-4ff3-8dbe-da86559915c1"
+    )
+    assert _guid("72328d56-2b38-4ff3-8dbe-da86559915c1") is not None
+    for bad in ("", None, 7, "{72328d56-2b38-4ff3-8dbe-da86559915c1", "x" * 36):
+        assert _guid(bad) is None, bad
+
+
+def test_the_result_schema_check_requires_a_guid_owned_id() -> None:
+    """Schema-level: the key being present is not enough."""
+    source = _FINALIZER_PATH.read_text(encoding="utf-8")
+    schema = source.split('"result_schema_exact":', 1)[1].split('"import_succeeded"', 1)[0]
+    assert '_guid(result.get("owned_gpo_id")) is not None' in schema
+
+
+def test_a_malformed_result_fails_every_comparison_check() -> None:
+    """`main` fails each name in COMPARISON_CHECKS when `_grade` raises."""
+    names = set(cast(tuple[str, ...], _FINALIZER["COMPARISON_CHECKS"]))
+    assert names == set(_grade(_result(), _expectation()))
+    broken = _result()
+    broken["ad_attributes"] = None
+    with pytest.raises(ValueError):
+        _finalizer_grade(broken, _expectation())
 
 
 def test_the_finalizer_refuses_a_candidate_root_missing_a_required_file(

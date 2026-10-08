@@ -5,91 +5,28 @@ The ruling was taken on 2026-09-11 --
 -- as **read target, write deferred**. These tests are what keep that decision
 honest in both directions.
 
-Two of them assert the measurements the ruling rested on, which are properties
-of this repository rather than of Windows: a brief resting on a code fact that
-has since changed is the same defect as a status line that has gone stale.
-They still describe `folder_redirection.py`, which the ruling did not touch.
+Two tests that used to live here measured `folder_redirection.py`: an advanced
+policy with three group rules collapsed to one registry tuple carrying neither
+the group SIDs nor the option flags. They were deleted with the module on
+2026-10-07 (operator ruling, recorded as an addendum to the decision document).
+The measurement is kept in the scope brief; the code it measured is in git.
 
-The last one changed shape when the ruling was acted on. It used to assert
-that nothing in the product read or wrote fdeploy, and its own docstring said
-that when that stopped being true, "the brief has to say which option was
-taken". It has, and so the assertion is now the other half of the same
-contract: the reader exists, and the **writer still does not**. A writer needs
-the `Flags` encoding R12 owes (WI-066), so this fails if one appears before
-that capture does.
+The writer guard changed shape twice. It first asserted that nothing in the
+product read or wrote fdeploy. When the reader landed it became the other half
+of the same contract: the reader exists, and the **writer still does not**. It
+also used to check that no conversion hung off `FolderRedirectionPolicy`,
+which was the module's own route to a writer. That route went with the module,
+so what remains is the guard over every product module: none but `fdeploy.py`
+may emit fdeploy bytes. A writer needs the `Flags` encoding R12 owes (WI-066),
+so this fails if one appears before that capture does.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from gpo_studio.folder_redirection import (
-    FolderRedirection,
-    FolderRedirectionPolicy,
-    RedirectionRule,
-)
-
 _ROOT = Path(__file__).resolve().parents[1]
 CAPTURE = _ROOT / "tests" / "fixtures" / "native-folder-redirection-gpmc"
-
-
-def _advanced_policy_with_three_groups() -> FolderRedirectionPolicy:
-    """The survey's own example: advanced mode, three groups, options off."""
-    return FolderRedirectionPolicy(
-        folders=(
-            FolderRedirection(
-                folder="documents",
-                target="advanced",
-                rules=(
-                    RedirectionRule(
-                        group_sid="S-1-5-21-1-1-1-1001",
-                        group_name="Sales",
-                        target_path=r"\\fs01\sales\%USERNAME%\Documents",
-                    ),
-                    RedirectionRule(
-                        group_sid="S-1-5-21-1-1-1-1002",
-                        group_name="Eng",
-                        target_path=r"\\fs02\eng\%USERNAME%\Documents",
-                    ),
-                    RedirectionRule(
-                        group_sid="S-1-5-21-1-1-1-1003",
-                        group_name="Ops",
-                        target_path=r"\\fs03\ops\%USERNAME%\Documents",
-                    ),
-                ),
-                grant_exclusive_rights=False,
-                move_contents=False,
-                remove_redirect_on_policy_removal=True,
-                also_redirect_subfolders=False,
-            ),
-        )
-    )
-
-
-def test_three_group_rules_collapse_to_one_registry_tuple() -> None:
-    """The survey asked for this and it had never been run.
-
-    "A code fact, not an oracle result, but it bounds what any lane could
-    certify" -- and what it bounds it to is nothing: two of the three rules are
-    dropped without a word.
-    """
-    settings = _advanced_policy_with_three_groups().to_registry_settings()
-    assert len(settings) == 1
-    assert settings[0][2] == r"\\fs01\sales\%USERNAME%\Documents"
-
-
-def test_neither_the_group_sids_nor_the_option_flags_survive() -> None:
-    """R3 shows Windows encoding both; the module's output carries neither.
-
-    `fdeploy1.ini` keys its per-folder section by SID and encodes the four
-    options as `Flags=1021`. A serializer that emits a single path is not a
-    lossy Folder Redirection writer -- it is not one at all, which is what makes
-    this a scope question rather than a bug.
-    """
-    rendered = str(_advanced_policy_with_three_groups().to_registry_settings())
-    assert "S-1-5-21" not in rendered
-    assert "1021" not in rendered
-    assert "Flags" not in rendered
 
 
 def test_the_capture_the_brief_quotes_is_still_what_is_banked() -> None:
@@ -126,34 +63,35 @@ def test_the_ruling_is_recorded_where_a_reader_would_look_for_it() -> None:
     text = decision.read_text(encoding="utf-8")
     assert "read target" in text
     assert "WI-066" in text  # the deferral's gate, named
+    # The old module's deletion is recorded where the ruling about it lives.
+    assert "2026-10-07" in text and "folder_redirection.py" in text
 
 
 def test_the_writer_half_is_still_deferred_behind_r12() -> None:
     """The reader may exist; nothing may compose an fdeploy from our model.
 
-    `encode_fdeploy` is the codec's other half and exists to prove the reader
-    lossless against native bytes. The line this holds is that no *other*
-    product module reaches for it, because emitting a document Windows has
-    never written needs the `Flags` encoding WI-066 owes -- and a writer built
-    on one observation is `object_security.py`'s propagation codes again.
+    `encode_fdeploy` and `format_fdeploy` are the codec's other half and exist
+    to prove the reader lossless against native bytes. The line this holds is
+    that no *other* product module reaches for either, because emitting a
+    document Windows has never written needs the `Flags` encoding WI-066 owes
+    -- and a writer built on one observation is `object_security.py`'s
+    propagation codes again.
+
+    This is the half of the guard that outlived `folder_redirection.py`: it
+    names no module, so it covers whichever one a writer would arrive in.
     """
     source = _ROOT / "src" / "gpo_studio"
+    writer_halves = ("encode_fdeploy", "format_fdeploy")
     callers = sorted(
-        path.name
-        for path in source.glob("*.py")
+        str(path.relative_to(source))
+        for path in source.rglob("*.py")
         if path.name != "fdeploy.py"
-        and "encode_fdeploy" in path.read_text(encoding="utf-8")
+        and any(
+            name in path.read_text(encoding="utf-8") for name in writer_halves
+        )
     )
     assert callers == [], (
         f"{callers} now emit fdeploy bytes. Plan 034 WP-4 deferred the writer "
         "until R12 measures the Flags encoding (WI-066); if that capture "
         "landed, say so in the decision document and change this test."
     )
-
-    # The other direction the writer could arrive from: a conversion hung off
-    # the existing model, which is the shape `to_registry_settings` already is.
-    assert not [
-        name
-        for name in dir(FolderRedirectionPolicy)
-        if "fdeploy" in name.casefold()
-    ]

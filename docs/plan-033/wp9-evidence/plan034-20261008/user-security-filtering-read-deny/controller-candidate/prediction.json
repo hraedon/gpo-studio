@@ -1,0 +1,74 @@
+{
+  "applied_gpos": [
+    "Studio-RSOP-UserDenyReadUser",
+    "Studio-RSOP-UserReadDenyAllow",
+    "Studio-RSOP-UserReadDenyControl"
+  ],
+  "computer_group_memberships": [],
+  "denied_gpos": [
+    {
+      "gpo": "Studio-RSOP-UserDenyReadComp",
+      "reasons": [
+        "security_filter_read_denied"
+      ]
+    },
+    {
+      "gpo": "Studio-RSOP-UserReadDenyApply",
+      "reasons": [
+        "security_filter_denied",
+        "security_filter_mismatch"
+      ]
+    }
+  ],
+  "expect_finding": "",
+  "loopback_mode": "disabled",
+  "out_of_scope_gpos": [],
+  "query_id": "wp6b-user-security-filtering-read-deny",
+  "scenario_id": "user-security-filtering-read-deny",
+  "scope": "user",
+  "target": {
+    "computer_name": "LabCL01",
+    "domain": "ad.labdomain.dev",
+    "site_name": "Default-First-Site-Name",
+    "user_name": "labauto1"
+  },
+  "unevaluable_gpos": [],
+  "user_group_memberships": [],
+  "warnings": [],
+  "winners": [
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "AllowOnly",
+      "winning_gpo": "Studio-RSOP-UserReadDenyAllow"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "present",
+      "value_name": "Control",
+      "winning_gpo": "Studio-RSOP-UserReadDenyControl"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "DenyReadUserOnly",
+      "winning_gpo": "Studio-RSOP-UserDenyReadUser"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [
+        "00000000-0000-0000-0000-0000000000dc"
+      ],
+      "value": "denyReadUser",
+      "value_name": "Filter",
+      "winning_gpo": "Studio-RSOP-UserDenyReadUser"
+    }
+  ]
+}

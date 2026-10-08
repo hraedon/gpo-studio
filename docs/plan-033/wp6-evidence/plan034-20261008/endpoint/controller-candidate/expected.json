@@ -1,0 +1,65 @@
+{
+  "backup_id": "{319EA8BD-5E46-5A13-AA9A-D6C67E11E6B1}",
+  "endpoint_role": "client",
+  "match_os_version": "WINTHRESHOLD",
+  "non_match_os_version": "WINTHRESHOLDSRV",
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-0000000000E1}",
+  "tasks": [
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "control: task applies at all",
+      "name": "GPOStudio-EP2-A-nofilter"
+    },
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "WI-021 fix: matching filter must APPLY",
+      "name": "GPOStudio-EP2-B-os-match"
+    },
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "vocabulary control for B: does WINTHRESHOLD match a Windows 11 client at all?",
+      "name": "GPOStudio-EP2-J-native-os-match"
+    },
+    {
+      "expected_if_defects_real": "absent",
+      "isolates": "the server product code must NOT match a client (negative half of the collision proof)",
+      "name": "GPOStudio-EP2-K-os-server-code"
+    },
+    {
+      "expected_if_defects_real": "absent",
+      "isolates": "WI-021 fix: excluding filter must NOT apply",
+      "name": "GPOStudio-EP2-C-os-exclude"
+    },
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "WI-021 fix: negation path",
+      "name": "GPOStudio-EP2-D-os-negated"
+    },
+    {
+      "expected_if_defects_real": "absent",
+      "isolates": "control: hand-written native excluding filter",
+      "name": "GPOStudio-EP2-E-native-control"
+    },
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "WI-018 fix: scalar-authored TaskV2 must now CREATE a task",
+      "name": "GPOStudio-EP2-F-scalar-shape"
+    },
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "hypothesis: empty runAs leaves the CSE no identity to register under",
+      "name": "GPOStudio-EP2-G-runas-system"
+    },
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "hypothesis: a 1970 StartBoundary is rejected as too old (DISPROVED: absent)",
+      "name": "GPOStudio-EP2-H-future-boundary"
+    },
+    {
+      "expected_if_defects_real": "present",
+      "isolates": "was the StartBoundary fix load-bearing, or only schema hygiene?",
+      "name": "GPOStudio-EP2-I-bare-time"
+    }
+  ],
+  "vocabulary_control_task": "GPOStudio-EP2-J-native-os-match"
+}

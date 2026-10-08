@@ -1,11 +1,16 @@
 """Planning/modeling layer for GPO publication.
 
-This module does NOT publish to Active Directory or SYSVOL. It builds a typed
-:class:`PublicationPlan` from a :class:`~gpo_studio.model.GPO` and generates a
-review-only PowerShell artifact that fails closed for every operation lacking
-Windows evidence. Actual publication requires the supported GroupPolicy/GPMC
-publisher described in ``docs/live-publication.md``; the web process never
-writes directly to AD or SYSVOL.
+This module does NOT publish to Active Directory or SYSVOL. It builds a typed,
+review-only :class:`PublicationPlan` from a :class:`~gpo_studio.model.GPO`: an
+account of what an administrator would have to do to publish it, which the
+Plan 034 publication-completeness lane compares with what Windows produces.
+
+It emits no script. The PowerShell script generator that used to live here
+copied files straight into SYSVOL, which ``docs/live-publication.md`` forbids,
+and was retired by the 2026-10-07 operator ruling
+(``docs/direction-2026-10-07-plan-034-completion.md``). Publication goes
+through the native GPMC backup and ``Import-GPO`` plus the reviewed
+``apply.ps1``, and nothing else; the web process never writes to AD or SYSVOL.
 """
 
 from __future__ import annotations
@@ -14,10 +19,8 @@ import hashlib
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Literal
 
-from .artifact_store import ArtifactStore, detect_secrets
 from .canonical import canonical_json_bytes
 from .export import extension_registration
 from .gpmc_interop import InteropIssue
@@ -40,6 +43,11 @@ PublicationTarget = Literal["ad", "sysvol", "both"]
 
 # Which half of the packed GPT.INI Version= field a publication increments.
 # The field is user * 65536 + machine and its halves move independently.
+# Measured on Windows Server 2025 (2026-09-03): a machine-side-only edit moved
+# the value 0 -> 1; a user-side-only edit moved it 0 -> 65536 with the machine
+# half untouched; a GPO published by Windows itself showed
+# ``Version=0x0002000A`` (user 2, machine 10). The publication-completeness
+# finalizer unpacks the observed value itself (``_unpack_version``).
 GptVersionHalf = Literal["machine", "user", "both"]
 
 
@@ -52,14 +60,22 @@ class PublicationStep:
     detail: str = ""
     artifact_ids: tuple[str, ...] = ()  # artifacts involved in this step
     # update_gpt_ini only: which half of the packed Version= field this plan
-    # publishes. The halves move independently (see _unpack_gpt_version), so
-    # the half must be recorded explicitly rather than guessed at run time.
+    # publishes. The halves move independently (see GptVersionHalf), so the
+    # half must be recorded explicitly rather than guessed at run time.
     version_half: GptVersionHalf | None = None
     # The GPO-relative SYSVOL path this step writes, for steps that write one.
     # Typed rather than left implicit in `detail`, so a completeness comparison
     # against a real SYSVOL tree reads data instead of parsing prose -- the
     # Plan 034 lane does exactly that, and a detail string is not an interface.
     sysvol_path: str | None = None
+    # update_extension_lists only: the directory attribute this step sets and
+    # the exact value it sets it to. Typed for the same reason as
+    # `sysvol_path`: the completeness lane grades the plan's OWN claim about
+    # the extension lists, and must read it from the step rather than
+    # re-deriving it from the GPO (which would certify a plan that omitted the
+    # step, the WI-057 shape) or parsing `detail`.
+    directory_attribute: str | None = None
+    directory_value: str | None = None
 
 
 def _step_payload(step: PublicationStep) -> dict[str, object]:
@@ -77,6 +93,8 @@ def _step_payload(step: PublicationStep) -> dict[str, object]:
         "artifact_ids": list(step.artifact_ids),
         "version_half": step.version_half,
         "sysvol_path": step.sysvol_path,
+        "directory_attribute": step.directory_attribute,
+        "directory_value": step.directory_value,
     }
 
 
@@ -177,100 +195,20 @@ class PublicationPlan:
         return tuple(issues)
 
 
-@dataclass(frozen=True, slots=True)
-class PowerShellPublicationScript:
-    """Generated PowerShell script for administrator-driven publication."""
-    script_text: str
-    plan_id: str
-    gpo_guid: str
-    is_idempotent: bool = True  # True only if every step is implemented idempotently
-    estimated_duration_seconds: int = 0
-
-
 # GPMC settings count threshold for medium risk.
 _REGISTRY_SETTINGS_MEDIUM_RISK_THRESHOLD = 100
-
-# Operations with Windows external-oracle evidence proving both execution and
-# idempotency. Plan 033 intentionally starts empty: internally consistent
-# PowerShell generation is not evidence that GPMC/SYSVOL assigns it the same
-# meaning. Until an operation is promoted here, the generated script is a
-# fail-closed review artifact and performs no mutation.
-_WINDOWS_VERIFIED_OPERATIONS: frozenset[str] = frozenset()
 
 
 def _new_plan_id() -> str:
     return f"plan-{uuid.uuid4().hex[:12]}"
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _content_hash(content: bytes) -> str:
-    return hashlib.sha256(content).hexdigest()
-
-
 def _artifact_id_for(content: bytes) -> str:
-    return _content_hash(content)
-
-
-def _guid_with_braces(guid: str) -> str:
-    guid = guid.strip("{}")
-    return "{" + guid.upper() + "}"
+    return hashlib.sha256(content).hexdigest()
 
 
 def _guid_without_braces(guid: str) -> str:
     return guid.strip("{}").lower()
-
-
-def _ps_quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-def _ps_sanitize_comment(text: str) -> str:
-    return text.replace("\r", " ").replace("\n", " ").replace("`", " ")
-
-
-def _not_implemented_warning(operation: str) -> str:
-    """PowerShell Write-Warning line for an unimplemented operation."""
-    return (
-        f'Write-Warning "NOT IMPLEMENTED: {operation} '
-        "\u2014 requires manual execution\""
-    )
-
-
-def _unpack_gpt_version(packed: int) -> tuple[int, int]:
-    """Split a packed GPT.INI ``Version=`` into its (machine, user) halves.
-
-    Windows maintains the version as one packed 32-bit field,
-    ``user * 65536 + machine``: the machine counter is the low 16-bit half and
-    the user counter the high 16-bit half, and the halves move independently.
-    Measured on Windows Server 2025 (2026-09-03): a machine-side-only edit
-    moved the value 0 -> 1; a user-side-only edit moved it 0 -> 65536 with the
-    machine half untouched. A GPO published by Windows itself showed
-    ``Version=0x0002000A``: user 2, machine 10.
-    """
-    return packed % 65536, packed // 65536
-
-
-def _pack_gpt_version(machine: int, user: int) -> int:
-    """Pack independent 16-bit version halves into a GPT.INI ``Version=``."""
-    return (user % 65536) * 65536 + (machine % 65536)
-
-
-def _bump_gpt_version(packed: int, half: Literal["machine", "user"]) -> int:
-    """Increment one half of a packed version and leave the other half alone.
-
-    A wrapping half does not carry into its neighbour. Windows' own carry
-    behaviour on wrap is unverified; the invariant this module commits to is
-    that an increment never moves the half it does not target.
-    """
-    machine, user = _unpack_gpt_version(packed)
-    if half == "machine":
-        machine = (machine + 1) % 65536
-    else:
-        user = (user + 1) % 65536
-    return _pack_gpt_version(machine, user)
 
 
 def _gpt_version_half(
@@ -504,6 +442,29 @@ def generate_publication_plan(
             )
         )
 
+    # An imported Folder Redirection policy (WI-068 carries fdeploy1.ini on the
+    # model; WI-066 owes the writer). Studio has no fdeploy writer and no
+    # measured extension registration for it, so nothing below would publish
+    # it: the plan would validate while silently omitting the redirection.
+    # Refused for every target, not only SYSVOL: the policy needs both the
+    # SYSVOL file and its entry in gPCUserExtensionNames, and Studio can state
+    # neither, so an AD-only plan would be just as partial.
+    if gpo.fdeploy is not None:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-folder-redirection",
+                operation="unsupported_folder_redirection",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: the GPO carries an imported Folder "
+                    "Redirection policy (fdeploy1.ini) and this planner has no "
+                    "writer for it (WI-066), so a plan without it would publish a "
+                    "GPO that silently drops the redirection"
+                ),
+            )
+        )
+
     # Register the client-side extensions the SYSVOL content needs, without
     # which every file above is inert (WI-057). The values come from export.py's
     # measured vocabulary rather than being restated here; the attributes are on
@@ -543,6 +504,8 @@ def generate_publication_plan(
                         target="ad",
                         status="pending",
                         detail=f"Set {attribute} to {value}",
+                        directory_attribute=attribute,
+                        directory_value=value,
                     )
                 )
                 rollback.append(
@@ -570,6 +533,38 @@ def generate_publication_plan(
                         ),
                     )
                 )
+
+    # A disabled side lives in the directory object's `flags` attribute, which
+    # `apply.ps1` sets through `GpoStatus` and the native backup carries as
+    # `Options`. No step here writes it, so a plan executed as written would
+    # publish the side ENABLED -- the inverse of what the author set, and
+    # silent, because every file it names would still be right (WI-070). The
+    # planner refuses rather than inventing a step no lane has measured.
+    disabled_sides = [
+        side
+        for side, enabled in (
+            ("computer", gpo.computer_enabled),
+            ("user", gpo.user_enabled),
+        )
+        if not enabled
+    ]
+    if disabled_sides:
+        steps.append(
+            PublicationStep(
+                step_id="unsupported-side-status",
+                operation="unsupported_side_status",
+                target=target,
+                status="pending",
+                detail=(
+                    "Publication refused: the "
+                    f"{' and '.join(disabled_sides)} side"
+                    f"{'s are' if len(disabled_sides) > 1 else ' is'} disabled, and "
+                    "this planner has no step that sets the GPO's flags attribute, "
+                    "so the plan as written would publish "
+                    f"{'them' if len(disabled_sides) > 1 else 'it'} enabled"
+                ),
+            )
+        )
 
     # If security filters: update nTSecurityDescriptor.
     if gpo.security_filters and _is_ad_target(target):
@@ -645,323 +640,6 @@ def generate_publication_plan(
     )
 
 
-def _gpt_ini_step_lines(version_half: GptVersionHalf | None) -> list[str]:
-    """PowerShell lines for the ``update_gpt_ini`` step (Windows PowerShell 5.1).
-
-    The packed version is read, unpacked, and only the half named by
-    ``version_half`` is incremented in place, so a user-side publication can
-    never move the machine counter (and vice versa) no matter how the value
-    has moved since the plan was generated.
-
-    Idempotence marker (``gpt.ini.studio-marker``) is per half: ``machine=<n>``
-    and/or ``user=<n>`` lines record the half value this script last left on
-    SYSVOL. A half sitting at its marker value is already applied and the
-    script changes nothing; a half not at its marker value is incremented from
-    the value read at run time. The untouched half is never rewritten, so
-    independent movers between runs (GPMC authoring, or a different plan) are
-    detected as "already applied" versus "needs the bump" without being
-    clobbered.
-    """
-    if version_half is None:
-        return [
-            "# No machine or user SYSVOL content in this plan; the GPT.INI",
-            "# version is not incremented (nothing for clients to reprocess).",
-            (
-                'Write-PlanLog "GPT.INI version not incremented: no machine or '
-                'user content in this plan."'
-            ),
-            "",
-        ]
-    halves = ("machine", "user") if version_half == "both" else (version_half,)
-    halves_ps = ", ".join(f"'{h}'" for h in halves)
-    return [
-        "# Increment GPT.INI version counter "
-        f"({_GPT_VERSION_HALF_LABELS[version_half]}); idempotent per half.",
-        (
-            "$gptIniPath = Join-Path $env:SystemRoot "
-            '"SYSVOL\\domain\\Policies\\$($GpoGuid)\\gpt.ini"'
-        ),
-        (
-            "$gptMarkerPath = Join-Path $env:SystemRoot "
-            '"SYSVOL\\domain\\Policies\\$($GpoGuid)\\gpt.ini.studio-marker"'
-        ),
-        f"$publishHalves = @({halves_ps})",
-        "if (Test-Path $gptIniPath) {",
-        "    $gptContent = Get-Content $gptIniPath -Raw",
-        "    $versionMatch = [regex]::Match($gptContent, 'Version=(\\d+)')",
-        "    if (-not $versionMatch.Success) {",
-        (
-            "        throw \"GPT.INI at $gptIniPath has no Version= line; "
-            'refusing to guess the packed version."'
-        ),
-        "    }",
-        "    $currentVersion = [int64]$versionMatch.Groups[1].Value",
-        "    # Packed 32-bit field: machine is the low 16-bit half, user the",
-        "    # high 16-bit half (measured: user-only edit 0 -> 65536;",
-        "    # Version=0x0002000A is user 2, machine 10). Only the published",
-        "    # half moves, in place, from the value read at run time.",
-        "    $halfValues = @{",
-        "        machine = [int]($currentVersion % 65536)",
-        "        user    = [int][math]::Truncate($currentVersion / 65536)",
-        "    }",
-        "    $markerHalfValues = @{}",
-        "    if (Test-Path $gptMarkerPath) {",
-        "        foreach ($markerLine in (Get-Content $gptMarkerPath)) {",
-        "            if ($markerLine -match '^\\s*(machine|user)\\s*=\\s*(\\d+)\\s*$') {",
-        "                $markerHalfValues[$Matches[1]] = [int]$Matches[2]",
-        "            }",
-        "        }",
-        "    }",
-        "    $changedHalves = @()",
-        "    foreach ($half in $publishHalves) {",
-        "        $markerHasHalf = $markerHalfValues.ContainsKey($half)",
-        (
-            "        $halfAtMarkerValue = "
-            "$markerHasHalf -and $halfValues[$half] -eq $markerHalfValues[$half]"
-        ),
-        "        if ($halfAtMarkerValue) {",
-        (
-            '            Write-PlanLog "GPT.INI $half half already at '
-            '$($halfValues[$half]); no change."'
-        ),
-        "        } else {",
-        "            $changedHalves += $half",
-        "        }",
-        "    }",
-        "    if ($changedHalves.Count -gt 0) {",
-        "        foreach ($half in $changedHalves) {",
-        "            $halfValues[$half] = ($halfValues[$half] + 1) % 65536",
-        "        }",
-        "        $newVersion = $halfValues['user'] * 65536 + $halfValues['machine']",
-        (
-            "        if ($PSCmdlet.ShouldProcess($gptIniPath, "
-            "'Update GPT.INI version')) {"
-        ),
-        (
-            "            $gpt = $gptContent -replace 'Version=\\d+', "
-            '"Version=$newVersion"'
-        ),
-        "            if (-not ($gpt -match '(?m)^Version=')) {",
-        '                $gpt = "Version=$newVersion`r`n" + $gpt',
-        "            }",
-        "            Set-Content -Path $gptIniPath -Value $gpt -Encoding ASCII",
-        "            foreach ($half in $changedHalves) {",
-        "                $markerHalfValues[$half] = $halfValues[$half]",
-        "            }",
-        "            $markerLines = @()",
-        "            foreach ($half in @('machine', 'user')) {",
-        "                if ($markerHalfValues.ContainsKey($half)) {",
-        '                    $markerLines += "$half=$($markerHalfValues[$half])"',
-        "                }",
-        "            }",
-        (
-            "            Set-Content -Path $gptMarkerPath -Value $markerLines "
-            "-Encoding ASCII"
-        ),
-        "        }",
-        "    }",
-        "}",
-        "",
-    ]
-
-
-def generate_publication_script(plan: PublicationPlan) -> PowerShellPublicationScript:
-    """Generate an administrator-review PowerShell script for ``plan``.
-
-    The returned script is a *review artifact*, not an automated publisher.
-    Any operation without Plan 033 Windows evidence causes an early, non-zero
-    refusal before AD or SYSVOL is contacted. Verified operation generators
-    remain behind the explicit allowlist for later promotion.
-    """
-    unverified = tuple(
-        step
-        for step in plan.steps
-        if step.operation not in _WINDOWS_VERIFIED_OPERATIONS
-    )
-    if unverified:
-        review_lines = [
-            "# Generated by GPO Studio for administrator review.",
-            "# No publication operation in this plan is Windows-verified.",
-            "# This script fails closed before contacting AD or SYSVOL.",
-            "[CmdletBinding()]",
-            "param()",
-            "$ErrorActionPreference = 'Stop'",
-            f"$PlanId = {_ps_quote(plan.plan_id)}",
-            f"$GpoGuid = {_ps_quote(_guid_with_braces(plan.gpo_guid))}",
-            f"$GpoName = {_ps_quote(plan.gpo_name)}",
-            "",
-        ]
-        for step in unverified:
-            detail = _ps_sanitize_comment(step.detail)
-            review_lines.append(
-                f"Write-Warning {_ps_quote(f'NOT WINDOWS-VERIFIED: {step.operation} — {detail}')}"
-            )
-        review_lines.extend([
-            "",
-            "Write-Error 'Publication refused: this plan contains unverified operations.'",
-            "exit 1",
-            "",
-        ])
-        return PowerShellPublicationScript(
-            script_text="\n".join(review_lines),
-            plan_id=plan.plan_id,
-            gpo_guid=plan.gpo_guid,
-            is_idempotent=False,
-            estimated_duration_seconds=0,
-        )
-
-    lines: list[str] = [
-        "# Generated by GPO Studio. Review before running with delegated GPO rights.",
-        "# This script is produced for administrator review and does not write directly.",
-        "#Requires -Modules GroupPolicy, ActiveDirectory",
-        "[CmdletBinding(SupportsShouldProcess=$true)]",
-        "param()",
-        "$ErrorActionPreference = 'Stop'",
-        f"$PlanId = {_ps_quote(plan.plan_id)}",
-        f"$GpoGuid = {_ps_quote(_guid_with_braces(plan.gpo_guid))}",
-        f"$GpoName = {_ps_quote(plan.gpo_name)}",
-        "",
-        "function Write-PlanLog {",
-        "    param([string]$Message)",
-        "    Write-Information \"[GPO Studio $PlanId] $Message\" -InformationAction Continue",
-        "}",
-        "",
-        "$gpo = Get-GPO -Guid $GpoGuid -ErrorAction SilentlyContinue",
-        "if (-not $gpo) {",
-        "    Write-PlanLog \"GPO not found by GUID; attempting by name.\"",
-        "    $gpo = Get-GPO -Name $GpoName -ErrorAction SilentlyContinue",
-        "}",
-        "if (-not $gpo) {",
-        "    throw \"GPO $GpoName ($GpoGuid) was not found.\"",
-        "}",
-        "$incompleteSteps = 0",
-        "",
-    ]
-
-    estimated_seconds = 30
-    write_steps = [s for s in plan.steps if s.operation != "update_gpt_ini"]
-
-    for step in plan.steps:
-        match step.operation:
-            case "update_gpt_ini":
-                # Half-aware increment; see _gpt_ini_step_lines for the marker
-                # semantics and the evidence behind the packing.
-                lines.extend(_gpt_ini_step_lines(step.version_half))
-            case "write_registry_pol":
-                side = "Machine" if "machine" in step.step_id else "User"
-                lines.extend([
-                    f"# {step.detail}",
-                    (
-                        "$polPath = Join-Path $env:SystemRoot "
-                        f'"SYSVOL\\domain\\Policies\\$($GpoGuid)\\{side}\\Registry.pol"'
-                    ),
-                    "# Rollback: restore previous Registry.pol from backup.",
-                    f"Write-PlanLog \"{_ps_sanitize_comment(step.detail)}\"",
-                    "if ($PSCmdlet.ShouldProcess($polPath, 'Write Registry.pol')) {",
-                    "    # Stage artifact next to script or pull from Studio store.",
-                    (
-                        f'    Copy-Item -Path "$PSScriptRoot\\$($GpoGuid)\\{side}\\Registry.pol" '
-                        "-Destination $polPath -Force"
-                    ),
-                    "}",
-                    "",
-                ])
-            case "copy_gpp_xml":
-                # detail is "Copy <Side>/Preferences/<filename>"
-                if step.detail.startswith("Copy "):
-                    rel_path = step.detail[len("Copy "):].strip()
-                else:
-                    rel_path = step.detail.strip()
-                rel_path_ps = rel_path.replace("/", "\\")
-                lines.extend([
-                    f"# {step.detail}",
-                    f"Write-PlanLog \"{_ps_sanitize_comment(step.detail)}\"",
-                    "# Rollback: remove the copied GPP XML file.",
-                    f"$sourcePath = \"$PSScriptRoot\\$($GpoGuid)\\{rel_path_ps}\"",
-                    (
-                        f"$targetPath = Join-Path $env:SystemRoot "
-                        f"\"SYSVOL\\domain\\Policies\\$($GpoGuid)\\{rel_path_ps}\""
-                    ),
-                    "if ($PSCmdlet.ShouldProcess($targetPath, 'Copy GPP XML')) {",
-                    "    Copy-Item -Path $sourcePath -Destination $targetPath -Force",
-                    "}",
-                    "",
-                ])
-            case "update_nt_security_descriptor":
-                lines.extend([
-                    "# Update GPO security filtering.",
-                    "# Rollback: capture current ACL with Get-GPPermission -All before applying.",
-                    _not_implemented_warning(step.operation),
-                    "$incompleteSteps++",
-                    "if ($PSCmdlet.ShouldProcess($GpoGuid, 'Update security filters')) {",
-                    "    # Reconcile security filters via Set-GPPermission (manual review)",
-                    "}",
-                    "",
-                ])
-            case "associate_wmi_filter":
-                lines.extend([
-                    "# Associate WMI filter with GPO.",
-                    "# Rollback: remove WMI filter association.",
-                    _not_implemented_warning(step.operation),
-                    "$incompleteSteps++",
-                    "if ($PSCmdlet.ShouldProcess($GpoGuid, 'Associate WMI filter')) {",
-                    "    # Associate via Set-ADObject or GPMC COM API (manual review)",
-                    "}",
-                    "",
-                ])
-            case "update_gplink":
-                # detail is "Update gPLink on <DN>"
-                parts = step.detail.split(" on ", 1)
-                target_dn = parts[1].strip() if len(parts) == 2 else step.detail.strip()
-                lines.extend([
-                    f"# {step.detail}",
-                    "# Rollback: remove the added GPLink if this script created it.",
-                    f"$targetDn = {_ps_quote(target_dn)}",
-                    _not_implemented_warning(step.operation),
-                    "$incompleteSteps++",
-                    "if ($PSCmdlet.ShouldProcess($targetDn, 'Update gPLink')) {",
-                    "    # Use Set-ADObject to update gPLink attribute (manual review required)",
-                    "}",
-                    "",
-                ])
-            case _:
-                raise AssertionError(
-                    f"Expected code to be unreachable, but got: {step.operation!r}"
-                )
-
-    estimated_seconds = max(30, len(write_steps) * 15)
-
-    lines.extend([
-        "if ($incompleteSteps -gt 0) {",
-        (
-            '    Write-Warning "$incompleteSteps operation(s) require manual '
-            'execution. Review warnings above."'
-        ),
-        "    exit 1",
-        "}",
-        (
-            'Write-PlanLog "Publication script completed. Review warnings above '
-            'for operations requiring manual execution."'
-        ),
-        "",
-    ])
-
-    # The script is idempotent only when every step is implemented with an
-    # idempotent check. AD operations (security descriptor, WMI filter, gPLink)
-    # are not implemented, so their presence makes the script non-idempotent.
-    is_idempotent = bool(plan.steps) and all(
-        s.operation in _WINDOWS_VERIFIED_OPERATIONS for s in plan.steps
-    )
-
-    return PowerShellPublicationScript(
-        script_text="\n".join(lines),
-        plan_id=plan.plan_id,
-        gpo_guid=plan.gpo_guid,
-        is_idempotent=is_idempotent,
-        estimated_duration_seconds=estimated_seconds,
-    )
-
-
 def _is_valid_dn(value: str) -> bool:
     return bool(re.match(r"^(?:CN|OU|DC)=[^,=]+(?:,(?:CN|OU|DC)=[^,=]+)+$", value, re.IGNORECASE))
 
@@ -989,12 +667,15 @@ def planned_sysvol_paths(plan: PublicationPlan) -> tuple[str, ...]:
     )
 
 
-def validate_publication_plan(
-    plan: PublicationPlan,
-    *,
-    store: ArtifactStore | None = None,
-) -> tuple[InteropIssue, ...]:
-    """Validate a publication plan before execution."""
+def validate_publication_plan(plan: PublicationPlan) -> tuple[InteropIssue, ...]:
+    """Validate a publication plan before execution.
+
+    Structural only. The optional artifact-store cross-check that used to live
+    here went with ``artifact_store.py`` (deleted by the 2026-10-07 ruling:
+    delivering script or executable payloads is out of scope for 1.x); a step's
+    ``artifact_ids`` are content digests of what the planner itself serialized,
+    and ``payload_digest`` binds them.
+    """
     issues: list[InteropIssue] = []
 
     if not plan.gpo_guid.strip():
@@ -1048,6 +729,34 @@ def validate_publication_plan(
                     "Plan carries GPP content whose extension metadata has never been "
                     "captured, so the extension list it requires cannot be stated; "
                     "publishing it would create a GPO that applies nothing."
+                ),
+                component="plan",
+            )
+        )
+
+    if any(step.operation == "unsupported_side_status" for step in plan.steps):
+        issues.append(
+            InteropIssue(
+                level="error",
+                check="unsupported_side_status",
+                message=(
+                    "The GPO has a disabled computer or user side, and the plan has no "
+                    "step that sets the directory object's flags attribute; publishing "
+                    "it as written would leave that side enabled (WI-070)."
+                ),
+                component="plan",
+            )
+        )
+
+    if any(step.operation == "unsupported_folder_redirection" for step in plan.steps):
+        issues.append(
+            InteropIssue(
+                level="error",
+                check="unsupported_folder_redirection",
+                message=(
+                    "The GPO carries an imported Folder Redirection policy "
+                    "(fdeploy1.ini) that Studio cannot write (WI-066); publishing the "
+                    "plan would create a GPO without the redirection."
                 ),
                 component="plan",
             )
@@ -1113,30 +822,5 @@ def validate_publication_plan(
                         component=f"steps/{step.step_id}",
                     )
                 )
-
-    if store is not None:
-        for step in plan.steps:
-            for artifact_id in step.artifact_ids:
-                artifact = store.get_artifact(artifact_id, include_content=True)
-                if artifact is None:
-                    issues.append(
-                        InteropIssue(
-                            level="error",
-                            check="artifact_exists",
-                            message=f"Artifact {artifact_id!r} referenced by step "
-                                    f"{step.step_id!r} was not found in the store.",
-                            component=f"steps/{step.step_id}",
-                        )
-                    )
-                    continue
-                if detect_secrets(artifact.content):
-                    issues.append(
-                        InteropIssue(
-                            level="error",
-                            check="artifact_secrets",
-                            message=f"Artifact {artifact_id!r} contains potential secrets.",
-                            component=f"steps/{step.step_id}",
-                        )
-                    )
 
     return tuple(issues)

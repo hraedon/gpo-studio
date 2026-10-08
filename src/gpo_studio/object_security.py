@@ -250,8 +250,24 @@ def _parse_member_list(value: str) -> tuple[RestrictedGroupMember, ...]:
     return tuple(result)
 
 
+_SID_PRINCIPAL = re.compile(r"S-1-\d+(?:-\d+)+", re.IGNORECASE)
+
+
+def _principal_wire(principal: str) -> str:
+    """A [Group Membership] principal as MS-GPSB writes it.
+
+    Star a SID, and only a SID: an unstarred principal is a *name*, so a bare
+    SID names nothing (WI-064), and a starred name names a principal called
+    ``*Power Users``. Windows writes both forms -- the R4 export carries
+    ``*S-1-5-32-544__Members`` and native templates carry
+    ``Power Users__Members = Administrator`` -- so the reader keeps whichever
+    it was given and this puts the star back only where it belongs.
+    """
+    return f"*{principal}" if _SID_PRINCIPAL.fullmatch(principal) else principal
+
+
 def _format_member_list(members: tuple[RestrictedGroupMember, ...]) -> str:
-    return ",".join(f"*{m.sid}" for m in members)
+    return ",".join(_principal_wire(m.sid) for m in members)
 
 
 def _parse_group_key(key: str) -> tuple[str, str | None]:
@@ -359,14 +375,17 @@ class RestrictedGroupsFamily:
     def to_template_entries(self) -> dict[str, dict[str, str]]:
         if not self.groups:
             return {}
+        # The group in the key follows the same rule as each member in the
+        # value (``_principal_wire``): a SID is starred, a name is not.
+        # Windows exports ``*S-1-5-32-544__Members`` (R4); WI-064.
         entries: dict[str, str] = {}
         for group in self.groups:
             if group.members:
-                entries[f"{group.group_sid}__Members"] = _format_member_list(
+                entries[f"{_principal_wire(group.group_sid)}__Members"] = _format_member_list(
                     group.members
                 )
             if group.member_of:
-                entries[f"{group.group_sid}__Memberof"] = _format_member_list(
+                entries[f"{_principal_wire(group.group_sid)}__Memberof"] = _format_member_list(
                     group.member_of
                 )
         if not entries:
@@ -385,6 +404,20 @@ class ServiceSecurity:
     startup_mode: StartupMode | None = None
     raw_sddl: str = ""
     security_descriptor: SecurityDescriptor | None = None
+
+
+def _service_descriptor(svc: ServiceSecurity) -> SecurityDescriptor | None:
+    """The service's descriptor, parsing ``raw_sddl`` if nothing has yet.
+
+    ``security_descriptor`` is ``None`` both when parsing failed and when
+    nothing tried: only ``from_template`` populates it, so a model built
+    directly carries ``None`` beside a perfectly valid ``raw_sddl``.  Reading
+    the field alone reported *unparsed* as *unparseable* (WI-065); parsing on
+    demand tells the two apart.
+    """
+    if svc.security_descriptor is not None:
+        return svc.security_descriptor
+    return _try_parse_sddl(svc.raw_sddl)
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,7 +443,7 @@ class SystemServicesFamily:
                         "SystemServicesFamily",
                     )
                 )
-            if svc.raw_sddl and svc.security_descriptor is None:
+            if svc.raw_sddl and _service_descriptor(svc) is None:
                 issues.append(
                     ValidationIssue(
                         "error",
@@ -658,9 +691,12 @@ def _service_risk(svc: ServiceSecurity) -> RiskLevel:
         if is_critical:
             return "high"
         return "low"
-    if svc.security_descriptor is not None and is_critical:
+    # Same distinction as `validate` (WI-065): an unparsed descriptor is still
+    # an ACL change, so it is parsed here rather than read as absent.
+    has_descriptor = _service_descriptor(svc) is not None
+    if has_descriptor and is_critical:
         return "high"
-    if svc.security_descriptor is not None:
+    if has_descriptor:
         return "medium"
     return "low"
 
