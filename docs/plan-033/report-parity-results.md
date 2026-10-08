@@ -1,14 +1,13 @@
 # Report parity — Windows results
 
-**Certifying run (2026-10-08):** `report-parity-20261008093047-3377`, 25/25
+**Certifying run (2026-10-08):** `report-parity-20261008104512-7480`, 25/25
 checks, 27/27 corpus cases plus the guest-authored case, on LabMS01 (Windows
 Server 2025 Standard, build 26100, role 3, Windows PowerShell 5.1.26100,
 GroupPolicy 1.0.0.0) at clean commit
-`1a31feb0d315db8162329dd32596d89b0c77d0f9`
+`a1c280b8a1ec31b03397437dc2e6d947022b4857`
 ([evidence](wp2-evidence/report-parity/verification.json)). The evidence tag
-is `evidence/report-parity-20261008093047-3377`. GPT Sol reviewed the lane
-twice, the second time including the MAX_PATH fix at `1a31feb`, and passed it
-both times.
+is `evidence/report-parity-20261008104512-7480`. It supersedes the
+`1a31feb` pass, which is described under [History](#history) below.
 
 This is Plan 034 WP-2's `backup.py` and `report.py` exit, as the
 [2026-10-07 ruling](../direction-2026-10-07-plan-034-completion.md) set it: a
@@ -196,12 +195,46 @@ hashes cover those bytes.
 
 `tests/test_committed_evidence.py` registers it in `LANE_VERDICTS`. That
 covers key and path agreement with the finalizer, every digest resolving at
-`1a31feb`, no controller-side copy in the pack, and the shipping tree still
+`a1c280b`, no controller-side copy in the pack, and the shipping tree still
 binding. `tests/test_report_parity_evidence.py` rehashes every artifact,
 requires the bound builder to rebuild the candidate byte for byte, and
 re-derives every case's comparison from the banked fresh reports with the
 finalizer's own grading functions. The lane's cost in re-runs is in
 [the cost table](bound-source-cost.md).
+
+## History
+
+The lane has three estate runs. Only the last is banked in the tree. The
+earlier pack is in git history, and its evidence tag is preserved.
+
+1. **The first run, at `2470ea9`, lost every imported case to MAX_PATH.**
+   Windows PowerShell 5.1's `Expand-Archive` is bound by MAX_PATH (260
+   characters). The run extracted under a root of about 110 characters, with
+   55-character case directories and deep GPP paths, which left the case input
+   empty. The authored case ran clean, but no imported case ran. The fix at
+   `1a31feb` shortened the guest's run root and gave each case a short
+   directory (`c01`–`c27`, mapped by `cases/index.tsv`). The builder now refuses
+   any archive member whose guest path would exceed 200 characters, and the
+   guest checks the case index before any case runs. That run was not a pass
+   and was not banked.
+2. **`report-parity-20261008093047-3377` passed** 25/25 at `1a31feb` (clean
+   tree), with the same comparison as the current run. GPT Sol reviewed the
+   lane twice, the second time including the MAX_PATH fix, and passed it both
+   times. It was banked first, and its tag
+   `evidence/report-parity-20261008093047-3377` is preserved. It stopped
+   binding when PR #94's Windows CI showed the candidate builder was not
+   platform-independent. The builder sorted `Path` objects, and `WindowsPath`
+   compares case-insensitively, so the archive's member order (and so its
+   hash) depended on the controller's OS. The finalizer's byte-identical
+   rebuild check therefore failed on a Windows checkout of an unchanged tree.
+   `a1c280b` sorts on ordinal path components instead. In the same commit, the
+   guest runner's by-ID lookup in `Find-Owned` records its failure instead of
+   swallowing it (PSScriptAnalyzer `PSAvoidUsingEmptyCatchBlock`). Both files
+   are bound by the verdict, so the lane was re-run.
+3. **`report-parity-20261008104512-7480` passed** 25/25 at `a1c280b`. Its
+   candidate is byte-identical to the second run's (the Linux order was
+   unchanged), and its comparison is identical case for case. Only the two
+   bound files above differ between the two verdicts.
 
 ## Boundary
 

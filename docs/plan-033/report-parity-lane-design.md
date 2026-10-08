@@ -1,8 +1,8 @@
 # Report-parity lane design
 
 Status: **Windows-verified** (2026-10-08). The certifying run
-`report-parity-20261008093047-3377` passed 25/25 checks over all 27 corpus
-cases plus the guest-authored case, on LabMS01 at clean commit `1a31feb`.
+`report-parity-20261008104512-7480` passed 25/25 checks over all 27 corpus
+cases plus the guest-authored case, on LabMS01 at clean commit `a1c280b`.
 See [the results](report-parity-results.md). The rest of this note was written
 before that run and is kept as the design. Where it calls something a
 hypothesis about a fresh report, the run has since measured it for the
@@ -12,7 +12,7 @@ This is the exit the [2026-10-07 direction](../direction-2026-10-07-plan-034-com
 set for `backup.py` and `report.py`: "a report-parity lane against a fresh
 `Get-GPOReport -ReportType Xml`, preceded by an offline differ", reaching `yes`
 for the families Studio models. It closes Plan 034 WP-2 item 3 once it has a
-passing verdict, which it has had since `report-parity-20261008093047-3377`.
+passing verdict, which it has had since `report-parity-20261008104512-7480`.
 
 ## The question
 

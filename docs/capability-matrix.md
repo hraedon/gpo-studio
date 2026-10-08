@@ -412,7 +412,7 @@ remain historical records for their original revisions.
 - **Report parity (post-1.0, 2026-10-08).** For the families the corpus
   exercises, Studio's typed import matches a fresh `Get-GPOReport -ReportType
   Xml` of the same backup imported on Windows:
-  `report-parity-20261008093047-3377`, 25/25, over 27 backups. This is a
+  `report-parity-20261008104512-7480`, 25/25, over 27 backups. This is a
   post-1.0 certification and does not widen the 1.0 contract row above. See
   [the reconciled entry](#backuppy--reportpy-plan-034-wp-2--report-parity-windows-verified-for-the-families-the-corpus-exercises)
   for its scope, exclusions and the two open defects (WI-072, WI-073).
@@ -845,8 +845,8 @@ because Plan 034 gave them the same exit: `yes` for the families Studio models.
 report families)" section prints the inventory the lane compares, through
 `report_parity.studio_inventory`.
 
-**Certification.** `report-parity-20261008093047-3377` (25/25 checks, clean
-commit `1a31feb`, LabMS01). Windows imported each of the 27 Windows-produced
+**Certification.** `report-parity-20261008104512-7480` (25/25 checks, clean
+commit `a1c280b`, LabMS01). Windows imported each of the 27 Windows-produced
 corpus backups into a fresh GPO, and the lane compared Studio's **typed**
 import (retained source bytes removed, so the result is what Studio writes
 after an edit) with a fresh `Get-GPOReport -ReportType Xml`, by side and

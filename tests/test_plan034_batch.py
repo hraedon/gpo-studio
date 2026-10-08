@@ -150,7 +150,7 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
 #: are enumerated, not pattern-matched: a verdict joins the live set beside the
 #: batch only by being named here, so an unretired stale binding still fails.
 BANKED_AFTER_THE_BATCH = {
-    # report-parity-20261008093047-3377 at 1a31feb (Plan 034 WP-2 items 2-3).
+    # report-parity-20261008104512-7480 at a1c280b (Plan 034 WP-2 items 2-3).
     "wp2-evidence/report-parity/verification.json",
 }
 

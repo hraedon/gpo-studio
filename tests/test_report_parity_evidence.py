@@ -1,9 +1,9 @@
 """The banked report-parity verdict is intact and still says what it said.
 
-`report-parity-20261008093047-3377` is the lane's certifying run (Plan 034
+`report-parity-20261008104512-7480` is the lane's certifying run (Plan 034
 WP-2 items 2 and 3). `test_committed_evidence.py` already holds it to the
 generic contract through `LANE_VERDICTS`: its `source.files` keys match the
-finalizer's tables, every recorded digest resolves at `1a31feb` through
+finalizer's tables, every recorded digest resolves at `a1c280b` through
 `git show`, the pack banks no controller-side copy, and the shipping tree still
 hashes to what it recorded. This module checks the things specific to this
 pack, which a reviewer would otherwise have to do by eye:
@@ -41,8 +41,8 @@ PACK = ROOT / "docs/plan-033/wp2-evidence/report-parity"
 CANDIDATE = PACK / "controller-candidate"
 FINALIZER = runpy.run_path(str(ROOT / "scripts/windows-oracle/finalize_report_parity_run.py"))
 
-RUN_ID = "report-parity-20261008093047-3377"
-COMMIT = "1a31feb0d315db8162329dd32596d89b0c77d0f9"
+RUN_ID = "report-parity-20261008104512-7480"
+COMMIT = "a1c280b8a1ec31b03397437dc2e6d947022b4857"
 
 #: The cases whose accepted divergences are Studio defects, and the work item
 #: each one waits on. A fix that removes one must move this pin with a re-run.
