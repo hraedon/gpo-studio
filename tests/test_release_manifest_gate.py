@@ -209,7 +209,7 @@ def test_a_candidate_tag_needs_candidate_status_not_approval(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     ("version", "tag"),
     [
-        ("1.0.0", "v1.1.0"),
+        ("1.2.0", "v1.1.0"),
         ("1.1.0", "v1.0.0"),
         ("1.1.0", "1.1.0"),
         ("1.1.0rc1", "v1.1.0"),
@@ -253,6 +253,12 @@ def test_the_report_version_must_be_the_package_version(tmp_path: Path) -> None:
         '__version__ = "1." + "1.0"\n',
         '"""\n__version__ = "1.2.0"\n"""\n__version__ = "1.1.0"\n',
         "__version__ = '1.1.0'  # fine\nVERSION = '1.2.0'\n",
+        # Hatchling's pattern is case-insensitive (DeepSeek review, finding 1):
+        # it builds 9.9.9 from these although Python assigns 1.1.0.
+        'Version = "9.9.9"\n__version__ = "1.1.0"\n',
+        '__VERSION__ = "9.9.9"\n__version__ = "1.1.0"\n',
+        'version = "9.9.9"\n__version__ = "1.1.0"\n',
+        '__Version__ = "1.1.0"\n__version__ = "1.1.0"\n',
     ],
 )
 def test_the_version_must_be_bound_exactly_once_and_unambiguously(
@@ -263,6 +269,72 @@ def test_the_version_must_be_bound_exactly_once_and_unambiguously(
     _release(root, "1.1.0")
     with pytest.raises(gate.ReleaseGateError, match="exactly once|Hatchling would read"):
         gate.check(root, "v1.1.0")
+
+
+def test_the_hatchling_pattern_is_hatchlings_own() -> None:
+    """Copied verbatim from hatchling ``version/core.py`` DEFAULT_PATTERN."""
+    assert gate.HATCHLING_DEFAULT_PATTERN == (
+        r"""(?i)^(__version__|VERSION) *= *(['"])v?(?P<version>.+?)\2"""
+    )
+    assert gate._HATCH_VERSION_LINE.flags & re.IGNORECASE
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"__version__ = (\n", b'__version__ = "1.1.0"\n\xff\xfe\n', b"\x00__version__ = '1.1.0'\n"],
+)
+def test_an_unreadable_version_file_is_a_clean_gate_failure(
+    tmp_path: Path, content: bytes, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """DeepSeek review, finding 2: no traceback, a named gate failure."""
+    root = _root(tmp_path, "1.1.0")
+    _release(root, "1.1.0")
+    (root / "src" / "gpo_studio" / "__init__.py").write_bytes(content)
+    with pytest.raises(gate.ReleaseGateError, match="cannot read the package version"):
+        gate.check(root, "v1.1.0")
+    assert gate.main(["--tag", "v1.1.0", "--root", str(root)]) == 1
+    error = capsys.readouterr().err
+    assert error.startswith("release gate: FAIL: cannot read the package version")
+    assert "Traceback" not in error
+
+
+def test_a_missing_version_file_is_a_clean_gate_failure(tmp_path: Path) -> None:
+    root = _root(tmp_path, "1.1.0")
+    (root / "src" / "gpo_studio" / "__init__.py").unlink()
+    with pytest.raises(gate.ReleaseGateError, match="cannot read the package version"):
+        gate.check(root, "v1.1.0")
+
+
+def test_an_already_released_version_is_refused_with_its_reason(tmp_path: Path) -> None:
+    """DeepSeek review, finding 3: 1.0.0 is refused explicitly, not by accident."""
+    root = _root(tmp_path, "1.0.0")
+    for name in ("release-evidence.md", "release-evidence-report.json"):
+        shutil.copyfile(REPO_ROOT / "docs" / name, root / "docs" / name)
+    with pytest.raises(gate.ReleaseGateError, match="already released 2026-07-18"):
+        gate.check(root, "v1.0.0")
+    assert gate.RELEASED == {"1.0.0": "released 2026-07-18 from docs/release-evidence.md"}
+
+
+@pytest.mark.parametrize(
+    ("extra", "rule"),
+    [
+        ("AT&amp;T", "rule no-entities"),
+        ("the list[0] entry", "rule plain-links"),
+        ("see <docs>", "rule no-html"),
+        ("Status of X: open", "rule one-status"),
+        ("a caf\u00e9", "rule ascii"),
+    ],
+)
+def test_every_refusal_names_its_rule_and_a_rephrasing(
+    tmp_path: Path, extra: str, rule: str
+) -> None:
+    """DeepSeek review, finding 4: strict, but the error says what to do."""
+    root = _root(tmp_path, "1.1.0")
+    _release(root, "1.1.0", extra=extra)
+    with pytest.raises(gate.ReleaseGateError, match=rule) as caught:
+        gate.check(root, "v1.1.0")
+    hints = ("Use ", "Write ", "rephrase", "Replace", "Type ")
+    assert any(hint in str(caught.value) for hint in hints)
 
 
 def test_the_committed_package_version_reads_cleanly() -> None:

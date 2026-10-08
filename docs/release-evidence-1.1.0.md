@@ -28,6 +28,28 @@ made in one commit:
 
 Nothing else in this file needs to change.
 
+### Writing rules for this file
+
+The gate checks this file's bytes without rendering it, so some ordinary prose
+is refused on purpose. Each refusal names its rule and suggests a rephrasing:
+
+- **ascii:** printable ASCII and newlines only. Use `-` for dashes, straight
+  quotes, `->` for arrows, spaces rather than tabs, and LF line endings.
+- **no-html:** no left angle bracket anywhere, even inside backticks. Write
+  `X.Y.Z` rather than a placeholder in angle brackets.
+- **no-entities:** no character references (an ampersand followed by `#`, or
+  by a name and a semicolon). Spell the character out instead.
+- **no-code-blocks:** no code fences and no line indented four or more spaces.
+  Use inline code, and indent list continuations by two or three spaces.
+- **plain-links:** links only as `[text](path)` or `[text][ref]`, with a bare
+  path or URL (no spaces, parentheses or title), and never touching a letter or
+  digit on either side. A `[` straight after a letter is refused even in
+  inline code, so write "item 0 of the list" rather than indexing syntax.
+- **one-status (a single status line):** the word "status" followed by a
+  colon appears only on line 5, and no other line may start with the word or
+  be a heading containing it. Rephrase, for example "where X stands" or "open
+  items".
+
 ## How the release gate reads this
 
 `release.yml` runs `scripts/check_release_manifest.py` before anything else

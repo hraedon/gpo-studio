@@ -104,28 +104,54 @@ def manifest_problems(data: bytes, base: str, status: str) -> list[str]:
     problems: list[str] = []
     bad = sorted({f"0x{byte:02x}" for byte in data if byte not in _ALLOWED_BYTES})
     if bad:
-        problems.append(f"only printable ASCII and LF are allowed; found bytes {bad}")
+        problems.append(
+            f"rule ascii: only printable ASCII and LF are allowed; found bytes {bad}. "
+            "Replace dashes, quotes and arrows with ASCII (-, ', ->), use spaces not "
+            "tabs, and save with LF line endings"
+        )
         return problems
     text = data.decode("ascii")
     lines = text.split("\n")
     if "<" in text:
-        problems.append("'<' is not allowed (no raw HTML or autolinks)")
+        problems.append(
+            "rule no-html: '<' is not allowed (no raw HTML or autolinks). Write 'less "
+            "than', or 'X.Y.Z' instead of '<version>', and use [text](url) for links"
+        )
     if _ENTITY.search(text):
-        problems.append("character references ('&#...;', '&name;') are not allowed")
+        problems.append(
+            "rule no-entities: character references ('&#...;', '&name;') are not allowed. "
+            "Type the character itself (ASCII only) or spell it out, e.g. 'and' for '&amp;'"
+        )
     for number, line in enumerate(lines, start=1):
         if _FENCE.match(line):
-            problems.append(f"line {number}: code fences are not allowed")
+            problems.append(
+                f"line {number}: rule no-code-blocks: code fences are not allowed. "
+                "Use `inline code` on ordinary lines instead"
+            )
         if _DEEP_INDENT.match(line):
-            problems.append(f"line {number}: indentation of four or more spaces is not allowed")
+            problems.append(
+                f"line {number}: rule no-code-blocks: indentation of four or more spaces "
+                "makes a code block. Indent list continuations by two or three spaces"
+            )
         if line.count("](") != len(_INLINE_LINK.findall(line)):
-            problems.append(f"line {number}: a link destination contains '(' or whitespace")
+            problems.append(
+                f"line {number}: rule plain-links: a link destination contains '(', "
+                "whitespace or a title. Use [text](path) with a bare path or URL"
+            )
         for pattern in (_INLINE_LINK, _REFERENCE_LINK):
             for match in pattern.finditer(line):
                 after = line[match.end() : match.end() + 1]
                 if after.isalnum():
-                    problems.append(f"line {number}: a link is glued to the following word")
+                    problems.append(
+                        f"line {number}: rule plain-links: a link is glued to the "
+                        "following word. Put a space or punctuation after the link"
+                    )
         if _GLUED_OPEN.search(line):
-            problems.append(f"line {number}: a link is glued to the preceding word")
+            problems.append(
+                f"line {number}: rule plain-links: '[' follows a letter or digit, "
+                "which could splice a link into a word. Put a space before the '[' or "
+                "rephrase, e.g. 'item 0 of the list' (this applies inside `code` too)"
+            )
 
     title = f"# Release evidence manifest - GPO Studio {base}"
     header_ok = (
@@ -156,7 +182,9 @@ def manifest_problems(data: bytes, base: str, status: str) -> list[str]:
     ]
     if mentions != [STATUS_LINE_INDEX + 1]:
         problems.append(
-            f"'status:' must appear exactly once, on line 5; found it on lines {mentions}"
+            f"rule one-status: 'status:' must appear exactly once, on line 5; found it on "
+            f"lines {mentions}. Rephrase elsewhere without a colon after the word, "
+            "e.g. 'the state of X' or 'X is open'"
         )
     for index, line in enumerate(lines):
         if index == STATUS_LINE_INDEX:
@@ -167,7 +195,11 @@ def manifest_problems(data: bytes, base: str, status: str) -> list[str]:
         )
         leading = re.findall(r"[a-z]+", _LEADING_MARKERS.sub("", _skeleton(line)).lower())
         if (heading and "status" in words) or leading[:1] == ["status"]:
-            problems.append(f"line {index + 1} reads as a status declaration: {line!r}")
+            problems.append(
+                f"line {index + 1}: rule one-status: reads as a status declaration: "
+                f"{line!r}. Do not start a line or name a heading with 'status'; "
+                "rephrase, e.g. 'Where X stands' or 'Open items'"
+            )
 
     application = f"- Application version: {base}"
     if lines.count(application) != 1:
@@ -261,10 +293,11 @@ class ReleaseManifest:
 
 # Hatchling's regex version source (``[tool.hatch.version] path``) reads the
 # first line matching this, which need not be what Python executes: a line inside
-# a docstring matches it, and a parenthesised assignment does not.
-_HATCH_VERSION_LINE = re.compile(
-    r"""^(__version__|VERSION) *= *(['"])v?(?P<version>.+?)\2""", re.MULTILINE
-)
+# a docstring matches it, and a parenthesised assignment does not. Copied from
+# hatchling's ``version/core.py`` DEFAULT_PATTERN, ``(?i)`` included, so
+# ``Version = ...`` and ``__VERSION__ = ...`` count exactly as Hatchling counts them.
+HATCHLING_DEFAULT_PATTERN = r"""(?i)^(__version__|VERSION) *= *(['"])v?(?P<version>.+?)\2"""
+_HATCH_VERSION_LINE = re.compile(HATCHLING_DEFAULT_PATTERN, re.MULTILINE)
 
 
 def _binds_version(node: ast.AST) -> bool:
@@ -288,8 +321,14 @@ def package_version(root: Path) -> str:
     the approved version (``--wheel``), so this is the early half of the check.
     """
     path = root / "src" / "gpo_studio" / "__init__.py"
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as error:
+        raise ReleaseGateError(
+            f"cannot read the package version from {path.name}: "
+            f"{type(error).__name__}: {error}"
+        ) from error
     bindings = [node for node in ast.walk(tree) if _binds_version(node)]
     simple = [
         node
@@ -368,6 +407,14 @@ def verify_distributions(version: str, wheel: Path | None, sdist: Path | None) -
         )
 
 
+#: Versions already published. A tag for one of them is refused outright: the
+#: release workflow never re-publishes, and these predate the current evidence
+#: format (1.0.0's manifest is docs/release-evidence.md).
+RELEASED: dict[str, str] = {
+    "1.0.0": "released 2026-07-18 from docs/release-evidence.md",
+}
+
+
 def manifest_paths(base_version: str) -> tuple[str, str]:
     return (
         f"docs/release-evidence-{base_version}.md",
@@ -383,6 +430,11 @@ def check(root: Path, tag: str) -> ReleaseManifest:
             f"refusing to release version {version!r}: only X.Y.Z and X.Y.ZrcN are releasable"
         )
     base, rc = parsed["base"], parsed["rc"]
+    if base in RELEASED:
+        raise ReleaseGateError(
+            f"{base} was already {RELEASED[base]}; the release workflow never "
+            "re-publishes a version. Bump __version__ for a new release"
+        )
     expected_tag = f"v{base}" + (f"-rc.{rc}" if rc else "")
     if _TAG.match(tag) is None or tag != expected_tag:
         raise ReleaseGateError(
