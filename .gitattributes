@@ -15,8 +15,11 @@ docs/plan-033/**/*.md   -text
 tests/fixtures/native-gpp-gpmc/** -text
 # Older Scripts captures are UTF-8 transcripts, stored as LF in Git.
 tests/fixtures/native-scripts-gpmc/*.txt text eol=lf
-scripts/plan-033/build-*.py -text
-scripts/windows-oracle/**   -text
+# WI-063: `-text` pinned whatever bytes were committed, so a Windows-side CRLF
+# edit committed cleanly and broke every runner. `text eol=lf` pins LF and makes
+# such an edit visible to `assert_bound_source_bytes` as worktree/HEAD drift.
+scripts/plan-033/build-*.py text eol=lf
+scripts/windows-oracle/**   text eol=lf
 src/gpo_studio/policy_families.py text eol=lf
 src/gpo_studio/security_template.py text eol=lf
 src/gpo_studio/object_security.py text eol=lf
