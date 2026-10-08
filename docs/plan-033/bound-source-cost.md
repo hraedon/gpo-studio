@@ -99,7 +99,6 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/adm.py`
 - `src/gpo_studio/admx.py`
 - `src/gpo_studio/api.py`
-- `src/gpo_studio/artifact_store.py`
 - `src/gpo_studio/backup.py`
 - `src/gpo_studio/backup_inventory.py`
 - `src/gpo_studio/conformance.py`

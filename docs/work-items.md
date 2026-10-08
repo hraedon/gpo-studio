@@ -32,8 +32,10 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**6 open.**
+**8 open.**
 
+- [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
+- [WI-070](#wi-070--a-publication-plan-has-no-step-for-a-disabled-side) - fixed in batch; awaiting requalification of the publication lane.
 - [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
 - [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -2752,3 +2754,88 @@ real time so no jump happens.
 `PENDING_REQUALIFICATION`, **and** this entry says which debt was paid: the mechanism
 identified, or the lane unblocked around it. Don't close it by paying one debt without
 saying so; that is how this became an unnumbered paragraph.
+
+## WI-070 — a publication plan has no step for a disabled side
+
+**Opened:** 2026-10-07 (retiring the publication script branch).
+**Status:** open — fixed in batch `batch/retire-publication-script`, awaiting
+requalification of the publication lane.
+
+**What was wrong.** A GPO can have its computer side, its user side, or both disabled
+(`GPO.computer_enabled` / `GPO.user_enabled`). On the directory object that state is the
+`flags` attribute. `apply.ps1` sets it through `GpoStatus`, and the native backup carries
+it as `Options`. `generate_publication_plan` emitted no step for it. A plan executed
+exactly as written would therefore publish the side **enabled**, the inverse of what the
+author set. Nothing would look wrong: every file the plan names would still be right, the
+same silent shape as WI-057.
+
+**The fix in the batch.** The planner refuses instead of inventing a step no lane has
+measured. A disabled side adds an `unsupported_side_status` step and
+`validate_publication_plan` reports an error with check `unsupported_side_status`, in the
+same shape as `unsupported_extension_registration`. The refusal names no SYSVOL file, so
+`planned_sysvol_paths` is unchanged. `publisher.py` maps no capability to the operation,
+so its capability gate fails as it does for the other refusals.
+
+**Why it is still open.** The fix edits `publication.py`, which the publication
+completeness verdict binds. That verdict now binds superseded bytes, and
+`test_a_live_verdict_still_binds_the_harness_that_ships` fails for it until the estate
+re-runs the lane. The lane's candidate has both sides enabled, so the requalification run
+exercises the unchanged path, not the refusal.
+
+**Closes when:** the publication completeness lane is re-run on a commit that contains
+this refusal and its verdict is banked. A later change that replaces the refusal with a
+real `flags` step must come with a lane candidate that disables a side and measures the
+attribute.
+
+**Pinning tests:** `tests/test_publication.py::test_a_disabled_side_is_refused_rather_than_published_enabled`
+and its control, `test_an_enabled_gpo_carries_no_side_refusal`.
+
+## WI-071 — the Scripts metadata lane measures one side and one trigger
+
+**Opened:** 2026-10-07 (asked to extend the lane inside the requalification batch).
+**Status:** open.
+
+**What is missing.** The R10 Scripts metadata lane imports a candidate with computer-side
+**startup** entries only (two legacy, one PowerShell). It says nothing about user-side
+scripts or about any other trigger. The request was to add a user-side logon script and a
+computer-side shutdown script to the same lane. That was **not done**, for three reasons,
+and this item records the proposal instead.
+
+**Why extending the existing lane is risky.**
+
+1. **The user-side extension pair is unmeasured, and a round trip cannot detect a wrong
+   one.** `export._extension_guids` writes the same Scripts pair,
+   `[{42B5FAAE-…}{40B6664F-…}]`, on both sides. Only the machine side was captured (R2).
+   The tool half on the user side may well differ. The value commonly recalled for
+   logon/logoff is `{40B66650-4972-11D1-A7CA-0000F87571E3}`, but nothing in this repository
+   captures it, so it is a hypothesis to test, not a fact to write. `Import-GPO` and `Backup-GPO` very probably carry the
+   value verbatim, so the rebackup would re-emit whatever Studio wrote. The finalizer
+   would then certify a guess, which is the self-consistency AGENTS.md rejects. Asserting a
+   recalled value instead would fail the lane until `export.py` is changed to match a
+   guess.
+2. **The report rows are predictions.** `_report_matches` pins exact
+   `(Command, Parameters, Type, Order, RunOrder)` rows. For startup they were observed. For
+   shutdown and logon the `Order` numbering and whether `RunOrder` appears are not, and a
+   mismatch would fail the scripts-metadata **requalification**, which this batch needs to
+   pass.
+3. **It changes the measured bytes.** A `[Shutdown]` section makes `Machine/Scripts/scripts.ini`
+   stop being byte-identical to the R2 GPMC capture, which is the lane's strongest anchor.
+
+**Proposal.**
+
+- Measure the user-side pair first: an R2-style GPMC authoring capture of one user logon
+  script, recording `gPCUserExtensionNames` and the `User/Scripts` tree.
+- Then add a **separate** lane in new files (`build-scripts-sides-candidate.py`, its own
+  guest script, runner and finalizer), per the 2026-10-07 ordering rule that new lanes are
+  new files only. It changes no shared bound file and holds no existing verdict hostage.
+- The candidate carries a user logon `.cmd` and a computer shutdown `.cmd`, and no
+  PowerShell entry, so `RunOrder` is not in play.
+- The finalizer generalises `_FILES` and the extension-pair checks per side. It compares
+  the user pair with the **captured** value, never with what the candidate wrote, and
+  reads report rows from both `Computer` and `User` extension data. The first run records
+  the observed rows; the expected rows are pinned from that observation and confirmed by a
+  second run, the same capture-then-lane order the existing lanes followed.
+
+**Closes when:** the user-side Scripts pair is captured and `export.py` matches it (or is
+confirmed already correct), and a lane covering a user-side logon script and a
+computer-side shutdown script has a banked verdict.

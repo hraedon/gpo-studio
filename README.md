@@ -190,11 +190,11 @@ Release and lab tooling, driven by `scripts/`: `conformance.py`,
 
 `src/` also holds Plans 025–032 domain layers that are landed and
 unit-tested but **not reachable from any operator surface**:
-`security_template`, `network_security`, `script_policy`, `artifact_store`,
+`security_template`, `network_security`, `script_policy`,
 `software_install`, `folder_redirection`, `lifecycle`, `gpmc_interop`,
 `publication`, `publisher` and `hosting`. (`rsop`, `policy_families` and
 `object_security` now have endpoints; `certification` was deleted under
-WI-056.) See
+WI-056 and `artifact_store` by the 2026-10-07 operator ruling.) See
 [the capability matrix](docs/capability-matrix.md#post-10-domain-layers--landed-but-not-surfaced).
 
 ## License
