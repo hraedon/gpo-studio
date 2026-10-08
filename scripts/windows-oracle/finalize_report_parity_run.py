@@ -90,7 +90,7 @@ _RESULT_KEYS = frozenset({
     "cleanup_state_restored", "environment", "error",
 })
 _CASE_KEYS = frozenset({
-    "case_id", "target_name", "backup_id", "source_gpo_id", "owned_gpo_id",
+    "case_id", "case_dir", "target_name", "backup_id", "source_gpo_id", "owned_gpo_id",
     "import_succeeded", "report_file", "report_sha256", "report_links_to_count",
     "cleanup_succeeded", "absence_confirmed", "error",
 })
@@ -354,6 +354,7 @@ def main() -> int:
     ]
     expected_ids = [c.get("case_id") for c in expected_cases]
     required_ids = list(builder.REQUIRED_CASE_IDS)
+    dir_of = {c.get("case_id"): c.get("dir") for c in expected_cases}
 
     checks: dict[str, bool] = {
         "guest_exited_zero": args.guest_status == 0,
@@ -375,6 +376,8 @@ def main() -> int:
             any(
                 _guid(c.get("backup_id")) == _guid(e.get("backup_id"))
                 and _guid(c.get("source_gpo_id")) == _guid(e.get("source_gpo_id"))
+                and isinstance(e.get("dir"), str)
+                and c.get("case_dir") == e["dir"]
                 for e in expected_cases if e.get("case_id") == c.get("case_id")
             )
             for c in cases
@@ -399,7 +402,9 @@ def main() -> int:
         and all("error" in c and c["error"] is None for c in owned_records),
         "member_server_host_role": _member(result.get("environment")),
         "raw_command_artifacts_complete": bool(cases) and all(
-            (run / "commands" / str(c.get("case_id")) / f"{n}.{s}.txt").is_file()
+            # Keyed by the candidate's short directory (a MAX_PATH budget),
+            # taken from the expectation, never from the guest's own claim.
+            (run / "commands" / str(dir_of.get(c.get("case_id"))) / f"{n}.{s}.txt").is_file()
             for c in cases for n in ("import", "report") for s in ("stdout", "stderr")
         )
         and all(

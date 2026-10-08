@@ -16,13 +16,15 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $runId = "report-parity-$(Get-Date -Format yyyyMMddHHmmss)-$(Get-Random -Minimum 1000 -Maximum 9999)"
-$work = Join-Path $OutputDir $runId
-$inputRoot = Join-Path $work 'input'
+# Short directory names on purpose: Windows PowerShell 5.1's Expand-Archive is
+# bound by MAX_PATH (260), and the first estate run lost every case to it.
+# The builder holds the longest extracted path under its MAX_GUEST_PATH for a
+# run root shaped C:\gpo-studio\rp\<yymmddHHMMSS>\out\run\in.
+$work = Join-Path $OutputDir 'run'
+$inputRoot = Join-Path $work 'in'
 $commands = Join-Path $work 'commands'
 $reports = Join-Path $work 'reports'
 New-Item -ItemType Directory -Force -Path $work, $inputRoot, $commands, $reports | Out-Null
-Copy-Item -LiteralPath $CandidateZip -Destination (Join-Path $work 'candidate.zip')
-Expand-Archive -LiteralPath $CandidateZip -DestinationPath $inputRoot
 
 # The same four values build-report-parity-candidate.py holds on the
 # controller. Kept independently on purpose: the finalizer checks Windows'
@@ -143,15 +145,46 @@ function Remove-Owned($id, [string]$name, $record) {
 # that reaches ConvertTo-Json must not depend on PowerShell's array unrolling.
 $caseRecords = New-Object System.Collections.ArrayList
 try {
+    # Inside the try: an extraction failure is the run's recorded error, not
+    # only stderr, so the verdict states it.
+    Copy-Item -LiteralPath $CandidateZip -Destination (Join-Path $work 'candidate.zip')
+    Expand-Archive -LiteralPath $CandidateZip -DestinationPath $inputRoot
+
+    # The index names every case directory and the case it holds. Every listed
+    # directory, and its manifest, must exist before any case runs, and no
+    # unlisted directory may be present.
+    $casesRoot = Join-Path $inputRoot 'cases'
+    $caseIndex = @()
+    foreach ($line in @(Get-Content -LiteralPath (Join-Path $casesRoot 'index.tsv'))) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $fields = $line.Split("`t")
+        if ($fields.Count -ne 2) { throw "malformed case index line: $line" }
+        $caseIndex += ,@($fields[0], $fields[1])
+    }
+    if ($caseIndex.Count -eq 0) { throw 'case index lists no cases' }
+    $missing = @($caseIndex | Where-Object {
+        -not (Test-Path -LiteralPath (Join-Path (Join-Path $casesRoot $_[0]) 'manifest.xml') -PathType Leaf)
+    } | ForEach-Object { "$($_[0]) ($($_[1]))" })
+    if ($missing.Count -ne 0) {
+        throw "case directories or manifests missing after extraction: $($missing -join ', ')"
+    }
+    $listed = @($caseIndex | ForEach-Object { $_[0] })
+    $unlisted = @(Get-ChildItem -LiteralPath $casesRoot -Directory |
+        Where-Object { $listed -notcontains $_.Name } | ForEach-Object { $_.Name })
+    if ($unlisted.Count -ne 0) { throw "unlisted case directories: $($unlisted -join ', ')" }
+
     $index = 0
-    foreach ($caseDir in @(Get-ChildItem -LiteralPath (Join-Path $inputRoot 'cases') -Directory | Sort-Object Name)) {
+    foreach ($entry in $caseIndex) {
         $index++
-        $caseId = $caseDir.Name
-        $caseCommands = Join-Path $commands $caseId
+        $caseDirName = $entry[0]
+        $caseId = $entry[1]
+        $caseDir = Get-Item -LiteralPath (Join-Path $casesRoot $caseDirName)
+        $caseCommands = Join-Path $commands $caseDirName
         New-Item -ItemType Directory -Force -Path $caseCommands | Out-Null
         $target = "$prefix-$index"
         $record = [ordered]@{
             case_id               = $caseId
+            case_dir              = $caseDirName
             target_name           = $target
             backup_id             = $null
             source_gpo_id         = $null
@@ -183,7 +216,7 @@ try {
                 Out-File -FilePath (Join-Path $caseCommands 'import.stdout.txt') -Encoding UTF8
             $record.import_succeeded = $true
 
-            $reportName = "$caseId.xml"
+            $reportName = "$caseDirName.xml"
             $reportPath = Join-Path $reports $reportName
             Get-GPOReport -Guid $ownedId -Domain $Domain -ReportType XML -Path $reportPath `
                 -ErrorAction Stop 2> (Join-Path $caseCommands 'report.stderr.txt')

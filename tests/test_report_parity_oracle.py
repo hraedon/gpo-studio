@@ -85,14 +85,52 @@ def test_every_corpus_backup_is_import_ready_and_packaged(candidate: Path) -> No
     assert expected["excluded"] == []
     assert len(expected["cases"]) == len(BUILDER.corpus()) == 27
     with zipfile.ZipFile(candidate / "report-parity-cases.zip") as archive:
-        tops = {PathParts(n) for n in archive.namelist()}
-    assert tops == {c["case_id"] for c in expected["cases"]}
+        names = archive.namelist()
+        index = archive.read("cases/index.tsv").decode("ascii")
+    dirs = {n.split("/")[1] for n in names if n.count("/") >= 2}
+    assert dirs == {c["dir"] for c in expected["cases"]}
+    assert all(n.startswith("cases/") for n in names)
+    assert index == "".join(f"{c['dir']}\t{c['case_id']}\n" for c in expected["cases"])
+    assert [c["dir"] for c in expected["cases"]] == [f"c{i:02d}" for i in range(1, 28)]
 
 
-def PathParts(name: str) -> str:  # noqa: N802 - tiny local helper
-    parts = name.split("/")
-    assert parts[0] == "cases"
-    return parts[1]
+# ---------------------------------------------------------------------------
+# The guest's MAX_PATH budget (first estate run, 2026-10-08)
+# ---------------------------------------------------------------------------
+
+
+def test_every_extracted_path_stays_under_the_guest_budget(candidate: Path) -> None:
+    """The first estate run lost every case to MAX_PATH in Expand-Archive."""
+    archive = (candidate / "report-parity-cases.zip").read_bytes()
+    length, longest = BUILDER.longest_guest_path(archive)
+    assert length <= BUILDER.MAX_GUEST_PATH, longest
+    assert BUILDER.MAX_GUEST_PATH <= 200
+    with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+        for name in zipped.namelist():
+            assert len(BUILDER.GUEST_EXTRACT_PREFIX + name) <= BUILDER.MAX_GUEST_PATH, name
+
+
+def test_the_builder_refuses_a_path_over_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(BUILDER, "MAX_GUEST_PATH", 120)
+    with pytest.raises(ValueError, match="exceeds 120"):
+        BUILDER.build(tmp_path)
+
+
+def test_the_driver_and_guest_use_the_budgeted_root() -> None:
+    """GUEST_EXTRACT_PREFIX is a claim about the driver and guest; hold them to it."""
+    driver = DRIVER_PATH.read_text(encoding="utf-8")
+    guest = GUEST_PATH.read_text(encoding="utf-8")
+    assert 'SHORT="$(date +%y%m%d%H%M%S)"' in driver
+    assert 'GUEST_ROOT="C:\\gpo-studio\\rp\\\\$SHORT"' in driver
+    assert 'GUEST_OUT="$GUEST_ROOT\\out"' in driver
+    assert "$work = Join-Path $OutputDir 'run'" in guest
+    assert "$inputRoot = Join-Path $work 'in'" in guest
+    stamp = "000000000000"
+    assert len(stamp) == len("261008092015")
+    root = "C:\\gpo-studio\\rp\\" + stamp
+    assert root + "\\out\\run\\in\\" == BUILDER.GUEST_EXTRACT_PREFIX
 
 
 def test_the_expectation_is_the_offline_differs_own_answer(candidate: Path) -> None:
@@ -270,18 +308,18 @@ def _simulated_run(candidate: Path, run: Path) -> dict[str, Any]:
         source = ROOT / case["source"] / case["backup_id"] / "gpreport.xml"
         owned = str(uuid.uuid5(uuid.NAMESPACE_URL, f"owned/{case['case_id']}"))
         target = f"{_PREFIX}-{index}"
-        report = run / "reports" / f"{case['case_id']}.xml"
+        report = run / "reports" / f"{case['dir']}.xml"
         report.write_bytes(_as_fresh_report(source.read_bytes(), owned, target))
-        commands = run / "commands" / case["case_id"]
+        commands = run / "commands" / case["dir"]
         commands.mkdir(parents=True)
         for name in ("import", "report"):
             for stream in ("stdout", "stderr"):
                 (commands / f"{name}.{stream}.txt").write_text("", encoding="utf-8")
         cases.append({
-            "case_id": case["case_id"], "target_name": target,
+            "case_id": case["case_id"], "case_dir": case["dir"], "target_name": target,
             "backup_id": case["backup_id"], "source_gpo_id": case["source_gpo_id"],
             "owned_gpo_id": owned, "import_succeeded": True,
-            "report_file": f"reports/{case['case_id']}.xml",
+            "report_file": f"reports/{case['dir']}.xml",
             "report_sha256": FINALIZER._sha(report), "report_links_to_count": 0,
             "cleanup_succeeded": True, "absence_confirmed": True, "error": None,
         })
@@ -378,7 +416,7 @@ def test_the_simulated_run_passes_every_check(
 
 def _edit_report(run: Path, case_id: str, edit: Any) -> None:
     """Apply ``edit`` to one fresh report's XML tree, then refresh its hash."""
-    report = run / "reports" / f"{case_id}.xml"
+    report = run / "reports" / f"{BUILDER.case_dir(case_id)}.xml"
     root = ET.fromstring(report.read_bytes())
     edit(root)
     report.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
@@ -561,6 +599,7 @@ def test_a_case_dropped_from_archive_expectation_and_results_fails(
 ) -> None:
     """The reviewer's mutation: one case removed everywhere at once."""
     dropped = "native-WI01A-Services-GPMC"
+    dropped_dir = BUILDER.case_dir(dropped)
     forged = tmp_path / "forged"
     _forge(candidate, forged, lambda e: e.update(
         cases=[c for c in e["cases"] if c["case_id"] != dropped]
@@ -570,7 +609,7 @@ def test_a_case_dropped_from_archive_expectation_and_results_fails(
         archive, "w"
     ) as target:
         for info in source.infolist():
-            if f"/{dropped}/" not in f"/{info.filename}":
+            if f"/{dropped_dir}/" not in f"/{info.filename}":
                 target.writestr(info, source.read(info))
     shutil.copy(archive, run / "candidate.zip")
     result = _read_result(run)
@@ -731,7 +770,7 @@ def test_missing_or_duplicated_data_fails(
 def test_a_report_altered_after_hashing_fails_delivery(
     run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    report = run / "reports" / "evidence-wi059-20260908-wp0-backup.xml"
+    report = run / "reports" / f"{BUILDER.case_dir('evidence-wi059-20260908-wp0-backup')}.xml"
     report.write_bytes(report.read_bytes() + b" ")
     checks = _finalize(run, candidate, monkeypatch)
     assert checks["fresh_reports_delivered_intact"] is False
@@ -1006,25 +1045,32 @@ finally {
 """
 
 
-def _mock_candidate(path: Path) -> None:
+def _mock_candidate(path: Path, listed: tuple[str, ...] = ("c01", "c02"),
+                    present: tuple[str, ...] = ("c01", "c02")) -> None:
     manifest = (
         '<Backups xmlns="http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest">'
         "<BackupInst><GPOGuid>{AAAAAAAA-0000-0000-0000-000000000001}</GPOGuid>"
         "<ID>{BBBBBBBB-0000-0000-0000-000000000001}</ID></BackupInst></Backups>"
     )
     with zipfile.ZipFile(path, "w") as archive:
-        for case in ("case-a", "case-b"):
+        archive.writestr(
+            "cases/index.tsv", "".join(f"{d}\tcase-{d}\n" for d in listed)
+        )
+        for case in present:
             archive.writestr(f"cases/{case}/manifest.xml", manifest)
 
 
-def _run_mocked_guest(tmp_path: Path, mode: str, script: Path = GUEST_PATH) -> dict[str, Any]:
+def _run_mocked_guest(
+    tmp_path: Path, mode: str, script: Path = GUEST_PATH,
+    listed: tuple[str, ...] = ("c01", "c02"), present: tuple[str, ...] = ("c01", "c02"),
+) -> dict[str, Any]:
     pwsh = shutil.which("pwsh") or shutil.which("powershell.exe")
     if pwsh is None:
         pytest.skip("no PowerShell interpreter available")
     harness = tmp_path / "harness.ps1"
     harness.write_text(_MOCK_HARNESS, encoding="utf-8")
     zip_path = tmp_path / "candidate.zip"
-    _mock_candidate(zip_path)
+    _mock_candidate(zip_path, listed, present)
     out = tmp_path / "out"
     out.mkdir()
     state = tmp_path / "state.json"
@@ -1088,3 +1134,43 @@ def test_the_guest_removes_only_names_it_registered() -> None:
     assert script.count("Register-Target $target\n") == 2
     for chunk in script.split("Register-Target $target\n")[1:]:
         assert chunk.lstrip().startswith("$owned = New-GPO")
+
+
+# ---------------------------------------------------------------------------
+# A case that did not extract is the run's stated error (first estate run)
+# ---------------------------------------------------------------------------
+
+
+def test_a_case_missing_after_extraction_is_the_recorded_error(tmp_path: Path) -> None:
+    state = _run_mocked_guest(tmp_path, "normal", present=("c01",))
+    result = state["result"]
+    assert state["status"] == 1
+    assert "missing after extraction: c02 (case-c02)" in (result["error"] or "")
+    assert result["cases"] == []
+    assert _remaining(state) == ["unrelated-gpo"]
+
+
+def test_an_unlisted_case_directory_is_the_recorded_error(tmp_path: Path) -> None:
+    state = _run_mocked_guest(tmp_path, "normal", listed=("c01",), present=("c01", "c02"))
+    assert state["status"] == 1
+    assert "unlisted case directories: c02" in (state["result"]["error"] or "")
+
+
+def test_the_guest_records_each_case_directory(tmp_path: Path) -> None:
+    state = _run_mocked_guest(tmp_path, "normal")
+    cases = state["result"]["cases"]
+    assert [(c["case_dir"], c["case_id"]) for c in cases] == [
+        ("c01", "case-c01"), ("c02", "case-c02"),
+    ]
+    assert [c["report_file"] for c in cases] == ["reports/c01.xml", "reports/c02.xml"]
+
+
+def test_a_case_directory_other_than_the_candidates_fails(
+    run: Path, candidate: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _read_result(run)
+    result["cases"][0]["case_dir"] = "c99"
+    _write_result(run, result)
+    assert _finalize(run, candidate, monkeypatch)[
+        "every_case_identity_matches_candidate"
+    ] is False

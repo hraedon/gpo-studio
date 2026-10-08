@@ -22,7 +22,12 @@ psdirect() {
 }
 
 STAMP="$(date +%Y%m%d%H%M%S)-$$"
-GUEST_ROOT="C:\gpo-studio\runs\report-parity-$STAMP"
+# A short guest run root: Windows PowerShell 5.1's Expand-Archive is bound by
+# MAX_PATH, and the first estate run lost every case to a 110-character root.
+# The builder holds the longest extracted path under MAX_GUEST_PATH against
+# this shape (GUEST_EXTRACT_PREFIX); PREPARE refuses an existing root.
+SHORT="$(date +%y%m%d%H%M%S)"
+GUEST_ROOT="C:\gpo-studio\rp\\$SHORT"
 GUEST_SCRIPTS="$GUEST_ROOT\scripts"
 GUEST_OUT="$GUEST_ROOT\out"
 CANDIDATE_DIR="${TMPDIR:-/tmp}/gpo-studio/report-parity-candidate-$STAMP"

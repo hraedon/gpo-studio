@@ -224,6 +224,34 @@ def authored_windows_inventory() -> Inventory:
     return Inventory(families=tuple(families))
 
 
+#: Where the guest extracts the archive, at its longest: the driver's run root
+#: ``C:\gpo-studio\rp\<yymmddHHMMSS>``, then ``out\run\in``. Windows
+#: PowerShell 5.1's ``Expand-Archive`` is bound by MAX_PATH (260); the first
+#: estate run lost every case to it with a 110-character root and 55-character
+#: case directories. The driver and guest script are held to this prefix by
+#: tests/test_report_parity_oracle.py.
+GUEST_EXTRACT_PREFIX = "C:\\gpo-studio\\rp\\000000000000\\out\\run\\in\\"
+#: The longest guest-side path any archive member may produce. Well under
+#: MAX_PATH, leaving room for a longer run root before anything breaks.
+MAX_GUEST_PATH = 200
+#: Archive member listing each case directory and the case it holds; the guest
+#: drives its loop from it and fails if a listed directory did not extract.
+CASE_INDEX = "cases/index.tsv"
+
+
+def case_dir(case_id: str) -> str:
+    """The short archive directory for a case: its position in the corpus."""
+    return f"c{REQUIRED_CASE_IDS.index(case_id) + 1:02d}"
+
+
+def longest_guest_path(archive: bytes) -> tuple[int, str]:
+    """(length, member) of the longest path extraction produces on the guest."""
+    with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+        paths = [GUEST_EXTRACT_PREFIX + name.replace("/", "\\") for name in zipped.namelist()]
+    longest = max(paths, key=len)
+    return len(longest), longest
+
+
 def _zip(root: Path) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -252,7 +280,7 @@ def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:
                 excluded.append({"case_id": case_id, "reason": readiness})
                 continue
             backup_id, gpo_id = readiness
-            staged = staging / case_id
+            staged = staging / case_dir(case_id)
             transformations = stage_case(source, staged, backup_id)
             gpo = studio_gpo_from_backup(staged)
             assert gpo.backup_inventory is not None
@@ -267,6 +295,7 @@ def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:
                 )
             cases.append({
                 "case_id": case_id,
+                "dir": case_dir(case_id),
                 "source": source.relative_to(repo).as_posix(),
                 "backup_id": backup_id,
                 "source_gpo_id": gpo_id,
@@ -276,7 +305,15 @@ def build(out: Path, repo: Path = REPO_ROOT) -> dict[str, object]:
                 "backup_report_sha256": hashlib.sha256(report).hexdigest(),
                 "expected_known": sorted(known),
             })
+        (staging / "index.tsv").write_bytes("".join(
+            f"{case['dir']}\t{case['case_id']}\n" for case in cases
+        ).encode("ascii"))
         archive = _zip(staging.parent)
+    length, longest = longest_guest_path(archive)
+    if length > MAX_GUEST_PATH:
+        raise ValueError(
+            f"guest path of {length} characters exceeds {MAX_GUEST_PATH}: {longest}"
+        )
     (out / ARCHIVE_NAME).write_bytes(archive)
     expectation: dict[str, object] = {
         "schema_version": 1,
