@@ -712,6 +712,26 @@ def _native_export_files(
     gpo: GPO,
     scripts: Mapping[str, ScriptPolicy] | None = None,
 ) -> tuple[dict[str, bytes], dict[str, set[str]]]:
+    # WI-068. An imported fdeploy1.ini is carried on the model but there is no
+    # writer for it (WI-066 owes the Flags encoding). Re-emitting the imported
+    # text alone is not a measured write either: it would also need the Folder
+    # Redirection extension registration, and whether Windows needs the empty
+    # fdeploy.ini marker beside it is unmeasured. A backup without the file
+    # would silently drop the redirection, so refuse. Checked here rather than
+    # in the route so `native_backup_refusal` advertises the same refusal.
+    if gpo.fdeploy is not None:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="folder_redirection_not_exportable",
+                message=(
+                    "GPO carries an imported Folder Redirection file (fdeploy1.ini). "
+                    "Studio reads it but cannot write it, so it cannot be emitted as "
+                    "a GPMC backup. Keep the original backup."
+                ),
+                path="fdeploy",
+            )
+        ])
     computer = [item for item in gpo.settings if item.side == "computer"]
     user = [item for item in gpo.settings if item.side == "user"]
     files: dict[str, bytes] = {}

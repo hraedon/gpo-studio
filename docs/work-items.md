@@ -37,7 +37,7 @@ Update this list in the same change as any status line;
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-070](#wi-070--a-publication-plan-has-no-step-for-a-disabled-side) - fixed in batch; awaiting requalification of the publication lane.
 - [WI-069](#wi-069--the-estate-repair-the-batch-owes-has-no-number-and-no-plan) - diagnose the clock/DNS failure, or unblock the lane around it.
-- [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - the field goes on `model.py`; costs two lanes.
+- [WI-068](#wi-068--a-parsed-redirection-reaches-no-gpo-so-no-report-or-diff-shows-it) - implemented in the batch; re-run the publication and scripts-metadata lanes.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 - [WI-065](#wi-065--could-not-be-parsed-is-reported-for-sddl-nothing-tried-to-parse) - fixed in the requalification batch; closes when the object-security lane re-runs.
 - [WI-064](#wi-064--the-restricted-groups-writer-emits-a-bare-sid-where-windows-emits-a-star-sid) - fixed and candidate rows added in the batch; closes when the object-security lane certifies them.
@@ -2736,6 +2736,47 @@ renderer, diff function and endpoint). Only the two lines that can't are deferre
 
 **Pinning test:** `tests/test_fdeploy_surface.py` holds the endpoint's composition equal
 to the module's until then. The two WP-3 surfaces used the same workaround the same week.
+
+**Update, 2026-10-07: implemented in the batch, awaiting requalification.** Branch
+`batch/wi068-fdeploy-on-gpo`, prepared for the estate requalification batch that re-runs
+every lane. Status stays open until the publication and scripts-metadata lanes re-run:
+the change edits `model.py`, `canonical.py` and `export.py`, which both of those verdicts
+bind, so `test_a_live_verdict_still_binds_the_harness_that_ships` fails for them until
+then. What landed, against each closing bullet:
+
+- `GPO.fdeploy` carries the parsed document. `read_backup` populates it from
+  `User/Documents & Settings/fdeploy1.ini` (the path R3's provenance record banks), locating
+  the file from the side scan and refusing the import if the bytes it parses do not hash to
+  the scanned row, if case-variant duplicates exist, or if the file is not UTF-16LE with a
+  BOM. The empty `fdeploy.ini` marker is not read onto the model. The snapshot stores the
+  document in its `asdict` form; `gpo_from_dict` rebuilds it from `raw_text`, which is the
+  file losslessly, and recomputes every derived view rather than trusting it. No schema
+  migration: the field lives in the snapshot JSON, and a snapshot without it reads back as
+  `None`. Forks carry it, as they carry `backup_inventory`; list rows carry `has_fdeploy`
+  instead of the document.
+- `policy_report` renders a "Folder Redirection (fdeploy1.ini)" section: the native path,
+  size and SHA-256 (equal to the file's inventory row, so the two join), a read-only notice,
+  `fdeploy_report_lines`, and `validate_fdeploy`'s structural findings. The parsed file
+  leaves "Unmodeled extension files (metadata only)", whose "original bytes not stored"
+  would now be false of it; the marker stays there. The imported source inventory appendix
+  still lists `fdeploy1.ini` by path, size and hash, because that appendix records what the
+  backup contained.
+- `diff_gpos` compares the documents through `diff_fdeploy` (`TwoWayDiff.fdeploy`); a GPO
+  without one compares as a document with no rows. The three-way diff the workbench calls
+  also carries baseline-to-draft rows and `fdeploy_conflicts`, judged by the same
+  `redirections_equal` rule, and the browser renders both. Same scope as `diff_fdeploy`:
+  `[version]`, the folder listing and unrecognised sections are outside it.
+- `review_model_dict` folds in `{"raw_text": ...}` only when a document is present, and
+  `policy_semantic_dict` does not. `tests/test_fdeploy_on_gpo.py` pins the split.
+- Exports: the GPMC backup path refuses a GPO carrying the document
+  (`folder_redirection_not_exportable`, raised in `_native_export_files` so
+  `native_backup_refusal` advertises it), rather than emitting a backup that drops the
+  redirection. The Studio publication bundle keeps it in the manifest's `gpo`, like
+  `backup_inventory`, keeps it out of `canonical_model`, and emits no fdeploy file.
+
+The positive tests import a composite backup: the native Scripts rebackup with R3's two
+files added. Windows never wrote that GPO, so the composite proves Studio's wiring, not
+anything about Windows. No lane reads this artifact.
 
 ## WI-069 — the estate repair the batch owes has no number and no plan
 

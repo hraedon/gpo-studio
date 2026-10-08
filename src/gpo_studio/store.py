@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
+from .fdeploy import FdeployDocument, fdeploy_from_dict
 from .gpp import (
     GppCollection,
     GppGroup,
@@ -263,6 +264,10 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         backup_inventory=(
             inventory_from_dict(data["backup_inventory"])
             if data.get("backup_inventory") is not None else None
+        ),
+        fdeploy=(
+            fdeploy_from_dict(data["fdeploy"])
+            if data.get("fdeploy") is not None else None
         ),
         security_filters=tuple(
             _security_filter(item) for item in data.get("security_filters", [])
@@ -637,6 +642,7 @@ class WorkspaceStore:
         source_guid: str = "",
         cse_metadata: tuple[CseMetadataEntry, ...] = (),
         backup_inventory: BackupInventory | None = None,
+        fdeploy: FdeployDocument | None = None,
         domain: str = "studio.local",
         computer_enabled: bool = True,
         user_enabled: bool = True,
@@ -662,6 +668,7 @@ class WorkspaceStore:
             source_guid=source_guid,
             cse_metadata=cse_metadata,
             backup_inventory=backup_inventory,
+            fdeploy=fdeploy,
             domain=domain,
             is_starter=is_starter,
             template_version=template_version,
@@ -940,6 +947,7 @@ class WorkspaceStore:
             source_guid=source.guid,
             cse_metadata=source.cse_metadata,
             backup_inventory=source.backup_inventory,
+            fdeploy=source.fdeploy,
             domain=source.domain,
             computer_enabled=source.computer_enabled,
             user_enabled=source.user_enabled,

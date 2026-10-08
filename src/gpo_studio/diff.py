@@ -11,6 +11,13 @@ from .canonical import (
     gpp_member_identity,
     gpp_registry_identity,
 )
+from .fdeploy import (
+    FdeployChange,
+    FdeployDocument,
+    FdeployRedirection,
+    diff_fdeploy,
+    redirections_equal,
+)
 from .gpp import GppCollection, GppGroup, GppRegistry
 from .ilt import IltFilter
 from .model import (
@@ -116,6 +123,11 @@ class TwoWayDiff:
     gpp_collection: tuple[GppCollectionChange, ...] = ()
     metadata: tuple[MetadataChange, ...] = ()
     cse_metadata: tuple[CseMetadataChange, ...] = ()
+    #: Imported ``fdeploy1.ini`` redirection rows, compared by ``diff_fdeploy``
+    #: (WI-068). Same scope as that function: redirection rows keyed by
+    #: ``(folder, principal)``; ``[version]``, the folder listing and
+    #: unrecognised sections are outside it.
+    fdeploy: tuple[FdeployChange, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +168,17 @@ class CseMetadataConflict:
     baseline: CseMetadataEntry | None
     draft: CseMetadataEntry | None
     observed: CseMetadataEntry | None
+
+
+@dataclass(frozen=True, slots=True)
+class FdeployConflict:
+    """One ``(folder, principal)`` row draft and observed changed differently."""
+
+    folder_guid: str
+    principal: str
+    baseline: FdeployRedirection | None
+    draft: FdeployRedirection | None
+    observed: FdeployRedirection | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +238,9 @@ class ThreeWayDiff:
     metadata_conflicts: tuple[MetadataConflict, ...] = ()
     cse_metadata: tuple[CseMetadataChange, ...] = ()
     cse_metadata_conflicts: tuple[CseMetadataConflict, ...] = ()
+    #: Baseline-to-draft ``fdeploy1.ini`` rows and their conflicts (WI-068).
+    fdeploy: tuple[FdeployChange, ...] = ()
+    fdeploy_conflicts: tuple[FdeployConflict, ...] = ()
 
 
 def _settings_equal(a: RegistrySetting, b: RegistrySetting) -> bool:
@@ -777,6 +803,49 @@ def _diff_metadata(old: GPO, new: GPO) -> list[MetadataChange]:
     return changes
 
 
+_NO_FDEPLOY = FdeployDocument()
+
+
+def _diff_gpo_fdeploy(old: GPO, new: GPO) -> tuple[FdeployChange, ...]:
+    """A GPO with no imported ``fdeploy1.ini`` compares as one with no rows."""
+    if old.fdeploy is None and new.fdeploy is None:
+        return ()
+    return diff_fdeploy(old.fdeploy or _NO_FDEPLOY, new.fdeploy or _NO_FDEPLOY)
+
+
+def _three_way_fdeploy_conflicts(
+    baseline: GPO, draft: GPO, observed: GPO
+) -> tuple[FdeployConflict, ...]:
+    """Rows both sides changed from the baseline, and not to the same thing."""
+    observed_by_key = {
+        (c.folder_guid.casefold(), c.principal.casefold()): c
+        for c in _diff_gpo_fdeploy(baseline, observed)
+    }
+    conflicts: list[FdeployConflict] = []
+    for change in _diff_gpo_fdeploy(baseline, draft):
+        other = observed_by_key.get((change.folder_guid.casefold(), change.principal.casefold()))
+        if other is None:
+            continue
+        if change.new is None and other.new is None:
+            continue
+        if (
+            change.new is not None
+            and other.new is not None
+            and redirections_equal(change.new, other.new)
+        ):
+            continue
+        conflicts.append(
+            FdeployConflict(
+                folder_guid=change.folder_guid,
+                principal=change.principal,
+                baseline=change.old,
+                draft=change.new,
+                observed=other.new,
+            )
+        )
+    return tuple(conflicts)
+
+
 def diff_gpos(old: GPO, new: GPO) -> TwoWayDiff:
     gpp_groups, gpp_registry = diff_gpp(old.gpp_collections, new.gpp_collections)
     gpp_collection = _diff_gpp_collections(
@@ -794,6 +863,7 @@ def diff_gpos(old: GPO, new: GPO) -> TwoWayDiff:
         gpp_collection=tuple(gpp_collection),
         metadata=tuple(_diff_metadata(old, new)),
         cse_metadata=tuple(diff_cse_metadata(old.cse_metadata, new.cse_metadata)),
+        fdeploy=_diff_gpo_fdeploy(old, new),
     )
 
 
@@ -1309,4 +1379,6 @@ def three_way_diff(baseline: GPO, draft: GPO, observed: GPO) -> ThreeWayDiff:
         metadata_conflicts=metadata_conflicts,
         cse_metadata=tuple(diff_cse_metadata(baseline.cse_metadata, draft.cse_metadata)),
         cse_metadata_conflicts=cse_metadata_conflicts,
+        fdeploy=_diff_gpo_fdeploy(baseline, draft),
+        fdeploy_conflicts=_three_way_fdeploy_conflicts(baseline, draft, observed),
     )

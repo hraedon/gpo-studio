@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from .backup_inventory import inventory_from_dict
+from .fdeploy import FDEPLOY_POLICY_PATH, FdeployDocument, FdeployError, read_fdeploy
 from .gpp import contains_cpassword
 from .model import BackupInventory, CseFileEntry, StudioError
 from .safe_io import (
@@ -86,6 +87,7 @@ class BackupGpo:
     computer_enabled: bool = True
     user_enabled: bool = True
     backup_inventory: BackupInventory | None = None
+    fdeploy: FdeployDocument | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -516,6 +518,41 @@ def _resolve_content_root(backup_dir: Path, backup_id: str, gpo_guid: str) -> Pa
     return None
 
 
+def _read_fdeploy_policy(
+    content_root: Path, user_extensions: tuple[CseExtension, ...]
+) -> FdeployDocument | None:
+    """Parse the GPO's ``fdeploy1.ini`` if the scan found one (WI-068).
+
+    Located from the side scan rather than by probing the path, so the file
+    parsed is the file the inventory hashed: the bytes read here must hash to
+    what the scan recorded, or the import is refused -- a file that changed
+    between the two reads would put a parse on the model that no inventory row
+    describes. Case-variant duplicates are refused as ambiguous. Content that
+    is not the measured wire contract (UTF-16LE with a BOM) refuses the import,
+    the same way malformed modeled GPP content does, rather than falling back
+    to listing the file as unmodeled metadata without saying why.
+    """
+    side_relative = FDEPLOY_POLICY_PATH.split("/", 1)[1].casefold()
+    matches = [
+        f
+        for extension in user_extensions
+        for f in extension.files
+        if f.relative_path.replace("\\", "/").casefold() == side_relative
+    ]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise BackupError(f"Ambiguous {FDEPLOY_POLICY_PATH}: case-variant duplicates")
+    (scanned,) = matches
+    data = read_file_bytes(_safe_path(content_root / "User", scanned.relative_path))
+    if hashlib.sha256(data).hexdigest() != scanned.content_hash or len(data) != scanned.size:
+        raise BackupError(f"{FDEPLOY_POLICY_PATH} changed while the backup was being read")
+    try:
+        return read_fdeploy(data)
+    except FdeployError as error:
+        raise BackupError(f"Unreadable {FDEPLOY_POLICY_PATH}: {error}") from error
+
+
 def read_backup(backup_dir: Path) -> GpmcBackup:
     """Read a complete GPMC backup directory."""
     if is_link_or_junction(backup_dir):
@@ -591,6 +628,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
             if is_native_layout
             else content_root / "Backup.xml"
         )
+        fdeploy = _read_fdeploy_policy(content_root, user_exts)
         computer_enabled = True
         user_enabled = True
         inventory = None
@@ -652,6 +690,7 @@ def read_backup(backup_dir: Path) -> GpmcBackup:
                 computer_enabled=computer_enabled,
                 user_enabled=user_enabled,
                 backup_inventory=inventory,
+                fdeploy=fdeploy,
             )
         )
 

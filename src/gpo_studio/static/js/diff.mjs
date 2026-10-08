@@ -8,6 +8,8 @@ function formatLink(l){if(!l)return '—';return `${l.target} · ${l.enabled?'en
 function formatGppGroup(g){if(!g)return '—';const members=(g.members||[]).map(m=>m.name||m.sid).filter(Boolean).join(', ');return `${g.name||'(unnamed)'} · ${g.action} · sid ${g.sid||'—'}${members?` · members: ${members}`:''}`}
 function formatGppRegistry(r){if(!r)return '—';const v=Array.isArray(r.value)?(r.value[0]||null):r.value;if(!v)return `${r.key||'(no key)'} · ${r.action||''}`;const valStr=`${v.name||'(default)'}=${Array.isArray(v.value)?v.value.join(';'):String(v.value)}`;return `${r.key||'(no key)'} · ${r.action||''} · ${valStr}`}
 function formatCse(c){if(!c)return '—';return `${c.guid||''} · ${c.side||''} · ${(c.files||[]).length} file(s)`}
+function formatRedirection(r){if(!r)return '—';return `${r.full_path||'(no FullPath)'} · Flags ${r.flags_text||'(absent)'}`}
+function redirectionLabel(c){return `${c.folder_guid||''} for ${c.principal||''}`}
 function kindClass(kind){return kind==='added'?'diff-added':kind==='removed'?'diff-removed':'diff-modified'}
 
 export async function loadDiffSelectors(){
@@ -49,10 +51,10 @@ export function initDiff(){
 }
 
 export function renderDiff(data,target=$('#diff-results')){
-  data={settings:[],links:[],security_filters:[],wmi_filter:null,gpp_groups:[],gpp_registry:[],gpp_collection:[],metadata:[],cse_metadata:[],conflicts:[],security_filter_conflicts:[],wmi_filter_conflict:null,link_conflicts:[],gpp_conflicts:[],gpp_reorder_conflicts:[],gpp_collection_conflicts:[],metadata_conflicts:[],cse_metadata_conflicts:[],...data};
+  data={settings:[],links:[],security_filters:[],wmi_filter:null,gpp_groups:[],gpp_registry:[],gpp_collection:[],metadata:[],cse_metadata:[],conflicts:[],security_filter_conflicts:[],wmi_filter_conflict:null,link_conflicts:[],gpp_conflicts:[],gpp_reorder_conflicts:[],gpp_collection_conflicts:[],metadata_conflicts:[],cse_metadata_conflicts:[],fdeploy:[],fdeploy_conflicts:[],...data};
   const parts=[];
-  const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.gpp_collection&&data.gpp_collection.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length);
-  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.gpp_reorder_conflicts&&data.gpp_reorder_conflicts.length)||(data.gpp_collection_conflicts&&data.gpp_collection_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length);
+  const hasChanges=data.settings.length||data.security_filters.length||data.wmi_filter||(data.links&&data.links.length)||(data.gpp_groups&&data.gpp_groups.length)||(data.gpp_registry&&data.gpp_registry.length)||(data.gpp_collection&&data.gpp_collection.length)||(data.metadata&&data.metadata.length)||(data.cse_metadata&&data.cse_metadata.length)||(data.fdeploy&&data.fdeploy.length);
+  const hasConflicts=data.conflicts.length||data.security_filter_conflicts.length||data.wmi_filter_conflict||(data.link_conflicts&&data.link_conflicts.length)||(data.gpp_conflicts&&data.gpp_conflicts.length)||(data.gpp_reorder_conflicts&&data.gpp_reorder_conflicts.length)||(data.gpp_collection_conflicts&&data.gpp_collection_conflicts.length)||(data.metadata_conflicts&&data.metadata_conflicts.length)||(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length)||(data.fdeploy_conflicts&&data.fdeploy_conflicts.length);
   if(data.settings.length){
     parts.push(`<div class="diff-section"><h3>Settings (${data.settings.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Key</th><th>Value name</th><th>Old</th><th>New</th></tr></thead><tbody>${data.settings.map(s=>{
       const ident=s.identity||[];const oldV=formatSettingValue(s.old);const newV=formatSettingValue(s.new);
@@ -83,6 +85,9 @@ export function renderDiff(data,target=$('#diff-results')){
   }
   if(data.cse_metadata&&data.cse_metadata.length){
     parts.push(`<div class="diff-section"><h3>CSE metadata (${data.cse_metadata.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Old</th><th>New</th></tr></thead><tbody>${data.cse_metadata.map(c=>`<tr><td class="${kindClass(c.kind||'modified')}">${escapeHtml(c.kind||'modified')}</td><td>${escapeHtml(formatCse(c.old))}</td><td>${escapeHtml(formatCse(c.new))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.fdeploy&&data.fdeploy.length){
+    parts.push(`<div class="diff-section"><h3>Folder Redirection, imported fdeploy1.ini (${data.fdeploy.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Folder and principal</th><th>Old</th><th>New</th></tr></thead><tbody>${data.fdeploy.map(c=>`<tr><td class="${kindClass(c.kind)}">${escapeHtml(c.kind)}</td><td class="mono">${escapeHtml(redirectionLabel(c))}</td><td>${escapeHtml(formatRedirection(c.old))}</td><td>${escapeHtml(formatRedirection(c.new))}</td></tr>`).join('')}</tbody></table></div>`);
   }
   if(data.conflicts.length){
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: Settings (${data.conflicts.length})</h3><table class="diff-table"><thead><tr><th>Key</th><th>Value name</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.conflicts.map(c=>{
@@ -118,6 +123,9 @@ export function renderDiff(data,target=$('#diff-results')){
   }
   if(data.cse_metadata_conflicts&&data.cse_metadata_conflicts.length){
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: CSE metadata (${data.cse_metadata_conflicts.length})</h3><table class="diff-table"><thead><tr><th>GUID</th><th>Side</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.cse_metadata_conflicts.map(c=>`<tr class="diff-conflict"><td class="mono">${escapeHtml(c.guid||'')}</td><td>${escapeHtml(c.side||'')}</td><td>${escapeHtml(formatCse(c.baseline))}</td><td>${escapeHtml(formatCse(c.draft))}</td><td>${escapeHtml(formatCse(c.observed))}</td></tr>`).join('')}</tbody></table></div>`);
+  }
+  if(data.fdeploy_conflicts&&data.fdeploy_conflicts.length){
+    parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: Folder Redirection (${data.fdeploy_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Folder and principal</th><th>Baseline</th><th>Draft</th><th>Observed</th></tr></thead><tbody>${data.fdeploy_conflicts.map(c=>`<tr class="diff-conflict"><td class="mono">${escapeHtml(redirectionLabel(c))}</td><td>${escapeHtml(formatRedirection(c.baseline))}</td><td>${escapeHtml(formatRedirection(c.draft))}</td><td>${escapeHtml(formatRedirection(c.observed))}</td></tr>`).join('')}</tbody></table></div>`);
   }
   if(data.gpp_reorder_conflicts&&data.gpp_reorder_conflicts.length){
     parts.push(`<div class="diff-section"><h3 class="diff-conflict">CONFLICT: GPP reorder (${data.gpp_reorder_conflicts.length})</h3><table class="diff-table"><thead><tr><th>Kind</th><th>Scope</th><th>Baseline order</th><th>Draft order</th><th>Observed order</th></tr></thead><tbody>${data.gpp_reorder_conflicts.map(c=>`<tr class="diff-conflict"><td>${escapeHtml(c.element_type||'')}</td><td>${escapeHtml(c.scope||'')}</td><td class="mono">${escapeHtml((c.baseline_order||[]).join(' → '))}</td><td class="mono">${escapeHtml((c.draft_order||[]).join(' → '))}</td><td class="mono">${escapeHtml((c.observed_order||[]).join(' → '))}</td></tr>`).join('')}</tbody></table></div>`);
