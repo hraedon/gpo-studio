@@ -44,10 +44,13 @@ PLAN_033_DIR = REPO_ROOT / "scripts" / "plan-033"
 #: WI-062 batch, and therefore not renormalizable until the estate re-runs.
 #: Every entry closes with WI-063. Nothing else may be added: a new CRLF file
 #: is a new defect, not a new row here.
+#:
+#: `finalize_object_security_run.py` came off on 2026-10-07: the
+#: requalification batch edits it for WI-064 (Group Membership rows), so it is
+#: re-earned by the batch's object-security run and was written back as LF.
 CRLF_PENDING_RENORMALIZATION = frozenset(
     {
         "finalize_endpoint_run.py",
-        "finalize_object_security_run.py",
         "finalize_publication_run.py",
         "finalize_rsop_run.py",
         "finalize_rsop_user_run.py",
