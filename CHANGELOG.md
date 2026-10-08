@@ -53,6 +53,23 @@ Current version: `1.0.0`.
   writer for the file (WI-066). The edit touches `model.py`, `canonical.py` and
   `export.py`, so WI-068 stays open until the publication and scripts-metadata
   lanes re-run in the estate requalification batch.
+- Acted on the 2026-10-07 Plan 034 completion rulings
+  ([the rulings](docs/direction-2026-10-07-plan-034-completion.md)) for the
+  modules no lane binds, so no evidence expires:
+  - Deleted `software_install.py` (writing was ruled out on 2026-09-06, and it
+    had no consumer) and `folder_redirection.py` (superseded by `fdeploy.py`),
+    with their tests. Both scope decisions carry a dated addendum.
+  - Reduced `gpmc_interop.py` to `InteropIssue`, which `publication.py`
+    imports. The interop checks are deleted. The importable predicate treated
+    "Studio cannot emit this" as "GPMC cannot import this", and would have
+    flagged 15 of the 26 production GPOs in the R6 census. `is_gpmc_editable`
+    had no oracle. A test pins the remaining type's shape.
+  - Recorded the remaining rulings in the capability matrix, Plan 034 and the
+    Plans 025–032 status lines: `security_template` exits through its
+    consumers; `publisher` and `hosting` are out of scope for 1.x and kept;
+    IPsec, Public Key, wired and wireless policy are out of scope for 1.x;
+    `artifact_store` is deleted in the requalification batch. The matrix's
+    Scripts row now says lane-backed rather than capture-backed.
 
 - Added a Folder Redirection browser panel that reviews native `fdeploy` files
   and compares an earlier copy with a current one, through the existing API. It

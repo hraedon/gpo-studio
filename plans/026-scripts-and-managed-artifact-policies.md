@@ -1,15 +1,24 @@
 # Plan 026 — Scripts and managed-artifact policies
 
-Status: partly implemented (domain layer) — **not surfaced**. `script_policy.py`
-holds the script model; the certified `scripts.ini` / `psscripts.ini` writer is
-`gpmc_backup_bundle(gpo, scripts=...)` in `export.py`, which the Plan 034
-scripts-metadata lane measures. No API endpoint or UI module passes scripts to
-it, so a Scripts export surface remains open. The scripts-metadata verdict is
-pending requalification in the Plan 034 batch and is not re-earned until that
-lane runs on the estate. `artifact_store.py` (WP-1) was **deleted** by the
-2026-10-07 operator ruling (`docs/direction-2026-10-07-plan-034-completion.md`):
-delivering script or executable payloads is out of scope for 1.x, and so is
-WP-4's typed executable publication.
+Status: implemented (domain layer) — **not surfaced**. `script_policy.py` is
+reachable from no API endpoint, UI module, or export path. Updated 2026-10-07:
+
+- `script_policy.py` is **lane-backed and unsurfaced**. The certified
+  `scripts.ini` / `psscripts.ini` writer is `gpmc_backup_bundle(gpo, scripts=...)`
+  in `export.py`, which the Scripts metadata lane measures. That lane passed on a
+  clean member server (live pack, 20/20 checks:
+  `scripts-r10-20260905191308-8174` from the WI-062 batch; the earlier
+  `scripts-r10-20260908013518-2476`, see
+  [backup/report fidelity](../docs/plan-033/backup-report-fidelity.md), is
+  retired history). Its verdict is pending requalification in the Plan 034
+  batch, which also deleted the stale pre-R2 `scripts.ini` writer and parser.
+  Payload execution and endpoint processing are not measured. Its exit is this
+  lane plus a Scripts export surface.
+- `artifact_store.py` (WP-1) was **deleted** in the requalification batch:
+  delivering script or executable payloads is out of scope for 1.x, and so is
+  WP-4's typed executable publication.
+
+See [the rulings](../docs/direction-2026-10-07-plan-034-completion.md).
 
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane

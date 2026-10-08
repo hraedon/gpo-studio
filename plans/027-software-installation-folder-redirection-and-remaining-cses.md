@@ -1,9 +1,18 @@
 # Plan 027 — Software Installation, Folder Redirection, and remaining CSEs
 
-Status: implemented (domain layer) — **not surfaced**. `software_install.py`
-and `folder_redirection.py` are landed and unit-tested but are reachable from
-no API endpoint, UI module, or export path. Platform wiring and Plan 033
-Windows evidence both remain open.
+Status: **not surfaced, and both of its modules are deleted** (2026-10-07,
+[operator ruling](../docs/direction-2026-10-07-plan-034-completion.md)).
+`software_install.py` went because writing Software Installation was ruled out
+on [2026-09-06](../docs/scope-decision-2026-09-06-software-installation-and-certification.md)
+and it had no consumer. `folder_redirection.py` went because R3 showed it
+addressed the wrong artifact, and `fdeploy.py` superseded it
+([2026-09-11](../docs/scope-decision-2026-09-11-folder-redirection.md)).
+Nothing this plan landed remains in `src/`.
+
+Folder Redirection itself is reachable, but not through this plan:
+`fdeploy.py` (Plan 034 WP-4) reads `fdeploy1.ini` at
+`POST /api/folder-redirection/fdeploy` and in a browser review panel. It is
+tested against the R3 capture, has no lane yet, and has no writer (WI-066).
 
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane

@@ -2,10 +2,22 @@
 
 Status: implemented (domain layer) — **not surfaced**. `publication.py` and
 `publisher.py` model publication plans and the capability/approval gating that
-guards them. Both are pure and side-effect-free, are reachable from no API
-endpoint or UI module, and emit no writes: the charter invariant that the web
-process never writes to AD or SYSVOL is unchanged by this plan's landing.
-Surfacing any of it is gated on Plan 033 WP-7.
+guards them. Neither writes anything, and neither is reachable from an API
+endpoint or UI module: the charter invariant that the web process never writes
+to AD or SYSVOL is unchanged by this plan's landing. Updated 2026-10-07:
+
+- `publication.py` is **lane-backed and unsurfaced**. The publication-
+  completeness lane passes 21/21 on LabMS01
+  ([results](../docs/plan-033/publication-completeness-results.md)); it
+  measures the plan, not a publication. By the
+  [2026-10-07 ruling](../docs/direction-2026-10-07-plan-034-completion.md) the
+  PowerShell script branch (`generate_publication_script` and its helpers) is
+  retired in the requalification batch, because it copies files straight into
+  SYSVOL, which [`live-publication.md`](../docs/live-publication.md) forbids.
+  Its exit is that lane plus a read-only publication-plan surface, which Plan
+  034 may build now rather than waiting for Plan 033 WP-7.
+- `publisher.py` is **out of scope for 1.x, code retained** as a Milestone 3
+  seed. It is not counted as a capability.
 
 **Unproven draft, not an asset** (operator ruling 2026-07-29): the wire
 behaviour of this layer is a hypothesis about Windows until an evidence lane
