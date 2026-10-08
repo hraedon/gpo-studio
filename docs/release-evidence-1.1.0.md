@@ -1,36 +1,60 @@
-# Release evidence manifest — GPO Studio 1.1.0
+# Release evidence manifest - GPO Studio 1.1.0
 
 > **Date:** not set (draft opened 2026-10-08)
 > **Source commit:** resolved by the tagged release workflow
-> **Status:** DRAFT — not approved for release and not a release candidate
+> **Status:** draft; not approved for release and not a release candidate
 
 This is the skeleton of the 1.1.0 manifest. It records what has been
 requalified, what the release workflow now checks, and what 1.1.0 does **not**
 claim. Every "to be resolved" item must be filled in, and every open row in
 [the Plan 034 table](#plan-034-module-exits) must reach its exit, before the
-status line changes.
+release is approved.
 
-## How this manifest gates the release
+## How this release is approved
+
+The source of truth is the JSON report,
+`docs/release-evidence-report-1.1.0.json`. Approving the release is two edits
+made in one commit:
+
+1. In the JSON report, set `"status"` to `"approved"` for the final release,
+   or to `"candidate"` for a release candidate. Set `"version"` to the exact
+   package version being tagged (`1.1.0`, or `1.1.0rc1` for the first
+   candidate).
+2. Replace line 5 of this file with the line `STATUS_LINES` in
+   `scripts/check_release_manifest.py` gives for that status. It keeps the
+   same prefix and ends in "approved for release" for the final release, or in
+   "release candidate; final approval pending" for a candidate. (It is not
+   quoted here because the gate allows that line exactly once in this file.)
+
+Nothing else in this file needs to change.
+
+## How the release gate reads this
 
 `release.yml` runs `scripts/check_release_manifest.py` before anything else
 and again in the publish job. For a tag `vX.Y.Z` or `vX.Y.Z-rc.N` it requires:
 
-- `src/gpo_studio/__init__.py` to declare exactly that version
-  (`X.Y.Z` or `X.Y.ZrcN`; development and other pre-release versions are
-  refused);
-- this file, `docs/release-evidence-X.Y.Z.md`, to begin with the title above
-  and to contain `- Application version: X.Y.Z`;
-- exactly one status line in this file. For an `-rc.N` tag it must read
-  `release candidate; final approval pending`. For a final tag it must read
-  `approved for release`. The draft line above satisfies neither, so no tag
-  can publish from this file as it stands;
-- `docs/release-evidence-report-X.Y.Z.json` to declare `"release_version":
-  "X.Y.Z"`.
+- `src/gpo_studio/__init__.py` to bind `__version__` exactly once, to exactly
+  that version (`X.Y.Z` or `X.Y.ZrcN`), and Hatchling to read the same value.
+  Development and other pre-release versions are refused;
+- the JSON report to match a strict schema: exact keys and types, no duplicate
+  keys, `version` equal to the package version, and `status` equal to
+  `approved` for a final tag or `candidate` for an RC tag. `draft` never
+  releases;
+- this file to hold a lexical contract, checked on its bytes without rendering
+  it: printable ASCII and newlines only; no raw HTML, character references,
+  code fences or deeply indented code; plain links only, never spliced into a
+  word; the fixed header above, with line 5 matching the JSON status; and the
+  word "status" followed by a colon nowhere except line 5, with no heading or
+  line elsewhere that reads as a status declaration;
+- before anything is attested, the built wheel's `METADATA`, its file name
+  and the sdist's `PKG-INFO` to carry the approved version.
 
-`docs/release-evidence.md` is the **1.0.0** manifest. It can no longer
-approve any other version. Before this gate, the workflow grepped that file for
-an approval string, so a `v1.1.0` tag would have published on 1.0.0's approval.
-`tests/test_release_manifest_gate.py` holds that case closed.
+`docs/release-evidence.md` is the **1.0.0** manifest. It cannot approve any
+other version. Before this gate, the workflow grepped that file for an
+approval string, so a `v1.1.0` tag would have published on 1.0.0's approval.
+`tests/test_release_manifest_gate.py` holds that case closed, together with
+every bypass found by four rounds of review of the earlier, rendering-based
+gate.
 
 The publish job also requires, for the exact tagged commit:
 
@@ -43,16 +67,6 @@ The publish job also requires, for the exact tagged commit:
 - the tagged commit to be reachable from `origin/main`;
 - immediately before `gh release create`, the remote tag to still peel to the
   commit the run built.
-
-The manifest is parsed as CommonMark. Exactly one status mention (the word and a colon) may
-exist anywhere in it, in any spelling, and it must be a plain paragraph in the
-top-level blockquote at the head of the file. A status in a code block (including
-one nested in a quote), list, nested quote or heading fails, and so does any raw
-HTML or any invisible or control character. Headings and paragraphs are judged
-by their entity-decoded text, and the original file, not a normalised copy, is
-what gets parsed. `__version__` must be bound exactly once, and Hatchling must read the same
-value. Before anything is attested, the built wheel's `METADATA` and the
-sdist's `PKG-INFO` must carry the approved version.
 
 ## What 1.1.0 is
 
@@ -108,11 +122,11 @@ what 1.1.0 may claim. It is filled in at the release cut and may only say
 | `network_security.py` | firewall: codec, lane, surface; the rest out of scope | firewall lane **open** (ruled out if no verdict by about 2026-10-24) | none | to be resolved; IPsec, Public Key, wired and wireless are not claimed |
 | `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | **open** | none | to be resolved; cross-domain is not claimed |
 | `backup.py` / `report.py` | report-parity lane for modelled families | **open** | none | to be resolved |
-| `artifact_store.py` | deleted | — | — | not shipped |
-| `software_install.py` | deleted | — | — | not shipped |
-| `folder_redirection.py` | deleted (superseded by `fdeploy.py`) | — | — | not shipped |
-| `gpmc_interop.py` | reduced to `InteropIssue` | — | — | no claim |
-| `publisher.py`, `hosting.py` | out of scope for 1.x; code retained | — | — | not capabilities; no hosted mode |
+| `artifact_store.py` | deleted | n/a | n/a | not shipped |
+| `software_install.py` | deleted | n/a | n/a | not shipped |
+| `folder_redirection.py` | deleted (superseded by `fdeploy.py`) | n/a | n/a | not shipped |
+| `gpmc_interop.py` | reduced to `InteropIssue` | n/a | n/a | no claim |
+| `publisher.py`, `hosting.py` | out of scope for 1.x; code retained | n/a | n/a | not capabilities; no hosted mode |
 
 Plan 034's review gate stands: no module leaves the plan `capture-backed`.
 
@@ -246,5 +260,6 @@ data. Each is pinned by a test:
    and record the session against that exact wheel.
 4. Fill in the automated-evidence section from the tagged run, then finalize
    `docs/release-evidence-report-1.1.0.json`.
-5. Change the status line to `approved for release`, and tag `v1.1.0` on a
-   commit on `main`.
+5. Approve as described in [How this release is approved](#how-this-release-is-approved)
+   (the JSON `status` and `version`, and line 5 here, in one commit), and tag
+   `v1.1.0` on a commit on `main`.

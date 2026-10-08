@@ -24,8 +24,6 @@ dev = [
   "pytest-cov>=6.1,<8",
   "ruff>=0.16,<0.17",
   "jsonschema>=4.26.0",
-  # The release gate parses the evidence manifest as CommonMark (MIT).
-  "markdown-it-py>=4,<5",
 ]
 
 [project.scripts]

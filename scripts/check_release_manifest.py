@@ -1,31 +1,44 @@
-"""Release gate: the pushed tag, the package version and its evidence manifest agree.
+"""Release gate: the pushed tag, the package version and its release evidence agree.
 
 The 1.0.0 workflow grepped ``docs/release-evidence.md`` for an approval
 string. That file is the 1.0.0 manifest, so any later tag would have passed on
-1.0.0's approval. This gate binds the approval to the version being released:
+1.0.0's approval. This gate binds approval to the version being released.
 
-1. ``src/gpo_studio/__init__.py``'s ``__version__`` is not a development
-   version, and the tag is exactly ``v<version>`` (``1.1.0rc1`` tags as
-   ``v1.1.0-rc.1``).
-2. The manifest for that version exists: ``docs/release-evidence-<X.Y.Z>.md``
-   beside ``docs/release-evidence-report-<X.Y.Z>.json``. Only 1.0.0, which
-   predates the rule, uses the unversioned names.
-3. The manifest names the version in its title and in its ``Application
-   version`` line, and carries exactly one status line, which must be the
-   approval marker for a final tag or the candidate marker for an RC tag. The
-   manifest is parsed as CommonMark (see ``manifest_problems``): a draft, a
-   stale copy, a second status mention anywhere, an approval in a code block,
-   list or nested quote, or any raw HTML fails.
-4. The JSON report names the same version in ``release_version`` (not checked
-   for the legacy 1.0.0 report, which predates the field).
-5. With ``--remote-tag-sha``, the remote tag still peels to the commit the run
-   built, so a tag moved mid-run cannot receive another commit's artifacts.
-6. With ``--wheel``/``--sdist``, the built artifacts' metadata versions equal
-   the approved version, so what is published is what was approved.
+**The JSON report is the source of truth.** ``docs/release-evidence-report-
+<X.Y.Z>.json`` must match a strict schema (exact keys, exact types, no
+duplicate keys): ``version`` equals ``__version__`` (and so the tag and, with
+``--wheel``/``--sdist``, the built artifacts), and ``status`` is ``approved``
+for a final tag or ``candidate`` for an ``-rc.N`` tag (``draft`` never
+releases).
 
-Anything unexpected fails closed. With ``--github-output`` the resolved paths
-are written for later workflow steps, so publication attaches the manifest
-this gate read rather than a hard-coded file name.
+**The Markdown manifest is held to a lexical contract, not rendered.** Four
+review rounds found ways for Markdown rendering (entities, HTML, nested
+fences, links, Unicode folding) to make what a reader sees differ from what a
+parser sees. Rather than chase the renderer, the gate forbids every construct
+that made that possible and checks the bytes:
+
+* printable ASCII and LF only (no tabs, CR, control or non-ASCII characters);
+* no ``<`` (so no raw HTML or autolinks) and no character references
+  (``&#...``, ``&name;``);
+* no code fences and no line indented four or more spaces (so no code blocks);
+* links only in the plain forms ``[text](destination)`` and ``[text][ref]``,
+  with no parentheses or whitespace in the destination and never glued to a
+  letter or digit on either side (so a link cannot splice a word together);
+* the header is fixed: line 1 the title, line 2 blank, lines 3 and 4 the Date
+  and Source commit lines, line 5 the status line, line 6 blank. The status
+  line must be the one for the JSON report's ``status``;
+* after removing link destinations and emphasis/code markers, the word
+  "status" followed by a colon appears exactly once (line 5), and no other
+  line, heading or not, begins with the word "status" or is a heading
+  containing it.
+
+To approve a release: set ``"status": "approved"`` (or ``"candidate"`` for an
+RC, with ``"version"`` set to the RC version) in the JSON report, and change
+line 5 of the manifest to the matching line below. Nothing else changes.
+
+Other checks: ``__version__`` is bound exactly once and Hatchling reads the
+same value; with ``--remote-tag-sha`` the remote tag still peels to the built
+commit; ``--github-output`` writes the resolved paths for later steps.
 """
 
 from __future__ import annotations
@@ -37,217 +50,197 @@ import re
 import subprocess
 import sys
 import tarfile
-import unicodedata
 import zipfile
 from dataclasses import dataclass
 from email.parser import BytesParser
-from html.parser import HTMLParser
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from markdown_it.token import Token
+from typing import Any
 
 APPROVED = "> **Status:** approved for release"
 CANDIDATE = "> **Status:** release candidate; final approval pending"
+DRAFT = "> **Status:** draft; not approved for release and not a release candidate"
+STATUS_LINES = {"draft": DRAFT, "candidate": CANDIDATE, "approved": APPROVED}
 
-# A status *mention* is the word "status" followed by a colon, however it is
-# spelled: any case, emphasis or code markers between. Matching happens on
-# decoded token text (entities resolved by the parser) after NFKC folding and
-# folding of common Cyrillic/Greek look-alikes to ASCII. Folding is applied only
-# to text being matched, never to the document the parser sees: folding first
-# can turn a full-width backtick run into a closing fence and change which lines
-# are code (third Sol review, finding 1).
-_STATUS_MENTION = re.compile(r"\bstatus\b[\s*_`~]*:", re.IGNORECASE)
-_STATUS_HEADING = re.compile(r"^[\W_]*status[\W_]*$", re.IGNORECASE)
-_LOOKALIKES = str.maketrans(
+REPORT_TYPE = "GPO Studio release evidence report"
+REPORT_SCHEMA_VERSION = 2
+REPORT_KEYS = frozenset(
     {
-        "Ѕ": "S", "ѕ": "s", "Т": "T", "т": "t", "Τ": "T",
-        "τ": "t", "А": "A", "а": "a", "Α": "A", "α": "a",
-        "υ": "u", "ս": "u", "ц": "u",
+        "report_type",
+        "report_version",
+        "version",
+        "status",
+        "manifest",
+        "workspace_schema_version",
+        "artifact_hashes",
+        "evidence",
     }
 )
-_HEADER_PARAGRAPH = ("blockquote_open", "paragraph_open")
-_BULLET_ITEM = ("bullet_list_open", "list_item_open", "paragraph_open")
-_TITLE = ("heading_open",)
+ARTIFACT_HASH_KEYS = frozenset({"wheel_sha256", "sdist_sha256", "sbom_sha256"})
+
+_ALLOWED_BYTES = frozenset(range(0x20, 0x7F)) | {0x0A}
+_ENTITY = re.compile(r"&(?:#|[A-Za-z][A-Za-z0-9]*;)")
+_FENCE = re.compile(r"^\s*(?:`{3,}|~{3,})")
+_DEEP_INDENT = re.compile(r"^ {4,}\S")
+_INLINE_LINK = re.compile(r"\]\(([^()\s]*)\)")
+_REFERENCE_LINK = re.compile(r"\]\[([^\[\]]*)\]")
+_GLUED_OPEN = re.compile(r"[A-Za-z0-9]!?\[")
+_MARKUP = str.maketrans("", "", "*_`~\\[]!")
+_STATUS_MENTION = re.compile(r"status *:", re.IGNORECASE)
+_BLOCK_PREFIX = r"(?: {0,3}(?:>|[-*+]|\d{1,9}[.)])(?: |$))*"
+_ATX_HEADING = re.compile(rf"^{_BLOCK_PREFIX} {{0,3}}#{{1,6}}(?: |$)")
+_SETEXT_UNDERLINE = re.compile(rf"^{_BLOCK_PREFIX} {{0,3}}(?:=+|-+) *$")
+_LEADING_MARKERS = re.compile(r"^[\s>#+\-*\d.)]*")
+
+STATUS_LINE_INDEX = 4  # line 5
 
 
-def _fold(text: str) -> str:
-    return unicodedata.normalize("NFKC", text).translate(_LOOKALIKES)
+def _skeleton(line: str) -> str:
+    """The line with link destinations and emphasis/code/escape markers removed."""
+    return _REFERENCE_LINK.sub("", _INLINE_LINK.sub("", line)).translate(_MARKUP)
 
 
-def _mentions(text: str) -> int:
-    return len(_STATUS_MENTION.findall(_fold(text)))
-
-
-def _invisible_characters(text: str) -> list[str]:
-    """Format, private-use, surrogate and control characters (bar tab and newline).
-
-    Zero-width and bidi controls change what a reader sees without changing what
-    a parser sees, or the reverse. A manifest has no use for them, so they are
-    refused outright instead of being folded away.
-    """
-    found = sorted(
-        {
-            f"U+{ord(char):04X} on line {number}"
-            for number, line in enumerate(text.split("\n"), start=1)
-            for char in line
-            if unicodedata.category(char) in {"Cf", "Co", "Cs", "Cc"} and char not in "\t\r"
-        }
-    )
-    return found
-
-
-class _TextOnly(HTMLParser):
-    """Collect the text a browser would show; comments and tags are dropped."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self.parts.append(data)
-
-
-def _decoded(token: Token) -> str:
-    """The text a reader sees for one block-level leaf token.
-
-    Inline text comes from the parser's children, where entities are already
-    decoded (``Sta&#116;us`` is ``Status``); link destinations and titles count
-    too. Code keeps its literal content, which is also what a renderer shows.
-    """
-    if token.type != "inline":
-        return token.content
-    parts: list[str] = []
-    for child in token.children or []:
-        if child.type in ("softbreak", "hardbreak"):
-            parts.append("\n")
-        else:
-            parts.append(child.content)
-        parts.extend(f" {value} " for value in child.attrs.values() if isinstance(value, str))
-    return "".join(parts)
-
-
-def _leaves(tokens: list[Token]) -> list[tuple[Token, tuple[str, ...]]]:
-    """Every block-level leaf token with the stack of blocks that contains it."""
-    leaves: list[tuple[Token, tuple[str, ...]]] = []
-    stack: list[str] = []
-    for token in tokens:
-        if token.nesting == 1:
-            stack.append(token.type)
-        elif token.nesting == -1:
-            stack.pop()
-        else:
-            leaves.append((token, tuple(stack)))
-    return leaves
-
-
-def _line_contexts(leaves: list[tuple[Token, tuple[str, ...]]]) -> dict[int, tuple[str, ...]]:
-    """Map each source line to its context; code and HTML lines get the leaf type."""
-    contexts: dict[int, tuple[str, ...]] = {}
-    for token, stack in leaves:
-        if token.map is None:
-            continue
-        context = stack if token.type == "inline" else (*stack, token.type)
-        for line in range(token.map[0], token.map[1]):
-            contexts[line] = context
-    return contexts
-
-
-def manifest_problems(text: str, title: str, application: str, required: str) -> list[str]:
-    """Why ``text`` is not an unambiguous manifest carrying ``required``.
-
-    The ORIGINAL document is parsed as CommonMark (markdown-it-py), so code
-    blocks, blockquote-nested fences, HTML blocks and lazy continuations are
-    decided the way a renderer decides them. The rules:
-
-    * no invisible or control characters, and no raw HTML at all: either can
-      make what a reader sees differ from what the gate sees;
-    * the title is the level-1 heading on line 1, and the
-      ``- Application version`` line is a plain bullet-list item;
-    * no heading's decoded text is "Status" or carries a status mention;
-    * exactly one status mention exists, counted three ways that must agree:
-      in the decoded text of every token, on the source lines, and in the
-      rendered HTML's text;
-    * that mention is in a plain paragraph directly inside a top-level
-      blockquote (the manifest's header block), not in a list, table, code
-      block, heading or nested quote, and its source line is exactly
-      ``required``.
-
-    An empty list means the manifest passes.
-    """
-    from markdown_it import MarkdownIt
-
+def manifest_problems(data: bytes, base: str, status: str) -> list[str]:
+    """Why ``data`` breaks the manifest's lexical contract (empty list: it holds)."""
     problems: list[str] = []
-    invisible = _invisible_characters(text)
-    if invisible:
-        problems.append(f"invisible or control characters are not allowed: {invisible}")
-
-    md = MarkdownIt("commonmark")
-    raw_lines = text.splitlines()
-    tokens = md.parse(text)
-    leaves = _leaves(tokens)
-    contexts = _line_contexts(leaves)
-
-    html_lines = sorted(
-        {
-            line
-            for token, _stack in leaves
-            if token.map is not None
-            and (
-                token.type == "html_block"
-                or any(child.type == "html_inline" for child in (token.children or []))
-            )
-            for line in range(token.map[0], token.map[1])
-        }
-    )
-    if html_lines:
-        problems.append(f"raw HTML is not allowed in a manifest (source lines {html_lines})")
-
-    if not raw_lines or raw_lines[0] != title or contexts.get(0) != _TITLE:
-        problems.append(f"the first line must be the level-1 heading {title!r}")
-    application_lines = [i for i, line in enumerate(raw_lines) if line == application]
-    if len(application_lines) != 1 or contexts.get(application_lines[0]) != _BULLET_ITEM:
-        problems.append(f"{application!r} must appear once, as a plain bullet-list item")
-
-    carriers: list[tuple[Token, tuple[str, ...]]] = []
-    for token, stack in leaves:
-        decoded = _decoded(token)
-        if stack[-1:] == ("heading_open",) and (
-            _STATUS_HEADING.match(_fold(decoded).strip()) or _mentions(decoded)
-        ):
-            problems.append(f"a heading reads {decoded.strip()!r}")
-        carriers.extend([(token, stack)] * _mentions(decoded))
-
-    source_mentions = [i for i, line in enumerate(raw_lines) if _mentions(line)]
-    renderer = _TextOnly()
-    renderer.feed(md.render(text))
-    rendered_mentions = _mentions("".join(renderer.parts))
-    if len(carriers) != 1 or len(source_mentions) != 1 or rendered_mentions != 1:
-        problems.append(
-            "exactly one status line is allowed; found "
-            f"{len(carriers)} in the parsed text, {len(source_mentions)} in the source "
-            f"({[raw_lines[i] for i in source_mentions]!r}) and {rendered_mentions} in the "
-            "rendered text"
-        )
+    bad = sorted({f"0x{byte:02x}" for byte in data if byte not in _ALLOWED_BYTES})
+    if bad:
+        problems.append(f"only printable ASCII and LF are allowed; found bytes {bad}")
         return problems
-    token, stack = carriers[0]
-    line = source_mentions[0]
-    in_token = token.map is not None and token.map[0] <= line < token.map[1]
-    if token.type != "inline" or stack != _HEADER_PARAGRAPH or not in_token:
+    text = data.decode("ascii")
+    lines = text.split("\n")
+    if "<" in text:
+        problems.append("'<' is not allowed (no raw HTML or autolinks)")
+    if _ENTITY.search(text):
+        problems.append("character references ('&#...;', '&name;') are not allowed")
+    for number, line in enumerate(lines, start=1):
+        if _FENCE.match(line):
+            problems.append(f"line {number}: code fences are not allowed")
+        if _DEEP_INDENT.match(line):
+            problems.append(f"line {number}: indentation of four or more spaces is not allowed")
+        if line.count("](") != len(_INLINE_LINK.findall(line)):
+            problems.append(f"line {number}: a link destination contains '(' or whitespace")
+        for pattern in (_INLINE_LINK, _REFERENCE_LINK):
+            for match in pattern.finditer(line):
+                after = line[match.end() : match.end() + 1]
+                if after.isalnum():
+                    problems.append(f"line {number}: a link is glued to the following word")
+        if _GLUED_OPEN.search(line):
+            problems.append(f"line {number}: a link is glued to the preceding word")
+
+    title = f"# Release evidence manifest - GPO Studio {base}"
+    header_ok = (
+        len(lines) > 5
+        and lines[0] == title
+        and lines[1] == ""
+        and lines[2].startswith("> **Date:** ")
+        and lines[3].startswith("> **Source commit:** ")
+        and lines[5] == ""
+    )
+    if not header_ok:
         problems.append(
-            f"the status line {raw_lines[line]!r} is not in a plain paragraph of a "
-            f"top-level blockquote (its context is {(*stack, token.type)!r})"
+            f"the header must be: {title!r}, a blank line, '> **Date:** ...', "
+            "'> **Source commit:** ...', the status line, a blank line"
         )
-    elif raw_lines[line] != required:
-        problems.append(f"the status line is {raw_lines[line]!r}, not {required!r}")
+    expected = STATUS_LINES[status]
+    if len(lines) <= STATUS_LINE_INDEX or lines[STATUS_LINE_INDEX] != expected:
+        found = lines[STATUS_LINE_INDEX] if len(lines) > STATUS_LINE_INDEX else None
+        problems.append(
+            f"line 5 must be the status line for report status {status!r}, "
+            f"{expected!r}; found {found!r}"
+        )
+
+    mentions = [
+        number
+        for number, line in enumerate(lines, start=1)
+        for _ in _STATUS_MENTION.finditer(_skeleton(line))
+    ]
+    if mentions != [STATUS_LINE_INDEX + 1]:
+        problems.append(
+            f"'status:' must appear exactly once, on line 5; found it on lines {mentions}"
+        )
+    for index, line in enumerate(lines):
+        if index == STATUS_LINE_INDEX:
+            continue
+        words = re.findall(r"[a-z]+", _skeleton(line).lower())
+        heading = bool(_ATX_HEADING.match(line)) or (
+            index + 1 < len(lines) and bool(_SETEXT_UNDERLINE.match(lines[index + 1]))
+        )
+        leading = re.findall(r"[a-z]+", _LEADING_MARKERS.sub("", _skeleton(line)).lower())
+        if (heading and "status" in words) or leading[:1] == ["status"]:
+            problems.append(f"line {index + 1} reads as a status declaration: {line!r}")
+
+    application = f"- Application version: {base}"
+    if lines.count(application) != 1:
+        problems.append(f"{application!r} must appear exactly once")
     return problems
 
 
-#: Manifests written before versioned names existed. Never add to this.
-LEGACY_MANIFESTS: dict[str, tuple[str, str]] = {
-    "1.0.0": ("docs/release-evidence.md", "docs/release-evidence-report.json"),
-}
+def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [key for key, _ in pairs]
+    duplicated = sorted({key for key in keys if keys.count(key) > 1})
+    if duplicated:
+        raise ReleaseGateError(f"duplicate JSON keys {duplicated}")
+    return dict(pairs)
+
+
+def _reject_constant(name: str) -> None:
+    raise ReleaseGateError(f"JSON constant {name} is not allowed")
+
+
+def report_problems(data: bytes, manifest_rel: str) -> tuple[list[str], dict[str, Any]]:
+    """Validate the JSON report against the strict schema."""
+    try:
+        report = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_no_duplicates,
+            parse_constant=_reject_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        return [f"not valid UTF-8 JSON: {error}"], {}
+    except ReleaseGateError as error:
+        return [str(error)], {}
+    if not isinstance(report, dict):
+        return ["the report must be a JSON object"], {}
+    problems: list[str] = []
+    if set(report) != REPORT_KEYS:
+        problems.append(
+            f"keys must be exactly {sorted(REPORT_KEYS)}; missing "
+            f"{sorted(REPORT_KEYS - set(report))}, unexpected {sorted(set(report) - REPORT_KEYS)}"
+        )
+        return problems, report
+
+    def is_str(value: Any) -> bool:
+        return type(value) is str
+
+    if report["report_type"] != REPORT_TYPE:
+        problems.append(f"report_type must be {REPORT_TYPE!r}")
+    if type(report["report_version"]) is not int or report["report_version"] != (
+        REPORT_SCHEMA_VERSION
+    ):
+        problems.append(f"report_version must be the integer {REPORT_SCHEMA_VERSION}")
+    if not is_str(report["version"]) or _VERSION.match(report["version"]) is None:
+        problems.append("version must be a string 'X.Y.Z' or 'X.Y.ZrcN'")
+    if not is_str(report["status"]) or report["status"] not in STATUS_LINES:
+        problems.append(f"status must be one of {sorted(STATUS_LINES)}")
+    if report["manifest"] != manifest_rel:
+        problems.append(f"manifest must be {manifest_rel!r}")
+    if type(report["workspace_schema_version"]) is not int or report[
+        "workspace_schema_version"
+    ] < 1:
+        problems.append("workspace_schema_version must be a positive integer")
+    hashes = report["artifact_hashes"]
+    if (
+        not isinstance(hashes, dict)
+        or set(hashes) != ARTIFACT_HASH_KEYS
+        or not all(is_str(value) for value in hashes.values())
+    ):
+        problems.append(
+            f"artifact_hashes must have exactly the string keys {sorted(ARTIFACT_HASH_KEYS)}"
+        )
+    if not isinstance(report["evidence"], dict):
+        problems.append("evidence must be a JSON object")
+    return problems, report
+
 
 _VERSION = re.compile(r"^(?P<base>\d+\.\d+\.\d+)(?:rc(?P<rc>[1-9]\d*))?$")
 _TAG = re.compile(r"^v(?P<base>\d+\.\d+\.\d+)(?:-rc\.(?P<rc>[1-9]\d*))?$")
@@ -376,8 +369,6 @@ def verify_distributions(version: str, wheel: Path | None, sdist: Path | None) -
 
 
 def manifest_paths(base_version: str) -> tuple[str, str]:
-    if base_version in LEGACY_MANIFESTS:
-        return LEGACY_MANIFESTS[base_version]
     return (
         f"docs/release-evidence-{base_version}.md",
         f"docs/release-evidence-report-{base_version}.json",
@@ -393,8 +384,7 @@ def check(root: Path, tag: str) -> ReleaseManifest:
         )
     base, rc = parsed["base"], parsed["rc"]
     expected_tag = f"v{base}" + (f"-rc.{rc}" if rc else "")
-    tag_match = _TAG.match(tag)
-    if tag_match is None or tag != expected_tag:
+    if _TAG.match(tag) is None or tag != expected_tag:
         raise ReleaseGateError(
             f"tag {tag!r} does not match package version {version!r} (expected {expected_tag!r})"
         )
@@ -410,26 +400,22 @@ def check(root: Path, tag: str) -> ReleaseManifest:
     if not report_path.is_file():
         raise ReleaseGateError(f"no evidence report for {base}: {report_rel} does not exist")
 
-    text = manifest_path.read_text(encoding="utf-8")
-    problems = manifest_problems(
-        text,
-        title=f"# Release evidence manifest — GPO Studio {base}",
-        application=f"- Application version: {base}",
-        required=CANDIDATE if rc else APPROVED,
-    )
+    problems, report = report_problems(report_path.read_bytes(), manifest_rel)
+    if problems:
+        raise ReleaseGateError(f"{report_rel}: " + "; ".join(problems))
+    required_status = "candidate" if rc else "approved"
+    if report["version"] != version:
+        raise ReleaseGateError(
+            f"{report_rel}: version is {report['version']!r}, but the package is {version!r}"
+        )
+    if report["status"] != required_status:
+        raise ReleaseGateError(
+            f"{report_rel}: status is {report['status']!r}; tag {tag} requires "
+            f"{required_status!r}"
+        )
+    problems = manifest_problems(manifest_path.read_bytes(), base, report["status"])
     if problems:
         raise ReleaseGateError(f"{manifest_rel}: " + "; ".join(problems))
-
-    if base not in LEGACY_MANIFESTS:
-        try:
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise ReleaseGateError(f"{report_rel} is not valid JSON: {error}") from error
-        if not isinstance(report, dict) or report.get("release_version") != base:
-            found = report.get("release_version") if isinstance(report, dict) else None
-            raise ReleaseGateError(
-                f"{report_rel} must declare release_version {base!r}; found {found!r}"
-            )
 
     return ReleaseManifest(
         version=version,

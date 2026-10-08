@@ -634,29 +634,32 @@ Lab and development tooling:
 - *New in this draft:* the release workflow no longer publishes on a stale
   approval. It grepped `docs/release-evidence.md`, the 1.0.0 manifest, for
   the approval string, so any later tag would have passed on 1.0.0's approval.
-  `scripts/check_release_manifest.py` now requires
-  `docs/release-evidence-<version>.md` and its JSON report to name the tagged
-  version, and requires exactly one status declaration, the right one for
-  the tag. The manifest is parsed as CommonMark (markdown-it-py, a pinned,
-  hash-checked dev and release-job dependency): every "status:" mention counts,
-  in any spelling, and the one allowed must be a plain paragraph in the
-  top-level blockquote. Code blocks (including fences nested in quotes), lists,
-  nested quotes, headings and any raw HTML are refused, so an approval cannot
-  hide in an example block or a `<details>` element beside a draft. The
-  original text is what is parsed (folding is applied only when matching, so it
-  cannot turn full-width backticks into a closing fence), invisible and control
-  characters are refused, and headings and paragraphs are judged by their
-  entity-decoded text.
+  `scripts/check_release_manifest.py` now takes status and version from
+  `docs/release-evidence-report-<version>.json`, held to a strict schema
+  (exact keys and types, no duplicate keys): `version` must equal the package
+  version and `status` must be `approved` for a final tag or `candidate` for
+  an RC (`draft` never releases). The Markdown manifest is held to a lexical
+  contract on its bytes, not rendered: printable ASCII and LF only, no `<`, no
+  character references, no code fences or deep indentation, plain unspliced
+  links, a fixed header whose line 5 must be the status line for the JSON
+  status, and the word "status" followed by a colon nowhere else. Four review
+  rounds had found ways for CommonMark rendering to show a reader something
+  other than what a parser checked (entities, HTML blocks, quoted fences,
+  Unicode folding, linked headings); the contract forbids the constructs
+  instead of modelling the renderer, and every one of those probes is kept as
+  a test. Approving a release is two edits: the JSON `status` (and `version`)
+  and line 5 of the manifest.
   `__version__` must be bound exactly once and match what Hatchling reads, and
   the built wheel's and sdist's metadata versions must equal the approved
-  version before anything is attested. It fails closed on anything else. Before publishing, the workflow
+  version before anything is attested. It fails closed on anything else.
+  Before publishing, the workflow
   also requires every `ci.yml` job (including `test-windows`), the identifier
   gate and the existing verify job to pass on the tagged commit, and the commit
   to be on `main`. Immediately before `gh release create`, it requires the
   remote tag to still peel to the commit the run built, because
   `--verify-tag` only checks that a tag of that name exists.
-  `tests/test_release_manifest_gate.py` pins each part, including the bypasses
-  a review demonstrated against the first version.
+  `tests/test_release_manifest_gate.py` pins each part, including every
+  bypass the reviews demonstrated against earlier versions of the gate.
 - The static safety gate now applies forbidden-import categories to the **web
   process** (the modules reachable from `api.py`, directly or transitively),
   which is what the charter constrains, instead of to the whole `src/`

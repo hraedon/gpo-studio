@@ -1,47 +1,49 @@
 {
   "report_type": "GPO Studio release evidence report",
-  "report_version": 1,
-  "release_version": "1.1.0",
+  "report_version": 2,
+  "version": "1.1.0",
   "status": "draft",
   "manifest": "docs/release-evidence-1.1.0.md",
   "workspace_schema_version": 4,
-  "requalification": {
-    "note": "docs/plan-033/plan034-batch.md",
-    "batch_manifest": "docs/plan-033/plan034-batch.json",
-    "frozen_commit": "263f19640529d469c2a54c18b43d228db5378279",
-    "runs_passed": 22,
-    "successors": [
-      {
-        "lane": "object-security",
-        "run_id": "object-security-20261008082348-9729",
-        "commit": "1fb3f56ac7431e0044c69c32edc4350b2ab84151"
-      }
-    ],
-    "pending_requalification": []
-  },
-  "workspace_upgrade": {
-    "from_release": "1.0.0",
-    "from_schema": 1,
-    "to_schema": 4,
-    "fixture": "tests/fixtures/release-1.0.0-workspace/",
-    "fixture_generator": "scripts/generate_release_workspace_fixture.py",
-    "tests": "tests/test_release_upgrade_from_1_0_0.py",
-    "rehearsal": "scripts/rehearse_upgrade_rollback.py",
-    "rollback": "restore the pre-upgrade backup; 1.0.0 refuses a schema-4 workspace and a backup of one"
-  },
-  "plan_034_open_exits": [
-    "fdeploy.py: lane, or writer deferred under WI-066",
-    "network_security.py: firewall lane and surface, or ruled out",
-    "lifecycle.py: same-domain lane and restore-plan surface",
-    "backup.py/report.py: report-parity lane"
-  ],
-  "accessibility": {
-    "automated": "frontend CI job and release verify job (axe, keyboard, focus, dark theme)",
-    "hands_on_screen_reader": "not run; requirement for 1.1.0 not decided"
-  },
   "artifact_hashes": {
     "wheel_sha256": "pending candidate build",
     "sdist_sha256": "pending candidate build",
     "sbom_sha256": "pending candidate build"
+  },
+  "evidence": {
+    "requalification": {
+      "note": "docs/plan-033/plan034-batch.md",
+      "batch_manifest": "docs/plan-033/plan034-batch.json",
+      "frozen_commit": "263f19640529d469c2a54c18b43d228db5378279",
+      "runs_passed": 22,
+      "successors": [
+        {
+          "lane": "object-security",
+          "run_id": "object-security-20261008082348-9729",
+          "commit": "1fb3f56ac7431e0044c69c32edc4350b2ab84151"
+        }
+      ],
+      "pending_requalification": []
+    },
+    "workspace_upgrade": {
+      "from_release": "1.0.0",
+      "from_schema": 1,
+      "to_schema": 4,
+      "fixture": "tests/fixtures/release-1.0.0-workspace/",
+      "fixture_generator": "scripts/generate_release_workspace_fixture.py",
+      "tests": "tests/test_release_upgrade_from_1_0_0.py",
+      "rehearsal": "scripts/rehearse_upgrade_rollback.py",
+      "rollback": "restore the pre-upgrade backup; 1.0.0 refuses a schema-4 workspace and a backup of one"
+    },
+    "plan_034_open_exits": [
+      "fdeploy.py: lane, or writer deferred under WI-066",
+      "network_security.py: firewall lane and surface, or ruled out",
+      "lifecycle.py: same-domain lane and restore-plan surface",
+      "backup.py/report.py: report-parity lane"
+    ],
+    "accessibility": {
+      "automated": "frontend CI job and release verify job (axe, keyboard, focus, dark theme)",
+      "hands_on_screen_reader": "not run; requirement for 1.1.0 not decided"
+    }
   }
 }
