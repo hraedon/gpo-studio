@@ -28,13 +28,18 @@ Current version: `1.0.0`.
     target arguments and optional `existing_gpo_names`. It returns
     `generate_restore_plan`'s plan: cmdlet, target identity,
     `requires_target_absent`, preconditions and warnings. Each survival cell
-    is marked measured and cites the run. Every response carries six
+    is marked measured and cites the run, except a WMI cell for a backup
+    whose `WMIFilter` reference is not the measured `MSFT_SomFilter` shape in
+    the GPO's own domain with a `WMIFilterName`: that cell is `measured: false`
+    with an `unmeasured_reason`. Every response carries six
     limitations: `studio_executes_nothing`, `same_domain_only`,
     `cross_domain_out_of_scope`, `one_topology_measured`,
     `deleted_gpo_restore_unmeasured` and `target_state_unchecked`. These are
     refused with 422 and a code: GPOs authored in Studio and forks of an import
-    (the lane measured Windows backups only), cross-domain targets, taken
-    target names, and malformed target arguments. The surface composes in
+    (the lane measured Windows backups only; a fork is recognised by its parent
+    carrying the same backup, not by a GUID match), `import_into_existing`
+    by `-TargetName` (the lane used `-TargetGuid` only), cross-domain targets,
+    taken target names, and malformed target arguments. The surface composes in
     `api.py` and touches no bound file.
   - `lifecycle` reaches `yes` for its same-domain half in Plan 034's table and
     is `lane-backed and surfaced` in the capability matrix. Cross-domain stays

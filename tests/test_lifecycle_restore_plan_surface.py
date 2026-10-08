@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 from gpo_studio import api
 from gpo_studio.api import app
 from gpo_studio.lifecycle import SCOPE_DIMENSIONS, SCOPE_SURVIVAL, WINDOWS_OPERATIONS
+from gpo_studio.model import GPO
 from gpo_studio.store import WorkspaceStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,13 +78,32 @@ def client(store: WorkspaceStore) -> Iterator[TestClient]:
         yield test_client
 
 
-@pytest.fixture
-def imported(
-    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+MEASURED_WMI_REFERENCE = (
+    'MSFT_SomFilter.ID="{39b2ba78-17af-4954-95c1-7b21773c44e0}",Domain="AD.LABDOMAIN.DEV"'
+)
+
+
+def _import(
+    client: TestClient,
+    inbox: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wmi_reference: str | None = None,
+    drop_wmi_filter_name: bool = False,
 ) -> dict[str, Any]:
-    """The workspace import of the certifying run's own Backup-GPO tree."""
-    inbox = tmp_path / "inbox"
+    """Import the certifying run's Backup-GPO tree, optionally with its WMI
+    reference rewritten, through the public import."""
     shutil.copytree(PACK / "backup", inbox)
+    if wmi_reference is not None or drop_wmi_filter_name:
+        backup_xml = next(inbox.glob("*/Backup.xml"))
+        text = backup_xml.read_bytes().decode("utf-8")
+        assert MEASURED_WMI_REFERENCE in text
+        if wmi_reference is not None:
+            text = text.replace(MEASURED_WMI_REFERENCE, wmi_reference)
+        if drop_wmi_filter_name:
+            start = text.index("<WMIFilterName>")
+            end = text.index("</WMIFilterName>") + len("</WMIFilterName>")
+            text = text[:start] + text[end:]
+        backup_xml.write_bytes(text.encode("utf-8"))
     monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox))
     response = client.post("/api/backups/import", json={
         "path": str(inbox), "actor": "lifecycle-test", "reason": "restore plan",
@@ -91,6 +111,14 @@ def imported(
     assert response.status_code == 201, response.text
     gpo: dict[str, Any] = response.json()["gpo"]
     return gpo
+
+
+@pytest.fixture
+def imported(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, Any]:
+    """The workspace import of the certifying run's own Backup-GPO tree."""
+    return _import(client, tmp_path / "inbox", monkeypatch)
 
 
 def _plan(client: TestClient, gpo_guid: str, operation: str, **fields: Any) -> Any:
@@ -128,6 +156,7 @@ def test_every_cell_returned_is_the_cell_windows_was_measured_to_produce(
         SCOPE_SURVIVAL[operation]  # type: ignore[index]
     )
     assert all(cell["measured"] is True for cell in body["survival"])
+    assert all(cell["unmeasured_reason"] is None for cell in body["survival"])
     assert body["evidence"] == {
         "lane": "lifecycle-same-domain",
         "run_id": _verdict()["run_id"],
@@ -300,3 +329,109 @@ def test_the_route_is_a_plan_and_nothing_else() -> None:
         if getattr(r, "path", "").startswith("/api/lifecycle")
     ]
     assert routes == [(ROUTE, ["POST"])]
+
+
+# ---------------------------------------------------------------------------
+# Banking review (2026-10-08): no measured claim outside the measured shapes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"target_name": "zz-target"},
+        {"target_name": "zz-target",
+         "target_gpo_guid": "d1cd249a-ac88-4762-986d-ad2ff323fcf8"},
+    ],
+    ids=["name-only", "name-and-guid"],
+)
+def test_import_into_existing_by_name_is_refused_because_the_lane_used_the_guid(
+    client: TestClient, imported: dict[str, Any], fields: dict[str, Any]
+) -> None:
+    response = _plan(client, imported["guid"], "import_into_existing", **fields)
+    assert response.status_code == 422
+    assert _codes(response) == {"import_target_name_unmeasured"}
+
+
+@pytest.mark.parametrize(
+    ("reference", "reason_fragment"),
+    [
+        ("not-a-wmi-reference", "not the measured"),
+        # The directory attribute's form, which the bridge once guessed.
+        ("[AD.LABDOMAIN.DEV;{39b2ba78-17af-4954-95c1-7b21773c44e0};0]", "not the measured"),
+        (
+            'MSFT_SomFilter.ID="{39b2ba78-17af-4954-95c1-7b21773c44e0}",Domain="OTHER.TEST"',
+            "domain other than",
+        ),
+    ],
+    ids=["malformed", "directory-attribute-form", "other-domain"],
+)
+def test_an_unmeasured_wmi_reference_is_not_claimed_measured(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    reference: str, reason_fragment: str,
+) -> None:
+    gpo = _import(client, tmp_path / "inbox", monkeypatch, wmi_reference=reference)
+    for operation in WINDOWS_OPERATIONS:
+        body = _plan(client, gpo["guid"], operation, **VALID_TARGETS[operation]).json()
+        cells = {cell["dimension"]: cell for cell in body["survival"]}
+        wmi = cells.pop("wmi_association")
+        assert wmi["measured"] is False, operation
+        assert reason_fragment in wmi["unmeasured_reason"], operation
+        assert all(cell["measured"] is True for cell in cells.values()), operation
+        assert any("wmi_association is unmeasured" in w for w in body["warnings"]), operation
+
+
+def test_a_wmi_reference_without_its_filter_name_is_not_claimed_measured(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gpo = _import(client, tmp_path / "inbox", monkeypatch, drop_wmi_filter_name=True)
+    body = _plan(client, gpo["guid"], "restore_in_place").json()
+    wmi = next(c for c in body["survival"] if c["dimension"] == "wmi_association")
+    assert wmi["measured"] is False
+    assert "WMIFilterName" in wmi["unmeasured_reason"]
+
+
+def test_the_measured_reference_with_a_lower_case_domain_is_still_measured(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control for the domain check: DNS names compare ignoring case."""
+    gpo = _import(
+        client, tmp_path / "inbox", monkeypatch,
+        wmi_reference=MEASURED_WMI_REFERENCE.replace("AD.LABDOMAIN.DEV", "ad.labdomain.dev"),
+    )
+    body = _plan(client, gpo["guid"], "restore_in_place").json()
+    assert all(cell["measured"] is True for cell in body["survival"])
+
+
+def test_an_estate_snapshot_under_the_source_guid_is_not_mistaken_for_a_fork_parent(
+    client: TestClient, store: WorkspaceStore, imported: dict[str, Any]
+) -> None:
+    """GUID presence is not ancestry: the snapshot carries no backup."""
+    result = store.import_baseline_gpos(
+        [GPO(guid=SOURCE_GUID, name="estate snapshot of the source", domain=DOMAIN)],
+        identity="lifecycle-test", reason="estate snapshot",
+    )
+    assert result["imported"] == 1
+    assert store.get_gpo(SOURCE_GUID).name == "estate snapshot of the source"
+    response = _plan(client, imported["guid"], "restore_in_place")
+    assert response.status_code == 200, response.text
+
+
+def test_a_genuine_fork_is_still_refused_beside_an_estate_snapshot(
+    client: TestClient, store: WorkspaceStore, imported: dict[str, Any]
+) -> None:
+    store.import_baseline_gpos(
+        [GPO(guid=SOURCE_GUID, name="estate snapshot of the source", domain=DOMAIN)],
+        identity="lifecycle-test", reason="estate snapshot",
+    )
+    forked = client.post(f"/api/gpos/{imported['guid']}/fork", json={"name": "forked"})
+    assert forked.status_code == 201, forked.text
+    response = _plan(client, forked.json()["gpo"]["guid"], "restore_in_place")
+    assert response.status_code == 422
+    assert _codes(response) == {"fork_of_an_import"}
+    fork_of_fork = client.post(
+        f"/api/gpos/{forked.json()['gpo']['guid']}/fork", json={"name": "forked again"}
+    )
+    assert fork_of_fork.status_code == 201, fork_of_fork.text
+    response = _plan(client, fork_of_fork.json()["gpo"]["guid"], "restore_in_place")
+    assert _codes(response) == {"fork_of_an_import"}

@@ -128,9 +128,11 @@ from .import_export import (
 from .lifecycle import (
     SCOPE_DIMENSIONS,
     SCOPE_SURVIVAL,
+    BackupManifest,
     WindowsOperation,
     generate_restore_plan,
     manifest_from_backup,
+    parse_wmi_filter_reference,
 )
 from .model import (
     GPO,
@@ -5902,6 +5904,19 @@ def publication_plan_preview(
 # WMI association is read from the retained `Backup.xml` by
 # `manifest_from_backup`, the bridge the lane checked against the real tree.
 #
+# A cell is marked measured only where the request and the backup are the
+# shapes the lane measured (banking review, 2026-10-08):
+#
+# * `import_into_existing` is planned only by `-TargetGuid`. The lane never ran
+#   the `-TargetName` form, so a target name is refused, not certified.
+# * The lane's backup linked a WMI filter by the measured reference,
+#   `MSFT_SomFilter.ID="{id}",Domain="DOMAIN"` with a `WMIFilterName`, in the
+#   GPO's own domain. `manifest_from_backup` keeps any other text verbatim and
+#   still reports a filter, so a backup whose reference is malformed, in another
+#   shape (the directory attribute's `[domain;{id};0]`, say) or in another domain
+#   gets its WMI cell marked unmeasured with the reason. The check uses the
+#   bridge's own parser, `parse_wmi_filter_reference`.
+#
 # Nothing executes. This module composes the plan; `lifecycle.py` stays
 # offline, and the operator runs the cmdlet.
 # --------------------------------------------------------------------------
@@ -5949,8 +5964,10 @@ class LifecycleRestorePlanRequest(BaseModel):
 class LifecycleSurvivalCell(BaseModel):
     dimension: str
     survival: str
-    #: True for every cell: the lane measured all 30 (see `evidence`).
+    #: True when the lane measured this cell for a backup of this shape (see
+    #: `evidence`); False with `unmeasured_reason` otherwise.
     measured: bool
+    unmeasured_reason: str | None
 
 
 class LifecycleEvidence(BaseModel):
@@ -6039,6 +6056,53 @@ def _lifecycle_refusal(code: str, message: str, path: str) -> ValidationError:
     return ValidationError([ValidationIssue("error", code, message, path)])
 
 
+def _is_fork_of_this_import(store: WorkspaceStore, gpo: GPO) -> bool:
+    """Is *gpo* a fork of a workspace import of the same backup?
+
+    `fork_gpo` sets `source_guid` to the parent's WORKSPACE guid and copies the
+    parent's description and retained inventory. A GUID match alone is not
+    ancestry: an estate snapshot can be stored under the domain GPO's own GUID,
+    which is also the genuine import's `source_guid` (banking review,
+    2026-10-08). So the parent must itself carry this backup: the same
+    provenance line and the same retained `Backup.xml` bytes.
+    """
+    try:
+        parent = store.get_gpo(gpo.source_guid)
+    except NotFoundError:
+        return False
+    if parent.backup_inventory is None or gpo.backup_inventory is None:
+        return False
+    return (
+        parent.description == gpo.description
+        and parent.backup_inventory.backup_xml_base64
+        == gpo.backup_inventory.backup_xml_base64
+    )
+
+
+def _unmeasured_wmi_reason(manifest: BackupManifest) -> str | None:
+    """Why the WMI cell is outside what the lane measured, or `None`."""
+    if not manifest.has_wmi_filter:
+        return None
+    parsed = parse_wmi_filter_reference(manifest.wmi_filter_reference)
+    if parsed is None:
+        return (
+            "The backup's WMIFilter reference is not the measured "
+            'MSFT_SomFilter.ID="{id}",Domain="DOMAIN" shape, so the lane did not '
+            "measure what happens to it."
+        )
+    if parsed[1].casefold() != manifest.domain.casefold():
+        return (
+            "The backup's WMIFilter reference names a domain other than the GPO's "
+            "own; the lane measured a filter in the GPO's domain only."
+        )
+    if not manifest.wmi_filter_name:
+        return (
+            "The backup carries no WMIFilterName beside its WMIFilter; the lane "
+            "measured a backup that carried both."
+        )
+    return None
+
+
 def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
     """The backup a workspace GPO is the import of, or a refusal.
 
@@ -6061,11 +6125,7 @@ def _backup_for_restore_plan(store: WorkspaceStore, gpo: GPO) -> GpmcBackup:
             "The imported GPO does not record the domain GPO its backup was taken from.",
             "gpo_guid",
         )
-    try:
-        store.get_gpo(gpo.source_guid)
-    except NotFoundError:
-        pass
-    else:
+    if _is_fork_of_this_import(store, gpo):
         raise _lifecycle_refusal(
             "fork_of_an_import",
             "This GPO was forked from a workspace import, so it is not the backup. "
@@ -6099,9 +6159,18 @@ def lifecycle_restore_plan(
     `source_gpo_unknown`), the target domain differs from the backup's
     (`cross_domain_out_of_scope`), a creating operation's target name is taken
     (`target_name_exists`), or the operation's target arguments are missing or
-    malformed (the planner's own codes). An unknown operation is a 422 from
-    request validation.
+    malformed (the planner's own codes), or `import_into_existing` names its
+    target by name (`import_target_name_unmeasured`). An unknown operation is a
+    422 from request validation.
     """
+    if body.operation == "import_into_existing" and body.target_name:
+        raise _lifecycle_refusal(
+            "import_target_name_unmeasured",
+            "The lifecycle lane measured Import-GPO into an existing GPO only by "
+            "-TargetGuid. The -TargetName form was not measured; name the target "
+            "by target_gpo_guid.",
+            "target_name",
+        )
     store = _store(request)
     gpo = store.get_gpo(body.gpo_guid)
     backup = _backup_for_restore_plan(store, gpo)
@@ -6123,6 +6192,19 @@ def lifecycle_restore_plan(
         existing_gpo_names=body.existing_gpo_names,
     )
     cells = len(SCOPE_SURVIVAL) * len(SCOPE_DIMENSIONS)
+    wmi_reason = _unmeasured_wmi_reason(manifest)
+    warnings = list(plan.warnings)
+    if wmi_reason is not None:
+        warnings.append(f"wmi_association is unmeasured for this backup: {wmi_reason}")
+    survival: list[dict[str, Any]] = []
+    for cell in plan.scope:
+        reason = wmi_reason if cell.dimension == "wmi_association" else None
+        survival.append({
+            "dimension": cell.dimension,
+            "survival": cell.survival,
+            "measured": reason is None,
+            "unmeasured_reason": reason,
+        })
     return {
         "gpo_guid": gpo.guid,
         "backup_id": plan.backup_id,
@@ -6135,11 +6217,8 @@ def lifecycle_restore_plan(
         "target_name": plan.target_name,
         "requires_target_absent": plan.requires_target_absent,
         "preconditions": list(plan.preconditions),
-        "warnings": list(plan.warnings),
-        "survival": [
-            {"dimension": cell.dimension, "survival": cell.survival, "measured": True}
-            for cell in plan.scope
-        ],
+        "warnings": warnings,
+        "survival": survival,
         "evidence": {
             "lane": "lifecycle-same-domain",
             "run_id": LIFECYCLE_VERDICT_RUN_ID,
