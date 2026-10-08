@@ -672,3 +672,97 @@ def test_the_retired_script_branch_stays_retired() -> None:
     ):
         assert not hasattr(publication, name), name
     assert importlib.util.find_spec("gpo_studio.artifact_store") is None
+
+
+# ---------------------------------------------------------------------------
+# Folder Redirection: carried on the model (WI-068), never written (WI-066)
+# ---------------------------------------------------------------------------
+
+_FDEPLOY_POLICY = (
+    "[version]\r\n"
+    "version=100\r\n"
+    "[Folder_Redirection]\r\n"
+    "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}=s-1-1-0;\r\n"
+    "[{FDD39AD0-238F-46AF-ADB4-6C85480369C7}_s-1-1-0]\r\n"
+    "FullPath=\\\\synthetic.test\\share\r\n"
+    "Flags=1021\r\n"
+)
+
+
+def _imported_redirection_gpo(tmp_path: Path) -> GPO:
+    """A GPO built the way the backup import route builds one.
+
+    The synthetic native backup carries ``fdeploy1.ini`` WITHOUT its
+    ``fdeploy.ini`` marker. WI-068 lifts the parsed policy file out of
+    ``cse_metadata``, so with no marker the import has EMPTY CSE metadata --
+    and the ``unsupported_cse_content`` refusal never fires. That is the shape
+    the review's finding 8 reproduced: a plan that validated while omitting
+    Folder Redirection entirely.
+    """
+    from gpo_studio.backup import read_backup
+    from gpo_studio.fdeploy import encode_fdeploy
+    from gpo_studio.import_export import collect_cse_metadata
+
+    source = GPO(
+        guid="11111111-1111-1111-1111-111111111111",
+        name="Synthetic redirection",
+        domain="synthetic.test",
+        settings=(
+            RegistrySetting(
+                id="m1",
+                side="computer",
+                hive="HKLM",
+                key=r"SOFTWARE\Policies\SyntheticApp",
+                value_name="Flag",
+                registry_type="REG_DWORD",
+                value=1,
+            ),
+        ),
+    )
+    with zipfile.ZipFile(io.BytesIO(gpmc_backup_bundle(source))) as archive:
+        archive.extractall(tmp_path)
+    (gpo_root,) = tmp_path.glob("*/DomainSysvol/GPO")
+    folder = gpo_root / "User" / "Documents & Settings"
+    folder.mkdir(parents=True)
+    (folder / "fdeploy1.ini").write_bytes(encode_fdeploy(_FDEPLOY_POLICY))
+    (backup_gpo,) = read_backup(tmp_path).gpos
+    return replace(
+        source,
+        fdeploy=backup_gpo.fdeploy,
+        cse_metadata=collect_cse_metadata(backup_gpo),
+    )
+
+
+@pytest.mark.parametrize("target", ["sysvol", "ad", "both"])
+def test_an_imported_folder_redirection_policy_refuses_publication(
+    tmp_path: Path, target: PublicationTarget
+) -> None:
+    gpo = _imported_redirection_gpo(tmp_path)
+    # The precondition that made the bypass possible: nothing else refuses.
+    assert gpo.fdeploy is not None
+    assert gpo.cse_metadata == ()
+
+    plan = generate_publication_plan(gpo, target=target)
+    refusal = [s for s in plan.steps if s.operation == "unsupported_folder_redirection"]
+    assert len(refusal) == 1
+    assert "WI-066" in refusal[0].detail
+    errors = {i.check for i in validate_publication_plan(plan) if i.level == "error"}
+    assert "unsupported_folder_redirection" in errors
+    if target == "both":
+        # Nothing else is wrong with this GPO: the refusal is the only reason.
+        assert errors == {"unsupported_folder_redirection"}
+
+
+def test_a_gpo_without_folder_redirection_carries_no_such_refusal() -> None:
+    plan = generate_publication_plan(_gpo_with_registry())
+    assert not any(s.operation == "unsupported_folder_redirection" for s in plan.steps)
+    assert not any(
+        i.check == "unsupported_folder_redirection" for i in validate_publication_plan(plan)
+    )
+
+
+def test_the_folder_redirection_refusal_is_not_a_publishable_capability() -> None:
+    """An unmapped operation fails the publisher's capability gate (as every refusal)."""
+    from gpo_studio import publisher
+
+    assert "unsupported_folder_redirection" not in publisher._STEP_CAPABILITY_MAP

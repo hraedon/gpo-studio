@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -94,6 +95,54 @@ def _version_half_matches(half: str, packed: int) -> bool:
     return False
 
 
+#: A bare or braced GUID. ``owned_gpo_id`` is the identity every ownership
+#: check keys on, so anything else -- including the empty string, which is a
+#: substring of every path -- is refused rather than compared.
+_GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+
+
+def _guid(value: object) -> str | None:
+    """*value* as a casefolded bare GUID, or None if it is not exactly one.
+
+    Accepts the bare form and the balanced braced form, nothing else.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if text.startswith("{") and text.endswith("}"):
+        text = text[1:-1]
+    return text.casefold() if _GUID.fullmatch(text) else None
+
+
+def _gpt_ini_version(text: object) -> int | None:
+    """The ``Version=`` value of GPT.INI's ``[General]`` section, or None.
+
+    None for anything that is not exactly one decimal ``Version=`` line in
+    ``[General]``: an absent file (the guest records ``null``), a missing key,
+    or a repeated one is no evidence of which half moved, never a zero.
+    """
+    if not isinstance(text, str):
+        return None
+    section: str | None = None
+    found: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip().casefold()
+            continue
+        key, sep, value = line.partition("=")
+        if sep and section == "general" and key.strip().casefold() == "version":
+            found.append(value.strip())
+    if len(found) != 1 or not found[0].isdigit():
+        return None
+    return int(found[0])
+
+
+def _int(value: object) -> int | None:
+    """*value* if it is a real int (not a bool, not a numeric string)."""
+    return value if type(value) is int else None
+
+
 def _member(environment: object) -> bool:
     return (
         isinstance(environment, dict)
@@ -114,6 +163,124 @@ def _observed_paths(result: dict[str, Any]) -> list[str]:
     if len(out) != len({p.casefold() for p in out}):
         raise ValueError("Windows reported the same SYSVOL path twice")
     return out
+
+
+#: Every check `_grade` produces, so a malformed result fails each of them
+#: rather than dropping them from the verdict.
+COMPARISON_CHECKS = (
+    "plan_names_every_file_windows_wrote",
+    "windows_wrote_every_file_the_plan_names",
+    "machine_extension_names_exact",
+    "user_extension_names_exact",
+    "gpt_version_moved_the_declared_half",
+    "ad_version_number_moved_the_declared_half",
+    "gpo_cmt_present_only_if_planned",
+    "candidate_identity_matches_manifest",
+    "sysvol_path_is_the_owned_gpos",
+)
+
+
+def _grade(
+    result: dict[str, Any], expected: dict[str, Any]
+) -> tuple[dict[str, bool], dict[str, Any]]:
+    """The comparison half of the verdict: the plan's claim against Windows.
+
+    Raises KeyError/TypeError/ValueError on a result too malformed to compare;
+    `main` then fails every name in COMPARISON_CHECKS.
+    """
+    observed = _observed_paths(result)
+    planned = _fold(expected["sysvol_paths"])
+    seen = _fold(observed)
+    attributes = result.get("ad_attributes")
+    if not isinstance(attributes, dict):
+        raise ValueError("result carries no ad_attributes object")
+    half = str(expected["version_half"])
+    gpt_ini = _gpt_ini_version(result.get("gpt_ini_text"))
+    machine_sysvol = _int(attributes.get("computer_sysvol_version"))
+    user_sysvol = _int(attributes.get("user_sysvol_version"))
+    sysvol_packed = (
+        None
+        if machine_sysvol is None or user_sysvol is None
+        else (user_sysvol << 16) | machine_sysvol
+    )
+    ad_packed = _int(attributes.get("versionNumber"))
+    machine_ds = _int(attributes.get("computer_ds_version"))
+    user_ds = _int(attributes.get("user_ds_version"))
+    ds_packed = None if machine_ds is None or user_ds is None else (user_ds << 16) | machine_ds
+    comparison: dict[str, Any] = {
+        "planned_sysvol_paths": planned,
+        "observed_sysvol_paths": seen,
+        "unplanned_files": [p for p in seen if p not in planned],
+        "missing_files": [p for p in planned if p not in seen],
+        "expected_machine_extension_names": expected["machine_extension_names"],
+        "observed_machine_extension_names": attributes.get("gPCMachineExtensionNames"),
+        "expected_user_extension_names": expected["user_extension_names"],
+        "observed_user_extension_names": attributes.get("gPCUserExtensionNames"),
+        "expected_version_half": half,
+        "observed_gpt_ini_version": gpt_ini,
+        "observed_sysvol_version_halves": {"machine": machine_sysvol, "user": user_sysvol},
+        "observed_version_number": ad_packed,
+        "observed_ds_version_halves": {"machine": machine_ds, "user": user_ds},
+    }
+    checks: dict[str, bool] = {}
+    # The two halves of completeness, kept as separate checks because they
+    # fail for different reasons and a reader needs to know which happened.
+    checks["plan_names_every_file_windows_wrote"] = not comparison["unplanned_files"]
+    checks["windows_wrote_every_file_the_plan_names"] = not comparison["missing_files"]
+    # Both sides typed: an absent attribute is None, which never equals the
+    # plan's string -- and a plan claiming "" for a side Windows populated
+    # (no update_extension_lists step) fails here, which is the point.
+    checks["machine_extension_names_exact"] = isinstance(
+        expected["machine_extension_names"], str
+    ) and attributes.get("gPCMachineExtensionNames") == expected["machine_extension_names"]
+    checks["user_extension_names_exact"] = isinstance(
+        expected["user_extension_names"], str
+    ) and attributes.get("gPCUserExtensionNames") == expected["user_extension_names"]
+    # The plan's `update_gpt_ini` step claims a half of GPT.INI's Version=,
+    # so that is what is graded: the file Windows wrote, and the SYSVOL halves
+    # Get-GPO reports for it, which must agree with each other. The AD
+    # counter is a different object and is graded separately below -- AD can
+    # read 65537 while GPT.INI still says 0.
+    checks["gpt_version_moved_the_declared_half"] = (
+        gpt_ini is not None
+        and sysvol_packed is not None
+        and gpt_ini == sysvol_packed
+        and _version_half_matches(half, gpt_ini)
+    )
+    checks["ad_version_number_moved_the_declared_half"] = (
+        ad_packed is not None
+        and ds_packed is not None
+        and ad_packed == ds_packed
+        and _version_half_matches(half, ad_packed)
+    )
+    # An undescribed GPO must produce no comment file: the negative half of
+    # WI-058, which only an absence can state. GPO.cmt lives at the GPO root.
+    checks["gpo_cmt_present_only_if_planned"] = (
+        "gpo.cmt" in seen
+    ) is bool(expected["expects_gpo_cmt"])
+    result_backup, expected_backup = _guid(result.get("backup_id")), _guid(expected["backup_id"])
+    result_source, expected_source = _guid(result.get("source_gpo_id")), _guid(expected["gpo_id"])
+    checks["candidate_identity_matches_manifest"] = (
+        result_backup is not None
+        and result_backup == expected_backup
+        and result_source is not None
+        and result_source == expected_source
+    )
+    # The tree walked must be the directory's own idea of where this GPO
+    # lives, and it must be the GPO this run owns: the path's LAST component
+    # is the owned GUID, never a substring test an empty id would satisfy.
+    owned = _guid(result.get("owned_gpo_id"))
+    sysvol_path = result.get("sysvol_path")
+    file_sys_path = attributes.get("gPCFileSysPath")
+    checks["sysvol_path_is_the_owned_gpos"] = (
+        owned is not None
+        and owned != result_source
+        and isinstance(sysvol_path, str)
+        and isinstance(file_sys_path, str)
+        and _guid(sysvol_path.replace("/", "\\").rstrip("\\").rsplit("\\", 1)[-1]) == owned
+        and file_sys_path.casefold() == sysvol_path.casefold()
+    )
+    return checks, comparison
 
 
 def main() -> int:
@@ -161,9 +328,13 @@ def main() -> int:
         "error",
     }
     checks: dict[str, bool] = {
+        # owned_gpo_id is the identity every ownership check keys on, so it
+        # must be a GUID, not merely present: the guest records null until
+        # New-GPO returns, and an empty id would satisfy any substring test.
         "result_schema_exact": set(result) == exact_keys
         and type(result.get("schema_version")) is int
-        and result["schema_version"] == 1,
+        and result["schema_version"] == 1
+        and _guid(result.get("owned_gpo_id")) is not None,
         "import_succeeded": result.get("import_succeeded") is True,
         "disposable_gpo_unlinked": type(result.get("report_links_to_count")) is int
         and result["report_links_to_count"] == 0,
@@ -184,69 +355,11 @@ def main() -> int:
     error: str | None = None
     comparison: dict[str, Any] = {}
     try:
-        observed = _observed_paths(result)
-        planned = _fold(expected["sysvol_paths"])
-        seen = _fold(observed)
-        attributes = result.get("ad_attributes")
-        if not isinstance(attributes, dict):
-            raise ValueError("result carries no ad_attributes object")
-        comparison = {
-            "planned_sysvol_paths": planned,
-            "observed_sysvol_paths": seen,
-            "unplanned_files": [p for p in seen if p not in planned],
-            "missing_files": [p for p in planned if p not in seen],
-            "expected_machine_extension_names": expected["machine_extension_names"],
-            "observed_machine_extension_names": attributes.get("gPCMachineExtensionNames"),
-            "expected_user_extension_names": expected["user_extension_names"],
-            "observed_user_extension_names": attributes.get("gPCUserExtensionNames"),
-            "expected_version_half": expected["version_half"],
-            "observed_version_number": attributes.get("versionNumber"),
-        }
-        # The two halves of completeness, kept as separate checks because they
-        # fail for different reasons and a reader needs to know which happened.
-        checks["plan_names_every_file_windows_wrote"] = not comparison["unplanned_files"]
-        checks["windows_wrote_every_file_the_plan_names"] = not comparison["missing_files"]
-        checks["machine_extension_names_exact"] = (
-            attributes.get("gPCMachineExtensionNames") == expected["machine_extension_names"]
-        )
-        checks["user_extension_names_exact"] = (
-            attributes.get("gPCUserExtensionNames") == expected["user_extension_names"]
-        )
-        packed = attributes.get("versionNumber")
-        checks["gpt_version_moved_the_declared_half"] = type(packed) is int and (
-            _version_half_matches(str(expected["version_half"]), packed)
-        )
-        # An undescribed GPO must produce no comment file: the negative half of
-        # WI-058, which only an absence can state.
-        checks["gpo_cmt_present_only_if_planned"] = (
-            any(p.endswith("gpo.cmt") for p in seen) is bool(expected["expects_gpo_cmt"])
-        )
-        checks["candidate_identity_matches_manifest"] = (
-            str(result.get("backup_id", "")).strip("{}").casefold()
-            == str(expected["backup_id"]).strip("{}").casefold()
-            and str(result.get("source_gpo_id", "")).strip("{}").casefold()
-            == str(expected["gpo_id"]).strip("{}").casefold()
-        )
-        # The tree walked must be the directory's own idea of where this GPO
-        # lives, and it must be the GPO this run owns.
-        checks["sysvol_path_is_the_owned_gpos"] = (
-            str(result.get("owned_gpo_id", "")).strip("{}").casefold()
-            in str(result.get("sysvol_path", "")).casefold()
-            and str(attributes.get("gPCFileSysPath", "")).casefold()
-            == str(result.get("sysvol_path", "")).casefold()
-        )
+        graded, comparison = _grade(result, expected)
+        checks.update(graded)
     except (KeyError, OSError, TypeError, ValueError) as exc:
         error = str(exc)
-        for name in (
-            "plan_names_every_file_windows_wrote",
-            "windows_wrote_every_file_the_plan_names",
-            "machine_extension_names_exact",
-            "user_extension_names_exact",
-            "gpt_version_moved_the_declared_half",
-            "gpo_cmt_present_only_if_planned",
-            "candidate_identity_matches_manifest",
-            "sysvol_path_is_the_owned_gpos",
-        ):
+        for name in COMPARISON_CHECKS:
             checks[name] = False
 
     # WI-062: controller-side files are bound by (commit, path, sha256) from
