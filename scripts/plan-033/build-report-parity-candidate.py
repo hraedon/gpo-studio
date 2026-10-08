@@ -54,6 +54,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from gpo_studio.report_parity import (
@@ -71,6 +72,20 @@ from gpo_studio.report_parity import (
 ARCHIVE_NAME = "report-parity-cases.zip"
 EXPECTATION_NAME = "expected.json"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _ordinal(base: Path) -> Callable[[Path], tuple[str, ...]]:
+    """Sort key: the path's components below ``base``, compared ordinally.
+
+    Never sort ``Path`` objects themselves. ``WindowsPath`` compares
+    case-insensitively and ``PosixPath`` does not, so ``sorted(root.rglob("*"))``
+    puts ``bkupInfo.xml`` before ``DomainSysvol/`` on Windows and after it on
+    Linux. The archive's member order, and so its bytes, then depended on the
+    controller's OS, and the finalizer's byte-identical rebuild check failed on
+    a Windows checkout of an unchanged tree. Component tuples of ``str`` order
+    the same everywhere, and match what a POSIX ``Path`` sort produced.
+    """
+    return lambda path: path.relative_to(base).parts
 
 _MANIFEST_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
 _BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
@@ -142,10 +157,15 @@ def corpus(repo: Path = REPO_ROOT) -> list[tuple[str, Path]]:
     captures and the WI-059 native rebackups. Studio-produced candidate trees
     are excluded, since they are inputs rather than Windows output.
     """
-    native = sorted((repo / "tests/fixtures/native-gpp-gpmc").glob("*/manifest.xml"))
+    native = sorted(
+        (repo / "tests/fixtures/native-gpp-gpmc").glob("*/manifest.xml"), key=_ordinal(repo)
+    )
     evidence = sorted(
-        p for p in (repo / "docs/plan-033").glob("*-evidence/wi059-20260908/**/manifest.xml")
-        if "rebackup" in p.parts or "backup" in p.parts
+        (
+            p for p in (repo / "docs/plan-033").glob("*-evidence/wi059-20260908/**/manifest.xml")
+            if "rebackup" in p.parts or "backup" in p.parts
+        ),
+        key=_ordinal(repo),
     ) + [
         repo / "docs/plan-033/wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup"
         / "manifest.xml"
@@ -255,7 +275,7 @@ def longest_guest_path(archive: bytes) -> tuple[int, str]:
 def _zip(root: Path) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        for path in sorted((p for p in root.rglob("*") if p.is_file()), key=_ordinal(root)):
             info = zipfile.ZipInfo(path.relative_to(root).as_posix(), (1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16

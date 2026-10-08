@@ -101,7 +101,15 @@ function Register-Target([string]$name) {
 function Find-Owned([string]$name, $id) {
     $found = @()
     if ($id) {
-        try { $found += @(Get-GPO -Guid $id -Domain $Domain -ErrorAction Stop) } catch { }
+        try {
+            $found += @(Get-GPO -Guid $id -Domain $Domain -ErrorAction Stop)
+        } catch {
+            # A by-ID miss is the normal outcome once the GPO is gone, and the
+            # by-name query below is authoritative and runs either way, so the
+            # result is unchanged. The failure goes to the operator stream
+            # rather than being dropped; it is not this function's verdict.
+            Write-Host "find-owned: Get-GPO -Guid $id failed; the name query decides: $($_.Exception.Message)"
+        }
     }
     $found += @(Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object { $_.DisplayName -eq $name })
     return @($found | Sort-Object { "$($_.Id)" } -Unique)

@@ -80,6 +80,69 @@ def test_the_builder_is_deterministic(tmp_path: Path) -> None:
         assert (first / name).read_bytes() == (second / name).read_bytes(), name
 
 
+class _WindowsOrderedPath(type(Path())):  # type: ignore[misc]
+    """A path that sorts the way ``WindowsPath`` does: case-insensitively.
+
+    The first banked run's candidate rebuilt byte for byte on Linux and not on
+    a Windows checkout, because the builder sorted ``Path`` objects and the two
+    platforms order them differently (``bkupInfo.xml`` against ``DomainSysvol``).
+    This reproduces the Windows comparator on any host, so the regression is
+    caught here rather than only by the Windows CI job.
+    """
+
+    def _folded(self) -> str:
+        return str(self).casefold()
+
+    def __lt__(self, other: object) -> bool:
+        return self._folded() < Path(str(other)).as_posix().casefold()
+
+    def __gt__(self, other: object) -> bool:
+        return self._folded() > Path(str(other)).as_posix().casefold()
+
+    def __le__(self, other: object) -> bool:
+        return not self.__gt__(other)
+
+    def __ge__(self, other: object) -> bool:
+        return not self.__lt__(other)
+
+
+def test_the_comparator_shim_really_orders_like_windows() -> None:
+    """The control: without it the test below proves nothing on Linux."""
+    upper, lower = _WindowsOrderedPath("x/DomainSysvol"), _WindowsOrderedPath("x/bkupInfo.xml")
+    assert sorted([upper, lower]) == [lower, upper]
+    assert sorted([upper, lower], key=lambda p: p.parts) == [upper, lower]
+
+
+def test_the_archive_member_order_does_not_depend_on_the_platform(tmp_path: Path) -> None:
+    """The defect itself: the archive root is a temporary directory, so this is
+    exercised through ``_zip`` directly, over the names that triggered it."""
+    for relative in ("c01/{ID}/Backup.xml", "c01/{ID}/bkupInfo.xml",
+                     "c01/{ID}/DomainSysvol/GPO/Machine/registry.pol",
+                     "c01/{ID}/gpreport.xml", "c01/manifest.xml", "cases-index.tsv"):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(relative.encode())
+    native = BUILDER._zip(Path(tmp_path))
+    windows = BUILDER._zip(_WindowsOrderedPath(tmp_path))
+    with zipfile.ZipFile(io.BytesIO(native)) as zipped:
+        names = zipped.namelist()
+    assert names.index("c01/{ID}/DomainSysvol/GPO/Machine/registry.pol") < names.index(
+        "c01/{ID}/bkupInfo.xml"
+    )
+    assert native == windows
+
+
+def test_the_candidate_does_not_depend_on_the_platforms_path_order(tmp_path: Path) -> None:
+    """The finalizer's rebuild check must hold on a controller of either OS."""
+    native, windows = tmp_path / "native", tmp_path / "windows"
+    native.mkdir()
+    windows.mkdir()
+    BUILDER.build(native, ROOT)
+    BUILDER.build(windows, _WindowsOrderedPath(ROOT))
+    for name in FINALIZER.REQUIRED_CANDIDATE_FILES:
+        assert (native / name).read_bytes() == (windows / name).read_bytes(), name
+
+
 def test_every_corpus_backup_is_import_ready_and_packaged(candidate: Path) -> None:
     expected = _expected(candidate)
     assert expected["excluded"] == []
