@@ -65,7 +65,14 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$stamp = "$(Get-Date -Format yyyyMMddHHmmss)-$(Get-Random -Minimum 1000 -Maximum 9999)"
+# Every name this run creates carries a 64-bit nonce from a fresh GUID, and
+# nothing outside this process knows it until the first create. That is what
+# makes "another creator took this name after the absence check" require
+# guessing 64 random bits rather than a timestamp and four digits -- the race
+# Import-GPO -CreateIfNeeded would otherwise turn into adopting a foreign GPO
+# (re-review 4). The prefix stays within the 64-character OU name limit.
+$nonce = [guid]::NewGuid().ToString('N').Substring(0, 16)
+$stamp = "$(Get-Date -Format yyyyMMddHHmmss)-$(Get-Random -Minimum 1000 -Maximum 9999)-$nonce"
 $runId = "lifecycle-$stamp"
 $work = Join-Path $OutputDir $runId
 $commands = Join-Path $work 'commands'
@@ -235,30 +242,64 @@ function Get-AdOwnership {
 # A creating operation (Copy-GPO, Import-GPO -CreateIfNeeded) RETURNS a GPO,
 # but returning one does not prove creating it: if another creator takes the
 # name after the absence check, Import-GPO -CreateIfNeeded imports into that GPO
-# and returns it. So every GPO id in the domain is captured immediately before
-# the operation, with the start time truncated to the whole second (AD's
-# whenCreated has one-second resolution), and the returned GPO is owned only if
-# its id was not in that set AND its CreationTime is not before the start.
-# Anything else is foreign: recorded, never owned, never deleted, and the
-# operation fails.
+# and returns it. So two things are captured immediately before the operation:
+# every GPO id in the domain, and the DOMAIN CONTROLLER's clock (RootDSE
+# currentTime), truncated to the whole second. The returned GPO is owned only
+# if its id was not in that set AND its AD whenCreated -- also the DC's clock,
+# also one-second resolution -- is not before that start.
+#
+# Both times come from the DC on purpose. The first estate run (2026-10-08)
+# compared the GPO's CreationTime with the MEMBER's clock; the DC lagged the
+# member by a few seconds, and all three genuine creations were rejected as
+# foreign and left behind.
+#
+# Anything that fails either check is foreign: recorded, never owned, never
+# deleted, and the operation fails.
+
+# An AD generalized time, as either the module's DateTime or the raw
+# "yyyyMMddHHmmss.0Z" string, as UTC truncated to the whole second. Both sides
+# of the ownership comparison go through this one conversion.
+function ConvertTo-UtcSecond {
+    param($Value)
+    $flat = @($Value)
+    if ($flat.Count -ne 1 -or $null -eq $flat[0]) { throw "expected one AD time value, got $($flat.Count)" }
+    $value = $flat[0]
+    if ($value -is [datetime]) {
+        $utc = if ($value.Kind -eq [System.DateTimeKind]::Utc) { $value } else { $value.ToUniversalTime() }
+    } else {
+        $match = [regex]::Match([string]$value, '^(\d{14})')
+        if (-not $match.Success) { throw "unparseable AD time '$value'" }
+        $utc = [datetime]::ParseExact($match.Groups[1].Value, 'yyyyMMddHHmmss',
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            ([System.Globalization.DateTimeStyles]::AssumeUniversal -bor
+             [System.Globalization.DateTimeStyles]::AdjustToUniversal))
+    }
+    return [datetime]::SpecifyKind($utc.AddTicks(-($utc.Ticks % [TimeSpan]::TicksPerSecond)),
+        [System.DateTimeKind]::Utc)
+}
+
 function Get-CreationBaseline {
-    $now = Get-Date
+    $dcStart = ConvertTo-UtcSecond (Get-ADRootDSE -Server $dc -ErrorAction Stop).currentTime
     $ids = @(Get-GPO -All -Domain $Domain -Server $dc -ErrorAction Stop |
             ForEach-Object { ([string]$_.Id).ToLowerInvariant() })
-    return [ordered]@{
-        ids   = $ids
-        start = $now.AddTicks(-($now.Ticks % [TimeSpan]::TicksPerSecond))
-    }
+    return [ordered]@{ ids = $ids; dc_start = $dcStart }
 }
 function Confirm-GpoCreated {
     param($Entry, $Gpo, $Baseline)
     $id = ([string]$Gpo.Id).ToLowerInvariant()
     $Entry.id = $id
-    if (@($Baseline.ids) -contains $id) {
+    $inSnapshot = @($Baseline.ids) -contains $id
+    $gpoDn = "CN={$id},CN=Policies,CN=System,$domainDn"
+    $whenCreated = ConvertTo-UtcSecond (Get-ADObject -Identity $gpoDn -Server $dc `
+            -Properties whenCreated -ErrorAction Stop).whenCreated
+    $Entry.creation_evidence = ('in_snapshot={0};when_created_utc={1};dc_start_utc={2}' -f
+        $inSnapshot, $whenCreated.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+        $Baseline.dc_start.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
+    if ($inSnapshot) {
         throw "returned GPO ${id} existed before the operation; not created by this run, left in place"
     }
-    if ($null -eq $Gpo.CreationTime -or $Gpo.CreationTime -lt $Baseline.start) {
-        throw "returned GPO ${id} has CreationTime '$($Gpo.CreationTime)' before the operation began; not created by this run, left in place"
+    if ($whenCreated -lt $Baseline.dc_start) {
+        throw "returned GPO ${id} was created at $($Entry.creation_evidence) -- before the operation began on the DC clock; not created by this run, left in place"
     }
     $Entry.owned = $true
 }
@@ -267,7 +308,7 @@ function Confirm-GpoCreated {
 # after the create updates the inventory in place.
 function Register-GpoIntent {
     param([string]$Role, [string]$Name)
-    $entry = [ordered]@{ role = $Role; name = $Name; id = $null; owned = $false }
+    $entry = [ordered]@{ role = $Role; name = $Name; id = $null; owned = $false; creation_evidence = $null }
     $script:created.gpos += $entry
     return $entry
 }
@@ -748,12 +789,44 @@ try {
                 $problems += "could not confirm $($gpo.name) was deleted: $($_.Exception.Message)"
             }
         }
+        # Not-owned GPOs that survive under a name or id this run used are
+        # residue too: the post-run state is never reported clean while a
+        # run-named object exists (estate run 1 reported an empty residual with
+        # three such GPOs still present).
+        $reportedGpoIds = @()
+        foreach ($gpo in $created.gpos) {
+            if ($gpo.owned) { continue }
+            try {
+                $survivor = $null
+                if ($gpo.id) { $survivor = Find-GpoById -Id ([guid]$gpo.id) }
+                if (-not $survivor) { $survivor = Find-GpoByName -Name $gpo.name }
+                if ($survivor) {
+                    $residual.surviving_gpos += "$($gpo.name) ($([string]$survivor.Id)): left in place, ownership unproven"
+                    $reportedGpoIds += ([string]$survivor.Id).ToLowerInvariant()
+                }
+            } catch { $problems += "could not re-query $($gpo.name): $($_.Exception.Message)" }
+        }
+        # Report-only sweep for GPOs carrying this run's unique prefix that no
+        # inventory entry names. Nothing here deletes.
+        try {
+            foreach ($stray in @(Get-GPO -All -Domain $Domain -Server $dc -ErrorAction Stop)) {
+                $strayId = ([string]$stray.Id).ToLowerInvariant()
+                if (-not ([string]$stray.DisplayName).StartsWith($prefix)) { continue }
+                if ($reportedGpoIds -contains $strayId) { continue }
+                if (@($created.gpos | Where-Object { $_.owned -and $_.id -eq $strayId }).Count -gt 0) { continue }
+                $residual.surviving_gpos += "$($stray.DisplayName) ($strayId): run-named, left in place, ownership unproven"
+            }
+        } catch { $problems += "could not sweep for run-named GPOs: $($_.Exception.Message)" }
+
         $categories = @{ wmi = 'surviving_wmi_filters'; group = 'surviving_groups'; ou = 'surviving_ous' }
         foreach ($item in $teardown) {
             $kind, $dn, $attribute = $item
             try {
-                if ((Get-AdOwnership -Identity $dn -Attribute $attribute) -eq 'ours') {
+                $ownership = Get-AdOwnership -Identity $dn -Attribute $attribute
+                if ($ownership -eq 'ours') {
                     $residual[$categories[$kind]] += $dn
+                } elseif ($ownership -eq 'foreign') {
+                    $residual[$categories[$kind]] += "${dn}: left in place, ownership unproven"
                 }
             } catch { $problems += "could not re-query ${dn}: $($_.Exception.Message)" }
         }

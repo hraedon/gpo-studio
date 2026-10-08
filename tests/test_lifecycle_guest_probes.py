@@ -14,6 +14,7 @@ re-queries -- not Windows behaviour: every cmdlet here is a stand-in.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -37,7 +38,16 @@ $global:gpos = @{}
 $global:deleted = @()
 $global:failRemoveWmi = $false
 $global:commitThenThrow = ''
+# Run names carry a nonce the probe cannot predict; a collision is modelled by
+# answering any -Name lookup that ends with this suffix with a foreign GPO.
+$global:collideSuffix = ''
+$global:foreignGpo = $null
 function Get-Date { param([string]$Format) if ($Format) { return '20261008000000' }; return [datetime]'2026-10-08' }
+# The DOMAIN CONTROLLER's clock, which creation proof uses: RootDSE currentTime
+# (as the raw generalized-time string) and every GPO's whenCreated.
+$global:dcClock = [datetime]::SpecifyKind([datetime]'2026-10-08', 'Utc')
+function Get-ADRootDSE { param($Server, $ErrorAction)
+    return [pscustomobject]@{ currentTime = $global:dcClock.ToString('yyyyMMddHHmmss') + '.0Z' } }
 function Get-Random { param($Minimum, $Maximum) return 4321 }
 function Get-CimInstance { param($ClassName)
     if ($ClassName -eq 'Win32_OperatingSystem') { return [pscustomobject]@{ Caption = 'Synthetic OS'; BuildNumber = '26100' } }
@@ -67,12 +77,13 @@ function Get-GPInheritance { param($Target, $Domain, $Server, $ErrorAction) retu
 function Start-Sleep { param($Seconds) }
 function Get-GPO { param([switch]$All, $Name, $Guid, $Domain, $Server, $ErrorAction)
     if ($All) { return @($global:gpos.Values) }
+    if ($Name -and $global:collideSuffix -and "$Name".EndsWith($global:collideSuffix)) { return $global:foreignGpo }
     if ($Name) { if ($global:gpos.ContainsKey($Name)) { return $global:gpos[$Name] }; throw "GpoNotFound: $Name was not found" }
     foreach ($g in $global:gpos.Values) { if ("$($g.Id)" -eq "$Guid") { return $g } }
     throw "GpoNotFound: $Guid was not found" }
 function New-GPO { param($Name, $Comment, $Domain, $Server, $ErrorAction)
     $g = [pscustomobject]@{ Id = [guid]::NewGuid(); DisplayName = $Name; Description = $Comment
-        GpoStatus = 'AllSettingsEnabled'; WmiFilter = $null; CreationTime = (Get-Date) }
+        GpoStatus = 'AllSettingsEnabled'; WmiFilter = $null; CreationTime = $global:dcClock }
     $global:gpos[$Name] = $g
     if ($global:commitThenThrow -eq 'gpo') { throw 'synthetic: response lost after the server committed the GPO' }
     return $g }
@@ -91,6 +102,7 @@ function Report($out) {
         cleanup               = $r.cleanup
         cleanup_succeeded     = $r.cleanup_succeeded
         error                 = $r.error
+        run_id                = $r.run_id
         import_as_new_error   = $r.operations.import_as_new.error
     } | ConvertTo-Json -Depth 8 -Compress
 }
@@ -99,7 +111,7 @@ function Report($out) {
 
 def _run_probe(tmp_path: Path, setup: str) -> dict[str, object]:
     out = tmp_path / "out"
-    out.mkdir()
+    out.mkdir(parents=True)
     script = tmp_path / "probe.ps1"
     script.write_text(
         _PRELUDE
@@ -118,16 +130,27 @@ def _run_probe(tmp_path: Path, setup: str) -> dict[str, object]:
     return dict(json.loads(completed.stdout.strip().splitlines()[-1]))
 
 
+_RUN_ID = re.compile(r"^lifecycle-(20261008000000-4321-[0-9a-f]{16})$")
+
+
+def _prefix(report: dict[str, object]) -> str:
+    """The run's name prefix, recovered from its run id (the nonce is random)."""
+    match = _RUN_ID.match(str(report["run_id"]))
+    assert match, report["run_id"]
+    return f"zz-studio-lifecycle-{match.group(1)}"
+
+
 def test_guest_probe_a_name_collision_deletes_nothing(tmp_path: Path) -> None:
     """Finding 1: a GPO already holding one of the run's names is never touched."""
     report = _run_probe(
         tmp_path,
-        "$global:gpos['zz-studio-lifecycle-20261008000000-4321-copy'] = "
-        "[pscustomobject]@{ Id = [guid]'aaaaaaaa-0000-0000-0000-000000000099'; "
-        "DisplayName = 'zz-studio-lifecycle-20261008000000-4321-copy' }\n",
+        "$global:foreignGpo = [pscustomobject]@{ Id = [guid]'aaaaaaaa-0000-0000-0000-000000000099'; "
+        "DisplayName = 'foreign-copy' }\n"
+        "$global:gpos['foreign-copy'] = $global:foreignGpo\n"
+        "$global:collideSuffix = '-copy'\n",
     )
     assert report["deleted"] == []
-    assert report["gpos_left"] == ["zz-studio-lifecycle-20261008000000-4321-copy"]
+    assert report["gpos_left"] == ["foreign-copy"]
     assert report["ad_left"] == []
     assert report["ownership_established"] is False
     assert "ownership guard" in str(report["error"])
@@ -172,9 +195,13 @@ def test_guest_probe_a_gpo_whose_create_threw_is_reported_not_deleted(tmp_path: 
     gpos = created["gpos"]
     gpos = gpos if isinstance(gpos, list) else [gpos]
     assert [(g["role"], g["owned"]) for g in gpos] == [("control", False)]
-    assert report["gpos_left"] == ["zz-studio-lifecycle-20261008000000-4321-control"]
+    assert report["gpos_left"] == [f"{_prefix(report)}-control"]
     assert report["ad_left"] == []
     assert report["cleanup_succeeded"] is False
+    residual = report["cleanup"]["residual"]  # type: ignore[index]
+    assert len(residual["surviving_gpos"]) == 1
+    assert residual["surviving_gpos"][0].startswith(f"{_prefix(report)}-control (")
+    assert residual["surviving_gpos"][0].endswith("left in place, ownership unproven")
     cleanup = report["cleanup"]
     assert isinstance(cleanup, dict)
     assert any("ownership unproven" in p for p in cleanup["problems"])
@@ -194,14 +221,18 @@ def test_guest_probe_a_name_won_by_another_creator_is_not_deleted(tmp_path: Path
     cleanup leaves it and reports the run as not cleanly torn down.
     """
     report = _run_probe(tmp_path, _FOREIGN_OU_RACE)
-    parent = "OU=zz-studio-lifecycle-20261008000000-4321,DC=synthetic,DC=test"
+    parent = f"OU={_prefix(report)},DC=synthetic,DC=test"
     assert report["deleted"] == []
     assert report["ad_left"] == [parent]
     assert report["cleanup_succeeded"] is False
     cleanup = report["cleanup"]
     assert isinstance(cleanup, dict)
     assert any("without this run's marker" in p for p in cleanup["problems"])
-    assert cleanup["residual"]["surviving_ous"] == []
+    # Reported as residue (estate run 1: never clean while run-named objects
+    # survive), and labelled as not ours.
+    assert cleanup["residual"]["surviving_ous"] == [
+        f"{parent}: left in place, ownership unproven"
+    ]
 
 
 _FOREIGN_WMI_RACE = r"""function New-ADObject { param($Name, $Type, $Path, $Server, $OtherAttributes, $ErrorAction)
@@ -250,7 +281,10 @@ function Restore-GPO { param($BackupId, $Path, $Domain, $Server, $Confirm, $Erro
 function Get-ADObject { param($Identity, $Server, $ErrorAction, $Properties, $LDAPFilter, $SearchBase)
     if ($LDAPFilter) { return @() }
     if ($Identity -eq 'DC=synthetic,DC=test') { return [pscustomobject]@{ gPLink = '' } }
-    if ("$Identity" -match '^CN=\{[^}]+\},CN=Policies,') { return [pscustomobject]@{ gPCWQLFilter = ''; gPCFileSysPath = '' } }
+    if ("$Identity" -match '^CN=\{([^}]+)\},CN=Policies,') {
+        $id = $Matches[1]; $when = $null
+        foreach ($g in $global:gpos.Values) { if ("$($g.Id)" -eq $id) { $when = $g.CreationTime } }
+        return [pscustomobject]@{ gPCWQLFilter = ''; gPCFileSysPath = ''; whenCreated = $when } }
     if ($global:ad.ContainsKey($Identity)) {
         $v = $global:ad[$Identity]; $m = if ($v -is [hashtable]) { $v.marker } else { '' }
         return [pscustomobject]@{ DistinguishedName = $Identity; description = $m; 'msWMI-Parm1' = $m } }
@@ -311,6 +345,10 @@ def test_guest_probe_a_returned_foreign_gpo_is_never_owned_or_deleted(
     )
     assert "not created by this run" in str(report["import_as_new_error"])
     assert report["cleanup_succeeded"] is False
+    # Estate run 1: a surviving run-touched GPO must appear in the residual.
+    residual = report["cleanup"]["residual"]  # type: ignore[index]
+    assert any(_FOREIGN_ID in entry and "ownership unproven" in entry
+               for entry in residual["surviving_gpos"])
 
 
 def test_guest_probe_gpos_the_operations_did_create_are_owned_and_removed(
@@ -323,3 +361,58 @@ def test_guest_probe_gpos_the_operations_did_create_are_owned_and_removed(
     owned = {g["role"]: g["owned"] for g in created["gpos"]}
     assert owned["copy"] is True and owned["copy_with_acl"] is True
     assert report["gpos_left"] == ["someone-else"]
+
+
+#: Estate run 1 (2026-10-08): the DC's clock ran a few seconds BEHIND the
+#: member's. Copy-GPO / Import-GPO create the GPO at DC time; the member's
+#: clock already reads later. The proof must use the DC clock on both sides.
+_DC_BEHIND_MEMBER = _FULL_FLOW + r"""
+function Get-Date { param([string]$Format) if ($Format) { return '20261008000010' }; return [datetime]'2026-10-08 00:00:10' }
+function Import-GPO { param($BackupId, $Path, $TargetName, $TargetGuid, [switch]$CreateIfNeeded, $Domain, $Server, $Confirm, $ErrorAction)
+    if ($CreateIfNeeded) { return New-GPO -Name $TargetName }
+    return Get-GPO -Guid $TargetGuid }
+"""
+
+
+def test_guest_probe_genuine_creations_are_owned_when_the_dc_lags_the_member(
+    tmp_path: Path,
+) -> None:
+    report = _run_probe(tmp_path, _DC_BEHIND_MEMBER)
+    created = report["created"]
+    assert isinstance(created, dict)
+    by_role = {g["role"]: g for g in created["gpos"]}
+    for role in ("copy", "copy_with_acl", "import_as_new"):
+        entry = by_role[role]
+        assert entry["owned"] is True, (role, entry)
+        assert str(entry["creation_evidence"]).startswith("in_snapshot=False;"), entry
+        assert str(entry["id"]) in [str(d).lower() for d in report["deleted"]]  # type: ignore[union-attr]
+    assert report["import_as_new_error"] is None
+    assert report["gpos_left"] == []
+
+
+#: Sol's round-4 cleanup case: the WMI filter survives teardown and its marker
+#: has been changed, so it no longer reads as this run's.
+_SURVIVING_WMI_MARKER_CHANGED = r"""
+$global:commitThenThrow = 'wmi'
+function Remove-ADObject { param($Identity, $Server, $Confirm, $ErrorAction)
+    $global:ad[$Identity].marker = 'changed after the delete attempt' }
+"""
+
+
+def test_guest_probe_a_survivor_whose_marker_changed_still_fails_cleanup(
+    tmp_path: Path,
+) -> None:
+    report = _run_probe(tmp_path, _SURVIVING_WMI_MARKER_CHANGED)
+    cleanup = report["cleanup"]
+    assert isinstance(cleanup, dict)
+    survivors = cleanup["residual"]["surviving_wmi_filters"]
+    assert len(survivors) == 1
+    assert survivors[0].endswith(": left in place, ownership unproven")
+    assert report["cleanup_succeeded"] is False
+
+
+def test_guest_probe_run_names_carry_an_unguessable_nonce(tmp_path: Path) -> None:
+    """Re-review 4 P1: another creator cannot take a name it cannot know."""
+    first = _run_probe(tmp_path / "a", "$global:commitThenThrow = 'gpo'\n")
+    second = _run_probe(tmp_path / "b", "$global:commitThenThrow = 'gpo'\n")
+    assert _prefix(first) != _prefix(second)
