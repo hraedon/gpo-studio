@@ -20,7 +20,7 @@ from .gpp import GppError, contains_cpassword, gpp_registry_unmeasured_shapes, s
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
 from .script_policy import PowerShellScriptEntry, ScriptEntry, ScriptPolicy
-from .validation import validate_gpo
+from .validation import text_issues, validate_gpo
 
 _GPMC_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations/Manifest"
 _GPMC_BACKUP_NS = "http://www.microsoft.com/GroupPolicy/GPOOperations"
@@ -136,6 +136,18 @@ def _ps_value(setting: RegistrySetting) -> str:
     return _ps_quote(setting.value)
 
 
+def _text_refusal(gpo: GPO) -> ValidationIssue | None:
+    """The first string no artifact can carry (batch-2 review), or ``None``.
+
+    Every exporter asks this first: a stored legacy revision can still hold
+    such text, and writing it would either crash (a lone surrogate cannot be
+    encoded) or produce XML a parser rejects. It is a refusal with a code,
+    reported where the capability is advertised.
+    """
+    issues = text_issues(gpo)
+    return issues[0] if issues else None
+
+
 def plan_refusal(gpo: GPO) -> ValidationIssue | None:
     """Why this GPO can get no PowerShell plan, or ``None`` if it can.
 
@@ -151,6 +163,9 @@ def plan_refusal(gpo: GPO) -> ValidationIssue | None:
     `validate_gpo` has no deny rule, so the capability said `enabled: true`
     while the download refused.
     """
+    unwritable = _text_refusal(gpo)
+    if unwritable is not None:
+        return unwritable
     denied = [sf for sf in gpo.security_filters if sf.deny]
     if not denied:
         return None
@@ -348,6 +363,9 @@ def powershell_plan(gpo: GPO) -> str:
 
 def export_bundle(gpo: GPO) -> bytes:
     """Return a deterministic ZIP containing manifest, PReg files, and plan."""
+    unwritable = _text_refusal(gpo)
+    if unwritable is not None:
+        raise ValidationError([unwritable])
     issues = validate_gpo(gpo)
     manifest = {
         "schema_version": 2,
@@ -618,6 +636,9 @@ def _braced_guid(value: str, *, field: str) -> str:
 
 def native_backup_id(gpo: GPO) -> str:
     """Return the deterministic backup-instance ID for a native export."""
+    unwritable = _text_refusal(gpo)
+    if unwritable is not None:
+        raise ValidationError([unwritable])
     gpo_id = _braced_guid(gpo.guid, field="GPO ID")
     backup_content = replace(gpo, links=(), security_filters=(), wmi_filter=None)
     identity = gpo.name + "\n" + policy_semantic_sha256(backup_content)

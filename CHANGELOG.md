@@ -9,6 +9,22 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- **Text XML cannot carry never reaches storage (batch-2 review of `343fecf`).**
+  A REG_MULTI_SZ element holding an escaped lone surrogate committed a revision
+  and then made the GPO, its backup and the whole workspace list return 500;
+  NUL, VT, FF and U+FFFF were accepted and exported as XML no parser accepts.
+  Fixed generally: one predicate (`xml_safety.xml_text_problem`, the XML 1.0
+  `Char` production; CR additionally refused in GPP text, which XML reads back
+  as LF) and one walk over every string in the model (`unwritable_text`). The
+  store refuses to write any revision that fails it, whatever endpoint or field
+  the text came through; the API refuses such a JSON body up front (422 with
+  the JSON path); `validate_gpo` reports it (`text_not_xml_writable`). A legacy
+  stored revision still reads and lists (JSON escapes; digests `null`), every
+  exporter refuses it with that code, and an artifact that cannot encode stored
+  text is a 422 (`stored_text_not_encodable`), never a 500. A Hypothesis
+  property test throws arbitrary Unicode, surrogates and controls included, at
+  GPP and GPO text and holds no-500 and byte-exact round trips of accepted text.
+
 - **Batch-2 re-review fixes (Sol, `2ecc025`).** `deterministic_zip.py` and
   `writer_conformance.py` are pinned `text eol=lf` (a CRLF checkout refused
   every archive lane), and a test holds every file any finalizer binds to

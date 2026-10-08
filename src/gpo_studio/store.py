@@ -50,6 +50,7 @@ from .snapshot_documents import (
     snapshot_digests,
 )
 from .validation import (
+    text_issues,
     validate_gpo,
     validate_gpp_collection,
     validate_ready_transition,
@@ -560,6 +561,13 @@ class WorkspaceStore:
         :meth:`_store_documents` inside the same transaction that writes the
         snapshot rows, or the payload's digests would reference nothing.
         """
+        # No revision is written holding text XML cannot carry (batch-2
+        # review): every create, import and mutation passes through here, so a
+        # lone surrogate or a control character is refused BEFORE anything is
+        # committed, whichever endpoint or field it arrived through.
+        unwritable = text_issues(gpo)
+        if unwritable:
+            raise ValidationError(unwritable)
         data = gpo.to_dict()
         try:
             documents = extract_snapshot_documents(data)

@@ -15,6 +15,80 @@ _ENTITY_MARKERS = (
 )
 
 
+def xml_char_forbidden(cp: int) -> bool:
+    """Whether code point *cp* is outside the XML 1.0 ``Char`` production.
+
+    ``Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] |
+    [#x10000-#x10FFFF]``: the C0 controls other than TAB, LF and CR, the
+    surrogate block (a lone surrogate is not a character at all, and no UTF
+    encoder will write one), and U+FFFE/U+FFFF are forbidden. The other
+    plane-final noncharacters (U+nFFFE/U+nFFFF above the BMP) are legal XML
+    but are refused too, as before batch 2: nothing Windows writes uses them.
+    """
+    if cp < 0x20:
+        return cp not in (0x09, 0x0A, 0x0D)
+    if 0xD800 <= cp <= 0xDFFF:
+        return True
+    if cp in (0xFFFE, 0xFFFF):
+        return True
+    return cp > 0xFFFF and (cp & 0xFFFE) == 0xFFFE
+
+
+def xml_text_problem(text: str, *, allow_cr: bool = True) -> str | None:
+    """Why *text* cannot be written into XML and read back exactly, or ``None``.
+
+    The ONE predicate every check uses (batch-2 review). TAB and LF are always
+    allowed: ElementTree writes them as character references in attributes and
+    literally in element text, and both read back exactly. CR is allowed only
+    where *allow_cr*: an XML parser normalizes CR and CRLF in element text to
+    LF, so a CR written as element text does not come back. GPP XML is the
+    place that matters (multi-string <Value>s and embedded task XML are element
+    text), so the model check refuses CR under ``gpp_collections``; strings
+    that never reach XML element text (Registry.pol data, the fdeploy INI
+    document) keep it.
+    """
+    for ch in text:
+        cp = ord(ch)
+        if xml_char_forbidden(cp):
+            if 0xD800 <= cp <= 0xDFFF:
+                return f"a lone surrogate U+{cp:04X}"
+            return f"U+{cp:04X}, which XML 1.0 forbids"
+        if cp == 0x0D and not allow_cr:
+            return "a carriage return, which XML reads back as a line feed"
+    return None
+
+
+#: Top-level model keys whose strings are written into GPP XML element text.
+NO_CR_SUBTREES = ("gpp_collections",)
+
+
+def unwritable_text(data: Any, path: str = "") -> list[tuple[str, str]]:
+    """Every string in a plain-data tree (dicts, lists, str) XML cannot carry.
+
+    Returns ``(path, problem)`` pairs. Dict keys are checked as well as values.
+    Generic on purpose: a field added to any model is covered the day it
+    lands, instead of the day someone remembers to validate it.
+    """
+    allow_cr = not any(path == root or path.startswith(root + "/") for root in NO_CR_SUBTREES)
+    found: list[tuple[str, str]] = []
+    if isinstance(data, str):
+        problem = xml_text_problem(data, allow_cr=allow_cr)
+        if problem is not None:
+            found.append((path, problem))
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            child = f"{path}/{key}" if path else str(key)
+            if isinstance(key, str):
+                problem = xml_text_problem(key, allow_cr=allow_cr)
+                if problem is not None:
+                    found.append((child, f"its key holds {problem}"))
+            found.extend(unwritable_text(value, child))
+    elif isinstance(data, (list, tuple)):
+        for index, value in enumerate(data):
+            found.extend(unwritable_text(value, f"{path}/{index}"))
+    return found
+
+
 def _has_entity_decl(data: bytes) -> bool:
     return any(marker in data for marker in _ENTITY_MARKERS)
 

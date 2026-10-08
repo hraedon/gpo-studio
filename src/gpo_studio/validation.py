@@ -10,6 +10,7 @@ from .gpp import GppCollection, GppGroup, GppGroupMember, GppRegistry, GppRegist
 from .ilt import IltFilter, IltPredicate
 from .model import GPO, RegistrySetting, ValidationIssue
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
+from .xml_safety import unwritable_text, xml_char_forbidden
 
 _DN = re.compile(r"^(?:CN|OU|DC)=[^,=]+(?:,(?:CN|OU|DC)=[^,=]+)+$", re.IGNORECASE)
 _WQL_SELECT = re.compile(r"\bselect\b", re.IGNORECASE)
@@ -24,18 +25,26 @@ _VALID_REGISTRY_TYPES = frozenset(
 )
 
 
-def _xml_char_unsafe(cp: int) -> bool:
-    if cp < 0x20:
-        return cp not in (0x09, 0x0A, 0x0D)
-    if 0xD800 <= cp <= 0xDFFF:
-        return True
-    if cp in (0xFFFE, 0xFFFF):
-        return True
-    return cp > 0xFFFF and (cp & 0xFFFE) == 0xFFFE
-
-
 def _has_xml_unsafe_text(text: str) -> bool:
-    return any(_xml_char_unsafe(ord(c)) for c in text)
+    return any(xml_char_forbidden(ord(c)) for c in text)
+
+
+def text_issues(gpo: GPO) -> list[ValidationIssue]:
+    """Every string in the GPO that cannot be written into XML (batch-2 review).
+
+    One generic walk over the whole model (`xml_safety.unwritable_text`),
+    rather than a check per field: GPP families, ILT, WMI and security
+    filters, names, descriptions and anything added later.
+    """
+    return [
+        ValidationIssue(
+            "error",
+            "text_not_xml_writable",
+            f"This text cannot be written into XML: it contains {problem}.",
+            path,
+        )
+        for path, problem in unwritable_text(gpo.to_dict())
+    ]
 
 
 def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
@@ -188,7 +197,7 @@ def validate_setting(setting: RegistrySetting) -> list[ValidationIssue]:
 
 
 def validate_gpo(gpo: GPO) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
+    issues: list[ValidationIssue] = text_issues(gpo)
     if not gpo.name.strip():
         issues.append(ValidationIssue("error", "name_required", "GPO name is required.", "name"))
     identities: dict[tuple[str, str, str, str], str] = {}
