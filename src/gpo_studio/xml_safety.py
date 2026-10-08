@@ -34,18 +34,17 @@ def xml_char_forbidden(cp: int) -> bool:
     return cp > 0xFFFF and (cp & 0xFFFE) == 0xFFFE
 
 
-def xml_text_problem(text: str, *, allow_cr: bool = True) -> str | None:
+def xml_text_problem(text: str, *, allow_cr: bool = False) -> str | None:
     """Why *text* cannot be written into XML and read back exactly, or ``None``.
 
     The ONE predicate every check uses (batch-2 review). TAB and LF are always
     allowed: ElementTree writes them as character references in attributes and
-    literally in element text, and both read back exactly. CR is allowed only
-    where *allow_cr*: an XML parser normalizes CR and CRLF in element text to
-    LF, so a CR written as element text does not come back. GPP XML is the
-    place that matters (multi-string <Value>s and embedded task XML are element
-    text), so the model check refuses CR under ``gpp_collections``; strings
-    that never reach XML element text (Registry.pol data, the fdeploy INI
-    document) keep it.
+    literally in element text, and both read back exactly. CR is refused by
+    default: an XML parser normalizes CR and CRLF in element text to LF, so a
+    GPO name, a description or a GPP value holding one would come back changed
+    after a native export and re-import. *allow_cr* is for text that never
+    becomes XML (Registry.pol data, the fdeploy INI document); see
+    `CR_ALLOWED_PATHS`.
     """
     for ch in text:
         cp = ord(ch)
@@ -58,18 +57,33 @@ def xml_text_problem(text: str, *, allow_cr: bool = True) -> str | None:
     return None
 
 
-#: Top-level model keys whose strings are written into GPP XML element text.
-NO_CR_SUBTREES = ("gpp_collections",)
+#: Model paths whose strings never become XML, so a carriage return in them
+#: survives: Registry.pol value data (binary PReg, UTF-16) and the parsed
+#: fdeploy INI document. Every other string -- GPO name and description, GPP
+#: items and attributes, ILT, filters -- reaches XML element text or attribute
+#: values somewhere (Backup.xml, bkupInfo.xml, manifest.xml, GPP XML), where a
+#: CR would come back as LF (batch-2 review).
+CR_ALLOWED_PATHS = (
+    re.compile(r"settings/\d+/value(/\d+)?"),
+    re.compile(r"fdeploy(/.*)?"),
+)
 
 
-def unwritable_text(data: Any, path: str = "") -> list[tuple[str, str]]:
+def unwritable_text(
+    data: Any, path: str = "", *, allow_cr_everywhere: bool = False
+) -> list[tuple[str, str]]:
     """Every string in a plain-data tree (dicts, lists, str) XML cannot carry.
 
     Returns ``(path, problem)`` pairs. Dict keys are checked as well as values.
     Generic on purpose: a field added to any model is covered the day it
-    lands, instead of the day someone remembers to validate it.
+    lands, instead of the day someone remembers to validate it. Paths are model
+    paths (``gpo.to_dict()``); a caller walking some other shape, such as a raw
+    request body, passes *allow_cr_everywhere* and leaves the CR decision to
+    the model check.
     """
-    allow_cr = not any(path == root or path.startswith(root + "/") for root in NO_CR_SUBTREES)
+    allow_cr = allow_cr_everywhere or any(
+        pattern.fullmatch(path) for pattern in CR_ALLOWED_PATHS
+    )
     found: list[tuple[str, str]] = []
     if isinstance(data, str):
         problem = xml_text_problem(data, allow_cr=allow_cr)
@@ -82,10 +96,16 @@ def unwritable_text(data: Any, path: str = "") -> list[tuple[str, str]]:
                 problem = xml_text_problem(key, allow_cr=allow_cr)
                 if problem is not None:
                     found.append((child, f"its key holds {problem}"))
-            found.extend(unwritable_text(value, child))
+            found.extend(
+                unwritable_text(value, child, allow_cr_everywhere=allow_cr_everywhere)
+            )
     elif isinstance(data, (list, tuple)):
         for index, value in enumerate(data):
-            found.extend(unwritable_text(value, f"{path}/{index}"))
+            found.extend(
+                unwritable_text(
+                    value, f"{path}/{index}", allow_cr_everywhere=allow_cr_everywhere
+                )
+            )
     return found
 
 

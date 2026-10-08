@@ -1993,7 +1993,9 @@ async def _reject_unwritable_request_text(request: Request) -> None:
         data = json.loads(body)
     except ValueError:
         return  # the body model reports malformed JSON itself
-    problems = unwritable_text(data)
+    # Request paths are not model paths, so CR is judged by the store's model
+    # check (`validation.text_issues`), which knows where CR survives.
+    problems = unwritable_text(data, allow_cr_everywhere=True)
     if problems:
         raise ValidationError([
             ValidationIssue(

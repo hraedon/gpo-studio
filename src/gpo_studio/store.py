@@ -859,7 +859,10 @@ class WorkspaceStore:
                 gpo,
                 guid=normalized_guid,
                 name=gpo.name.strip(),
-                description=gpo.description.strip(),
+                # A GPMC comment arrives with Windows line endings; XML (where
+                # the description is written) reads CR back as LF, so line
+                # breaks are normalised to LF here rather than refusing the GPO.
+                description=gpo.description.replace("\r\n", "\n").replace("\r", "\n").strip(),
                 revision=1,
                 created_at=timestamp,
                 updated_at=timestamp,

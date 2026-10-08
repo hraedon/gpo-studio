@@ -55,15 +55,56 @@ def test_the_predicate_refuses_what_xml_1_0_forbids(bad: str) -> None:
     assert xml_text_problem(f"one{bad}two") is not None
 
 
-@pytest.mark.parametrize("good", ["\t", "\n", "\r", "é", "\U0001f600", ""])
+@pytest.mark.parametrize("good", ["\t", "\n", "é", "\U0001f600", ""])
 def test_the_predicate_allows_xml_characters(good: str) -> None:
     assert xml_text_problem(f"one{good}two") is None
 
 
-def test_carriage_return_is_refused_only_in_gpp_text() -> None:
-    """XML reads a CR in element text back as LF; GPP multi-strings are element text."""
-    tree = {"description": "a\rb", "gpp_collections": [{"x": "a\rb"}]}
-    assert [path for path, _ in unwritable_text(tree)] == ["gpp_collections/0/x"]
+def test_carriage_return_is_allowed_only_on_request() -> None:
+    assert xml_text_problem("one\rtwo") is not None
+    assert xml_text_problem("one\rtwo", allow_cr=True) is None
+
+
+def test_carriage_return_survives_only_where_text_never_becomes_xml() -> None:
+    """XML reads CR back as LF, in element text and in attribute values alike."""
+    tree = {
+        "name": "a\rb",
+        "description": "a\rb",
+        "gpp_collections": [{"x": "a\rb"}],
+        "settings": [{"value": "a\rb", "comment": "a\rb", "value_list": ["a\rb"]},
+                     {"value": ["a\rb"]}],
+        "fdeploy": {"text": "a\r\nb"},
+    }
+    assert sorted(path for path, _ in unwritable_text(tree)) == [
+        "description",
+        "gpp_collections/0/x",
+        "name",
+        "settings/0/comment",
+        "settings/0/value_list/0",
+    ]
+
+
+@pytest.mark.parametrize("field", ["name", "description"])
+def test_a_carriage_return_in_gpo_metadata_is_refused(client: TestClient, field: str) -> None:
+    """It would come back as LF from Backup.xml/bkupInfo.xml/manifest.xml (review)."""
+    body = {"name": "metadata", "description": ""}
+    body[field] = "line one\rline two"
+    created = _send(client, "POST", "/api/gpos", body)
+    assert created.status_code == 422, created.text
+    assert "text_not_xml_writable" in created.text
+    gpo = _new_gpo(client, f"cr {field}")
+    patched = _send(client, "PATCH", f"/api/gpos/{gpo['guid']}", {
+        **_audit(gpo), "name": gpo["name"], "description": "",
+        field: "line one\r\nline two",
+    })
+    assert patched.status_code == 422, patched.text
+    assert client.get(f"/api/gpos/{gpo['guid']}").json()["gpo"]["revision"] == gpo["revision"]
+
+
+def test_a_line_feed_in_the_description_round_trips(client: TestClient) -> None:
+    created = _send(client, "POST", "/api/gpos", {"name": "lf", "description": "one\ntwo"})
+    assert created.status_code == 201, created.text
+    assert created.json()["gpo"]["description"] == "one\ntwo"
 
 
 # ---------------------------------------------------------------------------
@@ -286,11 +327,11 @@ def test_no_text_makes_the_workspace_unreadable_and_accepted_text_round_trips(
     if response.status_code == 201 and content is not None:
         assert read(content) == text, (target, text)
     if patched.status_code == 200:
-        assert xml_text_problem(extra) is None
+        assert xml_text_problem(extra) is None  # CR included: the description is XML
         stored = client.get(f"/api/gpos/{gpo['guid']}").json()["gpo"]["description"]
         assert stored in (extra, extra.strip())
     if response.status_code == 201:
-        assert xml_text_problem(text, allow_cr=False) is None
+        assert xml_text_problem(text) is None
 
 
 def test_registry_policy_text_round_trips_through_registry_pol(
