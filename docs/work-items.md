@@ -3384,7 +3384,10 @@ extraction). Pulls verify the same way and travel host -> controller as 1 MB
 reads. One deadline (`-DeadlineSeconds`, default `-TimeoutSeconds` + 300)
 bounds the session open, every command, every retry and teardown; exceeding it
 exits 124, and no success marker is printed until cleanup and a final
-deadline check have passed (review P1). The batch driver gives every lane a
+deadline check have passed (review P1). A staging leaf that teardown could not
+remove (after a deadline, say) is only swept by a later push or pull on the
+same host, when it prepares staging and the leaf is over 12 hours old; there is
+no timer. A verified delivery with such a leftover still counts as success. The batch driver gives every lane a
 wall-clock budget (a column in its lane table) and runs it under
 `scripts/plan-033/lane-supervisor.py`, a child subreaper: whenever the lane
 ends -- by itself, with any status, or at its budget -- everything it started,

@@ -167,6 +167,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# Progress records are not output; never let them reach stdout.
+$ProgressPreference = 'SilentlyContinue'
 
 # ---------------------------------------------------------------------------
 # Transfer constants. The measurements behind them are in .NOTES.
@@ -418,7 +420,9 @@ $script:HostBlocks = @{
     # Create this invocation's staging leaf, and reap leaves a dead invocation
     # left behind. A deadline can cut teardown short, so leftovers are
     # expected; twelve hours is far beyond any lane, so this cannot reap a
-    # concurrent invocation's leaf.
+    # concurrent invocation's leaf. This is the ONLY sweep, and it is not on a
+    # timer: a leftover older than twelve hours goes when the next push or pull
+    # prepares staging on the same host, and stays until then.
     PrepareStage = {
         param($stageRoot, $stagePath)
         $ErrorActionPreference = 'Stop'
@@ -1122,7 +1126,8 @@ function Invoke-PsDirect {
         # primary outcome, but it is part of the outcome: a teardown that
         # throws (a timeout above all) is recorded and fails the invocation in
         # Complete-PsDirect. A leaf that Remove-Item merely could not empty is
-        # only reported -- the payload was verified, and a later run reaps it.
+        # only reported -- the payload was verified, and the next push or pull
+        # on this host removes it in PrepareStage once it is 12 h old.
         if ($stagePath -and $Action -ne 'exec') {
             try {
                 $left = Invoke-HostCommand -What 'staging teardown' -Teardown `
@@ -1221,20 +1226,36 @@ $stamp = "$(Get-Date -Format 'yyyyMMddHHmmss')-$([guid]::NewGuid().ToString('N')
 # deadline check included -- so a success marker can never precede a failure.
 # Exit through [Environment]::Exit, so a thread still blocked in an abandoned
 # remote job cannot keep the process alive; 124 marks a timeout or deadline.
-$held = @()
+#
+# stdout carries ONLY the success stream, and only once the outcome is decided:
+# callers parse it (RUN_DIR captures, WORK_DIR=/TARGET_GPO= lines). Measured
+# against the host: Receive-Job of a remote job writes the job's host output
+# (Write-Host) and warnings straight to this process's host UI -- they are not
+# in any stream a redirection can capture. So for the whole run the process's
+# stdout writer IS stderr: whatever the host, a warning or anything else
+# writes lands there. The real stdout is kept aside, and the held success
+# output is written to it, formatted, only after Complete-PsDirect.
+$stdout = [Console]::Out
+[Console]::SetOut([Console]::Error)
+$held = [System.Collections.Generic.List[object]]::new()
 $primaryError = $null
 try {
-    $held = @(Invoke-PsDirect -Action $Action -Guest $Guest -NetBiosName $NetBiosName -GuestUser $guestUser `
+    Invoke-PsDirect -Action $Action -Guest $Guest -NetBiosName $NetBiosName -GuestUser $guestUser `
         -Command $Command -LocalPath $LocalPath -RemotePath $RemotePath `
-        -HostStagingRoot $HostStagingRoot -TimeoutSeconds $TimeoutSeconds -Stamp $stamp)
+        -HostStagingRoot $HostStagingRoot -TimeoutSeconds $TimeoutSeconds -Stamp $stamp |
+        ForEach-Object { $held.Add($_) }
 } catch {
     $primaryError = $_
 }
-$outcome = Complete-PsDirect -Output $held -PrimaryError $primaryError -TeardownError $script:TeardownError
+$outcome = Complete-PsDirect -Output $held.ToArray() -PrimaryError $primaryError `
+    -TeardownError $script:TeardownError
 foreach ($failure in $outcome.Errors) {
     [Console]::Error.WriteLine(($failure | Out-String).TrimEnd())
     if ($failure.ScriptStackTrace) { [Console]::Error.WriteLine($failure.ScriptStackTrace) }
 }
-if ($outcome.ExitCode -eq 0 -and @($outcome.Output).Count -gt 0) { $outcome.Output | Out-Default }
-[Console]::Out.Flush()
+[Console]::Error.Flush()
+if ($outcome.ExitCode -eq 0 -and @($outcome.Output).Count -gt 0) {
+    foreach ($line in ($outcome.Output | Out-String -Stream)) { $stdout.WriteLine($line) }
+}
+$stdout.Flush()
 [Environment]::Exit($outcome.ExitCode)

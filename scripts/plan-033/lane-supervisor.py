@@ -16,8 +16,14 @@ this. Two things a shell watchdog could not guarantee are the reason it exists:
 
 The leader runs as the leader of a new session, with stdin from /dev/null and
 stdout/stderr appended to the lane log. The supervisor exits with the leader's
-own status (128 + N for a signal), or 124 when the deadline killed it; the
-report file says which, because a lane can exit 124 by itself.
+own status (128 + N for a signal), 124 when the deadline killed it, or 128 + N
+when the supervisor itself was stopped by signal N (a cancellation, whatever
+the leader then exited with); the report file says which, because a lane can
+exit 124 or 143 by itself.
+
+run-requal-batch.sh also runs the supervisor inside a systemd user scope, so
+that if the supervisor itself dies (SIGKILL), the driver can still find and
+kill everything the lane started.
 
 Linux only: it refuses to run a lane it cannot contain.
 """
@@ -147,11 +153,15 @@ def main() -> int:
     if not command:
         parser.error("no command")
 
-    def report(status: int, timed_out: bool, strays: int) -> int:
-        args.report.write_text(
-            json.dumps({"status": status, "timed_out": timed_out, "killed": strays}) + "\n",
-            encoding="utf-8",
-        )
+    def report(status: int, timed_out: bool, strays: int, cancelled: bool = False) -> int:
+        record = {
+            "status": status, "timed_out": timed_out, "cancelled": cancelled, "killed": strays
+        }
+        # Atomically: a supervisor killed mid-write leaves no report at all,
+        # never a partial one.
+        partial = args.report.with_name(args.report.name + ".partial")
+        partial.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        os.replace(partial, args.report)
         return status
 
     if not sys.platform.startswith("linux"):
@@ -162,12 +172,14 @@ def main() -> int:
         log_line(args.log, f"no budget left to start: {' '.join(command)}")
         return report(TIMED_OUT_STATUS, True, 0)
 
-    # SIGTERM to the supervisor (an operator stopping the batch) ends the lane too.
-    stopping = False
+    # SIGTERM/SIGINT to the supervisor (an operator stopping the batch) ends
+    # the lane too, and is reported as a CANCELLATION: whatever the leader then
+    # exits with (a lane that traps TERM may well exit 0) is not its verdict.
+    stopping = 0
 
     def on_term(signum: int, frame: object) -> None:
         nonlocal stopping
-        stopping = True
+        stopping = stopping or signum
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
@@ -201,10 +213,13 @@ def main() -> int:
     proc.returncode = reaper.leader_status if reaper.leader_status is not None else -1
     if not timed_out and not stopping and strays:
         log_line(args.log, f"{strays} process(es) outlived the lane's leader; killed")
+    if stopping:
+        log_line(args.log, f"lane cancelled by signal {stopping}; not a verdict")
+        return report(128 + stopping, False, strays, cancelled=True)
     if timed_out:
         return report(TIMED_OUT_STATUS, True, strays)
-    status = reaper.leader_status if reaper.leader_status is not None else 128 + signal.SIGTERM
-    return report(status, False, strays)
+    assert reaper.leader_status is not None
+    return report(reaper.leader_status, False, strays)
 
 
 if __name__ == "__main__":

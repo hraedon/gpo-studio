@@ -89,9 +89,16 @@ def test_the_process_ends_through_environment_exit() -> None:
     lines = [line.strip() for line in _code_lines()]
     assert lines[-1] == "[Environment]::Exit($outcome.ExitCode)"
     # Output is released once, after the outcome is decided, never before.
-    release = [i for i, line in enumerate(lines) if "$outcome.Output | Out-Default" in line]
+    release = [i for i, line in enumerate(lines) if "$outcome.Output | Out-String" in line]
     decide = next(i for i, line in enumerate(lines) if line.startswith("$outcome = Complete-"))
     assert len(release) == 1 and release[0] > decide
+    # stdout is swapped for stderr before any work, and only the held output
+    # is written to the real one.
+    swap = lines.index("[Console]::SetOut([Console]::Error)")
+    work = next(i for i, line in enumerate(lines) if line.startswith("Invoke-PsDirect -Action"))
+    assert swap < work
+    writes = [i for i, line in enumerate(lines) if "$stdout.Write" in line]
+    assert writes and all(i > decide for i in writes)
 
 
 def test_the_fault_hook_is_refused_without_its_environment_gate() -> None:
@@ -514,7 +521,9 @@ function global:Invoke-Command {
     $job = [pscustomobject] @{
         State = 'Completed'; Output = @(); Hang = $false; Fail = $null; ChildJobs = @()
     }
-    if ($text -match 'Import-Module Hyper-V') {
+    if ($text -match 'Import-Module Hyper-V' -and $ArgumentList[0] -eq 'exec') {
+        $job.Output = @('RESULT=1', 'WORK_DIR=C:\w')
+    } elseif ($text -match 'Import-Module Hyper-V') {
         $length = (Get-Item -LiteralPath $global:Zip).Length
         $sha = (Get-FileHash -LiteralPath $global:Zip -Algorithm SHA256).Hash
         $job.Output = @("SOURCE=$($global:Zip)", 'EXPECTED_FILES=1', "EXPECTED_LENGTH=$length",
@@ -524,7 +533,7 @@ function global:Invoke-Command {
         $chunk = & $ScriptBlock @ArgumentList
         $job.Output = @(, $chunk)
     } elseif ($text -match 'LEFT=') {
-        if ($global:Scenario -eq 'teardown-timeout') { $job.Hang = $true }
+        if ($global:Scenario -like '*teardown-timeout') { $job.Hang = $true }
         if ($global:Scenario -eq 'teardown-error') {
             $job.Fail = 'Access to the staging leaf is denied.'
         }
@@ -540,12 +549,23 @@ function global:Wait-Job {
 function global:Receive-Job {
     [CmdletBinding()] param($Job)
     if ($Job.Fail) { throw $Job.Fail }
+    if ($global:Scenario -like 'chatty*') {
+        # What a remote job's other streams look like once received.
+        Write-Host 'HOST-NOISE'
+        Write-Warning 'WARN-NOISE'
+        Write-Information 'INFO-NOISE'
+        Write-Verbose 'VERBOSE-NOISE' -Verbose
+    }
     foreach ($item in $Job.Output) { , $item }
 }
 
 $local = Join-Path $Work 'pulled'
-& $Psdirect -Action pull -LabHost 'host.example.invalid' -Guest 'Guest01' `
-    -RemotePath 'C:\gpo-studio\runs\x' -LocalPath $local
+if ($Scenario -like '*exec*') {
+    & $Psdirect -Action exec -LabHost 'host.example.invalid' -Guest 'Guest01' -Command 'x'
+} else {
+    & $Psdirect -Action pull -LabHost 'host.example.invalid' -Guest 'Guest01' `
+        -RemotePath 'C:\gpo-studio\runs\x' -LocalPath $local
+}
 """
 
 
@@ -581,6 +601,34 @@ def test_end_to_end_a_teardown_timeout_exits_124_without_a_success_marker(
     assert completed.returncode == 124, completed.stdout + completed.stderr
     assert "PULLED=" not in completed.stdout
     assert "staging teardown" in completed.stderr
+
+
+def test_end_to_end_only_the_outcome_reaches_stdout(tmp_path: Path) -> None:
+    """Re-check P2-3: host, warning, information and verbose output from the
+    remote jobs reached stdout ahead of the outcome. They go to stderr now."""
+    completed = _run_e2e(tmp_path, "chatty")
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == f"PULLED={tmp_path / 'pulled'}\n"
+    for noise in ("HOST-NOISE", "WARN-NOISE", "VERBOSE-NOISE"):
+        assert noise in completed.stderr, noise
+    # Information records are not displayed at the default preference; they
+    # must not reach stdout either way.
+    assert "INFO-NOISE" not in completed.stdout
+
+
+def test_end_to_end_exec_stdout_is_exactly_the_guest_output(tmp_path: Path) -> None:
+    """What the runners parse (WORK_DIR=, RUN_DIR captures) stays clean."""
+    completed = _run_e2e(tmp_path, "chatty-exec")
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == "RESULT=1\nWORK_DIR=C:\\w\n"
+    assert "HOST-NOISE" in completed.stderr
+
+
+def test_end_to_end_a_failed_run_puts_nothing_on_stdout(tmp_path: Path) -> None:
+    completed = _run_e2e(tmp_path, "chatty-teardown-timeout")
+    assert completed.returncode == 124, completed.stderr
+    assert completed.stdout == ""
+    assert "HOST-NOISE" in completed.stderr
 
 
 def test_end_to_end_a_pull_missing_directories_fails(tmp_path: Path) -> None:

@@ -27,6 +27,13 @@
 # its budget -- anything it left running (detached or not) is killed before the
 # next lane starts, and the count is recorded as processes_killed. Nothing is
 # retried; a lane's own exit status is recorded as it was.
+#
+# Lanes run inside systemd user scopes as a second containment layer (the
+# batch refuses to start without one). If a lane's supervisor dies or its
+# scope still holds processes afterwards, the driver kills the scope, records
+# containment_lost with exit_status 125, and STOPS the batch (exit 4). A lane
+# whose supervisor is stopped by a signal is recorded cancelled, with 128 + the
+# signal, and also stops the batch (exit 5).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -131,36 +138,106 @@ done
 # Seconds between SIGTERM and SIGKILL when a lane ends with processes left.
 LANE_KILL_GRACE="${GPO_STUDIO_LANE_KILL_GRACE_SECONDS:-15}"
 SUPERVISOR="$SCRIPT_DIR/lane-supervisor.py"
+# Recorded when the supervisor's own report is missing or the lane's scope
+# still held processes after it: containment can no longer be vouched for.
+CONTAINMENT_LOST_STATUS=125
+# Batch exit statuses beyond 1/2/3: a lane's containment was lost (4), or a
+# lane was cancelled (5). Either stops the batch at once.
+BATCH_CONTAINMENT_LOST=4
+BATCH_CANCELLED=5
+
+# The second containment layer: every lane runs in its own systemd user scope
+# (a cgroup), which nothing the lane starts can leave. The supervisor is the
+# first layer and does the orderly work; the scope is what lets this driver
+# find and kill the lane anyway if the supervisor itself dies. Without a user
+# manager there is no second layer, and the batch refuses to start rather
+# than run lanes it could lose track of.
+if ! systemd-run --user --scope --quiet --collect \
+        --unit="gpo-studio-lane-probe-$$" -- true >/dev/null 2>&1; then
+    echo "refusing: lane containment needs 'systemd-run --user --scope' (a systemd user manager)" >&2
+    exit 2
+fi
+
+# The pids left in a scope, one per line (nothing once the scope is gone).
+scope_pids() {
+    local cgroup
+    cgroup="$(systemctl --user show -p ControlGroup --value "$1.scope" 2>/dev/null)" || return 0
+    [[ -n "$cgroup" && -r "/sys/fs/cgroup$cgroup/cgroup.procs" ]] || return 0
+    cat "/sys/fs/cgroup$cgroup/cgroup.procs"
+}
+
+# Kill everything in a scope and wait for it to empty. Returns non-zero if it
+# would not empty within 15 s.
+clear_scope() {
+    local unit=$1 _
+    systemctl --user kill --signal=SIGKILL "$unit.scope" >/dev/null 2>&1
+    for _ in $(seq 1 150); do
+        [[ -z "$(scope_pids "$unit")" ]] && break
+        sleep 0.1
+    done
+    systemctl --user stop "$unit.scope" >/dev/null 2>&1
+    [[ -z "$(scope_pids "$unit")" ]]
+}
 
 # run_bounded <deadline-epoch> <log> <command...>
-# Run the command under lane-supervisor.py: a new session, the log appended,
-# and -- whether the command exits by itself or the deadline passes -- every
-# process it started, detached or not, TERM'd, KILL'd after the grace, and
-# reaped before this returns. Returns the command's own status (124 when the
-# deadline killed it). Sets WATCHDOG_FIRED when the deadline did the killing
-# (a lane may exit 124 by itself; psdirect does on its own deadline) and adds
-# to PROCESSES_KILLED every process cleanup had to signal.
+# Run the command under lane-supervisor.py, inside its own systemd user scope:
+# a new session, the log appended, and -- whether the command exits by itself
+# or the deadline passes -- every process it started, detached or not, TERM'd,
+# KILL'd after the grace, and reaped before this returns. Returns the
+# command's own status (124 when the deadline killed it). Sets WATCHDOG_FIRED
+# when the deadline did the killing (a lane may exit 124 by itself; psdirect
+# does on its own deadline), CANCELLED when the supervisor was stopped by a
+# signal, CONTAINMENT_LOST when the supervisor gave no report or its scope
+# still held processes afterwards (both after killing the scope), and adds to
+# PROCESSES_KILLED every process cleanup had to signal.
 run_bounded() {
-    local deadline=$1 log=$2 report status
+    local deadline=$1 log=$2 report status unit leftovers parsed valid
     shift 2
     report="$(mktemp)"
-    python3 "$SUPERVISOR" --deadline "$deadline" --grace "$LANE_KILL_GRACE" \
+    unit="gpo-studio-lane-$(date +%s%N)-$$"
+    systemd-run --user --scope --quiet --collect --unit="$unit" -- \
+        python3 "$SUPERVISOR" --deadline "$deadline" --grace "$LANE_KILL_GRACE" \
         --log "$log" --report "$report" -- "$@"
     status=$?
-    if [[ ! -s "$report" ]]; then
-        # The supervisor itself failed: the lane may not even have started,
-        # and nothing vouches for its containment. Never a pass.
-        echo "=== watchdog: lane-supervisor.py failed (status $status)" >>"$log"
-        rm -f "$report"
-        [[ $status -eq 0 ]] && status=125
-        return "$status"
-    fi
-    read -r status sup_timed_out sup_killed < <(python3 -c '
+    leftovers="$(scope_pids "$unit" | wc -l)"
+    # The report is believed only if it is exactly what the supervisor writes:
+    # a JSON object with these four fields and these types. Anything else -- a
+    # missing, truncated or garbled report -- means containment is unknown.
+    parsed="$(python3 -c '
 import json, sys
-r = json.load(open(sys.argv[1]))
-print(r["status"], int(r["timed_out"]), r["killed"])' "$report")
-    rm -f "$report"
+try:
+    r = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    sys.exit(1)
+ok = (
+    isinstance(r, dict) and set(r) == {"status", "timed_out", "cancelled", "killed"}
+    and type(r["status"]) is int and 0 <= r["status"] <= 255
+    and type(r["timed_out"]) is bool and type(r["cancelled"]) is bool
+    and type(r["killed"]) is int and r["killed"] >= 0
+)
+if not ok:
+    sys.exit(1)
+print(r["status"], int(r["timed_out"]), int(r["cancelled"]), r["killed"])' "$report" 2>/dev/null)"
+    valid=$?
+    if [[ $valid -ne 0 || $leftovers -ne 0 ]]; then
+        # The supervisor died (or left processes behind): nothing vouches for
+        # this lane's containment any more. Kill the whole scope, record it,
+        # and let the caller stop the batch.
+        CONTAINMENT_LOST=1
+        echo "=== watchdog: CONTAINMENT LOST (supervisor status $status, report $([[ $valid -eq 0 ]] && echo valid || echo missing or invalid), $leftovers process(es) left in scope $unit); killing the scope" >>"$log"
+        if clear_scope "$unit"; then
+            echo "=== watchdog: scope $unit is empty" >>"$log"
+        else
+            echo "=== watchdog: scope $unit could NOT be emptied: $(scope_pids "$unit" | tr '\n' ' ')" >>"$log"
+        fi
+        PROCESSES_KILLED=$((PROCESSES_KILLED + leftovers))
+        rm -f "$report" "$report.partial"
+        return "$CONTAINMENT_LOST_STATUS"
+    fi
+    read -r status sup_timed_out sup_cancelled sup_killed <<<"$parsed"
+    rm -f "$report" "$report.partial"
     [[ $sup_timed_out -eq 1 ]] && WATCHDOG_FIRED=1
+    [[ $sup_cancelled -eq 1 ]] && CANCELLED=1
     PROCESSES_KILLED=$((PROCESSES_KILLED + sup_killed))
     return "$status"
 }
@@ -184,6 +261,8 @@ for row in "${LANES[@]}"; do
     deadline=$(( $(date +%s) + budget ))
     : >"$log"
     WATCHDOG_FIRED=0
+    CANCELLED=0
+    CONTAINMENT_LOST=0
     PROCESSES_KILLED=0
     set +e
     # shellcheck disable=SC2086 # the lane's KEY=VALUE pairs split on purpose
@@ -203,7 +282,7 @@ for row in "${LANES[@]}"; do
     # itself. Run exactly the command it printed, so the record is the same
     # as a by-hand run.
     next="$(sed -n 's/^NEXT: //p' "$log" | tail -1)"
-    if [[ $status -eq 0 && -n "$next" ]]; then
+    if [[ $status -eq 0 && $CANCELLED -eq 0 && $CONTAINMENT_LOST -eq 0 && -n "$next" ]]; then
         run_bounded "$deadline" "$log" bash -c "$next"
         status=$?
     fi
@@ -212,9 +291,10 @@ for row in "${LANES[@]}"; do
     completed="$(date -u +%Y-%m-%dT%H:%M:%S.%6N+00:00)"
     run_dir="$(sed -n 's/^LOCAL_RUN_DIR=//p' "$log" | tail -1)"
     python3 - "$PROGRESS" "$name" "$runner" "$COMMIT" "$started" "$completed" "$status" "$run_dir" \
-        "$budget" "$timed_out" "$PROCESSES_KILLED" <<'PY'
+        "$budget" "$timed_out" "$PROCESSES_KILLED" "$CANCELLED" "$CONTAINMENT_LOST" <<'PY'
 import json, sys
-path, name, runner, commit, started, completed, status, run_dir, budget, timed_out, strays = sys.argv[1:]
+(path, name, runner, commit, started, completed, status, run_dir, budget, timed_out, strays,
+ cancelled, lost) = sys.argv[1:]
 with open(path, "a", encoding="utf-8") as fh:
     fh.write(json.dumps({
         "name": name, "runner": runner, "commit": commit,
@@ -222,6 +302,7 @@ with open(path, "a", encoding="utf-8") as fh:
         "exit_status": int(status), "local_run_dir": run_dir or None,
         "budget_seconds": int(budget), "timed_out": timed_out == "1",
         "processes_killed": int(strays),
+        "cancelled": cancelled == "1", "containment_lost": lost == "1",
     }) + "\n")
 PY
     if [[ $timed_out -eq 1 ]]; then
@@ -230,6 +311,15 @@ PY
     echo "=== $name exit=$status run_dir=${run_dir:-<none>}"
     ran=$((ran + 1))
     [[ $status -eq 0 ]] || failures=$((failures + 1))
+    # Neither of these is a lane result to move past: stop the batch here.
+    if [[ $CONTAINMENT_LOST -eq 1 ]]; then
+        echo "batch STOPPED: $name's containment was lost (see its log); no further lane runs" >&2
+        exit "$BATCH_CONTAINMENT_LOST"
+    fi
+    if [[ $CANCELLED -eq 1 ]]; then
+        echo "batch STOPPED: $name was cancelled; no further lane runs" >&2
+        exit "$BATCH_CANCELLED"
+    fi
 done
 
 # A batch that ran nothing, or in which any lane failed, is not a success --

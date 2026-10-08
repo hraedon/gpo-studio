@@ -29,8 +29,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _clone(tmp_path: Path) -> Path:
-    """A clean committed copy of the repository, as the driver demands."""
+def _clone(tmp_path: Path, supervisor: str | None = None) -> Path:
+    """A clean committed copy of the repository, as the driver demands.
+
+    `supervisor`, if given, replaces lane-supervisor.py in the clone."""
     clone = tmp_path / "repo"
     subprocess.run(
         ["git", "clone", "-q", "--no-hardlinks", str(REPO_ROOT), str(clone)],
@@ -39,6 +41,10 @@ def _clone(tmp_path: Path) -> Path:
     # The driver under test is the working-tree copy, which may be ahead of HEAD.
     shutil.copy2(DRIVER, clone / "scripts" / "plan-033" / "run-requal-batch.sh")
     shutil.copy2(SUPERVISOR, clone / "scripts" / "plan-033" / "lane-supervisor.py")
+    if supervisor is not None:
+        (clone / "scripts" / "plan-033" / "lane-supervisor.py").write_text(
+            supervisor, encoding="utf-8"
+        )
     subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
     subprocess.run(
         [
@@ -80,9 +86,30 @@ def _fake_acb(tmp_path: Path, exit_code: int) -> Path:
     return bin_dir
 
 
+def _user_scopes_available() -> bool:
+    """The driver's second containment layer is a systemd user scope."""
+    if shutil.which("systemd-run") is None:
+        return False
+    probe = subprocess.run(
+        ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--", "true"],
+        capture_output=True,
+        timeout=30,
+    )
+    return probe.returncode == 0
+
+
+USER_SCOPES = _user_scopes_available()
+
+
+def _require_scopes() -> None:
+    if not USER_SCOPES:
+        pytest.skip("no systemd user manager: the driver refuses to run lanes without one")
+
+
 def _run(
     clone: Path, bin_dir: Path, tmp_path: Path, *lanes: str
 ) -> subprocess.CompletedProcess[str]:
+    _require_scopes()
     env = {
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
@@ -319,6 +346,7 @@ def _run_watchdog_batch(tmp_path: Path, first: str) -> tuple[
     """Run lanes wp1b (the scripted one) and wp2 under a 3 s budget. Returns the
     result, the progress rows, the recorded pids, the ones still alive
     afterwards (killed here so nothing leaks), and the elapsed seconds."""
+    _require_scopes()
     clone = _clone(tmp_path)
     pids_file = tmp_path / "pids"
     env = {
@@ -437,3 +465,206 @@ def test_a_malformed_watchdog_override_is_refused(tmp_path: Path, knob: str) -> 
     assert result.returncode == 2
     assert knob in result.stderr
     assert not (tmp_path / "acb.log").exists()
+
+
+# --- review re-check (6027e35): a dead or stopped supervisor -----------------
+
+#: Leader plus a double-forked, setsid'd descendant, then the leader hangs. It
+#: records the descendant, then itself.
+_DETACH_AND_WAIT = (
+    '    ( setsid sleep 300 & echo $! >> "$FAKE_PIDS" )\n'
+    '    echo $$ >> "$FAKE_PIDS"\n'
+    "    sleep 300\n"
+)
+
+#: A leader that answers SIGTERM by exiting 0.
+_TERM_EXITS_ZERO = (
+    "    trap 'exit 0' TERM\n"
+    '    echo $$ >> "$FAKE_PIDS"\n'
+    "    while :; do sleep 0.2; done\n"
+)
+
+
+def _start_batch(
+    tmp_path: Path, first: str, supervisor: str | None = None
+) -> tuple[subprocess.Popen[str], Path]:
+    _require_scopes()
+    clone = _clone(tmp_path, supervisor)
+    env = {
+        **os.environ,
+        "PATH": f"{_scripted_acb(tmp_path, first)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+        "FAKE_COUNT": str(tmp_path / "count"),
+        "FAKE_PIDS": str(tmp_path / "pids"),
+        "GPO_STUDIO_LANE_BUDGET_SECONDS": "90",
+        "GPO_STUDIO_LANE_KILL_GRACE_SECONDS": "2",
+    }
+    proc = subprocess.Popen(
+        [
+            "bash",
+            str(clone / "scripts/plan-033/run-requal-batch.sh"),
+            str(tmp_path / "batch"),
+            "wp1b",
+            "wp2",
+        ],
+        cwd=clone,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return proc, tmp_path / "pids"
+
+
+def _wait_for_pids(pids_file: Path, count: int) -> list[int]:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if pids_file.exists():
+            pids = [int(p) for p in pids_file.read_text().split()]
+            if len(pids) >= count:
+                return pids
+        time.sleep(0.1)
+    raise AssertionError("the fake lane never started")
+
+
+def _parent_of(pid: int) -> int:
+    stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    return int(stat.rsplit(")", 1)[1].split()[1])
+
+
+def _finish(proc: subprocess.Popen[str], pids: list[int]) -> tuple[str, str, list[int]]:
+    out, err = proc.communicate(timeout=120)
+    deadline = time.monotonic() + 10
+    while any(_alive(p) for p in pids) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    survivors = [p for p in pids if _alive(p)]
+    for p in survivors:
+        os.kill(p, signal.SIGKILL)
+    return out, err, survivors
+
+
+def test_a_killed_supervisor_stops_the_batch_after_its_scope_is_cleared(
+    tmp_path: Path,
+) -> None:
+    """Re-check P2-1: SIGKILL to the supervisor left the leader and a
+    double-forked descendant running, recorded 137, and started the next lane."""
+    proc, pids_file = _start_batch(tmp_path, _DETACH_AND_WAIT)
+    pids = _wait_for_pids(pids_file, 2)
+    supervisor = _parent_of(pids[1])  # the leader's parent
+    assert "lane-supervisor.py" in Path(f"/proc/{supervisor}/cmdline").read_text()
+    os.kill(supervisor, signal.SIGKILL)
+    out, err, survivors = _finish(proc, pids)
+
+    assert proc.returncode == 4, err
+    rows = [
+        json.loads(line) for line in (tmp_path / "batch/progress.jsonl").read_text().splitlines()
+    ]
+    assert [(r["name"], r["exit_status"], r["containment_lost"], r["cancelled"]) for r in rows] == [
+        ("wp1b", 125, True, False)
+    ]
+    assert "containment was lost" in err
+    assert (tmp_path / "count").read_text().strip() == "1", "the next lane started"
+    log = (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert "CONTAINMENT LOST" in log and "is empty" in log
+    assert not survivors, "the lane outlived its supervisor"
+
+
+def test_a_cancelled_supervisor_fails_the_lane_and_stops_the_batch(tmp_path: Path) -> None:
+    """Re-check P2-2: a lane that exits 0 on SIGTERM was recorded as a pass."""
+    proc, pids_file = _start_batch(tmp_path, _TERM_EXITS_ZERO)
+    pids = _wait_for_pids(pids_file, 1)
+    supervisor = _parent_of(pids[0])
+    assert "lane-supervisor.py" in Path(f"/proc/{supervisor}/cmdline").read_text()
+    os.kill(supervisor, signal.SIGTERM)
+    out, err, survivors = _finish(proc, pids)
+
+    assert proc.returncode == 5, err
+    rows = [
+        json.loads(line) for line in (tmp_path / "batch/progress.jsonl").read_text().splitlines()
+    ]
+    assert [(r["name"], r["exit_status"], r["cancelled"], r["timed_out"]) for r in rows] == [
+        ("wp1b", 143, True, False)
+    ]
+    assert "was cancelled" in err
+    assert (tmp_path / "count").read_text().strip() == "1", "the next lane started"
+    assert not survivors
+
+
+def test_without_a_user_scope_the_batch_refuses_before_any_lane(tmp_path: Path) -> None:
+    clone = _clone(tmp_path)
+    bin_dir = _fake_acb(tmp_path, 0)
+    fake = bin_dir / "systemd-run"
+    fake.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+    fake.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+    }
+    result = subprocess.run(
+        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(tmp_path / "b"), "wp1b"],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "systemd-run --user --scope" in result.stderr
+    assert not (tmp_path / "acb.log").exists()
+
+
+#: A supervisor that starts the lane, leaves it running, writes the report
+#: given, and exits 0 -- what a supervisor killed mid-write, or a corrupted
+#: report, looks like to the driver (review re-check A, DeepSeek).
+_BAD_REPORT_SUPERVISOR = """\
+import subprocess, sys, time
+args = sys.argv[1:]
+report, log = args[args.index("--report") + 1], args[args.index("--log") + 1]
+command = args[args.index("--") + 1:]
+with open(log, "ab") as out:
+    subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                     start_new_session=True)
+time.sleep(1.5)
+with open(report, "w", encoding="utf-8") as fh:
+    fh.write(REPORT)
+"""
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        '{"status": 0, "timed_out": fal',  # truncated mid-write
+        "garbage\n",
+        '{"status": 0, "timed_out": false, "cancelled": false}',  # a field missing
+        '{"status": "0", "timed_out": false, "cancelled": false, "killed": 0}',  # wrong type
+    ],
+    ids=["truncated", "garbage", "missing-field", "wrong-type"],
+)
+def test_an_invalid_supervisor_report_is_lost_containment(tmp_path: Path, report: str) -> None:
+    """Only a non-empty report was required, so a truncated one parsed to an
+    empty status, `return` turned it into 2, and the batch went on."""
+    proc, pids_file = _start_batch(
+        tmp_path, _DETACH_AND_WAIT, _BAD_REPORT_SUPERVISOR.replace("REPORT", repr(report))
+    )
+    pids = _wait_for_pids(pids_file, 2)
+    out, err, survivors = _finish(proc, pids)
+
+    assert proc.returncode == 4, err
+    rows = [
+        json.loads(line) for line in (tmp_path / "batch/progress.jsonl").read_text().splitlines()
+    ]
+    assert [(r["name"], r["exit_status"], r["containment_lost"]) for r in rows] == [
+        ("wp1b", 125, True)
+    ]
+    assert (tmp_path / "count").read_text().strip() == "1", "the next lane started"
+    assert "missing or invalid" in (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert not survivors, "the lane outlived an unreadable report"
+
+
+def test_the_supervisor_writes_its_report_atomically() -> None:
+    """A supervisor killed mid-write must leave no report, never half of one."""
+    source = SUPERVISOR.read_text(encoding="utf-8")
+    assert "os.replace(partial, args.report)" in source
+    assert "args.report.write_text" not in source
