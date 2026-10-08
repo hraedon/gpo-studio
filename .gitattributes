@@ -78,3 +78,9 @@ docs/plan-033/plan034-cleanup/** -text -whitespace
 tests/fixtures/native-firewall-gpmc/** -text -whitespace
 scripts/plan-033/capture-firewall-native.ps1 text eol=lf
 src/gpo_studio/firewall_policy.py text eol=lf
+
+# The firewall lane's certifying run (a6e0002, 2026-10-08): the controller's
+# local run directory verbatim plus controller-candidate/ and controller.log.
+# Native command streams and report XML keep their bytes; the verdict's
+# artifact and candidate SHA-256s cover them.
+docs/plan-033/wp3-evidence/firewall-20261008/** -text -whitespace

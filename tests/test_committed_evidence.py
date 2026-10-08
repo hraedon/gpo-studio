@@ -946,6 +946,18 @@ RETIRED_VERDICTS.update({
     'wp3-evidence/plan034-20261008/object-security/verification.json',
 })
 
+# The firewall lane's certifying run, 2026-10-08 (Plan 034, WI-076): a single
+# lane on its own commit, `a6e0002`, banked the way the object-security
+# successor was -- the controller's run directory verbatim, plus
+# `controller-candidate/` and `controller.log`. 36/36: the read leg parses
+# Windows-authored `-PolicyStore` rules with the codec (zero unrecognised
+# records), and the write leg imports Studio's backup and gets Studio's
+# Registry.pol back byte for byte. It is the lane's first verdict, so nothing
+# retires. `tests/test_firewall_lane_evidence.py` pins the pack.
+LANE_VERDICTS.update({
+    'wp3-evidence/firewall-20261008/firewall/verification.json': 'finalize_firewall_run.py',
+})
+
 
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
 #: estate batch owes. Enumerated, never pattern-matched, for the same reason

@@ -146,8 +146,18 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
     assert "zz-studio" in collector
 
 
+#: Live verdicts banked after the batch, for lanes the batch never ran. Each is
+#: a new lane's first certification rather than a requalification, so it
+#: supersedes nothing here; it is named so the batch's live set stays exact
+#: instead of becoming a subset check.
+LIVE_OUTSIDE_THE_BATCH = {
+    # The firewall lane (WI-076): `firewall-20261008094055-2092337` at a6e0002.
+    "wp3-evidence/firewall-20261008/firewall/verification.json",
+}
+
+
 def test_the_batch_is_the_live_set() -> None:
-    """21 batch verdicts plus the successor are live; nothing else, nothing pending."""
+    """21 batch verdicts plus the successor are live, plus the later new lanes."""
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 21
@@ -156,7 +166,8 @@ def test_the_batch_is_the_live_set() -> None:
     assert STALE_OBJECT_SECURITY in registry["RETIRED_VERDICTS"]
     assert set(registry["PENDING_REQUALIFICATION"]) == set()
     expected_live = (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor
-    assert set(registry["LIVE_VERDICTS"]) == expected_live, (
+    assert not LIVE_OUTSIDE_THE_BATCH & (batch_verdicts | successor)
+    assert set(registry["LIVE_VERDICTS"]) == expected_live | LIVE_OUTSIDE_THE_BATCH, (
         "The live set must be exactly this batch's verdicts with the successor in "
         "place of the stale object-security run; anything else is either an "
         "unretired stale binding or a missing registration."

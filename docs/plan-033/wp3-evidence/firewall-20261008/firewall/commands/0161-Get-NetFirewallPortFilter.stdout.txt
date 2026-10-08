@@ -1,0 +1,11 @@
+﻿
+
+Protocol      : TCP
+LocalPort     : 65004
+RemotePort    : Any
+IcmpType      : Any
+DynamicTarget : Any
+
+
+
+

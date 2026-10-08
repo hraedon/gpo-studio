@@ -276,6 +276,26 @@
       "oracle": "Import-GPO of a Studio backup, then read back the GPO's SYSVOL tree and its gPCMachineExtensionNames/gPCUserExtensionNames, and compare both against the publication plan's own claim about what it would write. Executing a publication is outside this lane: nothing here writes to SYSVOL or AD on Studio's behalf.",
       "status": "partial",
       "notes": "Requalified 2026-10-08 at 263f19640529d469c2a54c18b43d228db5378279 by publication-completeness-20261008074904-1047. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
+    },
+    {
+      "lane_id": "firewall-policy-gpmc",
+      "plan_wp": "WP-3",
+      "boundaries": [
+        "gpo-backup-content"
+      ],
+      "required_hosts": [
+        "member-ws2025-disposable"
+      ],
+      "required_tools": [
+        "gpmc",
+        "grouppolicy-module",
+        "netsecurity",
+        "powershell-5.1",
+        "studio-finalize"
+      ],
+      "oracle": "Two legs on disposable unlinked GPOs. Read: New-NetFirewallRule/Set-NetFirewallProfile -PolicyStore author the policy and Studio's codec parses Windows' Registry.pol. Write: Import-GPO of Studio's backup, then Windows' Registry.pol is compared byte for byte with the candidate's. Both legs read the policy back through the NetSecurity cmdlets and Get-GPOReport. Endpoint application is outside this lane.",
+      "status": "partial",
+      "notes": "Certified 2026-10-08 at a6e0002dac0d65d6ae2b969a23636bf284061da1 by firewall-20261008094055-2092337 (36/36). The 13 measured rule shapes and the Domain/Private profile tranche parse with zero unrecognised records, Windows returns Studio's Registry.pol unchanged after Import-GPO, and cmdlet readback matches on both legs including six named normalizations. Studio's export registers the Administrative Templates tool GUID (D02B1F72) where native authoring registers the firewall one (B05566AC); GPMC's report rendered the firewall extension for both, and GPME editability was not measured. One build (WS2025 26100) was measured. IPsec, Public Key, wired and wireless policy are out of scope."
     }
   ]
 }
