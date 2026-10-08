@@ -73,6 +73,7 @@ def _controller_sources() -> list[Path]:
     return sorted(
         [path for path in ORACLE_DIR.iterdir() if path.is_file()]
         + sorted(PLAN_033_DIR.glob("build-*.py"))
+        + sorted(PLAN_033_DIR.glob("*.sh"))
     )
 
 

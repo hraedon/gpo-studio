@@ -70,6 +70,16 @@ export TMPDIR="$BATCH_DIR/tmp"
 mkdir -p "$TMPDIR"
 
 wanted=("$@")
+known=()
+for row in "${LANES[@]}"; do known+=("${row%%|*}"); done
+for w in "${wanted[@]}"; do
+    if [[ " ${known[*]} " != *" $w "* ]]; then
+        echo "refusing: unknown lane '$w' (known: ${known[*]})" >&2
+        exit 2
+    fi
+done
+failures=0
+ran=0
 selected() {
     [[ ${#wanted[@]} -eq 0 ]] && return 0
     local w
@@ -96,8 +106,11 @@ for row in "${LANES[@]}"; do
     # The lane's environment rides INSIDE the acb exec: acb hands its child a
     # minimal environment, so anything set outside it (TMPDIR included) is
     # not what the runner sees.
+    # `env -u` first: a computer-scope lane must not inherit the principal the
+    # user lanes need, and its candidate builder refuses one it was handed.
     acb exec cred:lab-hyperv-control cred:lab-guest-bootstrap -- \
-        env TMPDIR="$TMPDIR" $envs bash "scripts/windows-oracle/$runner" >"$log" 2>&1
+        env -u GPO_STUDIO_RSOP_USER TMPDIR="$TMPDIR" $envs \
+        bash "scripts/windows-oracle/$runner" >"$log" 2>&1
     status=$?
     # run-windows-oracle.sh (WP-0) stops at the run directory and prints the
     # finalizer command instead of running it; every other runner finalizes
@@ -124,4 +137,17 @@ with open(path, "a", encoding="utf-8") as fh:
     }) + "\n")
 PY
     echo "=== $name exit=$status run_dir=${run_dir:-<none>}"
+    ran=$((ran + 1))
+    [[ $status -eq 0 ]] || failures=$((failures + 1))
 done
+
+# A batch that ran nothing, or in which any lane failed, is not a success --
+# the progress log says which, and the exit status must not say otherwise.
+if [[ $ran -eq 0 ]]; then
+    echo "batch ran no lanes" >&2
+    exit 3
+fi
+if [[ $failures -ne 0 ]]; then
+    echo "batch finished with $failures failed lane(s) of $ran" >&2
+    exit 1
+fi
