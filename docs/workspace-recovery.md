@@ -1,225 +1,7 @@
 # Workspace recovery runbook
 
-This runbook covers backup, restore, integrity checking, and recovery
-procedures for a GPO Studio workspace. It is written for the operator who
-maintains the local SQLite database that holds all GPO drafts, revisions,
-and metadata.
-
-## WAL handling
-
-GPO Studio opens its SQLite workspace in **WAL mode** (`PRAGMA journal_mode =
-WAL`). WAL (Write-Ahead Logging) allows readers and a single writer to
-operate concurrently without blocking each other.
-
-### What the sidecar files are
-
-| File | Purpose |
-|------|---------|
-| `workspace.db` | The main database file. |
-| `workspace.db-wal` | The Write-Ahead Log. New transactions append here before being checkpointed into the main database. |
-| `workspace.db-shm` | A shared-memory index used to coordinate WAL access. SQLite manages this file automatically. |
-
-Under normal operation the `-wal` and `-shm` files appear and grow as writes
-occur, then shrink when SQLite checkpoints the WAL into the main database.
-
-### Backup and restore handling
-
-- **Backup**: `backup_workspace()` checkpoints the WAL (`PRAGMA
-  wal_checkpoint(TRUNCATE)`) before copying the database via SQLite's online
-  backup API. This ensures all committed transactions are included in the
-  backup. The backup file itself will not have `-wal` or `-shm` sidecars —
-  they are cleaned up after the backup is written.
-
-- **Restore**: `restore_workspace()` writes to a temporary file and then
-  atomically replaces the target via `os.replace()`. When `--replace` is
-  used, the existing target database is **checkpointed first**
-  (`PRAGMA wal_checkpoint(TRUNCATE)`) to ensure all committed transactions
-  are flushed into the main `.db` file before it is renamed to `.bak`. This
-  guarantees the retained `.bak` file contains all committed data, even if
-  the WAL had not been auto-checkpointed. After the rename, any stale
-  `-wal` and `-shm` files at the target path are deleted to prevent SQLite
-  from replaying a stale WAL against the restored database.
-
-- **Manual cleanup**: If the server crashes, stale `-wal` and `-shm` files
-  may remain. SQLite will normally replay them automatically on the next
-  open. If the database is being moved or copied manually (not via the
-  backup/restore commands), always checkpoint first:
-
-  ```bash
-  sqlite3 workspace.db "PRAGMA wal_checkpoint(TRUNCATE);"
-  ```
-
-  Then copy the `.db` file. Do not copy the `-wal` or `-shm` files
-  separately — they are only meaningful alongside the exact database they
-  were created with.
-
-## Filesystem assumptions
-
-The workspace database must reside on a **local filesystem**. The following
-are not supported:
-
-- **Network shares** (SMB, NFS, etc.): SQLite's file locking semantics are
-  unreliable over network filesystems. WAL mode in particular depends on
-  shared memory that does not behave correctly over network mounts.
-- **Cloud-synced directories** (Dropbox, OneDrive, Google Drive): These
-  services can upload the database mid-write, producing a corrupt copy.
-  Exclude the workspace directory from any sync agent.
-
-### Disk space
-
-The database file grows with the number of GPOs and revisions. WAL files can
-grow temporarily until a checkpoint. Ensure the filesystem has headroom of
-at least 2× the current database size for safe operation. See
-[Disk-full drills](#disk-full-drills) below.
-
-### Filesystem requirements
-
-- Must support `mmap` (used by SQLite's WAL shared memory).
-- Must support `fsync` and `os.replace()` for atomic writes.
-- Standard ext4, XFS, APFS, and NTFS are all acceptable.
-
-## Retention
-
-GPO Studio **does not automatically rotate or delete backups**. The operator
-is responsible for managing backup retention.
-
-### What `--replace` does
-
-When restoring with `--replace`, the existing target database is renamed to:
-
-```
-workspace.db.<YYYYMMDDTHHMMSSZ>.bak
-```
-
-For example: `workspace.db.20260714T120000Z.bak`.
-
-Each restore with `--replace` creates a new `.bak` file with a fresh
-timestamp. Old `.bak` files are never automatically cleaned up.
-
-### Recommended retention strategy
-
-- Keep at least the most recent 3–5 backups.
-- Use a cron job or external scheduler to remove `.bak` files older than
-  your retention window (e.g., 30 days).
-- Verify backup integrity (`gpo-studio workspace check --database
-  <backup.db>`) before deleting older backups.
-
-## Disk-full drills
-
-When the filesystem runs out of space, SQLite raises an `OperationalError`
-containing "disk full" or "database or disk is full". GPO Studio maps this
-to a `WorkspaceError` with the message **"Workspace disk is full."**
-
-### During writes
-
-- The mutation is rolled back. No partial data is committed.
-- The workspace remains readable.
-- The operator should free disk space and retry the operation.
-
-### During backup
-
-- `backup_workspace()` raises `WorkspaceError("Backup failed")`.
-- The partial backup file and any sidecar files are deleted.
-- The source database is unaffected.
-
-### During restore
-
-- `restore_workspace()` raises `WorkspaceError("Restore failed")`.
-- If `--replace` was used, the original database is rolled back from the
-  `.bak` file. If rollback fails, the original is retained as the `.bak`
-  file and the operator is informed.
-- The temporary restore file is deleted.
-
-### Recovery procedure
-
-1. Free disk space (delete old `.bak` files, clear logs, etc.).
-2. Verify workspace integrity:
-
-   ```bash
-   gpo-studio workspace check --database workspace.db
-   ```
-
-3. If the check passes, resume normal operation.
-4. If the check fails, restore from the most recent valid backup:
-
-   ```bash
-   gpo-studio workspace restore backup.db workspace.db --replace
-   ```
-
-## Untrusted actor identity
-
-The `actor` field recorded in revisions is **user-supplied and untrusted**.
-GPO Studio v0.1 has no authentication layer. The `actor` string is passed
-directly from the API request or CLI argument and stored as-is.
-
-**It must never be treated as an authenticated audit identity.**
-
-- Anyone who can reach the web server (typically loopback only) can set
-  `actor` to any string.
-- The `actor` field is useful for operator context ("who intended to make
-  this change") but provides no non-repudiation.
-- For a multi-user deployment, `actor` must come from trusted authentication
-  middleware, not from request JSON. This is a roadmap item, not a current
-  feature.
-
-## Integrity check procedures
-
-GPO Studio provides two integrity check levels:
-
-### Quick check
-
-```bash
-gpo-studio workspace check --database workspace.db
-```
-
-Runs `PRAGMA quick_check`. This is fast (milliseconds) and suitable for
-startup health checks. It verifies the database file is readable and that
-page structures are intact.
-
-### Full integrity check
-
-```bash
-gpo-studio workspace check --database workspace.db --full
-```
-
-Runs `PRAGMA integrity_check`. This is thorough and may take seconds or
-longer on large databases. It verifies the entire database structure
-including indexes and foreign key constraints.
-
-### What to do if checks fail
-
-1. **Stop the server.** Do not attempt further writes to a suspect
-   database.
-
-2. **Check disk space and filesystem health.**
-
-   ```bash
-   df -h .
-   dmesg | tail -20
-   ```
-
-3. **Make a byte-for-byte copy of the database** before attempting
-   recovery:
-
-   ```bash
-   cp workspace.db workspace.db.corrupt-backup
-   ```
-
-4. **Restore from the most recent valid backup:**
-
-   ```bash
-   gpo-studio workspace restore backups/latest.db workspace.db --replace
-   ```
-
-5. **Verify the restored database:**
-
-   ```bash
-   gpo-studio workspace check --database workspace.db --full
-   ```
-
-6. If no valid backup exists, the database may be partially recoverable
-   using SQLite's `.recover` command. This is a last resort and may produce
-   incomplete data. Consult the SQLite documentation.
+How to back up, restore, check and recover the local SQLite workspace that
+holds all GPO drafts, revisions and metadata.
 
 ## Backup and restore procedures
 
@@ -231,35 +13,20 @@ gpo-studio workspace backup \
   --output backups/workspace-$(date +%Y%m%d).db
 ```
 
-This produces two files:
+This writes two files:
 
-- `backups/workspace-YYYYMMDD.db` — the database copy
-- `backups/workspace-YYYYMMDD.db.meta.json` — checksums, schema version,
-  app version, and row counts
+- `backups/workspace-YYYYMMDD.db`: the database copy
+- `backups/workspace-YYYYMMDD.db.meta.json`: checksums, schema version, app
+  version and row counts
 
-The backup is verified after writing: the backup is opened to confirm
-schema and row counts, and its SHA-256 is stored in the metadata sidecar
-for later verification during restore. If verification fails, the backup
-is deleted and an error is raised.
+The command verifies the backup after writing it. It opens the copy to confirm
+the schema and row counts, and stores the copy's SHA-256 in the sidecar so a
+later restore can check it. If verification fails, the backup is deleted and an
+error is raised.
 
-### Restore to a new path (safe, non-destructive)
-
-```bash
-gpo-studio workspace restore backups/workspace-20260714.db new-workspace.db
-```
-
-The target must not exist. This is the recommended approach: restore to a
-new path, verify the data, then switch the server to use the restored file.
-
-### Restore with replacement
-
-```bash
-gpo-studio workspace restore backups/workspace-20260714.db workspace.db --replace
-```
-
-If `workspace.db` exists, it is renamed to
-`workspace.db.<timestamp>.bak` before the restore proceeds. The old database
-is preserved in the `.bak` file.
+The backup command uses SQLite's online backup API, so it is safe to run while
+the server is running. It is the only supported way to get a consistent copy
+of a live workspace.
 
 ### Verify a backup
 
@@ -267,38 +34,221 @@ is preserved in the `.bak` file.
 gpo-studio workspace check --database backups/workspace-20260714.db --full
 ```
 
-Always verify backups after creating them and before restoring from them.
+Verify every backup after creating it and again before restoring from it.
+
+### Restore to a new path (recommended)
+
+```bash
+gpo-studio workspace restore backups/workspace-20260714.db new-workspace.db
+```
+
+The target must not exist. Check the restored data, then point the server at
+the new file.
+
+### Restore in place
+
+```bash
+gpo-studio workspace restore backups/workspace-20260714.db workspace.db --replace
+```
+
+If `workspace.db` exists, it is renamed to `workspace.db.<timestamp>.bak`
+before the restore, so the old database is kept.
+
+## Integrity check procedures
+
+### Quick check
+
+```bash
+gpo-studio workspace check --database workspace.db
+```
+
+Runs `PRAGMA quick_check`. It takes milliseconds and suits startup health
+checks. It confirms the file is readable and its page structures are intact.
+
+### Full integrity check
+
+```bash
+gpo-studio workspace check --database workspace.db --full
+```
+
+Runs `PRAGMA integrity_check`. It can take seconds or longer on a large
+database. It checks the whole structure, including indexes and foreign key
+constraints.
+
+### If a check fails
+
+1. **Stop the server.** Do not write to a suspect database.
+2. **Check disk space and filesystem health.**
+
+   ```bash
+   df -h .
+   dmesg | tail -20
+   ```
+
+3. **Copy the database byte for byte** before attempting recovery:
+
+   ```bash
+   cp workspace.db workspace.db.corrupt-backup
+   ```
+
+4. **Restore the most recent valid backup:**
+
+   ```bash
+   gpo-studio workspace restore backups/latest.db workspace.db --replace
+   ```
+
+5. **Verify the restored database:**
+
+   ```bash
+   gpo-studio workspace check --database workspace.db --full
+   ```
+
+6. If no valid backup exists, SQLite's `.recover` command may recover part of
+   the data. It is a last resort and may produce incomplete data; see the
+   SQLite documentation.
+
+## Disk-full drills
+
+When the filesystem is full, SQLite raises an `OperationalError` containing
+"disk full" or "database or disk is full". GPO Studio turns this into a
+`WorkspaceError` with the message **"Workspace disk is full."**
+
+| When | What happens |
+|------|--------------|
+| During a write | The mutation is rolled back and nothing partial is committed. The workspace stays readable. Free space and retry. |
+| During backup | `backup_workspace()` raises `WorkspaceError("Backup failed")`, deletes the partial backup and any sidecar files, and leaves the source database untouched. |
+| During restore | `restore_workspace()` raises `WorkspaceError("Restore failed")` and deletes its temporary file. With `--replace`, it rolls the original database back from the `.bak` file. If that rollback fails, the original is kept as the `.bak` file and the operator is told. |
+
+### Recovery procedure
+
+1. Free disk space (delete old `.bak` files, clear logs, and so on).
+2. Check the workspace:
+
+   ```bash
+   gpo-studio workspace check --database workspace.db
+   ```
+
+3. If the check passes, carry on as normal.
+4. If it fails, restore the most recent valid backup:
+
+   ```bash
+   gpo-studio workspace restore backup.db workspace.db --replace
+   ```
+
+## Retention
+
+GPO Studio **never rotates or deletes backups**. Retention is up to you.
+
+Each `--replace` restore renames the existing target to a new, timestamped
+file, which is never cleaned up automatically:
+
+```
+workspace.db.<YYYYMMDDTHHMMSSZ>.bak
+```
+
+For example: `workspace.db.20260714T120000Z.bak`.
+
+Recommended:
+
+- Keep at least the 3–5 most recent backups.
+- Use a cron job or other scheduler to remove `.bak` files older than your
+  retention window (for example, 30 days).
+- Check a backup (`gpo-studio workspace check --database <backup.db>`) before
+  deleting older ones.
+
+## WAL handling
+
+The workspace runs in **WAL mode** (`PRAGMA journal_mode = WAL`). WAL
+(Write-Ahead Logging) lets readers and a single writer work at the same time
+without blocking each other.
+
+| File | Purpose |
+|------|---------|
+| `workspace.db` | The main database file. |
+| `workspace.db-wal` | The Write-Ahead Log. New transactions append here before being checkpointed into the main database. |
+| `workspace.db-shm` | A shared-memory index used to coordinate WAL access. SQLite manages this file automatically. |
+
+In normal use the `-wal` and `-shm` files appear and grow with writes, then
+shrink when SQLite checkpoints the WAL into the main database.
+
+- **Backup:** `backup_workspace()` checkpoints the WAL
+  (`PRAGMA wal_checkpoint(TRUNCATE)`) and then copies the database with
+  SQLite's online backup API, so every committed transaction is in the backup.
+  The backup has no `-wal` or `-shm` files; they are removed after the backup
+  is written.
+- **Restore:** `restore_workspace()` writes to a temporary file, then
+  atomically replaces the target with `os.replace()`. With `--replace`, it
+  first checkpoints the existing target (`PRAGMA wal_checkpoint(TRUNCATE)`)
+  so the `.bak` file holds every committed transaction, even if the WAL had
+  not been checkpointed automatically. After the rename, it deletes any stale
+  `-wal` and `-shm` files at the target path, so SQLite cannot replay an old
+  WAL against the restored database.
+- **Manual copies:** after a server crash, stale `-wal` and `-shm` files may
+  remain; SQLite normally replays them on the next open. If you move or copy
+  the database by hand instead of with the backup and restore commands,
+  checkpoint first:
+
+  ```bash
+  sqlite3 workspace.db "PRAGMA wal_checkpoint(TRUNCATE);"
+  ```
+
+  Then copy only the `.db` file. Never copy `-wal` or `-shm` files on their
+  own; they only make sense with the exact database that created them.
+
+## Filesystem assumptions
+
+Keep the workspace on a **local filesystem**. These are not supported:
+
+- **Network shares** (SMB, NFS and so on). SQLite file locking is unreliable
+  over network filesystems, and WAL mode relies on shared memory that does not
+  work correctly over network mounts.
+- **Cloud-synced folders** (Dropbox, OneDrive, Google Drive). They can upload
+  the database mid-write and produce a corrupt copy. Exclude the workspace
+  folder from any sync agent.
+
+The filesystem must support `mmap` (for WAL shared memory), `fsync` and
+`os.replace()` (for atomic writes). ext4, XFS, APFS and NTFS all qualify.
+
+### Disk space
+
+The database grows with the number of GPOs and revisions, and the WAL can grow
+temporarily until a checkpoint. Keep free space of at least twice the current
+database size. See [Disk-full drills](#disk-full-drills).
 
 ## Concurrent access
 
-### Single-connection model
+`WorkspaceStore` uses **one SQLite connection**, guarded by a
+`threading.RLock`. Every read and write goes through that connection under the
+lock:
 
-`WorkspaceStore` maintains a **single SQLite connection** guarded by a
-`threading.RLock`. All reads and writes go through this one connection
-under the lock. This means:
+- Threads in the same process can call store methods concurrently; the lock
+  serializes them.
+- Only one writer runs at a time. SQLite's `BEGIN IMMEDIATE` serializes
+  mutations together with the compare-and-swap revision checks.
 
-- **In-process concurrency is safe.** Multiple threads in the same process
-  can call store methods concurrently. The `RLock` serializes access.
-- **Only one writer at a time.** SQLite's `BEGIN IMMEDIATE` ensures that
-  even under the lock, mutations are properly serialized with
-  compare-and-swap revision checks.
-
-### No external connections
-
-**No external process should open the workspace database while the GPO
-Studio server is running.** This includes:
+**While the server is running, no other process may open the workspace
+database.** That includes:
 
 - `sqlite3` CLI sessions
-- Database browsers (DB Browser for SQLite, DBeaver, etc.)
-- Other instances of GPO Studio pointing at the same file
+- Database browsers (DB Browser for SQLite, DBeaver and others)
+- Other GPO Studio instances pointing at the same file
 - Backup scripts that open the database directly
 
-If an external connection holds a lock, GPO Studio will raise
-`WorkspaceError("Workspace is busy. Try again.")` after the 5-second busy
-timeout expires.
+If another connection holds a lock, GPO Studio raises
+`WorkspaceError("Workspace is busy. Try again.")` once the 5-second busy
+timeout expires. To copy a live workspace, use `gpo-studio workspace backup`
+(see [Create a backup](#create-a-backup)).
 
-### Safe backup while running
+## Untrusted actor identity
 
-The `gpo-studio workspace backup` command uses SQLite's online backup API,
-which can safely copy the database while the server is running. This is the
-only supported way to create a consistent copy of a live workspace.
+The `actor` recorded in each revision is **supplied by the caller and not
+verified**. GPO Studio has no authentication layer; it stores the `actor`
+string from the API request or CLI argument as given. **Never treat it as an
+authenticated audit identity.**
+
+- Anyone who can reach the web server (normally loopback only) can set `actor`
+  to any string.
+- `actor` tells you who intended a change. It provides no non-repudiation.
+- A multi-user deployment must take `actor` from trusted authentication
+  middleware, not request JSON. That is on the roadmap and does not exist
+  today.

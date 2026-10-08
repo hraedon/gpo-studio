@@ -54,15 +54,62 @@ export function splitPrincipals(text) {
     .filter(Boolean);
 }
 
+// One plain sentence per limitation code the API can return. The API's own
+// code and message are kept, unchanged, under "Technical detail". A code not
+// in this map falls back to its API message, so no limitation is ever hidden.
+// Sources: `_policy_family_limitations`, `_object_security_limitations` and
+// `_fdeploy_limitations` in api.py (`_rsop_limitations` currently returns
+// none).
+export const LIMITATION_SENTENCES = {
+  // Security template: both families. The object-security message also covers
+  // permissions and inheritance; that detail stays under "Technical detail".
+  round_trip_not_application:
+    "Windows checked this template with secedit (validate, import and export) but never applied it. Nothing here shows that Windows applies these settings on a computer.",
+  // Security template: policy families.
+  representative_values_only:
+    "Only a sample of values has been through Windows' security database: password and lockout, all nine audit settings, two user rights and four registry value types. That does not show that every value you can enter here behaves as intended.",
+  gpmc_editing_unmeasured:
+    "It has not been tested whether the Group Policy Management Editor can open and edit this template.",
+  kerberos_omitted_for_member_server:
+    "The Kerberos Policy section is left out because a member server exports it empty. Choose the Domain controller scope to include it.",
+  empty_sections_unmeasured:
+    "Some sections are written with a header and no entries (listed under Technical detail). Windows has never been tested with an empty section here. Add entries, or remove those sections before you deploy the template.",
+  // Security template: object security.
+  acl_content_is_not_judged:
+    "Validation checks structure only. It does not judge who is granted access: a grant of Full Control to Everyone raises no issue. A clean result does not approve these permissions.",
+  restricted_groups_not_surfaced:
+    "Group Membership (restricted groups) can't be rendered here. Its output has never been checked against Windows, and it writes SIDs in a different form from Windows (WI-064).",
+  first_tranche_only:
+    "Only a small sample has been checked against Windows: three rows each of Registry Keys, File Security and Service settings. Other shapes, such as empty service descriptors, file paths with environment variables or non-canonical SDDL, are untested.",
+  // Folder Redirection (owner-approved wording).
+  flags_not_decoded:
+    "The Flags number is shown exactly as stored. What each option bit means has not been measured yet.",
+  single_capture_only:
+    "Only one real Folder Redirection file has been checked against Windows. Files that redirect several folders or several groups are untested.",
+  folder_names_documented_not_measured:
+    "Folder names come from Microsoft's documented list. Only Documents has been confirmed against a real file; an unknown folder is shown by its ID.",
+  read_only_no_writer:
+    "This screen only reads files. GPO Studio cannot create or edit Folder Redirection policy yet.",
+};
+
+export function plainLimitation(item) {
+  return Object.hasOwn(LIMITATION_SENTENCES, item.code)
+    ? LIMITATION_SENTENCES[item.code]
+    : item.message;
+}
+
 export function renderLimitations(limitations) {
   if (!limitations || !limitations.length) return "";
-  const items = limitations
+  const plain = limitations
+    .map((item) => `<li>${escapeHtml(plainLimitation(item))}</li>`)
+    .join("");
+  const technical = limitations
     .map(
       (item) =>
         `<li><code>${escapeHtml(item.code)}</code> — ${escapeHtml(item.message)}</li>`,
     )
     .join("");
-  return `<div class="rsop-limitations" role="note"><strong>What this answer does not say</strong><ul>${items}</ul></div>`;
+  return `<div class="rsop-limitations" role="note"><strong>What this answer does not say</strong><ul>${plain}</ul><details><summary>Technical detail</summary><ul>${technical}</ul></details></div>`;
 }
 
 export function renderWarnings(warnings) {
@@ -118,13 +165,13 @@ export function renderGpoResults(gpoResults) {
   // 2026-09-07). This note used to say the status was not a per-side answer;
   // leaving that in place after the per-side columns arrived would make the UI
   // the last thing still saying so.
-  return `<h3>GPOs</h3><p class="rsop-note">"Status" is the merge of the two sides. "Computer" and "User" are the per-side answers: <code>out_of_scope</code> means that side never searched the GPO, <code>no_settings_for_side</code> that it did and the GPO carries nothing for it — neither is a decision against the GPO.</p><div class="table-card"><table><thead><tr><th>Order</th><th>GPO</th><th>Status</th><th>Computer</th><th>User</th><th>Reasons</th><th>Linked at</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<h3>GPOs</h3><p class="rsop-note">"Status" combines both sides. "Computer" and "User" show each side on its own. <code>out_of_scope</code> means that side never looked at the GPO. <code>no_settings_for_side</code> means it did, but the GPO has no settings for that side. Neither means the GPO was filtered out.</p><div class="table-card"><table><thead><tr><th>Order</th><th>GPO</th><th>Status</th><th>Computer</th><th>User</th><th>Reasons</th><th>Linked at</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 export function renderRsopResult(body) {
   const conclusive = body.is_conclusive
     ? ""
-    : '<div class="rsop-inconclusive" role="note"><strong>This prediction is not conclusive.</strong> At least one GPO could not be evaluated, so the winners below are the answer only if those GPOs do not apply.</div>';
+    : '<div class="rsop-inconclusive" role="note"><strong>This prediction is not conclusive.</strong> At least one GPO could not be evaluated. The winners below hold only if those GPOs do not apply.</div>';
   return [
     renderLimitations(body.limitations),
     conclusive,
@@ -146,7 +193,7 @@ export function openRsop() {
   const form = $("#rsop-form");
   clearFormErrors(form);
   $("#rsop-results").innerHTML =
-    '<div class="table-empty">Describe a target and a topology, then compute.</div>';
+    '<div class="table-empty">Enter a target and a topology, then select Compute.</div>';
   $("#rsop-dialog").showModal();
 }
 

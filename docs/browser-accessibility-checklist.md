@@ -1,8 +1,8 @@
 # Browser and accessibility verification
 
-Plan 019 treats the current stable Chromium family as the primary browser
-baseline and Firefox ESR as the secondary baseline. The application remains
-runtime dependency-free; the pinned Node packages are development-only test
+Plan 019 sets the current stable Chromium family as the primary browser
+baseline and Firefox ESR as the secondary one. The application remains
+runtime dependency-free: the pinned Node packages are development-only test
 tools.
 
 ## Automated evidence
@@ -30,10 +30,10 @@ tools.
 
 ## Screen-reader pass
 
-The automated semantic pass verifies roles, names, relationships, live regions,
-dialog labelling, and serious/critical axe findings. A hands-on NVDA session
-against the exact release candidate supplements that automated evidence with
-announcement order, browse-mode behavior, and NVDA-specific navigation.
+The automated semantic pass checks roles, names, relationships, live regions,
+dialog labelling, and serious/critical axe findings. It cannot check
+announcement order, browse-mode behavior, or NVDA-specific navigation, so a
+hands-on NVDA session against the exact release candidate covers those.
 
 - [x] Windows: NVDA + Chromium — announce policy navigation, tabs, validation,
   field errors, conflict choices, and export review in a sensible order.
@@ -43,9 +43,9 @@ announcement order, browse-mode behavior, and NVDA-specific navigation.
 
 The automated snapshot confirms named navigation and main landmarks, a level-1
 policy heading, tabs and tab panels, labelled dialogs and fields, tables with
-headers and rows, and named export and row-action controls. The exact hands-on
-session below followed the [NVDA validation runbook](nvda-validation-runbook.md)
-and confirmed that those semantics support the complete task.
+headers and rows, and named export and row-action controls. The hands-on session
+below followed the [NVDA validation runbook](nvda-validation-runbook.md) and
+confirmed that those semantics support the complete task.
 
 ### 1.0.0rc3 acceptance session
 
@@ -62,19 +62,19 @@ and confirmed that those semantics support the complete task.
 - Supplementary Firefox release-channel run: 152.0.6, 64-bit
 - Gate decision: **Pass**
 
-The complete Edge journey and the Firefox ESR smoke journey passed without a
-task-blocking or significant finding. The supplementary current Firefox run
-also passed. One minor observation was accepted: landmark navigation reliably
-worked in the navigation rail and elsewhere, but did not reliably produce a
-useful announcement for the work pane. The work pane remains reachable and
-the tester completed every core task, so this did not affect the gate result.
+The complete Edge journey and the Firefox ESR smoke journey passed with no
+blocking or significant finding. The supplementary current-Firefox run also
+passed. One minor finding was accepted: landmark navigation worked reliably in
+the navigation rail and elsewhere, but did not reliably give a useful
+announcement for the work pane. The work pane stays reachable and the tester
+completed every core task, so the gate result was unaffected.
 
 ### Interrupted 1.0.0rc2 session
 
-On 2026-07-18, the initial hands-on Windows/NVDA session found a blocker before
-policy creation: NVDA announced each button, but activating a button had no
-effect. A direct request showed `/assets/js/main.mjs` was served as
-`text/plain; charset=utf-8`; the browser therefore rejected it under the
-application's `nosniff` policy and no interaction handlers were installed.
-The server-side MIME fix and regression coverage are included in `1.0.0rc3`.
-No screen-reader checklist item is credited from the interrupted session.
+On 2026-07-18, the first hands-on Windows/NVDA session hit a blocker before
+policy creation: NVDA announced each button, but activating one did nothing. A
+direct request showed `/assets/js/main.mjs` was served as
+`text/plain; charset=utf-8`, so the browser rejected it under the application's
+`nosniff` policy and no interaction handlers were installed. `1.0.0rc3`
+includes the server-side MIME fix and regression coverage. No screen-reader
+checklist item is credited from the interrupted session.

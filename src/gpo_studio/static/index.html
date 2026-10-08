@@ -88,8 +88,8 @@
 
       <section id="empty" class="empty-state">
         <div class="empty-glyph">⌘</div>
-        <h2>Policy authoring, with a paper trail</h2>
-        <p>Create a draft GPO, edit registry policy and link intent, validate it, then export a reviewable publication bundle.</p>
+        <h2>Start with a draft GPO</h2>
+        <p>Create a draft, add registry settings and links, check it for errors, then export a bundle for an administrator to review.</p>
         <button class="primary" id="empty-new">Create your first GPO</button>
       </section>
 
@@ -120,7 +120,7 @@
           </div>
           <article class="card safety">
             <div class="safety-icon">◇</div>
-            <div><h3>Review boundary</h3><p>GPO Studio never connects to AD or writes SYSVOL. Exports include deterministic Registry.pol files and a PowerShell plan for an administrator to review and execute with delegated rights.</p></div>
+            <div><h3>Review boundary</h3><p>GPO Studio never connects to AD or writes to SYSVOL. An export contains Registry.pol files, which are byte-identical every time for the same policy, and a PowerShell plan. An administrator with delegated rights reviews and runs the plan.</p></div>
           </article>
         </div>
 
@@ -132,7 +132,7 @@
 
         <div class="panel" id="panel-browser" role="tabpanel" aria-labelledby="tab-browser" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Configured policy browser</p><h2>Settings browser</h2></div></div>
-          <div id="browser-empty" class="table-empty">No ADMX catalogue configured. Set GPO_STUDIO_ADMX_DIR to enable the settings browser.</div>
+          <div id="browser-empty" class="table-empty">No ADMX catalogue is configured. Set GPO_STUDIO_ADMX_DIR to use the settings browser.</div>
           <div id="browser-content" hidden>
             <div class="filter-row" role="group" aria-label="Filter configured settings by configuration side"><button class="chip active" aria-pressed="true" data-side="all">All</button><button class="chip" aria-pressed="false" data-side="computer">Computer</button><button class="chip" aria-pressed="false" data-side="user">User</button></div>
             <div class="browser-filter-row">
@@ -206,7 +206,7 @@
 
         <div class="panel" id="panel-admx" role="tabpanel" aria-labelledby="tab-admx" tabindex="0" hidden>
           <div class="section-head"><div><p class="eyebrow">Administrative Templates</p><h2>Policy catalogue</h2></div></div>
-          <div id="admx-empty" class="table-empty">No ADMX directory configured. Set GPO_STUDIO_ADMX_DIR to enable policy browsing.</div>
+          <div id="admx-empty" class="table-empty">No ADMX directory is configured. Set GPO_STUDIO_ADMX_DIR to browse policies.</div>
           <div id="admx-content" hidden>
             <input id="admx-search" type="search" placeholder="Search policies by name, key, or description" class="admx-search-input">
             <div id="admx-detail" hidden></div>
@@ -371,7 +371,7 @@
   <dialog id="conflict-dialog" aria-labelledby="conflict-dialog-title" aria-describedby="conflict-dialog-description">
     <form method="dialog" id="conflict-form">
       <div class="dialog-head"><div><p class="eyebrow">Revision conflict</p><h2 id="conflict-dialog-title">Review changes before reapplying</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
-      <p id="conflict-dialog-description">This policy changed after you opened the form. Your unsaved values have been retained; compare them with the current revision before choosing what to do.</p>
+      <p id="conflict-dialog-description">This policy changed after you opened the form. Your unsaved values are kept. Compare them with the current revision, then choose what to do.</p>
       <div id="conflict-details" class="conflict-details" tabindex="0" aria-label="Revision conflict comparison"></div>
       <div class="dialog-actions"><button value="cancel" id="conflict-cancel" data-initial-focus>Keep editing</button><button type="button" id="conflict-reload">Load current revision</button><button class="primary" type="button" id="conflict-reapply">Review and reapply</button></div>
     </form>
@@ -380,7 +380,7 @@
   <dialog id="export-review-dialog" aria-labelledby="export-review-title" aria-describedby="export-review-description">
     <form method="dialog" id="export-review-form">
       <div class="dialog-head"><div><p class="eyebrow">Publication boundary</p><h2 id="export-review-title">Review export readiness</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
-      <p id="export-review-description">Confirm the policy identity, validation state, semantic digest, and artifact capabilities before downloading.</p>
+      <p id="export-review-description">Before you download, check the policy, its validation result, its digests and whether this export is available.</p>
       <div id="export-review-summary" class="review-summary" tabindex="0" aria-label="Export review summary"></div>
       <div id="export-review-issues" class="review-issues" aria-live="polite"></div>
       <div class="dialog-actions"><button value="cancel" id="export-review-cancel" data-initial-focus>Cancel</button><button class="primary" type="button" id="export-review-download">Download export</button></div>
@@ -390,7 +390,7 @@
   <dialog id="gpmc-import-dialog" aria-labelledby="gpmc-import-title" aria-describedby="gpmc-import-description">
     <form method="dialog" id="gpmc-import-form">
       <div class="dialog-head"><div><p class="eyebrow">Safe inbox import</p><h2 id="gpmc-import-title">Import GPMC backup</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
-      <p id="gpmc-import-description">Enter a backup path relative to the configured import inbox. Absolute paths and parent-directory traversal are not allowed.</p>
+      <p id="gpmc-import-description">Enter the backup folder's path relative to the import inbox. Absolute paths and <code>..</code> are not allowed.</p>
       <label>Inbox-relative backup path<input name="relative_path" required maxlength="1000" autocomplete="off" spellcheck="false" placeholder="incoming/backup-folder"></label>
       <label>Actor<input name="actor" required maxlength="120" autocomplete="off" value="local-operator"></label>
       <label>Import reason<input name="reason" required maxlength="500" value="Import GPMC backup"></label>
@@ -410,7 +410,7 @@
   <dialog id="rsop-dialog" class="wide" aria-labelledby="rsop-dialog-title">
     <form method="dialog" id="rsop-form">
       <div class="dialog-head"><div><p class="eyebrow">Resultant Set of Policy</p><h2 id="rsop-dialog-title">Predict effective policy</h2></div><button class="icon" value="cancel" aria-label="Close">×</button></div>
-      <p class="rsop-note">A prediction, not an observation. Certified against a real Windows client for twelve topologies covering LSDOU ordering, link order, inheritance, enforcement, security filtering including denies on Read, user scope and loopback. Slow link and safe mode are not modelled at all, and WMI queries are never evaluated here.</p>
+      <p class="rsop-note">This predicts what Windows would apply; it does not read anything from a real computer. The prediction matched a real Windows client on twelve test topologies covering LSDOU order, link order, inheritance, enforcement, security filtering (including Deny on Read), user scope and loopback. Slow-link detection and safe mode are not modelled. WMI queries are never run here.</p>
       <div class="grid two compact">
         <label>Computer name<input name="computer_name" maxlength="255" placeholder="LABCL01"></label>
         <label>Computer DN<input name="computer_dn" maxlength="1000" placeholder="CN=LABCL01,OU=Servers,DC=ad,DC=hraedon,DC=com"></label>
@@ -418,11 +418,11 @@
         <label>User DN<input name="user_dn" maxlength="1000" placeholder="CN=labuser,OU=Staff,DC=ad,DC=hraedon,DC=com"></label>
         <label>Domain<input name="domain" required maxlength="255" placeholder="ad.hraedon.com"></label>
         <label>Loopback<select name="loopback_mode"><option value="disabled">Disabled</option><option value="merge">Merge</option><option value="replace">Replace</option></select></label>
-        <label>Computer group memberships<textarea name="computer_group_memberships" rows="2" placeholder="One principal per line"></textarea><small>A deny on Read is evaluated against the computer, on both sides.</small></label>
-        <label>User group memberships<textarea name="user_group_memberships" rows="2" placeholder="One principal per line"></textarea><small>Apply Group Policy is evaluated against the principal the policy applies to.</small></label>
+        <label>Computer group memberships<textarea name="computer_group_memberships" rows="2" placeholder="One principal per line"></textarea><small>A Deny on Read is checked against the computer, for both Computer and User settings.</small></label>
+        <label>User group memberships<textarea name="user_group_memberships" rows="2" placeholder="One principal per line"></textarea><small>Apply Group Policy is checked against the account the settings apply to.</small></label>
       </div>
       <label>Query id<input name="query_id" maxlength="255" value="ui-query"></label>
-      <label>Topology<textarea name="topology" rows="10" class="mono" placeholder='{"nodes": [], "gpos": []}'>{"nodes": [], "gpos": []}</textarea><small>The SOM tree, the GPOs and any evaluated WMI filter results, as JSON. The workspace holds draft policies rather than an estate, so there is nothing here to draw an OU tree from.</small></label>
+      <label>Topology<textarea name="topology" rows="10" class="mono" placeholder='{"nodes": [], "gpos": []}'>{"nodes": [], "gpos": []}</textarea><small>JSON with the scope-of-management (SOM) tree, the GPOs, and the result of any WMI filter you have already evaluated. You enter it here because the workspace holds draft GPOs, not your OU tree.</small></label>
       <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Compute</button></div>
       <div id="rsop-results" class="rsop-results"></div>
     </form>
@@ -431,14 +431,14 @@
   <dialog id="security-template-dialog" class="wide" aria-labelledby="security-template-dialog-title">
     <form method="dialog" id="security-template-form">
       <div class="dialog-head"><div><p class="eyebrow">Security settings</p><h2 id="security-template-dialog-title">Render a security template</h2></div><button class="icon" value="cancel" aria-label="Close">&times;</button></div>
-      <p class="rsop-note">Emission only: this builds a <code>GptTmpl.inf</code> and never reads one back. Both families are certified by a Windows lane that validates, imports and re-exports the template through <code>secedit</code> &mdash; and never runs <code>/configure</code>, so none of it is evidence that Windows applies these settings. What each answer does not say is listed above the answer.</p>
+      <p class="rsop-note">This builds a <code>GptTmpl.inf</code>; it cannot read one. Both families were tested by having Windows <code>secedit</code> validate, import and export the template. <code>secedit /configure</code> was never run, so nothing here shows that Windows applies these settings. Each result lists its limits above it.</p>
       <div class="grid two compact">
         <label>Families<select name="mode" id="security-template-mode"><option value="policy-families">Policy families &mdash; account, audit, user rights, security options</option><option value="object-security">Object security &mdash; registry keys, files, services</option></select></label>
-        <label id="security-template-scope-row">Scope<select name="scope"><option value="member_server">Member server</option><option value="domain_controller">Domain controller</option></select><small>A member server exports Kerberos policy empty, so the section is omitted for it.</small></label>
+        <label id="security-template-scope-row">Scope<select name="scope"><option value="member_server">Member server</option><option value="domain_controller">Domain controller</option></select><small>Member server templates leave out the Kerberos Policy section, because a member server exports it empty.</small></label>
       </div>
       <label>Families<textarea name="families" rows="12" class="mono" placeholder='{
   "audit": {"logon_events": "success"}
-}'>{}</textarea><small>The families for the selected mode, as JSON. Restricted groups are not renderable: no lane has read that serializer (WI-064).</small></label>
+}'>{}</textarea><small>JSON for the selected families. Restricted groups can't be rendered: that output has never been checked against Windows (WI-064).</small></label>
       <div class="dialog-actions"><button value="cancel">Close</button><button class="primary" value="default">Render</button></div>
       <div id="security-template-results" class="rsop-results"></div>
     </form>
@@ -447,12 +447,12 @@
   <dialog id="folder-redirection-dialog" class="wide" aria-labelledby="folder-redirection-dialog-title">
     <form id="folder-redirection-form">
       <div class="dialog-head"><div><p class="eyebrow">Folder Redirection</p><h2 id="folder-redirection-dialog-title">Review native policy files</h2></div><button type="button" class="icon" data-close-folder-redirection aria-label="Close">&times;</button></div>
-      <p class="rsop-note">Choose a native <code>fdeploy1.ini</code> policy or <code>fdeploy.ini</code> marker from a local backup's <code>User/Documents &amp; Settings</code> folder. Files are read by this Studio server for review and are not saved into the workspace. This review does not edit or apply policy.</p>
+      <p class="rsop-note">Choose an <code>fdeploy1.ini</code> policy file or an <code>fdeploy.ini</code> marker file from the <code>User/Documents &amp; Settings</code> folder of a local backup. The GPO Studio server reads the files for this review only and does not save them to the workspace. This review does not edit or apply policy.</p>
       <div class="grid two compact">
         <label>Current file<input type="file" name="current_file" accept=".ini" required aria-describedby="folder-redirection-file-help"></label>
         <label>Earlier file (optional)<input type="file" name="earlier_file" accept=".ini" aria-describedby="folder-redirection-file-help"></label>
       </div>
-      <p id="folder-redirection-file-help" class="rsop-note">Native UTF-16LE files with a byte-order mark; up to 1 MiB each. Add an earlier file to compare redirection sections. Flags are shown as stored; their option meanings are not known.</p>
+      <p id="folder-redirection-file-help" class="rsop-note">Use the files as Windows wrote them (UTF-16LE with a byte-order mark), up to 1 MiB each. Add an earlier file to see which redirections changed. Flags are shown as stored; what their option bits mean is not known.</p>
       <div class="dialog-actions"><button type="button" data-close-folder-redirection>Close</button><button class="primary" type="submit" id="folder-redirection-submit">Review files</button></div>
       <p id="folder-redirection-status" role="status" aria-live="polite"></p>
       <div id="folder-redirection-results" class="rsop-results" aria-busy="false"></div>

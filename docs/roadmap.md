@@ -1,14 +1,18 @@
 # GPMC compatibility roadmap
 
-> **Superseded.** This document is retained for historical context only. The
-> authoritative 1.0 capability contract — including capability states
-> (supported, preview, preserved, blocked, out of scope), per-action fidelity,
-> and known limitations — is now
-> [`capability-matrix.md`](capability-matrix.md).
+> **Superseded. Kept for historical context only.** The 1.0 capability
+> contract, including capability states, per-action fidelity and known
+> limitations, is [`capability-matrix.md`](capability-matrix.md). Where the two
+> disagree, the matrix is right.
 
-"Matches all GPMC features" spans multiple storage formats, CSEs, directory objects, delegation semantics, backup formats, and runtime policy evaluation. This roadmap makes the parity claim measurable instead of treating it as one large checkbox.
+This roadmap broke the claim "matches all GPMC features" into measurable
+milestones. That claim spans multiple storage formats, CSEs, directory objects,
+delegation semantics, backup formats and runtime policy evaluation.
 
-The GPO Studio 1.0 product is an offline, single-operator authoring and review workbench. 1.0 corresponds to **Milestone 1 + Milestone 2** below. Milestone 3 (controlled publication) and Milestone 4 (forest-scale operations) are explicitly post-1.0. The 1.0 program is described in Plan 015 through Plan 020.
+GPO Studio 1.0 is an offline, single-operator authoring and review workbench.
+1.0 corresponds to **Milestone 1 + Milestone 2** below. Milestone 3 (controlled
+publication) and Milestone 4 (forest-scale operations) are post-1.0. Plans 015
+to 020 describe the 1.0 program.
 
 ## Capability states
 
@@ -23,8 +27,9 @@ The GPO Studio 1.0 product is an offline, single-operator authoring and review w
 ## Capability matrix
 
 Plan 017's conformance implementation is complete. Individual Windows-lab
-claims remain **pending** until sanitized evidence is attached at the
-release-candidate gate; the historical table below therefore retains “not yet.”
+claims stay **pending** until sanitized evidence is attached at the
+release-candidate gate, so this historical table still says "not yet". For
+current verification status, see [`capability-matrix.md`](capability-matrix.md).
 
 ### Core GPO lifecycle
 
@@ -81,13 +86,18 @@ release-candidate gate; the historical table below therefore retains “not yet.
 
 ## Unknown CSE policy
 
-Unknown CSE content is inventoried and hashed on import (`preserved`) but cannot be edited or re-emitted until its bytes can be preserved safely. A GPO that carries `cse_metadata` for an unrecognized extension cannot be exported as a GPMC backup; the bundle endpoint rejects it with `unknown_cse_content`. This protects GPO Studio from silently dropping extension data that GPMC would expect.
+On import, unknown CSE content is inventoried and hashed (`preserved`). It
+cannot be edited or re-emitted until its bytes can be preserved safely. A GPO
+carrying `cse_metadata` for an unrecognized extension cannot be exported as a
+GPMC backup, and the bundle endpoint rejects it with `unknown_cse_content`.
+This stops GPO Studio silently dropping extension data that GPMC would expect.
 
 ## PowerShell plan (`apply.ps1`)
 
-The generated `apply.ps1` is a human-review aid that uses the GroupPolicy module. It is intentionally not executed by the web application.
+The generated `apply.ps1` is a human-review aid that uses the GroupPolicy
+module. The web application never executes it.
 
-The plan currently applies:
+The plan applies:
 
 - Registry policy: `Set-GPRegistryValue` and `Remove-GPRegistryValue` for all supported value types and delete actions.
 - Links: `New-GPLink` / `Set-GPLink` with enabled, enforced, and order values.
@@ -96,15 +106,16 @@ The plan currently applies:
 
 The plan does **not** apply:
 
-- WMI filter assignment. A comment is emitted directing the operator to assign the filter via GPMC or the GPMC COM API.
-- Group Policy Preferences (GPP Groups, GPP Registry, ILT). For GPP content, use the GPMC backup artifact produced by the `gpmc-backup` endpoint.
+- WMI filter assignment. It emits a comment telling the operator to assign the filter in GPMC or through the GPMC COM API.
+- Group Policy Preferences (GPP Groups, GPP Registry, ILT). For GPP content, use the GPMC backup artifact from the `gpmc-backup` endpoint.
 
-This is a partial plan. Administrators must review both `apply.ps1` and the GPMC backup artifact before any live change.
+The plan is partial. Administrators must review both `apply.ps1` and the GPMC
+backup artifact before any live change.
 
 ## Support policy
 
 - **Python:** 3.13 and 3.14, matching CI. `requires-python` is `>=3.13`.
-- **Browsers:** The UI is built with dependency-light ES modules and plain CSS. It targets current evergreen browsers (Chrome, Firefox, Edge, Safari). No formal minimum browser version is enforced yet.
+- **Browsers:** The UI uses dependency-light ES modules and plain CSS and targets current evergreen browsers (Chrome, Firefox, Edge, Safari). No minimum browser version is enforced yet.
 - **Workspace schema:** The workspace is a local SQLite database (`gpo-studio.db` by default, configurable via `GPO_STUDIO_DB`). Schema versioning is implemented (Plan 018): a `workspace_meta` table tracks the schema version, migrations are forward-only and transactional, and unknown newer schemas are refused.
 
 ## Milestone 1 — usable policy editor
@@ -125,7 +136,7 @@ This is a partial plan. Administrators must review both `apply.ps1` and the GPMC
 
 ## Milestone 3 — controlled publication
 
-Publication is allowed only after all gates exist:
+Publication is allowed only once all of these gates exist:
 
 1. OIDC/Windows authentication; actor derived from the session, not the body.
 2. Role separation for author, reviewer, and publisher.
@@ -137,7 +148,7 @@ Publication is allowed only after all gates exist:
 8. Event log/SIEM output with artifact digest and resulting GPO versions.
 9. Windows lab integration suite for every supported CSE.
 
-The complete worker protocol, concurrency/rollback model, privilege profiles, and rollout gates are specified in [`live-publication.md`](live-publication.md), with adversarial analysis in [`publisher-threat-model.md`](publisher-threat-model.md). Managed publication must not begin until its Phase 0 and Phase 1 gates are satisfied.
+[`live-publication.md`](live-publication.md) specifies the worker protocol, concurrency and rollback model, privilege profiles and rollout gates. [`publisher-threat-model.md`](publisher-threat-model.md) holds the adversarial analysis. Managed publication must not begin until its Phase 0 and Phase 1 gates are met.
 
 ## Milestone 4 — forest-scale operations
 
@@ -146,7 +157,7 @@ The complete worker protocol, concurrency/rollback model, privilege profiles, an
 - Bulk linting, owners, expiry, exception workflow, and change windows.
 - gpo-lens analysis embedded as the read-only verification plane: conflicts, topology, dangerous configuration, baseline drift, and post-publish checks.
 
-At that point the goal is no longer a browser clone of MMC. It is a safer policy-as-change system that retains GPMC interoperability while adding review, determinism, provenance, and automation ergonomics.
+At this stage the goal is a policy-as-change system that keeps GPMC interoperability and adds review, determinism, provenance and automation, rather than a browser clone of MMC.
 
 ## Related plans
 
@@ -157,4 +168,4 @@ At that point the goal is no longer a browser clone of MMC. It is a safer policy
 - Plan 019: [`plans/019-browser-quality-and-accessibility.md`](../plans/019-browser-quality-and-accessibility.md)
 - Plan 020: [`plans/020-release-engineering-and-1.0-gates.md`](../plans/020-release-engineering-and-1.0-gates.md)
 
-For the larger end state beyond compatibility—policy-as-code, controlled publication, promotion rings, estate-scale convergence, multi-forest operation, an adapter ecosystem, and independent evidence—see [`Plan 001: maximalist platform`](../plans/001-maximalist-platform.md).
+For the end state beyond compatibility (policy-as-code, controlled publication, promotion rings, estate-scale convergence, multi-forest operation, an adapter ecosystem and independent evidence), see [`Plan 001: maximalist platform`](../plans/001-maximalist-platform.md).

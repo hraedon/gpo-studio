@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  LIMITATION_SENTENCES,
   formatEffectiveValue,
   parseTopology,
+  plainLimitation,
   renderGpoResults,
   renderLimitations,
   renderRsopResult,
@@ -59,20 +61,69 @@ describe("splitPrincipals", () => {
 });
 
 describe("renderLimitations", () => {
-  test("renders the code and its message", () => {
+  const plainList = (html) =>
+    html.slice(html.indexOf("<ul>"), html.indexOf("<details>"));
+  const details = (html) =>
+    html.slice(html.indexOf("<details>"), html.indexOf("</details>"));
+
+  test("a mapped code renders as its plain sentence", () => {
+    const html = renderLimitations([
+      { code: "flags_not_decoded", message: "Flags is carried verbatim." },
+    ]);
+    expect(plainList(html)).toContain(LIMITATION_SENTENCES.flags_not_decoded);
+    expect(plainList(html)).not.toContain("flags_not_decoded");
+    expect(plainList(html)).not.toContain("Flags is carried verbatim.");
+  });
+
+  test("an unknown code still shows its API message in the plain list", () => {
     const html = renderLimitations([
       { code: "gpo_status_is_not_per_side", message: "It collapses. WI-032." },
     ]);
-    expect(html).toContain("gpo_status_is_not_per_side");
-    expect(html).toContain("It collapses. WI-032.");
+    expect(plainList(html)).toContain("It collapses. WI-032.");
   });
 
-  test("escapes both fields", () => {
+  test("the technical detail is collapsed and keeps every code and message", () => {
+    const limitations = [
+      { code: "flags_not_decoded", message: "Flags is carried verbatim." },
+      { code: "single_capture_only", message: "Exactly one capture (R3)." },
+      { code: "not_in_the_map", message: "Something else." },
+    ];
+    const html = renderLimitations(limitations);
+    expect(html).toContain("<details><summary>Technical detail</summary>");
+    expect(html).not.toContain("<details open");
+    for (const { code, message } of limitations) {
+      expect(details(html)).toContain(`<code>${code}</code> — ${message}`);
+    }
+  });
+
+  test("every Folder Redirection code has a plain sentence", () => {
+    for (const code of [
+      "flags_not_decoded",
+      "single_capture_only",
+      "folder_names_documented_not_measured",
+      "read_only_no_writer",
+    ]) {
+      expect(plainLimitation({ code, message: "api text" })).not.toBe(
+        "api text",
+      );
+    }
+  });
+
+  test("escapes both fields in both lists", () => {
     const html = renderLimitations([
       { code: "<script>", message: "<img onerror=x>" },
     ]);
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("<img");
+    expect(plainList(html)).toContain("&lt;img onerror=x&gt;");
+    expect(details(html)).toContain("<code>&lt;script&gt;</code>");
+  });
+
+  test("a code named like an Object property is not mistaken for a mapped one", () => {
+    const html = renderLimitations([
+      { code: "constructor", message: "Plain API text." },
+    ]);
+    expect(plainList(html)).toContain("Plain API text.");
   });
 
   test("renders nothing when there are none", () => {

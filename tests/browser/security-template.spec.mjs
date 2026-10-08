@@ -88,7 +88,7 @@ test("object security renders and declares the ACL ruling", async ({
   // Everyone full control renders clean. The empty validation list must not be
   // presented as approval -- WI-055 ruled the content unjudged, and this is
   // where an operator would otherwise read silence as a pass.
-  await expect(results).toContainText("deliberately unjudged");
+  await expect(results).toContainText("does not judge ACL content");
   await expect(results).toContainText("acl_content_is_not_judged");
   await expect(results).toContainText("restricted_groups_not_surfaced");
 });

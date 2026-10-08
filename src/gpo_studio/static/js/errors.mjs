@@ -94,7 +94,7 @@ export async function reconcileConflict(form,error,{onCurrent}={}){
   details.replaceChildren();
   appendDetail(details,"Your form revision",error.expectedRevision??"unknown");
   appendDetail(details,"Current workspace revision",latest.gpo.revision);
-  appendDetail(details,"Server-side changes since your form opened",changeCount(diff));
+  appendDetail(details,"Changes saved since you opened the form",changeCount(diff));
   const unsaved=[...new FormData(form).entries()].filter(([name])=>!name.toLowerCase().includes("actor"));
   appendDetail(details,"Unsaved fields retained",unsaved.map(([name])=>name).join(", ")||"form action");
 
@@ -104,12 +104,12 @@ export async function reconcileConflict(form,error,{onCurrent}={}){
     onCurrent?.(latest,{discardForm:true});
     dialog.close();
     form.closest("dialog")?.close();
-    setStatus(`Loaded revision ${latest.gpo.revision}; unsaved form values were discarded by your choice.`)
+    setStatus(`Loaded revision ${latest.gpo.revision}. Your unsaved values were discarded.`)
   };
   reapply.onclick=()=>{
     onCurrent?.(latest,{discardForm:false});
     dialog.close();
-    setStatus(`Reviewing your retained values against revision ${latest.gpo.revision}. Submit again to reapply.`);
+    setStatus(`Your kept values are shown against revision ${latest.gpo.revision}. Submit again to reapply them.`);
     form.querySelector("button[value='default'],button[type='submit']")?.focus()
   };
   dialog.showModal();

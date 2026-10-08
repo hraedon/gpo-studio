@@ -1,7 +1,9 @@
 # Windows write-interface matrix
 
-This matrix prevents “supported by the UI” from being confused with “safe to
-publish.” The source of truth for the standard cmdlet surface is Microsoft's
+This matrix records which Windows interface each GPO operation should use in
+production, and how cautiously Studio may manage it at first. A feature being
+supported in the UI does not make it safe to publish. The source of truth for
+the standard cmdlets is Microsoft's
 [GroupPolicy module reference](https://learn.microsoft.com/en-us/powershell/module/grouppolicy/?view=windowsserver2025-ps).
 
 | Capability | Preferred production interface | Notes | Initial managed state |
@@ -25,26 +27,25 @@ publish.” The source of truth for the standard cmdlet surface is Microsoft's
 
 Microsoft also exposes the
 [`Microsoft.GroupPolicy` .NET API](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/wmi_v2/class-library/microsoft-grouppolicy-namespace)
-over the GPMC object model. It includes GPO status, backup/import/copy,
-security, link/SOM, WMI-filter, RSoP, registry-policy, and registry-preference
-objects. Use it where it is more strongly typed than PowerShell, but still
-wrap it in the same operation allow-list, journal, and verification protocol.
+over the GPMC object model. It covers GPO status, backup/import/copy, security,
+link/SOM, WMI filters, RSoP, registry policy and registry preferences. Use it
+where it is more strongly typed than PowerShell, but wrap it in the same
+operation allow-list, journal and verification protocol.
 
 ## Settings without a generic write API
 
-GPMC is a management console and object model; for editing individual policy
-settings it opens the Group Policy Object Editor, whose extension snap-ins own
-their storage and behavior. Microsoft documents distinct extensions such as
-Security Settings, Software Installation, Scripts, and Folder Redirection.
-Consequently, the publisher cannot honestly turn arbitrary report XML into
-arbitrary writes through one generic API.
+GPMC does not edit individual policy settings itself. It opens the Group Policy
+Object Editor, whose extension snap-ins own their storage and behaviour.
+Microsoft documents separate extensions such as Security Settings, Software
+Installation, Scripts and Folder Redirection. So the publisher cannot turn
+arbitrary report XML into writes through one generic API.
 
 For each CSE, choose one of:
 
 1. a documented, typed Microsoft management API;
-2. a complete GPMC backup produced/validated by Windows and imported through
+2. a complete GPMC backup produced or validated by Windows and imported through
    the supported import operation;
-3. a CSE-specific serializer with extensive Windows/GPMC/client tests; or
+3. a CSE-specific serializer with extensive Windows, GPMC and client tests; or
 4. read-only preservation.
 
 Reference:
@@ -52,9 +53,9 @@ Reference:
 
 ## Current plan-only exporter
 
-The generated `apply.ps1` is explicitly a human review aid. It is not accepted
-as managed-publisher input and must never become one by simply passing its text
-to a PowerShell process. Its supported slice is currently:
+The generated `apply.ps1` is a human review aid. The managed publisher does not
+accept it as input, and it must never become input by passing its text to a
+PowerShell process. It currently covers:
 
 - create-or-find GPO;
 - rename;
@@ -62,6 +63,5 @@ to a PowerShell process. Its supported slice is currently:
 - link create/update;
 - side enablement through the strongly typed `GpoStatus` property.
 
-It still requires lab testing against the supported Windows Server versions
-before being called a reliable deployment script.
-
+Don't call it a reliable deployment script until it has been lab-tested
+against the supported Windows Server versions.

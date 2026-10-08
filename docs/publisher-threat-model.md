@@ -1,8 +1,8 @@
 # Publisher threat model
 
-This document scopes the optional managed-publication subsystem proposed in
+Threats to the optional managed-publication subsystem designed in
 [`live-publication.md`](live-publication.md). The current GPO Studio release has
-no publisher and therefore no domain-write credential.
+no publisher, so it holds no domain-write credential.
 
 ## Assets
 
@@ -65,7 +65,7 @@ no publisher and therefore no domain-write credential.
 
 ## Residual risks
 
-Even with these controls:
+These remain even with every control above:
 
 - a correctly approved policy can cause an outage;
 - Microsoft and third-party CSEs may have behaviors not captured by static
@@ -75,7 +75,7 @@ Even with these controls:
 - a compromised publisher with valid delegated authority can abuse that scope;
 - a malicious quorum of authorized approvers can authorize a malicious change.
 
-The operating model must therefore retain canaries, maintenance windows,
-endpoint telemetry, independent verification, privilege review, key rotation,
-and practiced incident response.
+So the operating model must keep canaries, maintenance windows, endpoint
+telemetry, independent verification, privilege review, key rotation, and
+practiced incident response.
 

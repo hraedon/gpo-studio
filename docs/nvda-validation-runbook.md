@@ -1,16 +1,17 @@
 # NVDA validation runbook
 
-This is the manual screen-reader acceptance gate for GPO Studio 1.0. Automated
-axe, keyboard, and accessibility-tree tests are prerequisites, not substitutes
-for hearing the interface through NVDA and using NVDA's navigation model.
+The manual screen-reader acceptance gate for GPO Studio 1.0. The automated axe,
+keyboard, and accessibility-tree tests must pass first, but they do not replace
+a person listening to the interface through NVDA and using NVDA's navigation
+model.
 
 Run this procedure against the exact release candidate. Do not mark the manual
 items in [`browser-accessibility-checklist.md`](browser-accessibility-checklist.md)
 complete until a person has performed and recorded this session.
 
-The candidate is intentionally published as a GitHub prerelease before this
-manual gate is complete. Its publication does not approve the final release;
-it creates the immutable wheel and checksum identity that this gate evaluates.
+The candidate is published as a GitHub prerelease before this gate runs. That
+publication does not approve the final release. It fixes the wheel and checksum
+that this gate evaluates.
 
 ## Scope and pass rule
 
@@ -58,15 +59,15 @@ New-Item -ItemType Directory -Force $NvdaData | Out-Null
 ```
 
 Install the [current stable NVDA](https://www.nvaccess.org/download/) if the
-lab image does not already have an approved version. The
+lab image does not already have an approved version. If you test an older
+version, record why. The
 [NVDA User Guide](https://download.nvaccess.org/releases/stable/documentation/en/userGuide.html)
-is the keyboard-command authority. Record any reason for testing an older
-version.
+is the authority on keyboard commands.
 
-Use headphones or working speakers. NVDA Speech Viewer may be opened from
-**NVDA menu > Tools > Speech Viewer** to help capture exact announcements, but
-the tester must still listen to speech. Leave punctuation and verbosity at the
-tester's normal settings and record material non-default settings.
+Use headphones or working speakers. You may open **NVDA menu > Tools > Speech
+Viewer** to capture exact announcements, but you must still listen to the
+speech. Leave punctuation and verbosity at your normal settings, and record any
+material non-default settings.
 
 ## NVDA command reminder
 
@@ -96,7 +97,7 @@ version's User Guide and record the deviation.
    the change reason.
 3. Avoid real domain names, SIDs, paths, or production policy data.
 
-Keep this workspace solely as test evidence; do not publish its artifacts.
+Use this workspace only as test evidence. Do not publish its artifacts.
 
 ## Edge: full journey
 
@@ -189,8 +190,8 @@ Repeat these checks in Firefox ESR:
 4. Preferences-table headers, cell navigation, and row/action context.
 5. Export-review dialog name, digest labels, actions, and focus return.
 
-The conflict journey need not be repeated in Firefox unless the Edge run found
-a browser-independent issue or Firefox behavior suggests a related regression.
+Repeat the conflict journey in Firefox only if the Edge run found a
+browser-independent issue or Firefox behavior suggests a related regression.
 
 ## Evidence record
 
@@ -226,13 +227,13 @@ Gate decision: PASS / FAIL
 Release owner disposition for significant findings:
 ```
 
-Speech Viewer excerpts and screenshots are useful attachments, but do not
-record production identifiers or other sensitive data.
+Attach Speech Viewer excerpts and screenshots where useful. Do not record
+production identifiers or other sensitive data.
 
 ## Cleanup
 
-Stop GPO Studio with **Ctrl+C**. After evidence has been retained, remove only
-the disposable workspace:
+Stop GPO Studio with **Ctrl+C**. Once the evidence is saved, remove only the
+disposable workspace:
 
 ```powershell
 $NvdaData = Join-Path $env:LOCALAPPDATA "GPO Studio\nvda-validation"

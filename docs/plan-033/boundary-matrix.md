@@ -1,10 +1,10 @@
 # Plan 033 state-boundary matrix
 
-Status: active contract for Windows external-oracle runs
+Status: active contract for Windows external-oracle runs.
 
 Every semantic assertion in a Plan 033 run names exactly one oracle and one
-boundary below. If a check crosses boundaries, split it into separate
-assertions. A passing content comparison cannot stand in for passing AD or
+boundary from the table below. If a check crosses boundaries, split it into
+separate assertions. A passing content comparison does not count as AD or
 endpoint evidence.
 
 | Boundary value | State owned by the boundary | Preferred oracle | Explicitly excluded |
@@ -34,11 +34,12 @@ endpoint evidence.
 
 ## Evidence-state rule
 
-`pass` means all assertions required by that capability-matrix row passed and
-cleanup completed. `fail` means at least one supported assertion differed or a
-command failed. `unsupported` is an explicit capability downgrade, not a waived
-failure. `inconclusive` means the run cannot support a claim, including missing
-oracle data, missing event data where required, or incomplete cleanup.
+- `pass`: every assertion the capability-matrix row requires passed, and
+  cleanup completed.
+- `fail`: at least one supported assertion differed, or a command failed.
+- `unsupported`: an explicit capability downgrade, not a waived failure.
+- `inconclusive`: the run cannot support a claim. Causes include missing
+  oracle data, missing event data where required, and incomplete cleanup.
 
 The executable parser and normalizer are in
 `src/gpo_studio/oracle_evidence.py`. The machine-readable manifest contract is

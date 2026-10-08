@@ -53,7 +53,7 @@ describe("renderIssues", () => {
   test("an empty list says why it is empty", () => {
     // The silence is a ruling (WI-055), and a bare "no issues" reads as
     // approval of the access granted.
-    expect(renderIssues([])).toMatch(/deliberately unjudged/);
+    expect(renderIssues([])).toMatch(/does not judge ACL content/);
   });
 
   test("renders severity, code, message and path", () => {
