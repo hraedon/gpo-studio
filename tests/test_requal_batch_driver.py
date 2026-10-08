@@ -22,6 +22,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DRIVER = REPO_ROOT / "scripts" / "plan-033" / "run-requal-batch.sh"
 SUPERVISOR = REPO_ROOT / "scripts" / "plan-033" / "lane-supervisor.py"
+SCOPE_TOOL = REPO_ROOT / "scripts" / "plan-033" / "lane-scope.py"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("bash") is None or os.name == "nt",
@@ -41,6 +42,7 @@ def _clone(tmp_path: Path, supervisor: str | None = None) -> Path:
     # The driver under test is the working-tree copy, which may be ahead of HEAD.
     shutil.copy2(DRIVER, clone / "scripts" / "plan-033" / "run-requal-batch.sh")
     shutil.copy2(SUPERVISOR, clone / "scripts" / "plan-033" / "lane-supervisor.py")
+    shutil.copy2(SCOPE_TOOL, clone / "scripts" / "plan-033" / "lane-scope.py")
     if supervisor is not None:
         (clone / "scripts" / "plan-033" / "lane-supervisor.py").write_text(
             supervisor, encoding="utf-8"
@@ -106,12 +108,101 @@ def _require_scopes() -> None:
         pytest.skip("no systemd user manager: the driver refuses to run lanes without one")
 
 
+#: A stand-in for lane-scope.py, so the driver's containment contracts run on
+#: every CI run. "Membership" of a fake scope is the FAKE_SCOPE_ID environment
+#: variable, which every process the lane starts inherits (as a cgroup would
+#: be inherited). FAKE_SCOPE_MODE injects faults: "collision" (the unit name is
+#: taken: start fails, and procs/kill would act on EVERY process carrying any
+#: FAKE_SCOPE_ID, i.e. on the unit that already exists); "unknown" (the cgroup
+#: can never be read, and kill fails). Each call is logged to FAKE_SCOPE_LOG.
+_FAKE_SCOPE_TOOL = r"""#!/usr/bin/env python3
+import os, signal, sys
+mode = os.environ.get("FAKE_SCOPE_MODE", "")
+action = sys.argv[1]
+with open(os.environ["FAKE_SCOPE_LOG"], "a", encoding="utf-8") as fh:
+    fh.write(action + "\n")
+
+
+def members(unit):
+    found = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit() or int(entry) == os.getpid():
+            continue
+        try:
+            env = open(f"/proc/{entry}/environ", "rb").read().split(b"\0")
+        except OSError:
+            continue
+        mine = (b"FAKE_SCOPE_ID=" + unit.encode()) in env
+        taken = mode == "collision" and any(x.startswith(b"FAKE_SCOPE_ID=") for x in env)
+        if mine or taken:
+            found.append(int(entry))
+    return found
+
+
+if action == "probe":
+    sys.exit(0)
+if action == "start":
+    split = sys.argv.index("--")
+    unit, nonce, cgroup_file = sys.argv[2:5]
+    command = sys.argv[split + 1:]
+    if mode == "collision":
+        print(f"Failed to start transient scope unit: Unit {unit}.scope already exists.",
+              file=sys.stderr)
+        sys.exit(1)
+    os.environ["FAKE_SCOPE_ID"] = unit
+    with open(cgroup_file + ".partial", "w", encoding="utf-8") as fh:
+        fh.write(unit + "\n")
+    os.replace(cgroup_file + ".partial", cgroup_file)
+    os.execvp(command[0], command)
+unit = ""
+if os.path.exists(sys.argv[2]):
+    unit = open(sys.argv[2], encoding="utf-8").read().strip()
+if action == "procs":
+    if mode == "unknown" or not unit:
+        sys.exit(2)
+    print("\n".join(str(pid) for pid in members(unit)))
+    sys.exit(0)
+if action == "kill":
+    if mode == "unknown":
+        sys.exit(1)
+    for pid in members(unit):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    sys.exit(0)
+sys.exit(2)
+"""
+
+
+def _scope_env(tmp_path: Path, scope: str = "fake", mode: str = "") -> dict[str, str]:
+    """Environment selecting the scope layer: the gated test stand-in, or the
+    real systemd user scope (skipping when there is no user manager)."""
+    if scope == "real":
+        _require_scopes()
+        return {}
+    tool = tmp_path / "fake-scope"
+    if not tool.exists():
+        tool.write_text(_FAKE_SCOPE_TOOL, encoding="utf-8")
+        tool.chmod(0o755)
+    return {
+        "GPO_STUDIO_REQUAL_TEST_SCOPE_TOOL": str(tool),
+        "GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE": "1",
+        "GPO_STUDIO_REQUAL_TEST_SCOPE_ATTEMPTS": "2",
+        "FAKE_SCOPE_MODE": mode,
+        "FAKE_SCOPE_LOG": str(tmp_path / "scope.log"),
+    }
+
+
+SCOPES = pytest.mark.parametrize("scope", ["fake", "real"])
+
+
 def _run(
     clone: Path, bin_dir: Path, tmp_path: Path, *lanes: str
 ) -> subprocess.CompletedProcess[str]:
-    _require_scopes()
     env = {
         **os.environ,
+        **_scope_env(tmp_path),
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
         "GPO_STUDIO_RSOP_USER": "labuser",
@@ -294,7 +385,7 @@ def _alive(pid: int) -> bool:
 #: a child that left the process group with its own setsid -- then it hangs.
 _TREE_AND_HANG = (
     '    sleep 300 & echo $! >> "$FAKE_PIDS"\n'
-    "    bash -c 'trap \"\" TERM; sleep 300 & echo $! >> \"$FAKE_PIDS\"; wait' &\n"
+    '    bash -c \'trap "" TERM; sleep 300 & echo $! >> "$FAKE_PIDS"; wait\' &\n'
     '    echo $! >> "$FAKE_PIDS"\n'
     '    setsid sleep 300 & echo $! >> "$FAKE_PIDS"\n'
     '    echo $$ >> "$FAKE_PIDS"\n'
@@ -340,17 +431,18 @@ def _scripted_acb(tmp_path: Path, first: str) -> Path:
     return bin_dir
 
 
-def _run_watchdog_batch(tmp_path: Path, first: str) -> tuple[
-    subprocess.CompletedProcess[str], list[dict[str, Any]], list[int], list[int], float
-]:
+def _run_watchdog_batch(
+    tmp_path: Path, first: str, scope: str = "fake"
+) -> tuple[subprocess.CompletedProcess[str], list[dict[str, Any]], list[int], list[int], float]:
     """Run lanes wp1b (the scripted one) and wp2 under a 3 s budget. Returns the
     result, the progress rows, the recorded pids, the ones still alive
     afterwards (killed here so nothing leaks), and the elapsed seconds."""
-    _require_scopes()
+    scope_env = _scope_env(tmp_path, scope)
     clone = _clone(tmp_path)
     pids_file = tmp_path / "pids"
     env = {
         **os.environ,
+        **scope_env,
         "PATH": f"{_scripted_acb(tmp_path, first)}{os.pathsep}{os.environ['PATH']}",
         "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
         "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
@@ -386,10 +478,11 @@ def _run_watchdog_batch(tmp_path: Path, first: str) -> tuple[
     return result, rows, pids, survivors, elapsed
 
 
+@SCOPES
 def test_a_lane_over_budget_is_killed_with_its_whole_tree_and_the_batch_continues(
-    tmp_path: Path,
+    tmp_path: Path, scope: str
 ) -> None:
-    result, rows, pids, survivors, elapsed = _run_watchdog_batch(tmp_path, _TREE_AND_HANG)
+    result, rows, pids, survivors, elapsed = _run_watchdog_batch(tmp_path, _TREE_AND_HANG, scope)
     assert result.returncode == 1, result.stderr
     assert elapsed < 60, f"the watchdog took {elapsed:.0f}s to end a 3s lane"
     assert [(r["name"], r["exit_status"], r["timed_out"], r["budget_seconds"]) for r in rows] == [
@@ -402,9 +495,12 @@ def test_a_lane_over_budget_is_killed_with_its_whole_tree_and_the_batch_continue
     assert not survivors, "the watchdog left part of the lane's tree running"
 
 
-def test_a_grandchild_detached_before_the_deadline_is_killed_too(tmp_path: Path) -> None:
+@SCOPES
+def test_a_grandchild_detached_before_the_deadline_is_killed_too(
+    tmp_path: Path, scope: str
+) -> None:
     """Review P2 (a): it was re-parented away from the leader before expiry."""
-    result, rows, pids, survivors, _ = _run_watchdog_batch(tmp_path, _DETACH_THEN_HANG)
+    result, rows, pids, survivors, _ = _run_watchdog_batch(tmp_path, _DETACH_THEN_HANG, scope)
     assert result.returncode == 1, result.stderr
     assert [(r["name"], r["exit_status"], r["timed_out"]) for r in rows] == [
         ("wp1b", 124, True),
@@ -414,9 +510,12 @@ def test_a_grandchild_detached_before_the_deadline_is_killed_too(tmp_path: Path)
     assert not survivors, "a detached grandchild outlived its timed-out lane"
 
 
-def test_a_lane_that_exits_by_itself_leaves_nothing_running(tmp_path: Path) -> None:
+@SCOPES
+def test_a_lane_that_exits_by_itself_leaves_nothing_running(tmp_path: Path, scope: str) -> None:
     """Review P2 (b): exit 42 is recorded as-is, and its children die with it."""
-    result, rows, pids, survivors, _ = _run_watchdog_batch(tmp_path, _LEAVE_CHILDREN_AND_EXIT_42)
+    result, rows, pids, survivors, _ = _run_watchdog_batch(
+        tmp_path, _LEAVE_CHILDREN_AND_EXIT_42, scope
+    )
     assert result.returncode == 1, result.stderr
     assert [(r["name"], r["exit_status"], r["timed_out"]) for r in rows] == [
         ("wp1b", 42, False),
@@ -479,19 +578,18 @@ _DETACH_AND_WAIT = (
 
 #: A leader that answers SIGTERM by exiting 0.
 _TERM_EXITS_ZERO = (
-    "    trap 'exit 0' TERM\n"
-    '    echo $$ >> "$FAKE_PIDS"\n'
-    "    while :; do sleep 0.2; done\n"
+    "    trap 'exit 0' TERM\n    echo $$ >> \"$FAKE_PIDS\"\n    while :; do sleep 0.2; done\n"
 )
 
 
 def _start_batch(
-    tmp_path: Path, first: str, supervisor: str | None = None
+    tmp_path: Path, first: str, supervisor: str | None = None, scope: str = "fake", mode: str = ""
 ) -> tuple[subprocess.Popen[str], Path]:
-    _require_scopes()
+    scope_env = _scope_env(tmp_path, scope, mode)
     clone = _clone(tmp_path, supervisor)
     env = {
         **os.environ,
+        **scope_env,
         "PATH": f"{_scripted_acb(tmp_path, first)}{os.pathsep}{os.environ['PATH']}",
         "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
         "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
@@ -544,12 +642,13 @@ def _finish(proc: subprocess.Popen[str], pids: list[int]) -> tuple[str, str, lis
     return out, err, survivors
 
 
+@SCOPES
 def test_a_killed_supervisor_stops_the_batch_after_its_scope_is_cleared(
-    tmp_path: Path,
+    tmp_path: Path, scope: str
 ) -> None:
     """Re-check P2-1: SIGKILL to the supervisor left the leader and a
     double-forked descendant running, recorded 137, and started the next lane."""
-    proc, pids_file = _start_batch(tmp_path, _DETACH_AND_WAIT)
+    proc, pids_file = _start_batch(tmp_path, _DETACH_AND_WAIT, scope=scope)
     pids = _wait_for_pids(pids_file, 2)
     supervisor = _parent_of(pids[1])  # the leader's parent
     assert "lane-supervisor.py" in Path(f"/proc/{supervisor}/cmdline").read_text()
@@ -566,13 +665,16 @@ def test_a_killed_supervisor_stops_the_batch_after_its_scope_is_cleared(
     assert "containment was lost" in err
     assert (tmp_path / "count").read_text().strip() == "1", "the next lane started"
     log = (tmp_path / "batch/logs/wp1b.log").read_text()
-    assert "CONTAINMENT LOST" in log and "is empty" in log
+    assert "CONTAINMENT LOST" in log and "verified empty" in log
     assert not survivors, "the lane outlived its supervisor"
 
 
-def test_a_cancelled_supervisor_fails_the_lane_and_stops_the_batch(tmp_path: Path) -> None:
+@SCOPES
+def test_a_cancelled_supervisor_fails_the_lane_and_stops_the_batch(
+    tmp_path: Path, scope: str
+) -> None:
     """Re-check P2-2: a lane that exits 0 on SIGTERM was recorded as a pass."""
-    proc, pids_file = _start_batch(tmp_path, _TERM_EXITS_ZERO)
+    proc, pids_file = _start_batch(tmp_path, _TERM_EXITS_ZERO, scope=scope)
     pids = _wait_for_pids(pids_file, 1)
     supervisor = _parent_of(pids[0])
     assert "lane-supervisor.py" in Path(f"/proc/{supervisor}/cmdline").read_text()
@@ -668,3 +770,246 @@ def test_the_supervisor_writes_its_report_atomically() -> None:
     source = SUPERVISOR.read_text(encoding="utf-8")
     assert "os.replace(partial, args.report)" in source
     assert "args.report.write_text" not in source
+
+
+# --- review round 2 (f3cffaf): unknown is not empty; ownership; the seam -----
+
+#: The lane exits 0 at once and leaves nothing: only the scope layer can make
+#: this lane fail.
+_CLEAN_EXIT = '    echo $$ >> "$FAKE_PIDS"\n'
+
+
+def _rows(tmp_path: Path) -> list[dict[str, Any]]:
+    progress = tmp_path / "batch/progress.jsonl"
+    return [json.loads(line) for line in progress.read_text().splitlines()]
+
+
+def test_an_unreadable_scope_is_lost_containment_not_empty(tmp_path: Path) -> None:
+    """Re-check round 2, P2: a query that failed was read as "no pids", so a
+    lane was declared contained -- and a scope "empty" -- on no evidence."""
+    proc, pids_file = _start_batch(tmp_path, _CLEAN_EXIT, mode="unknown")
+    pids = _wait_for_pids(pids_file, 1)
+    out, err, survivors = _finish(proc, pids)
+    assert proc.returncode == 4, err
+    assert [(r["exit_status"], r["containment_lost"]) for r in _rows(tmp_path)] == [(125, True)]
+    log = (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert "scope gpo-studio-lane-" in log and " unknown" in log
+    assert "could NOT be verified empty" in log
+    assert "verified empty" not in log.replace("NOT be verified empty", "")
+    assert (tmp_path / "count").read_text().strip() == "1", "the next lane started"
+
+
+def test_a_valid_report_with_processes_left_in_the_scope_is_lost_containment(
+    tmp_path: Path,
+) -> None:
+    """A supervisor that reports success but leaves the lane running: the scope
+    check catches it, kills it, and verifies the cgroup empty."""
+    report = '{"status": 0, "timed_out": false, "cancelled": false, "killed": 0}'
+    proc, pids_file = _start_batch(
+        tmp_path, _DETACH_AND_WAIT, _BAD_REPORT_SUPERVISOR.replace("REPORT", repr(report))
+    )
+    pids = _wait_for_pids(pids_file, 2)
+    out, err, survivors = _finish(proc, pids)
+    assert proc.returncode == 4, err
+    rows = _rows(tmp_path)
+    assert [(r["exit_status"], r["containment_lost"]) for r in rows] == [(125, True)]
+    assert rows[0]["processes_killed"] >= 2
+    log = (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert "report valid" in log and "populated" in log and "verified empty" in log
+    assert not survivors
+
+
+def test_a_scope_that_cannot_be_created_is_never_cleaned_up_by_name(tmp_path: Path) -> None:
+    """Re-check round 2, P3: after a failed creation the driver killed the unit
+    of that name -- someone else's. Nothing may be touched it cannot prove it
+    created."""
+    sentinel = subprocess.Popen(
+        ["sleep", "300"], env={**os.environ, "FAKE_SCOPE_ID": "the-unit-that-already-exists"}
+    )
+    try:
+        proc, _ = _start_batch(tmp_path, _CLEAN_EXIT, mode="collision")
+        out, err = proc.communicate(timeout=120)
+        assert proc.returncode == 4, err
+        assert sentinel.poll() is None, "an unrelated process holding the unit was killed"
+        rows = _rows(tmp_path)
+        assert [(r["exit_status"], r["scope_failed"], r["containment_lost"]) for r in rows] == [
+            (125, True, False)
+        ]
+        calls = (tmp_path / "scope.log").read_text().split()
+        assert calls == ["probe", "start"], calls
+        assert not (tmp_path / "count").exists(), "the lane ran without a scope"
+        assert "no scope could be created" in err
+    finally:
+        sentinel.kill()
+        sentinel.wait()
+
+
+def test_the_test_scope_tool_needs_its_gate(tmp_path: Path) -> None:
+    clone = _clone(tmp_path)
+    scope_env = _scope_env(tmp_path)
+    del scope_env["GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE"]
+    env = {
+        **os.environ,
+        **scope_env,
+        "PATH": f"{_fake_acb(tmp_path, 0)}{os.pathsep}{os.environ['PATH']}",
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+        "FAKE_ACB_LOG": str(tmp_path / "acb.log"),
+    }
+    result = subprocess.run(
+        ["bash", str(clone / "scripts/plan-033/run-requal-batch.sh"), str(tmp_path / "b"), "wp1b"],
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE=1" in result.stderr
+    assert not (tmp_path / "acb.log").exists()
+    assert not (tmp_path / "scope.log").exists(), "the stand-in ran before the gate"
+
+
+def test_a_batch_on_the_test_scope_tool_says_so_in_every_row(tmp_path: Path) -> None:
+    clone = _clone(tmp_path)
+    result = _run(clone, _fake_acb(tmp_path, 0), tmp_path, "wp1b")
+    assert result.returncode == 0, result.stderr
+    assert "test scope tool in use" in result.stderr
+    assert [r["test_scope_tool"] for r in _rows(tmp_path)] == [True]
+
+
+def test_no_script_selects_the_test_scope_tool() -> None:
+    offenders = []
+    for path in (REPO_ROOT / "scripts").rglob("*"):
+        if not path.is_file() or path in (DRIVER, SCOPE_TOOL):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if "GPO_STUDIO_REQUAL_TEST_SCOPE" in text or "GPO_STUDIO_REQUAL_ALLOW_TEST_SCOPE" in text:
+            offenders.append(str(path.relative_to(REPO_ROOT)))
+    assert offenders == []
+
+
+def test_lane_scope_tells_unknown_from_gone(tmp_path: Path) -> None:
+    """The real tool's answers without any user manager: no recorded cgroup is
+    UNKNOWN (2), a recorded cgroup that no longer exists is gone (3)."""
+    missing = subprocess.run(
+        ["python3", str(SCOPE_TOOL), "procs", str(tmp_path / "never-written")],
+        capture_output=True,
+    )
+    assert missing.returncode == 2
+    gone_file = tmp_path / "gone"
+    gone_file.write_text("/user.slice/gpo-studio-lane-0000000000000000-1.scope\n")
+    gone = subprocess.run(
+        ["python3", str(SCOPE_TOOL), "procs", str(gone_file)], capture_output=True
+    )
+    assert gone.returncode == 3
+    escape_file = tmp_path / "escape"
+    escape_file.write_text("/../../etc\n")
+    escape = subprocess.run(
+        ["python3", str(SCOPE_TOOL), "procs", str(escape_file)], capture_output=True
+    )
+    assert escape.returncode == 2
+    bad_unit = subprocess.run(
+        [
+            "python3",
+            str(SCOPE_TOOL),
+            "start",
+            "some-other.unit",
+            "n",
+            str(tmp_path / "c"),
+            "--",
+            "true",
+        ],
+        capture_output=True,
+    )
+    assert bad_unit.returncode == 2
+
+
+def test_lane_scope_against_a_real_user_scope(tmp_path: Path) -> None:
+    """Integration: a name collision runs nothing and leaves the existing unit
+    alone; inside its own scope the tool records, lists and kills the cgroup
+    through /sys/fs/cgroup."""
+    _require_scopes()
+    nonce = os.urandom(8).hex()
+    taken = f"gpo-studio-lane-{nonce}-1"
+    holder = subprocess.Popen(
+        [
+            "systemd-run",
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            f"--unit={taken}",
+            "--",
+            "sleep",
+            "300",
+        ]
+    )
+    try:
+        time.sleep(1)
+        marker = tmp_path / "ran"
+        collided = subprocess.run(
+            [
+                "python3",
+                str(SCOPE_TOOL),
+                "start",
+                taken,
+                nonce,
+                str(tmp_path / "cg1"),
+                "--",
+                "touch",
+                str(marker),
+            ],
+            capture_output=True,
+            timeout=60,
+        )
+        assert collided.returncode != 0
+        assert not marker.exists(), "the command ran without its own scope"
+        assert not (tmp_path / "cg1").exists() or not (tmp_path / "cg1").read_text().strip()
+        assert holder.poll() is None, "the existing unit was disturbed"
+
+        own = f"gpo-studio-lane-{nonce}-2"
+        cgroup_file = tmp_path / "cg2"
+        runner = subprocess.Popen(
+            [
+                "python3",
+                str(SCOPE_TOOL),
+                "start",
+                own,
+                nonce,
+                str(cgroup_file),
+                "--",
+                "bash",
+                "-c",
+                "( setsid sleep 300 & ); sleep 300",
+            ]
+        )
+        deadline = time.monotonic() + 20
+        while not (cgroup_file.exists() and cgroup_file.read_text().strip()):
+            assert time.monotonic() < deadline, "the scope never recorded its cgroup"
+            time.sleep(0.1)
+        assert cgroup_file.read_text().strip().endswith(f"/{own}.scope")
+        time.sleep(1)
+        listed = subprocess.run(
+            ["python3", str(SCOPE_TOOL), "procs", str(cgroup_file)], capture_output=True, text=True
+        )
+        # the detached sleeper and the lane (bash exec's its last command)
+        assert listed.returncode == 0 and len(listed.stdout.split()) >= 2, listed.stdout
+        killed = subprocess.run(["python3", str(SCOPE_TOOL), "kill", str(cgroup_file)])
+        assert killed.returncode == 0
+        runner.wait(timeout=20)
+        deadline = time.monotonic() + 20
+        while True:
+            after = subprocess.run(
+                ["python3", str(SCOPE_TOOL), "procs", str(cgroup_file)],
+                capture_output=True,
+                text=True,
+            )
+            if after.returncode == 3 or (after.returncode == 0 and not after.stdout.split()):
+                break
+            assert time.monotonic() < deadline, after
+            time.sleep(0.2)
+    finally:
+        holder.terminate()
+        holder.wait()
