@@ -198,8 +198,11 @@ Release and lab tooling, driven by `scripts/`: `conformance.py`,
 
 `src/` also holds Plans 025–032 domain layers that are landed and
 unit-tested but **not reachable from any operator surface**:
-`network_security`, `lifecycle`, `publisher` and `hosting`. `publisher` and
-`hosting` are out of scope for 1.x and kept as seeds. `rsop`,
+`lifecycle`, `publisher` and `hosting`, plus the IPsec, Public Key, wired
+and wireless half of `network_security`. `publisher`, `hosting` and that half
+are out of scope for 1.x and kept as seeds. The firewall
+(`firewall_policy`, which `network_security` re-exports) has render and decode
+endpoints over a firewall lane certified on 2026-10-08. `rsop`,
 `policy_families` and `object_security` have endpoints, and
 `security_template` is reached through the last two. `script_policy` (Scripts
 export) and `publication` (review-only preview) have endpoints too, over

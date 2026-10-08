@@ -32,10 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**4 open.**
+**3 open.**
 
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - measure GPME display with Studio's tool GUID, or register the firewall one in a requalifying batch.
-- [WI-076](#wi-076--firewall-codec-needs-a-write-lane-before-a-surface) - certify the firewall writer, then surface and retire the legacy firewall facade.
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 
@@ -3031,7 +3030,13 @@ computer-side shutdown script has a banked verdict.
 ## WI-076 — firewall codec needs a write lane before a surface
 
 **Opened:** 2026-10-07 (Plan 034 firewall-only operator ruling).
-**Status:** open.
+**Status:** closed 2026-10-08. The lane certified the codec
+(`firewall-20261008094055-2092337`), `/api/network-security/firewall/render`
+and `/api/gpos/{guid}/firewall-policy` reach it, and `network_security.py`'s
+firewall half is explicit re-exports with its tests adapted. The tool-GUID
+proposal was resolved by measurement rather than an export edit: the write leg
+held with `D02B1F72`, so `export.py` is unchanged, and the one open question,
+GPME display, is WI-077.
 
 `firewall_policy.py` is grounded in the native WS2025 tranche dated 2026-10-08,
 not yet in a verified Studio-origin Windows write/import lane. The two-leg lane
@@ -3045,7 +3050,16 @@ and live; see [the firewall results](plan-033/firewall-results.md). Windows
 returned Studio's Registry.pol byte for byte after `Import-GPO`, with the
 unchanged exporter registering `D02B1F72` rather than `B05566AC`; GPMC's report
 rendered the firewall extension for both. That tool-GUID question moves to
-WI-077. The surface and the facade step remain.
+WI-077.
+
+**2026-10-08 — closed.** The same day the surface landed: `POST
+/api/network-security/firewall/render` (its output for the certified request is
+held equal to the lane builder's) and `GET /api/gpos/{guid}/firewall-policy`
+(its decode of the banked native fixture is held equal to the finalizer's
+parse). `network_security.py`'s legacy `FirewallRule`/`FirewallPolicy`/
+`FirewallProtocol` were removed and the codec's classes re-exported under
+explicit names; `assess_network_security` reads profile `enabled` values, and
+its own tests, the only consumer, were adapted.
 IPsec, Public Key, wired and wireless are out of scope for 1.x.
 
 **Closes when:** a rerunnable, candidate/source/hash-bound firewall writer lane

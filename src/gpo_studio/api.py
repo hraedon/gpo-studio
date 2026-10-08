@@ -24,7 +24,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
 from starlette.types import Scope
@@ -88,6 +88,18 @@ from .fdeploy import (
     known_folder_name,
     read_fdeploy,
     validate_fdeploy,
+)
+from .firewall_policy import (
+    FIREWALL_KEY,
+    FirewallAction,
+    FirewallDirection,
+    FirewallPolicy,
+    FirewallProfile,
+    FirewallProfileSettings,
+    FirewallRule,
+    FirewallValidationError,
+    from_registry_records,
+    to_registry_settings,
 )
 from .gpp import (
     _GROUP_KNOWN_CHILDREN,
@@ -5870,3 +5882,441 @@ def publication_plan_preview(
         "absences": absences,
         "limitations": _publication_limitations(),
     }
+
+
+# --------------------------------------------------------------------------
+# Plan 034: the firewall surface (WI-076).
+#
+# `firewall_policy.py` is bound by the firewall lane's verdict
+# (`firewall-20261008094055-2092337`, 36/36 at a6e0002), as are the builder and
+# the export chain, so the composition lives here, in a file no lane binds.
+# The render endpoint emits exactly what `to_registry_settings` emits, in the
+# shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
+# `tests/test_firewall_surface.py` holds its output for the certified request
+# equal to `build-firewall-candidate.py`'s, and the decode endpoint's output on
+# the banked native fixture equal to what `finalize_firewall_run.py` parses.
+#
+# The codec refuses everything outside the measured tranche. The surface
+# passes that refusal on as a 422 with the codec's issue codes rather than
+# emitting the request with a warning.
+# --------------------------------------------------------------------------
+
+
+class FirewallRuleData(BaseModel):
+    """One rule, in `firewall_policy.FirewallRule`'s vocabulary.
+
+    Every field maps one to one; the codec decides which combinations were
+    measured. Numbers and booleans are strict so that `true` cannot become
+    protocol 1 and `"6"` cannot become TCP on the way in.
+    """
+
+    rule_id: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=1024)
+    direction: FirewallDirection = "inbound"
+    action: FirewallAction = "allow"
+    enabled: StrictBool = True
+    #: IANA protocol number; omitted means Any (no Protocol token).
+    protocol: StrictInt | None = None
+    #: Empty means Any, not all three profiles.
+    profiles: list[FirewallProfile] = Field(default_factory=list, max_length=3)
+    local_port: str | None = Field(default=None, max_length=32)
+    remote_port: StrictInt | None = None
+    remote_port_range: tuple[StrictInt, StrictInt] | None = None
+    icmp4: str | None = Field(default=None, max_length=32)
+    local_address: str | None = Field(default=None, max_length=64)
+    remote_addresses: list[str] = Field(default_factory=list, max_length=2)
+    program: str | None = Field(default=None, max_length=1024)
+    service: str | None = Field(default=None, max_length=256)
+    interface_type: str | None = Field(default=None, max_length=32)
+    description: str | None = Field(default=None, max_length=1024)
+    group: str | None = Field(default=None, max_length=1024)
+    edge_traversal: StrictBool | None = None
+    remote_machine: str | None = Field(default=None, max_length=1024)
+    security: str | None = Field(default=None, max_length=64)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FirewallProfileData(BaseModel):
+    """Per-profile settings; an omitted field is not configured, never a default."""
+
+    enabled: StrictBool | None = None
+    default_inbound_action: FirewallAction | None = None
+    default_outbound_action: FirewallAction | None = None
+    disable_notifications: StrictBool | None = None
+    log_dropped_packets: StrictBool | None = None
+    log_successful_connections: StrictBool | None = None
+    log_file_size_kb: StrictInt | None = None
+    log_file_path: str | None = Field(default=None, max_length=1024)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FirewallRenderRequest(BaseModel):
+    """A machine firewall policy: typed rules plus per-profile settings.
+
+    `policy_version` defaults to 545, the only value measured and the one the
+    codec requires whenever anything is configured.
+    """
+
+    policy_version: StrictInt | None = 545
+    domain: FirewallProfileData = Field(default_factory=FirewallProfileData)
+    private: FirewallProfileData = Field(default_factory=FirewallProfileData)
+    public: FirewallProfileData = Field(default_factory=FirewallProfileData)
+    rules: list[FirewallRuleData] = Field(default_factory=list, max_length=500)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FirewallRegistrySettingResponse(BaseModel):
+    """Exactly the body `setting` of `POST /api/gpos/{guid}/settings`.
+
+    DWORD values are canonical decimal strings, as that endpoint requires.
+    """
+
+    side: str
+    hive: str
+    key: str
+    value_name: str
+    registry_type: str
+    value: str
+    action: str
+    comment: str
+
+
+class FirewallRuleStringResponse(BaseModel):
+    rule_id: str
+    value: str
+
+
+class FirewallLimitation(BaseModel):
+    code: str
+    message: str
+
+
+class FirewallRenderResponse(BaseModel):
+    registry_settings: list[FirewallRegistrySettingResponse]
+    rule_strings: list[FirewallRuleStringResponse]
+    issues: list[ValidationIssueResponse]
+    limitations: list[FirewallLimitation]
+
+
+class FirewallUnknownTokenResponse(BaseModel):
+    position: int
+    text: str
+
+
+class FirewallRuleResponse(BaseModel):
+    rule_id: str
+    name: str
+    direction: str
+    action: str
+    enabled: bool
+    protocol: int | None
+    profiles: list[str]
+    local_port: str | None
+    remote_port: int | None
+    remote_port_range: list[int] | None
+    icmp4: str | None
+    local_address: str | None
+    remote_addresses: list[str]
+    program: str | None
+    service: str | None
+    interface_type: str | None
+    description: str | None
+    group: str | None
+    edge_traversal: bool | None
+    remote_machine: str | None
+    security: str | None
+    unknown_tokens: list[FirewallUnknownTokenResponse]
+    #: The REG_SZ value exactly as stored on the GPO.
+    rule_string: str
+
+
+class FirewallProfileResponse(BaseModel):
+    enabled: bool | None
+    default_inbound_action: str | None
+    default_outbound_action: str | None
+    disable_notifications: bool | None
+    log_dropped_packets: bool | None
+    log_successful_connections: bool | None
+    log_file_size_kb: int | None
+    log_file_path: str | None
+
+
+class FirewallRecordResponse(BaseModel):
+    side: str
+    hive: str
+    key: str
+    value_name: str
+    registry_type: str
+    value: str | int | list[str]
+    action: str
+
+
+FirewallDecodeStatus = Literal["empty", "decoded", "legacy", "refused"]
+
+
+class FirewallPolicyDecodeResponse(BaseModel):
+    gpo_guid: str
+    #: `empty`: no record under the firewall key. `decoded`: the measured
+    #: tranche, parsed. `legacy`: firewall records without PolicyVersion, kept
+    #: uninterpreted. `refused`: a known record outside the tranche; nothing is
+    #: interpreted and every firewall record is returned unrecognised.
+    status: FirewallDecodeStatus
+    policy_version: int | None
+    profiles: dict[str, FirewallProfileResponse]
+    rules: list[FirewallRuleResponse]
+    unrecognised_records: list[FirewallRecordResponse]
+    #: Settings on the GPO outside the firewall key, which the decode does not
+    #: look at. A count, so a reader knows the GPO carries more than this.
+    settings_outside_firewall_key: int
+    issues: list[ValidationIssueResponse]
+    limitations: list[FirewallLimitation]
+
+
+_FIREWALL_RUN_ID = "firewall-20261008094055-2092337"
+_FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
+_FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
+
+
+def _firewall_limitations(*, unmodeled_tokens: bool = False) -> list[dict[str, str]]:
+    """What the firewall lane did not reach, carried in every response."""
+    limitations = [
+        {
+            "code": "policy_store_readback_not_application",
+            "message": (
+                f"The certification behind this surface ({_FIREWALL_RUN_ID}) "
+                "reads policy back from the GPO: Windows' Registry.pol, the "
+                "NetSecurity cmdlets against -PolicyStore, and Get-GPOReport. "
+                "Nothing was linked and no endpoint processed the policy, so "
+                "this is not evidence of resultant firewall state on a client."
+            ),
+        },
+        {
+            "code": "representative_tranche_only",
+            "message": (
+                "One tranche was measured: 13 rule shapes and the Domain and "
+                "Private profile literals in docs/plan-033/firewall-codec.md, "
+                "on a GPO carrying only that firewall policy. The codec "
+                "refuses every other protocol, profile combination, address "
+                "form, port keyword, profile value and Public profile "
+                "setting, rather than emitting it with a warning. Within a "
+                "shape, names, numeric ports, paths and addresses vary; the "
+                "lane measured one concrete value for each."
+            ),
+        },
+        {
+            "code": "ipsec_pki_wired_wireless_out_of_scope",
+            "message": (
+                "Connection security (IPsec), Public Key, wired and wireless "
+                "network policy are out of scope for 1.x (operator ruling "
+                "2026-10-07). IFType=Lan is part of the firewall rule "
+                "vocabulary and does not qualify wired network policy."
+            ),
+        },
+        {
+            "code": "gpme_display_unmeasured",
+            "message": (
+                "Studio's GPMC backup registers the Registry extension with "
+                "the Administrative Templates tool GUID "
+                "{D02B1F72-3407-48AE-BA88-E8213C6761F1}; native firewall "
+                "authoring registers {B05566AC-FE9C-4368-BE01-7A4CBB6CBA11}. "
+                "Import-GPO, byte-identical Registry.pol, cmdlet readback and "
+                "the GPMC report's firewall extension all held with Studio's "
+                "GUID. Whether the Group Policy Management Editor shows and "
+                "edits these rules under its firewall node was not measured "
+                "(WI-077)."
+            ),
+        },
+        {
+            "code": "single_build_measured",
+            "message": (
+                "Measured on one build: Windows Server 2025 (26100), Windows "
+                "PowerShell 5.1, rule format v2.33 and PolicyVersion 545."
+            ),
+        },
+    ]
+    if unmodeled_tokens:
+        limitations.append({
+            "code": "unmodeled_tokens_preserved_not_editable",
+            "message": (
+                "At least one rule carries tokens the codec does not model. "
+                "They are returned with their positions and text, unchanged, "
+                "but such a rule cannot be rendered: re-emitting it would "
+                "need a measurement of those tokens."
+            ),
+        })
+    return limitations
+
+
+def firewall_policy_from_request(body: FirewallRenderRequest) -> FirewallPolicy:
+    """The request as the codec's dataclasses, field for field.
+
+    Public because `test_firewall_surface.py` holds it against the lane
+    builder's `candidate_policy()`.
+    """
+
+    def profile(data: FirewallProfileData) -> FirewallProfileSettings:
+        return FirewallProfileSettings(**data.model_dump())
+
+    rules = []
+    for rule in body.rules:
+        fields = rule.model_dump()
+        fields["profiles"] = tuple(rule.profiles)
+        fields["remote_addresses"] = tuple(rule.remote_addresses)
+        fields["remote_port_range"] = (
+            None if rule.remote_port_range is None else tuple(rule.remote_port_range)
+        )
+        rules.append(FirewallRule(**fields))
+    return FirewallPolicy(
+        policy_version=body.policy_version,
+        domain=profile(body.domain),
+        private=profile(body.private),
+        public=profile(body.public),
+        rules=tuple(rules),
+    )
+
+
+def _firewall_setting_body(setting: RegistrySetting) -> dict[str, str]:
+    value = setting.value
+    if isinstance(value, list):  # pragma: no cover - the codec emits no MULTI_SZ
+        raise TypeError("firewall settings are REG_DWORD or REG_SZ")
+    return {
+        "side": setting.side,
+        "hive": setting.hive,
+        "key": setting.key,
+        "value_name": setting.value_name,
+        "registry_type": setting.registry_type,
+        "value": str(value),
+        "action": setting.action,
+        "comment": "",
+    }
+
+
+@app.post("/api/network-security/firewall/render", response_model=FirewallRenderResponse)
+def render_firewall_policy(body: FirewallRenderRequest) -> dict[str, Any]:
+    """Render a machine firewall policy as registry settings. Writes nothing.
+
+    `registry_settings` is what `to_registry_settings` emits, each item in the
+    body shape `POST /api/gpos/{guid}/settings` accepts; `rule_strings` are the
+    REG_SZ rule values among them. A request outside the measured tranche is a
+    422 carrying the codec's issue codes. `issues` holds non-blocking GPO
+    validation warnings, normally none. Read `limitations` before deploying.
+    """
+    policy = firewall_policy_from_request(body)
+    try:
+        settings = to_registry_settings(policy)
+    except FirewallValidationError as error:
+        raise ValidationError(list(error.issues)) from error
+    probe = GPO(
+        guid=_FIREWALL_RENDER_GPO_GUID,
+        name="firewall-render",
+        settings=tuple(settings),
+    )
+    issues = validate_gpo(probe)
+    if any(issue.severity == "error" for issue in issues):
+        raise ValidationError(issues)
+    return {
+        "registry_settings": [_firewall_setting_body(s) for s in settings],
+        "rule_strings": [
+            {"rule_id": s.value_name, "value": str(s.value)}
+            for s in settings
+            if s.key.casefold() == _FIREWALL_RULES_KEY
+        ],
+        "issues": [asdict(issue) for issue in issues],
+        "limitations": _firewall_limitations(),
+    }
+
+
+def _is_firewall_record(setting: RegistrySetting) -> bool:
+    key = setting.key.casefold()
+    root = FIREWALL_KEY.casefold()
+    return key == root or key.startswith(root + "\\")
+
+
+def _firewall_record_body(setting: RegistrySetting) -> dict[str, Any]:
+    return {
+        "side": setting.side,
+        "hive": setting.hive,
+        "key": setting.key,
+        "value_name": setting.value_name,
+        "registry_type": setting.registry_type,
+        "value": setting.value,
+        "action": setting.action,
+    }
+
+
+@app.get("/api/gpos/{guid}/firewall-policy", response_model=FirewallPolicyDecodeResponse)
+def firewall_policy_decode(request: Request, guid: str) -> dict[str, Any]:
+    """Decode a GPO's firewall records, read only. Imported GPOs included.
+
+    Only settings under the firewall key are decoded, on either side; a
+    user-side or non-HKLM one comes back unrecognised. A known record outside
+    the measured tranche makes the whole decode `refused` (200, with the
+    codec's issues): a partial interpretation would hide which records the
+    codec could not read.
+    """
+    gpo = _store(request).get_gpo(guid)
+    records = [s for s in gpo.settings if _is_firewall_record(s)]
+    empty_profile = asdict(FirewallProfileSettings())
+    response: dict[str, Any] = {
+        "gpo_guid": gpo.guid,
+        "status": "empty",
+        "policy_version": None,
+        "profiles": {name: dict(empty_profile) for name in ("domain", "private", "public")},
+        "rules": [],
+        "unrecognised_records": [],
+        "settings_outside_firewall_key": len(gpo.settings) - len(records),
+        "issues": [],
+        "limitations": _firewall_limitations(),
+    }
+    if not records:
+        return response
+    try:
+        parsed = from_registry_records(records)
+    except FirewallValidationError as error:
+        response.update(
+            status="refused",
+            unrecognised_records=[_firewall_record_body(s) for s in records],
+            issues=[asdict(issue) for issue in error.issues],
+        )
+        return response
+    raw = {
+        s.value_name: str(s.value)
+        for s in records
+        if s.key.casefold() == _FIREWALL_RULES_KEY
+    }
+    rules = []
+    for rule in parsed.policy.rules:
+        body = asdict(rule)
+        body["profiles"] = list(rule.profiles)
+        body["remote_addresses"] = list(rule.remote_addresses)
+        body["remote_port_range"] = (
+            None if rule.remote_port_range is None else list(rule.remote_port_range)
+        )
+        body["unknown_tokens"] = [asdict(token) for token in rule.unknown_tokens]
+        body["rule_string"] = raw[rule.rule_id]
+        rules.append(body)
+    policy = parsed.policy
+    legacy = any(i.code == "firewall_legacy_without_policy_version" for i in parsed.issues)
+    response.update(
+        status="legacy" if legacy else "decoded",
+        policy_version=policy.policy_version,
+        profiles={
+            "domain": asdict(policy.domain),
+            "private": asdict(policy.private),
+            "public": asdict(policy.public),
+        },
+        rules=rules,
+        unrecognised_records=[
+            _firewall_record_body(r)
+            for r in parsed.unrecognised_records
+            if isinstance(r, RegistrySetting)
+        ],
+        issues=[asdict(issue) for issue in parsed.issues],
+        limitations=_firewall_limitations(
+            unmodeled_tokens=any(rule.unknown_tokens for rule in policy.rules)
+        ),
+    )
+    return response

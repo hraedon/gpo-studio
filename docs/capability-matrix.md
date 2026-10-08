@@ -827,6 +827,40 @@ operation allowlist is still empty. Every response says so. See
 [the results](plan-033/publication-completeness-results.md) and
 [the operator guide](scripts-and-publication-preview.md).
 
+### `firewall_policy.py` (Plans 025 and 034) — one measured tranche, reachable at `/api/network-security/firewall/*`
+
+Reconciled 2026-10-08 under Plan 034, codec first, then lane, then surface.
+
+**Endpoints.** `POST /api/network-security/firewall/render` turns typed rules
+and per-profile settings into `registry_settings` in the body shape
+`POST /api/gpos/{guid}/settings` accepts, plus the raw rule strings; it writes
+nothing. `GET /api/gpos/{guid}/firewall-policy` decodes a GPO's firewall
+records, imported GPOs included, into rules, profiles and
+`unrecognised_records`, and returns unknown rule tokens with their positions
+rather than dropping them.
+
+**Certification.** `firewall-20261008094055-2092337` (36/36, commit `a6e0002`;
+[results](plan-033/firewall-results.md)). The read leg authors the policy with
+`New-NetFirewallRule`/`Set-NetFirewallProfile -PolicyStore` and parses
+Windows' Registry.pol with the codec: zero unrecognised records, equal to the
+authored policy, cmdlet readback equal including six named normalizations.
+The write leg imports Studio's backup with `Import-GPO`: Windows' Registry.pol
+is byte-identical to the candidate's and cmdlet readback is equal. The surface
+composes in `api.py`, which no lane binds; `tests/test_firewall_surface.py`
+holds its render of the certified request equal to the lane builder's and its
+decode of the banked native fixture equal to the finalizer's parse.
+
+**What is NOT certified, and is not claimed.** Values outside the measured
+tranche are refused with 422 and the codec's code, not warned about. The
+evidence is PolicyStore readback, not endpoint application. One build was
+measured. Studio's export registers the Administrative Templates tool GUID
+(`D02B1F72`) where native authoring registers the firewall one (`B05566AC`);
+GPMC's report rendered the firewall extension for both, and GPME display is
+unmeasured (WI-077). IPsec, Public Key, wired and wireless are out of scope for
+1.x. Every response carries `policy_store_readback_not_application`,
+`representative_tranche_only`, `ipsec_pki_wired_wireless_out_of_scope`,
+`gpme_display_unmeasured` and `single_build_measured`.
+
 ---
 
 ## Post-1.0 domain layers — landed but not surfaced
@@ -898,7 +932,7 @@ verdict.
 |---|---|---|---|
 | 025 | `security_template.py` | **through its consumers** — both Security template endpoints emit through it | **exits through its consumers (ruled 2026-10-07)** — three live verdicts bind it: `wp3-member`, `wp3-dc` and `object-security`. They exercise it in both directions: every candidate builder emits through it, and every finalizer decodes the bytes Windows wrote with `secedit /export` through it. The two endpoints that reach it are `POST /api/security-template/policy-families` and `POST /api/security-template/object-security`. **Reading a GPME-authored `GptTmpl.inf` is out of scope** until someone proposes a Security Settings import surface. The earlier R4 capture measured the encoding and section shape of one native template, and showed the codec keeps that template's 3 `[Registry Keys]` rows unparsed (WI-038, below). The module is not counted as a capability of its own: what is certified is what its consumers emit |
 | 025 | `object_security.py` | **yes** — `POST /api/security-template/object-security` | **lane-backed and surfaced (R4, R9)** — propagation codes measured (0/1/2; all three were previously wrong); `secedit /validate` accepts the native row shape and rejects the module's former one. Plan 034 adds a clean member-server validate/import/export lane: current verdict `object-security-20261008082348-9729` (20/20, `1fb3f56`). Surfaced 2026-09-11 for **emission only**, for the three certified families. The corrected restricted-groups serializer is now lane-certified (WI-064, closed 2026-10-08) but not yet surfaced. ACL *application* is unverified. ACL *content* is unjudged by ruling (WI-055, closed 2026-09-07), not by omission, and every response says so. See [above](#object_securitypy-plan-025--three-certified-families-reachable-at-apisecurity-templateobject-security) |
-| 025 / 034 | `network_security.py` / `firewall_policy.py` | no | **firewall codec + lane built; exploratory Windows run passed 36/36 at a superseded commit; certifying run pending** — native WS2025 firewall tranche (2026-10-08) grounds the separate codec. Exit is FIREWALL codec → lane → surface; legacy facade retained pending WI-076. IPsec, Public Key, wired and wireless are out of scope for 1.x (operator ruling 2026-10-07). See [measured codec and lane design](plan-033/firewall-codec.md) |
+| 025 / 034 | `network_security.py` / `firewall_policy.py` | **yes, for the firewall** — `POST /api/network-security/firewall/render` and `GET /api/gpos/{guid}/firewall-policy` | **lane-backed and surfaced for the firewall (firewall)** — the two-leg firewall lane certified `firewall_policy.py` as `firewall-20261008094055-2092337` (36/36, `a6e0002`): rules authored with `New-NetFirewallRule -PolicyStore` parse with zero unrecognised records and equal the authored policy, and `Import-GPO` of Studio's backup returns its Registry.pol byte for byte, with cmdlet readback equal on both legs. Surface: added 2026-10-08 in `api.py` (bound by no lane); `tests/test_firewall_surface.py` holds the render of the certified request equal to the lane builder's and the decode of the banked native fixture equal to the finalizer's parse. `network_security.py`'s firewall half is explicit re-exports of the codec (WI-076, closed). See [above](#firewall_policypy-plans-025-and-034--one-measured-tranche-reachable-at-apinetwork-securityfirewall). **Limits:** the measured tranche only (13 rule shapes, Domain/Private profile literals), everything else refused; PolicyStore readback, not endpoint application; one build; GPME display unmeasured with Studio's `D02B1F72` tool GUID (WI-077). **IPsec, Public Key, wired and wireless are out of scope for 1.x** (operator ruling 2026-10-07): their models stay in `network_security.py`, reachable from nothing and not counted as capabilities |
 | 025 | `policy_families.py` | **yes** — `POST /api/security-template/policy-families` | **lane-backed and surfaced (R7)** — a [repeatable member/DC serializer lane](plan-033/wp3-policy-family-results.md), currently `wp3-security-template-20261008074639-3419` and `wp3-security-template-20261008074709-2998` (20/20 each, Plan 034 batch); the lane corrected the audit key and removed two unsupported Kerberos fields. Surfaced 2026-09-11 for **emission only**: the endpoint renders families as INF and does not parse one back, because `security_template.py`'s read direction has no cmdlet oracle. Every response carries the three limits the lane did not reach: `/configure` is never invoked, one tranche of values was measured, and GPME editing is unmeasured. Application and arbitrary-value coverage are unverified |
 | 026 | `script_policy.py` | **yes** — `POST /api/gpos/{guid}/gpmc-backup-with-scripts` (and `/preview`) and the Scripts browser panel ([operator guide](scripts-and-publication-preview.md)) | **lane-backed and surfaced (R2, R10, scripts-metadata)** — lane: the Scripts metadata lane re-runs the measurement on a clean member server; the live pack is the [Plan 034 batch](plan-033/plan034-batch.md)'s `scripts-r10-20261008074828-8492` (20/20 checks, `263f196`), re-earned after the batch renormalized its runner (WI-063), deleted the stale pre-R2 INI writer/parser (the certified writer is `export.gpmc_backup_bundle(gpo, scripts=...)`) and changed `export.py`. The WI-062 batch's `scripts-r10-20260905191308-8174` and the earlier [`scripts-r10-20260908013518-2476`](plan-033/backup-report-fidelity.md) are retired history. R2 measured the native wire format, and R10 showed Windows re-emitting Studio's `scripts.ini`/`psscripts.ini` byte for byte after `Import-GPO`. Surface: added 2026-10-08, composed in `api.py` (bound by no lane) through that writer and `native_backup_refusal`, unchanged; `tests/test_scripts_surface.py` holds the endpoint's ZIP byte-equal to `build-scripts-backup-candidate.py`'s for the certified request. See [above](#script_policypy-plan-026--one-measured-shape-exportable-at-apigposguidgpmc-backup-with-scripts). **Limits:** one entry shape was measured (computer startup entries, PowerShell first, on a GPO with no other content and both sides enabled), and the surface **refuses** everything else: user-side scripts (WI-071), shutdown/logon/logoff, the other PowerShell orders, and GPOs with registry or preference content. Every response carries `payload_not_carried`, `execution_unmeasured`, `gpme_editing_unmeasured` and `one_entry_shape_measured`. Payload delivery is out of scope for 1.x; execution and endpoint processing are unverified |
 | 026 | ~~`artifact_store.py`~~ | — | **deleted 2026-10-07 (operator ruling)** — delivering script or executable payloads is out of scope for 1.x. Its optional uses in `publication.py` and `script_policy.py` were removed in the requalification batch. The former scope record is kept at [the scope ruling](plan-033/artifact-store-scope.md) |
@@ -912,9 +946,10 @@ verdict.
 | 031 | ~~`certification.py`~~ | — | **deleted 2026-09-07 (WI-056)** — superseded by `oracle_evidence.py`, no consumer outside its own tests. Plan 031's underlying question (what a portfolio of evidence across capabilities looks like) is unanswered and is recorded there, not here |
 | 032 | `hosting.py` | no | no — **out of scope for 1.x, code retained (ruled 2026-10-07)** as a Milestone 3 seed. It is not counted as a capability, and the 2026-08-07 "harden" verdict ([the assessment](plan-032-shape-assessment-2026-08-07.md)) is unchanged. No hosted mode is available |
 
-**No row in this table says a bare `yes`, on purpose.** Four rows,
-`policy_families.py`, `object_security.py` (2026-09-11), `script_policy.py`
-and `publication.py` (2026-10-08), have met both halves of the exit
+**No row in this table says a bare `yes`, on purpose.** Five rows,
+`policy_families.py`, `object_security.py` (2026-09-11), `script_policy.py`,
+`publication.py` and the firewall half of `network_security.py` through
+`firewall_policy.py` (2026-10-08), have met both halves of the exit
 condition, and they are described under
 [Reconciled post-1.0 layers](#reconciled-post-10-layers--certified-and-surfaced)
 above. Their cells say `lane-backed and surfaced` and name the evidence, so the
@@ -971,8 +1006,9 @@ stay `preserve-only` in the codec, and nothing is owed for them in Plan 034.
 Plan 029's `rsop.py` was in this table until 2026-08-06, and it is the only
 layer that has left the table entirely. `policy_families.py` and
 `object_security.py` have also met the exit condition (2026-09-11), as have
-`script_policy.py` and `publication.py` (2026-10-08), and all four are
-[reconciled](#reconciled-post-10-layers--certified-and-surfaced) above. They
+`script_policy.py`, `publication.py` and `firewall_policy.py` (2026-10-08), and
+all five are [reconciled](#reconciled-post-10-layers--certified-and-surfaced)
+above. They
 keep their rows here so each plan's remaining modules and rulings stay in one
 table.
 

@@ -1,11 +1,15 @@
 # Firewall codec and the next lane
 
-Status: codec and two-leg lab lane implemented, **not surfaced**; capture-backed,
-review corrections and non-blocking follow-ups implemented with regression probes;
-Windows lane not yet run or verified.
-Native fixture dated 2026-10-08; operator scope ruling
-2026-10-07. Plan 034 exit remains codec → lane → surface. [WI-076](../work-items.md#wi-076--firewall-codec-needs-a-write-lane-before-a-surface)
-tracks the remaining work.
+Status: codec, lane and surface all landed (Plan 034 exit met, 2026-10-08).
+The two-leg lane certified the codec as `firewall-20261008094055-2092337`
+(36/36 at `a6e0002`; [results](firewall-results.md)), and
+`POST /api/network-security/firewall/render` and
+`GET /api/gpos/{guid}/firewall-policy` surface it from `api.py`.
+`network_security.py`'s firewall half is now explicit re-exports of this codec.
+[WI-076](../work-items.md#wi-076--firewall-codec-needs-a-write-lane-before-a-surface)
+is closed; the tool-GUID question is
+[WI-077](../work-items.md#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid).
+Native fixture dated 2026-10-08; operator scope ruling 2026-10-07.
 
 `firewall_policy.py` reads/validates/emits the measured machine Registry.pol
 tranche. It does not import `network_security.py` or change any lane-bound
@@ -15,11 +19,12 @@ unchanged Registry.pol and per-file provenance hashes. Sanitized backup security
 descriptors are nonfunctional placeholders, following the GPP convention;
 these fixtures are evidence, not publication packages.
 
-The legacy `network_security.py` firewall model stays in place to keep its
-existing tests and callers compatible. It assumes global/default profile
-settings and cannot faithfully represent the capture. After the lane certifies
-the new codec, adapt its consumers and replace its firewall half with explicit
-re-exports from `firewall_policy.py`; do not silently alias incompatible classes.
+The legacy `network_security.py` firewall model assumed global/default
+profile settings and could not faithfully represent the capture. After the lane
+certified the new codec, its firewall half was replaced (2026-10-08) with
+explicit re-exports from `firewall_policy.py`, and its only consumer, its own
+test module, was adapted; the incompatible legacy classes were removed, not
+aliased.
 IPsec, Public Key, wired and wireless policy authoring are out of scope for 1.x
 under the operator ruling. Firewall `IFType=Lan` remains part of the measured
 firewall rule vocabulary; this does not qualify wired network policy authoring.
@@ -165,7 +170,9 @@ The finalizer **records**, without asserting a tool GUID, each leg's
 extension. The read/write comparison supplies the evidence for the B05566AC
 registration question while keeping the bound exporter unchanged. A passing
 cmdlet/byte verdict alone does not establish GPMC editability, endpoint processing
-or an operator surface. No estate run has been performed for this implementation.
+or an operator surface. The certifying run recorded `B05566AC` for the read
+leg and `D02B1F72` for the write leg, with the firewall extension rendered in
+both reports ([results](firewall-results.md)).
 
 Run from this worktree on the controller, with a qualified Hyper-V host selected
 in `GPO_STUDIO_LAB_HOST` and `GPO_STUDIO_LAB_GUEST=LabMS01`:
@@ -193,6 +200,36 @@ uv run python scripts/windows-oracle/finalize_firewall_run.py "$LOCAL_RUN_DIR" \
 registration will need a reviewed proposal: detect emitted firewall keys and
 register the Registry CSE with the measured B05566AC tool GUID. Do not use the
 D02B1F72 GUID for this capture. Batch any export change with the publication and
-scripts-metadata lane requalification, or compose a separate unbound adapter
-and prove its unchanged base export equal to the bound one. Only after the
-firewall write verdict should an operator surface consume this codec.
+scripts-metadata lane requalification (and now the firewall lane's), or
+compose a separate unbound adapter and prove its unchanged base export equal to
+the bound one. The certifying run showed import, byte equality, readback and
+the GPMC report hold with `D02B1F72`, so no export change was made; GPME display
+is unmeasured and tracked as WI-077.
+
+## The surface
+
+`api.py` composes the codec; no lane binds it.
+
+- `POST /api/network-security/firewall/render` takes typed rules and
+  per-profile settings (the codec's own field vocabulary, strict numbers and
+  booleans, unknown fields refused) and returns `registry_settings`, each in
+  the body shape `POST /api/gpos/{guid}/settings` accepts, the raw
+  `rule_strings`, non-blocking `issues` and `limitations`. A request outside
+  the measured tranche is a 422 carrying the codec's issue codes. It writes
+  nothing.
+- `GET /api/gpos/{guid}/firewall-policy` decodes the GPO's settings under the
+  firewall key, imported GPOs included: `status` (`empty`, `decoded`,
+  `legacy`, `refused`), rules with their stored rule strings and any unknown
+  tokens, the three profiles, `unrecognised_records`, `issues` and
+  `limitations`. A known record outside the tranche refuses the whole decode
+  rather than interpreting part of it.
+
+Every response carries `policy_store_readback_not_application`,
+`representative_tranche_only`, `ipsec_pki_wired_wireless_out_of_scope`,
+`gpme_display_unmeasured` and `single_build_measured`; a decode with unknown
+rule tokens adds `unmodeled_tokens_preserved_not_editable`.
+`tests/test_firewall_surface.py` holds the render of the certified request
+equal to the builder's emission and the banked `expected.json`, shows the
+rendered settings posted to a GPO export Windows' write-leg Registry.pol byte
+for byte, and holds the decode of the banked native fixture equal to what the
+finalizer parses.
