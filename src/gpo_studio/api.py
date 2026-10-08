@@ -13,7 +13,7 @@ import re
 import time
 import uuid as uuid_module
 import zipfile
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -2187,8 +2187,26 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/assets", StudioStaticFiles(directory=STATIC), name="assets")
 
 
+#: Route path -> the limitations that route promises on EVERY response,
+#: refusals included. A surface whose limits travel only with its 200s tells a
+#: caller who was refused (422) or who named the wrong GPO (404) nothing about
+#: what the surface could never have answered. Both error handlers below add
+#: `limitations` beside `error` for a registered route; the firewall surface
+#: registers itself where it is defined.
+_ROUTE_LIMITATIONS: dict[str, Callable[[], list[dict[str, str]]]] = {}
+
+
+def _error_body(request: Request, detail: dict[str, Any]) -> dict[str, Any]:
+    body: dict[str, Any] = {"error": detail}
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    if isinstance(path, str) and path in _ROUTE_LIMITATIONS:
+        body["limitations"] = _ROUTE_LIMITATIONS[path]()
+    return body
+
+
 @app.exception_handler(StudioError)
-async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
+async def studio_error(request: Request, error: StudioError) -> JSONResponse:
     status = (
         404
         if isinstance(error, NotFoundError)
@@ -2205,7 +2223,7 @@ async def studio_error(_request: Request, error: StudioError) -> JSONResponse:
         detail["code"] = "revision_conflict"
         detail["expected_revision"] = error.expected_revision
         detail["current_revision"] = error.current_revision
-    return JSONResponse({"error": detail}, status_code=status)
+    return JSONResponse(_error_body(request, detail), status_code=status)
 
 
 @app.exception_handler(AmbiguousPolicyError)
@@ -2265,14 +2283,15 @@ def _sanitize_validation_issues(issues: Sequence[Any]) -> list[dict[str, Any]]:
 
 
 @app.exception_handler(RequestValidationError)
-async def request_validation(_request: Request, error: RequestValidationError) -> JSONResponse:
+async def request_validation(request: Request, error: RequestValidationError) -> JSONResponse:
     return JSONResponse(
-        {
-            "error": {
+        _error_body(
+            request,
+            {
                 "message": "Invalid request",
                 "issues": _sanitize_validation_issues(error.errors()),
-            }
-        },
+            },
+        ),
         status_code=422,
     )
 
@@ -6282,10 +6301,14 @@ def firewall_policy_decode(request: Request, guid: str) -> dict[str, Any]:
             issues=[asdict(issue) for issue in error.issues],
         )
         return response
+    # Only machine records can be the source of a decoded rule; a same-named
+    # user-side or HKCU record is unrecognised and must not supply its text.
     raw = {
         s.value_name: str(s.value)
         for s in records
-        if s.key.casefold() == _FIREWALL_RULES_KEY
+        if s.side == "computer"
+        and s.hive == "HKLM"
+        and s.key.casefold() == _FIREWALL_RULES_KEY
     }
     rules = []
     for rule in parsed.policy.rules:
@@ -6320,3 +6343,7 @@ def firewall_policy_decode(request: Request, guid: str) -> dict[str, Any]:
         ),
     )
     return response
+
+
+_ROUTE_LIMITATIONS["/api/network-security/firewall/render"] = _firewall_limitations
+_ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations

@@ -170,7 +170,7 @@ def test_render_of_the_certified_request_equals_the_builders_emission(
 def test_render_equals_the_banked_expectation_byte_for_byte(client: TestClient) -> None:
     """Independent of the codec as it ships today: the controller's banked bytes."""
     body = _render(client, CERTIFIED_REQUEST)
-    expected = json.loads((PACK / "controller-candidate/expected.json").read_text())
+    expected = json.loads((PACK / "controller-candidate/expected.json").read_text(encoding="utf-8"))
     rendered = [
         {
             "key": s["key"],
@@ -367,7 +367,7 @@ def test_decode_of_the_certifying_runs_windows_authored_policy(
     pol.write_bytes(raw)
     gpo = _import(client, backup)
     body = _decode(client, gpo["guid"])
-    expected = json.loads((PACK / "controller-candidate/expected.json").read_text())
+    expected = json.loads((PACK / "controller-candidate/expected.json").read_text(encoding="utf-8"))
     assert body["status"] == "decoded"
     assert body["unrecognised_records"] == []
     assert _policy_from_decode(body) == expected["policy"]
@@ -376,9 +376,11 @@ def test_decode_of_the_certifying_runs_windows_authored_policy(
     )
 
 
-def _gpo_with(store: WorkspaceStore, settings: list[RegistrySetting]) -> str:
+def _gpo_with(
+    store: WorkspaceStore, settings: list[RegistrySetting], name: str = "Firewall decode"
+) -> str:
     gpo = store.create_gpo(
-        "Firewall decode", "", identity="tester", reason="decode", settings=tuple(settings)
+        name, "", identity="tester", reason="decode", settings=tuple(settings)
     )
     return gpo.guid
 
@@ -474,3 +476,67 @@ def test_a_user_side_firewall_record_comes_back_unrecognised(
 def test_decode_of_an_unknown_gpo_is_404(client: TestClient) -> None:
     response = client.get(DECODE.format(guid="00000000-0000-4000-8000-000000000000"))
     assert response.status_code == 404
+
+
+def test_a_same_named_user_record_cannot_supply_a_machine_rules_string(
+    store: WorkspaceStore, client: TestClient
+) -> None:
+    """Review finding (Sol, PR 96): the raw-string lookup ignored side and hive."""
+    assert isinstance(_RULE_01.value, str)
+    user = replace(
+        _RULE_01,
+        id="user-shadow",
+        side="user",
+        hive="HKCU",
+        value="USER SIDE UNINTERPRETED",
+    )
+    for index, order in enumerate(([_VERSION, _RULE_01, user], [_VERSION, user, _RULE_01])):
+        guid = _gpo_with(store, order, name=f"Firewall shadow {index}")
+        body = _decode(client, guid)
+        assert body["status"] == "decoded"
+        (decoded,) = body["rules"]
+        assert decoded["rule_string"] == _RULE_01.value
+        assert [(r["side"], r["value"]) for r in body["unrecognised_records"]] == [
+            ("user", "USER SIDE UNINTERPRETED")
+        ]
+
+
+# --------------------------------------------------------------------------
+# Every response carries the limitations, refusals included
+# --------------------------------------------------------------------------
+
+
+def _limitation_codes(body: dict[str, Any]) -> set[str]:
+    return {item["code"] for item in body["limitations"]}
+
+
+def test_a_codec_refusal_carries_the_limitations(client: TestClient) -> None:
+    response = client.post(RENDER, json=_with_rule(protocol=99))
+    assert response.status_code == 422
+    body = response.json()
+    assert "firewall_unmeasured_protocol" in {i["code"] for i in body["error"]["issues"]}
+    assert _limitation_codes(body) == EVERY_RESPONSE_LIMITATIONS
+
+
+def test_a_request_validation_refusal_carries_the_limitations(client: TestClient) -> None:
+    response = client.post(RENDER, json=_with_rule(protocol=True))
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["message"] == "Invalid request"
+    assert _limitation_codes(body) == EVERY_RESPONSE_LIMITATIONS
+
+
+def test_an_unknown_gpo_carries_the_limitations(client: TestClient) -> None:
+    response = client.get(DECODE.format(guid="00000000-0000-4000-8000-000000000000"))
+    assert response.status_code == 404
+    assert _limitation_codes(response.json()) == EVERY_RESPONSE_LIMITATIONS
+
+
+def test_other_routes_errors_are_unchanged(client: TestClient) -> None:
+    """The control: only the registered firewall routes gain the key."""
+    response = client.get("/api/gpos/00000000-0000-4000-8000-000000000000")
+    assert response.status_code == 404
+    assert set(response.json()) == {"error"}
+    response = client.post("/api/security-template/object-security", json={"bogus": 1})
+    assert response.status_code == 422
+    assert set(response.json()) == {"error"}

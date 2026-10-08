@@ -18,10 +18,14 @@ import hashlib
 import io
 import json
 import runpy
+import sys
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 from zipfile import ZipFile
+
+import pytest
 
 from gpo_studio.firewall_policy import FIREWALL_TOOL_GUID, from_registry_records
 from gpo_studio.registry_pol import parse
@@ -113,17 +117,86 @@ def test_the_shipping_finalizer_still_grades_the_banked_record_a_pass() -> None:
     assert comparison == VERDICT["comparison"]
 
 
+def _archive_members(data: bytes) -> list[tuple[str, tuple[int, ...], int, int, bytes]]:
+    """Everything in a ZIP the lane consumes, without the container's host byte."""
+    with ZipFile(io.BytesIO(data)) as archive:
+        return [
+            (
+                info.filename,
+                tuple(info.date_time),
+                info.compress_type,
+                info.external_attr,
+                archive.read(info),
+            )
+            for info in archive.infolist()
+        ]
+
+
+#: Why the archive's SHA-256 is platform-dependent, which export.py (bound by
+#: three lanes) does not control: `zipfile.ZipInfo` defaults `create_system`
+#: to 0 on Windows and 3 elsewhere, and that byte sits in every central
+#: directory entry. Measured on CI (run 37763805128): Windows/3.13 builds
+#: `5d9d66cc…`, which `test_the_windows_archive_hash_is_only_the_host_byte`
+#: reproduces here by forcing `create_system=0`. Windows/3.14 builds a third
+#: hash, `936177…`; the likely cause is that 3.14's Windows build links
+#: zlib-ng, whose deflate output differs (inferred, not measured). The
+#: certified candidate is built on the Linux controller, so the banked hash is
+#: the POSIX one, and member bytes are identical on every platform.
+WINDOWS_313_ARCHIVE_SHA256 = "5d9d66cc78b3583f2027d290fe87fed8ad4f097134af72cd4f24470df3895f49"
+
+
 def test_the_builder_still_produces_the_banked_candidate(tmp_path: Path) -> None:
-    """The certified request is reproducible: same bytes, same three hashes."""
+    """The certified request is reproducible: same members, same JSON, same hashes.
+
+    The two JSON files are byte-identical on every platform. The archive's
+    members (names, order, timestamps, attributes, compression method and
+    bytes) are identical everywhere; its container hash is exact on POSIX,
+    where the controller builds it, for the reason above.
+    """
     stdout = io.StringIO()
     with redirect_stdout(stdout):
         BUILDER["build"](tmp_path, BUILDER["candidate_policy"]())
+    archive = BUILDER["ARCHIVE_NAME"]
+    banked_dir = PACK / "controller-candidate"
     for name, digest in VERDICT["candidate"].items():
-        if name == "builder.stdout.txt":
+        if name in ("builder.stdout.txt", archive):
             continue
         assert _sha((tmp_path / name).read_bytes()) == digest, name
-    banked = (PACK / "controller-candidate/builder.stdout.txt").read_text(encoding="utf-8")
+    assert _archive_members((tmp_path / archive).read_bytes()) == _archive_members(
+        (banked_dir / archive).read_bytes()
+    )
+    banked = (banked_dir / "builder.stdout.txt").read_text(encoding="utf-8")
+    if sys.platform == "win32":
+        keep = [line for line in banked.splitlines() if not line.startswith(archive)]
+        assert [
+            line for line in stdout.getvalue().splitlines() if not line.startswith(archive)
+        ] == keep
+        return
+    assert _sha((tmp_path / archive).read_bytes()) == VERDICT["candidate"][archive]
     assert stdout.getvalue() == banked
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="reproduces the Windows hash from POSIX zlib output"
+)
+def test_the_windows_archive_hash_is_only_the_host_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Forcing Windows' `create_system` default reproduces CI's Windows/3.13 hash."""
+    original = zipfile.ZipInfo.__init__
+
+    def windows_default(self: zipfile.ZipInfo, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        self.create_system = 0
+
+    monkeypatch.setattr(zipfile.ZipInfo, "__init__", windows_default)
+    with redirect_stdout(io.StringIO()):
+        BUILDER["build"](tmp_path, BUILDER["candidate_policy"]())
+    data = (tmp_path / BUILDER["ARCHIVE_NAME"]).read_bytes()
+    assert _sha(data) == WINDOWS_313_ARCHIVE_SHA256
+    assert _archive_members(data) == _archive_members(
+        (PACK / "controller-candidate" / BUILDER["ARCHIVE_NAME"]).read_bytes()
+    )
 
 
 def _leg_pol(leg: str) -> bytes:

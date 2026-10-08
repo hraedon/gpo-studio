@@ -1000,6 +1000,14 @@ if ($Target -eq 'none') {
     assert json.loads(completed.stdout) == wanted
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX-only: the mock transport is a shebang script found on PATH by the "
+        "bash driver, which Windows cannot execute; the driver itself runs on the "
+        "Linux controller"
+    ),
+)
 @pytest.mark.parametrize("collision", [False, True])
 def test_controller_checks_before_guest_and_cleans_after_timeout(
     tmp_path: Path, collision: bool

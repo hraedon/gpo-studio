@@ -77,7 +77,7 @@ def sanitize(source: Path, destination: Path) -> None:
     for path in sorted(source.rglob("*")):
         if not path.is_file():
             continue
-        relative = str(path.relative_to(source))
+        relative = path.relative_to(source).as_posix()
         target = destination / replace(relative)
         raw = path.read_bytes()
         applied = []
@@ -113,7 +113,7 @@ def sanitize(source: Path, destination: Path) -> None:
         target.write_bytes(output)
         entries.append(
             {
-                "relative_path": str(target.relative_to(destination)),
+                "relative_path": target.relative_to(destination).as_posix(),
                 "raw_sha256": sha256(raw),
                 "sanitized_sha256": sha256(output),
                 "transformations_applied": applied,
@@ -125,7 +125,7 @@ def sanitize(source: Path, destination: Path) -> None:
         "origin": "Native NetSecurity -PolicyStore authoring into an unlinked disposable GPO; "
         "WS2025 member server build 26100. capture.json, Get-GPOReport XML and Backup-GPO.",
         "capture_date": "2026-10-08",
-        "capture_script": str(script),
+        "capture_script": script.as_posix(),
         "capture_script_sha256": sha256((REPO_ROOT / script).read_bytes()),
         "sanitizer": "scripts/plan-033/sanitize-firewall-fixtures.py",
         "sanitisation": "Domain, DC, domain account, GPO, domain GUID, backup GUID and run "
