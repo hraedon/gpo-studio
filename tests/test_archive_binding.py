@@ -146,3 +146,35 @@ def test_a_helper_edit_would_expire_a_verdict_that_binds_it(tmp_path: Path) -> N
     evidence["REPO_ROOT"] = edited_repo
     drifted = recorded_vs_tree("verdict.json", "finalize_fdeploy_run.py")
     assert [name for name, _recorded, _actual in drifted] == ["deterministic_zip.py"]
+
+
+def _bound_repository_paths() -> set[str]:
+    return {path for _name, tables, _imports in LANES for path in tables.values()}
+
+
+def test_every_bound_file_has_pinned_checkout_bytes() -> None:
+    """A bound file must check out byte-identical on every controller (review P1).
+
+    `assert_bound_source_bytes` compares the working-tree bytes with the
+    recorded hash. Without a pin, a Windows checkout with core.autocrlf=true
+    smudges an unpinned file to CRLF and every lane binding it is refused --
+    what deterministic_zip.py and writer_conformance.py did when first bound.
+    Every path any finalizer's tables name must be `text eol=lf` or `-text`.
+    """
+    import subprocess
+
+    paths = sorted(_bound_repository_paths())
+    out = subprocess.run(
+        ["git", "check-attr", "text", "eol", "--", *paths],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout
+    attrs: dict[str, dict[str, str]] = {}
+    for line in out.splitlines():
+        path, attr, value = line.rsplit(": ", 2)
+        attrs.setdefault(path, {})[attr] = value
+    unpinned = [
+        path for path in paths
+        if not (attrs[path]["text"] == "unset" or attrs[path]["eol"] == "lf")
+    ]
+    assert not unpinned, f"bound files with unpinned checkout bytes: {unpinned}"
+    assert "src/gpo_studio/deterministic_zip.py" in paths

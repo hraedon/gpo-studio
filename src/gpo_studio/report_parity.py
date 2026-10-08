@@ -131,6 +131,13 @@ class _TypeTrackingBuilder(BoundedTreeBuilder):
         return elem
 
 
+def _is_gpp_registry_item(item: ET.Element) -> bool:
+    """A GPP Registry report item has the measured shape: <Registry> with <Properties>."""
+    return item.tag == f"{{{GPP_REGISTRY_REPORT_NAMESPACE}}}Registry" and any(
+        child.tag == f"{{{GPP_REGISTRY_REPORT_NAMESPACE}}}Properties" for child in item
+    )
+
+
 def _namespace(tag: str) -> str:
     return tag[1:].split("}", 1)[0] if tag.startswith("{") else ""
 
@@ -442,17 +449,34 @@ def windows_inventory(report_xml: bytes) -> Inventory:
                 for child in extension:
                     namespace = _namespace(child.tag)
                     if namespace == _POLICY_REGISTRY_NS:
-                        continue
-                    if (namespace, _local(child.tag)) == (
+                        child_family = REGISTRY_FAMILY
+                    elif (namespace, _local(child.tag)) == (
                         GPP_REGISTRY_REPORT_NAMESPACE,
                         "RegistrySettings",
                     ):
+                        child_family = GPP_REGISTRY_FAMILY
                         families.setdefault((side, GPP_REGISTRY_FAMILY), []).extend(
-                            _gpp_item(item) for item in child
+                            _gpp_item(item) for item in child if _is_gpp_registry_item(item)
                         )
+                        for item in child:
+                            if not _is_gpp_registry_item(item):
+                                families.setdefault(
+                                    (side, _unmeasured(_namespace(item.tag), _local(item.tag))),
+                                    [],
+                                ).append(_plain_item(item))
                     else:
                         families.setdefault(
                             (side, _unmeasured(namespace, _local(child.tag))), []
+                        ).append(_plain_item(child))
+                        continue
+                    if child_family != family:
+                        # A measured declaration whose children are the OTHER
+                        # family's measured shape (batch-2 re-review): the
+                        # children are still filed where they belong, and the
+                        # inconsistency is evidence of its own that no Studio
+                        # inventory carries, so the comparison cannot pass.
+                        families.setdefault(
+                            (side, f"unmeasured:declared {family} holds {child_family}"), []
                         ).append(_plain_item(child))
                 continue
             bucket = families.setdefault((side, family), [])

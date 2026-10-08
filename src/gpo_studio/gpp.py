@@ -753,6 +753,12 @@ def _registry_wire_value(value: GppRegistryValue) -> str:
             return bytes.fromhex(raw.replace(" ", "")).hex().upper()
         except ValueError as error:
             raise GppError(f"Invalid REG_BINARY value {raw!r}: {error}") from error
+    if raw == [] and not value.name and not value.default:
+        # A key-only item's empty value: the model (and the API and validation)
+        # accepts "" or [] for it; the wire form is value="" (measured), so both
+        # write the same thing (review: [] used to raise here after the item
+        # had been committed, and every later read of the GPO failed).
+        return ""
     if isinstance(raw, list):
         # Only REG_MULTI_SZ holds a list. Joining one into a REG_SZ wrote
         # "a;b", which reads back as the single string "a;b" (review).
@@ -1056,12 +1062,20 @@ def _registry_values_items(props: ET.Element, context: str) -> list[str] | None:
     if len(containers) > 1:
         raise GppError(f"{context}: more than one <Values> list")
     values_elem = containers[0]
+    # Strict allowlist (batch-2 re-review): exactly the measured QNames -- no
+    # namespace, as in every native Registry.xml -- no attributes, and only
+    # whitespace (pretty-printing) as text or tail. A namespaced <Values> or
+    # <Value>, or text after </Values>, used to import and vanish on edit.
+    if values_elem.tag != "Values":
+        raise GppError(f"{context}: <Values> in a namespace Studio has not measured")
     if values_elem.attrib or (values_elem.text or "").strip():
         raise GppError(f"{context}: <Values> carries content Studio does not model")
+    if (values_elem.tail or "").strip():
+        raise GppError(f"{context}: text after </Values> that Studio does not model")
     items: list[str] = []
     for child in values_elem:
-        if _local_name(child.tag) != "Value":
-            raise GppError(f"{context}: <Values> holds a <{_local_name(child.tag)}>")
+        if child.tag != "Value":
+            raise GppError(f"{context}: <Values> holds a <{child.tag}>")
         if child.attrib or len(child) or (child.tail or "").strip():
             raise GppError(f"{context}: a <Value> carries content Studio does not model")
         items.append(child.text or "")
@@ -1096,6 +1110,10 @@ def _parse_registry_multi_sz(props: ET.Element, raw: str) -> list[str]:
 
 def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
     raw = props.get("value", "")
+    if (props.text or "").strip():
+        # Mixed text in <Properties> is not part of any measured item and would
+        # vanish on re-serialization (batch-2 re-review).
+        raise GppError("registry <Properties> carries text Studio does not model")
     reg_type = props.get("type", "REG_SZ")
     action = _code_to_registry_action(props.get("action", "C"))
     name = props.get("name", "")

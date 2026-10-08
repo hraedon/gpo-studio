@@ -664,3 +664,58 @@ def test_the_gpp_registry_namespace_has_one_source() -> None:
     assert writer_conformance._REPORT_ROOT_NAMESPACE["RegistrySettings"] is (
         GPP_REGISTRY_REPORT_NAMESPACE
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 re-review: a measured declaration must match its children's shape
+# ---------------------------------------------------------------------------
+
+_BANKED_POLICY_REPORT = (
+    EVIDENCE / "wp1b-evidence/plan034-20261008/wp1b/registry-both/gpreport-after-import.xml"
+)
+_NATIVE_GPP_REPORT = (
+    ROOT / "tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC/gpreport-verify.xml"
+)
+
+
+def _retype(report: bytes, old_prefix: str, new_namespace: str) -> bytes:
+    """Change only the Extension's declared xsi:type namespace, as the reviewer did."""
+    text = report.decode("utf-16") if report[:2] == b"\xff\xfe" else report.decode("utf-8-sig")
+    old = f'xsi:type="{old_prefix}:RegistrySettings"'
+    assert old in text
+    text = text.replace(
+        old, f'xmlns:bad="{new_namespace}" xsi:type="bad:RegistrySettings"'
+    )
+    return text.encode("utf-16")
+
+
+@pytest.mark.parametrize(
+    ("report", "new_namespace"),
+    [
+        (_BANKED_POLICY_REPORT, _GPP_NS),
+        (_NATIVE_GPP_REPORT, _POLICY_NS),
+    ],
+    ids=["policy-declared-as-gpp", "gpp-declared-as-policy"],
+)
+def test_a_declaration_for_the_other_measured_family_does_not_pass(
+    report: Path, new_namespace: str
+) -> None:
+    original = report.read_bytes()
+    prefix = "q1"
+    mutated = _retype(original, prefix, new_namespace)
+    result = compare(windows_inventory(original), windows_inventory(mutated))
+    assert not result.equal
+    families = {d.family for d in result.divergences}
+    assert any(f.startswith("unmeasured:declared ") for f in families), families
+
+
+def test_a_gpp_registry_item_without_its_measured_shape_is_unmeasured() -> None:
+    body = (
+        '<g:RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+        '<g:Registry name="V"/>'
+        "</g:RegistrySettings>"
+    )
+    inventory = windows_inventory(_report(computer=_extension(_GPP_NS, body)))
+    assert inventory.family("computer", GPP_REGISTRY_FAMILY) == ()
+    assert f"unmeasured:{{{_GPP_NS}}}Registry" in [f.family for f in inventory.families]

@@ -38,6 +38,9 @@ src/gpo_studio/gpp.py text eol=lf
 src/gpo_studio/model.py text eol=lf
 src/gpo_studio/registry_pol.py text eol=lf
 src/gpo_studio/validation.py text eol=lf
+# Batch 2 (review): newly bound by the archive lanes and WP-1B.
+src/gpo_studio/deterministic_zip.py text eol=lf
+src/gpo_studio/writer_conformance.py text eol=lf
 # Bound by the lifecycle lane (wp7-evidence/lifecycle, 2026-10-08).
 src/gpo_studio/lifecycle.py text eol=lf
 src/gpo_studio/backup.py text eol=lf

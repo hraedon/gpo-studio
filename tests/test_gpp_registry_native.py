@@ -1054,3 +1054,42 @@ def test_a_key_only_item_carrying_a_value_is_not_a_measured_shape() -> None:
     refusal = native_backup_refusal(gpo)
     assert refusal is not None and refusal.code == "unmeasured_gpp_registry_shape"
     assert "a key-only item carrying a value" in refusal.message
+
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 re-review: <Values> is held to an exact allowlist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "mutate"),
+    [
+        (
+            "namespaced Values",
+            lambda t: t.replace("<Values>", '<Values xmlns="urn:synthetic-future">', 1),
+        ),
+        (
+            "namespaced Value",
+            lambda t: t.replace(
+                "<Value>one</Value>", '<f:Value xmlns:f="urn:synthetic-future">one</f:Value>', 1
+            ),
+        ),
+        ("text after Values", lambda t: t.replace("</Values>", "</Values>marker", 1)),
+        (
+            "text in Properties",
+            lambda t: t.replace('value="one two">', 'value="one two">marker', 1),
+        ),
+    ],
+)
+def test_values_content_outside_the_measured_shape_is_refused(label: str, mutate: Any) -> None:
+    """Sol's mutations of the native User Registry.xml: each used to vanish on edit."""
+    native = _native_bytes("User").decode("utf-8-sig")
+    mutated = mutate(native)
+    assert mutated != native, label
+    with pytest.raises(GppError):
+        parse_gpp_registry(mutated.encode("utf-8"))
+
+
+def test_the_native_values_still_parse_after_the_allowlist() -> None:
+    assert parse_gpp_registry(_native_bytes("User"))[0].value.value == ["one", "two"]

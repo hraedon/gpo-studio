@@ -50,9 +50,11 @@ class DeterministicZipError(ValueError):
 #: extension ("NUL.txt" is the NUL device too).
 _WINDOWS_RESERVED = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
-    | {f"COM{i}" for i in range(1, 10)}
-    | {f"LPT{i}" for i in range(1, 10)}
+    | {f"{port}{n}" for port in ("COM", "LPT") for n in "123456789\u00b9\u00b2\u00b3"}
 )
+#: Microsoft's naming rules reserve COM and LPT with the superscript digits
+#: 1, 2 and 3 (U+00B9, U+00B2, U+00B3) too, with or without an extension:
+#: https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
 #: Characters Windows forbids in a path component (``\\`` and ``:`` included:
 #: a backslash is a separator there, a colon a drive or alternate stream).
 _WINDOWS_FORBIDDEN = frozenset('<>:"|?*\\')

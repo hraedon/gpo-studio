@@ -16,7 +16,7 @@ from .canonical import (
     review_model_sha256,
 )
 from .deterministic_zip import deterministic_zip
-from .gpp import contains_cpassword, gpp_registry_unmeasured_shapes, serialize_gpp
+from .gpp import GppError, contains_cpassword, gpp_registry_unmeasured_shapes, serialize_gpp
 from .model import GPO, RegistrySetting, ValidationError, ValidationIssue
 from .registry_pol import PolRecord, serialize
 from .script_policy import PowerShellScriptEntry, ScriptEntry, ScriptPolicy
@@ -669,7 +669,21 @@ def _gpp_family_files(gpo: GPO) -> Iterator[tuple[str, str, str, bytes]]:
     """
     for col in gpo.gpp_collections:
         side_dir = "Machine" if col.scope == "computer" else "User"
-        for filename, content in serialize_gpp(col).items():
+        try:
+            files = serialize_gpp(col)
+        except GppError as error:
+            # A saved model the writer refuses is a refusal (422), never a
+            # crash: `native_backup_refusal` runs on every GPO read, so an
+            # exception here made the GPO unreadable (batch-2 review).
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="gpp_not_serializable",
+                    message=f"{col.scope} preferences cannot be written: {error}",
+                    path="gpp_collections",
+                )
+            ]) from error
+        for filename, content in files.items():
             normalized = filename.replace("\\", "/")
             yield side_dir, normalized.split("/", 1)[0], normalized, content
 

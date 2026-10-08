@@ -9,6 +9,20 @@ Current version: `1.0.0`.
 
 ## [Unreleased]
 
+- **Batch-2 re-review fixes (Sol, `2ecc025`).** `deterministic_zip.py` and
+  `writer_conformance.py` are pinned `text eol=lf` (a CRLF checkout refused
+  every archive lane), and a test holds every file any finalizer binds to
+  `text eol=lf` or `-text`. A key-only item's empty list is written as the
+  measured `value=""` and stored as `""` (it used to commit and then make every
+  read of the GPO a 500); preference content the writer refuses now reaches
+  the client as a refusal, and a sweep of every registry item shape the API
+  accepts holds that later reads and exports never 500. `<Values>` is held to an
+  exact allowlist (no namespace, no attributes, whitespace-only text and
+  tails). A registry report Extension whose declared type is the other
+  measured family's is surfaced as `unmeasured:declared ...`, and GPP Registry
+  report items must have the measured `<Registry>`/`<Properties>` shape. The
+  superscript device names (`COM¹`, `LPT²`, `LPT³`) are refused in archives.
+
 - **Batch-2 review fixes (two independent reviews of `303ae6c`).**
   - Every lane whose candidate bytes flow through `deterministic_zip.py` now
     binds it (WP-1B, WP-2, publication, scripts-metadata, firewall,

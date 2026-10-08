@@ -513,6 +513,8 @@ class GppRegistryValueData(BaseModel):
                 raise ValueError("Key-only registry entry must have empty type")
             if self.value != "" and self.value != []:
                 raise ValueError("Key-only registry entry must have empty value")
+            # One representation for "no value": the wire form is value="".
+            self.value = ""
         else:
             if self.registry_type not in _VALID_REGISTRY_TYPE_STRINGS:
                 raise ValueError(f"Invalid registry type: {self.registry_type}")
@@ -2253,6 +2255,17 @@ async def studio_error(request: Request, error: StudioError) -> JSONResponse:
         detail["expected_revision"] = error.expected_revision
         detail["current_revision"] = error.current_revision
     return JSONResponse(_error_body(request, detail), status_code=status)
+
+
+@app.exception_handler(GppError)
+async def gpp_error(request: Request, error: GppError) -> JSONResponse:
+    """Preference content the GPP writer or reader refuses is a 422, not a 500.
+
+    A refusal that escaped as an unhandled exception left a GPO committed but
+    unreadable (batch-2 review: a key-only item's empty list).
+    """
+    detail: dict[str, Any] = {"message": str(error), "code": "gpp_content_refused"}
+    return JSONResponse(_error_body(request, detail), status_code=422)
 
 
 @app.exception_handler(AmbiguousPolicyError)
