@@ -81,6 +81,40 @@ ACB_VAULT_ENV=~/.claude/evidence-lab.env \
       bash scripts/windows-oracle/run-lifecycle-oracle.sh
 ```
 
+## Hardening after the first review (2026-10-08)
+
+An executing review returned FAIL with nine findings. The fixes are listed here
+so the next reader knows what each guard is for:
+
+* **Ownership guard.** Before its first create, the guest generates every name
+  it will use and asks the directory whether any of them exist. On a collision
+  it aborts having created nothing, and its cleanup deletes nothing. There is no
+  deletion by name pattern anywhere.
+* **Intent recorded before each create.** Each OU, group, WMI filter and GPO
+  enters the inventory before the command that creates it. Cleanup and the
+  residual check then look each one up by its exact generated name, so a create
+  that commits and then throws is still found.
+* **No coercion.** The finalizer type-checks every value it grades: GUID syntax,
+  SIDs, `SID|level|denied` permission entries, and booleans. A `null` is a
+  harness error and never becomes the string `"None"`. A `gPCWQLFilter` that is
+  present but unparseable is a harness error, never "no filter".
+* **One perturbation snapshot.** The restore is graded only if its `before`
+  state is the very snapshot whose perturbation was verified.
+* **Cleanup proof.** The proof needs exactly the five named residual
+  categories, plus a creation inventory that matches the GPO ids the guest read
+  back. The control must be an untouched `New-GPO` (Authenticated Users holds
+  Apply), so that "defaulted" means something.
+* **Bridge evidence.** The backup's WMI reference must name the source filter
+  (by id or by name) and must not name the target's.
+* **The `-CreateIfNeeded` precondition.** The creating plans set
+  `requires_target_absent` and refuse a name known to exist. The guest measures
+  absence immediately before each creating operation, and the finalizer requires
+  that measurement.
+* **An independent control.** The end-to-end control uses the frozen-spec
+  environment and a clean repository of the bound bytes, and it must exit 0.
+  The guest-script probes (`tests/test_lifecycle_guest_probes.py`) run the
+  script under `pwsh` against stand-in cmdlets.
+
 ## What it cannot assert
 
 * **Cross-domain anything.** That covers migration tables, principal

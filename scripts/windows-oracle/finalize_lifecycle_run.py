@@ -16,12 +16,20 @@ back, using the same vocabulary as the table:
 The checks fall in two groups, and the verdict reports both:
 
 * **lane checks** say whether the run is a valid measurement (environment,
-  authoring landed as specified, every dimension distinguishable, cleanup proven,
-  bound source intact). A run that fails one of these says nothing about Studio.
+  ownership, authoring landed as specified, every dimension distinguishable,
+  the creation inventory complete, cleanup proven, bound source intact). A run
+  that fails one of these says nothing about Studio.
 * **claim checks** say whether Studio's predictions and plan claims agree with
   Windows. A valid run that fails these is the lane doing its job: the
   mismatches are recorded as data, ``lifecycle.py`` is corrected, and the lane
   is re-run.
+
+**Missing or malformed data never passes.** Every value the grading reads is
+type-checked first -- no ``str()`` coercion, so ``null`` cannot become the
+string ``"None"`` and compare equal to another ``null``. A malformed result is
+a comparison error, which fails the lane and every claim. In particular an
+unparseable ``gPCWQLFilter`` is a harness error, never "no filter" (review
+finding 3, 2026-10-08).
 
 The expectation is the controller-built ``expected.json``, hash-bound below
 (WI-025) and recomputed here from the bound builder and ``lifecycle.py``; the
@@ -33,6 +41,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import runpy
 import subprocess
 import sys
@@ -78,14 +87,30 @@ DIMENSIONS = (
     "links",
     "description",
 )
+OUTCOMES = frozenset({"kept", "lost", "defaulted", "replaced"})
+IDENTITIES = frozenset({"source", "existing_target", "windows_assigned"})
 COMMANDS = ("backup", *OPERATIONS)
 PREEXISTING = frozenset({"import_into_existing", "restore_in_place"})
+#: Which created-inventory role each new-GPO operation registers.
+NEW_GPO_ROLES = ("copy", "copy_with_acl", "import_as_new")
+INVENTORY_ROLES = frozenset({"control", "source", "target", *NEW_GPO_ROLES})
+RESIDUAL_CATEGORIES = frozenset(
+    {
+        "surviving_gpos",
+        "surviving_links",
+        "surviving_wmi_filters",
+        "surviving_groups",
+        "surviving_ous",
+    }
+)
+AUTHENTICATED_USERS = "S-1-5-11"
 
 RESULT_KEYS = frozenset(
     {
         "schema_version",
         "run_id",
         "domain",
+        "ownership_established",
         "fixture",
         "backup",
         "control_state",
@@ -101,23 +126,53 @@ RESULT_KEYS = frozenset(
         "error",
     }
 )
-STATE_KEYS = frozenset(
+STATE_STRINGS = (
+    "gpo_id",
+    "display_name",
+    "description",
+    "gpo_status",
+    "settings_value",
+    "gpc_wql_filter",
+    "wmi_filter_id",
+    "wmi_filter_name",
+    "dacl_sddl",
+)
+STATE_LISTS = ("links", "permissions", "permission_names")
+STATE_KEYS = frozenset({*STATE_STRINGS, *STATE_LISTS, "gpo_cmt_present"})
+FIXTURE_KEYS = frozenset(
     {
-        "gpo_id",
-        "display_name",
-        "description",
-        "gpo_status",
-        "settings_value",
-        "gpc_wql_filter",
-        "wmi_filter_id",
-        "wmi_filter_name",
-        "links",
-        "permissions",
-        "permission_names",
-        "dacl_sddl",
-        "gpo_cmt_present",
+        "stamp",
+        "policy_key",
+        "value_name",
+        "source_value",
+        "target_value",
+        "perturbed_value",
+        "source_description",
+        "target_description",
+        "perturbed_description",
+        "ou_parent_dn",
+        "ou_source_dn",
+        "ou_target_dn",
+        "source_group_sid",
+        "target_group_sid",
+        "source_wmi_filter_id",
+        "target_wmi_filter_id",
+        "source_wmi_filter_name",
+        "target_wmi_filter_name",
+        "import_as_new_name",
     }
 )
+OPERATION_KEYS = frozenset(
+    {"succeeded", "error", "target_preexisted", "target_before", "target_after"}
+)
+
+_HEX_GUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_BARE_GUID = re.compile(rf"^{_HEX_GUID}$")
+_BRACED_GUID = re.compile(rf"^\{{{_HEX_GUID}\}}$")
+_SID = re.compile(r"^S-1-\d+(?:-\d+)+$")
+_PERMISSION = re.compile(r"^S-1-\d+(?:-\d+)+\|Gpo[A-Za-z]+\|(?:True|False)$")
+_WQL = re.compile(rf"^\[[^;\]]+;(\{{{_HEX_GUID}\}});\d+\]$")
+_RUN_ID = re.compile(r"^lifecycle-\d{14}-\d{4}$")
 
 Value = str | frozenset[str]
 
@@ -126,8 +181,15 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _bare(value: object) -> str:
-    return str(value).strip().strip("{}").casefold()
+def _bare(value: str) -> str:
+    return value.strip().strip("{}").casefold()
+
+
+def _text(data: Mapping[str, Any], key: str, label: str) -> str:
+    value = data[key]
+    if not isinstance(value, str):
+        raise ValueError(f"{label}.{key} is {type(value).__name__}, not a string")
+    return value
 
 
 def _strings(value: object, label: str) -> list[str]:
@@ -138,30 +200,71 @@ def _strings(value: object, label: str) -> list[str]:
     return value
 
 
-def _state(raw: object, label: str) -> Mapping[str, Any]:
+def _mapping(raw: object, keys: frozenset[str], label: str) -> Mapping[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError(f"{label} is not an object")
-    if set(raw) != STATE_KEYS:
-        raise ValueError(f"{label} keys differ from the read-back schema")
+    if set(raw) != keys:
+        raise ValueError(f"{label} keys differ from the schema: {sorted(set(raw) ^ keys)}")
     return raw
+
+
+def validate_state(raw: object, label: str) -> Mapping[str, Any]:
+    """A read-back GPO state with every field type-checked, or ValueError."""
+    state = _mapping(raw, STATE_KEYS, label)
+    for key in STATE_STRINGS:
+        _text(state, key, label)
+    for key in STATE_LISTS:
+        _strings(state[key], f"{label}.{key}")
+    if not isinstance(state["gpo_cmt_present"], bool):
+        raise ValueError(f"{label}.gpo_cmt_present is not a boolean")
+    if not _BARE_GUID.match(state["gpo_id"]):
+        raise ValueError(f"{label}.gpo_id {state['gpo_id']!r} is not a GUID")
+    for entry in state["permissions"]:
+        if not _PERMISSION.match(entry):
+            raise ValueError(f"{label}.permissions entry {entry!r} is not SID|level|denied")
+    wql = state["gpc_wql_filter"]
+    if wql == "":
+        if state["wmi_filter_id"] != "":
+            raise ValueError(f"{label}: wmi_filter_id without a gPCWQLFilter")
+    else:
+        match = _WQL.match(wql)
+        if match is None:
+            raise ValueError(f"{label}: gPCWQLFilter {wql!r} is present but unparseable")
+        if _bare(match.group(1)) != _bare(state["wmi_filter_id"]):
+            raise ValueError(f"{label}: wmi_filter_id disagrees with gPCWQLFilter")
+    return state
+
+
+def validate_fixture(raw: object) -> Mapping[str, Any]:
+    fixture = _mapping(raw, FIXTURE_KEYS, "fixture")
+    for key in FIXTURE_KEYS:
+        if not _text(fixture, key, "fixture"):
+            raise ValueError(f"fixture.{key} is empty")
+    for key in ("source_group_sid", "target_group_sid"):
+        if not _SID.match(fixture[key]):
+            raise ValueError(f"fixture.{key} is not a SID")
+    for key in ("source_wmi_filter_id", "target_wmi_filter_id"):
+        if not _BRACED_GUID.match(fixture[key]):
+            raise ValueError(f"fixture.{key} is not a braced GUID")
+    return fixture
 
 
 def dimension_value(state: Mapping[str, Any], dimension: str) -> Value:
     """The comparable value of one scope dimension of a read-back GPO state."""
     if dimension == "settings":
-        return str(state["settings_value"])
+        return _text(state, "settings_value", "state")
     if dimension == "gpo_guid":
-        return _bare(state["gpo_id"])
+        return _bare(_text(state, "gpo_id", "state"))
     if dimension == "acl_security_filtering":
         # Trustee SID | permission level | denied. Names are evidence only:
         # they are display strings, and the SID is what the DACL holds.
         return frozenset(_strings(state["permissions"], "permissions"))
     if dimension == "wmi_association":
-        return _bare(state["wmi_filter_id"])
+        return _bare(_text(state, "wmi_filter_id", "state"))
     if dimension == "links":
         return frozenset(dn.casefold() for dn in _strings(state["links"], "links"))
     if dimension == "description":
-        return str(state["description"])
+        return _text(state, "description", "state")
     raise ValueError(f"unknown scope dimension {dimension!r}")
 
 
@@ -209,17 +312,33 @@ def _authored(state: Mapping[str, Any], fixture: Mapping[str, Any], role: str) -
     }[role]
     permissions = dimension_value(state, "acl_security_filtering")
     ok = (
-        dimension_value(state, "settings") == str(fixture[value])
-        and dimension_value(state, "description") == str(fixture[description])
-        and dimension_value(state, "links") == frozenset({str(fixture[ou]).casefold()})
+        dimension_value(state, "settings") == fixture[value]
+        and dimension_value(state, "description") == fixture[description]
+        and dimension_value(state, "links") == frozenset({fixture[ou].casefold()})
         and dimension_value(state, "wmi_association") == _bare(fixture[wmi])
         and f"{fixture[sid]}|GpoApply|False" in permissions
+        # MS16-072 filtering: Authenticated Users reduced to Read.
+        and f"{AUTHENTICATED_USERS}|GpoRead|False" in permissions
     )
     if role == "perturbed":
         # The source's own filter group must be gone, or "restore put the ACL
         # back" and "restore left it alone" read the same.
         ok = ok and not any(p.startswith(f"{fixture['source_group_sid']}|") for p in permissions)
     return ok
+
+
+def _untouched_new_gpo(state: Mapping[str, Any]) -> bool:
+    """The control must be what New-GPO makes: empty, unlinked, AU may apply.
+
+    Without this, any ACL recorded as the control's would define "defaulted".
+    """
+    return (
+        all(_empty(dimension_value(state, d)) for d in ("settings", "wmi_association", "links"))
+        and dimension_value(state, "description") == ""
+        and f"{AUTHENTICATED_USERS}|GpoApply|False" in dimension_value(
+            state, "acl_security_filtering"
+        )
+    )
 
 
 def _observed_identity(
@@ -235,8 +354,71 @@ def _observed_identity(
     if claim == "existing_target":
         return before is not None and observed == _bare(before["gpo_id"])
     if claim == "windows_assigned":
-        return before is None and bool(observed) and observed not in known_ids
+        return before is None and observed not in known_ids
     return False
+
+
+def _validate_expectation(expected: Mapping[str, Any]) -> None:
+    if list(expected["operation_order"]) != list(OPERATIONS):
+        raise ValueError("expectation's operation order is not the lane's")
+    if list(expected["dimensions"]) != list(DIMENSIONS):
+        raise ValueError("expectation's dimensions are not the lane's")
+    operations = expected["operations"]
+    if not isinstance(operations, dict) or set(operations) != set(OPERATIONS):
+        raise ValueError("expectation does not cover exactly the lane's operations")
+    for op, claim in operations.items():
+        survival = claim["survival"]
+        if not isinstance(survival, dict) or set(survival) != set(DIMENSIONS):
+            raise ValueError(f"expectation {op} survival does not cover every dimension")
+        if not set(survival.values()) <= OUTCOMES:
+            raise ValueError(f"expectation {op} has an outcome outside the vocabulary")
+        if claim["target_identity"] not in IDENTITIES:
+            raise ValueError(f"expectation {op} has an unknown target identity")
+        if not isinstance(claim["requires_target_absent"], bool):
+            raise ValueError(f"expectation {op} requires_target_absent is not a boolean")
+
+
+def _inventory_complete(
+    created: object,
+    fixture: Mapping[str, Any],
+    ids_by_role: Mapping[str, str],
+) -> bool:
+    """Did the guest record every object it created, under the ids it read back?
+
+    Review finding 6: empty inventories alongside successful operations meant
+    the residual re-query had nothing to look for, and passed.
+    """
+    inventory = _mapping(created, frozenset({"ous", "groups", "wmi_filters", "gpos"}), "created")
+    ous = _strings(inventory["ous"], "created.ous")
+    groups = _strings(inventory["groups"], "created.groups")
+    filters = _strings(inventory["wmi_filters"], "created.wmi_filters")
+    gpos = inventory["gpos"]
+    if not isinstance(gpos, list):
+        raise ValueError("created.gpos is not a list")
+    entries = [
+        _mapping(entry, frozenset({"role", "name", "id"}), "created.gpos[]") for entry in gpos
+    ]
+    roles = [entry["role"] for entry in entries]
+    by_role = {entry["role"]: entry for entry in entries}
+    ids = [entry["id"] for entry in entries]
+    parent = fixture["ou_parent_dn"].casefold()
+    return (
+        [dn.casefold() for dn in ous]
+        == [parent, fixture["ou_source_dn"].casefold(), fixture["ou_target_dn"].casefold()]
+        and len(groups) == 2
+        and all(dn.casefold().endswith("," + parent) for dn in groups)
+        and len(filters) == 2
+        and _bare(fixture["source_wmi_filter_id"]) in filters[0].casefold()
+        and _bare(fixture["target_wmi_filter_id"]) in filters[1].casefold()
+        and sorted(roles) == sorted(INVENTORY_ROLES)
+        and all(isinstance(entry["name"], str) and entry["name"] for entry in entries)
+        and all(isinstance(i, str) and _BARE_GUID.match(i) for i in ids)
+        and len({_bare(i) for i in ids}) == len(ids)
+        and by_role["import_as_new"]["name"] == fixture["import_as_new_name"]
+        and all(
+            _bare(by_role[role]["id"]) == _bare(gpo_id) for role, gpo_id in ids_by_role.items()
+        )
+    )
 
 
 def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
@@ -246,27 +428,31 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
 
     Returns ``(lane_checks, claim_checks, comparison)``. Raises ``KeyError`` /
     ``TypeError`` / ``ValueError`` on a malformed result, which ``main``
-    records as a comparison error that fails every claim.
+    records as a comparison error that fails the lane and every claim.
     """
-    fixture = result["fixture"]
-    if not isinstance(fixture, dict):
-        raise ValueError("result carries no fixture")
-    source = _state(result["source_baseline"], "source_baseline")
-    target = _state(result["target_baseline"], "target_baseline")
-    control = _state(result["control_state"], "control_state")
-    perturbed = _state(result["restore_perturbed"], "restore_perturbed")
+    _validate_expectation(expected)
+    fixture = validate_fixture(result["fixture"])
+    source = validate_state(result["source_baseline"], "source_baseline")
+    target = validate_state(result["target_baseline"], "target_baseline")
+    control = validate_state(result["control_state"], "control_state")
+    perturbed = validate_state(result["restore_perturbed"], "restore_perturbed")
     operations = result["operations"]
     if not isinstance(operations, dict) or set(operations) != set(OPERATIONS):
         raise ValueError("result does not report exactly the lane's operations")
-    if list(expected["operation_order"]) != list(OPERATIONS):
-        raise ValueError("expectation's operation order is not the lane's")
-    if list(expected["dimensions"]) != list(DIMENSIONS):
-        raise ValueError("expectation's dimensions are not the lane's")
+    backup = _mapping(
+        result["backup"], frozenset({"backup_id", "source_gpo_id", "relative_path"}), "backup"
+    )
+    if not _BRACED_GUID.match(_text(backup, "backup_id", "backup")):
+        raise ValueError("backup.backup_id is not a braced GUID")
 
     lane: dict[str, bool] = {
         "source_authored_as_specified": _authored(source, fixture, "source"),
         "target_authored_as_specified": _authored(target, fixture, "target"),
         "restore_perturbation_landed": _authored(perturbed, fixture, "perturbed"),
+        "control_is_an_untouched_new_gpo": _untouched_new_gpo(control),
+        "backup_names_the_source": _bare(_text(backup, "source_gpo_id", "backup"))
+        == _bare(source["gpo_id"])
+        and backup["relative_path"] == "backup",
         # Without these, two outcomes would read the same and a cell could pass
         # for the wrong reason.
         "every_dimension_distinguishable": all(
@@ -284,35 +470,58 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
     observed: dict[str, dict[str, str]] = {}
     mismatches: list[dict[str, str]] = []
     known_ids = {_bare(s["gpo_id"]) for s in (source, target, control)}
+    ids_by_role = {"source": source["gpo_id"], "target": target["gpo_id"],
+                   "control": control["gpo_id"]}
     for op in OPERATIONS:
-        record = operations[op]
-        if not isinstance(record, dict):
-            raise ValueError(f"operation {op} is not an object")
+        record = _mapping(operations[op], OPERATION_KEYS, f"operations.{op}")
         claim = expected["operations"][op]
+        if not isinstance(record["succeeded"], bool):
+            raise ValueError(f"operations.{op}.succeeded is not a boolean")
+        if record["error"] is not None and not isinstance(record["error"], str):
+            raise ValueError(f"operations.{op}.error is neither null nor a string")
         before = (
-            _state(record["target_before"], f"{op}.target_before") if op in PREEXISTING
-            and record.get("target_before") is not None else None
+            validate_state(record["target_before"], f"{op}.target_before")
+            if op in PREEXISTING and record["target_before"] is not None
+            else None
         )
-        # An operation on a pre-existing target is gradable only with the
-        # target's state just before it: "replaced" is defined against that.
+        bound = True
+        if op == "restore_in_place":
+            # Review finding 4: grade against the snapshot whose perturbation
+            # was verified, not a second, unchecked copy of it.
+            bound = record["target_before"] == result["restore_perturbed"]
+            lane["restore_graded_against_the_verified_perturbation"] = bound
+        if op == "import_into_existing":
+            lane["pre_existing_target_untouched_until_its_import"] = before is not None and all(
+                dimension_value(before, d) == dimension_value(target, d) for d in DIMENSIONS
+            )
         succeeded = (
-            record.get("succeeded") is True
-            and record.get("target_after") is not None
+            record["succeeded"] is True
+            and record["error"] is None
+            and record["target_after"] is not None
             and (before is not None or op not in PREEXISTING)
+            and bound
         )
         lane[f"operation_{op}_succeeded"] = succeeded
-        lane[f"operation_{op}_target_preexistence_recorded"] = (
-            record.get("target_preexisted") is (op in PREEXISTING)
+        # Measured by the guest immediately before the operation. A creating
+        # operation's claims hold only if its target name was free
+        # (Import-GPO -CreateIfNeeded imports into an existing GPO).
+        expected_preexistence = op in PREEXISTING
+        if claim["requires_target_absent"] and expected_preexistence:
+            raise ValueError(f"expectation {op} requires absence of a pre-existing target")
+        lane[f"operation_{op}_target_preexistence_measured"] = (
+            record["target_preexisted"] is expected_preexistence
         )
         observed[op] = {}
         after = (
-            _state(record["target_after"], f"{op}.target_after") if succeeded else None
+            validate_state(record["target_after"], f"{op}.target_after") if succeeded else None
         )
+        if after is not None and op in NEW_GPO_ROLES:
+            ids_by_role[op] = after["gpo_id"]
         claims[f"plan_target_identity.{op}"] = after is not None and _observed_identity(
-            str(claim["target_identity"]), before, after, known_ids, _bare(source["gpo_id"])
+            claim["target_identity"], before, after, known_ids, _bare(source["gpo_id"])
         )
         for dim in DIMENSIONS:
-            predicted = str(claim["survival"][dim])
+            predicted = claim["survival"][dim]
             outcome = (
                 classify(dim, source, before, after, control) if after is not None else "not-run"
             )
@@ -322,13 +531,8 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
                 mismatches.append(
                     {"operation": op, "dimension": dim, "predicted": predicted, "observed": outcome}
                 )
-    import_record = operations["import_into_existing"]
-    lane["pre_existing_target_untouched_until_its_import"] = isinstance(
-        import_record.get("target_before"), dict
-    ) and all(
-        dimension_value(_state(import_record["target_before"], "target_before"), d)
-        == dimension_value(target, d)
-        for d in DIMENSIONS
+    lane["creation_inventory_complete"] = _inventory_complete(
+        result["created"], fixture, ids_by_role
     )
     comparison = {
         "observed_survival": observed,
@@ -341,15 +545,31 @@ def grade(result: Mapping[str, Any], expected: Mapping[str, Any]) -> tuple[
 
 
 def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
-    """Does ``manifest_from_backup(read_backup(...))`` read the real backup right?"""
-    backup = result.get("backup")
-    source = result.get("source_baseline")
-    if not isinstance(backup, dict) or not isinstance(source, dict):
-        return False, {"error": "result carries no backup or source baseline"}
+    """Does ``manifest_from_backup(read_backup(...))`` read the real backup right?
+
+    The WMI reference must identify the AUTHORED source filter -- by its id or
+    its name -- and not the target's (review finding 7): "some text is present"
+    cannot establish that the backup preserved this association.
+    """
     try:
-        manifest = manifest_from_backup(read_backup(run / str(backup["relative_path"])))
-    except (BackupError, ValidationError, OSError, KeyError) as exc:
+        backup = _mapping(
+            result["backup"], frozenset({"backup_id", "source_gpo_id", "relative_path"}),
+            "backup",
+        )
+        source = validate_state(result["source_baseline"], "source_baseline")
+        fixture = validate_fixture(result["fixture"])
+        relative = _text(backup, "relative_path", "backup")
+        manifest = manifest_from_backup(read_backup(run / relative))
+    except (BackupError, ValidationError, OSError, KeyError, ValueError) as exc:
         return False, {"error": f"{type(exc).__name__}: {exc}"}
+    reference = manifest.wmi_filter_reference.casefold()
+
+    def names(prefix: str) -> bool:
+        return (
+            _bare(fixture[f"{prefix}_wmi_filter_id"]) in reference
+            or fixture[f"{prefix}_wmi_filter_name"].casefold() in reference
+        )
+
     data = {
         "backup_id": manifest.backup_id,
         "gpo_guid": manifest.gpo_guid,
@@ -359,14 +579,18 @@ def bridge_check(run: Path, result: Mapping[str, Any]) -> tuple[bool, dict[str, 
         # The populated Backup.xml WMIFilter shape: never captured before
         # this lane, recorded so the bridge can stop keeping it verbatim.
         "wmi_filter_reference": manifest.wmi_filter_reference,
+        "wmi_reference_names_source_filter": names("source"),
+        "wmi_reference_names_target_filter": names("target"),
         "files": [f.relative_path for f in manifest.files],
     }
     ok = (
-        _bare(manifest.gpo_guid) == _bare(source.get("gpo_id"))
-        and _bare(manifest.backup_id) == _bare(backup.get("backup_id"))
+        _bare(manifest.gpo_guid) == _bare(source["gpo_id"])
+        and _bare(manifest.backup_id) == _bare(backup["backup_id"])
         and _bare(manifest.backup_id) != _bare(manifest.gpo_guid)
-        and manifest.gpo_display_name == source.get("display_name")
+        and manifest.gpo_display_name == source["display_name"]
         and manifest.has_wmi_filter
+        and data["wmi_reference_names_source_filter"] is True
+        and data["wmi_reference_names_target_filter"] is False
     )
     return ok, data
 
@@ -380,14 +604,16 @@ def _member(environment: object) -> bool:
 
 
 def _cleanup_proven(result: Mapping[str, Any]) -> bool:
+    """Exactly the five named residual categories, each re-queried and empty."""
     cleanup = result.get("cleanup")
-    if not isinstance(cleanup, dict) or not isinstance(cleanup.get("residual"), dict):
+    if not isinstance(cleanup, dict) or set(cleanup) != {"problems", "residual"}:
         return False
     residual = cleanup["residual"]
     return (
-        cleanup.get("problems") == []
+        cleanup["problems"] == []
+        and isinstance(residual, dict)
+        and set(residual) == RESIDUAL_CATEGORIES
         and all(value == [] for value in residual.values())
-        and len(residual) == 5
     )
 
 
@@ -427,10 +653,14 @@ def main() -> int:
         if isinstance(environment, dict)
         else ["environment was not recorded as an object"]
     )
+    run_id = result.get("run_id")
     lane: dict[str, bool] = {
         "result_schema_exact": set(result) == RESULT_KEYS
         and type(result.get("schema_version")) is int
         and result["schema_version"] == 1,
+        "run_id_well_formed": isinstance(run_id, str) and bool(_RUN_ID.match(run_id)),
+        "domain_recorded": isinstance(result.get("domain"), str) and bool(result["domain"]),
+        "ownership_established": result.get("ownership_established") is True,
         "harness_reported_no_error": result.get("error") is None,
         "member_server_host_role": _member(environment),
         "environment_matches_frozen_spec": not violations,
@@ -461,6 +691,7 @@ def main() -> int:
     comparison: dict[str, Any] = {}
     try:
         graded_lane, graded_claims, comparison = grade(result, expected)
+        lane["result_gradable"] = True
         lane.update(graded_lane)
         claims.update(graded_claims)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
@@ -496,7 +727,7 @@ def main() -> int:
     predictions_agree = all(claims.values())
     verdict = {
         "schema_version": 1,
-        "run_id": result.get("run_id"),
+        "run_id": run_id,
         "transport": "psdirect",
         "passed": harness_valid and predictions_agree,
         "harness_valid": harness_valid,
@@ -529,9 +760,9 @@ def main() -> int:
     }
 
     tag_outcome = None
-    if verdict["passed"] and not args.no_tag:
+    if verdict["passed"] and isinstance(run_id, str) and not args.no_tag:
         try:
-            tag_outcome = tag_evidence_commit(repo, str(result["run_id"]), commit)
+            tag_outcome = tag_evidence_commit(repo, run_id, commit)
         except OracleEvidenceError as exc:
             print(f"evidence tag failed: {exc}", file=sys.stderr)
             return 1

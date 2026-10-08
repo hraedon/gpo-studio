@@ -5,16 +5,23 @@ The lane grades a comparison, so the tests that matter prove each check can
 prediction it was meant to test. The synthetic result is built FROM the
 predictions, so the control (Windows agrees) and every mutation stay valid
 when the lane corrects ``SCOPE_SURVIVAL``.
+
+The end-to-end control is independently valid -- frozen-spec environment,
+clean bound source, complete inventory -- and must exit 0 with ``passed``
+before any rejection case means anything (review finding 8, 2026-10-08).
 """
 
 from __future__ import annotations
 
+import atexit
 import copy
+import functools
 import json
 import runpy
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -70,6 +77,8 @@ _PARENT = "OU=zz-studio-lifecycle-x,DC=synthetic,DC=test"
 _OU_SRC, _OU_TGT = f"OU=src-link,{_PARENT}", f"OU=tgt-link,{_PARENT}"
 _WMI_SRC = "{bbbbbbbb-0000-0000-0000-000000000001}"
 _WMI_TGT = "{bbbbbbbb-0000-0000-0000-000000000002}"
+_SOM = "CN=SOM,CN=WMIPolicy,CN=System,DC=synthetic,DC=test"
+_IMPORT_NAME = "zz-studio-lifecycle-x-imported"
 
 _FIXTURE = {
     "stamp": "x",
@@ -88,7 +97,14 @@ _FIXTURE = {
     "target_group_sid": _TGT_SID,
     "source_wmi_filter_id": _WMI_SRC,
     "target_wmi_filter_id": _WMI_TGT,
+    "source_wmi_filter_name": "zz-studio-lifecycle-x-src-wmi",
+    "target_wmi_filter_name": "zz-studio-lifecycle-x-tgt-wmi",
+    "import_as_new_name": _IMPORT_NAME,
 }
+
+
+def _wql(wmi: str) -> str:
+    return f"[synthetic.test;{wmi};0]" if wmi else ""
 
 
 def _state(
@@ -101,7 +117,7 @@ def _state(
         "description": description,
         "gpo_status": "AllSettingsEnabled",
         "settings_value": value,
-        "gpc_wql_filter": f"[synthetic.test;{wmi};0]" if wmi else "",
+        "gpc_wql_filter": _wql(wmi),
         "wmi_filter_id": wmi,
         "wmi_filter_name": "",
         "links": links,
@@ -133,6 +149,13 @@ _EMPTY: dict[str, object] = {
 }
 
 
+def _set(state: dict[str, Any], key: str, value: object) -> None:
+    """Set one field, keeping the raw gPCWQLFilter consistent with the parsed id."""
+    state[key] = copy.deepcopy(value)
+    if key == "wmi_filter_id":
+        state["gpc_wql_filter"] = _wql(cast(str, value))
+
+
 def _after(op: str, before: dict[str, Any] | None) -> dict[str, Any]:
     """The target state a run would read back if every prediction held."""
     after = copy.deepcopy(before if before is not None else _CONTROL)
@@ -140,22 +163,21 @@ def _after(op: str, before: dict[str, Any] | None) -> dict[str, Any]:
         key = _FIELD[dim]
         outcome = SCOPE_SURVIVAL[op][dim]  # type: ignore[index]
         if outcome == "kept":
-            after[key] = copy.deepcopy(_SOURCE[key])
+            _set(after, key, _SOURCE[key])
         elif outcome == "replaced":
             assert before is not None
-            after[key] = copy.deepcopy(before[key])
+            _set(after, key, before[key])
         elif outcome == "lost":
-            after[key] = copy.deepcopy(_EMPTY[key])
+            _set(after, key, _EMPTY[key])
         elif dim == "gpo_guid":
-            after[key] = _NEW[op]
+            _set(after, key, _NEW[op])
         else:
-            after[key] = list(_DEFAULT_ACL)
-    if after["wmi_filter_id"] == "":
-        after["gpc_wql_filter"] = ""
+            _set(after, key, list(_DEFAULT_ACL))
     return after
 
 
 def _result() -> dict[str, Any]:
+    """A complete, independently valid result whose observations match the table."""
     operations: dict[str, Any] = {}
     for op in WINDOWS_OPERATIONS:
         before = {"import_into_existing": _TARGET, "restore_in_place": _PERTURBED}.get(op)
@@ -166,10 +188,19 @@ def _result() -> dict[str, Any]:
             "target_before": copy.deepcopy(before),
             "target_after": _after(op, before),
         }
+    gpos = [
+        {"role": "control", "name": "zz-studio-lifecycle-x-control", "id": _CTRL},
+        {"role": "source", "name": "zz-studio-lifecycle-x-source", "id": _SRC},
+        {"role": "target", "name": "zz-studio-lifecycle-x-target", "id": _TGT},
+    ]
+    for op in ("copy", "copy_with_acl", "import_as_new"):
+        name = _IMPORT_NAME if op == "import_as_new" else f"zz-studio-lifecycle-x-{op}"
+        gpos.append({"role": op, "name": name, "id": operations[op]["target_after"]["gpo_id"]})
     return {
         "schema_version": 1,
         "run_id": "lifecycle-20261007000000-0001",
         "domain": "synthetic.test",
+        "ownership_established": True,
         "fixture": dict(_FIXTURE),
         "backup": {"backup_id": _BACKUP_ID, "source_gpo_id": _SRC, "relative_path": "backup"},
         "control_state": copy.deepcopy(_CONTROL),
@@ -177,7 +208,12 @@ def _result() -> dict[str, Any]:
         "target_baseline": copy.deepcopy(_TARGET),
         "restore_perturbed": copy.deepcopy(_PERTURBED),
         "operations": operations,
-        "created": {"ous": [], "groups": [], "wmi_filters": [], "gpos": []},
+        "created": {
+            "ous": [_PARENT, _OU_SRC, _OU_TGT],
+            "groups": [f"CN=zzlc-000001-src,{_PARENT}", f"CN=zzlc-000001-tgt,{_PARENT}"],
+            "wmi_filters": [f"CN={_WMI_SRC},{_SOM}", f"CN={_WMI_TGT},{_SOM}"],
+            "gpos": gpos,
+        },
         "cleanup": {
             "problems": [],
             "residual": {
@@ -196,7 +232,7 @@ def _result() -> dict[str, Any]:
             "computer_system_domain_role": 3,
             "powershell_edition": "Desktop",
             "powershell_version": "5.1.26100.1",
-            "group_policy_module_version": "1.0",
+            "group_policy_module_version": "1.0.0.0",
             "gpmc_version": "built-in",
             "locale": "en-US",
             "computer_system_name": "MEMBER",
@@ -211,12 +247,117 @@ def _failing(checks: dict[str, bool]) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# The control, then every check shown to fire
+# End-to-end harness: a clean repository holding exactly the bound files
 # ---------------------------------------------------------------------------
 
 
+@functools.cache
+def _clean_repo() -> Path:
+    """A throwaway Git repository with the lane's bound files, committed clean.
+
+    The finalizer refuses dirty or drifted bound source by design, so a control
+    run against the developer's checkout could only pass on a clean tree. A
+    repository of byte copies makes the control independent of the checkout:
+    the files are this tree's own bytes, committed, with nothing else present.
+    """
+    root = Path(tempfile.mkdtemp(prefix="gpo-lifecycle-repo-"))
+    atexit.register(shutil.rmtree, root, True)
+    paths = cast(dict[str, str], {**_FINALIZER["DEPLOYED_FILES"], **_FINALIZER["LOCAL_FILES"]})
+    for relative in paths.values():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((_ROOT / relative).read_bytes())
+    (root / ".gitattributes").write_bytes(b"* -text\n")
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.name", "Synthetic Test")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "commit.gpgsign", "false")
+    git("config", "core.autocrlf", "false")
+    git("config", "core.hooksPath", "/dev/null")
+    git("add", ".")
+    git("commit", "-q", "-m", "lane source")
+    return root
+
+
+def _finalize(
+    run: Path, candidate: Path, repo: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable, str(_FINALIZER_PATH), str(run),
+            "--candidate-root", str(candidate),
+            "--repo-root", str(repo or _clean_repo()), "--no-tag",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _candidate(tmp_path: Path) -> Path:
+    root = tmp_path / "candidate"
+    subprocess.run(
+        [sys.executable, str(_BUILDER_PATH), str(root)], check=True, capture_output=True
+    )
+    return root
+
+
+def _run_dir(tmp_path: Path, result: dict[str, Any], wmi: str | None = _WMI_SRC) -> Path:
+    run = tmp_path / "run"
+    shutil.copytree(_NATIVE, run / "backup")
+    if wmi is not None:
+        backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
+        backup_xml.write_bytes(
+            backup_xml.read_bytes().replace(
+                b"<WMIFilter/>", f"<WMIFilter>{_wql(wmi)}</WMIFilter>".encode()
+            )
+        )
+    (run / "commands").mkdir()
+    for name in ("backup", *WINDOWS_OPERATIONS):
+        for stream in ("stdout", "stderr"):
+            (run / "commands" / f"{name}.{stream}.txt").write_text("", encoding="utf-8")
+    (run / "builder.stdout.txt").write_text("log", encoding="utf-8")
+    (run / "deployed").mkdir()
+    shutil.copyfile(_GUEST_PATH, run / "deployed" / "run-lifecycle.ps1")
+    (run / "result.json").write_text(json.dumps(result), encoding="utf-8-sig")
+    return run
+
+
+def _verdict(
+    tmp_path: Path, result: dict[str, Any], wmi: str | None = _WMI_SRC
+) -> tuple[int, dict[str, Any]]:
+    run = _run_dir(tmp_path, result, wmi)
+    completed = _finalize(run, _candidate(tmp_path))
+    assert "Traceback" not in completed.stderr, completed.stderr
+    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
+    return completed.returncode, cast(dict[str, Any], verdict)
+
+
+# ---------------------------------------------------------------------------
+# The control first: an independently valid run must exit 0 and pass
+# ---------------------------------------------------------------------------
+
+
+def test_the_control_run_passes_end_to_end(tmp_path: Path) -> None:
+    """Review finding 8: the control must itself be valid, not excused.
+
+    Every rejection case below is only meaningful because this one passes.
+    """
+    code, verdict = _verdict(tmp_path, _result())
+    assert _failing(verdict["checks"]) == set()
+    assert verdict["environment_violations"] == []
+    assert verdict["passed"] is True
+    assert verdict["harness_valid"] is True and verdict["predictions_agree"] is True
+    assert code == 0
+    assert verdict["comparison"]["backup_bridge"]["wmi_filter_reference"] == _wql(_WMI_SRC)
+    assert set(verdict["candidate"]) == {"expected.json"}
+
+
 def test_a_run_that_matches_every_prediction_grades_clean() -> None:
-    """Without this control every mutation below could pass for the wrong reason."""
     lane, claims, comparison = _grade(_result(), _expectation())
     assert _failing(lane) == set()
     assert _failing(claims) == set()
@@ -230,18 +371,273 @@ def test_there_is_one_claim_check_per_survival_cell_and_per_plan_identity() -> N
     assert set(claims) == cells | identities
 
 
+# ---------------------------------------------------------------------------
+# The reviewer's mutations (2026-10-08), each now refused end to end
+# ---------------------------------------------------------------------------
+
+
+def _mutate_null_copy_guid(r: dict[str, Any]) -> None:
+    r["operations"]["copy"]["target_after"]["gpo_id"] = None
+
+
+def _mutate_same_guid_for_new_targets(r: dict[str, Any]) -> None:
+    for op in ("copy", "copy_with_acl", "import_as_new"):
+        r["operations"][op]["target_after"]["gpo_id"] = "aaaaaaaa-0000-0000-0000-000000000099"
+    for entry in r["created"]["gpos"]:
+        if entry["role"] in ("copy", "copy_with_acl", "import_as_new"):
+            entry["id"] = "aaaaaaaa-0000-0000-0000-000000000099"
+
+
+def _mutate_unauthored_control_acl(r: dict[str, Any]) -> None:
+    for state in (
+        r["control_state"],
+        r["operations"]["copy"]["target_after"],
+        r["operations"]["import_as_new"]["target_after"],
+    ):
+        state["permissions"] = [f"{_AU}|GpoRead|False"]
+
+
+def _mutate_restore_links_emptied(r: dict[str, Any]) -> None:
+    for side in ("target_before", "target_after"):
+        r["operations"]["restore_in_place"][side]["links"] = []
+
+
+def _mutate_malformed_wmi(r: dict[str, Any]) -> None:
+    r["operations"]["import_as_new"]["target_after"].update(
+        gpc_wql_filter="[synthetic.test;BROKEN;0]", wmi_filter_id=""
+    )
+
+
+def _mutate_unparsed_wmi_null(r: dict[str, Any]) -> None:
+    # The guest's own encoding of "present but unparseable".
+    r["operations"]["import_as_new"]["target_after"].update(
+        gpc_wql_filter="[synthetic.test;BROKEN;0]", wmi_filter_id=None
+    )
+
+
+def _mutate_wrong_residual_categories(r: dict[str, Any]) -> None:
+    r["cleanup"]["residual"] = {f"unrelated_{i}": [] for i in range(5)}
+
+
+def _mutate_command_error_ignored(r: dict[str, Any]) -> None:
+    r["operations"]["copy"]["error"] = "read-back failure"
+
+
+def _mutate_null_settings_everywhere(r: dict[str, Any]) -> None:
+    r["fixture"]["source_value"] = None
+    r["source_baseline"]["settings_value"] = None
+    for record in r["operations"].values():
+        record["target_after"]["settings_value"] = None
+
+
+def _mutate_empty_inventory(r: dict[str, Any]) -> None:
+    r["created"] = {"ous": [], "groups": [], "wmi_filters": [], "gpos": []}
+
+
+def _mutate_inventory_id_disagrees(r: dict[str, Any]) -> None:
+    r["created"]["gpos"][-1]["id"] = "aaaaaaaa-0000-0000-0000-000000000077"
+
+
+def _mutate_no_ownership(r: dict[str, Any]) -> None:
+    r["ownership_established"] = False
+
+
+def _mutate_import_target_preexisted(r: dict[str, Any]) -> None:
+    r["operations"]["import_as_new"]["target_preexisted"] = True
+
+
+def _mutate_preexistence_unmeasured(r: dict[str, Any]) -> None:
+    r["operations"]["copy"]["target_preexisted"] = None
+
+
+def _mutate_bad_permission_entry(r: dict[str, Any]) -> None:
+    r["operations"]["copy"]["target_after"]["permissions"] = ["None|None|None"]
+
+
+def _mutate_run_id_null(r: dict[str, Any]) -> None:
+    r["run_id"] = None
+
+
+_MUTATIONS: dict[str, tuple[Callable[[dict[str, Any]], None], str]] = {
+    # name: (mutation, a check that must fail)
+    "null_new_guid": (_mutate_null_copy_guid, "result_gradable"),
+    "same_guid_all_new_targets": (_mutate_same_guid_for_new_targets, "creation_inventory_complete"),
+    "unauthored_control_and_default_acls": (
+        _mutate_unauthored_control_acl, "control_is_an_untouched_new_gpo"
+    ),
+    "restore_lost_links_misclassified": (
+        _mutate_restore_links_emptied, "restore_graded_against_the_verified_perturbation"
+    ),
+    "malformed_wmi_reported_lost": (_mutate_malformed_wmi, "result_gradable"),
+    "unparsed_wmi_encoded_as_null": (_mutate_unparsed_wmi_null, "result_gradable"),
+    "wrong_cleanup_residual_categories": (
+        _mutate_wrong_residual_categories, "cleanup_residual_empty"
+    ),
+    "command_error_ignored": (_mutate_command_error_ignored, "operation_copy_succeeded"),
+    "null_settings_source_and_all_after": (_mutate_null_settings_everywhere, "result_gradable"),
+    "empty_creation_inventory": (_mutate_empty_inventory, "creation_inventory_complete"),
+    "inventory_id_disagrees_with_read_back": (
+        _mutate_inventory_id_disagrees, "creation_inventory_complete"
+    ),
+    "ownership_not_established": (_mutate_no_ownership, "ownership_established"),
+    "import_as_new_target_preexisted": (
+        _mutate_import_target_preexisted, "operation_import_as_new_target_preexistence_measured"
+    ),
+    "preexistence_not_measured": (
+        _mutate_preexistence_unmeasured, "operation_copy_target_preexistence_measured"
+    ),
+    "malformed_permission_entry": (_mutate_bad_permission_entry, "result_gradable"),
+    "null_run_id": (_mutate_run_id_null, "run_id_well_formed"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_MUTATIONS))
+def test_each_reviewer_mutation_is_refused_end_to_end(tmp_path: Path, case: str) -> None:
+    mutate, must_fail = _MUTATIONS[case]
+    result = _result()
+    mutate(result)
+    code, verdict = _verdict(tmp_path, result)
+    assert code == 1, case
+    assert verdict["passed"] is False, case
+    assert verdict["harness_valid"] is False, case
+    assert verdict["checks"][must_fail] is False, (case, _failing(verdict["checks"]))
+
+
+def test_a_wmi_reference_naming_another_filter_fails_the_bridge(tmp_path: Path) -> None:
+    """Review finding 7: populated text is not the authored association."""
+    code, verdict = _verdict(tmp_path, _result(), wmi="{cccccccc-0000-0000-0000-000000000001}")
+    assert code == 1
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
+    assert verdict["comparison"]["backup_bridge"]["wmi_reference_names_source_filter"] is False
+
+
+def test_a_wmi_reference_naming_the_target_filter_fails_the_bridge(tmp_path: Path) -> None:
+    code, verdict = _verdict(tmp_path, _result(), wmi=_WMI_TGT)
+    assert code == 1
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
+
+
+def test_a_wmi_reference_by_name_satisfies_the_bridge(tmp_path: Path) -> None:
+    """The populated shape is unknown; the authored filter's name identifies it too."""
+    run = _run_dir(tmp_path, _result(), wmi=None)
+    backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
+    backup_xml.write_bytes(
+        backup_xml.read_bytes().replace(
+            b"<WMIFilter/>",
+            f"<WMIFilter>{_FIXTURE['source_wmi_filter_name']}</WMIFilter>".encode(),
+        )
+    )
+    completed = _finalize(run, _candidate(tmp_path))
+    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is True
+    assert completed.returncode == 0
+
+
+def test_a_backup_without_a_wmi_link_fails_the_bridge_claim(tmp_path: Path) -> None:
+    code, verdict = _verdict(tmp_path, _result(), wmi=None)
+    assert code == 1
+    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
+
+
+def test_a_tampered_expectation_is_caught_against_bound_source(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path, _result())
+    candidate = _candidate(tmp_path)
+    expected = json.loads((candidate / "expected.json").read_text(encoding="utf-8"))
+    expected["operations"]["copy"]["survival"]["links"] = "kept"
+    (candidate / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
+    completed = _finalize(run, candidate)
+    assert completed.returncode == 1
+    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
+    assert verdict["checks"]["expectation_reproduces_from_bound_source"] is False
+    assert verdict["harness_valid"] is False
+
+
+def test_a_harness_deployed_from_other_bytes_is_refused(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path, _result())
+    (run / "deployed" / "run-lifecycle.ps1").write_bytes(b"# not the source\n")
+    assert _finalize(run, _candidate(tmp_path)).returncode == 1
+    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
+    assert verdict["checks"]["deployed_harness_matches_source"] is False
+
+
+def test_a_residual_object_fails_cleanup_even_if_the_flags_say_clean(tmp_path: Path) -> None:
+    result = _result()
+    result["cleanup"]["residual"]["surviving_ous"] = [_PARENT]
+    code, verdict = _verdict(tmp_path, result)
+    assert code == 1
+    assert verdict["checks"]["cleanup_residual_empty"] is False
+
+
+def test_a_dirty_source_tree_fails_the_lane(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    shutil.copytree(_clean_repo(), repo)
+    (repo / "untracked.txt").write_text("x", encoding="utf-8")
+    run = _run_dir(tmp_path, _result())
+    assert _finalize(run, _candidate(tmp_path), repo).returncode == 1
+    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
+    assert verdict["checks"]["source_tree_clean"] is False
+
+
+def test_a_malformed_result_fails_every_claim_rather_than_crashing(tmp_path: Path) -> None:
+    result = _result()
+    result["operations"] = {}
+    code, verdict = _verdict(tmp_path, result)
+    assert code == 1
+    assert verdict["comparison_error"]
+    assert verdict["checks"]["result_gradable"] is False
+    assert verdict["checks"]["survival.copy.links"] is False
+
+
+def test_the_finalizer_refuses_a_candidate_root_missing_a_required_file(
+    tmp_path: Path,
+) -> None:
+    required = cast(tuple[str, ...], _FINALIZER["REQUIRED_CANDIDATE_FILES"])
+    for omitted in required:
+        root = tmp_path / f"without-{omitted}"
+        root.mkdir()
+        for name in required:
+            if name != omitted:
+                (root / name).write_bytes(b"{}")
+        run = tmp_path / f"run-{omitted}"
+        run.mkdir()
+        (run / "result.json").write_text("{}", encoding="utf-8")
+        completed = _finalize(run, root)
+        assert completed.returncode == 1, omitted
+        assert omitted in completed.stderr, omitted
+        assert not (run / "verification.json").exists()
+
+
+def test_the_finalizer_refuses_a_run_without_result_json(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    run.mkdir()
+    completed = _finalize(run, _candidate(tmp_path))
+    assert completed.returncode == 1
+    assert "result.json" in completed.stderr
+    assert not (run / "verification.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Every survival cell shown to fire, alone
+# ---------------------------------------------------------------------------
+
+
 def _flip(op: str, dim: str, result: dict[str, Any]) -> str:
     """Make one cell come out differently from its prediction; return the new outcome."""
     record = result["operations"][op]
     key = _FIELD[dim]
     predicted = SCOPE_SURVIVAL[op][dim]  # type: ignore[index]
-    if predicted == "kept":
-        record["target_after"][key] = copy.deepcopy(_EMPTY[key])
-        return "lost"
     if dim == "gpo_guid":
+        if predicted == "defaulted":
+            # A *different* Windows-assigned GUID is still "defaulted";
+            # disagreement here means Windows reused the source's GUID.
+            record["target_after"][key] = _SRC
+            return "kept"
         record["target_after"][key] = "cccccccc-0000-0000-0000-000000000009"
         return "defaulted" if record["target_before"] is None else "unclassified"
-    record["target_after"][key] = copy.deepcopy(_SOURCE[key])
+    if predicted == "kept":
+        _set(record["target_after"], key, _EMPTY[key])
+        return "lost"
+    _set(record["target_after"], key, _SOURCE[key])
     return "kept"
 
 
@@ -250,11 +646,6 @@ def _flip(op: str, dim: str, result: dict[str, Any]) -> str:
 def test_every_survival_cell_fails_alone_when_windows_disagrees(op: str, dim: str) -> None:
     result = _result()
     observed = _flip(op, dim, result)
-    if dim == "gpo_guid" and SCOPE_SURVIVAL[op][dim] == "defaulted":  # type: ignore[index]
-        # A *different* Windows-assigned GUID is still "defaulted"; disagreement
-        # for this cell means Windows reused the source's GUID instead.
-        result["operations"][op]["target_after"]["gpo_id"] = _SRC
-        observed = "kept"
     lane, claims, comparison = _grade(result, _expectation())
     failing = _failing(claims) - {f"plan_target_identity.{op}"}
     assert failing == {f"survival.{op}.{dim}"}
@@ -266,6 +657,7 @@ def test_every_survival_cell_fails_alone_when_windows_disagrees(op: str, dim: st
     } in comparison["mismatches"]
     if dim != "gpo_guid":
         assert f"plan_target_identity.{op}" not in _failing(claims)
+        assert _failing(lane) == set()
 
 
 def test_a_mismatch_is_data_not_a_harness_failure() -> None:
@@ -305,13 +697,26 @@ def test_a_restore_without_its_before_state_is_not_graded() -> None:
     result["operations"]["restore_in_place"]["target_before"] = None
     lane, claims, _ = _grade(result, _expectation())
     assert lane["operation_restore_in_place_succeeded"] is False
+    assert lane["restore_graded_against_the_verified_perturbation"] is False
     assert claims["survival.restore_in_place.links"] is False
+
+
+def test_a_restore_before_state_differing_from_the_verified_one_is_not_graded() -> None:
+    """Review finding 4, in the pure grader: the two snapshots must be one."""
+    result = _result()
+    result["operations"]["restore_in_place"]["target_before"]["description"] = "other"
+    lane, claims, comparison = _grade(result, _expectation())
+    assert lane["restore_graded_against_the_verified_perturbation"] is False
+    assert lane["operation_restore_in_place_succeeded"] is False
+    assert set(comparison["observed_survival"]["restore_in_place"].values()) == {"not-run"}
 
 
 def test_a_perturbation_that_did_not_land_invalidates_the_run() -> None:
     """If the description never moved, 'kept' and 'replaced' read the same."""
     result = _result()
-    result["restore_perturbed"]["description"] = "source description"
+    for state in (result["restore_perturbed"],
+                  result["operations"]["restore_in_place"]["target_before"]):
+        state["description"] = "source description"
     lane, _, _ = _grade(result, _expectation())
     assert lane["restore_perturbation_landed"] is False
     assert lane["every_dimension_distinguishable"] is False
@@ -319,9 +724,9 @@ def test_a_perturbation_that_did_not_land_invalidates_the_run() -> None:
 
 def test_a_perturbation_that_kept_the_source_filter_group_is_refused() -> None:
     result = _result()
-    result["restore_perturbed"]["permissions"] = sorted(
-        [*_TGT_ACL, f"{_SRC_SID}|GpoRead|False"]
-    )
+    for state in (result["restore_perturbed"],
+                  result["operations"]["restore_in_place"]["target_before"]):
+        state["permissions"] = sorted([*_TGT_ACL, f"{_SRC_SID}|GpoRead|False"])
     lane, _, _ = _grade(result, _expectation())
     assert lane["restore_perturbation_landed"] is False
 
@@ -338,7 +743,7 @@ def test_a_perturbation_that_kept_the_source_filter_group_is_refused() -> None:
 )
 def test_a_source_not_authored_as_specified_invalidates_the_run(field: str, value: Any) -> None:
     result = _result()
-    result["source_baseline"][field] = value
+    _set(result["source_baseline"], field, value)
     lane, _, _ = _grade(result, _expectation())
     assert lane["source_authored_as_specified"] is False
 
@@ -357,6 +762,14 @@ def test_a_source_acl_equal_to_the_default_is_indistinguishable() -> None:
     result["control_state"]["permissions"] = list(_SRC_ACL)
     lane, _, _ = _grade(result, _expectation())
     assert lane["every_dimension_distinguishable"] is False
+    assert lane["control_is_an_untouched_new_gpo"] is False
+
+
+def test_a_control_that_carries_settings_is_not_a_control() -> None:
+    result = _result()
+    result["control_state"]["settings_value"] = "x"
+    lane, _, _ = _grade(result, _expectation())
+    assert lane["control_is_an_untouched_new_gpo"] is False
 
 
 def test_a_target_touched_before_its_import_is_flagged() -> None:
@@ -370,7 +783,15 @@ def test_a_misrecorded_preexistence_flag_is_flagged() -> None:
     result = _result()
     result["operations"]["copy"]["target_preexisted"] = True
     lane, _, _ = _grade(result, _expectation())
-    assert lane["operation_copy_target_preexistence_recorded"] is False
+    assert lane["operation_copy_target_preexistence_measured"] is False
+
+
+def test_the_creating_operations_claim_absence_of_their_target() -> None:
+    """Review finding 9: the expectation exposes the precondition the guest checks."""
+    operations = _expectation()["operations"]
+    for op in WINDOWS_OPERATIONS:
+        creating = op in ("copy", "copy_with_acl", "import_as_new")
+        assert operations[op]["requires_target_absent"] is creating, op
 
 
 @pytest.mark.parametrize(
@@ -388,12 +809,44 @@ def test_the_plans_target_identity_claim_can_fail(op: str, gpo_id: str) -> None:
     assert claims[f"plan_target_identity.{op}"] is False
 
 
-def test_an_unrolled_single_element_list_is_refused_not_misread() -> None:
-    """PS 5.1 serializes a one-element array that lost its @() as a string."""
+# ---------------------------------------------------------------------------
+# Malformed data is refused, never coerced (review findings 2 and 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path,value",
+    [
+        (("source_baseline", "links"), _OU_SRC),            # unrolled one-element list
+        (("source_baseline", "settings_value"), None),
+        (("source_baseline", "gpo_id"), "not-a-guid"),
+        (("source_baseline", "gpo_cmt_present"), "true"),
+        (("source_baseline", "gpc_wql_filter"), "[synthetic.test;BROKEN;0]"),
+        (("source_baseline", "wmi_filter_id"), "{bbbbbbbb-0000-0000-0000-000000000009}"),
+        (("control_state", "gpc_wql_filter"), ""),          # (no-op control row below)
+        (("fixture", "source_group_sid"), "not-a-sid"),
+        (("fixture", "source_wmi_filter_id"), None),
+        (("backup", "backup_id"), None),
+    ],
+)
+def test_malformed_values_raise_instead_of_grading(path: tuple[str, str], value: Any) -> None:
     result = _result()
-    result["source_baseline"]["links"] = _OU_SRC
-    with pytest.raises(ValueError, match="links"):
+    result[path[0]][path[1]] = value
+    if path == ("control_state", "gpc_wql_filter"):
+        # Control row: an absent filter with an empty id is valid.
         _grade(result, _expectation())
+        return
+    with pytest.raises(ValueError):
+        _grade(result, _expectation())
+
+
+def test_an_unparseable_filter_is_never_read_as_absent() -> None:
+    """The guest encodes "present but unparseable" as a null id; both forms raise."""
+    validate = cast(Callable[[object, str], object], _FINALIZER["validate_state"])
+    for wmi_id in ("", None):
+        state = dict(_SOURCE, gpc_wql_filter="[synthetic.test;BROKEN;0]", wmi_filter_id=wmi_id)
+        with pytest.raises(ValueError):
+            validate(state, "state")
 
 
 def test_a_state_with_missing_keys_is_refused() -> None:
@@ -408,6 +861,28 @@ def test_an_expectation_for_different_operations_is_refused() -> None:
     expected["operation_order"] = list(reversed(expected["operation_order"]))
     with pytest.raises(ValueError, match="operation order"):
         _grade(_result(), expected)
+
+
+def test_an_expectation_with_an_unknown_outcome_is_refused() -> None:
+    expected = _expectation()
+    expected["operations"]["copy"]["survival"]["links"] = "maybe"
+    with pytest.raises(ValueError, match="vocabulary"):
+        _grade(_result(), expected)
+
+
+def test_cleanup_proof_needs_exactly_the_named_categories() -> None:
+    proven = cast(Callable[[dict[str, Any]], bool], _FINALIZER["_cleanup_proven"])
+    result = _result()
+    assert proven(result) is True
+    missing = copy.deepcopy(result)
+    del missing["cleanup"]["residual"]["surviving_ous"]
+    assert proven(missing) is False
+    extra = copy.deepcopy(result)
+    extra["cleanup"]["residual"]["surviving_other"] = []
+    assert proven(extra) is False
+    problem = copy.deepcopy(result)
+    problem["cleanup"]["problems"] = ["x"]
+    assert proven(problem) is False
 
 
 # ---------------------------------------------------------------------------
@@ -442,174 +917,9 @@ def test_an_unknown_dimension_is_refused() -> None:
         _dimension_value(_SOURCE, "owner")
 
 
-# ---------------------------------------------------------------------------
-# The finalizer end to end, including its refusals
-# ---------------------------------------------------------------------------
-
-
-def _finalize(run: Path, candidate: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            sys.executable, str(_FINALIZER_PATH), str(run),
-            "--candidate-root", str(candidate), "--repo-root", str(_ROOT), "--no-tag",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-
-def _candidate(tmp_path: Path) -> Path:
-    root = tmp_path / "candidate"
-    subprocess.run(
-        [sys.executable, str(_BUILDER_PATH), str(root)], check=True, capture_output=True
-    )
-    return root
-
-
-def _run_dir(tmp_path: Path, result: dict[str, Any], wmi: bool = True) -> Path:
-    run = tmp_path / "run"
-    shutil.copytree(_NATIVE, run / "backup")
-    if wmi:
-        backup_xml = next((run / "backup").glob("{*}/Backup.xml"))
-        backup_xml.write_bytes(
-            backup_xml.read_bytes().replace(
-                b"<WMIFilter/>", b"<WMIFilter>[synthetic.test;{F};0]</WMIFilter>"
-            )
-        )
-    (run / "commands").mkdir()
-    for name in ("backup", *WINDOWS_OPERATIONS):
-        for stream in ("stdout", "stderr"):
-            (run / "commands" / f"{name}.{stream}.txt").write_text("", encoding="utf-8")
-    (run / "builder.stdout.txt").write_text("log", encoding="utf-8")
-    (run / "deployed").mkdir()
-    shutil.copyfile(_GUEST_PATH, run / "deployed" / "run-lifecycle.ps1")
-    (run / "result.json").write_text(json.dumps(result), encoding="utf-8-sig")
-    return run
-
-
-def _bound_sources_committed() -> bool:
-    """End-to-end runs need the lane's own files committed (WI-059 guard)."""
-    paths = cast(dict[str, str], {**_FINALIZER["DEPLOYED_FILES"], **_FINALIZER["LOCAL_FILES"]})
-    for relative in paths.values():
-        shown = subprocess.run(
-            ["git", "show", f"HEAD:{relative}"], cwd=_ROOT, capture_output=True
-        )
-        if shown.returncode != 0 or shown.stdout != (_ROOT / relative).read_bytes():
-            return False
-    return True
-
-
-_needs_committed_sources = pytest.mark.skipif(
-    not _bound_sources_committed(),
-    reason="lane source differs from HEAD; the finalizer refuses by design",
-)
-
-
-@_needs_committed_sources
-def test_the_finalizer_writes_a_verdict_with_both_check_groups(tmp_path: Path) -> None:
-    run = _run_dir(tmp_path, _result())
-    candidate = _candidate(tmp_path)
-    completed = _finalize(run, candidate)
-    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
-    checks = verdict["checks"]
-    assert checks["expectation_reproduces_from_bound_source"] is True
-    assert checks["backup_bridge_reads_windows_backup"] is True
-    assert checks["deployed_harness_matches_source"] is True
-    assert verdict["predictions_agree"] is True
-    assert verdict["comparison"]["backup_bridge"]["wmi_filter_reference"] == (
-        "[synthetic.test;{F};0]"
-    )
-    assert set(verdict["candidate"]) == {"expected.json"}
-    # Whether it passes overall depends only on the checkout being clean.
-    assert verdict["passed"] is (checks["source_tree_clean"] and verdict["harness_valid"])
-    assert completed.returncode == (0 if verdict["passed"] else 1)
-
-
-@_needs_committed_sources
-def test_a_tampered_expectation_is_caught_against_bound_source(tmp_path: Path) -> None:
-    run = _run_dir(tmp_path, _result())
-    candidate = _candidate(tmp_path)
-    expected = json.loads((candidate / "expected.json").read_text(encoding="utf-8"))
-    expected["operations"]["copy"]["survival"]["links"] = "kept"
-    (candidate / "expected.json").write_text(json.dumps(expected), encoding="utf-8")
-    completed = _finalize(run, candidate)
-    assert completed.returncode == 1
-    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
-    assert verdict["checks"]["expectation_reproduces_from_bound_source"] is False
-    assert verdict["harness_valid"] is False
-
-
-@_needs_committed_sources
-def test_a_backup_without_a_wmi_link_fails_the_bridge_claim(tmp_path: Path) -> None:
-    run = _run_dir(tmp_path, _result(), wmi=False)
-    completed = _finalize(run, _candidate(tmp_path))
-    assert completed.returncode == 1
-    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
-    assert verdict["checks"]["backup_bridge_reads_windows_backup"] is False
-
-
-@_needs_committed_sources
-def test_a_harness_deployed_from_other_bytes_is_refused(tmp_path: Path) -> None:
-    run = _run_dir(tmp_path, _result())
-    (run / "deployed" / "run-lifecycle.ps1").write_bytes(b"# not the source\n")
-    _finalize(run, _candidate(tmp_path))
-    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
-    assert verdict["checks"]["deployed_harness_matches_source"] is False
-
-
-@_needs_committed_sources
-def test_a_residual_object_fails_cleanup_even_if_the_flags_say_clean(tmp_path: Path) -> None:
-    result = _result()
-    result["cleanup"]["residual"]["surviving_ous"] = [_PARENT]
-    run = _run_dir(tmp_path, result)
-    _finalize(run, _candidate(tmp_path))
-    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
-    assert verdict["checks"]["cleanup_residual_empty"] is False
-
-
-@_needs_committed_sources
-def test_a_malformed_result_fails_every_claim_rather_than_crashing(tmp_path: Path) -> None:
-    result = _result()
-    result["operations"] = {}
-    run = _run_dir(tmp_path, result)
-    completed = _finalize(run, _candidate(tmp_path))
-    assert completed.returncode == 1
-    assert "Traceback" not in completed.stderr
-    verdict = json.loads((run / "verification.json").read_text(encoding="utf-8"))
-    assert verdict["comparison_error"]
-    assert verdict["checks"]["result_gradable"] is False
-    assert verdict["checks"]["survival.copy.links"] is False
-
-
-@_needs_committed_sources
-def test_the_finalizer_refuses_a_candidate_root_missing_a_required_file(
-    tmp_path: Path,
-) -> None:
-    required = cast(tuple[str, ...], _FINALIZER["REQUIRED_CANDIDATE_FILES"])
-    for omitted in required:
-        root = tmp_path / f"without-{omitted}"
-        root.mkdir()
-        for name in required:
-            if name != omitted:
-                (root / name).write_bytes(b"{}")
-        run = tmp_path / f"run-{omitted}"
-        run.mkdir()
-        (run / "result.json").write_text("{}", encoding="utf-8")
-        completed = _finalize(run, root)
-        assert completed.returncode == 1, omitted
-        assert omitted in completed.stderr, omitted
-        assert not (run / "verification.json").exists()
-
-
-@_needs_committed_sources
-def test_the_finalizer_refuses_a_run_without_result_json(tmp_path: Path) -> None:
-    run = tmp_path / "run"
-    run.mkdir()
-    completed = _finalize(run, _candidate(tmp_path))
-    assert completed.returncode == 1
-    assert "result.json" in completed.stderr
-    assert not (run / "verification.json").exists()
+def test_dimension_values_refuse_a_null_instead_of_coercing_it() -> None:
+    with pytest.raises(ValueError, match="not a string"):
+        _dimension_value(dict(_SOURCE, settings_value=None), "settings")
 
 
 # ---------------------------------------------------------------------------
@@ -643,7 +953,7 @@ def test_the_expectation_never_travels_to_the_guest() -> None:
     assert not any("expected.json" in line for line in pushes)
     guest = _GUEST_PATH.read_text(encoding="utf-8")
     assert "expected.json" not in guest
-    assert "SCOPE_SURVIVAL" not in guest.replace("SCOPE_SURVIVAL predictions", "")
+    assert "SCOPE_SURVIVAL" not in guest
 
 
 def test_the_guest_runs_the_operations_in_the_expectations_order() -> None:
@@ -665,6 +975,52 @@ def test_the_guest_never_deletes_recursively() -> None:
     assert "-Recursive " not in guest
     assert guest.count("Remove-ADOrganizationalUnit") == 1
     assert "-Recursive:$false" in guest
+
+
+def test_the_guest_never_deletes_by_name_pattern() -> None:
+    """Review finding 1: a prefix sweep deleted a pre-existing GPO on collision."""
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    assert "-like" not in guest
+    assert "Get-GPO -All" not in guest
+
+
+def test_the_guest_guards_ownership_before_its_first_create() -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    body = guest[guest.index("# --- 0. Ownership guard"):]
+    guard_end = body.index("$result.ownership_established = $true")
+    for creator in ("New-ADOrganizationalUnit", "New-ADGroup", "New-ADObject", "New-GPO ",
+                    "Copy-GPO", "Import-GPO", "Backup-GPO"):
+        assert creator not in body[:guard_end], creator
+    cleanup = guest[guest.index("} finally {"):]
+    assert cleanup.index("if (-not $result.ownership_established)") < cleanup.index("Remove-")
+
+
+@pytest.mark.parametrize(
+    "intent,create",
+    [
+        ("$created.ous += $parentDn", "New-ADOrganizationalUnit -Name $prefix"),
+        ('$created.ous += "OU=$child,$parentDn"', "New-ADOrganizationalUnit -Name $child"),
+        ("$created.groups += $groupDn", "New-ADGroup -Name $groupName"),
+        ('$script:created.wmi_filters += "CN=$filterId,$somPath"', "New-ADObject -Name $filterId"),
+        ("$entry = Register-GpoIntent -Role $Role -Name $Name", "$gpo = New-GPO -Name $Name"),
+        ("$controlEntry = Register-GpoIntent", "$control = New-GPO"),
+        ("$entry = Register-GpoIntent -Role $name", "$copy = Copy-GPO"),
+        ("$entry = Register-GpoIntent -Role 'import_as_new'", "$imported = Import-GPO"),
+    ],
+)
+def test_every_create_is_registered_before_it_runs(intent: str, create: str) -> None:
+    """Review finding 5: a create that commits and then throws must still be found."""
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    assert guest.index(intent) < guest.index(create)
+
+
+def test_the_guest_measures_import_as_new_target_absence_first() -> None:
+    guest = _GUEST_PATH.read_text(encoding="utf-8")
+    block = guest[guest.index("$op = $operations['import_as_new']"):]
+    assert block.index("Find-GpoByName -Name $names.gpo_import_as_new") < block.index(
+        "Import-GPO"
+    )
+    assert "throw \"import_as_new target" in block
 
 
 def test_the_guest_writes_its_result_in_a_finally_block() -> None:
