@@ -289,7 +289,7 @@ def _rule_form(tokens: list[str]) -> tuple[str, ...]:
     return tuple(
         key
         if key in variable
-        or (key == "LPort" and value.isdecimal())
+        or (key == "LPort" and re.fullmatch(r"[1-9][0-9]{0,4}", value))
         or (key in ("RA4", "RA6") and value != "LocalSubnet")
         else token
         for token in tokens
@@ -333,12 +333,11 @@ def _rule_tokens(rule: FirewallRule) -> list[str]:
         if rule.local_port in ("RPC", "RPC-EPMap"):
             if rule.protocol != 6:
                 _fail("keyword_protocol", "Measured RPC keywords require TCP")
-        elif (
-            not re.fullmatch(r"[0-9]+", rule.local_port)
-            or len(rule.local_port.lstrip("0")) > 5
-            or not 1 <= int(rule.local_port.lstrip("0") or "0") <= 65535
-        ):
-            _fail("unmeasured_local_port", "Only a single port, RPC or RPC-EPMap is measured")
+        elif not re.fullmatch(r"[1-9][0-9]{0,4}", rule.local_port) or int(rule.local_port) > 65535:
+            _fail(
+                "unmeasured_local_port",
+                "Only a canonical decimal port from 1 to 65535, RPC or RPC-EPMap is measured",
+            )
         tokens.append(f"LPort={rule.local_port}")
     if (
         rule.remote_port_range is not None or rule.remote_port is not None
@@ -430,28 +429,28 @@ def _profile_records(
         _fail("unmeasured_public_settings", "Public profile was only measured unconfigured")
     result = []
     key = FIREWALL_KEY + "\\" + _profile_wire(profile) + "Profile"
+    measured_fields = {
+        "domain": {
+            "enabled",
+            "default_inbound_action",
+            "default_outbound_action",
+            "log_dropped_packets",
+            "log_successful_connections",
+            "log_file_size_kb",
+            "log_file_path",
+        },
+        "private": {
+            "enabled",
+            "default_inbound_action",
+            "disable_notifications",
+            "log_successful_connections",
+        },
+        "public": set(),
+    }
     for name, attr, logging, kind in _PROFILE_FIELDS:
         value = getattr(settings, attr)
         if value is None:
             continue
-        measured_fields = {
-            "domain": {
-                "enabled",
-                "default_inbound_action",
-                "default_outbound_action",
-                "log_dropped_packets",
-                "log_successful_connections",
-                "log_file_size_kb",
-                "log_file_path",
-            },
-            "private": {
-                "enabled",
-                "default_inbound_action",
-                "disable_notifications",
-                "log_successful_connections",
-            },
-            "public": set(),
-        }
         if attr not in measured_fields[profile]:
             _fail("unmeasured_profile_field", f"{profile}.{attr} was not measured")
         wire: str | int

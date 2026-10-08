@@ -396,6 +396,66 @@ def test_refuse_unmeasured_rule_shapes(change: dict[str, object], code: str) -> 
 
 
 @pytest.mark.parametrize(
+    "port",
+    [
+        "065001",
+        "00001",
+        "0" * 5000 + "1",
+        "+65001",
+        "-1",
+        " 65001",
+        "65001 ",
+        "٦٥٠٠١",
+        "６５００１",
+        "65_001",
+        "65001.0",
+        "6.5001e4",
+        "0xFDE9",
+    ],
+)
+def test_noncanonical_local_ports_are_refused_on_read_and_write(port: str) -> None:
+    rule = replace(expected_policy().rules[0], local_port=port)
+    policy = FirewallPolicy(policy_version=545, rules=(rule,))
+    assert rule.validate()[0].code == "firewall_unmeasured_local_port"
+    assert policy.validate() == rule.validate()
+    with pytest.raises(FirewallValidationError) as emitted:
+        to_registry_settings(policy)
+    assert emitted.value.issues == rule.validate()
+    records = [
+        replace(r, value=r.value.replace("LPort=65001|", f"LPort={port}|"))
+        if isinstance(r.value, str)
+        else r
+        for r in parse(native_bytes())
+    ]
+    with pytest.raises(FirewallValidationError) as parsed:
+        from_registry_records(records)
+    assert parsed.value.issues[0].code == "firewall_unmeasured_local_port"
+
+
+@pytest.mark.parametrize("port", ["1", "9", "10", "65535"])
+def test_canonical_local_port_boundaries_remain_accepted(port: str) -> None:
+    rule = replace(expected_policy().rules[0], local_port=port)
+    policy = FirewallPolicy(policy_version=545, rules=(rule,))
+    settings = to_registry_settings(policy)
+    assert f"LPort={port}|" in settings[-1].value
+    assert from_registry_records(settings).policy == policy
+
+
+@pytest.mark.parametrize("token", ["RPort=65010", "RPort2_10=65002-65003"])
+@pytest.mark.parametrize("decimal", ["065010", "+65010", " 65010", "６５０１０", "65_010"])
+def test_noncanonical_remote_ports_are_refused_on_read(token: str, decimal: str) -> None:
+    replacement = f"RPort={decimal}" if token.startswith("RPort=") else f"RPort2_10={decimal}-65011"
+    records = [
+        replace(r, value=r.value.replace(token + "|", replacement + "|"))
+        if isinstance(r.value, str)
+        else r
+        for r in parse(native_bytes())
+    ]
+    with pytest.raises(FirewallValidationError):
+        from_registry_records(records)
+
+
+@pytest.mark.parametrize(
     ("settings", "code"),
     [
         (FirewallProfileSettings(enabled=False), "unmeasured_profile_boolean"),

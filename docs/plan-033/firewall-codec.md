@@ -1,7 +1,8 @@
 # Firewall codec and the next lane
 
 Status: codec and two-leg lab lane implemented, **not surfaced**; capture-backed,
-review corrections implemented with regression probes; Windows lane not yet run or verified.
+review corrections and non-blocking follow-ups implemented with regression probes;
+Windows lane not yet run or verified.
 Native fixture dated 2026-10-08; operator scope ruling
 2026-10-07. Plan 034 exit remains codec → lane → surface. [WI-076](../work-items.md#wi-076--firewall-codec-needs-a-write-lane-before-a-surface)
 tracks the remaining work.
@@ -62,7 +63,9 @@ tokens in table order, then the additional fields. Names/IDs, numeric ports,
 App/Svc/Desc/EmbedCtxt/LogFilePath text and address payloads may vary within
 their row's forms. Text is nonempty and excludes pipe, NUL, CR and LF; rule IDs
 also exclude backslash and semicolon and must be unique ignoring case.
-Numeric ports are 1–65535; range endpoints are ascending, distinct ports.
+Numeric ports are canonical ASCII decimal 1–65535, without leading zeros;
+range endpoints are ascending, distinct ports. Non-canonical decimals are
+refused on both read and write.
 RPC keywords cannot replace numeric ports in other rows. LA4 is an IPv4 host;
 RA4 is one strict IPv4 subnet (prefix 1–31), emitted with a dotted mask;
 RA6 is one strict IPv6 subnet (prefix 1–127), emitted as CIDR. Row 05 requires
@@ -77,8 +80,8 @@ retain or explicitly review them. Invalid known records raise
 rule and nested tuple fields are type-checked before wire operations;
 `validate()` returns issues for runtime values that bypass annotations, and
 `to_registry_settings()` raises `FirewallValidationError` for them. Without
-PolicyVersion, firewall records are retained as unrecognised legacy input, with the named
-`firewall_legacy_without_policy_version` issue and an empty policy; legacy
+PolicyVersion, firewall records are retained as unrecognised legacy input with
+the named `firewall_legacy_without_policy_version` issue and an empty policy; legacy
 Administrative Templates settings therefore do not crash this parser.
 The capture does not establish arbitrary-value Windows acceptance, and the
 future lane qualifies only its 13 concrete rules, not every variable payload.
@@ -124,8 +127,11 @@ The guest checks PersistentStore for zero `StudioFwLane*` rules before and after
 records intended names before New-GPO (including a durable intent file), removes
 GPOs with those exact names in `finally`, and strictly re-queries the run prefix.
 The controller generates the run ID, naming GPOs `StudioFwLane-<run-id>-read`
-and `-write`, and independently calls `cleanup-firewall-policy.ps1` before and
-after the guest job, with an EXIT trap covering early controller failures.
+and `-write`. Before arming its EXIT cleanup trap it calls
+`cleanup-firewall-policy.ps1 -CheckOnly`, which refuses existing run-prefixed
+GPOs without deleting them. The guest also refuses each existing target before
+recording intent or creating it. The controller independently runs destructive
+cleanup after the guest job and through the EXIT trap on early failures.
 That helper only removes names beginning with `StudioFwLane-<run-id>-`, including
 the terminal separator; other runs' GPOs are untouched. It never links either GPO.
 

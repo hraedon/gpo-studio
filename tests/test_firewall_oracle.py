@@ -12,6 +12,7 @@ import sys
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 
@@ -26,6 +27,11 @@ FINALIZER_PATH = Path(
 )
 FINALIZER = runpy.run_path(str(FINALIZER_PATH))
 BUILDER = runpy.run_path(str(ROOT / "scripts/plan-033/build-firewall-candidate.py"))
+CLEANUP_PATH = Path(
+    os.environ.get(
+        "FIREWALL_CLEANUP_UNDER_TEST", ROOT / "scripts/windows-oracle/cleanup-firewall-policy.ps1"
+    )
+)
 
 
 NORMALIZATION_FIELDS = [
@@ -140,6 +146,46 @@ def grade(evidence):
 def test_complete_synthetic_evidence_passes(evidence) -> None:
     checks = grade(evidence)
     assert checks and all(checks.values()), checks
+
+
+@pytest.mark.parametrize("shape", ["absent", "multiple", "duplicate"])
+def test_candidate_requires_exactly_one_machine_registry_pol(tmp_path: Path, shape: str) -> None:
+    archive_path = tmp_path / FINALIZER["CANDIDATE_ARCHIVE"]
+    path = "{11111111-1111-4111-8111-111111111111}/DomainSysvol/GPO/Machine/Registry.pol"
+    with ZipFile(archive_path, "w") as archive:
+        # Neither a user policy nor a differently situated file counts.
+        archive.writestr(path.replace("Machine/", "User/"), b"synthetic user policy")
+        archive.writestr("Machine/Registry.pol", b"synthetic decoy")
+        if shape != "absent":
+            archive.writestr(path, b"first policy")
+            if shape == "multiple":
+                archive.writestr(path.replace("11111111", "22222222").upper(), b"second policy")
+            else:
+                with pytest.warns(UserWarning, match="Duplicate name"):
+                    archive.writestr(path, b"second policy")
+    with pytest.raises(ValueError, match="candidate must contain exactly one machine Registry.pol"):
+        FINALIZER["_candidate_registry_pol"](tmp_path)
+
+
+@pytest.mark.parametrize("spelling", ["identical", "braced", "uppercase"])
+def test_read_and_write_gpo_ids_must_differ_with_consistent_logs(evidence, spelling: str) -> None:
+    result = evidence[0]
+    # Use letters so the uppercase variant actually exercises UUID normalization.
+    read_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    write_id = {"identical": read_id, "braced": "{" + read_id + "}", "uppercase": read_id.upper()}[
+        spelling
+    ]
+    for leg, replacement in (("read", read_id), ("write", write_id)):
+        original = result[leg + "_leg"]["owned_gpo_id"]
+        result[leg + "_leg"]["owned_gpo_id"] = replacement
+        # Change the log subjects too: an inconsistent log must not mask
+        # removal of the independent read/write UUID inequality guard.
+        for operation in result["operations"]:
+            if operation["subject"] == original:
+                operation["subject"] = replacement
+    checks = grade(evidence)
+    assert checks["operations_match_scoped_contract"] is False
+    assert all(value for key, value in checks.items() if key != "operations_match_scoped_contract")
 
 
 @pytest.mark.parametrize("raw", [b"not a registry.pol at all", b"PReg\x01\0\0\0"])
@@ -461,6 +507,19 @@ def test_rule_blind_finalizer_mutation_fails_the_comparison_test(tmp_path: Path)
             "",
             "record_extractor_independently_rejects_trailing_bytes",
         ),
+        (
+            "        if len(paths) != 1:\n"
+            '            raise ValueError("candidate must contain exactly one machine '
+            'Registry.pol")',
+            "",
+            "candidate_requires_exactly_one_machine_registry_pol",
+        ),
+        (
+            '        if UUID(read["owned_gpo_id"]) == UUID(write["owned_gpo_id"]):\n'
+            "            return False",
+            "",
+            "read_and_write_gpo_ids_must_differ_with_consistent_logs",
+        ),
     ],
 )
 def test_reviewer_surviving_finalizer_mutations_are_killed(tmp_path, old, new, test) -> None:
@@ -781,7 +840,7 @@ catch { if ($_.Exception.Message -ne 'invalid controller run id') { throw } }
             "-File",
             str(script),
             "-Cleanup",
-            str(ROOT / FINALIZER["DEPLOYED_FILES"]["cleanup-firewall-policy.ps1"]),
+            str(CLEANUP_PATH),
         ],
         check=True,
         capture_output=True,
@@ -790,7 +849,161 @@ catch { if ($_.Exception.Message -ne 'invalid controller run id') { throw } }
     assert json.loads(completed.stdout) == ["foreign-suffix", "foreign-middle", "foreign-candidate"]
 
 
-def test_controller_cleanup_runs_before_and_after_guest_timeout(tmp_path: Path) -> None:
+@pytest.mark.parametrize("failure", ["silent_delete", "reappeared", "query_error"])
+def test_controller_cleanup_rechecks_leftovers(tmp_path: Path, failure: str) -> None:
+    import shutil
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell unavailable")
+    script = tmp_path / "cleanup-leftovers.ps1"
+    script.write_text(r"""
+param($Cleanup, $FailureMode)
+$ErrorActionPreference = 'Stop'
+$id = 'firewall-20261008123456-1234'
+$global:gpos = @([pscustomobject]@{ DisplayName="StudioFwLane-$id-read"; Id='owned-read' })
+$global:queries = 0
+$global:deletes = 0
+function Import-Module { }
+function Get-GPO {
+    $global:queries++
+    if ($global:queries -eq 2) {
+        if ($FailureMode -eq 'query_error') { throw 'synthetic recheck failure' }
+        if ($FailureMode -eq 'reappeared') {
+            $global:gpos += [pscustomobject]@{
+                DisplayName="StudioFwLane-$id-write"; Id='owned-write'
+            }
+        }
+    }
+    $global:gpos
+}
+function Remove-GPO($Guid) {
+    $global:deletes++
+    if ($FailureMode -ne 'silent_delete') {
+        $global:gpos = @($global:gpos | Where-Object { $_.Id -ne $Guid })
+    }
+}
+try {
+    & $Cleanup -RunId $id -Domain 'synthetic.test'
+    throw 'cleanup accepted unverifiable deletion'
+} catch {
+    $expected = if ($FailureMode -eq 'query_error') { 'synthetic recheck failure' }
+                else { 'controller cleanup left owned GPOs' }
+    if ($_.Exception.Message -ne $expected) { throw }
+}
+@{queries=$global:queries;deletes=$global:deletes} | ConvertTo-Json -Compress
+""")
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "-Cleanup",
+            str(CLEANUP_PATH),
+            "-FailureMode",
+            failure,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(completed.stdout) == {"queries": 2, "deletes": 1}
+
+
+def test_controller_cleanup_recheck_mutation_is_killed(tmp_path: Path) -> None:
+    if "FIREWALL_CLEANUP_UNDER_TEST" in os.environ:
+        pytest.skip("avoid recursive mutation")
+    old = (
+        "if (@(Get-OwnedFirewallLaneGpo).Count -ne 0) "
+        "{ throw 'controller cleanup left owned GPOs' }"
+    )
+    source = CLEANUP_PATH.read_text()
+    assert old in source
+    mutant = tmp_path / "cleanup-mutant.ps1"
+    mutant.write_text(source.replace(old, ""))
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            str(Path(__file__)),
+            "-k",
+            "controller_cleanup_rechecks_leftovers",
+        ],
+        env={**os.environ, "FIREWALL_CLEANUP_UNDER_TEST": str(mutant)},
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert (
+        "FAILED" in completed.stdout and "controller_cleanup_rechecks_leftovers" in completed.stdout
+    )
+
+
+@pytest.mark.parametrize("target", ["none", "read", "write", "orphan"])
+def test_controller_preflight_refuses_collisions_without_deletion(
+    tmp_path: Path, target: str
+) -> None:
+    import shutil
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell unavailable")
+    script = tmp_path / "preflight.ps1"
+    script.write_text(r"""
+param($Cleanup, $Target)
+$ErrorActionPreference = 'Stop'
+$id = 'firewall-20261008123456-1234'
+$global:gpos = @(
+    [pscustomobject]@{ DisplayName="StudioFwLane-${id}5-read"; Id='foreign-suffix' },
+    [pscustomobject]@{ DisplayName="StudioFwLane-other-$id-read"; Id='foreign-middle' },
+    [pscustomobject]@{ DisplayName='StudioFwLane-candidate'; Id='foreign-candidate' }
+)
+if ($Target -ne 'none') {
+    $global:gpos += [pscustomobject]@{ DisplayName="StudioFwLane-$id-$Target"; Id='collision' }
+}
+function Import-Module { }
+function Get-GPO { $global:gpos }
+function Remove-GPO { throw 'preflight must never delete' }
+if ($Target -eq 'none') {
+    & $Cleanup -RunId $id -Domain 'synthetic.test' -CheckOnly
+} else {
+    try {
+        & $Cleanup -RunId $id -Domain 'synthetic.test' -CheckOnly
+        throw 'collision was accepted'
+    } catch {
+        if ($_.Exception.Message -ne 'disposable run target already exists') { throw }
+    }
+}
+@($global:gpos.Id) | ConvertTo-Json
+""")
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "-Cleanup",
+            str(CLEANUP_PATH),
+            "-Target",
+            target,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wanted = ["foreign-suffix", "foreign-middle", "foreign-candidate"]
+    if target != "none":
+        wanted.append("collision")
+    assert json.loads(completed.stdout) == wanted
+
+
+@pytest.mark.parametrize("collision", [False, True])
+def test_controller_checks_before_guest_and_cleans_after_timeout(
+    tmp_path: Path, collision: bool
+) -> None:
     # Mock transport/processes only. Run the actual shell driver's control flow.
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -804,6 +1017,8 @@ from pathlib import Path
 with Path(os.environ['TEST_TRANSPORT_LOG']).open('a') as stream:
     stream.write(json.dumps(sys.argv[1:]) + '\n')
 command = sys.argv[sys.argv.index('-Command') + 1] if '-Command' in sys.argv else ''
+if '-CheckOnly' in command and os.environ['TEST_COLLISION'] == '1':
+    sys.exit(41)
 if 'run-firewall-policy.ps1' in command:
     sys.exit(124)  # guest finally never runs
 if 'Get-ChildItem' in command:
@@ -821,6 +1036,7 @@ if 'Get-ChildItem' in command:
             "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
             "TMPDIR": str(tmp_path),
             "TEST_TRANSPORT_LOG": str(log),
+            "TEST_COLLISION": "1" if collision else "0",
             "GPO_STUDIO_LAB_HOST": "synthetic-host",
             "GPO_STUDIO_LAB_GUEST": "LabMS01",
             "HYPERV_CONTROL_USERNAME": "synthetic",
@@ -832,12 +1048,24 @@ if 'Get-ChildItem' in command:
     assert completed.returncode != 0
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     commands = [c[c.index("-Command") + 1] for c in calls if "-Command" in c]
+    preflight = [i for i, c in enumerate(commands) if "-CheckOnly" in c]
+    cleanup = [
+        i
+        for i, c in enumerate(commands)
+        if "cleanup-firewall-policy.ps1" in c and "-CheckOnly" not in c
+    ]
+    assert len(preflight) == 1
+    if collision:
+        assert completed.returncode == 41
+        assert not cleanup  # The EXIT trap must not be armed on collision.
+        assert not any("run-firewall-policy.ps1" in c for c in commands)
+        return
     guest = next(i for i, c in enumerate(commands) if "run-firewall-policy.ps1" in c)
-    cleanup = [i for i, c in enumerate(commands) if "cleanup-firewall-policy.ps1" in c]
-    assert any(i < guest for i in cleanup) and any(i > guest for i in cleanup)
+    assert preflight[0] < guest
+    assert len(cleanup) == 2 and all(i > guest for i in cleanup)
     import re
 
-    ids = [re.search(r"-RunId '([^']+)'", commands[i])[1] for i in [guest, *cleanup]]
+    ids = [re.search(r"-RunId '([^']+)'", commands[i])[1] for i in [*preflight, guest, *cleanup]]
     assert len(set(ids)) == 1
 
 

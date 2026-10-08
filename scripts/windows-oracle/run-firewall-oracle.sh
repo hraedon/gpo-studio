@@ -41,10 +41,12 @@ cleanup_run() {
     psdirect -Action exec -Command \
         "& '$GUEST_SCRIPTS\cleanup-firewall-policy.ps1' -RunId '$RUN_ID'"
 }
+# Check for collisions without deleting them, before arming the cleanup trap.
+psdirect -Action exec -Command \
+    "& '$GUEST_SCRIPTS\cleanup-firewall-policy.ps1' -RunId '$RUN_ID' -CheckOnly"
 # The controller invokes cleanup independently of the timed guest job/finally.
 # Keep it armed through retrieval/finalization, including early shell failures.
 trap cleanup_run EXIT
-cleanup_run
 psdirect -Action push -LocalPath "$CANDIDATE_DIR/studio-firewall-backup.zip" \
     -RemotePath "$GUEST_SCRIPTS\candidate.zip" >/dev/null
 

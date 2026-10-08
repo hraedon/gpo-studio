@@ -2,7 +2,8 @@
 # Controller safety net, including when the authoring guest job times out.
 param(
     [Parameter(Mandatory = $true)][string]$RunId,
-    [string]$Domain = $env:USERDNSDOMAIN
+    [string]$Domain = $env:USERDNSDOMAIN,
+    [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
 if ($RunId -notmatch '^firewall-[0-9]{14}-[0-9]+$') { throw 'invalid controller run id' }
@@ -13,6 +14,12 @@ function Get-OwnedFirewallLaneGpo {
     Get-GPO -All -Domain $Domain -ErrorAction Stop | Where-Object {
         ([string]$_.DisplayName).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
     }
+}
+
+if ($CheckOnly) {
+    # Refuse a reused run id before the controller arms destructive cleanup.
+    if (@(Get-OwnedFirewallLaneGpo).Count -ne 0) { throw 'disposable run target already exists' }
+    return
 }
 
 foreach ($gpo in @(Get-OwnedFirewallLaneGpo)) {
