@@ -1,0 +1,131 @@
+{
+  "report_type": "GPO Studio release evidence report",
+  "report_version": 2,
+  "version": "1.1.0",
+  "status": "draft",
+  "manifest": "docs/release-evidence-1.1.0.md",
+  "workspace_schema_version": 4,
+  "artifact_hashes": {
+    "wheel_sha256": "pending candidate build",
+    "sdist_sha256": "pending candidate build",
+    "sbom_sha256": "pending candidate build"
+  },
+  "evidence": {
+    "requalification": {
+      "note": "docs/plan-033/plan034-batch.md",
+      "batch_manifest": "docs/plan-033/plan034-batch.json",
+      "frozen_commit": "263f19640529d469c2a54c18b43d228db5378279",
+      "runs_passed": 22,
+      "successors": [
+        {
+          "lane": "object-security",
+          "run_id": "object-security-20261008082348-9729",
+          "commit": "1fb3f56ac7431e0044c69c32edc4350b2ab84151"
+        }
+      ],
+      "pending_requalification": []
+    },
+    "workspace_upgrade": {
+      "from_release": "1.0.0",
+      "from_schema": 1,
+      "to_schema": 4,
+      "fixture": "tests/fixtures/release-1.0.0-workspace/",
+      "fixture_generator": "scripts/generate_release_workspace_fixture.py",
+      "tests": "tests/test_release_upgrade_from_1_0_0.py",
+      "rehearsal": "scripts/rehearse_upgrade_rollback.py",
+      "rollback": "restore the pre-upgrade backup; 1.0.0 refuses a schema-4 workspace and a backup of one"
+    },
+    "plan_034_open_exits": [],
+    "accessibility": {
+      "automated": "frontend CI job and release verify job (axe, keyboard, focus, dark theme)",
+      "hands_on_screen_reader": "not run; requirement for 1.1.0 not decided"
+    },
+    "lanes_banked_after_batch": [
+      {
+        "lane": "fdeploy (read target)",
+        "run_id": "fd-20261008121347-3151",
+        "checks": "29/29",
+        "commit": "df713ef",
+        "results": "docs/plan-033/fdeploy-results.md",
+        "surfaces": [
+          "POST /api/folder-redirection/fdeploy",
+          "imported backups' report and diffs",
+          "Folder Redirection review panel"
+        ],
+        "shapes": [
+          "R3 verbatim (Flags=1021)",
+          "Flags=1020",
+          "Flags=1023",
+          "Flags=3069"
+        ],
+        "not_certified": [
+          "decoding Flags (deferred under WI-066)",
+          "any writer (deferred under WI-066)",
+          "other Flags values; multi-folder and multi-principal documents"
+        ]
+      },
+      {
+        "lane": "firewall",
+        "run_id": "firewall-20261008094055-2092337",
+        "checks": "36/36",
+        "commit": "a6e0002dac0d65d6ae2b969a23636bf284061da1",
+        "results": "docs/plan-033/firewall-results.md",
+        "surfaces": [
+          "POST /api/network-security/firewall/render",
+          "GET /api/gpos/{guid}/firewall-policy"
+        ],
+        "not_certified": [
+          "values outside the measured tranche (13 rule shapes, Domain/Private profile literals)",
+          "endpoint application (PolicyStore readback only)",
+          "GPME display (WI-077)",
+          "IPsec, Public Key, wired and wireless (out of scope for 1.x)"
+        ]
+      },
+      {
+        "lane": "lifecycle (same-domain)",
+        "run_id": "lifecycle-20261008093248-2000-c76d10eb3f2849fe",
+        "checks": "30/30 SCOPE_SURVIVAL cells",
+        "commit": "3513052",
+        "results": "docs/plan-033/lifecycle-results.md",
+        "surfaces": [
+          "POST /api/lifecycle/restore-plan"
+        ],
+        "not_certified": [
+          "cross-domain lifecycle (out of scope)",
+          "deleted-GPO restore, multi-DC replication, Import-GPO -TargetName into an existing GPO, deny ACEs, the WMI filter object"
+        ]
+      },
+      {
+        "lane": "report-parity",
+        "run_id": "report-parity-20261008104512-7480",
+        "checks": "25/25 (27/27 cases)",
+        "commit": "a1c280b",
+        "results": "docs/plan-033/report-parity-results.md",
+        "surfaces": [
+          "POST /api/backups/import",
+          "GET /api/gpos/{guid}/report.txt"
+        ],
+        "families": [
+          "registry (REG_SZ/REG_DWORD)",
+          "Drive Maps",
+          "Environment",
+          "Files",
+          "Folders",
+          "Ini Files",
+          "Local Users and Groups",
+          "Printers",
+          "Scheduled Tasks",
+          "Services",
+          "Shortcuts"
+        ],
+        "not_certified": [
+          "Power Options (passes only on the WI-072 divergence)",
+          "task interleaving on write (WI-073)",
+          "seven uncaptured preference families",
+          "ADMX policy rendering, Scripts, links, security filtering, WMI filters"
+        ]
+      }
+    ],
+    "lane_verdicts": "as banked; release requalification pending (after batch 2)"
+  }
+}

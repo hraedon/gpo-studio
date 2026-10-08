@@ -10,14 +10,74 @@ permissions:
   id-token: write
   attestations: write
 
+# Nothing is published unless, for the exact tagged commit:
+#   release-identity  the tag, __version__ and that version's own evidence
+#                     manifest agree, and the manifest is approved (or marked
+#                     as a candidate for an -rc tag); the commit is on main;
+#   ci                every ci.yml job passes, including test-windows;
+#   identifier-gate   the committed-identifier gate passes;
+#   verify            the release gates below pass.
+# publish re-runs the identity check, so dropping the job dependency in a later
+# edit does not also drop the version-bound approval check.
 jobs:
+  release-identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      manifest: ${{ steps.manifest.outputs.manifest }}
+      report: ${{ steps.manifest.outputs.report }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Check tag, version and evidence manifest
+        id: manifest
+        run: >-
+          python scripts/check_release_manifest.py
+          --tag "${GITHUB_REF_NAME}"
+          --github-output "${GITHUB_OUTPUT}"
+          --remote-tag-sha "${GITHUB_SHA}"
+      - name: Require the tagged commit to be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "Refusing to release ${GITHUB_SHA}: it is not reachable from origin/main."
+            exit 1
+          fi
+
+  ci:
+    needs: release-identity
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  identifier-gate:
+    needs: release-identity
+    uses: ./.github/workflows/identifier-gate.yml
+    permissions:
+      contents: read
+    secrets:
+      GPO_STUDIO_FORBIDDEN_IDENTIFIERS: ${{ secrets.GPO_STUDIO_FORBIDDEN_IDENTIFIERS }}
+
   verify:
+    needs: release-identity
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
       contents: read
     steps:
+      # Full history, as in ci.yml: the evidence-registry and release-upgrade
+      # tests resolve recorded commits and the v1.0.0 tag with `git show`.
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -44,7 +104,7 @@ jobs:
           npm run test:browser
 
   publish:
-    needs: verify
+    needs: [release-identity, ci, identifier-gate, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -54,20 +114,15 @@ jobs:
         with:
           python-version: "3.13"
       - name: Verify immutable release identity
+        id: manifest
+        env:
+          EXPECTED_MANIFEST: ${{ needs.release-identity.outputs.manifest }}
+          EXPECTED_REPORT: ${{ needs.release-identity.outputs.report }}
         run: |
-          VERSION=$(python -c "exec(open('src/gpo_studio/__init__.py').read()); print(__version__)")
-          TAG_VERSION=${VERSION/rc/-rc.}
-          test "${GITHUB_REF_NAME}" = "v${TAG_VERSION}"
-          case "$VERSION" in
-            *dev*) echo "Refusing release workflow for development version: $VERSION"; exit 1 ;;
-            *rc*)
-              grep -q '^> \*\*Status:\*\* release candidate; final approval pending' \
-                docs/release-evidence.md
-              ;;
-            *)
-              grep -q '^> \*\*Status:\*\* approved for release' docs/release-evidence.md
-              ;;
-          esac
+          python scripts/check_release_manifest.py \
+            --tag "${GITHUB_REF_NAME}" --github-output "${GITHUB_OUTPUT}"
+          grep -qxF "manifest=${EXPECTED_MANIFEST}" "${GITHUB_OUTPUT}"
+          grep -qxF "report=${EXPECTED_REPORT}" "${GITHUB_OUTPUT}"
       - name: Install release tools
         run: pip install build cyclonedx-bom
       - name: Build reproducible distributions
@@ -79,6 +134,16 @@ jobs:
           for artifact in dist/*; do
             cmp "$artifact" "dist-repro/$(basename "$artifact")"
           done
+      # What is published must be what was approved: the version Hatchling wrote
+      # into the wheel's METADATA and the sdist's PKG-INFO, not only the one the
+      # gate read from __init__.py.
+      - name: Require the built distributions to carry the approved version
+        run: |
+          mapfile -t WHEELS < <(find dist -maxdepth 1 -name 'gpo_studio-*.whl')
+          mapfile -t SDISTS < <(find dist -maxdepth 1 -name 'gpo_studio-*.tar.gz')
+          test "${#WHEELS[@]}" -eq 1 && test "${#SDISTS[@]}" -eq 1
+          python scripts/check_release_manifest.py --tag "${GITHUB_REF_NAME}" \
+            --wheel "${WHEELS[0]}" --sdist "${SDISTS[0]}"
       - name: Validate exact wheel
         run: |
           WHEEL=$(find dist -maxdepth 1 -name 'gpo_studio-*.whl' -print -quit)
@@ -93,6 +158,9 @@ jobs:
       - name: Rehearse upgrade and rollback with exact wheel
         run: /tmp/wheel-venv/bin/python scripts/rehearse_upgrade_rollback.py
       - name: Generate resolved evidence, SBOM, and checksums
+        env:
+          EVIDENCE_MANIFEST: ${{ steps.manifest.outputs.manifest }}
+          EVIDENCE_REPORT: ${{ steps.manifest.outputs.report }}
         run: |
           python -m venv /tmp/sbom-venv
           /tmp/sbom-venv/bin/pip install dist/gpo_studio-*.whl
@@ -105,8 +173,10 @@ jobs:
           python scripts/finalize_sbom.py sbom.cdx.json \
             --repository "$GITHUB_REPOSITORY" \
             --source-commit "$GITHUB_SHA"
-          cp docs/release-evidence.md release-evidence.md
-          cp docs/release-evidence-report.json release-evidence-report.json
+          # The manifest the identity gate approved for this version, never a
+          # fixed file name (which once meant 1.0.0's manifest for every tag).
+          cp "${EVIDENCE_MANIFEST}" release-evidence.md
+          cp "${EVIDENCE_REPORT}" release-evidence-report.json
           python - <<'PY'
           import hashlib
           import json
@@ -160,6 +230,16 @@ jobs:
         with:
           subject-path: dist/*
           sbom-path: sbom.cdx.json
+      # Last check before publication: the remote tag must still peel to the
+      # commit this run built. `gh release create --verify-tag` only checks
+      # that a tag of that name exists, so a tag moved mid-run would otherwise
+      # receive this commit's artifacts. A narrow race remains between this
+      # step and the next; tag protection rules close it.
+      - name: Require the remote tag to still name the built commit
+        run: >-
+          python scripts/check_release_manifest.py
+          --tag "${GITHUB_REF_NAME}"
+          --remote-tag-sha "${GITHUB_SHA}"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -169,7 +249,7 @@ jobs:
           case "$GITHUB_REF_NAME" in
             *-rc.*)
               FLAGS+=(--prerelease)
-              NOTES_ARGS=(--notes "Immutable release candidate for hands-on NVDA validation. This prerelease is not approved for production or the final 1.0 release. Download the wheel and SHA256SUMS from Assets and follow docs/nvda-validation-runbook.md.")
+              NOTES_ARGS=(--notes "Immutable release candidate for hands-on validation. This prerelease is not approved for production or as the final ${GITHUB_REF_NAME%-rc.*} release. Download the wheel and SHA256SUMS from Assets and follow docs/nvda-validation-runbook.md.")
               ;;
           esac
           gh release create "$GITHUB_REF_NAME" \
