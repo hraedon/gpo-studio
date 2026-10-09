@@ -1,0 +1,112 @@
+{
+  "schema_version": "1",
+  "fixture_id": "wi01a-schedtasks-gpmc",
+  "description": "Scheduled Tasks GPO authored via GPMC Editor — Machine scope (TaskV2 update, ImmediateTaskV2 create, TaskV2 replace with multiple triggers) and User scope (TaskV2 create with Unicode/ShowMessage/SessionStateChangeTrigger/FilterDomain, TaskV2 delete with SendEmail action)",
+  "classification": "native-gpmc-authored",
+  "classification_note": "Authored through gpme.msc on Windows Server 2025 and captured via Backup-GPO. GPMC natively emitted TaskV2 and ImmediateTaskV2 elements.",
+  "origin": {
+    "method": "Backup-GPO on Windows Server 2025 build 26100, PowerShell 5.1",
+    "domain": "ad.hraedon.com",
+    "captured_at": "2026-07-26T17:55:40Z",
+    "backup_id": "{6C864157-BBBD-401A-8959-2D697AD3A52A}",
+    "gpo_guid": "{3D9A5FF9-BD17-41CB-97A5-77C46395B076}",
+    "gpo_display_name": "WI01A-SchedTasks-GPMC"
+  },
+  "native_layout": {
+    "format": "gpmc-backup-v2",
+    "root": "{BACKUP_ID}/DomainSysvol/GPO",
+    "gpp_file": "Machine/Preferences/ScheduledTasks/ScheduledTasks.xml, User/Preferences/ScheduledTasks/ScheduledTasks.xml"
+  },
+  "items": [
+    {
+      "uid": "{FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}",
+      "windows_meaning": "Update scheduled task 'GpoStudio-Cleanup': runs cleanmgr.exe /sagerun:1 daily at 02:00 as NT AUTHORITY\\System. CalendarTrigger with ScheduleByDay interval 1.",
+      "element": "TaskV2",
+      "scope": "computer",
+      "action": "U",
+      "task_name": "GpoStudio-Cleanup",
+      "run_as": "NT AUTHORITY\\System",
+      "command": "C:\\Windows\\System32\\cleanmgr.exe",
+      "arguments": "/sagerun:1",
+      "working_directory": "C:\\Windows",
+      "triggers": ["CalendarTrigger/ScheduleByDay"]
+    },
+    {
+      "uid": "{61200875-7625-4876-AAF3-A1C7F04411A7}",
+      "windows_meaning": "Create immediate task 'GpoStudio-Init': runs cmd.exe /c echo init once at logon. TimeTrigger with %LocalTimeXmlEx% boundaries. Settings: AllowHardTerminate, StartWhenAvailable, ExecutionTimeLimit P3D, DeleteExpiredTaskAfter PT0S.",
+      "element": "ImmediateTaskV2",
+      "scope": "computer",
+      "action": "C",
+      "task_name": "GpoStudio-Init",
+      "run_as": "NT AUTHORITY\\System",
+      "command": "C:\\Windows\\System32\\cmd.exe",
+      "arguments": "/c echo init",
+      "triggers": ["TimeTrigger"]
+    },
+    {
+      "uid": "{6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}",
+      "windows_meaning": "Replace scheduled task 'Replace Test': runs notepad.exe as NT AUTHORITY\\System with HighestAvailable. Two CalendarTriggers: weekly (Sunday) and monthly (Day 1, all months, disabled). Tests multiple trigger support.",
+      "element": "TaskV2",
+      "scope": "computer",
+      "action": "R",
+      "task_name": "Replace Test",
+      "run_as": "NT AUTHORITY\\System",
+      "command": "C:\\windows\\system32\\notepad.exe",
+      "triggers": ["CalendarTrigger/ScheduleByWeek", "CalendarTrigger/ScheduleByMonth"]
+    },
+    {
+      "uid": "{4310395E-9A2B-4CC1-AE5E-7DF49B2123A2}",
+      "windows_meaning": "Create user-scope task 'Create Task': runs notepad.exe with Unicode arguments. ShowMessage action with Unicode title/body. TimeTrigger + SessionStateChangeTrigger (RemoteConnect). FilterDomain ILT targets HRAENET. RestartOnFailure configured. MultipleInstancesPolicy StopExisting.",
+      "element": "TaskV2",
+      "scope": "user",
+      "action": "C",
+      "task_name": "Create Task",
+      "run_as": "%LogonDomain%\\%LogonUser%",
+      "command": "C:\\windows\\system32\\notepad.exe",
+      "arguments": "Ünïcödé <\"&> label",
+      "triggers": ["TimeTrigger", "SessionStateChangeTrigger"],
+      "actions": ["ShowMessage", "Exec"],
+      "item_level_targeting": ["FilterDomain"]
+    },
+    {
+      "uid": "{EC9EFD19-C102-4F73-9B31-98668661E69C}",
+      "windows_meaning": "Delete user-scope task 'Delete Test'. SendEmail action configured (from/to/subject/body/server). Empty Triggers element. Tests delete action with SendEmail action type.",
+      "element": "TaskV2",
+      "scope": "user",
+      "action": "D",
+      "task_name": "Delete Test",
+      "run_as": "%LogonDomain%\\%LogonUser%",
+      "actions": ["SendEmail"],
+      "triggers": []
+    }
+  ],
+  "parser_gaps": [
+    {
+      "gap": "parse_gpp_scheduled_tasks searches for <Task> elements but GPMC emits <TaskV2> — zero items found",
+      "impact": "All TaskV2 items are invisible to the scheduled tasks parser",
+      "severity": "resolved",
+      "note": "Fixed: parser now searches for both <TaskV2> and <Task> elements"
+    },
+    {
+      "gap": "GppImmediateTask.program is empty because the parser reads Properties attributes which GPMC does not populate; actual command lives in Task Scheduler 2.0 XML subtree",
+      "impact": "Immediate task command/arguments are lost on the flat model path",
+      "severity": "high"
+    },
+    {
+      "gap": "collect_gpp_collections does not discover ScheduledTasks/ScheduledTasks.xml from backup directories",
+      "impact": "Scheduled task items are not imported via the public backup path",
+      "severity": "resolved",
+      "note": "Fixed: collect_gpp_collections now discovers all GPP adapter files"
+    },
+    {
+      "gap": "No model support for ShowMessage or SendEmail task action types",
+      "impact": "Non-Exec task actions are silently dropped",
+      "severity": "medium"
+    },
+    {
+      "gap": "No model support for SessionStateChangeTrigger",
+      "impact": "Session state change triggers cannot be represented",
+      "severity": "medium"
+    }
+  ]
+}

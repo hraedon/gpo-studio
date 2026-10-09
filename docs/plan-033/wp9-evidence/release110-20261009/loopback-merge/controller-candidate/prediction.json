@@ -1,0 +1,66 @@
+{
+  "applied_gpos": [
+    "Studio-RSOP-CompLocation",
+    "Studio-RSOP-UserControl",
+    "Studio-RSOP-UserLocation"
+  ],
+  "computer_group_memberships": [],
+  "denied_gpos": [],
+  "expect_finding": "",
+  "loopback_mode": "merge",
+  "out_of_scope_gpos": [
+    {
+      "gpo": "Studio-RSOP-Loopback",
+      "reason": "no_settings_for_side",
+      "reasons": []
+    }
+  ],
+  "query_id": "wp6b-loopback-merge",
+  "scenario_id": "loopback-merge",
+  "scope": "user",
+  "target": {
+    "computer_name": "LabCL01",
+    "domain": "ad.labdomain.dev",
+    "site_name": "Default-First-Site-Name",
+    "user_name": "labauto1"
+  },
+  "unevaluable_gpos": [],
+  "user_group_memberships": [],
+  "warnings": [],
+  "winners": [
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "CompOnly",
+      "winning_gpo": "Studio-RSOP-CompLocation"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "present",
+      "value_name": "Control",
+      "winning_gpo": "Studio-RSOP-UserControl"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [
+        "00000000-0000-0000-0000-000000075e12"
+      ],
+      "value": "computerLocation",
+      "value_name": "Loop",
+      "winning_gpo": "Studio-RSOP-CompLocation"
+    },
+    {
+      "hive": "HKCU",
+      "key": "Software\\Policies\\StudioLab",
+      "overridden_by": [],
+      "value": "1",
+      "value_name": "UserOnly",
+      "winning_gpo": "Studio-RSOP-UserLocation"
+    }
+  ]
+}

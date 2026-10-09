@@ -1,6 +1,13 @@
 # Publication completeness — Windows results
 
-**Current qualification (2026-10-08):** `publication-completeness-20261008074904-1047`, 21/21,
+**Current qualification (2026-10-09):** `publication-completeness-20261009001615-4372`, 21/21, on
+clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
+([evidence](wp1b-evidence/release110-20261009/publication/verification.json),
+[release 1.1.0 batch](release110-batch.md)), tagged
+`evidence/publication-completeness-20261009001615-4372`. The run
+below stopped binding when batch 2 and WI-078 changed files it binds.
+
+**Previous qualification (2026-10-08):** `publication-completeness-20261008074904-1047`, 21/21,
 on clean frozen `263f19640529d469c2a54c18b43d228db5378279`
 ([evidence](wp1b-evidence/plan034-20261008/publication/verification.json),
 [Plan 034 batch](plan034-batch.md)). Its 21st check grades the AD

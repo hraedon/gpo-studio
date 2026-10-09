@@ -1,0 +1,26 @@
+﻿{
+    "candidate_id":  "gppregistry-both",
+    "family":  "gpp_registry",
+    "target_name":  "WP1B-gppregistry-both-20261009-001228-2456",
+    "backup_id":  "{2310A8C0-36F7-5EB5-A814-206822DAB27A}",
+    "source_gpo_id":  "{9B1DE5C0-0000-4000-8000-000000000008}",
+    "whatif_succeeded":  true,
+    "whatif_target_absent":  true,
+    "import_succeeded":  true,
+    "report_captured":  true,
+    "rebackup_succeeded":  true,
+    "rebackup_dir":  "gppregistry-both/rebackup",
+    "cleanup_succeeded":  true,
+    "cleanup_state_restored":  true,
+    "version_state":  {
+                          "computer_dsa":  1,
+                          "computer_sysvol":  1,
+                          "user_dsa":  1,
+                          "user_sysvol":  1,
+                          "gpo_status":  "AllSettingsEnabled"
+                      },
+    "registry_readback":  [
+
+                          ],
+    "error":  null
+}

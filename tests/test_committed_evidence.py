@@ -1022,6 +1022,102 @@ LANE_VERDICTS.update({
 })
 
 
+# The release 1.1.0 requalification batch, 2026-10-09: all 26 lanes on ONE
+# frozen commit, `de9736e` (batch 2 plus the chunked psdirect transport, WI-078),
+# driven by `scripts/plan-033/run-requal-batch.sh` and banked with
+# `scripts/plan-033/bank-requal-batch.py`. The first batch to run the
+# lifecycle, report-parity, firewall and fdeploy lanes too. An attempt at
+# `2f21e7c` (25 of 26) was superseded unbanked when the transport fix changed
+# `psdirect.ps1`; `docs/plan-033/release110-batch.md` records it.
+LANE_VERDICTS.update({
+    'wp1b-evidence/release110-20261009/wp1b/verification.json': 'finalize_wp1b_run.py',
+    'wp2-evidence/release110-20261009/wp2/verification.json': 'finalize_wp2_import_run.py',
+    'wp3-evidence/release110-20261009/wp3-member/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/release110-20261009/wp3-dc/verification.json': 'finalize_wp3_run.py',
+    'wp3-evidence/release110-20261009/object-security/verification.json': (
+        'finalize_object_security_run.py'
+    ),
+    'wp1b-evidence/release110-20261009/scripts-metadata/verification.json': (
+        'finalize_scripts_backup_run.py'
+    ),
+    'wp1b-evidence/release110-20261009/publication/verification.json': (
+        'finalize_publication_run.py'
+    ),
+    'wp7-evidence/release110-20261009/lifecycle/verification.json': 'finalize_lifecycle_run.py',
+    'wp2-evidence/release110-20261009/report-parity/verification.json': (
+        'finalize_report_parity_run.py'
+    ),
+    'wp3-evidence/release110-20261009/firewall/verification.json': 'finalize_firewall_run.py',
+    'wp4-evidence/release110-20261009/fdeploy/verification.json': 'finalize_fdeploy_run.py',
+    'wp6-evidence/release110-20261009/endpoint/verification.json': 'finalize_endpoint_run.py',
+    'wp6-evidence/release110-20261009/lsdou-precedence/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/release110-20261009/disabled-block-enforced/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/release110-20261009/wmi-filtering/verification.json': 'finalize_rsop_run.py',
+    'wp6-evidence/release110-20261009/wmi-filtering-error/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/release110-20261009/computer-security-filtering/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp6-evidence/release110-20261009/computer-security-filtering-deny-read/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+    'wp9-evidence/release110-20261009/loopback-merge/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/release110-20261009/loopback-replace/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/release110-20261009/user-side-disabled/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/release110-20261009/user-security-filtering/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/release110-20261009/user-security-filtering-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp9-evidence/release110-20261009/user-security-filtering-read-deny/verification.json': (
+        'finalize_rsop_user_run.py'
+    ),
+    'wp6-evidence/release110-20261009/computer-security-filtering-group-deny/verification.json': (
+        'finalize_rsop_run.py'
+    ),
+})
+RETIRED_VERDICTS.update({
+    # Every verdict live before the batch. WI-078 changed `psdirect.ps1`, which
+    # all of them bind, and batch 2 moved more besides; they are history for
+    # the commits they name, packs and tags unchanged.
+    'wp1b-evidence/plan034-20261008/publication/verification.json',
+    'wp1b-evidence/plan034-20261008/scripts-metadata/verification.json',
+    'wp1b-evidence/plan034-20261008/wp1b/verification.json',
+    'wp2-evidence/plan034-20261008/wp2/verification.json',
+    'wp2-evidence/report-parity/verification.json',
+    'wp3-evidence/firewall-20261008/firewall/verification.json',
+    'wp3-evidence/plan034-20261008/wp3-dc/verification.json',
+    'wp3-evidence/plan034-20261008/wp3-member/verification.json',
+    'wp3-evidence/plan034-rerun-20261008/object-security/verification.json',
+    'wp4-evidence/fdeploy/verification.json',
+    'wp6-evidence/plan034-20261008/computer-security-filtering-deny-read/verification.json',
+    'wp6-evidence/plan034-20261008/computer-security-filtering-group-deny/verification.json',
+    'wp6-evidence/plan034-20261008/computer-security-filtering/verification.json',
+    'wp6-evidence/plan034-20261008/disabled-block-enforced/verification.json',
+    'wp6-evidence/plan034-20261008/endpoint/verification.json',
+    'wp6-evidence/plan034-20261008/lsdou-precedence/verification.json',
+    'wp6-evidence/plan034-20261008/wmi-filtering-error/verification.json',
+    'wp6-evidence/plan034-20261008/wmi-filtering/verification.json',
+    'wp7-evidence/lifecycle/verification.json',
+    'wp9-evidence/plan034-20261008/loopback-merge/verification.json',
+    'wp9-evidence/plan034-20261008/loopback-replace/verification.json',
+    'wp9-evidence/plan034-20261008/user-security-filtering-deny/verification.json',
+    'wp9-evidence/plan034-20261008/user-security-filtering-read-deny/verification.json',
+    'wp9-evidence/plan034-20261008/user-security-filtering/verification.json',
+    'wp9-evidence/plan034-20261008/user-side-disabled/verification.json',
+})
+
+
 #: WI-062: verdicts whose bound harness changed and whose replacement the next
 #: estate batch owes. Enumerated, never pattern-matched, for the same reason
 #: RETIRED_VERDICTS is: parking a verdict here is a deliberate act with a
@@ -1030,7 +1126,8 @@ LANE_VERDICTS.update({
 #: matches the tree is live and must not be parked, and this set is a debt to
 #: be emptied by the batch, not a quieter neighbour of RETIRED_VERDICTS.
 #:
-#: EMPTY since the Plan 034 batch (2026-10-08). Its last entry was the WI-059
+#: EMPTY since the Plan 034 batch (2026-10-08), and still empty after the release
+#: 1.1.0 batch, which passed every lane. Its last entry was the WI-059
 #: computer group-deny verdict, owed since the WI-062 batch by the estate
 #: repair tracked as WI-069; the Plan 034 batch ran that lane and passed, and
 #: the old verdict is retired above. The set stays, empty, because the next
@@ -1917,7 +2014,7 @@ def test_wp0_manifest_is_a_pass_bound_to_a_resolvable_commit() -> None:
     (any developer clone, and any CI job that deepens its checkout) the
     property is enforced for real.
     """
-    manifest = _verdict("wp0-evidence/plan034-20261008/wp0/manifest.json")
+    manifest = _verdict("wp0-evidence/release110-20261009/wp0/manifest.json")
     assert manifest["capability"]["evidence_state"] == "pass"
     assert manifest["source"]["dirty"] is False
     assert "files" not in manifest["source"], (

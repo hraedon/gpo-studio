@@ -1,8 +1,9 @@
 """The banked lifecycle verdict binds `lifecycle.SCOPE_SURVIVAL` to Windows.
 
-`docs/plan-033/wp7-evidence/lifecycle/` is the first certification of the
-same-domain lifecycle lane (`lifecycle-20261008093248-2000-c76d10eb3f2849fe`,
-commit `3513052`). `test_committed_evidence.py` already checks it the way it
+The lane's current certification is the release 1.1.0 batch's run, read from
+`docs/plan-033/release110-batch.json` (its first certification,
+`lifecycle-20261008093248-2000-c76d10eb3f2849fe` at `3513052`, is retired).
+`test_committed_evidence.py` already checks it the way it
 checks every verdict: the bound files still hash to what it recorded, the
 manifest resolves at its commit, and `passed` follows from its checks.
 
@@ -30,9 +31,17 @@ from typing import Any, cast
 from gpo_studio.lifecycle import SCOPE_DIMENSIONS, SCOPE_SURVIVAL, WINDOWS_OPERATIONS
 
 _ROOT = Path(__file__).parents[1]
-PACK = _ROOT / "docs/plan-033/wp7-evidence/lifecycle"
-RUN_ID = "lifecycle-20261008093248-2000-c76d10eb3f2849fe"
-COMMIT = "35130528d89761ed1e6990001d086241e5655025"
+#: The current run is whatever the batch manifest records for this lane.
+_BATCH_RUN = next(
+    run
+    for run in json.loads(
+        (_ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+    )["runs"]
+    if run["name"] == "lifecycle"
+)
+PACK = _ROOT / "docs/plan-033" / Path(_BATCH_RUN["verdict"]).parent
+RUN_ID = _BATCH_RUN["run_id"]
+COMMIT = _BATCH_RUN["commit"]
 
 _FINALIZER = runpy.run_path(str(_ROOT / "scripts/windows-oracle/finalize_lifecycle_run.py"))
 _grade = cast(

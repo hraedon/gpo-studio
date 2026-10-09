@@ -1,0 +1,115 @@
+﻿{
+    "run_id":  "rsop-user-observe-20261009004749-4067",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-user-observe-20261009004749-4067",
+    "scope":  "user",
+    "computer":  "LABCL01",
+    "principal":  "labauto1",
+    "principal_sid":  "S-1-5-21-343068944-2904821402-3322616572-2103",
+    "session_present":  true,
+    "session_detail":  {
+                           "console_user":  "LAB\\labauto1",
+                           "hive_loaded":  true,
+                           "expected":  "LAB\\labauto1",
+                           "present":  true
+                       },
+    "intended_loopback_mode":  "disabled",
+    "observed_loopback_mode":  "disabled",
+    "loopback_control_ok":  true,
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "computer_refresh_exit":  0,
+    "user_policy_completed":  true,
+    "user_policy_completed_at":  "2026-10-09T00:47:57.7083474+00:00",
+    "refresh_task_results":  [
+                                 {
+                                     "label":  "initial",
+                                     "final_state":  "Ready",
+                                     "last_task_result":  0,
+                                     "last_run_time":  "10/09/2026 00:47:56",
+                                     "marker_written":  true
+                                 }
+                             ],
+    "token_groups_session":  [
+                                 "Domain Users",
+                                 "Everyone",
+                                 "BUILTIN\\Users",
+                                 "NT AUTHORITY\\INTERACTIVE",
+                                 "CONSOLE LOGON",
+                                 "NT AUTHORITY\\Authenticated Users",
+                                 "This Organization",
+                                 "LOCAL",
+                                 "StudioRsopGroup-20261009004451-2944",
+                                 "Authentication authority asserted identity",
+                                 "Medium Mandatory Level"
+                             ],
+    "token_groups_ldap":  [
+                              "BUILTIN\\Users",
+                              "LAB\\Domain Users"
+                          ],
+    "token_groups_ldap_status":  "collected",
+    "token_groups_ldap_error":  null,
+    "token_collection_error":  null,
+    "rsop_captured":  true,
+    "rsop_parse_error":  null,
+    "pre_run_residual":  [
+
+                         ],
+    "preflight_taken_at":  "2026-10-09T00:47:38.1102732+00:00",
+    "applied_gpos":  [
+                         "Local Group Policy",
+                         "Studio-RSOP-UserDenyReadUser-20261009004744-8440",
+                         "Studio-RSOP-UserReadDenyAllow-20261009004744-8440",
+                         "Studio-RSOP-UserReadDenyControl-20261009004744-8440"
+                     ],
+    "denied_gpos":  [
+                        {
+                            "gpo":  "{092e934c-7330-475b-b481-9507137b2824}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        },
+                        {
+                            "gpo":  "Studio-RSOP-UserReadDenyApply-20261009004744-8440",
+                            "reasons":  [
+                                            "access_denied",
+                                            "filter_not_allowed"
+                                        ]
+                        },
+                        {
+                            "gpo":  "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        }
+                    ],
+    "observed_values":  [
+                            {
+                                "value_name":  "AllowOnly",
+                                "value":  "1"
+                            },
+                            {
+                                "value_name":  "Control",
+                                "value":  "present"
+                            },
+                            {
+                                "value_name":  "DenyReadUserOnly",
+                                "value":  "1"
+                            },
+                            {
+                                "value_name":  "Filter",
+                                "value":  "denyReadUser"
+                            }
+                        ],
+    "control_present":  true,
+    "lane_problems":  [
+
+                      ],
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.9444",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

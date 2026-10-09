@@ -1,6 +1,13 @@
 # Scripts metadata lane (R10)
 
-**Current qualification (2026-10-08):** `scripts-r10-20261008074828-8492`, 20/20,
+**Current qualification (2026-10-09):** `scripts-r10-20261009001541-4025`, 20/20, on
+clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
+([evidence](wp1b-evidence/release110-20261009/scripts-metadata/verification.json),
+[release 1.1.0 batch](release110-batch.md)), tagged
+`evidence/scripts-r10-20261009001541-4025`. The run below
+stopped binding when batch 2 and WI-078 changed files it binds.
+
+**Previous qualification (2026-10-08):** `scripts-r10-20261008074828-8492`, 20/20,
 on clean frozen `263f19640529d469c2a54c18b43d228db5378279`
 ([evidence](wp1b-evidence/plan034-20261008/scripts-metadata/verification.json),
 [Plan 034 batch](plan034-batch.md)). Earlier results below, including the

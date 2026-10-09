@@ -1,0 +1,14 @@
+DOMAIN=ad.labdomain.dev
+SCENARIO=lsdou-precedence
+built rsop candidate for lsdou-precedence (6 GPOs) in /home/itadmin/gpo-batch-110b/tmp/rsop-candidate-20261009002435
+  predicted winners: ChildBOnly=1(Studio-RSOP-ChildB), Control=present(Studio-RSOP-Control), Precedence=childA(Studio-RSOP-ChildA), SiteOnly=1(Studio-RSOP-Site)
+RUN_ID=rsop-author-20261009002506-9135
+WORK_DIR=C:\gpo-studio\out\rsop-author-20261009002506-9135
+RUN_ID=rsop-observe-20261009002514-3293
+WORK_DIR=C:\gpo-studio\out\rsop-observe-20261009002514-3293
+--- authoring cleanup ---
+{"run_id":"rsop-author-20261009002506-9135","phase":"cleanup","cleanup_problems":[],"residual":{"computer_dn":"CN=LABCL01,CN=Computers,DC=ad,DC=labdomain,DC=dev","computer_restored":true,"user_dn":null,"user_restored":null,"surviving_group":null,"surviving_wmi_filters":[],"surviving_links":[],"surviving_gpos":[],"surviving_ous":[]}}
+LOCAL_RUN_DIR=/home/itadmin/gpo-batch-110b/tmp/rsop-run-20261009002435
+CANDIDATE_DIR=/home/itadmin/gpo-batch-110b/tmp/rsop-candidate-20261009002435
+
+run rsop-observe-20261009002514-3293: state=pass (source de9736ed3a4148b91cf2267fbe4640e260cc232f, dirty=False)

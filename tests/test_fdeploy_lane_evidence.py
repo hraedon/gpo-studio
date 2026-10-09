@@ -1,10 +1,12 @@
-"""The fdeploy lane's certifying run, banked: `fd-20261008121347-3151`.
+"""The fdeploy lane's current certifying run, as the batch manifest records it.
 
-One lane on its own commit (`df713ef`), banked the way the firewall lane and
-the Plan 034 object-security successor were: the controller's local run
-directory verbatim, plus `controller-candidate/` (the builder's output) and
-`controller.log`. The generic gates in `test_committed_evidence.py` cover the
-registry, the manifest-form binding at the commit and the live-harness hashes.
+The release 1.1.0 batch's run of the lane (run id, commit and pack read from
+`docs/plan-033/release110-batch.json`). It replaced `fd-20261008121347-3151`
+at `df713ef`, which is retired with its pack and tag unchanged. Banked the way
+every batch pack is: the controller's local run directory verbatim, plus
+`controller-candidate/` (the builder's output) and `controller.log`. The
+generic gates in `test_committed_evidence.py` cover the registry, the
+manifest-form binding at the commit and the live-harness hashes.
 This file pins what is specific to this pack:
 
 * every byte is accounted for;
@@ -47,16 +49,25 @@ from gpo_studio.fdeploy_parity import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "docs/plan-033/wp4-evidence/fdeploy"
+#: The current run is whatever the batch manifest records for this lane, so a
+#: new batch re-points this file by replacing the manifest, not these lines.
+_BATCH_RUN = next(
+    run
+    for run in json.loads(
+        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+    )["runs"]
+    if run["name"] == "fdeploy"
+)
+VERDICT_PATH = _BATCH_RUN["verdict"]
+PACK = ROOT / "docs/plan-033" / Path(VERDICT_PATH).parent
+RUN_ID = _BATCH_RUN["run_id"]
+COMMIT = _BATCH_RUN["commit"]
+CONTROLLER_LOG_SHA256 = _BATCH_RUN["files"]["controller.log"]
 CANDIDATE = PACK / "controller-candidate"
-VERDICT_PATH = "wp4-evidence/fdeploy/verification.json"
-RUN_ID = "fd-20261008121347-3151"
-COMMIT = "df713ef6eb86152e3e1e5ecf1e55f21dd5c64540"
 #: The exploratory pass that preceded the review hardening. History only: it
 #: binds the guest, builder and finalizer as they were before the four review
 #: fixes, and it was never banked or registered.
 SUPERSEDED_EXPLORATORY_COMMIT = "379e59b"
-CONTROLLER_LOG_SHA256 = "c1fca57b0b7c71edac58a546742a1b4b5be8046ca3687e45fa552c5532dd2bb4"
 SETTINGS = "DomainSysvol/GPO/User/Documents & Settings"
 FDEPLOY_FILES = ("fdeploy1.ini", "fdeploy.ini")
 USER_EXTENSION_PAIR = (

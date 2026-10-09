@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateString" status="CreateString" image="0" changed="2026-10-08 9:28:03" uid="{80BA2F39-55EC-40E1-A554-A6096468D60E}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="CreateString" type="REG_SZ" value="alpha" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateDword" status="UpdateDword" image="2" changed="2026-10-08 9:28:03" uid="{EB0D5A10-B7DD-42AD-8EDD-857906777563}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="UpdateDword" type="REG_DWORD" value="0000002A" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceExpand" status="ReplaceExpand" image="1" changed="2026-10-08 9:28:03" uid="{7D9969E6-0611-4366-8B40-F8D93AD04A4F}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="ReplaceExpand" type="REG_EXPAND_SZ" value="%SystemRoot%\x" />
+  </Registry>
+</RegistrySettings>

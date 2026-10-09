@@ -997,6 +997,26 @@ Lab and development tooling:
 Windows evidence and the lab tooling that produces it. None of these entries
 is a capability by itself; see Added for what an operator can reach.
 
+- *New in this draft:* **Banked the release 1.1.0 requalification batch**
+  ([batch note](docs/plan-033/release110-batch.md)). All 26 lanes passed on
+  one frozen commit, `de9736e` (batch 2, the chunked psdirect transport and
+  the WI-072/WI-073/WI-079 GPP fixes), driven by
+  `scripts/plan-033/run-requal-batch.sh` under its per-lane watchdog: WP-0
+  plus 25 lane verdicts, the lifecycle, report-parity, firewall and fdeploy
+  lanes included for the first time in a batch. No lane timed out, was
+  cancelled or lost containment. Every previously live verdict is retired;
+  `PENDING_REQUALIFICATION` is empty. Report parity covers 30 backups (the
+  three GPP Registry captures included) and accepts no Studio defect; the
+  firewall write leg carries the native `B05566AC` registration; the post-batch
+  directory check is clean. An attempt at `2f21e7c` (25 of 26; report parity
+  hung on the transport defect) was superseded unbanked and is recorded in the
+  manifest. The packs were banked with the new
+  `scripts/plan-033/bank-requal-batch.py`, and `tests/test_release110_batch.py`
+  reads run ids from the schema 2 manifest. `environment-spec.md`,
+  `platforms.json`, the capability matrix (GPP Registry and GPMC backup export
+  rows now certified), the results headers, the bound-source cost table and the
+  lifecycle and firewall surfaces' citations name the new runs. WI-072,
+  WI-073, WI-075, WI-078 and WI-079 close.
 - *New in this draft (batch 2):* **Batch 2 changed files that live lane
   verdicts bind** (`gpp.py`, `export.py`, `publication.py`, `xml_safety.py`,
   `object_security.py`, `report_parity.py`, the new `deterministic_zip.py`
@@ -1004,7 +1024,8 @@ is a capability by itself; see Added for what an operator can reach.
   WP-1B, WP-2, report-parity, firewall, object-security, fdeploy and endpoint
   verdicts banked before it no longer bind the shipping code. The single
   1.1.0 requalification of every lane at one commit covers them; until it
-  runs, those lanes cite pre-batch-2 evidence (WI-075).
+  runs, those lanes cite pre-batch-2 evidence (WI-075). *Later:* it ran and
+  passed every lane at `de9736e` (see the entry above).
 - *New in this draft (batch 2):* **WP-1B lane:** new `gppregistry-both` candidate and GPP Registry items in
   `mixed-all`; GPMC report markers are namespace-qualified, since Registry.pol
   and GPP Registry both render as `RegistrySettings`. Live verdicts for the

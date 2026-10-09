@@ -1,8 +1,11 @@
-"""The firewall lane's certifying run, banked: `firewall-20261008094055-2092337`.
+"""The firewall lane's current certifying run, as the batch manifest records it.
 
-One lane on its own commit (`a6e0002`), banked the way the Plan 034
-object-security successor was: the controller's local run directory verbatim,
-plus `controller-candidate/` (the builder's output) and `controller.log`. The
+The release 1.1.0 batch's run of the lane (run id, commit and pack read from
+`docs/plan-033/release110-batch.json`), banked the way every batch pack is:
+the controller's local run directory verbatim, plus `controller-candidate/`
+(the builder's output) and `controller.log`. It replaced the lane's first
+verdict, `firewall-20261008094055-2092337` at `a6e0002`, which is retired with
+its pack and tag unchanged. The
 generic gates in `test_committed_evidence.py` cover the registry, the
 manifest-form binding at the commit and the live-harness hashes. This file pins
 what is specific to this pack: every byte is accounted for, the shipping
@@ -30,11 +33,20 @@ from gpo_studio.firewall_policy import FIREWALL_TOOL_GUID, from_registry_records
 from gpo_studio.registry_pol import parse
 
 ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "docs/plan-033/wp3-evidence/firewall-20261008/firewall"
-VERDICT_PATH = "wp3-evidence/firewall-20261008/firewall/verification.json"
-RUN_ID = "firewall-20261008094055-2092337"
-COMMIT = "a6e0002dac0d65d6ae2b969a23636bf284061da1"
-CONTROLLER_LOG_SHA256 = "a60d70aba6ae507fd06144cd4576f621e5c881e7ddc62f4817ba80322f0995a5"
+#: The current run is whatever the batch manifest records for this lane, so a
+#: new batch re-points this file by replacing the manifest, not these lines.
+_BATCH_RUN = next(
+    run
+    for run in json.loads(
+        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+    )["runs"]
+    if run["name"] == "firewall"
+)
+VERDICT_PATH = _BATCH_RUN["verdict"]
+PACK = ROOT / "docs/plan-033" / Path(VERDICT_PATH).parent
+RUN_ID = _BATCH_RUN["run_id"]
+COMMIT = _BATCH_RUN["commit"]
+CONTROLLER_LOG_SHA256 = _BATCH_RUN["files"]["controller.log"]
 REGISTRY_CSE_GUID = "{35378EAC-683F-11D2-A89A-00C04FBBCFA2}"
 ADMIN_TEMPLATES_TOOL_GUID = "{D02B1F72-3407-48AE-BA88-E8213C6761F1}"
 
@@ -215,18 +227,22 @@ def test_the_tool_guid_observation_is_what_the_results_doc_records() -> None:
     """Recorded, not asserted, by the lane -- and the surface's limitation cites it.
 
     Native authoring registers the Registry CSE with the firewall tool GUID
-    (`B05566AC`); Studio's unchanged exporter registers it with the
-    Administrative Templates tool GUID (`D02B1F72`). GPMC's report rendered a
-    Windows Firewall extension for both. Whether the Group Policy Management
-    Editor shows the write-leg rules under its firewall node was not measured.
+    (`B05566AC`). The lane's first run (`a6e0002`) imported Studio's export
+    registered with the Administrative Templates tool GUID (`D02B1F72`); batch 2
+    (WI-075/WI-077) made a firewall-only machine Registry.pol register
+    `B05566AC`, and this run's write leg carries exactly the native pair. GPMC's
+    report rendered a Windows Firewall extension for both legs. Whether the
+    Group Policy Management Editor shows the write-leg rules under its firewall
+    node was not measured (WI-077).
     """
     observations = VERDICT["comparison"]["extension_observations"]
     assert observations["read"]["gPCMachineExtensionNames"] == (
         f"[{REGISTRY_CSE_GUID}{FIREWALL_TOOL_GUID}]"
     )
     assert observations["write"]["gPCMachineExtensionNames"] == (
-        f"[{REGISTRY_CSE_GUID}{ADMIN_TEMPLATES_TOOL_GUID}]"
+        f"[{REGISTRY_CSE_GUID}{FIREWALL_TOOL_GUID}]"
     )
+    assert ADMIN_TEMPLATES_TOOL_GUID not in observations["write"]["gPCMachineExtensionNames"]
     assert observations["read"]["gpmc_firewall_extension_rendered"] is True
     assert observations["write"]["gpmc_firewall_extension_rendered"] is True
     for leg, side in (("read_leg", "read"), ("write_leg", "write")):

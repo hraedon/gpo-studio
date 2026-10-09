@@ -1,6 +1,16 @@
 # Firewall policy lane
 
-**Current qualification (2026-10-08):** `firewall-20261008094055-2092337`,
+**Current qualification (2026-10-09):** `firewall-20261009001906-2614294`, 36/36, on
+clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
+([evidence](wp3-evidence/release110-20261009/firewall/verification.json),
+[release 1.1.0 batch](release110-batch.md)), tagged
+`evidence/firewall-20261009001906-2614294`. The run below
+stopped binding when batch 2 and WI-078 changed files it binds. This run's
+write leg imported Studio's export registered with the firewall tool GUID
+(`B05566AC`), the native pair, where the first run's carried `D02B1F72`
+(WI-077: GPME display is still unmeasured).
+
+**Previous qualification (2026-10-08):** `firewall-20261008094055-2092337`,
 36/36, on clean commit `a6e0002dac0d65d6ae2b969a23636bf284061da1`
 ([evidence](wp3-evidence/firewall-20261008/firewall/verification.json)), tagged
 `evidence/firewall-20261008094055-2092337`. This is the lane's first

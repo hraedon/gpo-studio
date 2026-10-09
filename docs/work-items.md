@@ -32,14 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**8 open.**
+**3 open.**
 
-- [WI-079](#wi-079--a-user-side-scheduled-task-without-a-principal-was-written-to-run-as-system) - fixed in code (scope reaches the item serializer); closes when the requalification run banks.
-- [WI-078](#wi-078--the-psdirect-push-hung-above-256-kb-and-no-leg-had-a-wall-clock-bound) - closes when the requalification passes every lane on the chunked transport.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
-- [WI-075](#wi-075--native-gpmc-export-refused-gpp-registry-and-the-1x-contract-said-it-did-not) - closes when the 1.1.0 requalification passes every lane at the batch-2 commit.
-- [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - fixed in code (document positions); closes when the requalification run banks.
-- [WI-072](#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained) - fixed in code (every root writes its retained content); closes when the requalification run banks.
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 
@@ -3061,8 +3056,7 @@ computer-side shutdown script has a banked verdict.
 ## WI-072 — serialize_gpp drops adapter root content the model retained
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
-**Status:** open (fixed in code on `fix/gpp-order-and-root-retention`, pending
-requalification; see the 2026-10-08 entry at the end of this item).
+**Status:** closed 2026-10-09. Every lane binding the changed `gpp.py` and `canonical.py` (fdeploy, firewall, publication, report-parity, scripts-metadata) passed at `de9736e` in the [release 1.1.0 batch](plan-033/release110-batch.md); report parity (`report-parity-20261009001727-3532`) required the `WI01A-Power-GPMC` case to agree exactly, and it did.
 
 **What is wrong.** A GPMC-authored Power Options file holds a `GlobalPowerOptionsV2`
 item (the Windows 7+ power plan). Studio's power adapter models only the XP-era
@@ -3114,8 +3108,7 @@ firewall, publication, report-parity and scripts-metadata (`gpp.py` and
 ## WI-073 — scheduled and immediate tasks lose their interleaving when the model is written
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
-**Status:** open (fixed in code on `fix/gpp-order-and-root-retention`, pending
-requalification; see the 2026-10-08 entry at the end of this item).
+**Status:** closed 2026-10-09. Every lane binding the changed files passed at `de9736e` in the [release 1.1.0 batch](plan-033/release110-batch.md); report parity (`report-parity-20261009001727-3532`) required both scheduled-task cases to agree exactly, and they did.
 
 **What is wrong.** `ScheduledTasks.xml` is one ordered list in which `TaskV2` and
 `ImmediateTaskV2` items interleave. The model splits them into
@@ -3301,10 +3294,16 @@ unmeasured, so `gpme_display_unmeasured` stays on every firewall response. The
 publication, scripts-metadata and firewall lanes owe their requalification in
 the batch-2 run either way (WI-075).
 
+**2026-10-09: the lane half is done.** The firewall lane passed at `de9736e`
+in the [release 1.1.0 batch](plan-033/release110-batch.md)
+(`firewall-20261009001906-2614294`), and its write leg imported Studio's
+export registered `[{35378EAC-…}{B05566AC-…}]`, the native pair. Only the GPME
+observation remains.
+
 ## WI-075 — native GPMC export refused GPP Registry, and the 1.x contract said it did not
 
 **Opened:** 2026-10-08 (batch 2, `batch2/gpp-registry-and-tidy`).
-**Status:** open.
+**Status:** closed 2026-10-09. The single 1.1.0 requalification passed every lane at the batch-2 branch's frozen commit `de9736e` ([release 1.1.0 batch](plan-033/release110-batch.md)): WP-1B (`wp1b-writer-20261009001221-5737`, `gppregistry-both` and the GPP Registry items in `mixed-all`), publication, scripts-metadata, object-security, report parity (`report-parity-20261009001727-3532`, 30 cases, the three GPP Registry captures included), firewall, fdeploy, WP-2 and endpoint, and the capability matrix's GPP Registry and GPMC backup export rows now carry their certified wording. Default-value items stay refused (`unmeasured_gpp_registry_shape`), as the closing condition allows.
 
 **The narrowing.** The 1.0 capability matrix lists GPP Registry with GPMC backup
 export &#10003;. Since the WP-1B era, `export._GPP_EXTENSION_PROFILES` carried only
@@ -3407,8 +3406,7 @@ default-value shape may stay refused at closure.
 
 **Opened:** 2026-10-08 (the report-parity lane's 1.45 MB candidate zip hung the
 requalification batch).
-**Status:** open -- fixed in `psdirect.ps1` and `run-requal-batch.sh`, awaiting
-the requalification those edits require.
+**Status:** closed 2026-10-09. All 26 lanes passed at `de9736e`, which carries the chunked transport, in the [release 1.1.0 batch](plan-033/release110-batch.md); every verdict binds `psdirect.ps1`, and report parity's 1.45 MB candidate was delivered by it intact (`candidate_delivered_intact`, `report-parity-20261009001727-3532`). No lane timed out, was cancelled or lost containment.
 
 **What was measured** (Linux controller, pwsh 7.6.6 -> the Hyper-V host's
 Windows PowerShell 5.1, `MaxEnvelopeSizekb` 2048, random bytes, every probe
@@ -3460,8 +3458,7 @@ full-size candidate delivered by it.
 ## WI-079 — a user-side scheduled task without a principal was written to run as SYSTEM
 
 **Opened:** 2026-10-08 (independent review of `fix/gpp-order-and-root-retention`).
-**Status:** open (fixed in code on `fix/gpp-order-and-root-retention`, pending
-requalification).
+**Status:** closed 2026-10-09. The lanes binding `gpp_adapters.py` (report parity, and WP-1B since review P1) passed on the changed file at `de9736e`: `report-parity-20261009001727-3532` and `wp1b-writer-20261009001221-5737` ([release 1.1.0 batch](plan-033/release110-batch.md)).
 
 **What was wrong.** GPMC writes `runAs` on every TaskV2, and its default depends on
 the side. Every user-side TaskV2 in the native captures

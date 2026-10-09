@@ -1,9 +1,10 @@
 """The banked report-parity verdict is intact and still says what it said.
 
-`report-parity-20261008104512-7480` is the lane's certifying run (Plan 034
-WP-2 items 2 and 3). `test_committed_evidence.py` already holds it to the
+The lane's current certifying run (Plan 034 WP-2 items 2 and 3) is the release
+1.1.0 batch's, read from `docs/plan-033/release110-batch.json`: 30 corpus
+cases plus the guest-authored case. `test_committed_evidence.py` already holds it to the
 generic contract through `LANE_VERDICTS`: its `source.files` keys match the
-finalizer's tables, every recorded digest resolves at `a1c280b` through
+finalizer's tables, every recorded digest resolves at its commit through
 `git show`, the pack banks no controller-side copy, and the shipping tree still
 hashes to what it recorded. This module checks the things specific to this
 pack, which a reviewer would otherwise have to do by eye:
@@ -14,8 +15,10 @@ pack, which a reviewer would otherwise have to do by eye:
   bound builder in the tree still rebuilds it byte for byte;
 - the comparison is re-derived from the banked fresh reports with the bound
   finalizer's own grading functions, and comes out exactly as recorded;
-- the divergences it accepted are exactly the named ones, with WI-072 and
-  WI-073 pinned to the cases that show them.
+- the divergences it accepted are exactly the named exclusions: since the
+  release 1.1.0 batch no Studio defect is accepted (WI-072 and WI-073 are
+  fixed, and their cases must agree exactly), and the three GPP Registry
+  captures (WI-075) are among the clean cases.
 """
 
 from __future__ import annotations
@@ -39,22 +42,40 @@ from gpo_studio.report_parity import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "docs/plan-033/wp2-evidence/report-parity"
+#: The current run is whatever the batch manifest records for this lane, so a
+#: new batch re-points this file by replacing the manifest, not these lines.
+_BATCH_RUN = next(
+    run
+    for run in json.loads(
+        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+    )["runs"]
+    if run["name"] == "report-parity"
+)
+VERDICT_PATH = _BATCH_RUN["verdict"]
+PACK = ROOT / "docs/plan-033" / Path(VERDICT_PATH).parent
+RUN_ID = _BATCH_RUN["run_id"]
+COMMIT = _BATCH_RUN["commit"]
 CANDIDATE = PACK / "controller-candidate"
 FINALIZER = runpy.run_path(str(ROOT / "scripts/windows-oracle/finalize_report_parity_run.py"))
 
-RUN_ID = "report-parity-20261008104512-7480"
-COMMIT = "a1c280b8a1ec31b03397437dc2e6d947022b4857"
 
-#: The cases whose accepted divergences were Studio defects in THIS banked
-#: verdict, and the work item each waited on. WI-072 and WI-073 are fixed in
-#: code (fixed pending requalification): the shipping builder and finalizer now
-#: require these cases to agree exactly, so this pack no longer rebuilds or
-#: re-grades, and this pin moves to {} when the requalification run is banked.
-OPEN_DEFECTS = {
-    "native-WI01A-Power-GPMC": {"adapter-root-unknowns-dropped": "WI-072"},
-    "native-WI01A-SchedTasks-GPMC": {"scheduled-task-order": "WI-073"},
-    "native-WI01A-SchedTasksFull-GPMC": {"scheduled-task-order": "WI-073"},
+#: The cases whose accepted divergences are Studio defects in the banked
+#: verdict, and the work item each waits on. EMPTY since the release 1.1.0
+#: batch: WI-072 (`native-WI01A-Power-GPMC`) and WI-073 (both scheduled-task
+#: captures) were fixed in code, and the builder and finalizer now require
+#: those cases to agree exactly (`fixed_work_item_cases_agree_exactly`).
+OPEN_DEFECTS: dict[str, dict[str, str]] = {}
+#: The cases WI-072 and WI-073 were pinned to, which must now be clean.
+FIXED_WORK_ITEM_CASES = {
+    "native-WI01A-Power-GPMC",
+    "native-WI01A-SchedTasks-GPMC",
+    "native-WI01A-SchedTasksFull-GPMC",
+}
+#: The three GPP Registry captures batch 2 added to the corpus (WI-075).
+GPP_REGISTRY_CASES = {
+    "native-WI01A-Registry-GPMC",
+    "native-WI01A-RegistryMatrix-GPMC",
+    "native-WI01A-RegistryShapes-GPMC",
 }
 #: Named exclusions (not defects) that the corpus exercises.
 NAMED_EXCLUSIONS = {
@@ -94,7 +115,8 @@ def test_the_verdict_is_the_certifying_pass(verdict: dict[str, Any]) -> None:
     assert verdict["passed"] is True
     assert verdict["checks_complete"] is True
     assert set(verdict["checks"]) == FINALIZER["REQUIRED_CHECKS"]
-    assert len(verdict["checks"]) == 25
+    assert len(verdict["checks"]) == 26
+    assert verdict["checks"]["fixed_work_item_cases_agree_exactly"] is True
     assert all(verdict["checks"].values())
     assert verdict["guest_status"] == 0
     assert verdict["comparison_error"] is None
@@ -208,7 +230,8 @@ def test_the_comparison_rederives_from_the_banked_reports(
     by_id = {case["case_id"]: case for case in expected["cases"]}
     assert [case["case_id"] for case in expected["cases"]] == list(builder.REQUIRED_CASE_IDS)
     assert sorted(case["case_id"] for case in result["cases"]) == sorted(by_id)
-    assert len(by_id) == 27
+    assert len(by_id) == 30
+    assert set(by_id) >= GPP_REGISTRY_CASES
 
     recorded = verdict["comparison"]["cases"]
     for case in result["cases"]:
@@ -255,7 +278,8 @@ def test_the_accepted_divergences_are_exactly_the_named_ones(verdict: dict[str, 
     assert all(case["unexplained"] == [] for case in cases.values())
     # Every other case matched Windows' fresh report in every family it lists.
     clean = set(cases) - set(OPEN_DEFECTS) - set(NAMED_EXCLUSIONS)
-    assert len(clean) == 20
+    assert len(clean) == 26
+    assert clean >= FIXED_WORK_ITEM_CASES | GPP_REGISTRY_CASES
     for case_id in clean:
         assert all(family["equal"] for family in cases[case_id]["families"]), case_id
     assert verdict["exclusions"] == [

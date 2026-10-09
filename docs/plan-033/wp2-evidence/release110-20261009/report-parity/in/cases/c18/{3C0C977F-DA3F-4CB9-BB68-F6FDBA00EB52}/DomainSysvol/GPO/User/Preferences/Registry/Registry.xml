@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\GPOStudio\GppMatrixKeys\Create" status="Software\GPOStudio\GppMatrixKeys\Create" image="0" changed="2026-10-08 11:29:54" uid="{0374E4DF-24ED-4664-BFF9-ADE14575183F}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="Software\GPOStudio\GppMatrixKeys\Create" name="" type="REG_SZ" value="" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\GPOStudio\GppMatrixKeys\Replace" status="Software\GPOStudio\GppMatrixKeys\Replace" image="1" changed="2026-10-08 11:29:54" uid="{9CBF2E84-043B-4A1C-A10B-4348DEF197FE}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="Software\GPOStudio\GppMatrixKeys\Replace" name="" type="REG_SZ" value="" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\GPOStudio\GppMatrixKeys\Update" status="Software\GPOStudio\GppMatrixKeys\Update" image="2" changed="2026-10-08 11:29:54" uid="{E1DC291A-0979-4004-9523-C62D7C1EB0B3}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="Software\GPOStudio\GppMatrixKeys\Update" name="" type="REG_SZ" value="" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\GPOStudio\GppMatrixKeys\Delete" status="Software\GPOStudio\GppMatrixKeys\Delete" image="3" changed="2026-10-08 11:29:55" uid="{56CAA775-DD05-40E0-ADE1-88FE791D9A1B}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="Software\GPOStudio\GppMatrixKeys\Delete" name="" type="REG_SZ" value="" />
+  </Registry>
+</RegistrySettings>
