@@ -133,3 +133,9 @@ tests/fixtures/native-folder-redirection-gpmc/** text eol=lf
 # (rule ascii), so a Windows checkout must not smudge them to CRLF.
 docs/release-evidence-*.md text eol=lf
 docs/release-evidence-report-*.json text eol=lf
+
+# Release 1.1.0 requalification batch (de9736e): manifest-form packs with exact
+# native artifacts (CRLF logs and XML, UTF-16LE reports); the batch manifest's
+# SHA-256s cover those bytes.
+docs/plan-033/*-evidence/release110-20261009/** -text -whitespace
+docs/plan-033/release110-cleanup/** -text -whitespace
