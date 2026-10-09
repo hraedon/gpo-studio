@@ -152,3 +152,31 @@ def test_a_cancel_file_before_the_gate_opens_is_reported_as_sigterm(tmp_path: Pa
     assert proc.returncode == 143
     assert _report(tmp_path)["cancelled"] is True
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("kind,expected", [("missing", 127), ("not-executable", 126)])
+def test_an_unstartable_lane_command_is_127_or_126_not_1(
+    tmp_path: Path, kind: str, expected: int
+) -> None:
+    """Review Low 3: an exec failure in the gate wrapper exited 1 with a
+    traceback, indistinguishable from a lane that ran and failed with 1."""
+    if kind == "missing":
+        command = "gpo-studio-no-such-lane-command"
+    else:
+        script = tmp_path / "lane.sh"
+        script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        script.chmod(0o644)
+        command = str(script)
+    proc = _start(tmp_path, [command, "an-argument"])
+    proc.wait(timeout=60)
+    assert proc.returncode == expected
+    assert _report(tmp_path) == {
+        "status": expected,
+        "timed_out": False,
+        "cancelled": False,
+        "killed": 0,
+    }
+    log = _log(tmp_path)
+    reason = "not found" if kind == "missing" else "not executable"
+    assert f"=== watchdog: cannot start the lane command {command}: {reason}" in log
+    assert "Traceback" not in log

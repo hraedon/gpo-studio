@@ -16,7 +16,9 @@ this. Two things a shell watchdog could not guarantee are the reason it exists:
 
 The leader runs as the leader of a new session, with stdin from /dev/null and
 stdout/stderr appended to the lane log. The supervisor exits with the leader's
-own status (128 + N for a signal), 124 when the deadline killed it, or 128 + N
+own status (128 + N for a signal; 127 or 126, with a watchdog line in the log,
+when its command could not be started at all -- not found, or not
+executable), 124 when the deadline killed it, or 128 + N
 when the supervisor itself was stopped by signal N -- TERM, INT or HUP; the
 driver's SIGUSR1 and cancel file count as TERM -- (a cancellation, whatever
 the leader then exited with, and whether or not the lane had started); the
@@ -155,7 +157,10 @@ def contain(reaper: Reaper, leader: int, grace: float) -> int:
 #: cancelled -- means exit 125 having run nothing), then restores what the lane
 #: should start with -- those signals unblocked, SIGPIPE and SIGXFSZ at their
 #: defaults (Python ignores them, and an ignored disposition survives exec) --
-#: and execs the lane's command in its own place.
+#: and execs the lane's command in its own place. A command that cannot be
+#: exec'd at all exits as a shell would -- 127 when it is not found, 126 when
+#: it is found but cannot be executed -- with a watchdog line in the log, so
+#: an unstartable lane is never mistaken for one that ran and failed with 1.
 GATE = """\
 import os, signal, sys
 fd = int(sys.argv[1])
@@ -168,7 +173,14 @@ signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
 signal.pthread_sigmask(
     signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGUSR1}
 )
-os.execvp(sys.argv[2], sys.argv[2:])
+try:
+    os.execvp(sys.argv[2], sys.argv[2:])
+except OSError as exc:
+    missing = isinstance(exc, FileNotFoundError)
+    why = "not found" if missing else "not executable"
+    line = f"=== watchdog: cannot start the lane command {sys.argv[2]}: {why} ({exc.strerror})"
+    os.write(2, (line + "; it never ran\\n").encode())
+    os._exit(127 if missing else 126)
 """
 
 
