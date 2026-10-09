@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
+from .gpp_native import has_never_retained_name
 from .model import BackupInventory, CseFileEntry, StudioError
 from .xml_safety import parse_xml_bounded
 
@@ -30,10 +31,7 @@ def _xml(encoded: str) -> tuple[bytes, ET.Element]:
         raise StudioError("Invalid native inventory XML") from error
     # Attributes and elements alike (WI-080 review: an element <cpassword>
     # passed a check of attribute names only).
-    if any(
-        name.rsplit("}", 1)[-1].casefold() == "cpassword"
-        for element in root.iter() for name in (str(element.tag), *element.attrib)
-    ):
+    if has_never_retained_name(root):
         raise StudioError("Native inventory XML contains a cpassword")
     return raw, root
 

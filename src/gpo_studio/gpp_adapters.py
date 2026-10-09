@@ -3026,9 +3026,11 @@ def reconcile_payload_edits(item: Any, imported: Any | None) -> Any:
     * no import record (``None``: authored from a payload, stored before WI-080,
       or an import whose namespaced element was not retained): the PAYLOAD is
       the record. A command field that is set and differs from the payload's was
-      edited; an EMPTY one is unset, never a deletion -- a task built from a
-      payload alone leaves its scalars empty, and the payload stands, as it
-      always did (the endpoint lane's tasks). ``enabled`` cannot be unset: a
+      edited. An EMPTY one is unset only when no command field is set -- a task
+      built from a payload alone leaves them all empty, and the payload stands,
+      as it always did (the endpoint lane's tasks); next to a set field, an
+      empty one the payload fills is ambiguous (a clear looks the same) and is
+      refused. ``enabled`` cannot be unset: a
       ``False`` the payload does not say is written, and a ``True`` against a
       disabled payload is refused as ambiguous rather than guessed at.
 
@@ -3072,6 +3074,23 @@ def reconcile_payload_edits(item: Any, imported: Any | None) -> Any:
             for _, name in _EXEC_FIELDS
             if getattr(item, name) and getattr(item, name) != projected_command[name]
         }
+        # An empty field the payload fills is unset when NO command field is
+        # set (a task built from a payload alone, the endpoint lane's shape),
+        # and ambiguous otherwise: a deliberate clear looks exactly the same,
+        # and with no record to tell them apart it is refused, never ignored
+        # (second re-check: a cleared /sagerun:1 still exported).
+        if any(getattr(item, name) for _, name in _EXEC_FIELDS):
+            ambiguous = [
+                name
+                for _, name in _EXEC_FIELDS
+                if not getattr(item, name) and projected_command[name]
+            ]
+            if ambiguous:
+                raise GppError(
+                    f"{context}: {', '.join(ambiguous)} is empty but its <Task> payload "
+                    "holds one, and with no import record an empty value cannot be told "
+                    "from a deliberate clear; set it, or edit task_xml to clear it"
+                )
         if isinstance(item, GppScheduledTask):
             projected_enabled = _project_enabled_from_task_xml(item.task_xml)
             if projected_enabled is None:

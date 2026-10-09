@@ -412,3 +412,94 @@ def test_the_api_refuses_a_namespaced_name(client: Any, payload: Any) -> None:
     )
     assert response.status_code == 422, response.text
     assert response.json()["error"]["issues"][0]["code"] == "xml_namespace_refused"
+
+
+# ---------------------------------------------------------------------------
+# Literal prefixed names (second re-check, P2)
+# ---------------------------------------------------------------------------
+
+_LITERAL_NAMES = ["xmlns:x", "x:extra", "xmlns", "x:y:z", "1bad", "has space"]
+
+
+@pytest.mark.parametrize("name", _LITERAL_NAMES)
+@pytest.mark.parametrize(
+    "where",
+    ["unknown_attrs", "unknown_props_attrs", "member", "filter predicate"],
+)
+def test_the_api_refuses_a_literal_prefixed_or_invalid_attribute_name(
+    client: Any, name: str, where: str
+) -> None:
+    test_client, store, _inbox = client
+    gpo = test_client.post(
+        "/api/gpos", json={"name": "Literal", "actor": "literal", "reason": "add"},
+    ).json()["gpo"]
+    pair = [[name, "urn:review"]]
+    payload: dict[str, Any] = {"name": "Literal"}
+    if where == "member":
+        payload["members"] = [{"sid": "S-1-5-32-544", "name": "A", "unknown_attrs": pair}]
+    elif where == "filter predicate":
+        payload["ilt_filter"] = {"items": [
+            {"type": "ou", "negate": False, "value": "OU=x", "unknown_attrs": pair},
+        ]}
+    else:
+        payload[where] = pair
+    response = test_client.post(
+        f"/api/gpos/{gpo['guid']}/preferences/groups",
+        json={"scope": "computer", "group": payload, "actor": "literal", "reason": "add",
+              "expected_revision": gpo["revision"]},
+    )
+    assert response.status_code == 422, response.text
+    assert store.get_gpo(gpo["guid"]).gpp_collections == ()
+
+
+@pytest.mark.parametrize("name", ["x:cpassword", "X:CPASSWORD", "{urn:x}CPassword"])
+def test_a_prefixed_cpassword_is_refused_at_intake(client: Any, name: str) -> None:
+    test_client, store, _inbox = client
+    gpo = test_client.post(
+        "/api/gpos", json={"name": "Prefixed", "actor": "literal", "reason": "add"},
+    ).json()["gpo"]
+    for payload in (
+        {"name": "Prefixed", "unknown_props_attrs": [[name, "SECRET"]]},
+        {"name": "Prefixed", "members": [
+            {"sid": "S-1-5-32-544", "name": "A", "unknown_attrs": [[name, "SECRET"]]},
+        ]},
+    ):
+        response = test_client.post(
+            f"/api/gpos/{gpo['guid']}/preferences/groups",
+            json={"scope": "computer", "group": payload, "actor": "literal", "reason": "add",
+                  "expected_revision": gpo["revision"]},
+        )
+        assert response.status_code == 422, response.text
+        assert response.json()["error"]["issues"][0]["code"] == "cpassword_detected"
+        assert "SECRET" not in response.text
+    assert store.get_gpo(gpo["guid"]).gpp_collections == ()
+
+
+@pytest.mark.parametrize("name", ["xmlns:x", "x:extra", "x:cpassword"])
+def test_a_stored_literal_prefixed_name_is_refused_on_load(name: str) -> None:
+    data = _stored_printers()
+    data["printers"][0]["native_xml"] = ""
+    data["printers"][0]["unknown_attrs"].append([name, "1"])
+    with pytest.raises(GppError, match="XML namespace or prefix"):
+        gpp_collection_from_dict(data)
+
+
+def test_an_import_with_an_undeclared_prefix_is_refused(client: Any) -> None:
+    test_client, store, inbox = client
+    shutil.copytree(PRINTERS_CAPTURE, inbox)
+    (target,) = inbox.glob("*/DomainSysvol/GPO/User/Preferences/Printers/Printers.xml")
+    target.write_bytes(target.read_bytes().replace(
+        b'<SharedPrinter clsid=', b'<SharedPrinter x:extra="1" clsid=', 1
+    ))
+    response = test_client.post(
+        "/api/backups/import",
+        json={"path": str(inbox), "actor": "literal", "reason": "planted"},
+    )
+    assert response.status_code == 422, response.text
+    assert store.list_gpos() == []
+
+
+def test_contains_cpassword_sees_a_literal_prefix() -> None:
+    assert contains_cpassword(
+        b'<Printers xmlns:x="urn:x"><SharedPrinter x:CPASSWORD="s"/></Printers>'
+    ) is True

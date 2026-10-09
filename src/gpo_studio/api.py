@@ -127,6 +127,7 @@ from .gpp import (
     serialize_gpp,
     without_native_records,
 )
+from .gpp_native import credential_local_name
 from .identity import ClaimedIdentity, claimed_identity
 from .ilt import (
     IltError,
@@ -1739,8 +1740,8 @@ def _refuse_namespaced_content(value: Any, context: str) -> None:
                 severity="error",
                 code="xml_namespace_refused",
                 message=(
-                    f"{context} uses an XML namespace ({found}); no native GPP "
-                    "capture does."
+                    f"{context} uses an XML namespace or prefix ({found}); no native "
+                    "GPP capture does."
                 ),
                 path="unknown_attrs",
             )
@@ -1749,7 +1750,7 @@ def _refuse_namespaced_content(value: Any, context: str) -> None:
 
 def _refuse_cpassword_attrs(unknown: tuple[tuple[str, str], ...], context: str) -> None:
     """The member and registry-value routes' part of `_refuse_cpassword`."""
-    if any(name.rsplit("}", 1)[-1].casefold() == "cpassword" for name, _ in unknown):
+    if any(credential_local_name(name) == "cpassword" for name, _ in unknown):
         raise ValidationError([
             ValidationIssue(
                 severity="error",

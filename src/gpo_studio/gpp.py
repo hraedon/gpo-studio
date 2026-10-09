@@ -19,6 +19,7 @@ from .gpp_native import (
     merge_native,
     namespaced_name,
     native_element_xml,
+    plain_attribute_name,
     same_rendering,
 )
 from .ilt import IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
@@ -1312,7 +1313,11 @@ def _with_payload_edits(key: str, item: Any, parse: Callable[[ET.Element], Any])
 
 
 def namespaced_content(value: Any) -> str | None:
-    """The first namespace-qualified name in *value*'s retained stores, or ``None``.
+    """The first unretainable name in *value*'s retained stores, or ``None``.
+
+    Unretainable: namespace-qualified (``{urn:x}a``, or a child element in a
+    namespace) or, for an attribute, anything but a plain ASCII NCName (a
+    literal ``x:a`` or ``xmlns:x`` key, second re-check).
 
     The retained stores are what the writer copies out verbatim: unknown
     attributes (an item's, its ``Properties``', a member's, a registry value's,
@@ -1346,7 +1351,7 @@ def namespaced_content(value: Any) -> str | None:
         # unknown_attrs, unknown_props_attrs, <family>_unknown_attrs ...
         if "unknown" in f.name and f.name.endswith("_attrs"):
             for name, _ in field_value:
-                if str(name).startswith("{"):
+                if not plain_attribute_name(str(name)):
                     return str(name)
         elif "unknown" in f.name and f.name.endswith("_children"):
             for raw in field_value:
@@ -1371,8 +1376,8 @@ def _refuse_namespaced(value: Any, context: str) -> None:
     found = namespaced_content(value)
     if found is not None:
         raise GppError(
-            f"{context} uses an XML namespace ({found}); no native GPP capture does, "
-            "and Studio would write it back verbatim"
+            f"{context} uses an XML namespace or prefix ({found}); no native GPP "
+            "capture does, and Studio would write it back verbatim"
         )
 
 

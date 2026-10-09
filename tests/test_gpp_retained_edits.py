@@ -517,10 +517,16 @@ def test_a_payload_authored_task_keeps_its_payload_when_its_scalars_are_unset(
 @pytest.mark.parametrize("family", ["scheduled", "immediate"])
 @pytest.mark.parametrize("field_name", ["program", "arguments", "start_in"])
 def test_a_payload_authored_task_edit_is_written(family: str, field_name: str) -> None:
+    """Once any command field is set, the others must say what they hold."""
     base: Any = (
-        GppScheduledTask(name="T", element_variant="TaskV2", task_xml=_PAYLOAD)
+        GppScheduledTask(
+            name="T", element_variant="TaskV2", task_xml=_PAYLOAD,
+            program="C:\\Old\\run.exe", arguments="/old",
+        )
         if family == "scheduled"
-        else GppImmediateTask(name="T", task_xml=_PAYLOAD)
+        else GppImmediateTask(
+            name="T", task_xml=_PAYLOAD, program="C:\\Old\\run.exe", arguments="/old",
+        )
     )
     edited = replace(base, **{field_name: "C:\\\\New"})
     again = _reread_task(_payload_authored(edited))
@@ -589,7 +595,9 @@ def test_a_record_less_task_whose_edit_cannot_reach_the_payload_is_refused(
     from gpo_studio import gpp_adapters
 
     monkeypatch.setattr(gpp_adapters, "_typed_task_payload", lambda task_xml, *a, **k: task_xml)
-    task = GppImmediateTask(name="T", task_xml=_PAYLOAD, program=r"C:\\New\\run.exe")
+    task = GppImmediateTask(
+        name="T", task_xml=_PAYLOAD, program=r"C:\\New\\run.exe", arguments="/old"
+    )
     with pytest.raises(GppError, match="program cannot be written into its <Task> payload"):
         serialize_gpp(_payload_authored(task))
 

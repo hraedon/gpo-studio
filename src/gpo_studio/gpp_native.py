@@ -50,6 +50,7 @@ supplies the renderings and the ``is_modeled`` test.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from copy import deepcopy
@@ -73,6 +74,25 @@ ModeledTest = Callable[[tuple[int, ...], str], bool]
 
 def _local_name(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def credential_local_name(name: str) -> str:
+    """*name*'s local part, for the credential ban: after any ``{namespace}``
+    AND any literal ``prefix:``, case-folded (second re-check: a stored
+    ``x:cpassword`` key passed a check of ``{namespace}`` names only)."""
+    return _local_name(name).rsplit(":", 1)[-1].casefold()
+
+
+#: A retained attribute name: an XML NCName in ASCII, so no ``prefix:``, no
+#: ``{namespace}`` and not ``xmlns``. Every attribute name in the native
+#: captures matches; a literal ``xmlns:x`` or ``x:extra`` key (which no parse
+#: produces, but an API payload or a stored dict can carry) would be written
+#: verbatim as a foreign namespace (second re-check).
+_PLAIN_ATTRIBUTE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9._-]*")
+
+
+def plain_attribute_name(name: str) -> bool:
+    return bool(_PLAIN_ATTRIBUTE_NAME.fullmatch(name)) and name.casefold() != "xmlns"
 
 
 def native_element_xml(elem: ET.Element) -> str:
@@ -115,7 +135,7 @@ def has_never_retained_name(elem: ET.Element) -> bool:
     passed a check of attribute names only, was stored, and was exported).
     """
     return any(
-        _local_name(name).casefold() in NEVER_RETAINED
+        credential_local_name(name) in NEVER_RETAINED
         for node in elem.iter()
         for name in (str(node.tag), *node.attrib)
     )
