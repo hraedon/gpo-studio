@@ -828,13 +828,22 @@ def test_folder_roundtrip() -> None:
         read_only=True,
         hidden=True,
         archive=False,
-        suppress=True,
         action="remove",
     )
     data = serialize_gpp_folders((folder,), "computer")
     parsed = parse_gpp_folders(data)
     assert len(parsed) == 1
     assert parsed[0] == folder
+
+
+def test_folder_suppress_is_read_from_old_output_but_never_written() -> None:
+    """No Folders capture has ``suppress`` (WI-081); Files does."""
+    folder = GppFolder(path=r"C:\Temp\Folder", suppress=True)
+    data = serialize_gpp_folders((folder,), "computer")
+    assert b"suppress" not in data
+    legacy = data.replace(b'<Properties action="U" ', b'<Properties action="U" suppress="1" ')
+    assert b'suppress="1"' in legacy
+    assert parse_gpp_folders(legacy)[0].suppress is True
 
 
 def test_folder_common_options() -> None:
@@ -927,7 +936,7 @@ def test_printer_roundtrip() -> None:
         path=r"\\server\printer",
         action_type="update",
         set_default=True,
-        use_local=True,
+        skip_local=True,
         comment="Main printer",
     )
     data = serialize_gpp_printers((printer,), "user")
@@ -1010,7 +1019,10 @@ def test_shortcut_roundtrip() -> None:
     data = serialize_gpp_shortcuts((sc,), "user")
     parsed = parse_gpp_shortcuts(data)
     assert len(parsed) == 1
-    assert parsed[0] == sc
+    # GPMC has no Properties@name (WI-081): the name is the item element's,
+    # the leaf of shortcutPath, as GPME writes it.
+    assert b'<Properties action="R" name=' not in data
+    assert parsed[0] == replace(sc, name="Notepad.lnk")
 
 
 def test_shortcut_common_options() -> None:

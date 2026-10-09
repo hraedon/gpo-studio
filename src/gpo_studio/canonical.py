@@ -306,13 +306,20 @@ def _semantic_adapter_item(item: Any, key: str, scope: GppScope) -> dict[str, An
         if f.name == "native_xml":
             d.update(_native_record(key, item, scope))
             continue
+        name = _CANONICAL_FIELD_NAMES.get((key, f.name), f.name)
         if f.name == "ilt_filter":
-            d[f.name] = semantic_dict_ilt(value)
+            d[name] = semantic_dict_ilt(value)
         elif isinstance(value, tuple):
-            d[f.name] = list(value)
+            d[name] = list(value)
         else:
-            d[f.name] = value
+            d[name] = value
     return d
+
+
+#: Fields renamed after their canonical key was hashed, mapped to that key, so
+#: a rename moves no digest. ``GppPrinter.use_local`` became ``skip_local``
+#: when it was grounded in GPMC's ``skipLocal`` attribute (WI-081).
+_CANONICAL_FIELD_NAMES: dict[tuple[str, str], str] = {("printers", "skip_local"): "use_local"}
 
 
 def policy_semantic_dict(gpo: GPO) -> dict[str, Any]:

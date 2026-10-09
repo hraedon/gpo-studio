@@ -2685,6 +2685,15 @@ def _adapter_item_from_dict(
     key: str,
 ) -> Any:
     """Reconstruct a low-artifact adapter item from a dict."""
+    if (
+        adapter_cls.__name__ == "GppPrinter"
+        and "skip_local" not in item_data
+        and "use_local" in item_data
+    ):
+        # Stored before WI-081, when the field was ``use_local`` (written as a
+        # ``useLocal`` attribute no capture contains; it is GPMC's skipLocal).
+        item_data = dict(item_data)
+        item_data["skip_local"] = item_data["use_local"]
     if adapter_cls.__name__ == "GppService":
         item_data = dict(item_data)
         if "program" not in item_data and "recovery_command" in item_data:

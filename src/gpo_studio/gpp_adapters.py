@@ -168,8 +168,10 @@ _PROPS_KNOWN_ATTRS: dict[str, frozenset[str]] = {
     "NetworkShareSettings": _COMMON_PROPS_ATTRS | frozenset({
         "name", "path", "comment", "userLimit", "action",
     }),
+    # ``setDefault``/``useLocal`` are the names Studio wrote before WI-081,
+    # still read from its own older output; GPMC writes ``default``/``skipLocal``.
     "Printers": _COMMON_PROPS_ATTRS | frozenset({
-        "path", "action", "setDefault", "useLocal", "comment",
+        "path", "action", "default", "skipLocal", "comment", "setDefault", "useLocal",
     }),
     "Shortcuts": _COMMON_PROPS_ATTRS | frozenset({
         "name", "targetPath", "arguments", "startIn", "iconPath", "iconIndex",
@@ -742,6 +744,10 @@ class GppFolder:
     read_only: bool = False
     hidden: bool = False
     archive: bool = True
+    #: Read from Studio's own older output, never written (WI-081): Files has
+    #: ``suppress`` (measured, WI01A-Files-GPMC) but no Folders capture does,
+    #: so a Folders ``suppress`` is a Studio invention Windows has not been
+    #: seen to read. Kept so stored items keep their digests.
     suppress: bool = False
     action: GppAction = "update"
     id: str = ""
@@ -787,8 +793,14 @@ class GppPrinter:
 
     path: str = ""
     action_type: _PrinterActionType = "create"
+    #: ``Properties@default`` (WI-081): ``1`` on the printer GPMC sets as the
+    #: default (WI01A-Printers-GPMC's Lab-Color, authored "set as default").
     set_default: bool = False
-    use_local: bool = False
+    #: ``Properties@skipLocal`` (WI-081). GPMC writes it on every shared
+    #: printer; every capture has ``0``, so what ``1`` does is unmeasured.
+    #: Until WI-081 this field was ``use_local``, read and written as a
+    #: ``useLocal`` attribute no capture contains.
+    skip_local: bool = False
     comment: str = ""
     action: GppAction = "update"
     id: str = ""
@@ -1902,11 +1914,12 @@ def _serialize_file(fi: GppFile) -> ET.Element:
         unknown_children=fi.unknown_children,
         unknown_props_children=fi.unknown_props_children,
         props_attrs={
+            # GPMC's order (WI01A-Files-GPMC).
             "fromPath": fi.source,
             "targetPath": fi.target,
             "readOnly": _bool_str(fi.read_only),
-            "hidden": _bool_str(fi.hidden),
             "archive": _bool_str(fi.archive),
+            "hidden": _bool_str(fi.hidden),
             "suppress": _bool_str(fi.suppress),
         },
     )
@@ -1983,12 +1996,14 @@ def _serialize_folder(folder: GppFolder) -> ET.Element:
         unknown_attrs=folder.unknown_attrs,
         unknown_children=folder.unknown_children,
         unknown_props_children=folder.unknown_props_children,
+        # GPMC's names and order (WI01A-Folders-GPMC): ``action path
+        # [delete*] readOnly archive hidden``. No capture has ``suppress``, so
+        # it is not written (WI-081); see `GppFolder.suppress`.
         props_attrs={
             "path": folder.path,
             "readOnly": _bool_str(folder.read_only),
-            "hidden": _bool_str(folder.hidden),
             "archive": _bool_str(folder.archive),
-            "suppress": _bool_str(folder.suppress),
+            "hidden": _bool_str(folder.hidden),
         },
     )
 
@@ -2152,11 +2167,15 @@ def _serialize_printer(printer: GppPrinter) -> ET.Element:
         unknown_attrs=printer.unknown_attrs,
         unknown_children=printer.unknown_children,
         unknown_props_children=printer.unknown_props_children,
+        # GPMC's names and order (WI01A-Printers-GPMC): ``action comment path
+        # location default skipLocal deleteAll persistent deleteMaps port``. The
+        # untyped ones come back from a retained import (WI-080); an authored
+        # printer writes only what the model types (WI-081).
         props_attrs={
-            "path": printer.path,
-            "setDefault": _bool_str(printer.set_default),
-            "useLocal": _bool_str(printer.use_local),
             "comment": printer.comment,
+            "path": printer.path,
+            "default": _bool_str(printer.set_default),
+            "skipLocal": _bool_str(printer.skip_local),
         },
         action_code=_printer_action_to_code(printer.action_type),
     )
@@ -2194,8 +2213,9 @@ def _parse_printer_item(elem: ET.Element) -> GppPrinter:
         return GppPrinter(
             path=props.get("path", ""),
             action_type=_code_to_printer_action(props.get("action", "U")),
-            set_default=props.get("setDefault", "0") == "1",
-            use_local=props.get("useLocal", "0") == "1",
+            # GPMC's names first; Studio before WI-081 wrote setDefault/useLocal.
+            set_default=props.get("default", props.get("setDefault", "0")) == "1",
+            skip_local=props.get("skipLocal", props.get("useLocal", "0")) == "1",
             comment=props.get("comment", ""),
             action=action,
             common=common,
@@ -2238,8 +2258,9 @@ def _serialize_shortcut(sc: GppShortcut) -> ET.Element:
         unknown_attrs=sc.unknown_attrs,
         unknown_children=sc.unknown_children,
         unknown_props_children=sc.unknown_props_children,
+        # No capture has ``Properties@name`` (WI-081): the item element's
+        # ``name`` carries it, so it is not written here.
         props_attrs={
-            "name": sc.name,
             "targetPath": sc.target_path,
             "arguments": sc.arguments,
             "startIn": sc.start_in,
@@ -2281,7 +2302,9 @@ def _parse_shortcut_item(elem: ET.Element) -> GppShortcut:
                 f"Invalid Shortcut iconIndex: {props.get('iconIndex')!r}"
             ) from error
         return GppShortcut(
-            name=props.get("name", ""),
+            # GPMC names a shortcut on the item element; Studio before WI-081
+            # also wrote it on <Properties>, which is still read first.
+            name=props.get("name", elem.get("name", "")),
             target_path=props.get("targetPath", ""),
             arguments=props.get("arguments", ""),
             start_in=props.get("startIn", ""),
@@ -3214,6 +3237,23 @@ def parse_gpp_scheduled_tasks(data: bytes) -> tuple[GppScheduledTask, ...]:
 # ---------------------------------------------------------------------------
 
 
+def _immediate_task_props(task: GppImmediateTask) -> dict[str, str]:
+    """``Properties`` of an ImmediateTaskV2 (WI-081).
+
+    Every captured ImmediateTaskV2 carries ``name`` and ``runAs`` and nothing
+    else: the command lives in its embedded <Task> payload, from which the
+    model's ``program``, ``arguments`` and ``start_in`` are read. Writing them
+    as attributes too, as Studio did, added Task Scheduler 1.0 scalars no
+    capture contains. They are written only for an item with no payload (one
+    built without ``task_xml``), where they are the only copy; that shape is
+    unmeasured.
+    """
+    attrs = {"name": task.name, "runAs": task.run_as}
+    if not task.task_xml:
+        attrs |= {"program": task.program, "arguments": task.arguments, "startIn": task.start_in}
+    return attrs
+
+
 def _serialize_immediate_task(task: GppImmediateTask) -> ET.Element:
     _deny_password(
         task.run_as_password,
@@ -3229,13 +3269,7 @@ def _serialize_immediate_task(task: GppImmediateTask) -> ET.Element:
         unknown_attrs=task.unknown_attrs,
         unknown_children=task.unknown_children,
         unknown_props_children=task.unknown_props_children,
-        props_attrs={
-            "name": task.name,
-            "runAs": task.run_as,
-            "program": task.program,
-            "arguments": task.arguments,
-            "startIn": task.start_in,
-        },
+        props_attrs=_immediate_task_props(task),
     )
     _append_task_xml_to_props(elem, task.task_xml)
     return elem
