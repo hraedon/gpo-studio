@@ -406,6 +406,9 @@ def retarget(args: argparse.Namespace) -> int:
     swaps: dict[str, str] = {}
     for lane, (run_id, commit) in _live_runs().items():
         if lane in new:
+            for sha in (commit, new[lane][1]):
+                if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                    raise SystemExit(f"REFUSE {lane}: commit {sha!r} is not a full SHA")
             swaps[run_id] = new[lane][0]
             swaps[commit] = new[lane][1]
     for path in paths:
