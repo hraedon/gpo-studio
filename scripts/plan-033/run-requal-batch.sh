@@ -23,7 +23,11 @@
 # and writable by nobody else unless sticky. A shared batch directory is not
 # supported. Stopping the driver with TERM, INT or HUP cancels the lane in
 # flight -- its process tree killed and its scope verified empty -- records it
-# cancelled, and exits 5.
+# cancelled, and exits 5. The lane supervisor's final cancel check is the
+# ADMISSION BOUNDARY: a cancel observed before its launch gate opens prevents
+# every lane command (the lane is recorded cancelled having run nothing); one
+# observed after it is a mid-lane cancellation (the lane is killed and
+# contained as above).
 #
 # With no lane names, every lane in LANES runs. The tree must be clean: a
 # verdict minted from a dirty tree is refused by its finalizer anyway, and

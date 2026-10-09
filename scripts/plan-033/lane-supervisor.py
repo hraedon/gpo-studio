@@ -220,10 +220,12 @@ def main() -> int:
     def cancel_requested() -> bool:
         return args.cancel_file is not None and args.cancel_file.exists()
 
-    # THE LAUNCH GATE. The guarantee: a cancellation observed before the gate
-    # opens prevents every lane command; one that arrives after it is a
-    # mid-lane cancellation (the lane is killed, contained and recorded as
-    # cancelled by the loop below). There is no third case:
+    # THE LAUNCH GATE. The final cancellation check (step 3) is the lane's
+    # ADMISSION BOUNDARY. The guarantee: a cancellation observed at or before
+    # that check -- before the gate opens -- prevents every lane command; one
+    # that arrives after it is a mid-lane cancellation (the lane is killed,
+    # contained and recorded as cancelled by the loop below). There is no
+    # third case:
     #   1. The cancellation signals are BLOCKED before the final check, so one
     #      arriving from here on stays pending instead of being missed.
     #   2. The lane is forked held behind a gate: a minimal exec wrapper
