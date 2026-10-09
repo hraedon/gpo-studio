@@ -223,9 +223,12 @@ What these runs do **not** certify:
   Network Shares, Applications). ADMX policy rendering, Scripts, links,
   security filtering and WMI filters are named exclusions. Property-level
   equivalence of preference items is not claimed: the lane compares each
-  item's element, name, `uid`, action and document order, and the adapters
-  drop several unmodeled `Properties` attributes (for example Drives'
-  `thisDrive` and `allDrives`). The first run's two
+  item's element, name, `uid`, action and document order as the typed model
+  writes them, and the model does not type several `Properties` attributes
+  (for example Drives' `thisDrive` and `allDrives`). Since WI-080 an export of
+  a stored import writes those attributes, and each item's `FilterRunOnce`
+  id, back as imported; `tests/test_gpp_native_preservation.py` holds that to
+  the native captures offline, and no lane certifies it. The first run's two
   pinned divergences, WI-072 (Power Options' power plan dropped on write) and
   WI-073 (task interleaving lost on write), are fixed: the lane's
   `fixed_work_item_cases_agree_exactly` check required their three cases to

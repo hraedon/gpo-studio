@@ -10,6 +10,49 @@ Current version: `1.1.0rc1` (release candidate). The latest final release is
 
 ## [Unreleased]
 
+### Fixed
+
+Operator-facing:
+
+- **A stored GPO's preferences are exported as Windows wrote them, fixed and
+  awaiting requalification (WI-080).** Studio kept an imported GPO's
+  preference XML only in memory, so every export of a stored GPO (the GPMC
+  backup, `export.zip`, the publication planner) rebuilt it from the typed
+  model, edited or not. That dropped every `Properties` attribute the model
+  does not type, among them a printer's `default` ("set as the default
+  printer"), an environment variable's `partial`, a scheduled task's
+  `logonType`, a shortcut's `comment`, `shortcutKey`, `targetType` and `pidl`,
+  a drive's `thisDrive`, `allDrives` and `userName`, and a folder's `delete*`
+  options. It also minted a new `FilterRunOnce` id, so a migration through
+  Studio re-applied every apply-once item on every client; turned `window=""`
+  into `Normal`; dropped a filter group's name beside its SID; added
+  default-valued attributes the source never had; and reordered attributes.
+  Measured on the committed native captures: 18 of 19 changed.
+
+  Import now keeps each preference item's element as Windows wrote it
+  (`native_xml`, all 20 families) and the imported run-once id
+  (`common.run_once_id`), and both are stored. An unchanged item is written
+  exactly as imported. In an edited one, what the edit changed is written from
+  the model, in its imported position, and everything else stays as imported;
+  each merge is parsed back, and the model's own rendering is written instead
+  wherever the merge would not mean what the model means. The run-once id
+  survives turning apply-once off and on again. The API never accepts a
+  retained element, and a stored one is validated on load and never writes a
+  `cpassword`. Workspaces need no migration: data stored before this fix is
+  written, and digested, exactly as before. Review digests change only for a
+  GPO imported from GPMC after the fix, because its export does (re-importing
+  Studio's own backup leaves them unchanged). The report-parity inventory now
+  reads the typed model alone (`gpp.model_only`), as it always meant to.
+  Covered by `tests/test_gpp_native_preservation.py`, which compares every
+  native capture with Studio's output through import, storage and the public
+  `export.zip` and `gpmc-backup` routes, attribute by attribute and in order,
+  and fails on the code before the fix. Not fixed here: Printers' typed
+  `set_default` and `use_local` name attributes no capture contains (GPMC
+  writes `default` and `skipLocal`). The fix changes `gpp.py`,
+  `gpp_adapters.py`, `canonical.py` and `report_parity.py`, so the fdeploy,
+  firewall, publication, report-parity, scripts-metadata and WP-1B lanes must
+  re-run; every lane candidate builds byte for byte as before.
+
 ## [1.1.0-rc.1] - 2026-10-09
 
 > **Release candidate, not the final 1.1.0 record.** `1.1.0rc1` is published

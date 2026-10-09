@@ -32,8 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**3 open.**
+**4 open.**
 
+- [WI-080](#wi-080--exporting-a-stored-gpo-rewrote-its-preference-xml-dropping-what-the-model-does-not-type) - fixed in code; requalify the lanes binding `gpp.py`, `gpp_adapters.py`, `canonical.py` and `report_parity.py`.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
@@ -3487,3 +3488,104 @@ user-side task. Immediate tasks have no default principal on either side (an emp
 
 **Closes when:** the requalification runs of the lanes binding `gpp_adapters.py`
 (report parity) bank on the changed file.
+
+## WI-080 — exporting a stored GPO rewrote its preference XML, dropping what the model does not type
+
+**Opened:** 2026-10-08 (an import, store and export of every committed native GPP capture, compared with the Windows bytes).
+**Status:** open. Fixed in code on 2026-10-08 (`fix/gpp-attribute-preservation`); pending requalification of the lanes that bind the changed files.
+
+**What was wrong.** Studio kept an imported GPO's preference XML only in memory
+(`GppCollection.source_files`, never persisted). Every export of a STORED GPO --
+the GPMC backup (`/api/gpos/{guid}/gpmc-backup`), `export.zip`, the publication
+planner, anything that calls `serialize_gpp` -- rebuilt each file from the typed
+model, edited or not. The model does not type every attribute Windows writes, so
+those were dropped, and the writer's own conventions replaced Windows'. Measured
+through the real import path and the public API on the 19 captures in
+`tests/fixtures/native-gpp-gpmc` and `native-gpp-registry-gpmc`, 18 were changed
+(all but Power Options; IniFiles, the two Services captures and the three Registry
+captures only by attribute order or added defaults):
+
+- **Dropped `Properties` attributes.** Printers: `default` (`1` is "set as the
+  default printer"), `deleteAll`, `deleteMaps`, `persistent`, `skipLocal`,
+  `location`, `port`. Environment Variables: `partial` (`1` on `PATH`). Scheduled
+  Tasks: `TaskV2` `logonType` (`InteractiveToken`). Shortcuts: `comment` (non-empty,
+  Unicode), `shortcutKey`, `targetType`, `pidl`. Drive Maps: `thisDrive` and
+  `allDrives` (`NOCHANGE`), `userName`. Folders: the five `delete*` options. Groups:
+  an empty `description`.
+- **A new `FilterRunOnce` id.** The parser kept only "applies once" and the writer
+  derived a fresh id (uuid5 of the editor id). Clients record an apply-once item as
+  applied by that id, so migrating a GPO through Studio re-applied every apply-once
+  item on every client (Drive Maps and Local Groups captures).
+- **Changed values and identity.** Shortcuts' `window=""` became `Normal`; Files' and
+  Folders' empty item `name` was dropped; a `FilterGroup`'s `name` was dropped where
+  it had a SID, and an empty `sid` where it had a name.
+- **Added attributes the source never had.** `removePolicy`, `userContext`,
+  `disabled` and `bypassErrors` set to `0` on every item that omitted them; Printers
+  `setDefault` and `useLocal`; Files `fromPath=""` and `suppress`; Folders
+  `suppress`; `program`, `arguments` and `startIn` projected onto `ImmediateTaskV2`.
+- **Attribute order** rewritten on items, `Properties`, filter predicates and
+  members.
+
+**How it hid.** Every round-trip test compared Studio with itself, and an unedited
+import that was never stored still returned its source bytes. The report-parity lane
+compares item identity, `uid` and action, and names `Properties` attributes as an
+exclusion. The oracle normaliser blanks `FilterRunOnce@id`, but only in WP-0's
+Windows-against-Windows report comparison, which never compares a Studio export
+with its source; no lane candidate authors an apply-once item.
+
+**The fix.** Import keeps each item's element as Windows wrote it, on the item
+(`native_xml`, for all 20 families: Groups, Registry and the 18 adapters; a legacy
+multi-value `<Registry>` has none), and the imported `FilterRunOnce@id` on the model
+(`GppCommonOptions.run_once_id`). Both are persisted. The writer reconciles the
+retained element with the model (`gpp_native.merge_native`): an unchanged item is
+written exactly as imported; in a changed one, every value the model types and the
+edit changed is written from the model, in its imported position, and everything
+else -- unmodelled attributes, attribute order, a value the writer would normalise
+(`window=""`), the source's omissions -- stays as imported. Each merge is parsed and
+written again, and unless that gives back the model's own rendering, the model's
+rendering is written instead: a retained attribute can never override, or outlive,
+a typed value. The run-once id stays on the model while apply-once is off, so turning
+it off and on again restores the same identity (GPMC's own behaviour for that toggle
+is unmeasured); an item that never had an id still gets the deterministic one. The
+API never accepts `native_xml`; the store carries an item's record over an edit, as
+it carries `document_position`. A stored element is validated on load (one bounded,
+entity-free element of the family's own item type, no `cpassword`), and a
+`cpassword` is never written from one.
+
+**Storage and digests.** Additive keys, no schema change. Data stored before WI-080
+has neither key and is written exactly as before. The canonical form gains an entry
+only where a retained element changes what is written (`gpp.retained_rendering`), so
+digests of stored GPOs, of Studio-authored GPOs, and of a re-import of Studio's own
+export are unchanged; a GPO imported from GPMC after WI-080 digests differently from
+the same backup imported before it, because its export differs.
+
+**Not fixed here.** Printers' typed `set_default` and `use_local` read and write
+`setDefault` and `useLocal`, which no capture contains; GPMC writes `default` and
+`skipLocal`, and how `skipLocal` maps to the model is unmeasured. A stored import now
+keeps GPMC's attributes and omits Studio's, but the model still reports a default
+printer as not default. Separately, the workbench's group and registry edits carry no
+common options, so an edit resets apply-once, disabled, remove-when-not-applied and
+run-in-user-context (and with apply-once, the run-once filter); that predates WI-080.
+
+**Covered by** `tests/test_gpp_native_preservation.py`: every native capture through
+import, store and reload, the dict round trip, and the public `export.zip` and
+`gpmc-backup` routes, each file compared with the capture element by element and
+attribute by attribute, in order, with only whitespace between elements and the XML
+declaration excused; on `bd84b3a` it fails for 18 of the 19 captures (36 of its
+38 import and export cases). It also covers
+edits (typed values win; unmodelled ones stay; writer defaults appear only once
+edited; a legacy placement does not outlive its value), the run-once id through
+storage, edits and the apply-once toggle, the workbench's API edit path, load-time
+validation, and data in the pre-WI-080 shape (same output, same digest).
+
+**Lanes.** `gpp.py`, `gpp_adapters.py`, `canonical.py` and `report_parity.py` changed:
+fdeploy, firewall, publication, report-parity, scripts-metadata and wp1b must re-run
+(`plan-033/bound-source-cost.md`). No lane candidate moves: every builder writes the
+same bytes before and after (candidates are authored, and report parity inventories
+the model alone, `gpp.model_only`). `gpp_native.py` is new and unbound: no lane
+candidate carries a retained element, so no lane measures it. Proposed, not done: a
+report-parity property-level check over the stored export (each item's `Properties`
+attributes and `FilterRunOnce@id` against the report), which would bind it.
+
+**Closes when:** the requalification runs of the lanes binding the changed files
+(fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b) bank on them.
