@@ -12,11 +12,15 @@ offline half of that lane: one inventory shape, built two ways.
   element, ``name``, ``uid`` and ``Properties/@action``, in document order.
 * :func:`studio_inventory` builds the same shape from Studio's typed model.
   Registry entries come from ``GPO.settings``. Preference items come from
-  :func:`gpo_studio.gpp.serialize_gpp` over each collection **with its retained
-  source bytes removed**, so the inventory is what the typed model would write
-  after an edit, not a replay of the imported files. Comparing the imported
+  :func:`gpo_studio.gpp.serialize_gpp` over each collection **as the typed
+  model alone writes it** (:func:`gpo_studio.gpp.model_only`: no retained
+  source bytes and no retained native elements), so the inventory is what the
+  model holds, not a replay of the imported files. Comparing the imported
   bytes with a report generated from those same bytes would be a comparison of
-  Windows with itself.
+  Windows with itself -- and since WI-080 an export writes each imported item's
+  retained element back wherever the model has not changed, so it would also
+  write back a value the parser misread. That retained export path is held to
+  the Windows bytes by ``tests/test_gpp_native_preservation.py``.
 
 :func:`compare` returns per-family equality and every named divergence.
 :data:`KNOWN_DIVERGENCES` lists the divergences that are understood: named
@@ -39,7 +43,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, assert_never
 
-from .gpp import GPP_REGISTRY_REPORT_NAMESPACE, GppCollection, GppError, serialize_gpp
+from .gpp import (
+    GPP_REGISTRY_REPORT_NAMESPACE,
+    GppCollection,
+    GppError,
+    model_only,
+    serialize_gpp,
+)
 from .model import GPO, RegistrySetting, StudioError
 from .xml_safety import BoundedTreeBuilder, parse_xml_bounded
 
@@ -524,7 +534,7 @@ def studio_gpp_family(path: str) -> str:
 
 def _studio_gpp_items(collection: GppCollection) -> dict[str, list[InventoryItem]]:
     try:
-        files = serialize_gpp(replace(collection, source_files=()))
+        files = serialize_gpp(model_only(collection))
     except GppError as exc:
         raise ReportParityError(
             f"{collection.scope} preferences cannot be rendered: {exc}"

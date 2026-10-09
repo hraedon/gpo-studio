@@ -9,10 +9,11 @@ Microsoft's documented format so that output is interoperable with GPMC.
 
 from __future__ import annotations
 
+import functools
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, assert_never
 
 from .gpp import (
@@ -37,6 +38,7 @@ from .gpp import (
     _parse_item_filters,
     _xml_declaration,
 )
+from .gpp_native import native_element_xml
 from .ilt import IltFilter
 
 # CLSIDs from MS-GPPREF "Outer and Inner Element Names and CLSIDs" table
@@ -536,6 +538,9 @@ class GppEnvironment:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,6 +561,9 @@ class GppIniFile:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -579,6 +587,9 @@ class GppRegionalOptions:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,6 +610,9 @@ class GppPowerOptions:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -618,6 +632,9 @@ class GppDevice:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -639,6 +656,9 @@ class GppFolderOptions:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -660,6 +680,9 @@ class GppDataSource:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,6 +704,9 @@ class GppDrive:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -703,6 +729,9 @@ class GppFile:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -724,6 +753,9 @@ class GppFolder:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -744,6 +776,9 @@ class GppNetworkShare:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -765,6 +800,9 @@ class GppPrinter:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -789,6 +827,9 @@ class GppShortcut:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -809,6 +850,9 @@ class GppApplication:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -856,6 +900,9 @@ class GppService:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -885,6 +932,9 @@ class GppLocalUser:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -913,6 +963,9 @@ class GppLocalGroup:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -947,6 +1000,9 @@ class GppScheduledTask:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
     element_variant: Literal["Task", "TaskV2"] = "TaskV2"
 
 
@@ -976,6 +1032,9 @@ class GppImmediateTask:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1137,7 +1196,7 @@ def _extract_common(
 ]:
     """Extract action, common options, ILT, unknowns, and the Properties element."""
     props = _find_local(elem, "Properties")
-    ilt_filter, apply_once = _parse_item_filters(elem)
+    ilt_filter, apply_once, run_once_id = _parse_item_filters(elem)
     unknown_attrs = _capture_unknown_attrs(elem, _ITEM_KNOWN_ATTRS)
     unknown_children = _capture_unknown_children(elem, _ITEM_KNOWN_CHILDREN)
     if props is not None:
@@ -1146,12 +1205,15 @@ def _extract_common(
             elem,
             props,
             apply_once=apply_once,
+            run_once_id=run_once_id,
         )
         props_known = _PROPS_KNOWN_CHILDREN.get(adapter_key, frozenset())
         unknown_props_children = _capture_unknown_children(props, props_known)
     else:
         action = "update"
-        common = _parse_common_options(elem, apply_once=apply_once)
+        common = _parse_common_options(
+            elem, apply_once=apply_once, run_once_id=run_once_id
+        )
         unknown_props_children = ()
     return (
         action, common, ilt_filter, unknown_attrs, unknown_children,
@@ -1168,6 +1230,24 @@ def _capture_root_unknowns(root: ET.Element, adapter_key: str) -> tuple[
         root, _ROOT_KNOWN_CHILDREN[root_tag]
     )
     return unknown_attrs, unknown_children
+
+
+def _retains_native[T](parse: Callable[[ET.Element], T]) -> Callable[[ET.Element], T]:
+    """Keep each parsed item's element as imported, in ``native_xml`` (WI-080).
+
+    Every adapter item parser wears this, so whichever path parses an item --
+    a whole file, or one element when the writer re-reads a retained one -- the
+    item carries its source element and the writer can give back what the
+    model does not type.
+    """
+
+    @functools.wraps(parse)
+    def parse_retaining(elem: ET.Element) -> T:
+        item: Any = parse(elem)
+        retained: T = replace(item, native_xml=native_element_xml(elem))
+        return retained
+
+    return parse_retaining
 
 
 # ---------------------------------------------------------------------------
@@ -1210,6 +1290,7 @@ def serialize_gpp_environment(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_environment_item(elem: ET.Element) -> GppEnvironment:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "environment")
@@ -1285,6 +1366,7 @@ def serialize_gpp_ini_files(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_ini_item(elem: ET.Element) -> GppIniFile:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "ini_files")
@@ -1366,6 +1448,7 @@ def serialize_gpp_regional_options(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_regional_options_item(elem: ET.Element) -> GppRegionalOptions:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "regional_options")
@@ -1446,6 +1529,7 @@ def serialize_gpp_power_options(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_power_options_item(elem: ET.Element) -> GppPowerOptions:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "power_options")
@@ -1522,6 +1606,7 @@ def serialize_gpp_devices(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_device_item(elem: ET.Element) -> GppDevice:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "devices")
@@ -1600,6 +1685,7 @@ def serialize_gpp_folder_options(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_folder_options_item(elem: ET.Element) -> GppFolderOptions:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "folder_options")
@@ -1679,6 +1765,7 @@ def serialize_gpp_data_sources(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_data_source_item(elem: ET.Element) -> GppDataSource:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "data_sources")
@@ -1761,6 +1848,7 @@ def serialize_gpp_drives(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_drive_item(elem: ET.Element) -> GppDrive:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "drives")
@@ -1841,6 +1929,7 @@ def serialize_gpp_files(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_file_item(elem: ET.Element) -> GppFile:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "files")
@@ -1921,6 +2010,7 @@ def serialize_gpp_folders(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_folder_item(elem: ET.Element) -> GppFolder:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "folders")
@@ -1999,6 +2089,7 @@ def serialize_gpp_network_shares(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_network_share_item(elem: ET.Element) -> GppNetworkShare:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "network_shares")
@@ -2088,6 +2179,7 @@ def serialize_gpp_printers(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_printer_item(elem: ET.Element) -> GppPrinter:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "printers")
@@ -2176,6 +2268,7 @@ def serialize_gpp_shortcuts(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_shortcut_item(elem: ET.Element) -> GppShortcut:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "shortcuts")
@@ -2263,6 +2356,7 @@ def serialize_gpp_applications(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_application_item(elem: ET.Element) -> GppApplication:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "applications")
@@ -2379,6 +2473,7 @@ def serialize_gpp_services(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_service_item(elem: ET.Element) -> GppService:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "services")
@@ -2513,6 +2608,7 @@ def serialize_gpp_local_users(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_local_user_item(elem: ET.Element) -> GppLocalUser:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "local_users")
@@ -2627,6 +2723,7 @@ def _parse_local_group_member(elem: ET.Element) -> GppLocalGroupMember:
     )
 
 
+@_retains_native
 def _parse_local_group_item(elem: ET.Element) -> GppLocalGroup:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "local_groups")
@@ -3042,6 +3139,7 @@ def serialize_gpp_scheduled_tasks(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_scheduled_task_item(elem: ET.Element) -> GppScheduledTask:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "scheduled_tasks")
@@ -3160,6 +3258,7 @@ def serialize_gpp_immediate_tasks(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_immediate_task_item(elem: ET.Element) -> GppImmediateTask:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "immediate_tasks")
@@ -3447,7 +3546,7 @@ ROOT_PARSE_FUNCTIONS: dict[str, list[tuple[str, Callable[[bytes], RootParseResul
     ],
 }
 
-# Map of adapter_key -> per-item serialize function (for _build_adapter_root).
+# Map of adapter_key -> per-item serialize function (for serialize_adapter_item).
 _ITEM_SERIALIZE_FUNCTIONS: dict[str, Callable[..., ET.Element]] = {
     "environment": _serialize_environment,
     "ini_files": _serialize_ini,
@@ -3472,34 +3571,50 @@ _ITEM_SERIALIZE_FUNCTIONS: dict[str, Callable[..., ET.Element]] = {
 #: The item serializers that take the collection's scope (WI-079).
 _SCOPED_ITEM_SERIALIZERS: frozenset[str] = frozenset({"scheduled_tasks"})
 
+#: adapter_key -> the parser for ONE item element. ``gpp`` re-reads a retained
+#: element with it to learn what the model made of the import (WI-080).
+ITEM_PARSE_FUNCTIONS: dict[str, Callable[[ET.Element], Any]] = {
+    "environment": _parse_environment_item,
+    "ini_files": _parse_ini_item,
+    "regional_options": _parse_regional_options_item,
+    "power_options": _parse_power_options_item,
+    "devices": _parse_device_item,
+    "folder_options": _parse_folder_options_item,
+    "data_sources": _parse_data_source_item,
+    "drives": _parse_drive_item,
+    "files": _parse_file_item,
+    "folders": _parse_folder_item,
+    "network_shares": _parse_network_share_item,
+    "printers": _parse_printer_item,
+    "shortcuts": _parse_shortcut_item,
+    "applications": _parse_application_item,
+    "services": _parse_service_item,
+    "local_users": _parse_local_user_item,
+    "scheduled_tasks": _parse_scheduled_task_item,
+    "immediate_tasks": _parse_immediate_task_item,
+}
 
-def _build_adapter_root(
-    adapter_key: str,
-    items: tuple[Any, ...],
-    scope: GppScope,
-) -> ET.Element:
-    """Build the root ET.Element for an adapter without serializing to bytes.
 
-    Used by ``gpp.serialize_gpp`` to merge the adapters that share a file
-    (local users with groups in Groups\\Groups.xml, immediate with scheduled
-    tasks in ScheduledTasks\\ScheduledTasks.xml).
+def serialize_adapter_item(adapter_key: str, item: Any, scope: GppScope) -> ET.Element:
+    """Write one adapter item from the model alone, with the collection's *scope*.
+
+    Used by ``gpp.serialize_gpp``, which places each item among its root's
+    children (WI-072/073) and reconciles it with its retained native element
+    (WI-080); it replaces ``_build_adapter_root``, which built a whole root
+    from items alone.
 
     *scope* reaches every item serializer with a scope-dependent default. Only
     Scheduled Tasks has one today: a TaskV2 with no ``run_as`` runs as
     ``NT AUTHORITY\\System`` on the computer side and as
     ``%LogonDomain%\\%LogonUser%`` on the user side, as every native capture
-    writes it. Until WI-079 this function dropped the scope, so a user-side task
-    got the computer default (``_SCOPED_ITEM_SERIALIZERS`` is pinned by a test
+    writes it. Until WI-079 the scope was dropped here, so a user-side task got
+    the computer default (``_SCOPED_ITEM_SERIALIZERS`` is pinned by a test
     against every serializer's signature).
     """
-    root_tag, root_clsid, _, _ = _ADAPTER_META[adapter_key]
-    root = ET.Element(_ns(root_tag))
-    root.set("clsid", root_clsid)
     serialize_item_fn = _ITEM_SERIALIZE_FUNCTIONS[adapter_key]
-    scoped = adapter_key in _SCOPED_ITEM_SERIALIZERS
-    for item in items:
-        root.append(serialize_item_fn(item, scope) if scoped else serialize_item_fn(item))
-    return root
+    if adapter_key in _SCOPED_ITEM_SERIALIZERS:
+        return serialize_item_fn(item, scope)
+    return serialize_item_fn(item)
 
 
 # Map of adapter_key -> file path suffix (for serialize_gpp).

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -992,13 +993,19 @@ def test_key_only_registry_round_trip() -> None:
     assert val.name == ""
     assert val.registry_type == ""
     assert val.value == ""
+    # An unedited import is written back as imported (WI-080): the source's
+    # type="" is kept, not normalised.
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed))
+    props = ET.fromstring(serialized).find("Registry/Properties")
+    assert props is not None and props.get("type") == ""
+    # The writer alone: Windows types a key-only item REG_SZ on the wire
+    # (WI01A-RegistryShapes-GPMC), so that is what the model writes.
+    authored = tuple(replace(item, native_xml="") for item in parsed)
+    serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=authored))
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
     rval = reparsed[0].value
     assert rval.name == ""
-    # Windows types a key-only item REG_SZ on the wire
-    # (WI01A-RegistryShapes-GPMC), so that is what comes back.
     assert rval.registry_type == "REG_SZ"
     assert rval.value == ""
 

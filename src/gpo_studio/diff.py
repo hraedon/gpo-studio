@@ -340,6 +340,7 @@ def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
         and a.unknown_attrs == b.unknown_attrs
         and a.unknown_props_attrs == b.unknown_props_attrs
         and a.unknown_children == b.unknown_children
+        and a.native_xml == b.native_xml
         and _gpp_members_equal(a, b)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
     )
@@ -365,6 +366,7 @@ def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
         and a.uid == b.uid
         and a.unknown_attrs == b.unknown_attrs
         and a.unknown_children == b.unknown_children
+        and a.native_xml == b.native_xml
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
         and _gpp_registry_value_equal(a, b)
     )
@@ -690,6 +692,17 @@ def _gpp_collection_equal(a: GppCollection, b: GppCollection) -> bool:
         # Document order across families and retained root children
         # (WI-072/073): recorded positions are outside ==, the order is not.
         and gpp_document_order(a) == gpp_document_order(b)
+        # Retained native elements (WI-080) are outside == too, and are
+        # written wherever the model has not changed: compare them here.
+        and _adapter_native_records(a) == _adapter_native_records(b)
+    )
+
+
+def _adapter_native_records(collection: GppCollection) -> tuple[tuple[str, ...], ...]:
+    from .gpp_adapters import ADAPTER_KEYS
+
+    return tuple(
+        tuple(item.native_xml for item in getattr(collection, key)) for key in ADAPTER_KEYS
     )
 
 

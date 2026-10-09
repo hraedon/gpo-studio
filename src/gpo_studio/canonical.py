@@ -12,7 +12,9 @@ from .gpp import (
     GppGroupMember,
     GppRegistry,
     GppRegistryValue,
+    GppScope,
     gpp_document_order,
+    retained_rendering,
 )
 from .ilt import IltFilter, IltPredicate
 from .model import GPO, GPOLink, RegistrySetting
@@ -173,6 +175,23 @@ def semantic_dict_ilt(f: IltFilter | None) -> list[dict[str, Any]] | None:
     return result
 
 
+def _native_record(key: str, item: Any, scope: GppScope) -> dict[str, Any]:
+    """What an item's retained native element writes, for the hash (WI-080).
+
+    The element is written back wherever the model has not changed, so what it
+    adds is policy: two imports that differ only in an attribute the model does
+    not type (a printer's ``default``) must not hash alike. It is folded in as
+    `gpp.retained_rendering` gives it -- the written element, only where it
+    differs from the model's own rendering -- and EMITTED ONLY WHEN THERE IS
+    ONE, for the reason the security-filter ``deny`` is: every item stored
+    before WI-080, every item authored in Studio, and every import of Studio's
+    own export has none, and its canonical form -- and every hash pinned over
+    it -- stays exactly what it was.
+    """
+    retained = retained_rendering(key, item, scope)
+    return {"retained_native": retained} if retained else {}
+
+
 def semantic_dict_gpp_member(member: GppGroupMember) -> dict[str, Any]:
     return {
         "sid": member.sid.lower(),
@@ -182,7 +201,7 @@ def semantic_dict_gpp_member(member: GppGroupMember) -> dict[str, Any]:
     }
 
 
-def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
+def semantic_dict_gpp_group(group: GppGroup, scope: GppScope = "computer") -> dict[str, Any]:
     # GPP element order is semantically significant: gpp.py serializes members
     # in tuple order, and Windows processes GPP items in document order. The
     # canonical hash must therefore preserve insertion order so that a reorder
@@ -200,6 +219,7 @@ def semantic_dict_gpp_group(group: GppGroup) -> dict[str, Any]:
         "unknown_props_attrs": list(group.unknown_props_attrs),
         "unknown_props_children": list(group.unknown_props_children),
         "unknown_children": list(group.unknown_children),
+        **_native_record("groups", group, scope),
     }
 
 
@@ -214,7 +234,7 @@ def semantic_dict_gpp_registry_value(value: GppRegistryValue) -> dict[str, Any]:
     }
 
 
-def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
+def semantic_dict_gpp_registry(reg: GppRegistry, scope: GppScope = "computer") -> dict[str, Any]:
     return {
         "key": reg.key.casefold(),
         "hive": reg.hive,
@@ -225,6 +245,7 @@ def semantic_dict_gpp_registry(reg: GppRegistry) -> dict[str, Any]:
         "unknown_attrs": list(reg.unknown_attrs),
         "unknown_props_children": list(reg.unknown_props_children),
         "unknown_children": list(reg.unknown_children),
+        **_native_record("registry", reg, scope),
     }
 
 
@@ -234,8 +255,10 @@ def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
     # changes the hash (matching how it changes exported XML bytes).
     result: dict[str, Any] = {
         "scope": collection.scope,
-        "groups": [semantic_dict_gpp_group(g) for g in collection.groups],
-        "registry": [semantic_dict_gpp_registry(r) for r in collection.registry],
+        "groups": [semantic_dict_gpp_group(g, collection.scope) for g in collection.groups],
+        "registry": [
+            semantic_dict_gpp_registry(r, collection.scope) for r in collection.registry
+        ],
         "groups_unknown_attrs": list(collection.groups_unknown_attrs),
         "groups_unknown_children": list(collection.groups_unknown_children),
         "registry_unknown_attrs": list(collection.registry_unknown_attrs),
@@ -246,7 +269,7 @@ def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
     for key in ADAPTER_KEYS:
         items = getattr(collection, key)
         result[key] = [
-            _semantic_adapter_item(item) for item in items
+            _semantic_adapter_item(item, key, collection.scope) for item in items
         ]
         result[f"{key}_unknown_attrs"] = list(
             getattr(collection, f"{key}_unknown_attrs")
@@ -267,19 +290,22 @@ def semantic_dict_gpp_collection(collection: GppCollection) -> dict[str, Any]:
     return result
 
 
-def _semantic_adapter_item(item: Any) -> dict[str, Any]:
+def _semantic_adapter_item(item: Any, key: str, scope: GppScope) -> dict[str, Any]:
     """Build a canonical dict for a low-artifact adapter item.
 
     Excludes ``id`` (editor-internal) and ``common`` (processing directive)
     to match the existing group/registry semantic dict convention, and
     ``document_position`` (the collection's ``document_order`` carries the
-    order it produces).
+    order it produces). ``native_xml`` enters only through `_native_record`.
     """
     d: dict[str, Any] = {}
     for f in fields(type(item)):
         if f.name in ("id", "common", "document_position"):
             continue
         value = getattr(item, f.name)
+        if f.name == "native_xml":
+            d.update(_native_record(key, item, scope))
+            continue
         if f.name == "ilt_filter":
             d[f.name] = semantic_dict_ilt(value)
         elif isinstance(value, tuple):

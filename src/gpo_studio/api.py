@@ -1805,10 +1805,30 @@ def _stringify_gpp_numeric_values(collections: list[dict[str, Any]]) -> None:
                 val["value"] = str(raw)
 
 
+def _drop_retained_native(collections: list[dict[str, Any]]) -> None:
+    """Leave each preference item's retained native element out of API JSON.
+
+    ``native_xml`` (WI-080) is the item's element exactly as imported, held so
+    an export can write back what the model does not type. It is import
+    provenance the writer reads, not editable content: the API never accepts
+    one (the store carries it over an edit), so serving it would only repeat
+    every imported preference file in every row of a GPO list the workbench
+    refetches after each mutation. Exports, and the bundle's manifest, carry it.
+    """
+    for collection in collections:
+        for items in collection.values():
+            if not isinstance(items, (list, tuple)):  # asdict keeps tuples
+                continue
+            for item in items:
+                if isinstance(item, dict):
+                    item.pop("native_xml", None)
+
+
 def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
     gpo_dict: dict[str, Any] = gpo.to_dict()
     _stringify_numeric_settings(gpo_dict["settings"])
     _stringify_gpp_numeric_values(gpo_dict["gpp_collections"])
+    _drop_retained_native(gpo_dict["gpp_collections"])
     return gpo_dict
 
 

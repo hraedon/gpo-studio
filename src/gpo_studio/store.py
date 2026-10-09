@@ -154,16 +154,24 @@ def _gpp_collection(data: dict[str, Any]) -> GppCollection:
 
 
 def _keep_document_position[T: (GppGroup, GppRegistry)](edited: T, existing: T) -> T:
-    """An edit replaces an item's content, not its place in the document.
+    """An edit replaces an item's content, not its place or its import record.
 
     The API's item payloads carry no ``document_position`` (WI-073), so an
     edited item inherits the slot of the item it replaces. A new item has no
     slot and is written after every positioned item (see ``gpp.py``,
     "Document order").
+
+    Nor do they carry ``native_xml`` (WI-080), and the API never accepts one,
+    so an edited item inherits the element the item it replaces was imported
+    from. The writer reconciles it with the edit (``gpp_native``): every value
+    the edit changed is written from the model, and only what the model does
+    not type, or did not change, is written as imported.
     """
-    if edited.document_position is not None:
-        return edited
-    return replace(edited, document_position=existing.document_position)
+    if edited.document_position is None:
+        edited = replace(edited, document_position=existing.document_position)
+    if not edited.native_xml and existing.native_xml:
+        edited = replace(edited, native_xml=existing.native_xml)
+    return edited
 
 
 def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
