@@ -145,6 +145,15 @@ export function formatEffectiveValue(value) {
   return String(value ?? "");
 }
 
+// A result table scrolls sideways when its reasons, paths or GPO names are
+// wider than the dialog. A keyboard user can scroll it only if the container
+// takes focus, and a focusable container needs a name (axe
+// scrollable-region-focusable; the scripts preview does the same for its
+// file contents).
+export function scrollRegion(name) {
+  return `<div class="table-card" tabindex="0" role="region" aria-label="${escapeHtml(name)}">`;
+}
+
 export function renderSideSettings(side, settings) {
   const label = side === "computer" ? "Computer" : "User";
   if (!settings || !settings.length) {
@@ -159,7 +168,7 @@ export function renderSideSettings(side, settings) {
       return `<tr><td class="mono truncate" title="${escapeHtml(path)}">${escapeHtml(path)}</td><td>${escapeHtml(setting.value_name) || "(Default)"}</td><td>${escapeHtml(formatEffectiveValue(setting.effective_value))}${conditional}</td><td>${escapeHtml(setting.winning_gpo_name)}${setting.is_enforced ? ' <span class="pill">enforced</span>' : ""}</td><td>${setting.overridden_by?.length ? escapeHtml(setting.overridden_by.join(", ")) : "—"}</td></tr>`;
     })
     .join("");
-  return `<h3>${label} settings</h3><div class="table-card"><table><thead><tr><th>Key</th><th>Value name</th><th>Effective value</th><th>Winning GPO</th><th>Overrode</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<h3>${label} settings</h3>${scrollRegion(`${label} settings`)}<table><thead><tr><th>Key</th><th>Value name</th><th>Effective value</th><th>Winning GPO</th><th>Overrode</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 export function renderGpoResults(gpoResults) {
@@ -185,7 +194,7 @@ export function renderGpoResults(gpoResults) {
   // 2026-09-07). This note used to say the status was not a per-side answer;
   // leaving that in place after the per-side columns arrived would make the UI
   // the last thing still saying so.
-  return `<h3>GPOs</h3><p class="rsop-note">"Status" combines both sides. "Computer" and "User" show each side on its own. <code>out_of_scope</code> means that side never looked at the GPO. <code>no_settings_for_side</code> means it did, but the GPO has no settings for that side. Neither means the GPO was filtered out.</p><div class="table-card"><table><thead><tr><th>Order</th><th>GPO</th><th>Status</th><th>Computer</th><th>User</th><th>Reasons</th><th>Linked at</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<h3>GPOs</h3><p class="rsop-note">"Status" combines both sides. "Computer" and "User" show each side on its own. <code>out_of_scope</code> means that side never looked at the GPO. <code>no_settings_for_side</code> means it did, but the GPO has no settings for that side. Neither means the GPO was filtered out.</p>${scrollRegion("GPOs")}<table><thead><tr><th>Order</th><th>GPO</th><th>Status</th><th>Computer</th><th>User</th><th>Reasons</th><th>Linked at</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 export function renderRsopResult(body) {

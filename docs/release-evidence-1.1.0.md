@@ -242,17 +242,28 @@ Automated, run by the `frontend` CI job and the release `verify` job:
 - the dark theme, held to the same axe bar as the light theme;
 - the Security template dialog's own axe scan, needed because the
   workspace-wide scan runs with every dialog closed;
-- the Folder Redirection dialog, populated, with an axe scan.
+- the Folder Redirection dialog, populated, with an axe scan;
+- the RSOP prediction dialog, scanned in the light and the dark theme in each
+  state that renders its own markup: the empty prompt, a conclusive result, a
+  result with warnings and a blocked GPO, an inconclusive result (the server's
+  answer altered in the test, because no topology the engine accepts yields an
+  unevaluable GPO), a topology refused before the request, and one refused by
+  the server's validation (`tests/browser/rsop.spec.mjs`).
+
+The RSOP scan found one serious finding, now fixed: a result table wide
+enough to scroll sideways was not reachable from the keyboard (axe rule
+`scrollable-region-focusable`; it showed once a blocked GPO's reasons widened
+the GPO table). Each RSOP result table now sits in a focusable region named
+after its heading, as the Scripts preview's file contents already did.
 
 Gaps, stated rather than implied:
 
-- the RSOP prediction panel has browser tests but no axe scan of its open
-  dialog;
 - the 1.0.0 hands-on NVDA acceptance covered the 1.0 interface only. The RSOP,
-  Security template and Folder Redirection panels, the dark theme and the
-  sticky row actions have had no hands-on screen-reader session. Whether 1.1.0
-  requires one before approval is an operator decision that has **not** been
-  made. It has not been run.
+  Security template and Folder Redirection panels, the dark theme, the sticky
+  row actions and the sidebar navigation have had no hands-on screen-reader
+  session. One is required before 1.1.0 is approved: the owner runs the
+  [NVDA validation runbook](nvda-validation-runbook.md) against the exact
+  `v1.1.0-rc.N` wheel. It has not been run.
 
 ## Upgrade and rollback
 
