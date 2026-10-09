@@ -332,3 +332,33 @@ def test_retarget_rewrites_an_allowlisted_record(
     assert json.loads(record.read_text(encoding="utf-8")) == {
         "run": "new-run-2", "commit": "b" * 40
     }
+
+
+def test_retarget_keeps_a_commit_that_unreplaced_lanes_still_bind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successor batch re-runs some lanes; the rest still truthfully cite the old commit.
+
+    The commit is one shared string, so swapping it for the re-run lanes would
+    rewrite every untouched lane's citation too (found banking the 9940561
+    successor batch, where six of 25 lanes re-ran).
+    """
+    repo = tmp_path / "repo"
+    record = repo / "tests/fixtures/scenarios/platforms.json"
+    record.parent.mkdir(parents=True)
+    old = "a" * 40
+    record.write_text(json.dumps({
+        "wp1b": f"old-run-1 at {old}", "wp2": f"old-run-2 at {old}"
+    }), encoding="utf-8")
+    batch = tmp_path / "batch.json"
+    batch.write_text(json.dumps(
+        {"runs": [{"name": "wp1b", "run_id": "new-run-1", "commit": "b" * 40}]}
+    ), encoding="utf-8")
+    monkeypatch.setitem(GLOBALS, "REPO_ROOT", repo)
+    monkeypatch.setitem(GLOBALS, "_live_runs", lambda: {
+        "wp1b": ("old-run-1", old), "wp2": ("old-run-2", old),
+    })
+    assert TOOL["retarget"](argparse.Namespace(manifest=str(batch), files=[str(record)])) == 0
+    assert json.loads(record.read_text(encoding="utf-8")) == {
+        "wp1b": f"new-run-1 at {old}", "wp2": f"old-run-2 at {old}"
+    }
