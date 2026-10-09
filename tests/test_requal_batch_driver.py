@@ -1130,7 +1130,15 @@ def test_a_symlink_loop_is_refused(tmp_path: Path) -> None:
     loop.symlink_to(loop)
     result = _batch_at(tmp_path, loop / "batch")
     assert result.returncode == 2
-    assert f"refusing: <batch-dir> {loop}/batch cannot be resolved" in result.stderr
+    # Either refusal is correct, and which check fires first depends on how the
+    # host's realpath treats a loop: the component walk sees the symlink, or
+    # resolution fails outright. Both refuse before anything is created.
+    assert (
+        f"refusing: <batch-dir> {loop}/batch cannot be resolved" in result.stderr
+        or f"refusing: {loop} is a symlink; the batch directory's path must be canonical"
+        in result.stderr
+    ), result.stderr
+    assert loop.is_symlink()
     assert not (tmp_path / "acb.log").exists()
 
 
