@@ -11,7 +11,13 @@ repeats it rather than re-deriving it:
     manifest  write docs/plan-033/<batch>-batch.json (schema 2) from the
               driver's progress.jsonl and the staged packs;
     retarget  in the named files, replace each currently live verdict's run id
-              and commit with the new batch's run for the same lane.
+              and commit with the new batch's run for the same lane. Only
+              RETARGETABLE files (records of the current qualification) are
+              accepted; evidence, manifests and history prose are refused.
+
+`stage` refuses a label that is not one safe path component, proves every
+pack destination is inside docs/plan-033 before it pulls, copies or deletes
+anything, and replaces an existing pack only with --overwrite.
 
 A pack is the controller's run directory verbatim (an RSoP verdict written as
 `rsop-verdict.json` / `rsop-user-verdict.json` is banked as
@@ -103,6 +109,28 @@ def _guard(path: str | None, prefixes: tuple[str, ...]) -> str:
     return path
 
 
+#: A pack label is one path component: lower-case, digits, dots and dashes.
+_LABEL = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+
+
+def _label(label: str) -> str:
+    """Refuse a label that is not a single safe path component."""
+    if not _LABEL.fullmatch(label) or ".." in label:
+        raise SystemExit(f"REFUSE label {label!r}: must match {_LABEL.pattern} with no '..'")
+    return label
+
+
+def _destination(lane: str, label: str) -> Path:
+    """The pack directory for a lane, proven to sit inside the evidence root."""
+    if lane not in FAMILY:
+        raise SystemExit(f"REFUSE lane {lane!r}: not a lane the driver runs")
+    dest = EVIDENCE / FAMILY[lane] / _label(label) / lane
+    root = EVIDENCE.resolve()
+    if not dest.resolve().is_relative_to(root) or dest.resolve() == root:
+        raise SystemExit(f"REFUSE destination {dest}: outside {root}")
+    return dest
+
+
 def _ssh(controller: str, command: str) -> str:
     """Run a command on the controller; its stdout as UTF-8 (bytes kept exact)."""
     out = subprocess.run(["ssh", controller, command], capture_output=True, check=True).stdout
@@ -134,6 +162,7 @@ def _tree(root: Path) -> dict[str, str]:
 
 
 def stage(args: argparse.Namespace) -> int:
+    _label(args.label)
     batch_dir = args.batch_dir.rstrip("/")
     prefixes = (batch_dir + "/", *args.allow_prefix)
     scratch = Path(args.scratch).expanduser().resolve()
@@ -142,6 +171,20 @@ def stage(args: argparse.Namespace) -> int:
     (scratch / "progress.jsonl").write_text(progress_text, encoding="utf-8")
     report: dict[str, Any] = {"label": args.label, "controller": args.controller,
                               "batch_dir": batch_dir, "lanes": {}}
+    # Every destination is checked before anything is pulled, copied or deleted.
+    # An existing pack is replaced only with --overwrite, and only because
+    # _destination proved it is inside the evidence root.
+    destinations: dict[str, Path] = {}
+    for line in progress_text.splitlines():
+        row = json.loads(line)
+        if row["exit_status"] != 0:
+            continue
+        dest = _destination(row["name"], args.label)
+        if (dest.exists() or dest.is_symlink()) and not args.overwrite:
+            raise SystemExit(f"REFUSE {dest}: it exists; pass --overwrite to replace it")
+        if dest.is_symlink():
+            raise SystemExit(f"REFUSE {dest}: a symlink, never followed or deleted")
+        destinations[row["name"]] = dest
     for line in progress_text.splitlines():
         row = json.loads(line)
         name = row["name"]
@@ -165,7 +208,7 @@ def stage(args: argparse.Namespace) -> int:
         if candidate:
             _rsync(args.controller, f"{candidate}/", raw / "candidate")
 
-        dest = EVIDENCE / FAMILY[name] / args.label / name
+        dest = destinations[name]
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
@@ -286,13 +329,45 @@ def _live_runs() -> dict[str, tuple[str, str]]:
     return live
 
 
+#: The only files `retarget` may rewrite: records that state the CURRENT
+#: qualification and nothing else. Results docs, the capability matrix and the
+#: environment spec mix current claims with history, so they are edited by hand.
+RETARGETABLE = frozenset({
+    "tests/fixtures/scenarios/platforms.json",
+    "README.md",
+})
+#: Never retargetable, named so the refusal says why: evidence, batch manifests,
+#: the work-item register, the changelog and results/history prose.
+_NEVER = (
+    ("docs/plan-033/", "-evidence/", "an evidence pack"),
+    ("", "-batch.json", "a batch manifest"),
+    ("docs/work-items.md", "", "the work-item register"),
+    ("CHANGELOG.md", "", "the changelog"),
+    ("docs/plan-033/", "-results.md", "a results document"),
+)
+
+
+def _retargetable(name: str) -> Path:
+    path = Path(name).resolve()
+    if not path.is_relative_to(REPO_ROOT.resolve()):
+        raise SystemExit(f"REFUSE {name}: outside the repository")
+    relative = path.relative_to(REPO_ROOT.resolve()).as_posix()
+    for prefix, marker, what in _NEVER:
+        if relative.startswith(prefix) and marker in relative:
+            raise SystemExit(f"REFUSE {relative}: {what} is history, never retargeted")
+    if relative not in RETARGETABLE:
+        raise SystemExit(f"REFUSE {relative}: not in RETARGETABLE {sorted(RETARGETABLE)}")
+    return path
+
+
 def retarget(args: argparse.Namespace) -> int:
     """Swap each live run id (and its full commit) for the batch's run of that lane.
 
     Run ids are unique strings, so the swap is exact. Commits are replaced only
-    as full 40-character SHAs, and only in the files named: use it on records
-    that state the CURRENT qualification, never on history prose.
+    as full 40-character SHAs, and only in RETARGETABLE files: every named file
+    is checked before any is written, so a refused one leaves all unchanged.
     """
+    paths = [_retargetable(name) for name in args.files]
     batch = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     new = {run["name"]: (run["run_id"], run["commit"]) for run in batch["runs"]}
     swaps: dict[str, str] = {}
@@ -300,8 +375,7 @@ def retarget(args: argparse.Namespace) -> int:
         if lane in new:
             swaps[run_id] = new[lane][0]
             swaps[commit] = new[lane][1]
-    for name in args.files:
-        path = Path(name)
+    for path in paths:
         text = original = path.read_text(encoding="utf-8")
         for old, replacement in swaps.items():
             text = text.replace(old, replacement)
@@ -320,6 +394,8 @@ def main() -> int:
     p_stage.add_argument("--batch-dir", required=True)
     p_stage.add_argument("--label", required=True, help="pack directory, e.g. release110-20261009")
     p_stage.add_argument("--scratch", required=True)
+    p_stage.add_argument("--overwrite", action="store_true",
+                         help="replace packs that already exist under this label")
     p_stage.add_argument("--allow-prefix", action="append", default=["/tmp/opencode/"],
                          help="extra remote root a run or candidate dir may live under")
     p_stage.set_defaults(func=stage)

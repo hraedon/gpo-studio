@@ -98,3 +98,142 @@ def test_a_lane_that_did_not_pass_is_recorded_with_every_driver_field(tmp_path: 
     for field in TOOL["PROGRESS_FIELDS"]:
         assert row[field] == timed_out[field], field
     assert scope_provenance_problems(manifest) == []
+
+
+# ---------------------------------------------------------------------------
+# Review (Sol, banking review P1/P2): stage's destination and retarget's reach
+# ---------------------------------------------------------------------------
+
+#: The tool's live module globals: patching these is what its functions see.
+GLOBALS = TOOL["stage"].__globals__
+
+
+def _no_remote(*_args: Any, **_kwargs: Any) -> Any:
+    raise AssertionError("the tool reached the controller before refusing")
+
+
+def _stage_args(tmp_path: Path, label: str, overwrite: bool = False) -> argparse.Namespace:
+    return argparse.Namespace(
+        controller="controller.invalid", batch_dir="/home/itadmin/gpo-batch-x",
+        label=label, scratch=str(tmp_path / "scratch"), allow_prefix=["/tmp/opencode/"],
+        overwrite=overwrite,
+    )
+
+
+@pytest.mark.parametrize(
+    "label", ["{outside}", "../outside", "a/b", "..", ".", "", "Release110", "-x", "a b"]
+)
+def test_stage_refuses_an_unsafe_label_before_touching_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str
+) -> None:
+    """P1: an absolute label once made stage delete a directory outside the evidence root."""
+    outside = tmp_path / "outside"
+    (outside / "wp0").mkdir(parents=True)
+    (outside / "wp0" / "keep.txt").write_text("not the tool's", encoding="utf-8")
+    monkeypatch.setitem(GLOBALS, "_ssh", _no_remote)
+    monkeypatch.setitem(GLOBALS, "_rsync", _no_remote)
+    with pytest.raises(SystemExit, match="REFUSE label"):
+        TOOL["stage"](_stage_args(tmp_path, label.format(outside=outside)))
+    assert (outside / "wp0" / "keep.txt").read_text(encoding="utf-8") == "not the tool's"
+    assert not (tmp_path / "scratch").exists()
+
+
+def _one_lane_progress(name: str) -> str:
+    return json.dumps(_row(name, exit_status=0, local_run_dir="/tmp/opencode/run-1")) + "\n"
+
+
+def test_stage_refuses_an_existing_pack_without_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence = tmp_path / "evidence"
+    existing = evidence / "wp0-evidence" / "batch-1" / "wp0"
+    existing.mkdir(parents=True)
+    (existing / "manifest.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setitem(GLOBALS, "EVIDENCE", evidence)
+    monkeypatch.setitem(GLOBALS, "_ssh", lambda *_a: _one_lane_progress("wp0"))
+    monkeypatch.setitem(GLOBALS, "_rsync", _no_remote)
+    with pytest.raises(SystemExit, match="--overwrite"):
+        TOOL["stage"](_stage_args(tmp_path, "batch-1"))
+    assert (existing / "manifest.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_stage_refuses_a_destination_that_escapes_through_a_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence = tmp_path / "evidence"
+    outside = tmp_path / "outside"
+    (outside / "wp0").mkdir(parents=True)
+    (outside / "wp0" / "keep.txt").write_text("not the tool's", encoding="utf-8")
+    (evidence / "wp0-evidence").mkdir(parents=True)
+    (evidence / "wp0-evidence" / "batch-1").symlink_to(outside)
+    monkeypatch.setitem(GLOBALS, "EVIDENCE", evidence)
+    monkeypatch.setitem(GLOBALS, "_ssh", lambda *_a: _one_lane_progress("wp0"))
+    monkeypatch.setitem(GLOBALS, "_rsync", _no_remote)
+    with pytest.raises(SystemExit, match="REFUSE destination"):
+        TOOL["stage"](_stage_args(tmp_path, "batch-1", overwrite=True))
+    assert (outside / "wp0" / "keep.txt").read_text(encoding="utf-8") == "not the tool's"
+
+
+def test_stage_refuses_a_lane_the_driver_does_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(GLOBALS, "EVIDENCE", tmp_path / "evidence")
+    monkeypatch.setitem(GLOBALS, "_ssh", lambda *_a: _one_lane_progress("../../escape"))
+    monkeypatch.setitem(GLOBALS, "_rsync", _no_remote)
+    with pytest.raises(SystemExit, match="REFUSE lane"):
+        TOOL["stage"](_stage_args(tmp_path, "batch-1"))
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "docs/plan-033/plan034-batch.json",
+        "docs/plan-033/release110-batch.json",
+        "docs/plan-033/wp4-evidence/fdeploy/verification.json",
+        "docs/work-items.md",
+        "CHANGELOG.md",
+        "docs/plan-033/report-parity-results.md",
+        "docs/capability-matrix.md",
+        "docs/plan-033/environment-spec.md",
+    ],
+)
+def test_retarget_refuses_every_file_off_its_allowlist(relative: str) -> None:
+    """P2: retarget once rewrote every run row of a historical batch manifest."""
+    target = ROOT / relative
+    before = target.read_bytes()
+    args = argparse.Namespace(
+        manifest=str(ROOT / "docs/plan-033/release110-batch.json"),
+        files=["README.md", str(target)],
+    )
+    readme = (ROOT / "README.md").read_bytes()
+    with pytest.raises(SystemExit, match="REFUSE"):
+        TOOL["retarget"](args)
+    assert target.read_bytes() == before
+    assert (ROOT / "README.md").read_bytes() == readme
+
+
+def test_retarget_refuses_a_file_outside_the_repository(tmp_path: Path) -> None:
+    stray = tmp_path / "platforms.json"
+    stray.write_text("{}", encoding="utf-8")
+    args = argparse.Namespace(manifest="unused.json", files=[str(stray)])
+    with pytest.raises(SystemExit, match="outside the repository"):
+        TOOL["retarget"](args)
+
+
+def test_retarget_rewrites_an_allowlisted_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    record = repo / "tests/fixtures/scenarios/platforms.json"
+    record.parent.mkdir(parents=True)
+    record.write_text('{"run": "old-run-1", "commit": "' + "a" * 40 + '"}', encoding="utf-8")
+    batch = tmp_path / "batch.json"
+    batch.write_text(json.dumps(
+        {"runs": [{"name": "wp1b", "run_id": "new-run-2", "commit": "b" * 40}]}
+    ), encoding="utf-8")
+    monkeypatch.setitem(GLOBALS, "REPO_ROOT", repo)
+    monkeypatch.setitem(GLOBALS, "_live_runs", lambda: {"wp1b": ("old-run-1", "a" * 40)})
+    assert TOOL["retarget"](argparse.Namespace(manifest=str(batch), files=[str(record)])) == 0
+    assert json.loads(record.read_text(encoding="utf-8")) == {
+        "run": "new-run-2", "commit": "b" * 40
+    }
