@@ -3595,18 +3595,32 @@ workbench's group and registry edits reset every common option
   itself, so a typed value the writer never puts on the wire was invisible: an
   immediate task's command lives in its `<Task>` payload, and an edit to it (or its
   deletion) exported the old command; a TaskV2's `arguments` edit was lost the same
-  way, on `bd84b3a` too (second review). An imported task's edited `program`,
-  `arguments`, `start_in` (and a TaskV2's `enabled`) are now written into its
-  payload (`gpp_adapters.reconcile_payload_edits`); a value the payload has no place
-  for (a command on a SendEmail-only task) and a changed schedule (its `Triggers` are
-  not rebuilt) are refused. Only an imported item records what was imported, so only
-  its edits can be told from unset scalars: a task built from a payload alone keeps
-  the payload as authoritative, as before. And every element written for an edited
-  imported item is parsed back and held to the model's INTENDED values: a typed field
-  the edit changed that reads back as the imported value is refused
-  (`gpp._refuse_lost_edits`), never exported. That covers fields with no wire form:
-  an edit to `GppPrinter.action` (the printer's own `action_type` is written), to a
-  Folder's `suppress`, or deleting an imported shortcut's name, is refused at export.
+  way, on `bd84b3a` too (second review). A task's edited `program`, `arguments`,
+  `start_in` (and a TaskV2's `enabled`) are now written into its payload
+  (`gpp_adapters.reconcile_payload_edits`). For an imported item the import record
+  says what was edited, deletion included. For any other task -- authored from a
+  payload, stored before WI-080, or imported in a namespace, so not retained -- the
+  payload is the record (re-check, P1): a SET command field that differs from it was
+  edited and is written; an EMPTY one is unset, never a deletion, so a task built
+  from a payload alone (the endpoint lane's) is written as before; `enabled=False`
+  is written, and `enabled=True` against a disabled payload is refused as ambiguous.
+  A value the payload has no place for (a command on a SendEmail-only task) and a
+  changed schedule (its `Triggers` are not rebuilt; with no record, a trigger field
+  at its default is unset, the type "once" only alongside an unset time and days)
+  are refused. If an imported item's payload and one of these scalars are both
+  edited and disagree, the item is refused, not resolved either way.
+  Every element written for an edited imported item is parsed back and held to the
+  model's INTENDED values, scalar by scalar (re-check, N2): each leaf the edit
+  changed -- a field, a member's or a filter predicate's field, one string of a
+  multi-string value -- must read back EQUAL to the edited value, the only exception
+  being `gpp.TYPED_NORMALISATIONS` (a task payload compares as a parsed document);
+  anything else, the imported value or a third value, is refused
+  (`gpp._refuse_lost_edits`). A task with no import record is read back the same
+  way for every payload value it sets. Fields with no wire form are refused rather
+  than dropped, imported or not: a printer's generic `action` other than `update`
+  (its `action_type` is written), a folder's `suppress=True` (re-check, N3: an
+  authored folder used to drop it silently; `bd84b3a` wrote an attribute no capture
+  has), and deleting an imported shortcut's name.
 - *A registry item's action (second review, pre-existing).* `GppRegistry.action`,
   the action the workbench shows and edits, was never written: the writer writes
   `value.action`, and every import read `update`. An import now reads the item's
@@ -3620,14 +3634,24 @@ workbench's group and registry edits reset every common option
   or namespace: import refuses, the group, member and registry routes refuse
   (`cpassword_detected`), load refuses a stored retained element, and every export
   refuses (`cpassword_detected`; the message in the bound `export.py` still says
-  "attribute"). Audited by
+  "attribute"). The check runs on the parsed tree (re-check, P1): it used to scan the
+  raw bytes for `cpassword` first, which a UTF-16 file never contains, so a UTF-16
+  preference file holding one imported (both byte orders, with or without a byte
+  order mark). Audited by
   `tests/test_gpp_retained_edits.py`, which edits every scalar typed value of every
-  item of every capture and requires each to read back from the file or be refused
-  (592 edits: 453 read back as edited; 139 are refused -- invalid values such as a
-  hive or a payload that is not XML, a payload task's schedule, a command on a
-  task with no Exec action, NT Services' fixed action, and the fields with no wire
-  form); members, filter predicates, multi-string values and task
-  payloads are covered explicitly. On `95fe269`, 134 of its cases fail.
+  item of every capture, in four shapes (re-check, N1: the first version saw only
+  the imported one): imported with its element retained, model-only, `bd84b3a`'s
+  own stored records, and imported in a namespace. Each edit must read back EQUAL to
+  the edited value or be refused. Per shape, 592 edits: 453 read back as edited in
+  every shape; the imported shape refuses 139 (invalid values such as a hive or a
+  payload that is not XML, payload schedules, commands on Exec-less tasks, NT
+  Services' fixed action, and the fields with no wire form), the other three refuse
+  98 and excuse 41, the registry item's outer `action`, which only the API (or an
+  import record) can reconcile. Members, filter predicates, multi-string values,
+  task payloads, payload-authored tasks and contradictions are covered explicitly.
+  On `95fe269`, 134 of its first version's cases fail; on `4a6aa65`, 237 of the
+  re-check's matrix cases fail (79 in each shape with no retained element), as do
+  its payload-authored, namespace-import, contradiction and third-value tests.
   `tests/test_gpp_cpassword_and_actions.py` covers the cpassword forms on every path
   and the registry action through the API; each of its cases fails on `95fe269`.
 - *Shortcut names (P2):* see WI-081.
@@ -3641,8 +3665,19 @@ workbench's group and registry edits reset every common option
   GET route against a GPO that holds retained elements.
 - *Namespaces (P2).* Validation checked local names only, so an item in a foreign
   namespace loaded and exported in it. No captured GPP element uses a namespace:
-  import no longer retains a namespaced item, and a stored one is refused on load.
+  import does not retain a namespaced item, and a stored one is refused on load.
+  The rule covers every retained store (re-check, P2: an item's unknown attribute
+  carried one while its element was discarded): unknown attributes of an item, its
+  `Properties`, a member, a registry value, a filter predicate or a root, raw unknown
+  children and raw filter predicates. Import refuses a file that puts a namespaced
+  name in one, load refuses a stored one, and the API refuses one
+  (`xml_namespace_refused`). A task's payload is typed content, not a store.
 - *The compatibility claim (P2):* corrected above, against `bd84b3a`'s own records.
+  The generator now assigns editor ids deterministically, so regenerating at
+  `bd84b3a` reproduces the committed fixture byte for byte; its `--check` mode does,
+  and `tests/test_gpp_native_preservation.py` runs it (re-check, N6).
+- *Diff scope (re-check, N5).* The retained comparison used the computer scope for
+  every family; it uses the collection's.
 
 **Covered by** `tests/test_gpp_native_preservation.py`: every native capture through
 import, store and reload, the dict round trip, and the public `export.zip` and

@@ -38,19 +38,25 @@ Operator-facing:
   wherever the merge would not mean what the model means. Every element written
   for an edited item is also held to the model's intended values: a typed value
   the edit changed that would read back as the imported one is refused, never
-  exported. An imported task's command is now written into its `<Task>`
-  payload (a TaskV2's `arguments` edit was lost even before this fix), and an
-  edit to a typed field with no wire form, such as a printer's generic
-  `action`, is refused. A registry item's action as the workbench shows and
+  exported, and that is checked per scalar: an edit must read back as itself.
+  A task's edited command is now written into its `<Task>` payload (a TaskV2's
+  `arguments` edit was lost even before this fix), whether or not the task was
+  imported: without an import record the payload is the record, a set field
+  that differs from it is an edit, and an empty one is unset. A payload edit and
+  a command edit that disagree are refused, as is a typed field with no wire
+  form, such as a printer's generic `action` or a folder's `suppress`. A registry item's action as the workbench shows and
   edits it, which was never written, is now read from the value's action on
   import and applied to it by an API edit. The run-once id survives turning
   apply-once off and on again. A cpassword is refused as an element as well as an attribute, at any
-  depth and in any case or namespace, on import, at the API, on load and on
-  every export (before, the element form passed every check and reached
-  `export.zip`). The API neither serves nor accepts a retained element, in any JSON
+  depth, in any case, namespace or encoding (UTF-16 in either byte order, with
+  or without a byte order mark), on import, at the API, on load and on every
+  export (before, the element form passed every check and reached
+  `export.zip`, and a UTF-16 file evaded the check entirely). The API neither serves nor accepts a retained element, in any JSON
   body (revision snapshots and diffs included) or inline diff reference; a
   stored one is validated on load (no `cpassword`, no XML namespace) and an
-  item in a namespace is not retained. The review diff compares what a
+  item in a namespace is not retained. No retained store -- unknown
+  attributes, unknown children, raw filter predicates -- may hold a namespaced
+  name: import, load and the API refuse one. The review diff compares what a
   retained element makes the export write, not the element itself, so a
   re-import of Studio's own export is not a change. Workspaces need no
   migration: a GPO stored before this fix keeps its digests and backup id, and
