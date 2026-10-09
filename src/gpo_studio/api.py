@@ -12,7 +12,6 @@ import os
 import re
 import time
 import uuid as uuid_module
-import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
@@ -1663,24 +1662,29 @@ def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
 
 
 def _refuse_unwritable_ilt(ilt_filter: IltFilter) -> None:
-    """Refuse a filter Studio could not write, before anything is stored.
+    """Refuse a raw filter predicate Studio could not write, before anything is stored.
 
     A raw predicate that does not parse (an undeclared prefix, malformed XML)
     used to be stored as given and fail only when the filter was serialized,
     so the request returned 500 after committing and every later read or
-    export of that GPO failed too. Serializing here turns it into a 422.
+    export of that GPO failed too. Only raw predicates are checked here: typed
+    predicates are validated by the store (``invalid_ilt_ip_range`` and the
+    like), and serializing them here would turn those 422s into 500s.
     """
-    try:
-        serialize_ilt(ilt_filter)
-    except (IltError, GppError, ET.ParseError) as error:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="invalid_ilt_filter",
-                message=f"The item-level targeting filter cannot be written: {error}",
-                path="ilt_filter",
-            )
-        ]) from error
+    for item in ilt_filter.items:
+        if isinstance(item, IltPredicate):
+            continue
+        try:
+            serialize_ilt(IltFilter(items=(item,)))
+        except (IltError, GppError) as error:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_ilt_filter",
+                    message=f"A raw item-level targeting predicate cannot be written: {error}",
+                    path="ilt_filter",
+                )
+            ]) from error
 
 
 def _validate_ilt_predicate_attrs(pred: IltPredicate) -> None:

@@ -27,7 +27,10 @@
 # ADMISSION BOUNDARY: a cancel observed before its launch gate opens prevents
 # every lane command (the lane is recorded cancelled having run nothing); one
 # observed after it is a mid-lane cancellation (the lane is killed and
-# contained as above).
+# contained as above). Bash cannot trap a signal that was ignored when the
+# driver started: under `nohup` HUP is ignored, and a background job of a
+# non-interactive shell ignores INT, so a batch launched as `nohup ... &` is
+# cancelled with TERM.
 #
 # With no lane names, every lane in LANES runs. The tree must be clean: a
 # verdict minted from a dirty tree is refused by its finalizer anyway, and

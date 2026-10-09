@@ -541,3 +541,51 @@ def test_an_unwritable_raw_filter_is_refused_and_the_gpo_stays_readable(
     }
     assert test_client.get(f"/api/gpos/{gpo['guid']}").status_code == 200
     assert test_client.get(f"/api/gpos/{gpo['guid']}/export.zip").status_code == 200
+
+
+def _post_preference(client: Any, route: str, body_key: str, payload: Any) -> Any:
+    gpo = client.post(
+        "/api/gpos", json={"name": f"ILT {route}", "actor": "ilt", "reason": "add"},
+    ).json()["gpo"]
+    response = client.post(
+        f"/api/gpos/{gpo['guid']}/preferences/{route}",
+        json={"scope": "computer", body_key: payload, "actor": "ilt", "reason": "add",
+              "expected_revision": gpo["revision"]},
+    )
+    return gpo, response
+
+
+def test_an_unwritable_raw_filter_is_refused_on_the_registry_route(client: Any) -> None:
+    test_client, _store, _inbox = client
+    gpo, response = _post_preference(test_client, "registry", "registry", {
+        "key": r"Software\Studio", "ilt_filter": {"items": ['<x:FilterGroup bool="AND"/>']},
+    })
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["issues"][0]["code"] in {
+        "invalid_ilt_filter", "xml_namespace_refused",
+    }
+    assert test_client.get(f"/api/gpos/{gpo['guid']}/export.zip").status_code == 200
+
+
+@pytest.mark.parametrize("value", ["10.0.0/8", "notanip/24"])
+@pytest.mark.parametrize(
+    ("route", "body_key", "payload"),
+    [
+        ("groups", "group", {"name": "Typed"}),
+        ("registry", "registry", {"key": r"Software\Studio"}),
+    ],
+    ids=["groups", "registry"],
+)
+def test_a_typed_predicate_typo_keeps_its_own_422(
+    client: Any, route: str, body_key: str, payload: dict[str, Any], value: str
+) -> None:
+    """The raw-predicate guard must not serialize typed predicates: a mistyped
+    IP range answered 500 through it, where the store's own validation answers
+    422 invalid_ilt_ip_range (DeepSeek successor-bank review, P2)."""
+    test_client, _store, _inbox = client
+    typed = {**payload, "ilt_filter": {"items": [
+        {"type": "ip_range", "value": value, "negate": False, "bool_op": "AND"},
+    ]}}
+    gpo, response = _post_preference(test_client, route, body_key, typed)
+    assert response.status_code == 422, response.text
+    assert test_client.get(f"/api/gpos/{gpo['guid']}").status_code == 200

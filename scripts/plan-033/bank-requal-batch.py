@@ -414,9 +414,12 @@ def _retargetable(name: str) -> Path:
 def retarget(args: argparse.Namespace) -> int:
     """Swap each live run id (and its full commit) for the batch's run of that lane.
 
-    Run ids are unique strings, so the swap is exact. Commits are replaced only
-    as full 40-character SHAs, and only in RETARGETABLE files: every named file
-    is checked before any is written, so a refused one leaves all unchanged.
+    Run ids are unique strings, so the swap is exact. A commit is a string many
+    lanes can share, so it is swapped only when every live lane binding it is
+    replaced, all by one new commit; otherwise it is left and the lanes that
+    still bind it are named. Commits are swapped only as full 40-character
+    SHAs, and only in RETARGETABLE files: every named file is checked before
+    any is written, so a refused one leaves all unchanged.
     """
     paths = [_retargetable(name) for name in args.files]
     batch = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
