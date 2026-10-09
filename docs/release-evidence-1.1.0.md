@@ -118,7 +118,10 @@ The [release 1.1.0 requalification batch](plan-033/release110-batch.md) ran on
 `de9736ed3a4148b91cf2267fbe4640e260cc232f`, every one with a clean source tree
 (`source.dirty=false`): WP-0's manifest plus 25 lane verdicts. That commit
 carries batch 2 (WI-075), the chunked psdirect transport of WI-078 and the GPP
-fixes of WI-072, WI-073 and WI-079. The release is qualified by one commit.
+fixes of WI-072, WI-073 and WI-079. Six of those lanes were then re-run at
+`9940561` after the WI-080 to WI-082 fixes (see the successor runs below), so
+the live evidence spans two commits: 20 verdicts at `de9736e` whose bound
+files are unchanged since, and six at `9940561`.
 
 - The [batch manifest](plan-033/release110-batch.json) (schema 2) is the
   record: every run id, verdict path, window, exit and banked file's SHA-256.
