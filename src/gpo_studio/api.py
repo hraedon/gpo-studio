@@ -6067,7 +6067,8 @@ def publication_plan_preview(
 # Plan 034: the firewall surface (WI-076).
 #
 # `firewall_policy.py` is bound by the firewall lane's verdict
-# (`firewall-20261008094055-2092337`, 36/36 at a6e0002), as are the builder and
+# (`firewall-20261009001906-2614294`, 36/36 at de9736e, the release 1.1.0
+# batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
 # the export chain, so the composition lives here, in a file no lane binds.
 # The render endpoint emits exactly what `to_registry_settings` emits, in the
 # shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
@@ -6254,7 +6255,7 @@ class FirewallPolicyDecodeResponse(BaseModel):
     limitations: list[FirewallLimitation]
 
 
-_FIREWALL_RUN_ID = "firewall-20261008094055-2092337"
+_FIREWALL_RUN_ID = "firewall-20261009001906-2614294"
 _FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
 _FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
 
@@ -6518,9 +6519,10 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 # docstring still calls the table "predictions", because `lifecycle.py` is
 # bound by the lane and cannot be edited without expiring it. The lane has
 # since measured every cell: `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
-# agreed with all 30 (docs/plan-033/lifecycle-results.md), and
-# `tests/test_lifecycle_verdict.py` holds the table equal to what that run
-# observed. That is why each cell this endpoint returns is marked measured and
+# agreed with all 30 (docs/plan-033/lifecycle-results.md), the release 1.1.0
+# batch's `lifecycle-20261009001644-6217-f2f5047fed814807` agreed again, and
+# `tests/test_lifecycle_verdict.py` holds the table equal to what the current
+# run observed. That is why each cell this endpoint returns is marked measured and
 # cites the run.
 #
 # The lane measured operations over a backup Windows wrote with `Backup-GPO`,
@@ -6552,9 +6554,11 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 
 #: The certifying run the survival cells are cited from. Held equal to the
 #: banked verdict by `tests/test_lifecycle_restore_plan_surface.py`.
-LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261008093248-2000-c76d10eb3f2849fe"
-LIFECYCLE_VERDICT_COMMIT = "35130528d89761ed1e6990001d086241e5655025"
-LIFECYCLE_VERDICT_PATH = "docs/plan-033/wp7-evidence/lifecycle/verification.json"
+LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261009001644-6217-f2f5047fed814807"
+LIFECYCLE_VERDICT_COMMIT = "de9736ed3a4148b91cf2267fbe4640e260cc232f"
+LIFECYCLE_VERDICT_PATH = (
+    "docs/plan-033/wp7-evidence/release110-20261009/lifecycle/verification.json"
+)
 
 #: The provenance line `import_gpmc_backup` writes into an imported GPO's
 #: description. Archived imports are immutable, so it is still the backup's id.

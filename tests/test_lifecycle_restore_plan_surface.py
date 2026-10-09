@@ -7,10 +7,13 @@ if the cells are the ones the banked verdict observed, so the first tests
 check the cells and the citation against the committed verdict, not against
 constants restated here.
 
-The GPO under test is the import of the very `Backup-GPO` tree the
-certifying run produced (`docs/plan-033/wp7-evidence/lifecycle/backup`), so
-the WMI association the plan warns about is read from a real `Backup.xml`
-through the public import, not from a hand-built model.
+The cited run is the lane's current certification, read from the batch
+manifest (`docs/plan-033/release110-batch.json`). The GPO under test is the
+import of the `Backup-GPO` tree the lane's first certified run produced
+(`docs/plan-033/wp7-evidence/lifecycle/backup`): a fixture, kept stable so the
+identities below do not move with each batch. The WMI association the plan
+warns about is read from that real `Backup.xml` through the public import, not
+from a hand-built model.
 """
 
 from __future__ import annotations
@@ -32,7 +35,17 @@ from gpo_studio.model import GPO
 from gpo_studio.store import WorkspaceStore
 
 ROOT = Path(__file__).resolve().parents[1]
+#: The fixture: the Backup-GPO tree of the lane's first certified run.
 PACK = ROOT / "docs/plan-033/wp7-evidence/lifecycle"
+#: The citation: the lane's current certification, as the batch manifest records it.
+CITED_VERDICT = next(
+    run["verdict"]
+    for run in json.loads(
+        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+    )["runs"]
+    if run["name"] == "lifecycle"
+)
+CITED = ROOT / "docs/plan-033" / CITED_VERDICT
 ROUTE = "/api/lifecycle/restore-plan"
 
 SOURCE_GUID = "deca063b-39dd-431f-b5cd-fab1896dd62f"
@@ -60,7 +73,7 @@ VALID_TARGETS: dict[str, dict[str, Any]] = {
 
 
 def _verdict() -> dict[str, Any]:
-    data: dict[str, Any] = json.loads((PACK / "verification.json").read_text(encoding="utf-8"))
+    data: dict[str, Any] = json.loads(CITED.read_text(encoding="utf-8"))
     return data
 
 
@@ -138,7 +151,7 @@ def test_the_cited_run_is_the_banked_verdict() -> None:
     verdict = _verdict()
     assert verdict["run_id"] == api.LIFECYCLE_VERDICT_RUN_ID
     assert verdict["source"]["commit"] == api.LIFECYCLE_VERDICT_COMMIT
-    assert (ROOT / api.LIFECYCLE_VERDICT_PATH).resolve() == (PACK / "verification.json").resolve()
+    assert (ROOT / api.LIFECYCLE_VERDICT_PATH).resolve() == CITED.resolve()
     assert verdict["passed"] is True and verdict["predictions_agree"] is True
 
 
@@ -161,7 +174,7 @@ def test_every_cell_returned_is_the_cell_windows_was_measured_to_produce(
         "lane": "lifecycle-same-domain",
         "run_id": _verdict()["run_id"],
         "commit": _verdict()["source"]["commit"],
-        "verdict": "docs/plan-033/wp7-evidence/lifecycle/verification.json",
+        "verdict": f"docs/plan-033/{CITED_VERDICT}",
         "cells_measured": 30,
         "cells_agreeing": 30,
     }
