@@ -3487,3 +3487,335 @@ user-side task. Immediate tasks have no default principal on either side (an emp
 
 **Closes when:** the requalification runs of the lanes binding `gpp_adapters.py`
 (report parity) bank on the changed file.
+
+## WI-080 — exporting a stored GPO rewrote its preference XML, dropping what the model does not type
+
+**Opened:** 2026-10-08 (an import, store and export of every committed native GPP capture, compared with the Windows bytes).
+**Status:** closed 2026-10-09. The requalification runs of every lane binding the changed files banked on them at `9940561` ([release 1.1.0 successor batch](plan-033/release110-successors-batch.md)): fdeploy `fd-20261009080824-4244`, firewall `firewall-20261009080610-2829523`, publication `publication-completeness-20261009080352-5754`, report-parity `report-parity-20261009080432-2383`, scripts-metadata `scripts-r10-20261009080318-5148`, wp1b `wp1b-writer-20261009080228-1849`. The other 19 live verdicts bind none of the five changed files and still bind the tree.
+
+**What was wrong.** Studio kept an imported GPO's preference XML only in memory
+(`GppCollection.source_files`, never persisted). Every export of a STORED GPO --
+the GPMC backup (`/api/gpos/{guid}/gpmc-backup`), `export.zip`, the publication
+planner, anything that calls `serialize_gpp` -- rebuilt each file from the typed
+model, edited or not. The model does not type every attribute Windows writes, so
+those were dropped, and the writer's own conventions replaced Windows'. Measured
+through the real import path and the public API on the 19 captures in
+`tests/fixtures/native-gpp-gpmc` and `native-gpp-registry-gpmc`, 18 were changed
+(all but Power Options; IniFiles, the two Services captures and the three Registry
+captures only by attribute order or added defaults):
+
+- **Dropped `Properties` attributes.** Printers: `default` (`1` is "set as the
+  default printer"), `deleteAll`, `deleteMaps`, `persistent`, `skipLocal`,
+  `location`, `port`. Environment Variables: `partial` (`1` on `PATH`). Scheduled
+  Tasks: `TaskV2` `logonType` (`InteractiveToken`). Shortcuts: `comment` (non-empty,
+  Unicode), `shortcutKey`, `targetType`, `pidl`. Drive Maps: `thisDrive` and
+  `allDrives` (`NOCHANGE`), `userName`. Folders: the five `delete*` options. Groups:
+  an empty `description`.
+- **A new `FilterRunOnce` id.** The parser kept only "applies once" and the writer
+  derived a fresh id (uuid5 of the editor id). Clients record an apply-once item as
+  applied by that id, so migrating a GPO through Studio re-applied every apply-once
+  item on every client (Drive Maps and Local Groups captures).
+- **Changed values and identity.** Shortcuts' `window=""` became `Normal`; Files' and
+  Folders' empty item `name` was dropped; a `FilterGroup`'s `name` was dropped where
+  it had a SID, and an empty `sid` where it had a name.
+- **Added attributes the source never had.** `removePolicy`, `userContext`,
+  `disabled` and `bypassErrors` set to `0` on every item that omitted them; Printers
+  `setDefault` and `useLocal`; Files `fromPath=""` and `suppress`; Folders
+  `suppress`; `program`, `arguments` and `startIn` projected onto `ImmediateTaskV2`.
+- **Attribute order** rewritten on items, `Properties`, filter predicates and
+  members.
+
+**How it hid.** Every round-trip test compared Studio with itself, and an unedited
+import that was never stored still returned its source bytes. The report-parity lane
+compares item identity, `uid` and action, and names `Properties` attributes as an
+exclusion. The oracle normaliser blanks `FilterRunOnce@id`, but only in WP-0's
+Windows-against-Windows report comparison, which never compares a Studio export
+with its source; no lane candidate authors an apply-once item.
+
+**The fix.** Import keeps each item's element as Windows wrote it, on the item
+(`native_xml`, for all 20 families: Groups, Registry and the 18 adapters; a legacy
+multi-value `<Registry>` has none), and the imported `FilterRunOnce@id` on the model
+(`GppCommonOptions.run_once_id`). Both are persisted. The writer reconciles the
+retained element with the model (`gpp_native.merge_native`): an unchanged item is
+written exactly as imported; in a changed one, every value the model types and the
+edit changed is written from the model, in its imported position, and everything
+else -- unmodelled attributes, attribute order, a value the writer would normalise
+(`window=""`), the source's omissions -- stays as imported. Each merge is parsed and
+written again, and unless that gives back the model's own rendering, the model's
+rendering is written instead: a retained attribute can never override, or outlive,
+a typed value. The run-once id stays on the model while apply-once is off, so turning
+it off and on again restores the same identity (GPMC's own behaviour for that toggle
+is unmeasured); an item that never had an id still gets the deterministic one. The
+API never accepts `native_xml`; the store carries an item's record over an edit, as
+it carries `document_position`. A stored element is validated on load (one bounded,
+entity-free element of the family's own item type, no `cpassword`), and a
+`cpassword` is never written from one.
+
+**Storage and digests.** Additive keys, no schema change. The canonical form gains an
+entry only where a retained element changes what is written
+(`gpp.retained_rendering`), so digests of Studio-authored GPOs and of a re-import of
+Studio's own export are unchanged; a GPO imported from GPMC after WI-080 digests
+differently from the same backup imported before it, because its export differs.
+
+Data stored before WI-080 has neither key. Measured against the records `bd84b3a`
+itself stored for all 19 captures, and the files it exported from them
+(`tests/fixtures/gpp-store-baseline-bd84b3a`, made by
+`scripts/generate_gpp_baseline_fixture.py` on that commit's tree): every record keeps
+its policy and review digests and its native backup id (19 of 19), and 20 of its 26
+preference files export byte for byte as `bd84b3a` exported them. The other six
+change only where WI-081 corrected a name or an order, each difference pinned by
+`test_a_record_bd84b3a_stored_keeps_its_digests_and_export`:
+
+- Files: the typed attributes in GPMC's order (`archive` before `hidden`).
+- Folders: `suppress="0"`, which no Folders capture has, is no longer written.
+- Printers: `setDefault`/`useLocal` become GPMC's `default`/`skipLocal`. Such a
+  record read every printer as not the default (the old name was never in GPMC's
+  file), so it writes `default="0"` for all five; re-import the backup to recover
+  Lab-Color's default.
+- Shortcuts: `Properties@name=""` is no longer written; the item name is unchanged.
+- Immediate tasks (the machine side of both scheduled-task captures): `program`,
+  `arguments` and `startIn` are no longer written as attributes; the payload that
+  carries them is unchanged.
+
+An earlier statement here, that such data "is written exactly as before", was wrong:
+its test compared two outputs of the new code (review P2).
+
+**Found alongside, filed separately and fixed on the same branch.** Printers'
+typed fields named attributes no capture contains, as did three other writers
+([WI-081](#wi-081--the-gpp-writer-typed-attribute-names-windows-does-not-write)). The
+workbench's group and registry edits reset every common option
+([WI-082](#wi-082--a-workbench-edit-reset-a-preference-items-common-options)).
+
+**Independent review (2026-10-08).** Six findings, all fixed on the branch:
+
+- *Edits the writer cannot see (P1).* The merge check compared the writer with
+  itself, so a typed value the writer never puts on the wire was invisible: an
+  immediate task's command lives in its `<Task>` payload, and an edit to it (or its
+  deletion) exported the old command; a TaskV2's `arguments` edit was lost the same
+  way, on `bd84b3a` too (second review). A task's edited `program`, `arguments`,
+  `start_in` (and a TaskV2's `enabled`) are now written into its payload
+  (`gpp_adapters.reconcile_payload_edits`). For an imported item the import record
+  says what was edited, deletion included. For any other task -- authored from a
+  payload, stored before WI-080, or imported in a namespace, so not retained -- the
+  payload is the record (re-check, P1): a SET command field that differs from it was
+  edited and is written; an EMPTY one is unset, never a deletion, so a task built
+  from a payload alone (the endpoint lane's) is written as before; `enabled=False`
+  is written, and `enabled=True` against a disabled payload is refused as ambiguous.
+  A value the payload has no place for (a command on a SendEmail-only task) and a
+  changed schedule (its `Triggers` are not rebuilt; with no record, a trigger field
+  at its default is unset, the type "once" only alongside an unset time and days)
+  are refused. If an imported item's payload and one of these scalars are both
+  edited and disagree, the item is refused, not resolved either way.
+  Every element written for an edited imported item is parsed back and held to the
+  model's INTENDED values, scalar by scalar (re-check, N2): each leaf the edit
+  changed -- a field, a member's or a filter predicate's field, one string of a
+  multi-string value -- must read back EQUAL to the edited value, the only exception
+  being `gpp.TYPED_NORMALISATIONS` (a task payload compares as a parsed document);
+  anything else, the imported value or a third value, is refused
+  (`gpp._refuse_lost_edits`). A task with no import record is read back the same
+  way for every payload value it sets. Fields with no wire form are refused rather
+  than dropped, imported or not: a printer's generic `action` other than `update`
+  (its `action_type` is written), a folder's `suppress=True` (re-check, N3: an
+  authored folder used to drop it silently; `bd84b3a` wrote an attribute no capture
+  has), and deleting an imported shortcut's name.
+- *A registry item's action (second review, pre-existing).* `GppRegistry.action`,
+  the action the workbench shows and edits, was never written: the writer writes
+  `value.action`, and every import read `update`. An import now reads the item's
+  action from its value, and an API edit of it is applied to the value (an edit of
+  the value's own action wins, and the item's follows); `gpp.registry_action_edit`.
+- *cpassword as an element (second review, BLOCKING, pre-existing).* Every
+  cpassword check read attribute names only, so an element `<cpassword>` imported,
+  was stored (in a retained element, or in a raw unknown child the API accepted)
+  and was written by `export.zip`. `contains_cpassword`, the retained-element check
+  and the backup-inventory check now cover attributes and elements, any depth, case
+  or namespace: import refuses, the group, member and registry routes refuse
+  (`cpassword_detected`), load refuses a stored retained element, and every export
+  refuses (`cpassword_detected`; the message in the bound `export.py` still says
+  "attribute"). The check runs on the parsed tree (re-check, P1): it used to scan the
+  raw bytes for `cpassword` first, which a UTF-16 file never contains, so a UTF-16
+  preference file holding one imported (both byte orders, with or without a byte
+  order mark). Audited by
+  `tests/test_gpp_retained_edits.py`, which edits every scalar typed value of every
+  item of every capture, in four shapes (re-check, N1: the first version saw only
+  the imported one): imported with its element retained, model-only, `bd84b3a`'s
+  own stored records, and imported in a namespace. Each edit must read back EQUAL to
+  the edited value or be refused. Per shape, 592 edits: 453 read back as edited in
+  every shape; the imported shape refuses 139 (invalid values such as a hive or a
+  payload that is not XML, payload schedules, commands on Exec-less tasks, NT
+  Services' fixed action, and the fields with no wire form), the other three refuse
+  98 and excuse 41, the registry item's outer `action`, which only the API (or an
+  import record) can reconcile. Members, filter predicates, multi-string values,
+  task payloads, payload-authored tasks and contradictions are covered explicitly.
+  On `95fe269`, 134 of its first version's cases fail; on `4a6aa65`, 237 of the
+  re-check's matrix cases fail (79 in each shape with no retained element), as do
+  its payload-authored, namespace-import, contradiction and third-value tests.
+  `tests/test_gpp_cpassword_and_actions.py` covers the cpassword forms on every path
+  and the registry action through the API; each of its cases fails on `95fe269`.
+- *Shortcut names (P2):* see WI-081.
+- *Diffs (P2).* The review diff compared `native_xml`, so a Studio-authored GPO and
+  its re-import read as modified, and a draft edit converging with a re-import of its
+  own export read as a conflict. It compares `retained_rendering` instead: what the
+  export writes beyond the model.
+- *The API boundary (P2).* Revision snapshots and diffs served `native_xml`, and
+  `POST /api/diff` accepted it inline. The API's JSON response class now leaves it
+  out of every body, and an inline GPO reference's is ignored; a test calls every
+  GET route against a GPO that holds retained elements.
+- *Namespaces (P2).* Validation checked local names only, so an item in a foreign
+  namespace loaded and exported in it. No captured GPP element uses a namespace:
+  import does not retain a namespaced item, and a stored one is refused on load.
+  The rule covers every retained store (re-check, P2: an item's unknown attribute
+  carried one while its element was discarded): unknown attributes of an item, its
+  `Properties`, a member, a registry value, a filter predicate or a root, raw unknown
+  children and raw filter predicates. Import refuses a file that puts a namespaced
+  name in one, load refuses a stored one, and the API refuses one
+  (`xml_namespace_refused`). A task's payload is typed content, not a store.
+- *The compatibility claim (P2):* corrected above, against `bd84b3a`'s own records.
+  The generator now assigns editor ids deterministically, so regenerating at
+  `bd84b3a` reproduces the committed fixture byte for byte; its `--check` mode does,
+  and `tests/test_gpp_native_preservation.py` runs it (re-check, N6).
+- *Diff scope (re-check, N5).* The retained comparison used the computer scope for
+  every family; it uses the collection's.
+- *Clearing a task's command (second re-check, P1).* With no import record an
+  empty command field counted as unset, so clearing one on a payload-authored task
+  or a record `bd84b3a` stored succeeded while the export kept the old value (a
+  cleared `arguments` still exported `/sagerun:1`). An imported task's clear is an
+  edit and is written (its record says what was imported). Without a record an
+  empty field the payload fills is unset only when NO command field is set (a task
+  built from a payload alone, the endpoint lane's shape, unchanged byte for byte);
+  next to a set one it is ambiguous, since a clear looks the same, and the export is
+  refused. A payload-authored task that sets one command field must therefore set
+  the others it means to keep. Tasks have no edit route; covered through the public
+  export routes by `tests/test_gpp_task_clears.py`.
+- *Literal prefixed names (second re-check, P2).* The stores rejected `{namespace}`
+  names but not literal `xmlns:x` or `x:extra` keys, which an API payload or a
+  stored dict can carry and which were written verbatim as a foreign namespace;
+  `x:cpassword` passed intake (exports refused it). Every retained attribute name
+  must now be a plain ASCII NCName -- no prefix, no `{namespace}`, not `xmlns` --
+  on the API, import and load, and the credential check compares the local part
+  after any `{namespace}` or `prefix:`, case-folded, at every check.
+
+**Covered by** `tests/test_gpp_native_preservation.py`: every native capture through
+import, store and reload, the dict round trip, and the public `export.zip` and
+`gpmc-backup` routes, each file compared with the capture element by element and
+attribute by attribute, in order, with only whitespace between elements and the XML
+declaration excused; on `bd84b3a` it fails for 18 of the 19 captures (36 of its
+38 import and export cases). It also covers
+edits (typed values win; unmodelled ones stay; writer defaults appear only once
+edited; a legacy placement does not outlive its value), the run-once id through
+storage, edits and the apply-once toggle, the workbench's API edit path, load-time
+validation, and `bd84b3a`'s own stored records (same digests; the export differences
+listed above and no others). `tests/test_gpp_retained_edits.py` and
+`tests/test_gpp_retained_boundaries.py` cover the review findings.
+
+**Lanes.** `gpp.py`, `gpp_adapters.py`, `canonical.py` and `report_parity.py` changed:
+fdeploy, firewall, publication, report-parity, scripts-metadata and wp1b must re-run
+(`plan-033/bound-source-cost.md`). No lane candidate moves: every builder writes the
+same bytes before and after (candidates are authored, and report parity inventories
+the model alone, `gpp.model_only`). `gpp_native.py` is new and unbound: no lane
+candidate carries a retained element, so no lane measures it. Proposed, not done: a
+report-parity property-level check over the stored export (each item's `Properties`
+attributes and `FilterRunOnce@id` against the report), which would bind it.
+
+**Follow-up (not fixed here, low).** Clearing an imported TaskV2's `run_as` to ask
+for the scope's default (`NT AUTHORITY\System` or `%LogonDomain%\%LogonUser%`) is
+refused as a lost edit, because the writer substitutes the default and it reads back
+as the imported value; supplying the default explicitly works (second re-check).
+
+**Closes when:** the requalification runs of the lanes binding the changed files
+(fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b) bank on them.
+
+## WI-081 — the GPP writer typed attribute names Windows does not write
+
+**Opened:** 2026-10-08 (found while fixing WI-080).
+**Status:** closed 2026-10-09. The WI-080 requalification banked at `9940561` ([release 1.1.0 successor batch](plan-033/release110-successors-batch.md)).
+
+**What was wrong.** Printers' typed `set_default` and `use_local` were read and written
+as `setDefault` and `useLocal`. No capture contains either: GPMC writes `default`
+(`1` on WI01A-Printers-GPMC's Lab-Color, authored "set as default") and `skipLocal`.
+So the model, the API, reports and diffs said a GPMC default printer was not the
+default, and an authored or edited printer wrote two attributes Windows has not been
+seen to read. An audit of every writer against the captures found three more names no
+capture contains, all on `Properties`: Folders `suppress` (Files has it, Folders does
+not), Shortcuts `name` (GPMC names a shortcut on the item element), and
+`ImmediateTaskV2` `program`, `arguments` and `startIn` (every captured immediate task
+carries only `name` and `runAs`; the command is in the embedded `<Task>`).
+
+**How it hid.** Every printer test was a Studio round trip, which reads back whatever
+Studio wrote. Before WI-080 an import of GPMC's file lost `default` entirely, so
+nothing compared the two names.
+
+**The fix.** Printers read and write `default` and `skipLocal`, in GPMC's attribute
+order, and the field is renamed `skip_local` (what `skipLocal="1"` does is unmeasured:
+every capture has `0`). Studio's own older output stays readable: `setDefault` and
+`useLocal` are read where GPMC's names are absent, and a stored item's `use_local`
+loads as `skip_local`. The canonical form keeps the key `use_local`, so no digest
+moves. Folders no longer write `suppress` (still read; the field stays so stored
+items keep their digests, and an edit to it on an imported folder is refused, see
+WI-080). Shortcuts no longer write `Properties@name` (still read): the item
+element's `name` is a shortcut's one name on the wire, and the typed `name` is its
+source of truth, written whenever set, so a rename persists (review P2: the item name
+used to be derived from `shortcutPath`, discarding an edit). An unnamed shortcut gets
+GPME's name, the leaf of `shortcutPath`; deleting an imported shortcut's name cannot
+be written and is refused. A name edit renames the item, not the file, which is
+created at `shortcutPath`. An immediate task writes `program`, `arguments` and
+`startIn` as attributes only when it has no `<Task>` payload, where they are the only
+copy (unmeasured, as before); otherwise they are written into the payload (WI-080
+review). Files and Folders also write their typed
+attributes in GPMC's order. A stored import is unaffected: WI-080 writes it as imported.
+
+**What was checked** (`tests/test_gpp_typed_attribute_names.py` pins it): for every
+committed capture, each attribute the writer puts on `Properties` and below (outside
+the filter and the task payload) for the imported model appears on that element in
+some capture. That covers Drive Maps, Environment Variables, Files, Folders, Ini
+Files, Local Groups, Printers (`SharedPrinter`), GPP Registry, Scheduled and
+Immediate Tasks, Services and Shortcuts. Item-element attributes are MS-GPPREF's
+common options and identity, written with default values (WI-080 keeps a source's
+omissions). Not checkable, because nothing captured them: Regional Options,
+Devices, Folder Options, Data Sources, Network Shares, Applications, Power Schemes
+(`PowerScheme`; the Power capture holds only `GlobalPowerOptionsV2`), local users
+(`User`), and Printers' `PortPrinter` and `LocalPrinter`, which the model does not
+type at all (a file holding them keeps them as retained root content, WI-072).
+Printers' `location`, `deleteAll`, `persistent`, `deleteMaps` and `port` are
+measured names the model does not type; WI-080 keeps them.
+
+**Lanes.** `gpp_adapters.py`, `gpp.py` and `canonical.py`, all already changed by
+WI-080. Every lane candidate builds byte for byte as before (none authors a printer,
+folder, shortcut or immediate task).
+
+**Closes when:** the WI-080 requalification banks.
+
+## WI-082 — a workbench edit reset a preference item's common options
+
+**Opened:** 2026-10-08 (found while fixing WI-080).
+**Status:** closed 2026-10-09. The WI-080 requalification banked at `9940561` ([release 1.1.0 successor batch](plan-033/release110-successors-batch.md)).
+
+**What was wrong.** The API's group and registry payloads carried no common options,
+and the store replaced the edited item wholesale. So every edit through the
+workbench reset apply-once (and with it the `FilterRunOnce` filter, so clients would
+apply the item again under a new id once re-enabled), disabled, remove-when-not-
+applied, run-in-user-context and stop-on-error to their defaults, whatever field the
+operator changed.
+
+**How it hid.** No API test edited an item that had a common option set, and the
+responses did not show the options, so nothing could see them go.
+
+**The fix.** The payloads take an optional `common` object; each of the five options
+in it is either set or left out (`null`). The store applies only the options an
+edit names and carries every other one, and the run-once id, over from the item it
+replaces; an added item starts from the defaults. The run-once id cannot be set
+through the API. Callers of the store that pass a complete item, rather than an API
+payload, keep today's behaviour. The group and registry responses now include
+`common`. The workbench sends no `common`, so its edits keep every option.
+
+**Covered by** `tests/test_gpp_common_option_edits.py`: through the real API, for each
+option on a group and a registry item, an edit keeps it (stored, served and
+exported), an edit naming another option changes only that one, an explicit `false`
+turns it off (keeping the run-once id), an add takes the defaults, and the run-once
+id cannot be set. `tests/test_gpp_native_preservation.py` saves every group and
+registry item of every native capture back through the API as the workbench sends it
+and requires the export to equal the capture. With the carry-over disabled, all of
+these fail except the add.
+
+**Lanes.** `api.py` and `store.py` are unbound; no lane candidate edits an item.
+
+**Closes when:** the WI-080 requalification banks.

@@ -414,21 +414,37 @@ def _retargetable(name: str) -> Path:
 def retarget(args: argparse.Namespace) -> int:
     """Swap each live run id (and its full commit) for the batch's run of that lane.
 
-    Run ids are unique strings, so the swap is exact. Commits are replaced only
-    as full 40-character SHAs, and only in RETARGETABLE files: every named file
-    is checked before any is written, so a refused one leaves all unchanged.
+    Run ids are unique strings, so the swap is exact. A commit is a string many
+    lanes can share, so it is swapped only when every live lane binding it is
+    replaced, all by one new commit; otherwise it is left and the lanes that
+    still bind it are named. Commits are swapped only as full 40-character
+    SHAs, and only in RETARGETABLE files: every named file is checked before
+    any is written, so a refused one leaves all unchanged.
     """
     paths = [_retargetable(name) for name in args.files]
     batch = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     new = {run["name"]: (run["run_id"], run["commit"]) for run in batch["runs"]}
     swaps: dict[str, str] = {}
-    for lane, (run_id, commit) in _live_runs().items():
+    live = _live_runs()
+    for lane, (run_id, commit) in live.items():
         if lane in new:
             for sha in (commit, new[lane][1]):
                 if not re.fullmatch(r"[0-9a-f]{40}", sha):
                     raise SystemExit(f"REFUSE {lane}: commit {sha!r} is not a full SHA")
             swaps[run_id] = new[lane][0]
-            swaps[commit] = new[lane][1]
+    # A commit is a shared string: swap it only when EVERY live lane that binds
+    # it is replaced, all by runs at one new commit. A successor batch that
+    # re-runs some lanes leaves the others citing the old commit truthfully,
+    # so their commit must not move (the 9940561 successor batch, six of 25).
+    for commit in {c for _, c in live.values()}:
+        lanes = [lane for lane, (_, c) in live.items() if c == commit]
+        targets = {new[lane][1] for lane in lanes if lane in new}
+        if all(lane in new for lane in lanes) and len(targets) == 1:
+            swaps[commit] = targets.pop()
+        elif targets:
+            kept = sorted(lane for lane in lanes if lane not in new)
+            print(f"kept commit {commit[:12]}: still bound by {', '.join(kept)}; "
+                  "edit sentences citing it for the re-run lanes by hand")
     for path in paths:
         text = original = path.read_text(encoding="utf-8")
         for old, replacement in swaps.items():

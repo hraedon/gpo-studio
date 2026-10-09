@@ -1,0 +1,173 @@
+{
+  "backup_id": "{2310A8C0-36F7-5EB5-A814-206822DAB27A}",
+  "gpo_name": "GPOStudio WP1B gppregistry-both",
+  "native_shape_findings": [],
+  "settings": [],
+  "source_gpo_id": "{9B1DE5C0-0000-4000-8000-000000000008}",
+  "summary": {
+    "preferences": {
+      "computer": {
+        "drives": [],
+        "gpp_registry": [
+          {
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_LOCAL_MACHINE",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry\\KeyOnly",
+            "name": "",
+            "registry_type": "REG_SZ",
+            "value": ""
+          },
+          {
+            "action": "create",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_LOCAL_MACHINE",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry",
+            "name": "WP1BBinary",
+            "registry_type": "REG_BINARY",
+            "value": "CAFE00B1"
+          },
+          {
+            "action": "delete",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_LOCAL_MACHINE",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry",
+            "name": "WP1BDelete",
+            "registry_type": "REG_SZ",
+            "value": "wp1b-gone"
+          },
+          {
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_LOCAL_MACHINE",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry",
+            "name": "WP1BDword",
+            "registry_type": "REG_DWORD",
+            "value": 3000000000
+          },
+          {
+            "action": "replace",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_LOCAL_MACHINE",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry",
+            "name": "WP1BExpand",
+            "registry_type": "REG_EXPAND_SZ",
+            "value": "%SystemRoot%\\wp1b"
+          },
+          {
+            "action": "create",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_LOCAL_MACHINE",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry",
+            "name": "WP1BString",
+            "registry_type": "REG_SZ",
+            "value": "wp1b-gpp-string"
+          }
+        ],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      },
+      "user": {
+        "drives": [],
+        "gpp_registry": [
+          {
+            "action": "update",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_CURRENT_USER",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry",
+            "name": "WP1BMulti",
+            "registry_type": "REG_MULTI_SZ",
+            "value": [
+              "wp1b one",
+              "wp1b-two"
+            ]
+          },
+          {
+            "action": "create",
+            "common": {
+              "apply_once": false,
+              "disabled": false,
+              "remove_when_unapplied": false,
+              "stop_on_error": false,
+              "user_security_context": false
+            },
+            "default": false,
+            "hive": "HKEY_CURRENT_USER",
+            "ilt": null,
+            "key": "Software\\GPOStudio\\WP1B\\GppRegistry",
+            "name": "WP1BQword",
+            "registry_type": "REG_QWORD",
+            "value": 1311768467463790320
+          }
+        ],
+        "groups": [],
+        "local_users": [],
+        "scheduled_tasks": [],
+        "services": []
+      }
+    },
+    "registry": {
+      "computer": [],
+      "user": []
+    },
+    "version": "gpo-studio.writer-conformance.v1"
+  }
+}

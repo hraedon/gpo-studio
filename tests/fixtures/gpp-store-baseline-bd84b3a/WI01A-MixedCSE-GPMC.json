@@ -1,0 +1,310 @@
+{
+ "exports": {
+  "computer/Groups/Groups.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Groups clsid=\"{3125E937-EB16-4b4c-9934-544FC6D24D26}\"><Group clsid=\"{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}\" name=\"Administrators (built-in)\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"2\" changed=\"2026-07-26 17:54:01\" uid=\"{D07D1705-AA3C-4713-B20C-B42BBC698DE9}\"><Properties action=\"U\" groupName=\"Administrators (built-in)\" groupSid=\"S-1-5-32-544\" deleteAllUsers=\"0\" deleteAllGroups=\"0\" newName=\"\" removeAccounts=\"0\"><Members><Member name=\"HRAENET\\lab-admins\" sid=\"S-1-5-21-0000000000-0000000000-0000000000-4674\" action=\"ADD\" /></Members></Properties></Group></Groups>",
+  "computer/ScheduledTasks/ScheduledTasks.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ScheduledTasks clsid=\"{CC63F200-7309-4ba0-B154-A71CD118DBCC}\"><TaskV2 clsid=\"{D8896631-B747-47a7-84A6-C155337F3BC8}\" name=\"Mixed Task\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-26 17:54:57\" uid=\"{5BE00225-8C30-4FB6-84CE-1F74A364B4F3}\"><Properties action=\"C\" name=\"Mixed Task\" runAs=\"NT AUTHORITY\\System\"><Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description>Ünïcödé &lt;\"&amp;&gt; label</Description></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>NT AUTHORITY\\System</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT5M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers><CalendarTrigger><StartBoundary>2026-07-26T10:54:33</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><Exec><Command>C:\\windows\\system32\\notepad.exe</Command></Exec>\n\t\t\t\t</Actions></Task></Properties></TaskV2></ScheduledTasks>",
+  "user/Drives/Drives.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Drives clsid=\"{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}\"><Drive clsid=\"{935D1B74-9CB8-4e3c-9914-7DD559B7A417}\" name=\"X:\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"X:\" image=\"1\" changed=\"2026-07-26 17:53:23\" uid=\"{6594460C-136A-4AA4-964A-0596C220DF63}\"><Properties action=\"R\" letter=\"X\" path=\"\\\\filesrv\\replace-mixed\" label=\"Ünïcödé &lt;&quot;&amp;&gt; label\" persistent=\"1\" useLetter=\"1\" /></Drive></Drives>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "description": "",
+      "document_position": 0,
+      "id": "00000000-0000-4007-8000-000000000002",
+      "ilt_filter": null,
+      "members": [
+       {
+        "action": "add",
+        "id": "00000000-0000-4007-8000-000000000001",
+        "name": "HRAENET\\lab-admins",
+        "sid": "S-1-5-21-0000000000-0000000000-0000000000-4674",
+        "unknown_attrs": []
+       }
+      ],
+      "name": "Administrators (built-in)",
+      "remove_all_groups": false,
+      "remove_all_users": false,
+      "sid": "S-1-5-32-544",
+      "unknown_attrs": [
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-26 17:54:01"
+       ],
+       [
+        "uid",
+        "{D07D1705-AA3C-4713-B20C-B42BBC698DE9}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_attrs": [
+       [
+        "newName",
+        ""
+       ],
+       [
+        "removeAccounts",
+        "0"
+       ]
+      ],
+      "unknown_props_children": []
+     }
+    ],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [
+     {
+      "action": "add",
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "element_variant": "TaskV2",
+      "enabled": true,
+      "id": "00000000-0000-4007-8000-000000000003",
+      "ilt_filter": null,
+      "name": "Mixed Task",
+      "program": "C:\\windows\\system32\\notepad.exe",
+      "run_as": "NT AUTHORITY\\System",
+      "run_as_password": "",
+      "start_in": "",
+      "task_xml": "<Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description>Ünïcödé &lt;\"&amp;&gt; label</Description></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>NT AUTHORITY\\System</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT5M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers><CalendarTrigger><StartBoundary>2026-07-26T10:54:33</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><Exec><Command>C:\\windows\\system32\\notepad.exe</Command></Exec>\n\t\t\t\t</Actions></Task>",
+      "trigger_days": "",
+      "trigger_time": "2026-07-26T10:54:33",
+      "trigger_type": "daily",
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-26 17:54:57"
+       ],
+       [
+        "uid",
+        "{5BE00225-8C30-4FB6-84CE-1F74A364B4F3}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     }
+    ],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "computer",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   },
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [
+     {
+      "action": "replace",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "id": "00000000-0000-4007-8000-000000000004",
+      "ilt_filter": null,
+      "label": "Ünïcödé <\"&> label",
+      "letter": "X",
+      "path": "\\\\filesrv\\replace-mixed",
+      "persistent": true,
+      "unknown_attrs": [
+       [
+        "status",
+        "X:"
+       ],
+       [
+        "image",
+        "1"
+       ],
+       [
+        "changed",
+        "2026-07-26 17:53:23"
+       ],
+       [
+        "uid",
+        "{6594460C-136A-4AA4-964A-0596C220DF63}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "use_letter": true
+     }
+    ],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "user",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000006",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-MixedCSE-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{761B860C-55ED-530E-A2A4-9D8224B97E6F}",
+ "policy_semantic_sha256": "f3deab4e3d7ff0b170cf5f49b66eee3acc86e8eb6fef0b003e9a30f96b1f12cb",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-gpmc/WI01A-MixedCSE-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "bd7d8f94f791db1a62af70fcc4881acf0d66997e253126b285859c6c60b4c1b2"
+}

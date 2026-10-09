@@ -1,0 +1,443 @@
+{
+ "exports": {
+  "computer/Registry/Registry.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<RegistrySettings clsid=\"{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}\"><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"CreateString\" status=\"CreateString\" image=\"0\" changed=\"2026-10-08 10:40:23\" uid=\"{9259C4EA-DE96-447D-B34C-6ED4FA50E130}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"C\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_LOCAL_MACHINE\" key=\"Software\\GPOStudio\\GppRegistry\" name=\"CreateString\" type=\"REG_SZ\" value=\"alpha\" /></Registry><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"UpdateDword\" status=\"UpdateDword\" image=\"2\" changed=\"2026-10-08 10:40:23\" uid=\"{8133FFD1-0AE2-4FC2-905A-C7D73F2E7783}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"U\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_LOCAL_MACHINE\" key=\"Software\\GPOStudio\\GppRegistry\" name=\"UpdateDword\" type=\"REG_DWORD\" value=\"0000002A\" /></Registry><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"ReplaceExpand\" status=\"ReplaceExpand\" image=\"1\" changed=\"2026-10-08 10:40:23\" uid=\"{4D548BF7-F2AC-4C41-9C42-B128BE4E2CD3}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"R\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_LOCAL_MACHINE\" key=\"Software\\GPOStudio\\GppRegistry\" name=\"ReplaceExpand\" type=\"REG_EXPAND_SZ\" value=\"%SystemRoot%\\x\" /></Registry><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"DeleteMe\" status=\"DeleteMe\" image=\"3\" changed=\"2026-10-08 10:40:24\" uid=\"{3BA7D697-21C5-4551-BD12-31C9F5836914}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"D\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_LOCAL_MACHINE\" key=\"Software\\GPOStudio\\GppRegistry\" name=\"DeleteMe\" type=\"REG_SZ\" value=\"gone\" /></Registry><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"CreateBinary\" status=\"CreateBinary\" image=\"0\" changed=\"2026-10-08 10:40:24\" uid=\"{08D76D2E-C79D-49EE-BAE9-D68A7653C134}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"C\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_LOCAL_MACHINE\" key=\"Software\\GPOStudio\\GppRegistry\" name=\"CreateBinary\" type=\"REG_BINARY\" value=\"CAFE0001\" /></Registry><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"Software\\GPOStudio\\GppRegistry\\KeyOnly\" status=\"Software\\GPOStudio\\GppRegistry\\KeyOnly\" image=\"2\" changed=\"2026-10-08 10:40:24\" uid=\"{305781E0-436F-4848-84E2-682506594785}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"U\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_LOCAL_MACHINE\" key=\"Software\\GPOStudio\\GppRegistry\\KeyOnly\" name=\"\" type=\"REG_SZ\" value=\"\" /></Registry></RegistrySettings>",
+  "user/Registry/Registry.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<RegistrySettings clsid=\"{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}\"><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"UserMulti\" status=\"UserMulti\" image=\"2\" changed=\"2026-10-08 10:40:24\" uid=\"{17BE1A05-D3F3-4432-ABFE-82824E8071E5}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"U\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_CURRENT_USER\" key=\"Software\\GPOStudio\\GppRegistry\" name=\"UserMulti\" type=\"REG_MULTI_SZ\" value=\"one two\"><Values><Value>one</Value><Value>two</Value></Values></Properties></Registry><Registry clsid=\"{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}\" name=\"UserQword\" status=\"UserQword\" image=\"0\" changed=\"2026-10-08 10:40:24\" uid=\"{F836B443-AF68-4457-978F-FC19956E5EBE}\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\"><Properties action=\"C\" displayDecimal=\"0\" default=\"0\" hive=\"HKEY_CURRENT_USER\" key=\"Software\\GPOStudio\\GppRegistry\" name=\"UserQword\" type=\"REG_QWORD\" value=\"0000000100000000\" /></Registry></RegistrySettings>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "hive": "HKEY_LOCAL_MACHINE",
+      "id": "00000000-0000-4013-8000-000000000002",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry",
+      "uid": "{9259C4EA-DE96-447D-B34C-6ED4FA50E130}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:23"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "create",
+       "default": false,
+       "id": "00000000-0000-4013-8000-000000000001",
+       "name": "CreateString",
+       "registry_type": "REG_SZ",
+       "unknown_attrs": [],
+       "value": "alpha"
+      }
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "hive": "HKEY_LOCAL_MACHINE",
+      "id": "00000000-0000-4013-8000-000000000004",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry",
+      "uid": "{8133FFD1-0AE2-4FC2-905A-C7D73F2E7783}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:23"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "update",
+       "default": false,
+       "id": "00000000-0000-4013-8000-000000000003",
+       "name": "UpdateDword",
+       "registry_type": "REG_DWORD",
+       "unknown_attrs": [],
+       "value": 42
+      }
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 2,
+      "hive": "HKEY_LOCAL_MACHINE",
+      "id": "00000000-0000-4013-8000-000000000006",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry",
+      "uid": "{4D548BF7-F2AC-4C41-9C42-B128BE4E2CD3}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:23"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "replace",
+       "default": false,
+       "id": "00000000-0000-4013-8000-000000000005",
+       "name": "ReplaceExpand",
+       "registry_type": "REG_EXPAND_SZ",
+       "unknown_attrs": [],
+       "value": "%SystemRoot%\\x"
+      }
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 3,
+      "hive": "HKEY_LOCAL_MACHINE",
+      "id": "00000000-0000-4013-8000-000000000008",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry",
+      "uid": "{3BA7D697-21C5-4551-BD12-31C9F5836914}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:24"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "delete",
+       "default": false,
+       "id": "00000000-0000-4013-8000-000000000007",
+       "name": "DeleteMe",
+       "registry_type": "REG_SZ",
+       "unknown_attrs": [],
+       "value": "gone"
+      }
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 4,
+      "hive": "HKEY_LOCAL_MACHINE",
+      "id": "00000000-0000-4013-8000-00000000000a",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry",
+      "uid": "{08D76D2E-C79D-49EE-BAE9-D68A7653C134}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:24"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "create",
+       "default": false,
+       "id": "00000000-0000-4013-8000-000000000009",
+       "name": "CreateBinary",
+       "registry_type": "REG_BINARY",
+       "unknown_attrs": [],
+       "value": "CAFE0001"
+      }
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 5,
+      "hive": "HKEY_LOCAL_MACHINE",
+      "id": "00000000-0000-4013-8000-00000000000c",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry\\KeyOnly",
+      "uid": "{305781E0-436F-4848-84E2-682506594785}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:24"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "update",
+       "default": false,
+       "id": "00000000-0000-4013-8000-00000000000b",
+       "name": "",
+       "registry_type": "REG_SZ",
+       "unknown_attrs": [],
+       "value": ""
+      }
+     }
+    ],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "computer",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   },
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "hive": "HKEY_CURRENT_USER",
+      "id": "00000000-0000-4013-8000-00000000000e",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry",
+      "uid": "{17BE1A05-D3F3-4432-ABFE-82824E8071E5}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:24"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "update",
+       "default": false,
+       "id": "00000000-0000-4013-8000-00000000000d",
+       "name": "UserMulti",
+       "registry_type": "REG_MULTI_SZ",
+       "unknown_attrs": [],
+       "value": [
+        "one",
+        "two"
+       ]
+      }
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "hive": "HKEY_CURRENT_USER",
+      "id": "00000000-0000-4013-8000-000000000010",
+      "ilt_filter": null,
+      "key": "Software\\GPOStudio\\GppRegistry",
+      "uid": "{F836B443-AF68-4457-978F-FC19956E5EBE}",
+      "unknown_attrs": [
+       [
+        "changed",
+        "2026-10-08 10:40:24"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "value": {
+       "action": "create",
+       "default": false,
+       "id": "00000000-0000-4013-8000-00000000000f",
+       "name": "UserQword",
+       "registry_type": "REG_QWORD",
+       "unknown_attrs": [],
+       "value": 4294967296
+      }
+     }
+    ],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "user",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000018",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-RegistryShapes-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{D3C177D5-FE3A-53DD-914C-F6726561ED87}",
+ "policy_semantic_sha256": "c7ae071c3487ccbc22f3ab7539fad62e170528ce76dfeee1df88c3302ba1ef71",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "d4585fc30aba1c9947d6743d16dde1231f1613153ef1e7b24bdf76a7d3b98856"
+}

@@ -29,7 +29,7 @@
       "status": "frozen",
       "qualifying_run": "wp3-security-template-20261009001358-5650",
       "snapshot_required": true,
-      "notes": "LabMS01, role 3, requalified in the release 1.1.0 batch, 2026-10-09, at de9736ed3a4148b91cf2267fbe4640e260cc232f. Member-host runs: live-synthetic-registry-basic-20261009001124-4850, wp1b-writer-20261009001221-5737, wp2-native-import-20261009001318-2870, wp3-security-template-20261009001358-5650, object-security-20261009001510-7162, scripts-r10-20261009001541-4025, publication-completeness-20261009001615-4372, lifecycle-20261009001644-6217-f2f5047fed814807, report-parity-20261009001727-3532, firewall-20261009001906-2614294, fd-20261009002120-4293. Security-template lanes validate/import/export through temporary databases; no configure operation is claimed."
+      "notes": "LabMS01, role 3, requalified in the release 1.1.0 batch, 2026-10-09, at de9736ed3a4148b91cf2267fbe4640e260cc232f, and for six lanes by its successor batch at 99405618105edaa4b408be92047f83b6a24dd217. Member-host runs: live-synthetic-registry-basic-20261009001124-4850, wp1b-writer-20261009080228-1849, wp2-native-import-20261009001318-2870, wp3-security-template-20261009001358-5650, object-security-20261009001510-7162, scripts-r10-20261009080318-5148, publication-completeness-20261009080352-5754, lifecycle-20261009001644-6217-f2f5047fed814807, report-parity-20261009080432-2383, firewall-20261009080610-2829523, fd-20261009080824-4244. Security-template lanes validate/import/export through temporary databases; no configure operation is claimed."
     }
   ],
   "tools": [
@@ -92,7 +92,7 @@
       "tool_id": "studio-finalize",
       "kind": "studio-harness",
       "status": "frozen",
-      "notes": "All fourteen finalizers and the shared source-byte guard are bound by (commit, path, sha256) in the 26 passing release 1.1.0 batch, 2026-10-09 runs at de9736ed3a4148b91cf2267fbe4640e260cc232f. Finalization refuses working/index/HEAD byte drift before writing a verdict or tag, including with --no-tag. WP-0 binds its finalizer and shared library in its manifest."
+      "notes": "All fourteen finalizers and the shared source-byte guard are bound by (commit, path, sha256) in the 26 passing release 1.1.0 batch runs at de9736ed3a4148b91cf2267fbe4640e260cc232f and the six successor runs at 99405618105edaa4b408be92047f83b6a24dd217 that replace six of them (2026-10-09). Finalization refuses working/index/HEAD byte drift before writing a verdict or tag, including with --no-tag. WP-0 binds its finalizer and shared library in its manifest."
     }
   ],
   "lanes": [
@@ -133,7 +133,7 @@
       ],
       "oracle": "Import-GPO of a Studio-authored native backup, then GPMC report parse plus Backup-GPO round trip; agreement is between two independent readers of the same policy.",
       "status": "partial",
-      "notes": "Requalified 2026-10-09 at de9736ed3a4148b91cf2267fbe4640e260cc232f by wp1b-writer-20261009001221-5737 (release 1.1.0 batch, 2026-10-09). Eight candidates cover drives, local users and groups, daily Exec TaskV2 scheduled tasks, Services, the registry-both control, and GPP Registry (gppregistry-both, plus GPP Registry items in mixed-all; WI-075). This is native writer conformance; Services endpoint application remains outside scope."
+      "notes": "Requalified 2026-10-09 at 99405618105edaa4b408be92047f83b6a24dd217 by wp1b-writer-20261009080228-1849 (release 1.1.0 successor batch, 2026-10-09; WI-080/081/082). Eight candidates cover drives, local users and groups, daily Exec TaskV2 scheduled tasks, Services, the registry-both control, and GPP Registry (gppregistry-both, plus GPP Registry items in mixed-all; WI-075). This is native writer conformance; Services endpoint application remains outside scope."
     },
     {
       "lane_id": "security-template-secedit",
@@ -171,7 +171,7 @@
       ],
       "oracle": "Import-GPO of a Studio Scripts backup, Get-GPOReport Scripts namespace inspection, and Backup-GPO re-export comparison. Script payload execution is outside this lane.",
       "status": "partial",
-      "notes": "Requalified 2026-10-09 at de9736ed3a4148b91cf2267fbe4640e260cc232f by scripts-r10-20261009001541-4025. Import-GPO, Get-GPOReport Scripts metadata and Backup-GPO rebackup pass. Script payload execution and endpoint processing remain outside scope."
+      "notes": "Requalified 2026-10-09 at 99405618105edaa4b408be92047f83b6a24dd217 by scripts-r10-20261009080318-5148 (release 1.1.0 successor batch, 2026-10-09; WI-080/081/082). Import-GPO, Get-GPOReport Scripts metadata and Backup-GPO rebackup pass. Script payload execution and endpoint processing remain outside scope."
     },
     {
       "lane_id": "object-security-secedit",
@@ -275,7 +275,7 @@
       ],
       "oracle": "Import-GPO of a Studio backup, then read back the GPO's SYSVOL tree and its gPCMachineExtensionNames/gPCUserExtensionNames, and compare both against the publication plan's own claim about what it would write. Executing a publication is outside this lane: nothing here writes to SYSVOL or AD on Studio's behalf.",
       "status": "partial",
-      "notes": "Requalified 2026-10-09 at de9736ed3a4148b91cf2267fbe4640e260cc232f by publication-completeness-20261009001615-4372. The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
+      "notes": "Requalified 2026-10-09 at 99405618105edaa4b408be92047f83b6a24dd217 by publication-completeness-20261009080352-5754 (release 1.1.0 successor batch, 2026-10-09; WI-080/081/082). The publication plan's exact file set, extension lists and packed GPT.INI version agree with the native import. This covers one GPO shape with registry and verified GPP content on both sides. It executes no publication; security filtering, links, WMI filters and uncaptured family metadata remain outside scope."
     },
     {
       "lane_id": "lifecycle-same-domain",
@@ -316,7 +316,7 @@
       ],
       "oracle": "For each Windows-produced corpus backup: New-GPO, Import-GPO, then a fresh Get-GPOReport -ReportType Xml, whose settings inventory (by side and report family) is compared with Studio's typed import of the same backup; plus one GPO authored on the guest with Set-GPRegistryValue and backed up with Backup-GPO. The expectation is built on the controller and never reaches the guest.",
       "status": "partial",
-      "notes": "Qualified 2026-10-09 at de9736ed3a4148b91cf2267fbe4640e260cc232f by report-parity-20261009001727-3532 (26/26 checks, 30/30 cases plus the authored case; release 1.1.0 batch, 2026-10-09). Covers the families the corpus exercises: registry (REG_SZ/REG_DWORD), Drive Maps, Environment, Files, Folders, GPP Registry (the three WI-075 captures), Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks, Services, Shortcuts. Item identity (element, name, uid, action) and order only; preference Properties beyond action, ADMX <Policy> rendering, Scripts, links, security filtering and WMI filters are named exclusions. No Studio defect is accepted: the WI-072 and WI-073 cases must agree exactly."
+      "notes": "Qualified 2026-10-09 at 99405618105edaa4b408be92047f83b6a24dd217 by report-parity-20261009080432-2383 (26/26 checks, 30/30 cases plus the authored case; release 1.1.0 successor batch, 2026-10-09; WI-080/081/082). Covers the families the corpus exercises: registry (REG_SZ/REG_DWORD), Drive Maps, Environment, Files, Folders, GPP Registry (the three WI-075 captures), Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks, Services, Shortcuts. Item identity (element, name, uid, action) and order only; preference Properties beyond action, ADMX <Policy> rendering, Scripts, links, security filtering and WMI filters are named exclusions. No Studio defect is accepted: the WI-072 and WI-073 cases must agree exactly."
     },
     {
       "lane_id": "firewall-policy-gpmc",
@@ -336,7 +336,7 @@
       ],
       "oracle": "Two legs on disposable unlinked GPOs. Read: New-NetFirewallRule/Set-NetFirewallProfile -PolicyStore author the policy and Studio's codec parses Windows' Registry.pol. Write: Import-GPO of Studio's backup, then Windows' Registry.pol is compared byte for byte with the candidate's. Both legs read the policy back through the NetSecurity cmdlets and Get-GPOReport. Endpoint application is outside this lane.",
       "status": "partial",
-      "notes": "Certified 2026-10-09 at de9736ed3a4148b91cf2267fbe4640e260cc232f by firewall-20261009001906-2614294 (36/36). The 13 measured rule shapes and the Domain/Private profile tranche parse with zero unrecognised records, Windows returns Studio's Registry.pol unchanged after Import-GPO, and cmdlet readback matches on both legs including six named normalizations. Studio's export registers the firewall tool GUID (B05566AC) for firewall-only machine policy, as native authoring does, and the write leg carried exactly the native pair; GPMC's report rendered the firewall extension for both legs, and GPME editability was not measured (WI-077). One build (WS2025 26100) was measured. IPsec, Public Key, wired and wireless policy are out of scope."
+      "notes": "Certified 2026-10-09 at 99405618105edaa4b408be92047f83b6a24dd217 by firewall-20261009080610-2829523 (release 1.1.0 successor batch, 2026-10-09; WI-080/081/082; 36/36). The 13 measured rule shapes and the Domain/Private profile tranche parse with zero unrecognised records, Windows returns Studio's Registry.pol unchanged after Import-GPO, and cmdlet readback matches on both legs including six named normalizations. Studio's export registers the firewall tool GUID (B05566AC) for firewall-only machine policy, as native authoring does, and the write leg carried exactly the native pair; GPMC's report rendered the firewall extension for both legs, and GPME editability was not measured (WI-077). One build (WS2025 26100) was measured. IPsec, Public Key, wired and wireless policy are out of scope."
     },
     {
       "lane_id": "fdeploy-gpmc",
@@ -355,7 +355,7 @@
       ],
       "oracle": "For each case, a GPMC-format backup carrying fdeploy1.ini and the fdeploy.ini marker is imported with Import-GPO into a disposable unlinked GPO. SYSVOL is read back, a fresh Get-GPOReport -ReportType Xml is taken and Backup-GPO re-exports the GPO. The re-exported files must be byte-identical to the candidate's, and Studio's read_backup over Windows' own backup must agree with the report's FolderRedirectionSettings rows (folder id, principal SID, destination path). The expectation is built on the controller and never reaches the guest.",
       "status": "partial",
-      "notes": "Certified 2026-10-09 at de9736ed3a4148b91cf2267fbe4640e260cc232f by fd-20261009002120-4293 (29/29). Four cases: R3's GPMC-written bytes verbatim (Flags 1021) and three builder-written Flags-only variants (1020, 1023, 3069); one folder (Documents), one principal (Everyone), one path. Certifies the reader's agreement with Windows for these shapes only. Flags is carried, not decoded: Windows' option rendering per value is recorded, not asserted (WI-066 data). Multi-folder and multi-principal documents, other Flags values, the writer (WI-066/R12) and endpoint application are not covered. One build (WS2025 26100) was measured."
+      "notes": "Certified 2026-10-09 at 99405618105edaa4b408be92047f83b6a24dd217 by fd-20261009080824-4244 (release 1.1.0 successor batch, 2026-10-09; WI-080/081/082; 29/29). Four cases: R3's GPMC-written bytes verbatim (Flags 1021) and three builder-written Flags-only variants (1020, 1023, 3069); one folder (Documents), one principal (Everyone), one path. Certifies the reader's agreement with Windows for these shapes only. Flags is carried, not decoded: Windows' option rendering per value is recorded, not asserted (WI-066 data). Multi-folder and multi-principal documents, other Flags values, the writer (WI-066/R12) and endpoint application are not covered. One build (WS2025 26100) was measured."
     }
   ]
 }

@@ -21,9 +21,16 @@ on one frozen commit, `de9736ed3a4148b91cf2267fbe4640e260cc232f` (batch 2 with t
 WI-078), driven by `scripts/plan-033/run-requal-batch.sh` under its per-lane
 watchdog and containment layer (manifest-form bound source). It is the first
 batch to run the lifecycle, report-parity, firewall and fdeploy lanes as well,
-so every row below binds the same commit. An attempt at `2f21e7c` passed 25 of
+so every row below bound the same commit. An attempt at `2f21e7c` passed 25 of
 26 and was superseded unbanked when the transport fix changed `psdirect.ps1`;
 the batch note records it.
+
+Six lanes have since been re-run by the [release 1.1.0 successor
+batch](release110-successors-batch.md) at `99405618105edaa4b408be92047f83b6a24dd217`
+(WI-080/081/082), whose fix changed five files those six lanes bind and no
+other lane binds: WP-1B, scripts-metadata, publication, report parity, the
+firewall and fdeploy. Their rows below cite the successor runs; the other 20
+rows, WP-0 included, still bind `de9736e`.
 
 The estate ran at real time on its 2026-09-20 clock-seeded baselines, as in the
 [Plan 034 batch](plan034-batch.md). That batch, the four lane certifications
@@ -54,16 +61,16 @@ produced a verdict.
 | Lane | Environment | Transport | Qualified | Certifying run (tagged `evidence/<run-id>`) |
 |---|---|---|---|---|
 | wp0 | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `live-synthetic-registry-basic-20261009001124-4850` (`pass`) |
-| wp1b | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `wp1b-writer-20261009001221-5737` (`pass`) |
+| wp1b | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `wp1b-writer-20261009080228-1849` (`pass`) |
 | wp2 | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `wp2-native-import-20261009001318-2870` (`pass`) |
 | wp3-member | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `wp3-security-template-20261009001358-5650` (`pass`) |
 | wp3-dc | estate, domain controller (role 5) | `psdirect` | 2026-10-09 | `wp3-security-template-20261009001426-5385` (`pass`) |
 | object-security | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `object-security-20261009001510-7162` (`pass`) |
-| scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `scripts-r10-20261009001541-4025` (`pass`) |
-| publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `publication-completeness-20261009001615-4372` (`pass`) |
+| scripts-metadata | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `scripts-r10-20261009080318-5148` (`pass`) |
+| publication | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `publication-completeness-20261009080352-5754` (`pass`) |
 | lifecycle | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `lifecycle-20261009001644-6217-f2f5047fed814807` (`pass`) |
-| report-parity | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `report-parity-20261009001727-3532` (`pass`) |
-| fdeploy | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `fd-20261009002120-4293` (`pass`) |
+| report-parity | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `report-parity-20261009080432-2383` (`pass`) |
+| fdeploy | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `fd-20261009080824-4244` (`pass`) |
 | endpoint | estate, member server + client (26200) | `psdirect` | 2026-10-09 | `endpoint-observe-20261009002229-7198` (`pass`) |
 | lsdou-precedence | estate, member server + client (26200) | `psdirect` | 2026-10-09 | `rsop-observe-20261009002514-3293` (`pass`) |
 | disabled-block-enforced | estate, member server + client (26200) | `psdirect` | 2026-10-09 | `rsop-observe-20261009002658-3387` (`pass`) |
@@ -78,9 +85,11 @@ produced a verdict.
 | user-security-filtering | estate, member server + client (26200) | `psdirect` | 2026-10-09 | `rsop-user-observe-20261009004238-6019` (`pass`) |
 | user-security-filtering-deny | estate, member server + client (26200) | `psdirect` | 2026-10-09 | `rsop-user-observe-20261009004533-3353` (`pass`) |
 | user-security-filtering-read-deny | estate, member server + client (26200) | `psdirect` | 2026-10-09 | `rsop-user-observe-20261009004749-4067` (`pass`) |
-| firewall | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `firewall-20261009001906-2614294` (`pass`) |
+| firewall | estate, domain-joined member server (role 3) | `psdirect` | 2026-10-09 | `firewall-20261009080610-2829523` (`pass`) |
 
-Every row binds `de9736ed3a4148b91cf2267fbe4640e260cc232f`. The shared byte guard and finalizer inputs are
+The WP-1B, scripts-metadata, publication, report-parity, firewall and fdeploy
+rows bind `99405618105edaa4b408be92047f83b6a24dd217`; every other row binds
+`de9736ed3a4148b91cf2267fbe4640e260cc232f`. The shared byte guard and finalizer inputs are
 part of the recorded evidence.
 
 Each lane needed its own qualifying run rather than inheriting WP-1B's. The

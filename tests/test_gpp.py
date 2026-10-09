@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -687,9 +688,18 @@ def test_contains_cpassword_true_for_case_insensitive() -> None:
     assert contains_cpassword(xml) is True
 
 
-def test_contains_cpassword_false_for_element_not_attribute() -> None:
-    xml = b"<cpassword>data</cpassword>"
-    assert contains_cpassword(xml) is False
+def test_contains_cpassword_true_for_an_element_too() -> None:
+    """An element ``<cpassword>`` is refused like the attribute (WI-080 review).
+
+    This test used to pin the opposite, which is how an element form reached
+    every export path.
+    """
+    assert contains_cpassword(b"<cpassword>data</cpassword>") is True
+    assert contains_cpassword(
+        b'<SharedPrinter><Properties action="U"><x:CPassword xmlns:x="urn:y">s'
+        b"</x:CPassword></Properties></SharedPrinter>"
+    ) is True
+    assert contains_cpassword(b'<Properties name="cpassword-free"/>') is False
 
 
 def test_contains_cpassword_true_for_malformed_xml() -> None:
@@ -992,13 +1002,19 @@ def test_key_only_registry_round_trip() -> None:
     assert val.name == ""
     assert val.registry_type == ""
     assert val.value == ""
+    # An unedited import is written back as imported (WI-080): the source's
+    # type="" is kept, not normalised.
     serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=parsed))
+    props = ET.fromstring(serialized).find("Registry/Properties")
+    assert props is not None and props.get("type") == ""
+    # The writer alone: Windows types a key-only item REG_SZ on the wire
+    # (WI01A-RegistryShapes-GPMC), so that is what the model writes.
+    authored = tuple(replace(item, native_xml="") for item in parsed)
+    serialized = serialize_gpp_registry(GppCollection(scope="computer", registry=authored))
     reparsed = parse_gpp_registry(serialized)
     assert len(reparsed) == 1
     rval = reparsed[0].value
     assert rval.name == ""
-    # Windows types a key-only item REG_SZ on the wire
-    # (WI01A-RegistryShapes-GPMC), so that is what comes back.
     assert rval.registry_type == "REG_SZ"
     assert rval.value == ""
 

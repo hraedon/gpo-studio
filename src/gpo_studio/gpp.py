@@ -9,10 +9,19 @@ from __future__ import annotations
 
 import uuid
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
 
+from .gpp_native import (
+    has_never_retained_name,
+    merge_native,
+    namespaced_name,
+    native_element_xml,
+    plain_attribute_name,
+    same_rendering,
+)
 from .ilt import IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
 from .numeric import coerce_dword_qword
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
@@ -86,6 +95,35 @@ _ACTION_TO_CODE: dict[GppAction, str] = {
     "remove": "D",
 }
 _CODE_TO_ACTION: dict[str, GppAction] = {v: k for k, v in _ACTION_TO_CODE.items()}
+
+#: ``GppRegistry.action`` (the generic vocabulary the workbench shows and edits)
+#: and the value's own action, which is what is written (``Properties@action``).
+#: One <Registry> item has one action; the two are the same thing named twice.
+_REGISTRY_ITEM_TO_VALUE_ACTION: dict[GppAction, GppRegistryAction] = {
+    "add": "create",
+    "replace": "replace",
+    "update": "update",
+    "remove": "delete",
+}
+_REGISTRY_VALUE_TO_ITEM_ACTION: dict[GppRegistryAction, GppAction] = {
+    value: item for item, value in _REGISTRY_ITEM_TO_VALUE_ACTION.items()
+}
+
+
+def registry_action_edit(edited: GppRegistry, existing: GppRegistry) -> GppRegistry:
+    """Reconcile an edit of a registry item's two names for its one action.
+
+    The writer writes ``value.action``; ``GppRegistry.action`` was never
+    written, so an edit to it -- the action column the workbench shows --
+    exported the old action (WI-080 review). An edit that changes the item's
+    action and not the value's is applied to the value; otherwise the value's
+    stands. Either way the item's action is set to match, so the two agree.
+    """
+    value = edited.value
+    if edited.action != existing.action and value.action == existing.value.action:
+        value = replace(value, action=_REGISTRY_ITEM_TO_VALUE_ACTION[edited.action])
+    return replace(edited, value=value, action=_REGISTRY_VALUE_TO_ITEM_ACTION[value.action])
+
 
 _REGISTRY_ACTION_TO_CODE: dict[GppRegistryAction, str] = {
     "create": "C",
@@ -428,6 +466,16 @@ class GppCommonOptions:
     user_security_context: bool = False
     disabled: bool = False
     stop_on_error: bool = False
+    #: The imported ``FilterRunOnce@id`` (WI-080). Clients record an apply-once
+    #: item as applied BY THIS ID, so a new id makes every client apply it
+    #: again. Kept as imported and written whenever ``apply_once`` is set; an
+    #: item that never had one gets the deterministic id `_append_item_filters`
+    #: derives. It stays on the model while ``apply_once`` is off, so turning
+    #: apply-once off and on again restores the same identity rather than
+    #: re-arming the item on every client (GPMC's own behaviour for that toggle
+    #: is unmeasured). Outside ==, like ``document_position``: it is identity
+    #: bookkeeping that no edit can change.
+    run_once_id: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,6 +497,11 @@ class GppGroup:
     #: Slot in the source document's root, set on import (WI-073). See
     #: :func:`gpp_document_order`. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080). The writer
+    #: reconciles it with the model (``gpp_native.merge_native``): what the
+    #: model types wins, everything else is written as imported. Outside ==;
+    #: diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,6 +533,10 @@ class GppRegistry:
     #: Slot in the source document's root, set on import (WI-072). See
     #: :func:`gpp_document_order`. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: `GppGroup.native_xml`. Only an item imported from a <Registry> with one
+    #: <Properties> has one.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,6 +561,13 @@ class GppCollection:
     ``document_position`` and ``root_unknown_positions`` are persisted, so a
     reloaded collection writes its files in the imported order with the
     retained root content in place. See "Document order" below.
+
+    Nor is each imported item's own element (WI-080): ``native_xml`` on the
+    item and ``common.run_once_id`` are persisted, so a reloaded collection
+    writes every item Windows wrote as Windows wrote it -- the ``Properties``
+    attributes the model does not type, the attribute order, the values the
+    writer would normalise and the ``FilterRunOnce`` id -- and an edited item
+    with what the edit changed. See "Retained native items" below.
     """
 
     scope: GppScope
@@ -613,6 +677,7 @@ def _parse_common_options(
     legacy_source: ET.Element | None = None,
     *,
     apply_once: bool = False,
+    run_once_id: str = "",
 ) -> GppCommonOptions:
     """Parse common options from an item, accepting old Studio placement.
 
@@ -634,27 +699,36 @@ def _parse_common_options(
         disabled=value("disabled", "0") == "1",
         # bypassErrors="0" means stop on error; absent defaults to "0" (stop).
         stop_on_error=value("bypassErrors", "0") == "0",
+        run_once_id=run_once_id,
     )
 
 
 def _parse_item_filters(
     item: ET.Element,
-) -> tuple[IltFilter | None, bool]:
-    """Parse ILT while promoting ``FilterRunOnce`` to a common option."""
+) -> tuple[IltFilter | None, bool, str]:
+    """Parse ILT while promoting ``FilterRunOnce`` to a common option.
+
+    Returns the filter, whether the item applies once, and the imported
+    ``FilterRunOnce@id`` (the first one's; ``""`` when there is none), which
+    Studio keeps and writes back (WI-080).
+    """
     filters = _find_local(item, "Filters")
     if filters is None:
-        return None, False
+        return None, False, ""
 
     remaining = ET.Element(_ns("Filters"))
     apply_once = False
+    run_once_id = ""
     for child in filters:
         if _local_name(child.tag) == "FilterRunOnce":
+            if not apply_once:
+                run_once_id = child.get("id", "")
             apply_once = True
         else:
             remaining.append(deepcopy(child))
     if not list(remaining):
-        return None, apply_once
-    return parse_ilt(remaining), apply_once
+        return None, apply_once, run_once_id
+    return parse_ilt(remaining), apply_once, run_once_id
 
 
 def _append_item_filters(
@@ -663,7 +737,13 @@ def _append_item_filters(
     common: GppCommonOptions,
     identity_seed: str,
 ) -> None:
-    """Append ILT plus GPMC-compatible apply-once targeting."""
+    """Append ILT plus GPMC-compatible apply-once targeting.
+
+    ``FilterRunOnce@id`` is the imported id when the item has one
+    (``common.run_once_id``, WI-080): clients track an apply-once item by that
+    id, and a new one makes every client apply the item again. Only an item
+    that never had an id gets one, derived from *identity_seed*.
+    """
     if ilt_filter is None and not common.apply_once:
         return
     filters = (
@@ -676,11 +756,14 @@ def _append_item_filters(
         run_once.set("hidden", "1")
         run_once.set("not", "0")
         run_once.set("bool", "AND")
-        run_once_id = uuid.uuid5(
-            uuid.NAMESPACE_URL,
-            f"gpo-studio/gpp/run-once/{identity_seed}",
-        )
-        run_once.set("id", "{" + str(run_once_id).upper() + "}")
+        if common.run_once_id:
+            run_once.set("id", common.run_once_id)
+        else:
+            run_once_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"gpo-studio/gpp/run-once/{identity_seed}",
+            )
+            run_once.set("id", "{" + str(run_once_id).upper() + "}")
         filters.append(run_once)
     item.append(filters)
 
@@ -1151,13 +1234,410 @@ def _root_identity(path: str, first_key: str) -> tuple[str, str]:
 
 
 def _family_elements(collection: GppCollection, key: str) -> list[ET.Element]:
-    if key == "groups":
-        return [_serialize_group(group) for group in collection.groups]
-    if key == "registry":
-        return [_serialize_registry(reg) for reg in collection.registry]
-    from .gpp_adapters import _build_adapter_root
+    return [
+        _written_for(key, item, collection.scope)[1]
+        for item in _family_items(collection, key)
+    ]
 
-    return list(_build_adapter_root(key, _family_items(collection, key), collection.scope))
+
+def _written_for(key: str, item: Any, scope: GppScope) -> tuple[ET.Element, ET.Element]:
+    """``(the model's rendering, the element written)`` for one item.
+
+    An imported item's edits to values its writer keeps in a payload (a task's
+    command) are first carried into that payload (`_with_payload_edits`); then
+    the item is rendered and reconciled with its retained element.
+    """
+    render = _item_renderer(key, scope)
+    parse = _item_parser(key)
+    edited = _with_payload_edits(key, item, parse)
+    rendered = render(edited)
+    written = _written_element(edited, rendered, render, parse)
+    if key in _PAYLOAD_FAMILIES and not getattr(item, "native_xml", ""):
+        # The read-back check for a task with no import record (an imported one
+        # has `_refuse_lost_edits`): every payload value it sets is in the file.
+        from .gpp_adapters import payload_values_written
+
+        missing = payload_values_written(item, parse(written))
+        if missing:
+            raise GppError(
+                f"{type(item).__name__} {_item_label(item)!r}: {', '.join(missing)} "
+                "cannot be written into its <Task> payload"
+            )
+    return rendered, written
+
+
+#: Families whose typed values partly live in an embedded payload.
+_PAYLOAD_FAMILIES: frozenset[str] = frozenset({"scheduled_tasks", "immediate_tasks"})
+
+
+def _with_payload_edits(key: str, item: Any, parse: Callable[[ET.Element], Any]) -> Any:
+    """Carry a task's edited typed values into its <Task> payload.
+
+    An imported item is compared with its import record; any other task with
+    the values its own payload holds (`gpp_adapters.reconcile_payload_edits`).
+    """
+    if key not in _PAYLOAD_FAMILIES:
+        return item
+    from .gpp_adapters import reconcile_payload_edits
+
+    imported: Any = None
+    raw: str = getattr(item, "native_xml", "")
+    if raw:
+        try:
+            imported = parse(_bounded_parse(raw.encode("utf-8")))
+        except GppError:
+            imported = None
+    return reconcile_payload_edits(item, imported)
+
+
+# ---------------------------------------------------------------------------
+# Retained native items (WI-080)
+# ---------------------------------------------------------------------------
+#
+# An imported item keeps its element as Windows wrote it (``native_xml``), and
+# the writer reconciles it with the model: see ``gpp_native`` for the rules.
+# Collections stored before WI-080 have no retained element and are written
+# from the model alone, exactly as before.
+#
+# What a stored import does NOT get back: the whitespace between root children
+# (GPMC's newline-and-tab indentation; no GPP element has mixed content), the
+# XML declaration's exact bytes, and the element of a legacy multi-value
+# <Registry> (one element, several items: none of them is the element). The
+# root element is written as ``clsid`` then its retained attributes, in their
+# imported order. tests/test_gpp_native_preservation.py holds every native
+# capture to exactly that.
+#
+# The API never accepts ``native_xml``: the store carries an item's record
+# over an edit (``store._keep_document_position``), and the writer decides,
+# value by value, what the edit changed.
+
+
+def namespaced_content(value: Any) -> str | None:
+    """The first unretainable name in *value*'s retained stores, or ``None``.
+
+    Unretainable: namespace-qualified (``{urn:x}a``, or a child element in a
+    namespace) or, for an attribute, anything but a plain ASCII NCName (a
+    literal ``x:a`` or ``xmlns:x`` key, second re-check).
+
+    The retained stores are what the writer copies out verbatim: unknown
+    attributes (an item's, its ``Properties``', a member's, a registry value's,
+    a filter predicate's, a root's), raw unknown children, and raw filter
+    predicates. No native GPP capture uses an XML namespace, and the parser
+    matches local names, so a namespaced name in one of them would be written
+    back in a namespace no Windows file was seen to use (second review: an item
+    attribute did, though its retained element was discarded). *value* is a
+    collection, an item, or anything inside one. The task payload (typed) and
+    ``native_xml`` (checked on its own) are not stores here.
+    """
+    if isinstance(value, IltFilter):
+        for entry in value.items:
+            found = (
+                _namespaced_raw(entry) if isinstance(entry, str) else namespaced_content(entry)
+            )
+            if found is not None:
+                return found
+        return None
+    if not hasattr(value, "__dataclass_fields__"):
+        if isinstance(value, (list, tuple)):
+            for entry in value:
+                found = namespaced_content(entry)
+                if found is not None:
+                    return found
+        return None
+    for f in fields(value):
+        if f.name in ("native_xml", "task_xml", "source_files"):
+            continue
+        field_value = getattr(value, f.name)
+        # unknown_attrs, unknown_props_attrs, <family>_unknown_attrs ...
+        if "unknown" in f.name and f.name.endswith("_attrs"):
+            for name, _ in field_value:
+                if not plain_attribute_name(str(name)):
+                    return str(name)
+        elif "unknown" in f.name and f.name.endswith("_children"):
+            for raw in field_value:
+                found = _namespaced_raw(raw)
+                if found is not None:
+                    return found
+        else:
+            found = namespaced_content(field_value)
+            if found is not None:
+                return found
+    return None
+
+
+def _namespaced_raw(raw: str) -> str | None:
+    try:
+        return namespaced_name(_bounded_parse(raw.encode("utf-8")))
+    except GppError:
+        return None  # malformed raw XML is refused by its own validation
+
+
+def _refuse_namespaced(value: Any, context: str) -> None:
+    found = namespaced_content(value)
+    if found is not None:
+        raise GppError(
+            f"{context} uses an XML namespace or prefix ({found}); no native GPP "
+            "capture does, and Studio would write it back verbatim"
+        )
+
+
+def item_carries_cpassword(key: str, item: Any, scope: GppScope = "computer") -> bool:
+    """Whether *item*, as written, would hold a cpassword (attribute or element).
+
+    For input that reaches the model without an XML import -- an API payload's
+    unknown attributes, raw unknown children and raw filter predicates -- so
+    it is refused where it arrives, not only at export (WI-080 review). An item
+    the writer cannot render at all is refused elsewhere.
+    """
+    try:
+        elem = _item_renderer(key, scope)(item)
+    except ValueError:
+        return False
+    return has_never_retained_name(elem)
+
+
+def retained_rendering(key: str, item: Any, scope: GppScope) -> str:
+    """What an item's retained native element adds to what is written, or ``""``.
+
+    ``""`` when the item has none, or when the element written for it is the
+    model's own rendering anyway (an import of Studio's own export, say). Else
+    the written element's XML: for an unedited GPMC import, the element as
+    Windows wrote it. The canonical form hashes this rather than the raw
+    ``native_xml``, so the hash moves exactly when the retained element changes
+    what is written: re-importing Studio's own backup leaves a GPO's digests,
+    and the backup id derived from them, as they were.
+
+    Never raises: the hash of a GPO must not fail where its export would. A
+    model the writer refuses is represented by its raw retained element.
+    """
+    raw: str = getattr(item, "native_xml", "")
+    if not raw:
+        return ""
+    # Every GPO payload hashes twice, so the answer is cached. ``repr`` covers
+    # every field, the ones outside == included; items are frozen.
+    cache_key = (key, scope, repr(item))
+    cached = _RETAINED_RENDERINGS.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        rendered, written = _written_for(key, item, scope)
+    except ValueError:  # GppError and the ILT codec's errors
+        result = raw
+    else:
+        result = (
+            "" if same_rendering(written, rendered) else ET.tostring(written, encoding="unicode")
+        )
+    if len(_RETAINED_RENDERINGS) >= _RETAINED_RENDERINGS_MAX:
+        _RETAINED_RENDERINGS.clear()
+    _RETAINED_RENDERINGS[cache_key] = result
+    return result
+
+
+_RETAINED_RENDERINGS: dict[tuple[str, str, str], str] = {}
+_RETAINED_RENDERINGS_MAX = 8192
+
+
+def _parse_single_registry(elem: ET.Element) -> GppRegistry:
+    items = _parse_registry(elem)
+    if len(items) != 1:
+        raise GppError("a retained <Registry> element must hold exactly one <Properties>")
+    return items[0]
+
+
+def _item_parser(key: str) -> Callable[[ET.Element], Any]:
+    """The parser that made one item of family *key* from its element."""
+    if key == "groups":
+        return _parse_group
+    if key == "registry":
+        return _parse_single_registry
+    from .gpp_adapters import ITEM_PARSE_FUNCTIONS
+
+    return ITEM_PARSE_FUNCTIONS[key]
+
+
+def _item_renderer(key: str, scope: GppScope) -> Callable[[Any], ET.Element]:
+    """The writer for one item of family *key* (from the model alone)."""
+    if key == "groups":
+        return _serialize_group
+    if key == "registry":
+        return _serialize_registry
+    from .gpp_adapters import serialize_adapter_item
+
+    return lambda item: serialize_adapter_item(key, item, scope)
+
+
+def _written_element(
+    item: Any,
+    rendered: ET.Element,
+    render: Callable[[Any], ET.Element],
+    parse: Callable[[ET.Element], Any],
+) -> ET.Element:
+    """The element written for *item*: the model, reconciled with its import.
+
+    An unchanged item is written as imported. A changed one is merged, and the
+    merge must MEAN what the model means: it is parsed and written again, and
+    unless that gives the model's own rendering back, the model's rendering is
+    written instead. So a retained attribute can never override, or survive
+    the loss of, a typed value -- whatever the merge rules missed (an option
+    an older Studio wrote on ``Properties``, read from there, and rendered on
+    the item, say) costs fidelity, never correctness.
+
+    Rendering equality alone cannot see a typed value the writer does not put
+    on the wire at all (review P1: an immediate task's command lives in its
+    payload, and a writer that ignored the edit rendered the same before and
+    after). So the element chosen is parsed back and held to the model's
+    INTENDED values: every typed field the edit changed must read back as the
+    edit, and if it reads back as the imported value instead, the edit would
+    be lost, and the item is refused (`_refuse_lost_edits`) rather than
+    written.
+
+    A retained element that no longer parses or renders (the parser has since
+    become stricter, say) is not an export failure: the item is written from
+    the model, as it was before WI-080. ``native_xml`` was validated on load,
+    so this is a change of parser, not of data.
+    """
+    raw: str = getattr(item, "native_xml", "")
+    if not raw:
+        return rendered
+    try:
+        original = _bounded_parse(raw.encode("utf-8"))
+        imported_item = parse(original)
+        imported = render(imported_item)
+    except GppError:
+        return rendered
+    edited = _typed_view(item) != _typed_view(imported_item)
+    if same_rendering(imported, rendered):
+        if edited:
+            _refuse_lost_edits(item, imported_item, original, parse)
+        return original
+
+    def is_modeled(path: tuple[int, ...], name: str) -> bool:
+        # Does the parser read this attribute? Remove it and parse again: an
+        # attribute the model does not depend on is content to keep.
+        probe = deepcopy(original)
+        target = probe
+        for index in path:
+            target = target[index]
+        target.attrib.pop(name, None)
+        try:
+            return bool(parse(probe) != imported_item)
+        except GppError:
+            return True
+
+    merged = merge_native(original, imported, rendered, is_modeled)
+    try:
+        means_the_model = same_rendering(render(parse(merged)), rendered)
+    except GppError:
+        means_the_model = False
+    chosen = merged if means_the_model else rendered
+    if edited:
+        _refuse_lost_edits(item, imported_item, chosen, parse)
+    return chosen
+
+
+#: Bookkeeping, not values an operator edits: editor ids are assigned on
+#: import, the retained element and document slot are provenance.
+_NOT_TYPED_VALUES: frozenset[str] = frozenset({"id", "native_xml", "document_position"})
+
+
+def _typed_view(value: Any) -> Any:
+    """A comparable view of a model value without its bookkeeping fields."""
+    if hasattr(value, "__dataclass_fields__"):
+        return tuple(
+            (f.name, _typed_view(getattr(value, f.name)))
+            for f in fields(value)
+            if f.name not in _NOT_TYPED_VALUES
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_typed_view(entry) for entry in value)
+    return value
+
+
+def _refuse_lost_edits(
+    item: Any, imported_item: Any, written: ET.Element, parse: Callable[[ET.Element], Any]
+) -> None:
+    """Refuse an element in which an edited typed value does not read back as edited.
+
+    Per scalar (second review, N2): every leaf of the model -- a field, a
+    member's or a predicate's field, one string of a multi-string value -- that
+    the edit changed (it differs from what the import parsed to) must read back
+    from the written element EQUAL to the edited value, or be one of the
+    documented `TYPED_NORMALISATIONS`. Anything else -- the imported value, or
+    a third value the writer turned the edit into -- would export something
+    the operator did not set, and is a GppError, which every export path
+    reports as a refusal.
+    """
+    try:
+        written_item = parse(written)
+    except GppError as error:
+        raise GppError(f"an edited preference item cannot be read back: {error}") from error
+    want = typed_leaves(item)
+    was = typed_leaves(imported_item)
+    got = typed_leaves(written_item)
+    lost = [
+        path
+        for path in sorted(set(want) | set(was))
+        if want.get(path, _ABSENT) != was.get(path, _ABSENT)
+        and not _reads_back(path, want.get(path, _ABSENT), got.get(path, _ABSENT))
+    ]
+    if lost:
+        raise GppError(
+            f"{type(item).__name__} {_item_label(item)!r}: the edit to {', '.join(lost)} "
+            "cannot be written (it would not read back as edited)"
+        )
+
+
+#: The only ways an edited value may read back other than equal, each with its
+#: reason. Keyed by the leaf's field name (the last part of its path).
+TYPED_NORMALISATIONS: dict[str, str] = {
+    "task_xml": (
+        "an XML payload is compared as a parsed document: the writer re-serialises "
+        "it, so attribute quoting and empty-element forms may differ"
+    ),
+}
+
+_ABSENT = object()
+
+
+def _reads_back(path: str, want: Any, got: Any) -> bool:
+    if got == want:
+        return True
+    leaf = path.rsplit(".", 1)[-1].split("[", 1)[0]
+    if leaf == "task_xml" and isinstance(want, str) and isinstance(got, str):
+        try:
+            return same_rendering(
+                _bounded_parse(want.encode("utf-8")), _bounded_parse(got.encode("utf-8"))
+            )
+        except GppError:
+            return False
+    return False
+
+
+def typed_leaves(value: Any, path: str = "") -> dict[str, Any]:
+    """Every scalar of a model value, by path (``members[0].sid``), bookkeeping excluded."""
+    if hasattr(value, "__dataclass_fields__"):
+        leaves: dict[str, Any] = {}
+        for f in fields(value):
+            if f.name in _NOT_TYPED_VALUES:
+                continue
+            leaves |= typed_leaves(getattr(value, f.name), f"{path}.{f.name}" if path else f.name)
+        return leaves
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return {path: ()}
+        leaves = {}
+        for index, entry in enumerate(value):
+            leaves |= typed_leaves(entry, f"{path}[{index}]")
+        return leaves
+    return {path: value}
+
+
+def _item_label(item: Any) -> str:
+    for name in ("name", "key", "path", "group_name", "service_name", "user_name", "dsn"):
+        value = getattr(item, name, "")
+        if value:
+            return str(value)
+    return ""
 
 
 def _serialize_gpp_file(
@@ -1242,11 +1722,12 @@ def _parse_group(elem: ET.Element) -> GppGroup:
             "deleteAllGroups", elem.get("removeGroups", "0")
         ) == "1"
         sid = props.get("groupSid", "")
-        ilt_filter, apply_once = _parse_item_filters(elem)
+        ilt_filter, apply_once, run_once_id = _parse_item_filters(elem)
         common = _parse_common_options(
             elem,
             props,
             apply_once=apply_once,
+            run_once_id=run_once_id,
         )
     else:
         action = _code_to_action(elem.get("action", "U"))
@@ -1254,8 +1735,10 @@ def _parse_group(elem: ET.Element) -> GppGroup:
         remove_all_users = elem.get("removeUsers", "0") == "1"
         remove_all_groups = elem.get("removeGroups", "0") == "1"
         sid = ""
-        ilt_filter, apply_once = _parse_item_filters(elem)
-        common = _parse_common_options(elem, apply_once=apply_once)
+        ilt_filter, apply_once, run_once_id = _parse_item_filters(elem)
+        common = _parse_common_options(
+            elem, apply_once=apply_once, run_once_id=run_once_id
+        )
 
     # Members may be inside <Properties> (MS-GPPREF) or a sibling (legacy).
     members: list[GppGroupMember] = []
@@ -1288,6 +1771,7 @@ def _parse_group(elem: ET.Element) -> GppGroup:
             if props is not None else ()
         ),
         unknown_children=_capture_unknown_children(elem, _GROUP_KNOWN_CHILDREN),
+        native_xml=native_element_xml(elem),
     )
 
 
@@ -1442,7 +1926,7 @@ def _parse_registry(elem: ET.Element) -> list[GppRegistry]:
     props_list = _findall_local(elem, "Properties")
     registry_name = elem.get("name", "")
     uid = elem.get("uid", "")
-    ilt_filter, apply_once = _parse_item_filters(elem)
+    ilt_filter, apply_once, run_once_id = _parse_item_filters(elem)
     unknown_attrs = _capture_unknown_attrs(elem, _REGISTRY_KNOWN_ATTRS)
     unknown_children = _capture_unknown_children(elem, _REGISTRY_KNOWN_CHILDREN)
 
@@ -1467,6 +1951,7 @@ def _parse_registry(elem: ET.Element) -> list[GppRegistry]:
                 elem,
                 props,
                 apply_once=apply_once,
+                run_once_id=run_once_id,
             )
             unknown_props_children = _capture_unknown_children(
                 props, _REGISTRY_PROPS_KNOWN_CHILDREN
@@ -1474,11 +1959,17 @@ def _parse_registry(elem: ET.Element) -> list[GppRegistry]:
             if idx == 0:
                 results.append(GppRegistry(
                     key=key, hive=hive, value=value, uid=uid,
+                    # The item's action is the value's (WI-080 review); before,
+                    # every import read "update" whatever the item did.
+                    action=_REGISTRY_VALUE_TO_ITEM_ACTION[value.action],
                     common=common,
                     ilt_filter=ilt_filter,
                     unknown_attrs=unknown_attrs,
                     unknown_props_children=unknown_props_children,
                     unknown_children=unknown_children,
+                    # A legacy multi-value element becomes several items, none
+                    # of which is the element: only a one-to-one item keeps it.
+                    native_xml=native_element_xml(elem) if len(props_list) == 1 else "",
                 ))
             else:
                 results.append(GppRegistry(
@@ -1550,6 +2041,7 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
         source_files=tuple(sorted(files.items())),
         **adapter_data,
     )
+    _refuse_namespaced(collection, f"{scope} preference XML")
     return _record_document_positions(collection, files)
 
 
@@ -1713,8 +2205,57 @@ def ensure_editor_ids(collection: GppCollection) -> GppCollection:
 
 
 def mark_edited(collection: GppCollection) -> GppCollection:
-    """Return a copy with source_files cleared, forcing model-based serialization."""
+    """Return a copy with source_files cleared, forcing model-based serialization.
+
+    Retained native elements (WI-080) stay: the writer still reconciles each
+    item with its import. :func:`model_only` drops those too.
+    """
     return replace(collection, source_files=())
+
+
+def without_native_records(value: Any) -> Any:
+    """*value* with every ``native_xml`` key left out, at any depth (WI-080).
+
+    ``native_xml`` is an imported item's element as Windows wrote it: import
+    provenance the writer reads, never editable content. The API neither
+    serves it (its JSON response class applies this to every body) nor takes
+    it (an inline GPO reference passes through this before it is read), so
+    the only way an element is retained is an import. Lists, tuples and dicts
+    are copied; anything else is returned as it is.
+    """
+    if isinstance(value, dict):
+        return {
+            key: without_native_records(entry)
+            for key, entry in value.items()
+            if key != "native_xml"
+        }
+    if isinstance(value, (list, tuple)):
+        return [without_native_records(entry) for entry in value]
+    return value
+
+
+def model_only(collection: GppCollection) -> GppCollection:
+    """The collection as the typed model alone would write it.
+
+    No source bytes and no retained native elements (WI-080): what
+    :func:`serialize_gpp` returns for this is the writer's rendering of the
+    model, which is what a check of the PARSER and the WRITER must look at --
+    a retained element would write an imported value back even where the
+    model misread it. Exports never use this.
+    """
+    from .gpp_adapters import ADAPTER_KEYS
+
+    def strip(items: tuple[Any, ...]) -> tuple[Any, ...]:
+        return tuple(replace(item, native_xml="") if item.native_xml else item for item in items)
+
+    stripped: dict[str, Any] = {key: strip(getattr(collection, key)) for key in ADAPTER_KEYS}
+    return replace(
+        collection,
+        source_files=(),
+        groups=strip(collection.groups),
+        registry=strip(collection.registry),
+        **stripped,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1841,26 +2382,64 @@ def _parse_ilt_filter_from_dict(data: Any) -> IltFilter | None:
         return IltFilter(items=preds)
 
 
-def _common_options_to_dict(common: GppCommonOptions) -> dict[str, bool]:
-    return {
+def _common_options_to_dict(common: GppCommonOptions) -> dict[str, bool | str]:
+    result: dict[str, bool | str] = {
         "apply_once": common.apply_once,
         "remove_when_unapplied": common.remove_when_unapplied,
         "user_security_context": common.user_security_context,
         "disabled": common.disabled,
         "stop_on_error": common.stop_on_error,
     }
+    # Written only when there is one, so a dict made before WI-080 is unchanged.
+    if common.run_once_id:
+        result["run_once_id"] = common.run_once_id
+    return result
 
 
 def _common_options_from_dict(data: Any) -> GppCommonOptions:
     if not isinstance(data, dict):
         return GppCommonOptions()
+    run_once_id = data.get("run_once_id", "")
+    if not isinstance(run_once_id, str) or len(run_once_id) > _MAX_GPP_XML_ATTR_LENGTH:
+        raise GppError("common.run_once_id must be a string of at most "
+                       f"{_MAX_GPP_XML_ATTR_LENGTH} characters")
     return GppCommonOptions(
         apply_once=bool(data.get("apply_once", False)),
         remove_when_unapplied=bool(data.get("remove_when_unapplied", False)),
         user_security_context=bool(data.get("user_security_context", False)),
         disabled=bool(data.get("disabled", False)),
         stop_on_error=bool(data.get("stop_on_error", False)),
+        # Absent in anything stored before WI-080: the writer derives an id.
+        run_once_id=run_once_id,
     )
+
+
+def _native_xml_from_dict(raw: object, key: str, context: str) -> str:
+    """Load a stored ``native_xml`` (absent before WI-080: ``""``).
+
+    It is written back verbatim wherever the model has not changed, so it is
+    held to what import could have produced: one bounded, entity-free element
+    of the family's own item type, carrying no cpassword.
+    """
+    if raw is None or raw == "":
+        return ""
+    if not isinstance(raw, str):
+        raise GppError(f"native_xml of {context} must be a string")
+    _validate_unknown_children((raw,), frozenset(), f"{context} native_xml")
+    elem = _bounded_parse(raw.encode("utf-8"))
+    if _local_name(elem.tag) not in _family_element_names(key):
+        raise GppError(
+            f"native_xml of {context} is a <{_local_name(elem.tag)}>, not an item of {key}"
+        )
+    if has_never_retained_name(elem):
+        raise GppError(f"native_xml of {context} carries a cpassword")
+    qualified = namespaced_name(elem)
+    if qualified is not None:
+        raise GppError(
+            f"native_xml of {context} uses an XML namespace ({qualified}); no native GPP "
+            "capture does, and import never retains one"
+        )
+    return raw
 
 
 def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
@@ -1908,6 +2487,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 ),
                 "unknown_children": list(g.unknown_children) if g.unknown_children else [],
                 "document_position": g.document_position,
+                **({"native_xml": g.native_xml} if g.native_xml else {}),
             }
             for g in collection.groups
         ],
@@ -1935,6 +2515,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 "unknown_children": list(r.unknown_children) if r.unknown_children else [],
                 "id": r.id,
                 "document_position": r.document_position,
+                **({"native_xml": r.native_xml} if r.native_xml else {}),
             }
             for r in collection.registry
         ],
@@ -1969,6 +2550,8 @@ def _adapter_item_to_dict(item: Any) -> dict[str, Any]:
         if f.name in ("id",):
             continue
         value = getattr(item, f.name)
+        if f.name == "native_xml" and not value:
+            continue  # absent before WI-080; a dict without it is unchanged
         if isinstance(value, tuple):
             d[f.name] = list(value)
         elif f.name == "common":
@@ -2131,6 +2714,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             document_position=_position_from_dict(
                 g.get("document_position"), f"group {g.get('name', '')!r}"
             ),
+            native_xml=_native_xml_from_dict(
+                g.get("native_xml"), "groups", f"group {g.get('name', '')!r}"
+            ),
         )
         for g in raw_groups
     )
@@ -2203,6 +2789,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 unknown_children=elem_unknown_children,
                 document_position=_position_from_dict(
                     r.get("document_position"), f"registry {r.get('key', '')!r}"
+                ),
+                native_xml=_native_xml_from_dict(
+                    r.get("native_xml"), "registry", f"registry {r.get('key', '')!r}"
                 ),
             ))
         else:
@@ -2308,6 +2897,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         ),
     )
     _validate_document_positions(collection)
+    _refuse_namespaced(collection, f"stored {scope} preference collection")
     return collection
 
 
@@ -2405,8 +2995,18 @@ def _root_unknown_positions_from_dict(
 def _adapter_item_from_dict(
     item_data: dict[str, Any],
     adapter_cls: type,
+    key: str,
 ) -> Any:
     """Reconstruct a low-artifact adapter item from a dict."""
+    if (
+        adapter_cls.__name__ == "GppPrinter"
+        and "skip_local" not in item_data
+        and "use_local" in item_data
+    ):
+        # Stored before WI-081, when the field was ``use_local`` (written as a
+        # ``useLocal`` attribute no capture contains; it is GPMC's skipLocal).
+        item_data = dict(item_data)
+        item_data["skip_local"] = item_data["use_local"]
     if adapter_cls.__name__ == "GppService":
         item_data = dict(item_data)
         if "program" not in item_data and "recovery_command" in item_data:
@@ -2459,6 +3059,10 @@ def _adapter_item_from_dict(
             # Absent in anything stored before 1.1: no recorded slot.
             kwargs[f.name] = _position_from_dict(
                 item_data.get("document_position"), f"{adapter_cls.__name__} item"
+            )
+        elif f.name == "native_xml":
+            kwargs[f.name] = _native_xml_from_dict(
+                item_data.get("native_xml"), key, f"{adapter_cls.__name__} item"
             )
         else:
             if adapter_cls.__name__ == "GppScheduledTask" and f.name == "element_variant":
@@ -2527,7 +3131,7 @@ def _adapters_from_dict(data: dict[str, Any]) -> dict[str, Any]:
         cls = adapter_classes[key]
         items_list = data.get(key, [])
         items = tuple(
-            _adapter_item_from_dict(item_data, cls)
+            _adapter_item_from_dict(item_data, cls, key)
             for item_data in items_list
         )
         result[key] = items
@@ -2577,18 +3181,29 @@ def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]
 
 
 def contains_cpassword(xml: bytes) -> bool:
-    """Return True if the XML contains any cpassword attribute."""
-    if b"cpassword" not in xml.lower():
-        return False
+    """Return True if the XML holds a cpassword: an attribute OR an element.
+
+    Any depth, any case, any namespace. Until the WI-080 review only attribute
+    names were checked, so an element ``<cpassword>`` in a preference item --
+    on import, in an unknown child the API accepted, or in a retained native
+    element -- was stored and exported. Every import and export path calls
+    this, and refuses (``cpassword_detected`` on export).
+
+    The check runs on the PARSED tree, which the bounded parser decodes from
+    UTF-8 or UTF-16 (either byte order, with or without a byte order mark).
+    It used to start with a scan of the raw bytes for ``b"cpassword"``, which a
+    UTF-16 file never contains, so a UTF-16 preference file with a cpassword
+    imported (second review). XML that does not parse counts as holding one if
+    the word appears in any of those decodings.
+    """
     try:
         root = _bounded_parse(xml)
     except GppError:
-        return True
-    for elem in root.iter():
-        for attr_name in elem.attrib:
-            if _local_name(attr_name).casefold() == "cpassword":
-                return True
-    return False
+        return any(
+            "cpassword" in xml.decode(encoding, errors="ignore").casefold()
+            for encoding in ("utf-8", "utf-16-le", "utf-16-be")
+        )
+    return has_never_retained_name(root)
 
 
 # ---------------------------------------------------------------------------

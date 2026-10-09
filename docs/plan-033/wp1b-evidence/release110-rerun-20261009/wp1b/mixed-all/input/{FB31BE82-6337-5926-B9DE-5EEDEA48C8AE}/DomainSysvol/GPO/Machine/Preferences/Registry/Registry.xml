@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}"><Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="WP1BDword" status="WP1BDword" image="2" uid="{9B1DE5C0-0000-4000-8000-0000000000B2}" removePolicy="0" userContext="0" disabled="0" bypassErrors="1"><Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\WP1B\GppRegistry" name="WP1BDword" type="REG_DWORD" value="B2D05E00" /></Registry></RegistrySettings>

@@ -10,6 +10,138 @@ Current version: `1.1.0rc1` (release candidate). The latest final release is
 
 ## [Unreleased]
 
+### Fixed
+
+Operator-facing:
+
+- **An item-level targeting filter Studio cannot write is refused when it is
+  sent, instead of breaking the GPO.** A raw filter predicate that did not
+  parse (an undeclared prefix, malformed XML) was stored as given and failed
+  only when serialized: the request answered 500 after committing, and every
+  later read or export of that GPO answered 500. The group and registry routes
+  now refuse an unwritable raw predicate with `invalid_ilt_filter` (422). A
+  padded IP range (" 10.0.0.0/8 ") had the same effect, because validation
+  stripped it and the writer did not; the writer now strips it too. And as a
+  backstop, the store writes every changed preference collection before
+  committing it and refuses with `unwritable_preferences` (422) whatever the
+  writer cannot write, so no request can leave a GPO unreadable.
+  Pre-existing; found by the WI-080 reviews.
+- **A stored GPO's preferences are exported as Windows wrote them, fixed and
+  requalified (WI-080).** Studio kept an imported GPO's
+  preference XML only in memory, so every export of a stored GPO (the GPMC
+  backup, `export.zip`, the publication planner) rebuilt it from the typed
+  model, edited or not. That dropped every `Properties` attribute the model
+  does not type, among them a printer's `default` ("set as the default
+  printer"), an environment variable's `partial`, a scheduled task's
+  `logonType`, a shortcut's `comment`, `shortcutKey`, `targetType` and `pidl`,
+  a drive's `thisDrive`, `allDrives` and `userName`, and a folder's `delete*`
+  options. It also minted a new `FilterRunOnce` id, so a migration through
+  Studio re-applied every apply-once item on every client; turned `window=""`
+  into `Normal`; dropped a filter group's name beside its SID; added
+  default-valued attributes the source never had; and reordered attributes.
+  Measured on the committed native captures: 18 of 19 changed.
+
+  Import now keeps each preference item's element as Windows wrote it
+  (`native_xml`, all 20 families) and the imported run-once id
+  (`common.run_once_id`), and both are stored. An unchanged item is written
+  exactly as imported. In an edited one, what the edit changed is written from
+  the model, in its imported position, and everything else stays as imported;
+  each merge is parsed back, and the model's own rendering is written instead
+  wherever the merge would not mean what the model means. Every element written
+  for an edited item is also held to the model's intended values: a typed value
+  the edit changed that would read back as the imported one is refused, never
+  exported, and that is checked per scalar: an edit must read back as itself.
+  A task's edited command is now written into its `<Task>` payload (a TaskV2's
+  `arguments` edit was lost even before this fix), whether or not the task was
+  imported: without an import record the payload is the record, a set field
+  that differs from it is an edit, and an empty one is unset only when no
+  command field is set (a task built from a payload alone); next to a set
+  field it could be a deliberate clear, and the export is refused rather than
+  keeping the old value. A payload edit and
+  a command edit that disagree are refused, as is a typed field with no wire
+  form, such as a printer's generic `action` or a folder's `suppress`. A registry item's action as the workbench shows and
+  edits it, which was never written, is now read from the value's action on
+  import and applied to it by an API edit. The run-once id survives turning
+  apply-once off and on again. A cpassword is refused as an element as well as an attribute, at any
+  depth, in any case, namespace or encoding (UTF-16 in either byte order, with
+  or without a byte order mark), on import, at the API, on load and on every
+  export (before, the element form passed every check and reached
+  `export.zip`, and a UTF-16 file evaded the check entirely). The API neither serves nor accepts a retained element, in any JSON
+  body (revision snapshots and diffs included) or inline diff reference; a
+  stored one is validated on load (no `cpassword`, no XML namespace) and an
+  item in a namespace is not retained. No retained store -- unknown
+  attributes, unknown children, raw filter predicates -- may hold a namespaced
+  name, and every retained attribute name must be a plain NCName (no literal
+  `xmlns:x` or `x:extra` key): import, load and the API refuse one. The
+  credential check reads the local part after any prefix, so `x:cpassword` is
+  refused at intake. The review diff compares what a
+  retained element makes the export write, not the element itself, so a
+  re-import of Studio's own export is not a change. Workspaces need no
+  migration: a GPO stored before this fix keeps its digests and backup id, and
+  its export is byte for byte what 1.1.0rc1 wrote except where WI-081 below
+  corrected an attribute name or order (Files, Folders, Printers, Shortcuts,
+  immediate tasks), measured against the records that commit stored
+  (`tests/fixtures/gpp-store-baseline-bd84b3a`). Review digests change only
+  for a GPO imported from GPMC after the fix, because its export does
+  (re-importing Studio's own backup leaves them unchanged). The
+  report-parity inventory now reads the typed model alone (`gpp.model_only`),
+  as it always meant to.
+  Covered by `tests/test_gpp_native_preservation.py`, which compares every
+  native capture with Studio's output through import, storage and the public
+  `export.zip` and `gpmc-backup` routes, attribute by attribute and in order,
+  and fails on the code before the fix. The fix changes `gpp.py`,
+  `gpp_adapters.py`, `canonical.py` and `report_parity.py`, so the fdeploy,
+  firewall, publication, report-parity, scripts-metadata and WP-1B lanes must
+  re-run; every lane candidate builds byte for byte as before.
+- **A GPMC default printer reads as the default, and the GPP writer types only
+  attribute names Windows writes, fixed and requalified
+  (WI-081).** Printers' typed `set_default` and `use_local` were read and
+  written as `setDefault` and `useLocal`, which no capture contains; GPMC
+  writes `default` and `skipLocal`. So the model, the API, reports and diffs
+  showed a GPMC default printer as not the default, and an authored or edited
+  printer wrote attributes Windows has not been seen to read. They now read and
+  write GPMC's names, in GPMC's order, and the field is `skip_local`; Studio's
+  older output and stored items are still read under the old names, and
+  digests do not move. An audit of every writer against the native captures
+  found three more names none contains, now no longer written: Folders
+  `suppress`, Shortcuts `Properties@name` (a shortcut is named on its item, as
+  GPMC names it; the typed name is written there whenever set, so a rename
+  persists) and an immediate task's `program`, `arguments` and `startIn` where
+  its `<Task>` payload already holds them. `tests/test_gpp_typed_attribute_names.py`
+  pins the audit: every `Properties` attribute the writer types appears in a
+  capture. Families with no capture are not claimed. Every lane candidate
+  builds byte for byte as before.
+- **A workbench edit keeps a preference item's common options, fixed and
+  requalified (WI-082).** The group and registry edit payloads
+  carried no common options and the store replaced the item, so every edit
+  reset apply-once (dropping its run-once filter), disabled,
+  remove-when-not-applied, run-in-user-context and stop-on-error. An add or
+  edit now takes an optional `common` object; options it leaves out are carried
+  over from the item it replaces (defaults for a new item), as is the run-once
+  id, which the API cannot set. Group and registry responses now show
+  `common`. Covered through the real API for every option on both families
+  (`tests/test_gpp_common_option_edits.py`), and by saving every group and
+  registry item of every native capture back through the API, after which the
+  export must still equal the capture.
+
+### Evidence
+
+- **Banked the release 1.1.0 successor batch**
+  ([batch note](docs/plan-033/release110-successors-batch.md)). The WI-080,
+  WI-081 and WI-082 fix changed `gpp.py`, `gpp_adapters.py`, `canonical.py`,
+  `report_parity.py` and `backup_inventory.py`, which exactly six release 1.1.0
+  verdicts bind. Those six lanes (WP-1B, scripts-metadata, publication, report
+  parity, firewall, fdeploy) re-ran at `9940561` and all passed (schema 3
+  manifest: `test_scope_tool` and `exec_failed` false on every row), with a
+  clean post-batch directory check. Their verdicts replace the six, which are
+  retired; the other 19 release 1.1.0 verdicts still bind the tree unchanged.
+  The lane evidence tests, `platforms.json`, the environment spec, the
+  capability matrix, the results headers and the 1.1.0 release-evidence
+  records cite the successor runs. WI-080, WI-081 and WI-082 close.
+- `scripts/plan-033/bank-requal-batch.py retarget` no longer rewrites a commit
+  that lanes outside the new batch still bind (it rewrote all 19 unchanged
+  lanes' citations in `platforms.json` before this fix).
+
 ## [1.1.0-rc.1] - 2026-10-09
 
 > **Release candidate, not the final 1.1.0 record.** `1.1.0rc1` is published

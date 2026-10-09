@@ -1,8 +1,9 @@
 """The banked report-parity verdict is intact and still says what it said.
 
-The lane's current certifying run (Plan 034 WP-2 items 2 and 3) is the release
-1.1.0 batch's, read from `docs/plan-033/release110-batch.json`: 30 corpus
-cases plus the guest-authored case. `test_committed_evidence.py` already holds it to the
+The lane's current certifying run (Plan 034 WP-2 items 2 and 3) is the
+release 1.1.0 successor batch's (9940561, WI-080/081/082), read from
+`docs/plan-033/release110-successors-batch.json`: 30 corpus cases plus the
+guest-authored case. `test_committed_evidence.py` already holds it to the
 generic contract through `LANE_VERDICTS`: its `source.files` keys match the
 finalizer's tables, every recorded digest resolves at its commit through
 `git show`, the pack banks no controller-side copy, and the shipping tree still
@@ -47,7 +48,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _BATCH_RUN = next(
     run
     for run in json.loads(
-        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+        (ROOT / "docs/plan-033/release110-successors-batch.json").read_text(encoding="utf-8")
     )["runs"]
     if run["name"] == "report-parity"
 )

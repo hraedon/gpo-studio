@@ -122,14 +122,19 @@ from .gpp import (
     _normalize_hive,
     _validate_unknown_attrs,
     _validate_unknown_children,
+    item_carries_cpassword,
+    namespaced_content,
     serialize_gpp,
+    without_native_records,
 )
+from .gpp_native import credential_local_name
 from .identity import ClaimedIdentity, claimed_identity
 from .ilt import (
     IltError,
     IltFilter,
     IltOsCriteria,
     IltPredicate,
+    serialize_ilt,
     validate_predicate_unknown_attrs,
 )
 from .import_export import (
@@ -457,6 +462,30 @@ class GppGroupMemberData(BaseModel):
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
 
 
+class GppCommonOptionsData(BaseModel):
+    """The common options an add or edit sets explicitly (WI-082).
+
+    A field left out (``null``) is not changed: an edit keeps the item's
+    current value and an add takes the default. Before WI-082 the payloads
+    carried no common options at all, so every edit through the workbench
+    reset apply-once (and its run-once filter), disabled, remove-when-not-
+    applied, run-in-user-context and stop-on-error to their defaults. The
+    run-once id is never set here: it is the item's identity (WI-080).
+    """
+
+    apply_once: bool | None = None
+    remove_when_unapplied: bool | None = None
+    user_security_context: bool | None = None
+    disabled: bool | None = None
+    stop_on_error: bool | None = None
+
+
+def _common_edits(common: GppCommonOptionsData | None) -> dict[str, bool]:
+    if common is None:
+        return {}
+    return {name: value for name, value in common.model_dump().items() if value is not None}
+
+
 class GppGroupData(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     sid: str = Field(default="", max_length=255)
@@ -467,6 +496,7 @@ class GppGroupData(BaseModel):
     members: list[GppGroupMemberData] = Field(default_factory=list)
     id: str = ""
     ilt_filter: IltFilterData | None = None
+    common: GppCommonOptionsData | None = None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_children: list[str] = Field(default_factory=list)
@@ -541,6 +571,7 @@ class GppRegistryData(BaseModel):
     id: str = ""
     uid: str = ""
     ilt_filter: IltFilterData | None = None
+    common: GppCommonOptionsData | None = None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
@@ -1020,6 +1051,16 @@ class GppRegistryValueResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GppCommonOptionsResponse(BaseModel):
+    apply_once: bool = False
+    remove_when_unapplied: bool = False
+    user_security_context: bool = False
+    disabled: bool = False
+    stop_on_error: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class GppGroupResponse(BaseModel):
     id: str
     name: str
@@ -1030,6 +1071,7 @@ class GppGroupResponse(BaseModel):
     remove_all_users: bool
     remove_all_groups: bool
     ilt_filter: IltFilterResponse | None
+    common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
@@ -1045,6 +1087,7 @@ class GppRegistryResponse(BaseModel):
     action: str
     uid: str = ""
     ilt_filter: IltFilterResponse | None = None
+    common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
@@ -1613,7 +1656,35 @@ def _ilt_filter_data_to_model(data: IltFilterData | None) -> IltFilter | None:
             items.append(pred)
         for raw in data.unknown_predicates:
             items.append(raw)
-    return IltFilter(items=tuple(items))
+    ilt_filter = IltFilter(items=tuple(items))
+    _refuse_unwritable_ilt(ilt_filter)
+    return ilt_filter
+
+
+def _refuse_unwritable_ilt(ilt_filter: IltFilter) -> None:
+    """Refuse a raw filter predicate Studio could not write, before anything is stored.
+
+    A raw predicate that does not parse (an undeclared prefix, malformed XML)
+    used to be stored as given and fail only when the filter was serialized,
+    so the request returned 500 after committing and every later read or
+    export of that GPO failed too. Only raw predicates are checked here: typed
+    predicates are validated by the store (``invalid_ilt_ip_range`` and the
+    like), and serializing them here would turn those 422s into 500s.
+    """
+    for item in ilt_filter.items:
+        if isinstance(item, IltPredicate):
+            continue
+        try:
+            serialize_ilt(IltFilter(items=(item,)))
+        except (IltError, GppError) as error:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="invalid_ilt_filter",
+                    message=f"A raw item-level targeting predicate cannot be written: {error}",
+                    path="ilt_filter",
+                )
+            ]) from error
 
 
 def _validate_ilt_predicate_attrs(pred: IltPredicate) -> None:
@@ -1666,6 +1737,59 @@ def _validate_gpp_unknown_children(
         ]) from error
 
 
+def _refuse_cpassword(key: str, item: Any, context: str) -> None:
+    """Refuse an item whose unknown attributes, children or raw filters hold a cpassword.
+
+    The export refuses one too (``cpassword_detected``); this stops it at the
+    door, as import does (WI-080 review: an element form passed every check).
+    """
+    if item_carries_cpassword(key, item):
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="cpassword_detected",
+                message=f"{context} would carry a cpassword, which Studio never writes.",
+                path="unknown_attrs",
+            )
+        ])
+    _refuse_namespaced_content(item, context)
+
+
+def _refuse_namespaced_content(value: Any, context: str) -> None:
+    """Refuse unknown content in an XML namespace (WI-080 review).
+
+    No native GPP capture uses one, and the writer copies unknown attributes,
+    children and raw filter predicates out verbatim. Import and load refuse it
+    too.
+    """
+    found = namespaced_content(value)
+    if found is not None:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="xml_namespace_refused",
+                message=(
+                    f"{context} uses an XML namespace or prefix ({found}); no native "
+                    "GPP capture does."
+                ),
+                path="unknown_attrs",
+            )
+        ])
+
+
+def _refuse_cpassword_attrs(unknown: tuple[tuple[str, str], ...], context: str) -> None:
+    """The member and registry-value routes' part of `_refuse_cpassword`."""
+    if any(credential_local_name(name) == "cpassword" for name, _ in unknown):
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="cpassword_detected",
+                message=f"{context} would carry a cpassword, which Studio never writes.",
+                path="unknown_attrs",
+            )
+        ])
+
+
 def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
     member = GppGroupMember(
         sid=data.sid,
@@ -1677,6 +1801,8 @@ def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
     _validate_gpp_unknown_attrs(
         member.unknown_attrs, _MEMBER_RESERVED_ATTRS, f"member {member.name!r}"
     )
+    _refuse_cpassword_attrs(member.unknown_attrs, f"member {member.name!r}")
+    _refuse_namespaced_content(member, f"member {member.name!r}")
     return member
 
 
@@ -1714,6 +1840,7 @@ def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
         _GROUP_PROPS_KNOWN_CHILDREN,
         f"group {group.name!r} properties",
     )
+    _refuse_cpassword("groups", group, f"group {group.name!r}")
     return group
 
 
@@ -1732,6 +1859,8 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
         _REGISTRY_VALUE_RESERVED_ATTRS,
         f"registry value {value.name!r}",
     )
+    _refuse_cpassword_attrs(value.unknown_attrs, f"registry value {value.name!r}")
+    _refuse_namespaced_content(value, f"registry value {value.name!r}")
     return value
 
 
@@ -1776,6 +1905,7 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
         _REGISTRY_PROPS_KNOWN_CHILDREN,
         f"registry {registry.key!r} properties",
     )
+    _refuse_cpassword("registry", registry, f"registry {registry.key!r}")
     return registry
 
 
@@ -1963,9 +2093,15 @@ class JSONResponse(_FastAPIJSONResponse):
     text cannot reach storage any more, but stored text must still be
     readable: on that failure the body is re-rendered with ASCII escapes,
     which JSON permits and which carry the value unchanged.
+
+    It is also the API's one boundary for retained native elements (WI-080):
+    every JSON body leaves out ``native_xml`` wherever it appears -- a GPO, a
+    revision snapshot, a diff, a list row -- so no route can serve it, however
+    it builds its payload (review P2: revision snapshots and diffs did).
     """
 
     def render(self, content: Any) -> bytes:
+        content = without_native_records(content)
         try:
             return super().render(content)
         except UnicodeEncodeError:
@@ -3191,6 +3327,7 @@ def add_gpp_group(
         group,
         identity=_identity(body.actor),
         reason=body.reason,
+        common_edits=_common_edits(body.group.common),
     )
     return _gpo_payload(gpo, request)
 
@@ -3209,6 +3346,7 @@ def edit_gpp_group(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        common_edits=_common_edits(body.group.common),
     )
     return _gpo_payload(gpo, request)
 
@@ -3245,6 +3383,7 @@ def add_gpp_registry(
         registry,
         identity=_identity(body.actor),
         reason=body.reason,
+        common_edits=_common_edits(body.registry.common),
     )
     return _gpo_payload(gpo, request)
 
@@ -3263,6 +3402,7 @@ def edit_gpp_registry(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        common_edits=_common_edits(body.registry.common),
     )
     return _gpo_payload(gpo, request)
 
@@ -3585,6 +3725,10 @@ def report(request: Request, guid: str) -> Response:
 
 
 def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
+    # A retained native element comes only from an import (WI-080): one in an
+    # inline GPO reference is ignored, not trusted.
+    if isinstance(ref, dict):
+        ref = without_native_records(ref)
     return resolve_gpo(_store(request), ref)
 
 
@@ -6067,8 +6211,8 @@ def publication_plan_preview(
 # Plan 034: the firewall surface (WI-076).
 #
 # `firewall_policy.py` is bound by the firewall lane's verdict
-# (`firewall-20261009001906-2614294`, 36/36 at de9736e, the release 1.1.0
-# batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
+# (`firewall-20261009080610-2829523`, 36/36 at 9940561, the release 1.1.0
+# successor batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
 # the export chain, so the composition lives here, in a file no lane binds.
 # The render endpoint emits exactly what `to_registry_settings` emits, in the
 # shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
@@ -6255,7 +6399,7 @@ class FirewallPolicyDecodeResponse(BaseModel):
     limitations: list[FirewallLimitation]
 
 
-_FIREWALL_RUN_ID = "firewall-20261009001906-2614294"
+_FIREWALL_RUN_ID = "firewall-20261009080610-2829523"
 _FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
 _FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
 

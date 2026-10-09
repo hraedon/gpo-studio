@@ -802,7 +802,7 @@ def test_no_production_code_writes_a_gpp_file_from_items_alone() -> None:
     fragment_helpers = {
         name for name in dir(gpp_adapters)
         if name.startswith("serialize_gpp_") and callable(getattr(gpp_adapters, name))
-    } | {"_build_adapter_root"}
+    } | {"serialize_adapter_item"}
     assert len(fragment_helpers) == 20
     offenders: list[str] = []
     sources = sorted((ROOT / "src/gpo_studio").glob("*.py")) + sorted(
@@ -818,7 +818,7 @@ def test_no_production_code_writes_a_gpp_file_from_items_alone() -> None:
             if name not in fragment_helpers:
                 continue
             relative = path.relative_to(ROOT).as_posix()
-            if name == "_build_adapter_root" and relative == "src/gpo_studio/gpp.py":
+            if name == "serialize_adapter_item" and relative == "src/gpo_studio/gpp.py":
                 continue  # the root-preserving writer itself
             offenders.append(f"{relative}:{node.lineno} {name}")
     assert offenders == []

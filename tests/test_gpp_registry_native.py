@@ -38,6 +38,7 @@ from gpo_studio.gpp import (
     gpp_collection_from_dict,
     gpp_registry_unmeasured_shapes,
     mark_edited,
+    model_only,
     parse_gpp_collection,
     parse_gpp_registry,
     serialize_gpp,
@@ -196,12 +197,18 @@ def test_writer_matches_native_items_from_an_authored_model(side: str) -> None:
 
 @pytest.mark.parametrize("side", ["Machine", "User"])
 def test_writer_matches_native_items_after_an_import_and_edit(side: str) -> None:
-    """The import-then-edit path: the D8 verbatim bytes are bypassed."""
+    """The import-then-edit path, through the WRITER: the model alone.
+
+    ``model_only`` drops the D8 verbatim bytes and each item's retained native
+    element (WI-080), so this is what the writer makes of the parsed model.
+    An export of the stored import writes the native bytes exactly
+    (tests/test_gpp_native_preservation.py).
+    """
     collection = parse_gpp_collection(
         SCOPE[side],  # type: ignore[arg-type]
         {"Registry/Registry.xml": _native_bytes(side)},
     )
-    studio = serialize_gpp(mark_edited(collection))["Registry/Registry.xml"]
+    studio = serialize_gpp(model_only(collection))["Registry/Registry.xml"]
     _assert_same_element(ET.fromstring(studio), ET.fromstring(_native_bytes(side)))
 
 
@@ -505,7 +512,8 @@ def test_writer_matches_the_revision_2_items_after_an_import_and_edit(side: str)
         SCOPE[side],  # type: ignore[arg-type]
         {"Registry/Registry.xml": _shapes_bytes(side)},
     )
-    studio = serialize_gpp(mark_edited(collection))["Registry/Registry.xml"]
+    # The writer alone (see test_writer_matches_native_items_after_an_import_and_edit).
+    studio = serialize_gpp(model_only(collection))["Registry/Registry.xml"]
     _assert_same_element(ET.fromstring(studio), ET.fromstring(_shapes_bytes(side)))
 
 
@@ -645,7 +653,8 @@ def test_writer_matches_every_matrix_item_after_an_import_and_edit(side: str) ->
         SCOPE[side],  # type: ignore[arg-type]
         {"Registry/Registry.xml": _matrix_bytes(side)},
     )
-    studio = serialize_gpp(mark_edited(collection))["Registry/Registry.xml"]
+    # The writer alone (see test_writer_matches_native_items_after_an_import_and_edit).
+    studio = serialize_gpp(model_only(collection))["Registry/Registry.xml"]
     _assert_same_element(ET.fromstring(studio), ET.fromstring(_matrix_bytes(side)))
 
 
@@ -851,8 +860,12 @@ def test_a_pre_batch_2_import_is_re_typed_on_load() -> None:
 def test_an_imported_display_radix_is_preserved_in_place() -> None:
     reg = parse_gpp_registry(_one('displayDecimal="1" type="REG_DWORD" value="0000002A"/>'))[0]
     assert reg.value.unknown_attrs == (("displayDecimal", "1"),)
+    # The writer's own placement: without the retained element (WI-080), which
+    # would write the imported attribute order back as it was.
     props = ET.fromstring(
-        serialize_gpp_registry(GppCollection(scope="computer", registry=(replace(reg),)))
+        serialize_gpp_registry(
+            GppCollection(scope="computer", registry=(replace(reg, native_xml=""),))
+        )
     ).find("Registry/Properties")
     assert props is not None
     assert list(props.attrib)[:3] == ["action", "displayDecimal", "default"]

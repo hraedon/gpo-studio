@@ -19,7 +19,50 @@
       "lanes_started": 26,
       "runs_passed": 26,
       "not_passed": [],
-      "successors": [],
+      "successors": [
+        {
+          "name": "wp1b",
+          "run_id": "wp1b-writer-20261009080228-1849",
+          "checks": "pass",
+          "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+          "replaces": "wp1b-writer-20261009001221-5737"
+        },
+        {
+          "name": "scripts-metadata",
+          "run_id": "scripts-r10-20261009080318-5148",
+          "checks": "20/20",
+          "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+          "replaces": "scripts-r10-20261009001541-4025"
+        },
+        {
+          "name": "publication",
+          "run_id": "publication-completeness-20261009080352-5754",
+          "checks": "21/21",
+          "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+          "replaces": "publication-completeness-20261009001615-4372"
+        },
+        {
+          "name": "report-parity",
+          "run_id": "report-parity-20261009080432-2383",
+          "checks": "26/26",
+          "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+          "replaces": "report-parity-20261009001727-3532"
+        },
+        {
+          "name": "firewall",
+          "run_id": "firewall-20261009080610-2829523",
+          "checks": "36/36",
+          "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+          "replaces": "firewall-20261009001906-2614294"
+        },
+        {
+          "name": "fdeploy",
+          "run_id": "fd-20261009080824-4244",
+          "checks": "29/29",
+          "commit": "99405618105edaa4b408be92047f83b6a24dd217",
+          "replaces": "fd-20261009002120-4293"
+        }
+      ],
       "runs": [
         {
           "name": "wp0",
@@ -171,9 +214,24 @@
       "retired": [
         "Plan 034 batch (21 verdicts at 263f19640529d469c2a54c18b43d228db5378279)",
         "object-security successor at 1fb3f56ac7431e0044c69c32edc4350b2ab84151",
-        "lifecycle at 3513052, report parity at a1c280b, firewall at a6e0002, fdeploy at df713ef"
+        "lifecycle at 3513052, report parity at a1c280b, firewall at a6e0002, fdeploy at df713ef",
+        "the six release 1.1.0 verdicts the successor batch replaced (at de9736ed3a4148b91cf2267fbe4640e260cc232f)"
       ],
-      "pending_requalification": []
+      "pending_requalification": [],
+      "successor_batch": {
+        "note": "docs/plan-033/release110-successors-batch.md",
+        "batch_manifest": "docs/plan-033/release110-successors-batch.json",
+        "frozen_commit": "99405618105edaa4b408be92047f83b6a24dd217",
+        "reason": "WI-080/081/082 changed gpp.py, gpp_adapters.py, canonical.py, report_parity.py and backup_inventory.py, bound by exactly these six lanes",
+        "lanes_started": 6,
+        "runs_passed": 6,
+        "post_batch_directory_check": {
+          "result": "clean",
+          "captured_utc": "2026-10-09T08:08:58Z",
+          "directory": "docs/plan-033/release110-rerun-cleanup/directory.json",
+          "collector": "docs/plan-033/release110-rerun-cleanup/collector.ps1"
+        }
+      }
     },
     "workspace_upgrade": {
       "from_release": "1.0.0",
@@ -192,13 +250,13 @@
       "security_template_axe_finding_fixed": "scrollable-region-focusable (serious), in a 360-pixel-wide window: the validation-issue table; it and the rendered GptTmpl.inf block are now focusable, named regions",
       "hands_on_screen_reader": "required before final approval; pending: the owner runs docs/nvda-validation-runbook.md against the exact v1.1.0-rc.N wheel from the release assets"
     },
-    "lane_verdicts": "requalified by the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
+    "lane_verdicts": "requalified by the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f, six of them re-run by its successor batch at 99405618105edaa4b408be92047f83b6a24dd217; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
     "lanes_first_batched": [
       {
         "lane": "fdeploy (read target)",
-        "run_id": "fd-20261009002120-4293",
+        "run_id": "fd-20261009080824-4244",
         "checks": "29/29",
-        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
+        "commit": "99405618105edaa4b408be92047f83b6a24dd217",
         "results": "docs/plan-033/fdeploy-results.md",
         "surfaces": [
           "POST /api/folder-redirection/fdeploy",
@@ -219,9 +277,9 @@
       },
       {
         "lane": "firewall",
-        "run_id": "firewall-20261009001906-2614294",
+        "run_id": "firewall-20261009080610-2829523",
         "checks": "36/36",
-        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
+        "commit": "99405618105edaa4b408be92047f83b6a24dd217",
         "results": "docs/plan-033/firewall-results.md",
         "surfaces": [
           "POST /api/network-security/firewall/render",
@@ -251,9 +309,9 @@
       },
       {
         "lane": "report-parity",
-        "run_id": "report-parity-20261009001727-3532",
+        "run_id": "report-parity-20261009080432-2383",
         "checks": "26/26 (30 corpus cases plus a guest-authored GPO)",
-        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
+        "commit": "99405618105edaa4b408be92047f83b6a24dd217",
         "results": "docs/plan-033/report-parity-results.md",
         "surfaces": [
           "POST /api/backups/import",

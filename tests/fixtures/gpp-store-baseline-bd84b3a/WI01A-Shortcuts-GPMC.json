@@ -1,0 +1,253 @@
+{
+ "exports": {
+  "user/Shortcuts/Shortcuts.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Shortcuts clsid=\"{872ECB34-B2EC-401b-A585-D32574AA90EE}\"><Shortcut clsid=\"{4F2F7C55-2790-433e-8127-0739D1CFA327}\" name=\"Manager\" removePolicy=\"0\" userContext=\"1\" disabled=\"0\" bypassErrors=\"1\" status=\"Manager\" image=\"1\" changed=\"2026-07-27 21:29:58\" uid=\"{E477D4D8-AF17-4798-964A-48925A8A74E1}\"><Properties action=\"R\" name=\"\" targetPath=\"C:\\Program Files\\LabTools\\manager.exe\" arguments=\"--config lab\" startIn=\"C:\\Program Files\\LabTools\" iconPath=\"…\\icon.ico\" iconIndex=\"0\" window=\"Normal\" shortcutPath=\"%CommonDesktopDir%\\Lab Tools\\Manager\" /><Filters><FilterGroup name=\"HRAENET\\Lab-WS-Group\" not=\"0\" bool=\"AND\" userContext=\"1\" primaryGroup=\"0\" localGroup=\"0\" /></Filters></Shortcut><Shortcut clsid=\"{4F2F7C55-2790-433e-8127-0739D1CFA327}\" name=\"Ü &amp;.lnk\" removePolicy=\"0\" userContext=\"1\" disabled=\"0\" bypassErrors=\"0\" status=\"Ü &amp;.lnk\" image=\"0\" changed=\"2026-07-27 21:31:10\" uid=\"{1AE40094-240C-4656-B8C2-F1B7A3C05758}\"><Properties action=\"C\" name=\"\" targetPath=\"notepad.exe\" arguments=\"/A\" startIn=\"\" iconPath=\"\" iconIndex=\"0\" window=\"Normal\" shortcutPath=\"%USERPROFILE%\\Desktop\\Ü &amp;.lnk\" /></Shortcut><Shortcut clsid=\"{4F2F7C55-2790-433e-8127-0739D1CFA327}\" name=\"Old App\" removePolicy=\"0\" userContext=\"1\" disabled=\"0\" bypassErrors=\"0\" status=\"Old App\" image=\"3\" changed=\"2026-07-27 21:32:26\" uid=\"{9946F5E0-918B-4A74-8EDB-28671224FEA0}\"><Properties action=\"D\" name=\"\" targetPath=\"\" arguments=\"\" startIn=\"\" iconPath=\"\" iconIndex=\"0\" window=\"Normal\" shortcutPath=\"Old App\" /></Shortcut></Shortcuts>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "user",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [
+     {
+      "action": "replace",
+      "arguments": "--config lab",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": false,
+       "user_security_context": true
+      },
+      "document_position": 0,
+      "icon_index": 0,
+      "icon_path": "…\\icon.ico",
+      "id": "00000000-0000-4010-8000-000000000001",
+      "ilt_filter": {
+       "items": [
+        {
+         "bool_op": "AND",
+         "negate": false,
+         "os_criteria": null,
+         "type": "group",
+         "unknown_attrs": [
+          [
+           "userContext",
+           "1"
+          ],
+          [
+           "primaryGroup",
+           "0"
+          ],
+          [
+           "localGroup",
+           "0"
+          ]
+         ],
+         "value": "HRAENET\\Lab-WS-Group"
+        }
+       ]
+      },
+      "name": "",
+      "shortcut_path": "%CommonDesktopDir%\\Lab Tools\\Manager",
+      "start_in": "C:\\Program Files\\LabTools",
+      "target_path": "C:\\Program Files\\LabTools\\manager.exe",
+      "unknown_attrs": [
+       [
+        "status",
+        "Manager"
+       ],
+       [
+        "image",
+        "1"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:29:58"
+       ],
+       [
+        "uid",
+        "{E477D4D8-AF17-4798-964A-48925A8A74E1}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "window_style": "normal"
+     },
+     {
+      "action": "add",
+      "arguments": "/A",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": true
+      },
+      "document_position": 1,
+      "icon_index": 0,
+      "icon_path": "",
+      "id": "00000000-0000-4010-8000-000000000002",
+      "ilt_filter": null,
+      "name": "",
+      "shortcut_path": "%USERPROFILE%\\Desktop\\Ü &.lnk",
+      "start_in": "",
+      "target_path": "notepad.exe",
+      "unknown_attrs": [
+       [
+        "status",
+        "Ü &.lnk"
+       ],
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:31:10"
+       ],
+       [
+        "uid",
+        "{1AE40094-240C-4656-B8C2-F1B7A3C05758}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "window_style": "normal"
+     },
+     {
+      "action": "remove",
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": true
+      },
+      "document_position": 2,
+      "icon_index": 0,
+      "icon_path": "",
+      "id": "00000000-0000-4010-8000-000000000003",
+      "ilt_filter": null,
+      "name": "",
+      "shortcut_path": "Old App",
+      "start_in": "",
+      "target_path": "",
+      "unknown_attrs": [
+       [
+        "status",
+        "Old App"
+       ],
+       [
+        "image",
+        "3"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:32:26"
+       ],
+       [
+        "uid",
+        "{9946F5E0-918B-4A74-8EDB-28671224FEA0}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "window_style": "normal"
+     }
+    ],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000015",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-Shortcuts-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{04677927-1E5F-581B-9FEE-972290480544}",
+ "policy_semantic_sha256": "e008d2a05e5fb32d918ce4a8be3b8db48346aad08139621231f61fb9d53ef999",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-gpmc/WI01A-Shortcuts-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "db59cd5fb61dabf5901e766b3e0a2a4e772ef483d2223ecc948e625a51181a93"
+}

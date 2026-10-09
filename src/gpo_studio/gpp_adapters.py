@@ -9,10 +9,11 @@ Microsoft's documented format so that output is interoperable with GPMC.
 
 from __future__ import annotations
 
+import functools
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, assert_never
 
 from .gpp import (
@@ -37,6 +38,7 @@ from .gpp import (
     _parse_item_filters,
     _xml_declaration,
 )
+from .gpp_native import native_element_xml
 from .ilt import IltFilter
 
 # CLSIDs from MS-GPPREF "Outer and Inner Element Names and CLSIDs" table
@@ -166,8 +168,10 @@ _PROPS_KNOWN_ATTRS: dict[str, frozenset[str]] = {
     "NetworkShareSettings": _COMMON_PROPS_ATTRS | frozenset({
         "name", "path", "comment", "userLimit", "action",
     }),
+    # ``setDefault``/``useLocal`` are the names Studio wrote before WI-081,
+    # still read from its own older output; GPMC writes ``default``/``skipLocal``.
     "Printers": _COMMON_PROPS_ATTRS | frozenset({
-        "path", "action", "setDefault", "useLocal", "comment",
+        "path", "action", "default", "skipLocal", "comment", "setDefault", "useLocal",
     }),
     "Shortcuts": _COMMON_PROPS_ATTRS | frozenset({
         "name", "targetPath", "arguments", "startIn", "iconPath", "iconIndex",
@@ -536,6 +540,9 @@ class GppEnvironment:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,6 +563,9 @@ class GppIniFile:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -579,6 +589,9 @@ class GppRegionalOptions:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,6 +612,9 @@ class GppPowerOptions:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -618,6 +634,9 @@ class GppDevice:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -639,6 +658,9 @@ class GppFolderOptions:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -660,6 +682,9 @@ class GppDataSource:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,6 +706,9 @@ class GppDrive:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -703,6 +731,9 @@ class GppFile:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -713,6 +744,10 @@ class GppFolder:
     read_only: bool = False
     hidden: bool = False
     archive: bool = True
+    #: Read from Studio's own older output, never written (WI-081): Files has
+    #: ``suppress`` (measured, WI01A-Files-GPMC) but no Folders capture does,
+    #: so a Folders ``suppress`` is a Studio invention Windows has not been
+    #: seen to read. Kept so stored items keep their digests.
     suppress: bool = False
     action: GppAction = "update"
     id: str = ""
@@ -724,6 +759,9 @@ class GppFolder:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -744,6 +782,9 @@ class GppNetworkShare:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -752,8 +793,14 @@ class GppPrinter:
 
     path: str = ""
     action_type: _PrinterActionType = "create"
+    #: ``Properties@default`` (WI-081): ``1`` on the printer GPMC sets as the
+    #: default (WI01A-Printers-GPMC's Lab-Color, authored "set as default").
     set_default: bool = False
-    use_local: bool = False
+    #: ``Properties@skipLocal`` (WI-081). GPMC writes it on every shared
+    #: printer; every capture has ``0``, so what ``1`` does is unmeasured.
+    #: Until WI-081 this field was ``use_local``, read and written as a
+    #: ``useLocal`` attribute no capture contains.
+    skip_local: bool = False
     comment: str = ""
     action: GppAction = "update"
     id: str = ""
@@ -765,6 +812,9 @@ class GppPrinter:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -789,6 +839,9 @@ class GppShortcut:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -809,6 +862,9 @@ class GppApplication:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -856,6 +912,9 @@ class GppService:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -885,6 +944,9 @@ class GppLocalUser:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -913,6 +975,9 @@ class GppLocalGroup:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_children: tuple[str, ...] = ()
     unknown_props_children: tuple[str, ...] = ()
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -947,6 +1012,9 @@ class GppScheduledTask:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
     element_variant: Literal["Task", "TaskV2"] = "TaskV2"
 
 
@@ -976,6 +1044,9 @@ class GppImmediateTask:
     #: Slot in the source document's root, set on import (WI-072/073). See
     #: ``gpp.gpp_document_order``. ``None``: no slot. Outside ==; diff and hash compare the order.
     document_position: int | None = field(default=None, compare=False)
+    #: The item's element exactly as imported, or ``""`` (WI-080); see
+    #: ``gpp.GppGroup.native_xml``. Outside ==; diff and hash compare it.
+    native_xml: str = field(default="", compare=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1137,7 +1208,7 @@ def _extract_common(
 ]:
     """Extract action, common options, ILT, unknowns, and the Properties element."""
     props = _find_local(elem, "Properties")
-    ilt_filter, apply_once = _parse_item_filters(elem)
+    ilt_filter, apply_once, run_once_id = _parse_item_filters(elem)
     unknown_attrs = _capture_unknown_attrs(elem, _ITEM_KNOWN_ATTRS)
     unknown_children = _capture_unknown_children(elem, _ITEM_KNOWN_CHILDREN)
     if props is not None:
@@ -1146,12 +1217,15 @@ def _extract_common(
             elem,
             props,
             apply_once=apply_once,
+            run_once_id=run_once_id,
         )
         props_known = _PROPS_KNOWN_CHILDREN.get(adapter_key, frozenset())
         unknown_props_children = _capture_unknown_children(props, props_known)
     else:
         action = "update"
-        common = _parse_common_options(elem, apply_once=apply_once)
+        common = _parse_common_options(
+            elem, apply_once=apply_once, run_once_id=run_once_id
+        )
         unknown_props_children = ()
     return (
         action, common, ilt_filter, unknown_attrs, unknown_children,
@@ -1168,6 +1242,24 @@ def _capture_root_unknowns(root: ET.Element, adapter_key: str) -> tuple[
         root, _ROOT_KNOWN_CHILDREN[root_tag]
     )
     return unknown_attrs, unknown_children
+
+
+def _retains_native[T](parse: Callable[[ET.Element], T]) -> Callable[[ET.Element], T]:
+    """Keep each parsed item's element as imported, in ``native_xml`` (WI-080).
+
+    Every adapter item parser wears this, so whichever path parses an item --
+    a whole file, or one element when the writer re-reads a retained one -- the
+    item carries its source element and the writer can give back what the
+    model does not type.
+    """
+
+    @functools.wraps(parse)
+    def parse_retaining(elem: ET.Element) -> T:
+        item: Any = parse(elem)
+        retained: T = replace(item, native_xml=native_element_xml(elem))
+        return retained
+
+    return parse_retaining
 
 
 # ---------------------------------------------------------------------------
@@ -1210,6 +1302,7 @@ def serialize_gpp_environment(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_environment_item(elem: ET.Element) -> GppEnvironment:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "environment")
@@ -1285,6 +1378,7 @@ def serialize_gpp_ini_files(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_ini_item(elem: ET.Element) -> GppIniFile:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "ini_files")
@@ -1366,6 +1460,7 @@ def serialize_gpp_regional_options(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_regional_options_item(elem: ET.Element) -> GppRegionalOptions:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "regional_options")
@@ -1446,6 +1541,7 @@ def serialize_gpp_power_options(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_power_options_item(elem: ET.Element) -> GppPowerOptions:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "power_options")
@@ -1522,6 +1618,7 @@ def serialize_gpp_devices(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_device_item(elem: ET.Element) -> GppDevice:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "devices")
@@ -1600,6 +1697,7 @@ def serialize_gpp_folder_options(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_folder_options_item(elem: ET.Element) -> GppFolderOptions:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "folder_options")
@@ -1679,6 +1777,7 @@ def serialize_gpp_data_sources(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_data_source_item(elem: ET.Element) -> GppDataSource:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "data_sources")
@@ -1761,6 +1860,7 @@ def serialize_gpp_drives(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_drive_item(elem: ET.Element) -> GppDrive:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "drives")
@@ -1814,11 +1914,12 @@ def _serialize_file(fi: GppFile) -> ET.Element:
         unknown_children=fi.unknown_children,
         unknown_props_children=fi.unknown_props_children,
         props_attrs={
+            # GPMC's order (WI01A-Files-GPMC).
             "fromPath": fi.source,
             "targetPath": fi.target,
             "readOnly": _bool_str(fi.read_only),
-            "hidden": _bool_str(fi.hidden),
             "archive": _bool_str(fi.archive),
+            "hidden": _bool_str(fi.hidden),
             "suppress": _bool_str(fi.suppress),
         },
     )
@@ -1841,6 +1942,7 @@ def serialize_gpp_files(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_file_item(elem: ET.Element) -> GppFile:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "files")
@@ -1885,6 +1987,12 @@ def parse_gpp_files(data: bytes) -> tuple[GppFile, ...]:
 
 
 def _serialize_folder(folder: GppFolder) -> ET.Element:
+    if folder.suppress:
+        # No Folders capture has suppress (WI-081): refused, not silently dropped.
+        raise GppError(
+            f"folder {folder.path!r}: suppress cannot be written; GPMC's Folders item "
+            "has no such attribute (only Files does)"
+        )
     return _build_item_element(
         "folders",
         item_name=_windows_leaf(folder.path),
@@ -1894,12 +2002,14 @@ def _serialize_folder(folder: GppFolder) -> ET.Element:
         unknown_attrs=folder.unknown_attrs,
         unknown_children=folder.unknown_children,
         unknown_props_children=folder.unknown_props_children,
+        # GPMC's names and order (WI01A-Folders-GPMC): ``action path
+        # [delete*] readOnly archive hidden``. No capture has ``suppress``, so
+        # it is not written (WI-081); see `GppFolder.suppress`.
         props_attrs={
             "path": folder.path,
             "readOnly": _bool_str(folder.read_only),
-            "hidden": _bool_str(folder.hidden),
             "archive": _bool_str(folder.archive),
-            "suppress": _bool_str(folder.suppress),
+            "hidden": _bool_str(folder.hidden),
         },
     )
 
@@ -1921,6 +2031,7 @@ def serialize_gpp_folders(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_folder_item(elem: ET.Element) -> GppFolder:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "folders")
@@ -1999,6 +2110,7 @@ def serialize_gpp_network_shares(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_network_share_item(elem: ET.Element) -> GppNetworkShare:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "network_shares")
@@ -2052,6 +2164,13 @@ def parse_gpp_network_shares(data: bytes) -> tuple[GppNetworkShare, ...]:
 def _serialize_printer(printer: GppPrinter) -> ET.Element:
     # Printers use a C/D/U action code on <Properties> rather than the generic
     # GppAction code, so we pass an explicit action_code override.
+    if printer.action != "update":
+        # Never written: a printer's action is action_type. Refused rather than
+        # dropped, as NT Services' fixed action is (WI-080 review).
+        raise GppError(
+            f"printer {printer.path!r}: action {printer.action!r} cannot be written; "
+            "a shared printer's action is action_type"
+        )
     return _build_item_element(
         "printers",
         item_name=_windows_leaf(printer.path),
@@ -2061,11 +2180,15 @@ def _serialize_printer(printer: GppPrinter) -> ET.Element:
         unknown_attrs=printer.unknown_attrs,
         unknown_children=printer.unknown_children,
         unknown_props_children=printer.unknown_props_children,
+        # GPMC's names and order (WI01A-Printers-GPMC): ``action comment path
+        # location default skipLocal deleteAll persistent deleteMaps port``. The
+        # untyped ones come back from a retained import (WI-080); an authored
+        # printer writes only what the model types (WI-081).
         props_attrs={
-            "path": printer.path,
-            "setDefault": _bool_str(printer.set_default),
-            "useLocal": _bool_str(printer.use_local),
             "comment": printer.comment,
+            "path": printer.path,
+            "default": _bool_str(printer.set_default),
+            "skipLocal": _bool_str(printer.skip_local),
         },
         action_code=_printer_action_to_code(printer.action_type),
     )
@@ -2088,6 +2211,7 @@ def serialize_gpp_printers(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_printer_item(elem: ET.Element) -> GppPrinter:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "printers")
@@ -2102,8 +2226,9 @@ def _parse_printer_item(elem: ET.Element) -> GppPrinter:
         return GppPrinter(
             path=props.get("path", ""),
             action_type=_code_to_printer_action(props.get("action", "U")),
-            set_default=props.get("setDefault", "0") == "1",
-            use_local=props.get("useLocal", "0") == "1",
+            # GPMC's names first; Studio before WI-081 wrote setDefault/useLocal.
+            set_default=props.get("default", props.get("setDefault", "0")) == "1",
+            skip_local=props.get("skipLocal", props.get("useLocal", "0")) == "1",
             comment=props.get("comment", ""),
             action=action,
             common=common,
@@ -2139,15 +2264,25 @@ def parse_gpp_printers(data: bytes) -> tuple[GppPrinter, ...]:
 def _serialize_shortcut(sc: GppShortcut) -> ET.Element:
     return _build_item_element(
         "shortcuts",
-        item_name=_windows_leaf(sc.shortcut_path) if sc.shortcut_path else sc.name,
+        # The item element's ``name`` is the shortcut's name and the only copy on
+        # the wire (GPMC writes no Properties@name, WI-081), so it is the source
+        # of truth: the typed ``name`` is written whenever it is set (review P2:
+        # deriving it from shortcutPath discarded an edit). GPMC sets it to the
+        # leaf of ``shortcutPath`` (every capture), which is what an unnamed item
+        # gets, as GPME names it -- so deleting an imported name cannot be
+        # written, and `gpp._refuse_lost_edits` refuses it rather than export
+        # the old name. The shortcut file is created at ``shortcutPath``: a name
+        # edit renames the item, not the file.
+        item_name=sc.name or _windows_leaf(sc.shortcut_path),
         action=sc.action,
         common=sc.common,
         ilt_filter=sc.ilt_filter,
         unknown_attrs=sc.unknown_attrs,
         unknown_children=sc.unknown_children,
         unknown_props_children=sc.unknown_props_children,
+        # No capture has ``Properties@name`` (WI-081): the item element's
+        # ``name`` carries it, so it is not written here.
         props_attrs={
-            "name": sc.name,
             "targetPath": sc.target_path,
             "arguments": sc.arguments,
             "startIn": sc.start_in,
@@ -2176,6 +2311,7 @@ def serialize_gpp_shortcuts(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_shortcut_item(elem: ET.Element) -> GppShortcut:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "shortcuts")
@@ -2188,7 +2324,9 @@ def _parse_shortcut_item(elem: ET.Element) -> GppShortcut:
                 f"Invalid Shortcut iconIndex: {props.get('iconIndex')!r}"
             ) from error
         return GppShortcut(
-            name=props.get("name", ""),
+            # GPMC names a shortcut on the item element; Studio before WI-081
+            # also wrote it on <Properties>, which is still read first.
+            name=props.get("name", elem.get("name", "")),
             target_path=props.get("targetPath", ""),
             arguments=props.get("arguments", ""),
             start_in=props.get("startIn", ""),
@@ -2263,6 +2401,7 @@ def serialize_gpp_applications(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_application_item(elem: ET.Element) -> GppApplication:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "applications")
@@ -2379,6 +2518,7 @@ def serialize_gpp_services(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_service_item(elem: ET.Element) -> GppService:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "services")
@@ -2513,6 +2653,7 @@ def serialize_gpp_local_users(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_local_user_item(elem: ET.Element) -> GppLocalUser:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "local_users")
@@ -2627,6 +2768,7 @@ def _parse_local_group_member(elem: ET.Element) -> GppLocalGroupMember:
     )
 
 
+@_retains_native
 def _parse_local_group_item(elem: ET.Element) -> GppLocalGroup:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "local_groups")
@@ -2792,6 +2934,251 @@ def _project_enabled_from_task_xml(task_xml: str) -> bool | None:
     if normalized in {"false", "0"}:
         return False
     return None
+
+
+#: The Exec elements a task's typed command fields are read from, in the Task
+#: Scheduler schema's order.
+_EXEC_FIELDS: tuple[tuple[str, str], ...] = (
+    ("Command", "program"),
+    ("Arguments", "arguments"),
+    ("WorkingDirectory", "start_in"),
+)
+
+
+def _typed_task_payload(
+    task_xml: str,
+    context: str,
+    command: dict[str, str],
+    *,
+    enabled: bool | None = None,
+) -> str:
+    """*task_xml* with the given typed values written into it (WI-080 review).
+
+    A TaskV2 or ImmediateTaskV2 keeps its command in the payload's first
+    ``Actions/Exec``, and a TaskV2 its enabled state in ``Settings/Enabled``; the
+    parser reads ``program``, ``arguments``, ``start_in`` and ``enabled`` FROM
+    there. *command* (any of those three) and *enabled* are values an edit
+    changed; each is written into its element. One the payload has no place for
+    (a command on a task whose only action is SendEmail, an enabled state with
+    no ``Settings/Enabled``) is refused rather than lost. An unchanged payload is
+    returned as it was, byte for byte.
+    """
+    try:
+        task_elem = _bounded_parse(task_xml.encode("utf-8"))
+    except GppError as error:
+        raise GppError(f"Corrupted task_xml during serialization: {error}") from error
+    changed = False
+    actions = _find_local(task_elem, "Actions")
+    exec_elem = _find_local(actions, "Exec") if actions is not None else None
+    for index, (tag, field_name) in enumerate(_EXEC_FIELDS):
+        if field_name not in command:
+            continue
+        want = command[field_name]
+        child = _find_local(exec_elem, tag) if exec_elem is not None else None
+        have = (child.text or "") if child is not None else ""
+        if want == have:
+            continue
+        if exec_elem is None:
+            raise GppError(
+                f"{context}: the edit to {field_name} cannot be written: its <Task> "
+                "payload has no Exec action to carry it"
+            )
+        if child is None:
+            # Keep the schema's order: after the Exec fields that precede it.
+            position = sum(
+                1
+                for earlier, _ in _EXEC_FIELDS[:index]
+                if _find_local(exec_elem, earlier) is not None
+            )
+            child = ET.Element(f"{exec_elem.tag[: -len('Exec')]}{tag}")
+            exec_elem.insert(position, child)
+        child.text = want
+        changed = True
+    if enabled is not None:
+        settings = _find_local(task_elem, "Settings")
+        flag = _find_local(settings, "Enabled") if settings is not None else None
+        if flag is None:
+            raise GppError(
+                f"{context}: the edit to enabled cannot be written: its <Task> payload "
+                "has no Settings/Enabled to carry it"
+            )
+        flag.text = "true" if enabled else "false"
+        changed = True
+    if not changed:
+        return task_xml
+    return ET.tostring(task_elem, encoding="unicode")
+
+
+_TRIGGER_FIELDS = ("trigger_type", "trigger_time", "trigger_days")
+
+
+def reconcile_payload_edits(item: Any, imported: Any | None) -> Any:
+    """Write a task's edited typed values into its <Task> payload (WI-080 review).
+
+    A TaskV2 or ImmediateTaskV2 keeps ``program``, ``arguments``, ``start_in``
+    and (TaskV2) ``enabled`` only in its payload, and the parser reads them from
+    there, so an edit that is not written into the payload exports the old value
+    (the review's P1; the TaskV2 ``arguments`` case predates WI-080). What counts
+    as an edit depends on the record there is:
+
+    * *imported* (the item as its retained native element parses): a field that
+      differs from it was edited, deletion included;
+    * no import record (``None``: authored from a payload, stored before WI-080,
+      or an import whose namespaced element was not retained): the PAYLOAD is
+      the record. A command field that is set and differs from the payload's was
+      edited. An EMPTY one is unset only when no command field is set -- a task
+      built from a payload alone leaves them all empty, and the payload stands,
+      as it always did (the endpoint lane's tasks); next to a set field, an
+      empty one the payload fills is ambiguous (a clear looks the same) and is
+      refused. ``enabled`` cannot be unset: a
+      ``False`` the payload does not say is written, and a ``True`` against a
+      disabled payload is refused as ambiguous rather than guessed at.
+
+    A changed schedule is refused either way: the payload's ``Triggers`` are not
+    rebuilt (with no import record, a trigger field at its default is unset, so
+    only a set one that disagrees is refused). If an imported item's payload
+    itself was edited, the payload is written as edited, and a scalar edited
+    alongside it must agree with it: one the edited payload contradicts is
+    refused here, rather than letting either silently win. ``runAs`` is not
+    synchronised with the payload's ``UserId``: the captures show them differ
+    (WI01A-SchedTasks-GPMC runs as ``NT AUTHORITY\\System`` with ``UserId``
+    ``%LogonDomain%\\%LogonUser%``).
+    """
+    if not isinstance(item, (GppScheduledTask, GppImmediateTask)) or not item.task_xml:
+        return item
+    if isinstance(item, GppScheduledTask) and item.element_variant != "TaskV2":
+        return item  # the v1 element writes its scalars as attributes
+    context = f"{type(item).__name__} {item.name!r}"
+    enabled: bool | None = None
+    if imported is not None:
+        if item.task_xml != imported.task_xml:
+            _refuse_contradicted_scalars(item, imported, context)
+            return item
+        command = {
+            name: getattr(item, name)
+            for _, name in _EXEC_FIELDS
+            if getattr(item, name) != getattr(imported, name)
+        }
+        if isinstance(item, GppScheduledTask):
+            if item.enabled != imported.enabled:
+                enabled = item.enabled
+            if any(getattr(item, n) != getattr(imported, n) for n in _TRIGGER_FIELDS):
+                raise GppError(_schedule_refusal(context))
+    else:
+        projected_command = dict(
+            zip((name for _, name in _EXEC_FIELDS), _project_from_task_xml(item.task_xml),
+                strict=True)
+        )
+        command = {
+            name: getattr(item, name)
+            for _, name in _EXEC_FIELDS
+            if getattr(item, name) and getattr(item, name) != projected_command[name]
+        }
+        # An empty field the payload fills is unset when NO command field is
+        # set (a task built from a payload alone, the endpoint lane's shape),
+        # and ambiguous otherwise: a deliberate clear looks exactly the same,
+        # and with no record to tell them apart it is refused, never ignored
+        # (second re-check: a cleared /sagerun:1 still exported).
+        if any(getattr(item, name) for _, name in _EXEC_FIELDS):
+            ambiguous = [
+                name
+                for _, name in _EXEC_FIELDS
+                if not getattr(item, name) and projected_command[name]
+            ]
+            if ambiguous:
+                raise GppError(
+                    f"{context}: {', '.join(ambiguous)} is empty but its <Task> payload "
+                    "holds one, and with no import record an empty value cannot be told "
+                    "from a deliberate clear; set it, or edit task_xml to clear it"
+                )
+        if isinstance(item, GppScheduledTask):
+            projected_enabled = _project_enabled_from_task_xml(item.task_xml)
+            if projected_enabled is None:
+                projected_enabled = True  # no Settings/Enabled: the task is enabled
+            if item.enabled != projected_enabled:
+                if item.enabled:
+                    raise GppError(
+                        f"{context}: enabled is True but its <Task> payload says the task "
+                        "is disabled; set enabled to match the payload, or edit task_xml"
+                    )
+                enabled = False
+            projected_trigger = _project_triggers_from_task_xml(item.task_xml)
+            typed_trigger = (item.trigger_type, item.trigger_time, item.trigger_days)
+            # A field at its default is unset and the payload's stands -- except
+            # the type: "once" is unset only alongside an unset time and days,
+            # so a schedule edited to "once" is not mistaken for no edit.
+            unset = (
+                item.trigger_type == "once" and not item.trigger_time and not item.trigger_days,
+                not item.trigger_time,
+                not item.trigger_days,
+            )
+            for index, value in enumerate(typed_trigger):
+                if unset[index]:
+                    continue
+                if projected_trigger is None or projected_trigger[index] != value:
+                    raise GppError(_schedule_refusal(context))
+    if not command and enabled is None:
+        return item
+    return replace(
+        item, task_xml=_typed_task_payload(item.task_xml, context, command, enabled=enabled)
+    )
+
+
+def _refuse_contradicted_scalars(item: Any, imported: Any, context: str) -> None:
+    """Refuse a scalar edit that the item's edited payload contradicts."""
+    projected = dict(
+        zip((name for _, name in _EXEC_FIELDS), _project_from_task_xml(item.task_xml),
+            strict=True)
+    )
+    contradicted = [
+        name
+        for _, name in _EXEC_FIELDS
+        if getattr(item, name) != getattr(imported, name)
+        and getattr(item, name) != projected[name]
+    ]
+    if isinstance(item, GppScheduledTask):
+        projected_enabled = _project_enabled_from_task_xml(item.task_xml)
+        if item.enabled != imported.enabled and item.enabled != (
+            True if projected_enabled is None else projected_enabled
+        ):
+            contradicted.append("enabled")
+        projected_trigger = _project_triggers_from_task_xml(item.task_xml)
+        for index, name in enumerate(_TRIGGER_FIELDS):
+            if getattr(item, name) != getattr(imported, name) and (
+                projected_trigger is None or projected_trigger[index] != getattr(item, name)
+            ):
+                contradicted.append(name)
+    if contradicted:
+        raise GppError(
+            f"{context}: both task_xml and {', '.join(contradicted)} were edited, and the "
+            "edited payload says otherwise; edit one so that they agree"
+        )
+
+
+def _schedule_refusal(context: str) -> str:
+    return (
+        f"{context}: its schedule is read from the <Task> payload's Triggers, which "
+        "Studio does not rewrite; edit task_xml instead of the trigger fields"
+    )
+
+
+def payload_values_written(item: Any, written: Any) -> list[str]:
+    """The typed payload values of *item* that *written* (its export, parsed) lacks.
+
+    The read-back check for a task with no import record: every command field
+    the item SETS, and its enabled state, must read back from the file. ``gpp``
+    refuses the item if any does not.
+    """
+    if not isinstance(item, (GppScheduledTask, GppImmediateTask)) or not item.task_xml:
+        return []
+    missing = [
+        name
+        for _, name in _EXEC_FIELDS
+        if getattr(item, name) and getattr(written, name) != getattr(item, name)
+    ]
+    if isinstance(item, GppScheduledTask) and written.enabled != item.enabled:
+        missing.append("enabled")
+    return missing
 
 
 def _append_task_xml_to_props(elem: ET.Element, task_xml: str) -> None:
@@ -3042,6 +3429,7 @@ def serialize_gpp_scheduled_tasks(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_scheduled_task_item(elem: ET.Element) -> GppScheduledTask:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "scheduled_tasks")
@@ -3116,6 +3504,23 @@ def parse_gpp_scheduled_tasks(data: bytes) -> tuple[GppScheduledTask, ...]:
 # ---------------------------------------------------------------------------
 
 
+def _immediate_task_props(task: GppImmediateTask) -> dict[str, str]:
+    """``Properties`` of an ImmediateTaskV2 (WI-081).
+
+    Every captured ImmediateTaskV2 carries ``name`` and ``runAs`` and nothing
+    else: the command lives in its embedded <Task> payload, from which the
+    model's ``program``, ``arguments`` and ``start_in`` are read. Writing them
+    as attributes too, as Studio did, added Task Scheduler 1.0 scalars no
+    capture contains. They are written only for an item with no payload (one
+    built without ``task_xml``), where they are the only copy; that shape is
+    unmeasured.
+    """
+    attrs = {"name": task.name, "runAs": task.run_as}
+    if not task.task_xml:
+        attrs |= {"program": task.program, "arguments": task.arguments, "startIn": task.start_in}
+    return attrs
+
+
 def _serialize_immediate_task(task: GppImmediateTask) -> ET.Element:
     _deny_password(
         task.run_as_password,
@@ -3131,13 +3536,7 @@ def _serialize_immediate_task(task: GppImmediateTask) -> ET.Element:
         unknown_attrs=task.unknown_attrs,
         unknown_children=task.unknown_children,
         unknown_props_children=task.unknown_props_children,
-        props_attrs={
-            "name": task.name,
-            "runAs": task.run_as,
-            "program": task.program,
-            "arguments": task.arguments,
-            "startIn": task.start_in,
-        },
+        props_attrs=_immediate_task_props(task),
     )
     _append_task_xml_to_props(elem, task.task_xml)
     return elem
@@ -3160,6 +3559,7 @@ def serialize_gpp_immediate_tasks(
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
+@_retains_native
 def _parse_immediate_task_item(elem: ET.Element) -> GppImmediateTask:
     action, common, ilt_filter, unknown_attrs, unknown_children, props, unknown_props_children = (
         _extract_common(elem, "immediate_tasks")
@@ -3447,7 +3847,7 @@ ROOT_PARSE_FUNCTIONS: dict[str, list[tuple[str, Callable[[bytes], RootParseResul
     ],
 }
 
-# Map of adapter_key -> per-item serialize function (for _build_adapter_root).
+# Map of adapter_key -> per-item serialize function (for serialize_adapter_item).
 _ITEM_SERIALIZE_FUNCTIONS: dict[str, Callable[..., ET.Element]] = {
     "environment": _serialize_environment,
     "ini_files": _serialize_ini,
@@ -3472,34 +3872,50 @@ _ITEM_SERIALIZE_FUNCTIONS: dict[str, Callable[..., ET.Element]] = {
 #: The item serializers that take the collection's scope (WI-079).
 _SCOPED_ITEM_SERIALIZERS: frozenset[str] = frozenset({"scheduled_tasks"})
 
+#: adapter_key -> the parser for ONE item element. ``gpp`` re-reads a retained
+#: element with it to learn what the model made of the import (WI-080).
+ITEM_PARSE_FUNCTIONS: dict[str, Callable[[ET.Element], Any]] = {
+    "environment": _parse_environment_item,
+    "ini_files": _parse_ini_item,
+    "regional_options": _parse_regional_options_item,
+    "power_options": _parse_power_options_item,
+    "devices": _parse_device_item,
+    "folder_options": _parse_folder_options_item,
+    "data_sources": _parse_data_source_item,
+    "drives": _parse_drive_item,
+    "files": _parse_file_item,
+    "folders": _parse_folder_item,
+    "network_shares": _parse_network_share_item,
+    "printers": _parse_printer_item,
+    "shortcuts": _parse_shortcut_item,
+    "applications": _parse_application_item,
+    "services": _parse_service_item,
+    "local_users": _parse_local_user_item,
+    "scheduled_tasks": _parse_scheduled_task_item,
+    "immediate_tasks": _parse_immediate_task_item,
+}
 
-def _build_adapter_root(
-    adapter_key: str,
-    items: tuple[Any, ...],
-    scope: GppScope,
-) -> ET.Element:
-    """Build the root ET.Element for an adapter without serializing to bytes.
 
-    Used by ``gpp.serialize_gpp`` to merge the adapters that share a file
-    (local users with groups in Groups\\Groups.xml, immediate with scheduled
-    tasks in ScheduledTasks\\ScheduledTasks.xml).
+def serialize_adapter_item(adapter_key: str, item: Any, scope: GppScope) -> ET.Element:
+    """Write one adapter item from the model alone, with the collection's *scope*.
+
+    Used by ``gpp.serialize_gpp``, which places each item among its root's
+    children (WI-072/073) and reconciles it with its retained native element
+    (WI-080); it replaces ``_build_adapter_root``, which built a whole root
+    from items alone.
 
     *scope* reaches every item serializer with a scope-dependent default. Only
     Scheduled Tasks has one today: a TaskV2 with no ``run_as`` runs as
     ``NT AUTHORITY\\System`` on the computer side and as
     ``%LogonDomain%\\%LogonUser%`` on the user side, as every native capture
-    writes it. Until WI-079 this function dropped the scope, so a user-side task
-    got the computer default (``_SCOPED_ITEM_SERIALIZERS`` is pinned by a test
+    writes it. Until WI-079 the scope was dropped here, so a user-side task got
+    the computer default (``_SCOPED_ITEM_SERIALIZERS`` is pinned by a test
     against every serializer's signature).
     """
-    root_tag, root_clsid, _, _ = _ADAPTER_META[adapter_key]
-    root = ET.Element(_ns(root_tag))
-    root.set("clsid", root_clsid)
     serialize_item_fn = _ITEM_SERIALIZE_FUNCTIONS[adapter_key]
-    scoped = adapter_key in _SCOPED_ITEM_SERIALIZERS
-    for item in items:
-        root.append(serialize_item_fn(item, scope) if scoped else serialize_item_fn(item))
-    return root
+    if adapter_key in _SCOPED_ITEM_SERIALIZERS:
+        return serialize_item_fn(item, scope)
+    return serialize_item_fn(item)
 
 
 # Map of adapter_key -> file path suffix (for serialize_gpp).

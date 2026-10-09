@@ -731,8 +731,18 @@ def _start_batch(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        # Bash cannot trap a signal that was ignored when it started, and a
+        # runner may hand its children SIGINT or SIGHUP ignored. Start the
+        # driver with default dispositions so the signal tests test the trap,
+        # not the runner.
+        preexec_fn=_default_stop_signals,
     )
     return proc, tmp_path / "pids"
+
+
+def _default_stop_signals() -> None:
+    for stop in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(stop, signal.SIG_DFL)
 
 
 def _wait_for_pids(pids_file: Path, count: int) -> list[int]:
