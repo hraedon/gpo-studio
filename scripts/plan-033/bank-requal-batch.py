@@ -30,7 +30,7 @@ which is RAM on the dev boxes).
         --label release110-20261009 --scratch ~/wt/scratch/release110b
     python scripts/plan-033/bank-requal-batch.py manifest \\
         --scratch ~/wt/scratch/release110b --out docs/plan-033/release110-batch.json \\
-        [--superseded-attempt attempt.json]
+        [--superseded-attempt attempt.json] [--cleanup release110-cleanup]
     python scripts/plan-033/bank-requal-batch.py retarget \\
         --manifest docs/plan-033/release110-batch.json tests/fixtures/scenarios/platforms.json
 """
@@ -251,6 +251,16 @@ def manifest(args: argparse.Namespace) -> int:
         "successors": [],
         "post_batch_cleanup": None,
     }
+    if args.cleanup:
+        # The post-batch directory check: the collector and its capture, by hash.
+        cleanup = EVIDENCE / args.cleanup
+        files = [cleanup / "collector.ps1", cleanup / "directory.json"]
+        missing = [str(f) for f in files if not f.is_file()]
+        if missing:
+            raise SystemExit(f"post-batch check incomplete: {missing}")
+        document["post_batch_cleanup"] = {
+            f.relative_to(EVIDENCE).as_posix(): _sha(f) for f in files
+        }
     if args.superseded_attempt:
         document["superseded_attempts"] = json.loads(
             Path(args.superseded_attempt).read_text(encoding="utf-8"))
@@ -317,6 +327,7 @@ def main() -> int:
     p_manifest.add_argument("--scratch", required=True)
     p_manifest.add_argument("--out", required=True)
     p_manifest.add_argument("--superseded-attempt")
+    p_manifest.add_argument("--cleanup", help="docs/plan-033 subdirectory of the post-batch check")
     p_manifest.set_defaults(func=manifest)
     p_retarget = sub.add_parser("retarget", help="point current-qualification records at the batch")
     p_retarget.add_argument("--manifest", required=True)

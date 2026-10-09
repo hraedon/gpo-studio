@@ -55,7 +55,7 @@ def _progress(tmp_path: Path, rows: list[dict[str, Any]]) -> argparse.Namespace:
     )
     (tmp_path / "stage-report.json").write_text(json.dumps({"lanes": {}}), encoding="utf-8")
     return argparse.Namespace(scratch=str(tmp_path), out=str(tmp_path / "out.json"),
-                              superseded_attempt=None)
+                              superseded_attempt=None, cleanup=None)
 
 
 def _row(name: str, commit: str = "a" * 40, **overrides: Any) -> dict[str, Any]:
