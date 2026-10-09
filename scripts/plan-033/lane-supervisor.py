@@ -281,15 +281,30 @@ def main() -> int:
         args.ready_file.touch()
 
     gate_read, gate_write = os.pipe()
-    with args.log.open("ab") as out:
-        proc = subprocess.Popen(
-            [sys.executable, "-I", "-c", GATE, str(gate_read), *command],
-            stdin=subprocess.DEVNULL,
-            stdout=out,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            pass_fds=(gate_read,),
-        )
+    try:
+        with args.log.open("ab") as out:
+            proc = subprocess.Popen(
+                [sys.executable, "-I", "-c", GATE, str(gate_read), *command],
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                pass_fds=(gate_read,),
+            )
+    except BaseException as exc:
+        # Neither end of the gate pipe may outlive a launch that failed.
+        os.close(gate_read)
+        os.close(gate_write)
+        if not isinstance(exc, OSError):
+            raise
+        # Nothing of the lane ran (Popen reaps a child whose exec failed), so
+        # containment holds: the lane is reported unstartable, as the gate
+        # reports a command it cannot exec -- 127 not found, 126 otherwise.
+        message = f"could not start the lane's launch gate ({exc}); the lane never ran"
+        print(f"lane-supervisor: {message}", file=sys.stderr)
+        with contextlib.suppress(OSError):
+            log_line(args.log, message)
+        return report(127 if isinstance(exc, FileNotFoundError) else 126, False, 0)
     os.close(gate_read)
     if args.test_pause_before_check:
         time.sleep(args.test_pause_before_check)

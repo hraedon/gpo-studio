@@ -226,3 +226,49 @@ def test_a_gate_wrapper_that_will_not_exit_on_cancel_is_lost_containment_not_a_h
     assert "CONTAINMENT LOST: the launch gate did not exit" in _log(tmp_path)
     assert not _alive(int(wrapper_pid.read_text())), "the stuck wrapper outlived the supervisor"
     assert not marker.exists()
+
+
+#: Runs the supervisor in-process with subprocess.Popen made to fail (as a
+#: fork can, with EAGAIN), then prints how it ended and which descriptors it
+#: left open that were not open before.
+_POPEN_FAILS = """\
+import errno, json, os, runpy, subprocess, sys
+
+def refuse(*args, **kwargs):
+    raise OSError(errno.EAGAIN, "Resource temporarily unavailable")
+
+subprocess.Popen = refuse
+before = set(os.listdir("/proc/self/fd"))
+sys.argv = sys.argv[1:]
+try:
+    runpy.run_path(sys.argv[0], run_name="__main__")
+    outcome = "returned"
+except SystemExit as exc:
+    outcome = exc.code
+except BaseException as exc:
+    outcome = repr(exc)
+after = set(os.listdir("/proc/self/fd"))
+print(json.dumps({"outcome": outcome, "leaked": sorted(after - before)}))
+"""
+
+
+def test_a_launch_that_fails_closes_the_gate_pipe_and_still_reports(tmp_path: Path) -> None:
+    """Review Low 5: if Popen raised, both ends of the gate pipe leaked and
+    the exception escaped with no report. Both are closed on any exception;
+    the lane never started, so it is reported as unstartable (126) -- a valid
+    report, not lost containment."""
+    harness = tmp_path / "popen-fails.py"
+    harness.write_text(_POPEN_FAILS, encoding="utf-8")
+    command = _command_line(tmp_path, ["true"])
+    completed = subprocess.run(
+        [command[0], str(harness), *command[1:]], capture_output=True, text=True, timeout=60
+    )
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result == {"outcome": 126, "leaked": []}, completed.stderr
+    assert _report(tmp_path) == {
+        "status": 126,
+        "timed_out": False,
+        "cancelled": False,
+        "killed": 0,
+    }
+    assert "could not start the lane's launch gate" in _log(tmp_path)
