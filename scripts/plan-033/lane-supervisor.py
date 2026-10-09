@@ -17,9 +17,10 @@ this. Two things a shell watchdog could not guarantee are the reason it exists:
 The leader runs as the leader of a new session, with stdin from /dev/null and
 stdout/stderr appended to the lane log. The supervisor exits with the leader's
 own status (128 + N for a signal), 124 when the deadline killed it, or 128 + N
-when the supervisor itself was stopped by signal N (a cancellation, whatever
-the leader then exited with); the report file says which, because a lane can
-exit 124 or 143 by itself.
+when the supervisor itself was stopped by signal N -- TERM, INT or HUP; the
+driver's SIGUSR1 and cancel file count as TERM -- (a cancellation, whatever
+the leader then exited with, and whether or not the lane had started); the
+report file says which, because a lane can exit 124 or 143 by itself.
 
 run-requal-batch.sh also runs the supervisor inside a systemd user scope, so
 that if the supervisor itself dies (SIGKILL), the driver can still find and
@@ -73,6 +74,14 @@ def descendants(root: int) -> list[int]:
             found.append(child)
             stack.append(child)
     return found
+
+
+def cancellation_signal(pending: set[signal.Signals]) -> int:
+    """The signal a cancellation found PENDING at the final check is reported
+    as. Several may be pending and their order is lost, so take the one the
+    kernel would have delivered first had they been unblocked (the lowest
+    number), counting the driver's SIGUSR1 as the TERM it stands for."""
+    return min(signal.SIGTERM if sig == signal.SIGUSR1 else sig for sig in pending)
 
 
 def log_line(log: Path, message: str) -> None:
@@ -156,7 +165,9 @@ if not opened:
     os._exit(125)
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
-signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGUSR1})
+signal.pthread_sigmask(
+    signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGUSR1}
+)
 os.execvp(sys.argv[2], sys.argv[2:])
 """
 
@@ -203,9 +214,10 @@ def main() -> int:
         log_line(args.log, f"no budget left to start: {' '.join(command)}")
         return report(TIMED_OUT_STATUS, True, 0)
 
-    # SIGTERM/SIGINT to the supervisor (an operator stopping the batch) ends
-    # the lane too, and is reported as a CANCELLATION: whatever the leader then
-    # exits with (a lane that traps TERM may well exit 0) is not its verdict.
+    # SIGTERM/SIGINT/SIGHUP to the supervisor (an operator stopping the batch,
+    # a hangup) ends the lane too, and is reported as a CANCELLATION with
+    # 128 + that signal: whatever the leader then exits with (a lane that traps
+    # TERM may well exit 0) is not its verdict.
     stopping = 0
 
     def on_term(signum: int, frame: object) -> None:
@@ -214,6 +226,7 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
+    signal.signal(signal.SIGHUP, on_term)
     # SIGUSR1 is the driver's "cancel now", sent in addition to the cancel file.
     signal.signal(signal.SIGUSR1, lambda signum, frame: on_term(signal.SIGTERM, frame))
 
@@ -234,11 +247,12 @@ def main() -> int:
     #   3. Final check: the cancel file, and any cancellation signal pending.
     #      If either is present the gate is closed without a byte -- the child
     #      reads EOF and exits 125 without exec -- and the lane is recorded
-    #      cancelled having run nothing.
+    #      cancelled having run nothing, with 128 + the cancelling signal (the
+    #      cancel file reads as TERM).
     #   4. Otherwise the gate opens (one byte) and the signals are unblocked:
     #      a signal that arrived after the check is delivered now, and is the
     #      mid-lane cancellation of case "after".
-    cancel_signals = {signal.SIGTERM, signal.SIGINT, signal.SIGUSR1}
+    cancel_signals = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGUSR1}
     previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, cancel_signals)
     if args.ready_file is not None:
         args.ready_file.touch()
@@ -256,11 +270,15 @@ def main() -> int:
     os.close(gate_read)
     if args.test_pause_before_check:
         time.sleep(args.test_pause_before_check)
-    if stopping or cancel_requested() or signal.sigpending() & cancel_signals:
+    pending = signal.sigpending() & cancel_signals
+    if stopping or cancel_requested() or pending:
         os.close(gate_write)  # EOF: the child exits 125 without exec
         proc.wait()
-        log_line(args.log, "lane cancelled before it started; not a verdict")
-        return report(128 + signal.SIGTERM, False, 0, cancelled=True)
+        cancelled_by = stopping or (cancellation_signal(pending) if pending else signal.SIGTERM)
+        log_line(
+            args.log, f"lane cancelled before it started (signal {cancelled_by}); not a verdict"
+        )
+        return report(128 + cancelled_by, False, 0, cancelled=True)
     if args.test_pause_before_release:
         time.sleep(args.test_pause_before_release)
     os.write(gate_write, b"1")

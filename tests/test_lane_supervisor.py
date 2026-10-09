@@ -92,3 +92,63 @@ def test_the_final_cancel_check_is_documented_as_the_admission_boundary() -> Non
     for source in (SUPERVISOR, DRIVER):
         text = " ".join(source.read_text(encoding="utf-8").lower().split())
         assert "admission boundary" in text, source.name
+
+
+_CANCEL_SIGNALS = pytest.mark.parametrize(
+    "sig,expected",
+    [(signal.SIGTERM, 143), (signal.SIGINT, 130), (signal.SIGHUP, 129)],
+    ids=["TERM", "INT", "HUP"],
+)
+
+
+@_CANCEL_SIGNALS
+def test_a_signal_before_the_gate_opens_is_reported_as_that_signal(
+    tmp_path: Path, sig: signal.Signals, expected: int
+) -> None:
+    """Review Low 2: a cancellation that never let the lane start was always
+    reported as 128 + SIGTERM, whatever the signal (and HUP killed the
+    supervisor outright). It is 128 + the signal that cancelled it."""
+    marker = tmp_path / "lane-ran"
+    proc = _start(tmp_path, ["touch", str(marker)], "--test-pause-before-check", "2")
+    _until(lambda: (tmp_path / "ready").exists(), "the supervisor ready")
+    os.kill(proc.pid, sig)
+    proc.wait(timeout=60)
+    assert proc.returncode == expected
+    assert _report(tmp_path) == {
+        "status": expected,
+        "timed_out": False,
+        "cancelled": True,
+        "killed": 0,
+    }
+    assert "lane cancelled before it started" in _log(tmp_path)
+    assert not marker.exists(), "the lane ran after the cancellation"
+
+
+@_CANCEL_SIGNALS
+def test_a_signal_mid_lane_is_reported_as_that_signal(
+    tmp_path: Path, sig: signal.Signals, expected: int
+) -> None:
+    pid_file = tmp_path / "lane.pid"
+    proc = _start(tmp_path, ["sh", "-c", f'echo $$ > "{pid_file}"; while :; do sleep 0.1; done'])
+    _until(lambda: pid_file.exists() and pid_file.read_text().strip(), "the lane")
+    lane = int(pid_file.read_text())
+    os.kill(proc.pid, sig)
+    proc.wait(timeout=60)
+    assert proc.returncode == expected
+    report = _report(tmp_path)
+    assert (report["status"], report["cancelled"], report["timed_out"]) == (expected, True, False)
+    assert f"lane cancelled by signal {int(sig)}" in _log(tmp_path)
+    assert not _alive(lane)
+
+
+def test_a_cancel_file_before_the_gate_opens_is_reported_as_sigterm(tmp_path: Path) -> None:
+    """The driver's own channel carries no signal number: it reads as TERM
+    (the driver records its own stop signal over it)."""
+    marker = tmp_path / "lane-ran"
+    cancel = tmp_path / "cancel"
+    cancel.touch()
+    proc = _start(tmp_path, ["touch", str(marker)], "--cancel-file", str(cancel))
+    proc.wait(timeout=60)
+    assert proc.returncode == 143
+    assert _report(tmp_path)["cancelled"] is True
+    assert not marker.exists()
