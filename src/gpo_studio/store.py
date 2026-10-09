@@ -17,6 +17,7 @@ from .fdeploy import FdeployDocument, fdeploy_from_dict
 from .gpp import (
     GppCollection,
     GppCommonOptions,
+    GppError,
     GppGroup,
     GppGroupMember,
     GppRegistry,
@@ -25,8 +26,10 @@ from .gpp import (
     ensure_editor_ids,
     gpp_collection_from_dict,
     registry_action_edit,
+    serialize_gpp,
 )
 from .identity import Identity
+from .ilt import IltError
 from .model import (
     GPO,
     BackupInventory,
@@ -1386,6 +1389,22 @@ class WorkspaceStore:
         ]
         if errors:
             raise ValidationError(errors)
+        # Nothing is committed that Studio cannot write. Validation and the
+        # writer are separate code; where they disagreed (a padded CIDR, a raw
+        # predicate that does not parse) the mutation committed and every later
+        # read or export of the GPO failed. Writing it here turns any such gap
+        # into a 422 before the revision exists.
+        try:
+            serialize_gpp(collection)
+        except (GppError, IltError, ValueError) as error:
+            raise ValidationError([
+                ValidationIssue(
+                    severity="error",
+                    code="unwritable_preferences",
+                    message=f"Studio could not write these preferences: {error}",
+                    path="gpp_collections",
+                )
+            ]) from error
 
     @staticmethod
     def _find_collection(

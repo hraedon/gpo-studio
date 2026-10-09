@@ -19,8 +19,13 @@ Operator-facing:
   parse (an undeclared prefix, malformed XML) was stored as given and failed
   only when serialized: the request answered 500 after committing, and every
   later read or export of that GPO answered 500. The group and registry routes
-  now serialize the filter first and refuse it with `invalid_ilt_filter`
-  (422), so nothing is stored. Pre-existing; found by the WI-080 review.
+  now refuse an unwritable raw predicate with `invalid_ilt_filter` (422). A
+  padded IP range (" 10.0.0.0/8 ") had the same effect, because validation
+  stripped it and the writer did not; the writer now strips it too. And as a
+  backstop, the store writes every changed preference collection before
+  committing it and refuses with `unwritable_preferences` (422) whatever the
+  writer cannot write, so no request can leave a GPO unreadable.
+  Pre-existing; found by the WI-080 reviews.
 - **A stored GPO's preferences are exported as Windows wrote them, fixed and
   requalified (WI-080).** Studio kept an imported GPO's
   preference XML only in memory, so every export of a stored GPO (the GPMC

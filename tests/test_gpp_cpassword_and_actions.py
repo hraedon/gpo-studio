@@ -589,3 +589,63 @@ def test_a_typed_predicate_typo_keeps_its_own_422(
     gpo, response = _post_preference(test_client, route, body_key, typed)
     assert response.status_code == 422, response.text
     assert test_client.get(f"/api/gpos/{gpo['guid']}").status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("route", "body_key", "payload"),
+    [
+        ("groups", "group", {"name": "Padded"}),
+        ("registry", "registry", {"key": r"Software\Studio"}),
+    ],
+    ids=["groups", "registry"],
+)
+def test_a_padded_typed_range_never_leaves_the_gpo_unreadable(
+    client: Any, route: str, body_key: str, payload: dict[str, Any]
+) -> None:
+    """A padded CIDR passed validation (which strips) and failed the writer
+    (which did not), answering 500 after committing and breaking every later
+    read (Sol successor-bank re-check, P2). It is now written stripped."""
+    test_client, _store, _inbox = client
+    padded = {**payload, "ilt_filter": {"items": [
+        {"type": "ip_range", "value": " 10.0.0.0/8 ", "negate": False, "bool_op": "AND"},
+    ]}}
+    gpo, response = _post_preference(test_client, route, body_key, padded)
+    assert response.status_code in {201, 422}, response.text
+    assert test_client.get(f"/api/gpos/{gpo['guid']}").status_code == 200
+    export = test_client.get(f"/api/gpos/{gpo['guid']}/export.zip")
+    assert export.status_code == 200
+    if response.status_code == 201:
+        assert b'min="10.0.0.0"' in b"".join(
+            zipfile.ZipFile(io.BytesIO(export.content)).read(name)
+            for name in zipfile.ZipFile(io.BytesIO(export.content)).namelist()
+            if name.endswith(".xml")
+        )
+
+
+def test_the_store_commits_nothing_the_writer_refuses(
+    client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whatever validation misses, a collection the writer cannot write is
+    refused before a revision exists, so the GPO stays readable."""
+    from gpo_studio import store as store_module
+
+    def refuse(_collection: Any) -> Any:
+        raise GppError("writer refuses this collection")
+
+    test_client, _store, _inbox = client
+    gpo = test_client.post(
+        "/api/gpos", json={"name": "Writer refuses", "actor": "w", "reason": "add"},
+    ).json()["gpo"]
+    writer = store_module.serialize_gpp
+    monkeypatch.setattr(store_module, "serialize_gpp", refuse)
+    response = test_client.post(
+        f"/api/gpos/{gpo['guid']}/preferences/groups",
+        json={"scope": "computer", "group": {"name": "G"}, "actor": "w", "reason": "add",
+              "expected_revision": gpo["revision"]},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["issues"][0]["code"] == "unwritable_preferences"
+    monkeypatch.setattr(store_module, "serialize_gpp", writer)
+    detail = test_client.get(f"/api/gpos/{gpo['guid']}")
+    assert detail.status_code == 200
+    assert detail.json()["gpo"]["revision"] == gpo["revision"]

@@ -218,7 +218,12 @@ def _serialize_predicate(pred: IltPredicate) -> ET.Element:
         case "ip_range":
             elem = ET.Element(_ns("FilterIpRange"))
             if "/" in pred.value:
-                network = ipaddress.ip_network(pred.value, strict=False)
+                # Strip as validation does: a padded CIDR passed validation and
+                # then failed here, after the store had committed it.
+                try:
+                    network = ipaddress.ip_network(pred.value.strip(), strict=False)
+                except ValueError as error:
+                    raise IltError(f"Invalid IP range format: {pred.value!r}") from error
                 elem.set("min", str(network.network_address))
                 elem.set("max", str(network.broadcast_address))
             elif "-" in pred.value:
