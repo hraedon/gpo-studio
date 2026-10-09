@@ -96,19 +96,22 @@ def test_the_final_cancel_check_is_documented_as_the_admission_boundary() -> Non
 
 
 _CANCEL_SIGNALS = pytest.mark.parametrize(
-    "sig,expected",
-    [(signal.SIGTERM, 143), (signal.SIGINT, 130), (signal.SIGHUP, 129)],
+    "sig_name,expected",
+    # By name, resolved inside each test: Windows has no SIGHUP, and the module
+    # must still collect there to be skipped.
+    [("SIGTERM", 143), ("SIGINT", 130), ("SIGHUP", 129)],
     ids=["TERM", "INT", "HUP"],
 )
 
 
 @_CANCEL_SIGNALS
 def test_a_signal_before_the_gate_opens_is_reported_as_that_signal(
-    tmp_path: Path, sig: signal.Signals, expected: int
+    tmp_path: Path, sig_name: str, expected: int
 ) -> None:
     """Review Low 2: a cancellation that never let the lane start was always
     reported as 128 + SIGTERM, whatever the signal (and HUP killed the
     supervisor outright). It is 128 + the signal that cancelled it."""
+    sig = getattr(signal, sig_name)
     marker = tmp_path / "lane-ran"
     proc = _start(tmp_path, ["touch", str(marker)], "--test-pause-before-check", "2")
     _until(lambda: (tmp_path / "ready").exists(), "the supervisor ready")
@@ -128,8 +131,9 @@ def test_a_signal_before_the_gate_opens_is_reported_as_that_signal(
 
 @_CANCEL_SIGNALS
 def test_a_signal_mid_lane_is_reported_as_that_signal(
-    tmp_path: Path, sig: signal.Signals, expected: int
+    tmp_path: Path, sig_name: str, expected: int
 ) -> None:
+    sig = getattr(signal, sig_name)
     pid_file = tmp_path / "lane.pid"
     proc = _start(tmp_path, ["sh", "-c", f'echo $$ > "{pid_file}"; while :; do sleep 0.1; done'])
     _until(lambda: pid_file.exists() and pid_file.read_text().strip(), "the lane")
