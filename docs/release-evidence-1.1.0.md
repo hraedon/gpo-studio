@@ -214,14 +214,18 @@ time. All four ran on the estate member server (Windows Server 2025, build
 | firewall | `firewall-20261009001906-2614294` (36/36) | `firewall_policy.py` for one measured tranche: the 13 rule shapes and the Domain and Private profile literals. Read leg: rules authored with `New-NetFirewallRule -PolicyStore` parse with zero unrecognised records and equal the authored policy. Write leg: `Import-GPO` of Studio's backup, now registered with the firewall tool's native GUID pair (`B05566AC`), returns Studio's Registry.pol byte for byte. [Results](plan-033/firewall-results.md) |
 | lifecycle (same-domain) | `lifecycle-20261009001644-6217-f2f5047fed814807` (73/73; all 30 cells) | `lifecycle.SCOPE_SURVIVAL`: five GPMC operations by six scope dimensions, each agreeing with what Windows did, plus the five plan-identity claims and the backup bridge. One topology. [Results](plan-033/lifecycle-results.md) |
 | fdeploy (read target) | `fd-20261009002120-4293` (29/29) | `fdeploy.py`'s reader for four shapes: R3's GPMC-written `fdeploy1.ini` verbatim (`Flags=1021`) and three builder-written `Flags`-only variants (1020, 1023, 3069). `Import-GPO` placed the exact bytes, `Backup-GPO` re-exported them byte for byte, and Studio's reading of Windows' own backup agreed with a fresh `Get-GPOReport` row for row (folder, principal SID, destination). [Results](plan-033/fdeploy-results.md) |
-| report-parity | `report-parity-20261009001727-3532` (26/26; 30 corpus cases plus a guest-authored GPO) | `backup.py` / `report.py` over the existing import and plain-text report surfaces, for registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files, Folders, GPP Registry (the three WI-075 captures), Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks (including the interleaving of scheduled and immediate tasks), Services and Shortcuts. No Studio defect is accepted. [Results](plan-033/report-parity-results.md) |
+| report-parity | `report-parity-20261009001727-3532` (26/26; 30 corpus cases plus a guest-authored GPO) | `backup.py` / `report.py` over the existing import and plain-text report surfaces, for registry (`REG_SZ`/`REG_DWORD`), Drive Maps, Environment, Files, Folders, GPP Registry (the three WI-075 captures), Ini Files, Local Users and Groups, Power Options, Printers, Scheduled Tasks (including the interleaving of scheduled and immediate tasks), Services and Shortcuts, at the level of each preference item's element, name, `uid`, action and document order (not its other `Properties` attributes). No Studio defect is accepted. [Results](plan-033/report-parity-results.md) |
 
 What these runs do **not** certify:
 
 - **Report parity:** six Studio preference families have no capture and are
   not claimed (Regional Options, Devices, Folder Options, Data Sources,
   Network Shares, Applications). ADMX policy rendering, Scripts, links,
-  security filtering and WMI filters are named exclusions. The first run's two
+  security filtering and WMI filters are named exclusions. Property-level
+  equivalence of preference items is not claimed: the lane compares each
+  item's element, name, `uid`, action and document order, and the adapters
+  drop several unmodeled `Properties` attributes (for example Drives'
+  `thisDrive` and `allDrives`). The first run's two
   pinned divergences, WI-072 (Power Options' power plan dropped on write) and
   WI-073 (task interleaving lost on write), are fixed: the lane's
   `fixed_work_item_cases_agree_exactly` check required their three cases to
@@ -260,7 +264,7 @@ surface both exist.
 | `fdeploy.py` | lane, or the writer stays deferred (WI-066) | fdeploy read lane (`fd-20261009002120-4293`, 29/29) | `POST /api/folder-redirection/fdeploy`, imported backups' report and diffs, and the Folder Redirection review panel | capability: reading the four measured shapes; `Flags` decoding and the writer stay deferred under WI-066 |
 | `network_security.py` / `firewall_policy.py` | firewall: codec, lane, surface; the rest out of scope | firewall (`firewall-20261009001906-2614294`, 36/36) | `POST /api/network-security/firewall/render`, `GET /api/gpos/{guid}/firewall-policy` | capability: the measured tranche only, everything else refused; IPsec, Public Key, wired and wireless are not claimed |
 | `lifecycle.py` | same-domain lane plus restore-plan surface; cross-domain out of scope | same-domain lifecycle (`lifecycle-20261009001644-6217-f2f5047fed814807`, 73/73, all 30 cells) | `POST /api/lifecycle/restore-plan` (review only) | capability: same-domain restore plans over GPOs imported from a Windows backup; cross-domain is refused and not claimed |
-| `backup.py` / `report.py` | report-parity lane for modelled families | report-parity (`report-parity-20261009001727-3532`, 26/26, 30 cases) | existing backup import and plain-text report | capability: report parity for the families listed above; the six uncaptured families are not claimed |
+| `backup.py` / `report.py` | report-parity lane for modelled families | report-parity (`report-parity-20261009001727-3532`, 26/26, 30 cases) | existing backup import and plain-text report | capability: item-level report parity (element, name, `uid`, action, order) for the families listed above, not property-level; the six uncaptured families are not claimed |
 | `artifact_store.py` | deleted | n/a | n/a | not shipped |
 | `software_install.py` | deleted | n/a | n/a | not shipped |
 | `folder_redirection.py` | deleted (superseded by `fdeploy.py`) | n/a | n/a | not shipped |

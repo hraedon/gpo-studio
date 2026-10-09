@@ -276,7 +276,8 @@
         ],
         "not_certified": [
           "six uncaptured preference families (Regional Options, Devices, Folder Options, Data Sources, Network Shares, Applications)",
-          "ADMX policy rendering, Scripts, links, security filtering, WMI filters"
+          "ADMX policy rendering, Scripts, links, security filtering, WMI filters",
+          "property-level equivalence of preference items: the lane compares element, name, uid, action and document order, not other Properties attributes (unmodeled ones such as Drives' thisDrive and allDrives are dropped by the adapters)"
         ],
         "accepted_defects": []
       }
