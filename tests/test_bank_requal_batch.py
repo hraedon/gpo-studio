@@ -12,6 +12,7 @@ import argparse
 import json
 import re
 import runpy
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -142,16 +143,39 @@ def _one_lane_progress(name: str) -> str:
     return json.dumps(_row(name, exit_status=0, local_run_dir="/tmp/opencode/run-1")) + "\n"
 
 
-def test_stage_refuses_an_existing_pack_without_overwrite(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    evidence = tmp_path / "evidence"
-    existing = evidence / "wp0-evidence" / "batch-1" / "wp0"
-    existing.mkdir(parents=True)
-    (existing / "manifest.json").write_text("{}", encoding="utf-8")
+def _fake_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A repository root and evidence root under tmp, patched into the tool."""
+    repo = (tmp_path / "repo").resolve()
+    evidence = repo / "docs" / "plan-033"
+    evidence.mkdir(parents=True)
+    monkeypatch.setitem(GLOBALS, "_repo_top", lambda: repo)
     monkeypatch.setitem(GLOBALS, "EVIDENCE", evidence)
     monkeypatch.setitem(GLOBALS, "_ssh", lambda *_a: _one_lane_progress("wp0"))
     monkeypatch.setitem(GLOBALS, "_rsync", _no_remote)
+    return repo
+
+
+def _outside_with_a_victim(tmp_path: Path, *parts: str) -> Path:
+    """A directory outside the repository holding a file the tool must not delete."""
+    outside = tmp_path / "outside"
+    victim = outside.joinpath(*parts)
+    victim.mkdir(parents=True)
+    (victim / "keep.txt").write_text("not the tool's", encoding="utf-8")
+    return outside
+
+
+def _victim_survives(outside: Path, *parts: str) -> bool:
+    keep = outside.joinpath(*parts) / "keep.txt"
+    return keep.read_text(encoding="utf-8") == "not the tool's"
+
+
+def test_stage_refuses_an_existing_pack_without_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _fake_repo(tmp_path, monkeypatch)
+    existing = repo / "docs/plan-033/wp0-evidence/batch-1/wp0"
+    existing.mkdir(parents=True)
+    (existing / "manifest.json").write_text("{}", encoding="utf-8")
     with pytest.raises(SystemExit, match="--overwrite"):
         TOOL["stage"](_stage_args(tmp_path, "batch-1"))
     assert (existing / "manifest.json").read_text(encoding="utf-8") == "{}"
@@ -160,26 +184,53 @@ def test_stage_refuses_an_existing_pack_without_overwrite(
 def test_stage_refuses_a_destination_that_escapes_through_a_symlink(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    evidence = tmp_path / "evidence"
-    outside = tmp_path / "outside"
-    (outside / "wp0").mkdir(parents=True)
-    (outside / "wp0" / "keep.txt").write_text("not the tool's", encoding="utf-8")
-    (evidence / "wp0-evidence").mkdir(parents=True)
-    (evidence / "wp0-evidence" / "batch-1").symlink_to(outside)
-    monkeypatch.setitem(GLOBALS, "EVIDENCE", evidence)
-    monkeypatch.setitem(GLOBALS, "_ssh", lambda *_a: _one_lane_progress("wp0"))
-    monkeypatch.setitem(GLOBALS, "_rsync", _no_remote)
+    repo = _fake_repo(tmp_path, monkeypatch)
+    outside = _outside_with_a_victim(tmp_path, "wp0")
+    (repo / "docs/plan-033/wp0-evidence").mkdir()
+    (repo / "docs/plan-033/wp0-evidence/batch-1").symlink_to(outside)
     with pytest.raises(SystemExit, match="REFUSE destination"):
         TOOL["stage"](_stage_args(tmp_path, "batch-1", overwrite=True))
-    assert (outside / "wp0" / "keep.txt").read_text(encoding="utf-8") == "not the tool's"
+    assert _victim_survives(outside, "wp0")
+
+
+@pytest.mark.parametrize("linked", ["docs", "docs/plan-033"])
+def test_stage_refuses_an_evidence_root_relocated_by_a_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, linked: str
+) -> None:
+    """Review re-check: a symlink at docs or docs/plan-033 moved the boundary itself.
+
+    The containment check resolved the evidence root and measured against
+    that, so a symlinked `docs` or `docs/plan-033` carried the boundary out of
+    the repository with it and, with --overwrite, the delete was reachable.
+    """
+    repo = _fake_repo(tmp_path, monkeypatch)
+    victim_parts = ("plan-033", "wp0-evidence", "batch-1", "wp0") if linked == "docs" else (
+        "wp0-evidence", "batch-1", "wp0"
+    )
+    outside = _outside_with_a_victim(tmp_path, *victim_parts)
+    real = repo / linked
+    shutil.rmtree(real)
+    real.symlink_to(outside)
+    with pytest.raises(SystemExit, match="REFUSE destination"):
+        TOOL["stage"](_stage_args(tmp_path, "batch-1", overwrite=True))
+    assert _victim_survives(outside, *victim_parts)
+    assert not (tmp_path / "scratch" / "raw").exists()
+
+
+def test_stage_refuses_an_evidence_root_outside_the_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_repo(tmp_path, monkeypatch)
+    monkeypatch.setitem(GLOBALS, "EVIDENCE", tmp_path / "elsewhere" / "plan-033")
+    with pytest.raises(SystemExit, match="not under the repository root"):
+        TOOL["stage"](_stage_args(tmp_path, "batch-1", overwrite=True))
 
 
 def test_stage_refuses_a_lane_the_driver_does_not_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setitem(GLOBALS, "EVIDENCE", tmp_path / "evidence")
+    _fake_repo(tmp_path, monkeypatch)
     monkeypatch.setitem(GLOBALS, "_ssh", lambda *_a: _one_lane_progress("../../escape"))
-    monkeypatch.setitem(GLOBALS, "_rsync", _no_remote)
     with pytest.raises(SystemExit, match="REFUSE lane"):
         TOOL["stage"](_stage_args(tmp_path, "batch-1"))
 

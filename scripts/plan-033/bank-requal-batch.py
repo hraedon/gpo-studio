@@ -44,12 +44,14 @@ which is RAM on the dev boxes).
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import re
 import runpy
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -120,14 +122,42 @@ def _label(label: str) -> str:
     return label
 
 
+@functools.cache
+def _repo_top() -> Path:
+    """The repository root as git reports it, resolved once: the boundary."""
+    out = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return Path(out).resolve(strict=True)
+
+
 def _destination(lane: str, label: str) -> Path:
-    """The pack directory for a lane, proven to sit inside the evidence root."""
+    """The pack directory for a lane, proven to sit inside the repository.
+
+    The boundary is the repository root, never the evidence root: a symlink at
+    `docs` or `docs/plan-033` would carry a resolved evidence root anywhere.
+    Every existing component from the repository root down to the
+    destination's parent must be a real directory (lstat, never a symlink);
+    an existing destination must be one too; and the resolved destination must
+    still be inside the resolved repository root.
+    """
     if lane not in FAMILY:
         raise SystemExit(f"REFUSE lane {lane!r}: not a lane the driver runs")
+    top = _repo_top()
     dest = EVIDENCE / FAMILY[lane] / _label(label) / lane
-    root = EVIDENCE.resolve()
-    if not dest.resolve().is_relative_to(root) or dest.resolve() == root:
-        raise SystemExit(f"REFUSE destination {dest}: outside {root}")
+    if not dest.is_absolute() or not dest.is_relative_to(top) or not EVIDENCE.is_relative_to(top):
+        raise SystemExit(f"REFUSE destination {dest}: not under the repository root {top}")
+    current = top
+    for part in dest.relative_to(top).parts:
+        current = current / part
+        if not current.exists() and not current.is_symlink():
+            break
+        info = current.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise SystemExit(f"REFUSE destination {dest}: {current} is not a real directory")
+    if not dest.resolve().is_relative_to(top):
+        raise SystemExit(f"REFUSE destination {dest}: resolves outside {top}")
     return dest
 
 
@@ -208,7 +238,10 @@ def stage(args: argparse.Namespace) -> int:
         if candidate:
             _rsync(args.controller, f"{candidate}/", raw / "candidate")
 
-        dest = destinations[name]
+        # Re-proved immediately before the only delete, after the pulls.
+        dest = _destination(name, args.label)
+        if dest != destinations[name]:
+            raise SystemExit(f"REFUSE {dest}: the destination changed during staging")
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
