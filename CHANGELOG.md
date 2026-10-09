@@ -42,7 +42,10 @@ Operator-facing:
   A task's edited command is now written into its `<Task>` payload (a TaskV2's
   `arguments` edit was lost even before this fix), whether or not the task was
   imported: without an import record the payload is the record, a set field
-  that differs from it is an edit, and an empty one is unset. A payload edit and
+  that differs from it is an edit, and an empty one is unset only when no
+  command field is set (a task built from a payload alone); next to a set
+  field it could be a deliberate clear, and the export is refused rather than
+  keeping the old value. A payload edit and
   a command edit that disagree are refused, as is a typed field with no wire
   form, such as a printer's generic `action` or a folder's `suppress`. A registry item's action as the workbench shows and
   edits it, which was never written, is now read from the value's action on
@@ -56,7 +59,10 @@ Operator-facing:
   stored one is validated on load (no `cpassword`, no XML namespace) and an
   item in a namespace is not retained. No retained store -- unknown
   attributes, unknown children, raw filter predicates -- may hold a namespaced
-  name: import, load and the API refuse one. The review diff compares what a
+  name, and every retained attribute name must be a plain NCName (no literal
+  `xmlns:x` or `x:extra` key): import, load and the API refuse one. The
+  credential check reads the local part after any prefix, so `x:cpassword` is
+  refused at intake. The review diff compares what a
   retained element makes the export write, not the element itself, so a
   re-import of Studio's own export is not a change. Workspaces need no
   migration: a GPO stored before this fix keeps its digests and backup id, and

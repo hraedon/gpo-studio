@@ -3678,6 +3678,24 @@ workbench's group and registry edits reset every common option
   and `tests/test_gpp_native_preservation.py` runs it (re-check, N6).
 - *Diff scope (re-check, N5).* The retained comparison used the computer scope for
   every family; it uses the collection's.
+- *Clearing a task's command (second re-check, P1).* With no import record an
+  empty command field counted as unset, so clearing one on a payload-authored task
+  or a record `bd84b3a` stored succeeded while the export kept the old value (a
+  cleared `arguments` still exported `/sagerun:1`). An imported task's clear is an
+  edit and is written (its record says what was imported). Without a record an
+  empty field the payload fills is unset only when NO command field is set (a task
+  built from a payload alone, the endpoint lane's shape, unchanged byte for byte);
+  next to a set one it is ambiguous, since a clear looks the same, and the export is
+  refused. A payload-authored task that sets one command field must therefore set
+  the others it means to keep. Tasks have no edit route; covered through the public
+  export routes by `tests/test_gpp_task_clears.py`.
+- *Literal prefixed names (second re-check, P2).* The stores rejected `{namespace}`
+  names but not literal `xmlns:x` or `x:extra` keys, which an API payload or a
+  stored dict can carry and which were written verbatim as a foreign namespace;
+  `x:cpassword` passed intake (exports refused it). Every retained attribute name
+  must now be a plain ASCII NCName -- no prefix, no `{namespace}`, not `xmlns` --
+  on the API, import and load, and the credential check compares the local part
+  after any `{namespace}` or `prefix:`, case-folded, at every check.
 
 **Covered by** `tests/test_gpp_native_preservation.py`: every native capture through
 import, store and reload, the dict round trip, and the public `export.zip` and
@@ -3700,6 +3718,11 @@ the model alone, `gpp.model_only`). `gpp_native.py` is new and unbound: no lane
 candidate carries a retained element, so no lane measures it. Proposed, not done: a
 report-parity property-level check over the stored export (each item's `Properties`
 attributes and `FilterRunOnce@id` against the report), which would bind it.
+
+**Follow-up (not fixed here, low).** Clearing an imported TaskV2's `run_as` to ask
+for the scope's default (`NT AUTHORITY\System` or `%LogonDomain%\%LogonUser%`) is
+refused as a lost edit, because the writer substitutes the default and it reads back
+as the imported value; supplying the default explicitly works (second re-check).
 
 **Closes when:** the requalification runs of the lanes binding the changed files
 (fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b) bank on them.
