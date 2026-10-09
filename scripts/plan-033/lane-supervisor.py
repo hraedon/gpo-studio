@@ -94,7 +94,7 @@ def cancellation_signal(pending: set[signal.Signals]) -> int:
     as. Several may be pending and their order is lost, so take the one the
     kernel would have delivered first had they been unblocked (the lowest
     number), counting the driver's SIGUSR1 as the TERM it stands for."""
-    return min(signal.SIGTERM if sig == signal.SIGUSR1 else sig for sig in pending)
+    return int(min(signal.SIGTERM if sig == signal.SIGUSR1 else sig for sig in pending))
 
 
 def read_exec_status(fd: int) -> bool:

@@ -239,7 +239,7 @@ def _native_findings(script: Path, work: Path) -> list[str]:
     if shutil.which("pwsh") is None:
         pytest.skip("pwsh is not installed")
     harness_dir = work / "native-harness"
-    harness_dir.mkdir(exist_ok=True)
+    harness_dir.mkdir(parents=True, exist_ok=True)
     harness = harness_dir / "native.ps1"
     harness.write_text(_NATIVE_HARNESS, encoding="utf-8")
     completed = subprocess.run(

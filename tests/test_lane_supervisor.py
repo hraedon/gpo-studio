@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -348,3 +349,17 @@ def test_a_lane_starts_with_no_signal_blocked_or_ignored(tmp_path: Path) -> None
     )
     masks = {name: int(fields[name], 16) for name in ("SigBlk", "SigIgn")}
     assert masks == {"SigBlk": 0, "SigIgn": 0}, {k: f"{v:#x}" for k, v in masks.items()}
+
+
+def test_the_closed_gate_wait_fits_inside_the_drivers_stop_grace() -> None:
+    """GATE_CLOSE_TIMEOUT plus the kill grace must stay inside the driver's
+    SUPERVISOR_STOP_GRACE (kill grace + 15 s), or a clean cancel before launch
+    could be cut short by the driver's forced supervisor kill (DeepSeek N4)."""
+    driver = (REPO_ROOT / "scripts/plan-033/run-requal-batch.sh").read_text(encoding="utf-8")
+    match = re.search(r"SUPERVISOR_STOP_GRACE=\$\(\(LANE_KILL_GRACE \+ (\d+)\)\)", driver)
+    assert match, "the driver's stop grace is no longer kill grace + a constant"
+    timeout = re.search(
+        r"^GATE_CLOSE_TIMEOUT = ([0-9.]+)$", SUPERVISOR.read_text(encoding="utf-8"), re.M
+    )
+    assert timeout, "GATE_CLOSE_TIMEOUT is no longer a literal in the supervisor"
+    assert float(timeout.group(1)) < int(match.group(1))
