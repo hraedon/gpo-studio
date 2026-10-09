@@ -1,0 +1,244 @@
+{
+ "exports": {
+  "computer/Services/Services.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<NTServices clsid=\"{2CFB484A-4E96-4b5d-A0B6-093D2F91E6AE}\"><NTService clsid=\"{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}\" name=\"WinRM\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-27 21:15:28\" uid=\"{6BE36FDC-9216-4087-AAF4-4E106E23A861}\"><Properties startupType=\"NOCHANGE\" serviceName=\"WinRM\" timeout=\"30\" serviceAction=\"START\" firstFailure=\"RESTART\" secondFailure=\"RESTART\" thirdFailure=\"RESTART\" resetFailCountDelay=\"0\" restartServiceDelay=\"60000000\" /></NTService><NTService clsid=\"{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}\" name=\"Spooler\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"2\" changed=\"2026-07-27 21:15:52\" uid=\"{E55335A2-4C05-4DD3-B28D-2C8359205324}\"><Properties startupType=\"AUTOMATIC\" serviceName=\"Spooler\" timeout=\"60\" serviceAction=\"RESTART\" firstFailure=\"RESTART\" secondFailure=\"RESTART\" resetFailCountDelay=\"86400\" restartServiceDelay=\"30000000\" /></NTService><NTService clsid=\"{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}\" name=\"W32Time\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-27 21:16:40\" uid=\"{FBB57B6C-8F4A-4B5D-8C56-551CA1DDD2A4}\"><Properties startupType=\"NOCHANGE\" serviceName=\"W32Time\" timeout=\"30\" serviceAction=\"STOP\" /></NTService></NTServices>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "computer",
+    "services": [
+     {
+      "account_name": "",
+      "account_password": "",
+      "action": "update",
+      "append_failure_count": false,
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "first_failure": "restart",
+      "id": "5c607d92-0797-4251-a2b0-bc41b92506a6",
+      "ilt_filter": null,
+      "interact_with_desktop": false,
+      "program": "",
+      "reset_fail_count_delay_seconds": 0,
+      "restart_computer_delay_milliseconds": null,
+      "restart_message": "",
+      "restart_service_delay_milliseconds": 60000000,
+      "second_failure": "restart",
+      "service_action": "start",
+      "service_name": "WinRM",
+      "startup_type": "no_change",
+      "third_failure": "restart",
+      "timeout_seconds": 30,
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:15:28"
+       ],
+       [
+        "uid",
+        "{6BE36FDC-9216-4087-AAF4-4E106E23A861}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     },
+     {
+      "account_name": "",
+      "account_password": "",
+      "action": "update",
+      "append_failure_count": false,
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "first_failure": "restart",
+      "id": "b1d31967-7326-4a78-8a56-192aa57c652a",
+      "ilt_filter": null,
+      "interact_with_desktop": false,
+      "program": "",
+      "reset_fail_count_delay_seconds": 86400,
+      "restart_computer_delay_milliseconds": null,
+      "restart_message": "",
+      "restart_service_delay_milliseconds": 30000000,
+      "second_failure": "restart",
+      "service_action": "restart",
+      "service_name": "Spooler",
+      "startup_type": "automatic",
+      "third_failure": null,
+      "timeout_seconds": 60,
+      "unknown_attrs": [
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:15:52"
+       ],
+       [
+        "uid",
+        "{E55335A2-4C05-4DD3-B28D-2C8359205324}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     },
+     {
+      "account_name": "",
+      "account_password": "",
+      "action": "update",
+      "append_failure_count": false,
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 2,
+      "first_failure": null,
+      "id": "587c38f4-5a96-4203-8c24-c18fe57c3bce",
+      "ilt_filter": null,
+      "interact_with_desktop": false,
+      "program": "",
+      "reset_fail_count_delay_seconds": null,
+      "restart_computer_delay_milliseconds": null,
+      "restart_message": "",
+      "restart_service_delay_milliseconds": null,
+      "second_failure": null,
+      "service_action": "stop",
+      "service_name": "W32Time",
+      "startup_type": "no_change",
+      "third_failure": null,
+      "timeout_seconds": 30,
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:16:40"
+       ],
+       [
+        "uid",
+        "{FBB57B6C-8F4A-4B5D-8C56-551CA1DDD2A4}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     }
+    ],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000013",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-Services-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{F05EEDC2-D8AF-549D-B007-DF52B2827B16}",
+ "policy_semantic_sha256": "12991cbbcd9c5093a1171bc6abf66566c8261e1399c7af623d2bd60339809208",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "f3c72a2dad61164d33048f9d3d8e77cd4d5b8f6c31b26e9942714dfdac1da319"
+}

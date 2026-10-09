@@ -1,0 +1,490 @@
+{
+ "exports": {
+  "user/EnvironmentVariables/EnvironmentVariables.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<EnvironmentVariables clsid=\"{BF141A63-327B-438a-B9BF-2C188F13B7AD}\"><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"CREATE\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"CREATE = USER\" image=\"0\" changed=\"2026-07-27 21:33:39\" uid=\"{A5902E84-98E5-4835-86DC-22547196574D}\"><Properties action=\"C\" name=\"CREATE\" value=\"USER\" user=\"1\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"CREATE\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"CREATE = SYSTEM\" image=\"0\" changed=\"2026-07-27 21:33:50\" uid=\"{7DC65F65-E77F-44C9-A468-0BC7530B9C2E}\"><Properties action=\"C\" name=\"CREATE\" value=\"SYSTEM\" user=\"0\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"UPDATE\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"UPDATE = USER\" image=\"2\" changed=\"2026-07-27 21:34:01\" uid=\"{DA92707B-1923-46F8-8598-F1A7D3BC5AE4}\"><Properties action=\"U\" name=\"UPDATE\" value=\"USER\" user=\"1\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"UPDATE\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"UPDATE = SYSTEM\" image=\"2\" changed=\"2026-07-27 21:34:10\" uid=\"{B547171E-8B1E-4123-9776-AF242D665E48}\"><Properties action=\"U\" name=\"UPDATE\" value=\"SYSTEM\" user=\"0\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"REPLACE\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"REPLACE = USER\" image=\"1\" changed=\"2026-07-27 21:34:19\" uid=\"{0973597E-8439-4931-8708-5D9A3E5276C4}\"><Properties action=\"R\" name=\"REPLACE\" value=\"USER\" user=\"1\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"REPLACE\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"REPLACE = SYSTEM\" image=\"1\" changed=\"2026-07-27 21:34:31\" uid=\"{80453482-34FC-4700-AF6C-BCED475084CC}\"><Properties action=\"R\" name=\"REPLACE\" value=\"SYSTEM\" user=\"0\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"DELETE_USER\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"DELETE_USER\" image=\"3\" changed=\"2026-07-27 21:34:50\" uid=\"{39D12C7B-48B1-4BD9-975A-BFF89432A62B}\"><Properties action=\"D\" name=\"DELETE_USER\" value=\"\" user=\"1\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"DELETE_SYSTEM\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"DELETE_SYSTEM\" image=\"3\" changed=\"2026-07-27 21:35:06\" uid=\"{93CE9674-E910-4472-A7F7-4A6F90626FE5}\"><Properties action=\"D\" name=\"DELETE_SYSTEM\" value=\"\" user=\"0\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"PATH\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"PATH = C:\\Windows\\Ünïcödé &lt;&quot;&amp;&gt;\" image=\"2\" changed=\"2026-07-27 21:36:04\" uid=\"{EBBC996D-F3FB-4F88-B7CA-04ED0BAFFCDA}\"><Properties action=\"U\" name=\"PATH\" value=\"C:\\Windows\\Ünïcödé &lt;&quot;&amp;&gt;\" user=\"0\" /></EnvironmentVariable><EnvironmentVariable clsid=\"{78570023-8373-4a19-BA80-2F150738EA19}\" name=\"CREATE%\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"1\" status=\"CREATE% = USER_ILT%\" image=\"0\" changed=\"2026-07-27 21:37:12\" uid=\"{9E22C279-D52E-4580-BE1A-6D55D9E4F2A3}\"><Properties action=\"C\" name=\"CREATE%\" value=\"USER_ILT%\" user=\"1\" /><Filters><FilterGroup sid=\"S-1-5-21-0000000000-0000000000-0000000000-4674\" not=\"0\" bool=\"AND\" userContext=\"1\" primaryGroup=\"0\" localGroup=\"0\" /></Filters></EnvironmentVariable></EnvironmentVariables>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [
+     {
+      "action": "add",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "id": "981e56bc-155c-486a-8615-2098409304f0",
+      "ilt_filter": null,
+      "name": "CREATE",
+      "unknown_attrs": [
+       [
+        "status",
+        "CREATE = USER"
+       ],
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:33:39"
+       ],
+       [
+        "uid",
+        "{A5902E84-98E5-4835-86DC-22547196574D}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": true,
+      "value": "USER"
+     },
+     {
+      "action": "add",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "id": "da89849c-0c4d-45bb-acb0-b293154670ef",
+      "ilt_filter": null,
+      "name": "CREATE",
+      "unknown_attrs": [
+       [
+        "status",
+        "CREATE = SYSTEM"
+       ],
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:33:50"
+       ],
+       [
+        "uid",
+        "{7DC65F65-E77F-44C9-A468-0BC7530B9C2E}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": false,
+      "value": "SYSTEM"
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 2,
+      "id": "c5a66c64-c3a0-45d0-a50a-c84e3f825c5f",
+      "ilt_filter": null,
+      "name": "UPDATE",
+      "unknown_attrs": [
+       [
+        "status",
+        "UPDATE = USER"
+       ],
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:34:01"
+       ],
+       [
+        "uid",
+        "{DA92707B-1923-46F8-8598-F1A7D3BC5AE4}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": true,
+      "value": "USER"
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 3,
+      "id": "2700c549-8a5e-4007-ad60-6c013389c236",
+      "ilt_filter": null,
+      "name": "UPDATE",
+      "unknown_attrs": [
+       [
+        "status",
+        "UPDATE = SYSTEM"
+       ],
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:34:10"
+       ],
+       [
+        "uid",
+        "{B547171E-8B1E-4123-9776-AF242D665E48}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": false,
+      "value": "SYSTEM"
+     },
+     {
+      "action": "replace",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 4,
+      "id": "7c8e0d96-6be5-4b16-a5ad-71214a4c976c",
+      "ilt_filter": null,
+      "name": "REPLACE",
+      "unknown_attrs": [
+       [
+        "status",
+        "REPLACE = USER"
+       ],
+       [
+        "image",
+        "1"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:34:19"
+       ],
+       [
+        "uid",
+        "{0973597E-8439-4931-8708-5D9A3E5276C4}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": true,
+      "value": "USER"
+     },
+     {
+      "action": "replace",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 5,
+      "id": "71ea5d40-5c34-4f10-a7df-5e54d6e590f8",
+      "ilt_filter": null,
+      "name": "REPLACE",
+      "unknown_attrs": [
+       [
+        "status",
+        "REPLACE = SYSTEM"
+       ],
+       [
+        "image",
+        "1"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:34:31"
+       ],
+       [
+        "uid",
+        "{80453482-34FC-4700-AF6C-BCED475084CC}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": false,
+      "value": "SYSTEM"
+     },
+     {
+      "action": "remove",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 6,
+      "id": "db199a47-f79c-489b-a712-c55cdee66261",
+      "ilt_filter": null,
+      "name": "DELETE_USER",
+      "unknown_attrs": [
+       [
+        "status",
+        "DELETE_USER"
+       ],
+       [
+        "image",
+        "3"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:34:50"
+       ],
+       [
+        "uid",
+        "{39D12C7B-48B1-4BD9-975A-BFF89432A62B}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": true,
+      "value": ""
+     },
+     {
+      "action": "remove",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 7,
+      "id": "36750462-84bd-4c80-9e67-9591348e45a0",
+      "ilt_filter": null,
+      "name": "DELETE_SYSTEM",
+      "unknown_attrs": [
+       [
+        "status",
+        "DELETE_SYSTEM"
+       ],
+       [
+        "image",
+        "3"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:35:06"
+       ],
+       [
+        "uid",
+        "{93CE9674-E910-4472-A7F7-4A6F90626FE5}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": false,
+      "value": ""
+     },
+     {
+      "action": "update",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 8,
+      "id": "43ec02e1-d4f8-4aab-861a-2e3f1738f755",
+      "ilt_filter": null,
+      "name": "PATH",
+      "unknown_attrs": [
+       [
+        "status",
+        "PATH = C:\\Windows\\Ünïcödé <\"&>"
+       ],
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:36:04"
+       ],
+       [
+        "uid",
+        "{EBBC996D-F3FB-4F88-B7CA-04ED0BAFFCDA}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": false,
+      "value": "C:\\Windows\\Ünïcödé <\"&>"
+     },
+     {
+      "action": "add",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": false,
+       "user_security_context": false
+      },
+      "document_position": 9,
+      "id": "f1b9824c-283a-44b5-acb7-4be545b19cf0",
+      "ilt_filter": {
+       "items": [
+        {
+         "bool_op": "AND",
+         "negate": false,
+         "os_criteria": null,
+         "type": "group",
+         "unknown_attrs": [
+          [
+           "userContext",
+           "1"
+          ],
+          [
+           "primaryGroup",
+           "0"
+          ],
+          [
+           "localGroup",
+           "0"
+          ]
+         ],
+         "value": "S-1-5-21-0000000000-0000000000-0000000000-4674"
+        }
+       ]
+      },
+      "name": "CREATE%",
+      "unknown_attrs": [
+       [
+        "status",
+        "CREATE% = USER_ILT%"
+       ],
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:37:12"
+       ],
+       [
+        "uid",
+        "{9E22C279-D52E-4580-BE1A-6D55D9E4F2A3}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "user": true,
+      "value": "USER_ILT%"
+     }
+    ],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "user",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000001",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-EnvVars-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{D7AF26E3-09FB-5166-A98A-D2D4836CDDAC}",
+ "policy_semantic_sha256": "eafd1dce51a745ed62c90909dcb2fd050a064e1ce3ec621864558aba1868f5ef",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-gpmc/WI01A-EnvVars-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "1450be1889ace42f9829f1b8943417e595eead3ce6dccf170c58dfe29dc13a05"
+}

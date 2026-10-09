@@ -1,0 +1,429 @@
+{
+ "exports": {
+  "computer/ScheduledTasks/ScheduledTasks.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ScheduledTasks clsid=\"{CC63F200-7309-4ba0-B154-A71CD118DBCC}\"><TaskV2 clsid=\"{D8896631-B747-47a7-84A6-C155337F3BC8}\" name=\"GpoStudio-Cleanup\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"2\" changed=\"2026-07-26 16:21:33\" uid=\"{FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}\"><Properties action=\"U\" name=\"GpoStudio-Cleanup\" runAs=\"NT AUTHORITY\\System\"><Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers><CalendarTrigger><StartBoundary>2026-07-26T02:00:00</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><Exec><Command>C:\\Windows\\System32\\cleanmgr.exe</Command><Arguments>/sagerun:1</Arguments><WorkingDirectory>C:\\Windows</WorkingDirectory></Exec>\n\t\t\t\t</Actions></Task></Properties></TaskV2><ImmediateTaskV2 clsid=\"{9756B581-76EC-4169-9AFC-0CA8D43ADB5F}\" name=\"GpoStudio-Init\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-26 16:23:16\" uid=\"{61200875-7625-4876-AAF3-A1C7F04411A7}\"><Properties action=\"C\" name=\"GpoStudio-Init\" runAs=\"NT AUTHORITY\\System\" program=\"C:\\Windows\\System32\\cmd.exe\" arguments=\"/c echo init\" startIn=\"\"><Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>P3D</ExecutionTimeLimit><Priority>7</Priority><DeleteExpiredTaskAfter>PT0S</DeleteExpiredTaskAfter></Settings><Triggers><TimeTrigger><StartBoundary>%LocalTimeXmlEx%</StartBoundary><EndBoundary>%LocalTimeXmlEx%</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Actions Context=\"Author\"><Exec><Command>C:\\Windows\\System32\\cmd.exe</Command><Arguments>/c echo init</Arguments></Exec>\n\t\t\t\t</Actions></Task></Properties></ImmediateTaskV2><TaskV2 clsid=\"{D8896631-B747-47a7-84A6-C155337F3BC8}\" name=\"Replace Test\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"1\" changed=\"2026-07-26 17:49:17\" uid=\"{6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}\"><Properties action=\"R\" name=\"Replace Test\" runAs=\"NT AUTHORITY\\System\"><Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>NT AUTHORITY\\System</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT5M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><AllowStartOnDemand>false</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers><CalendarTrigger><StartBoundary>2026-07-26T10:48:17</StartBoundary><Enabled>true</Enabled><ScheduleByWeek><WeeksInterval>1</WeeksInterval><DaysOfWeek><Sunday /></DaysOfWeek></ScheduleByWeek></CalendarTrigger>\n\t\t\t\t\t<CalendarTrigger><StartBoundary>2026-07-26T10:48:53</StartBoundary><Enabled>false</Enabled><ScheduleByMonth><DaysOfMonth><Day>1</Day></DaysOfMonth><Months><January /><February /><March /><April /><May /><June /><July /><August /><September /><October /><November /><December /></Months></ScheduleByMonth></CalendarTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><Exec><Command>C:\\windows\\system32\\notepad.exe</Command></Exec>\n\t\t\t\t</Actions></Task></Properties></TaskV2><ImmediateTaskV2 clsid=\"{9756B581-76EC-4169-9AFC-0CA8D43ADB5F}\" name=\"Defender-Activation\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-27 21:45:01\" uid=\"{28B8AB5E-628B-4488-B9B3-10A41E009EFA}\"><Properties action=\"C\" name=\"Defender-Activation\" runAs=\"NT AUTHORITY\\System\" program=\"\\\\filesrv\\activate.bat\" arguments=\"\" startIn=\"\"><Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT5M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority><DeleteExpiredTaskAfter>PT0S</DeleteExpiredTaskAfter></Settings><Triggers><TimeTrigger><StartBoundary>%LocalTimeXmlEx%</StartBoundary><EndBoundary>%LocalTimeXmlEx%</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Actions Context=\"Author\"><Exec><Command>\\\\filesrv\\activate.bat</Command></Exec>\n\t\t\t\t</Actions></Task></Properties></ImmediateTaskV2></ScheduledTasks>",
+  "user/ScheduledTasks/ScheduledTasks.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ScheduledTasks clsid=\"{CC63F200-7309-4ba0-B154-A71CD118DBCC}\"><TaskV2 clsid=\"{D8896631-B747-47a7-84A6-C155337F3BC8}\" name=\"Create Task\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-26 17:47:46\" uid=\"{4310395E-9A2B-4CC1-AE5E-7DF49B2123A2}\"><Properties action=\"C\" name=\"Create Task\" runAs=\"%LogonDomain%\\%LogonUser%\"><Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description>Ünïcödé &lt;\"&amp;&gt; label</Description></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>StopExisting</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>P3D</ExecutionTimeLimit><Priority>7</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Triggers><TimeTrigger><StartBoundary>2026-07-26T10:45:51</StartBoundary><Enabled>true</Enabled></TimeTrigger>\n\t\t\t\t\t<SessionStateChangeTrigger><Enabled>true</Enabled><StateChange>RemoteConnect</StateChange></SessionStateChangeTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><ShowMessage><Title>Task Created!</Title><Body>Ünïcödé &lt;\"&amp;&gt; label</Body></ShowMessage>\n\t\t\t\t\t<Exec><Command>C:\\windows\\system32\\notepad.exe</Command><Arguments>Ünïcödé &lt;\"&amp;&gt; label</Arguments></Exec>\n\t\t\t\t</Actions></Task></Properties><Filters><FilterDomain name=\"HRAENET\" not=\"0\" bool=\"AND\" userContext=\"1\" /></Filters></TaskV2><TaskV2 clsid=\"{D8896631-B747-47a7-84A6-C155337F3BC8}\" name=\"Delete Test\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"3\" changed=\"2026-07-26 17:50:27\" uid=\"{EC9EFD19-C102-4F73-9B31-98668661E69C}\"><Properties action=\"D\" name=\"Delete Test\" runAs=\"%LogonDomain%\\%LogonUser%\"><Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>P3D</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers /><Actions Context=\"Author\"><SendEmail><From>Delete Test</From><To>pmerritt@ad.hraedon.com</To><Subject>Delete Test</Subject><Body>This is a test of the delete item.</Body><HeaderFields /><Server>mail.hraedon.com</Server></SendEmail>\n\t\t\t\t</Actions></Task></Properties></TaskV2></ScheduledTasks>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [
+     {
+      "action": "add",
+      "arguments": "/c echo init",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "id": "521c7cee-df30-4e0e-ad59-75af13e3c173",
+      "ilt_filter": null,
+      "name": "GpoStudio-Init",
+      "program": "C:\\Windows\\System32\\cmd.exe",
+      "run_as": "NT AUTHORITY\\System",
+      "run_as_password": "",
+      "start_in": "",
+      "task_xml": "<Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>P3D</ExecutionTimeLimit><Priority>7</Priority><DeleteExpiredTaskAfter>PT0S</DeleteExpiredTaskAfter></Settings><Triggers><TimeTrigger><StartBoundary>%LocalTimeXmlEx%</StartBoundary><EndBoundary>%LocalTimeXmlEx%</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Actions Context=\"Author\"><Exec><Command>C:\\Windows\\System32\\cmd.exe</Command><Arguments>/c echo init</Arguments></Exec>\n\t\t\t\t</Actions></Task>",
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-26 16:23:16"
+       ],
+       [
+        "uid",
+        "{61200875-7625-4876-AAF3-A1C7F04411A7}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     },
+     {
+      "action": "add",
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 3,
+      "id": "1222b65a-6707-42fe-bfa3-543893ea389d",
+      "ilt_filter": null,
+      "name": "Defender-Activation",
+      "program": "\\\\filesrv\\activate.bat",
+      "run_as": "NT AUTHORITY\\System",
+      "run_as_password": "",
+      "start_in": "",
+      "task_xml": "<Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT5M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority><DeleteExpiredTaskAfter>PT0S</DeleteExpiredTaskAfter></Settings><Triggers><TimeTrigger><StartBoundary>%LocalTimeXmlEx%</StartBoundary><EndBoundary>%LocalTimeXmlEx%</EndBoundary><Enabled>true</Enabled></TimeTrigger></Triggers><Actions Context=\"Author\"><Exec><Command>\\\\filesrv\\activate.bat</Command></Exec>\n\t\t\t\t</Actions></Task>",
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:45:01"
+       ],
+       [
+        "uid",
+        "{28B8AB5E-628B-4488-B9B3-10A41E009EFA}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     }
+    ],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [
+     {
+      "action": "update",
+      "arguments": "/sagerun:1",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "element_variant": "TaskV2",
+      "enabled": true,
+      "id": "11b53574-5d5b-4b74-8758-d59fb4d7a493",
+      "ilt_filter": null,
+      "name": "GpoStudio-Cleanup",
+      "program": "C:\\Windows\\System32\\cleanmgr.exe",
+      "run_as": "NT AUTHORITY\\System",
+      "run_as_password": "",
+      "start_in": "C:\\Windows",
+      "task_xml": "<Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers><CalendarTrigger><StartBoundary>2026-07-26T02:00:00</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><Exec><Command>C:\\Windows\\System32\\cleanmgr.exe</Command><Arguments>/sagerun:1</Arguments><WorkingDirectory>C:\\Windows</WorkingDirectory></Exec>\n\t\t\t\t</Actions></Task>",
+      "trigger_days": "",
+      "trigger_time": "2026-07-26T02:00:00",
+      "trigger_type": "daily",
+      "unknown_attrs": [
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-26 16:21:33"
+       ],
+       [
+        "uid",
+        "{FC4367FA-FE4E-4205-B6F3-16667F8E9CCE}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     },
+     {
+      "action": "replace",
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 2,
+      "element_variant": "TaskV2",
+      "enabled": true,
+      "id": "304d4bf7-109a-4130-9c29-9a31114edce6",
+      "ilt_filter": null,
+      "name": "Replace Test",
+      "program": "C:\\windows\\system32\\notepad.exe",
+      "run_as": "NT AUTHORITY\\System",
+      "run_as_password": "",
+      "start_in": "",
+      "task_xml": "<Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>NT AUTHORITY\\System</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT5M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>false</AllowHardTerminate><AllowStartOnDemand>false</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers><CalendarTrigger><StartBoundary>2026-07-26T10:48:17</StartBoundary><Enabled>true</Enabled><ScheduleByWeek><WeeksInterval>1</WeeksInterval><DaysOfWeek><Sunday /></DaysOfWeek></ScheduleByWeek></CalendarTrigger>\n\t\t\t\t\t<CalendarTrigger><StartBoundary>2026-07-26T10:48:53</StartBoundary><Enabled>false</Enabled><ScheduleByMonth><DaysOfMonth><Day>1</Day></DaysOfMonth><Months><January /><February /><March /><April /><May /><June /><July /><August /><September /><October /><November /><December /></Months></ScheduleByMonth></CalendarTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><Exec><Command>C:\\windows\\system32\\notepad.exe</Command></Exec>\n\t\t\t\t</Actions></Task>",
+      "trigger_days": "",
+      "trigger_time": "",
+      "trigger_type": "once",
+      "unknown_attrs": [
+       [
+        "image",
+        "1"
+       ],
+       [
+        "changed",
+        "2026-07-26 17:49:17"
+       ],
+       [
+        "uid",
+        "{6D6BA8D4-AC9C-4348-BD22-7B9C389A3471}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     }
+    ],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "computer",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   },
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [
+     {
+      "action": "add",
+      "arguments": "Ünïcödé <\"&> label",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "element_variant": "TaskV2",
+      "enabled": true,
+      "id": "2280079a-55ba-4ad6-be8b-1bf3a1d94c3e",
+      "ilt_filter": {
+       "items": [
+        {
+         "bool_op": "AND",
+         "negate": false,
+         "os_criteria": null,
+         "type": "domain",
+         "unknown_attrs": [
+          [
+           "userContext",
+           "1"
+          ]
+         ],
+         "value": "HRAENET"
+        }
+       ]
+      },
+      "name": "Create Task",
+      "program": "C:\\windows\\system32\\notepad.exe",
+      "run_as": "%LogonDomain%\\%LogonUser%",
+      "run_as_password": "",
+      "start_in": "",
+      "task_xml": "<Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description>Ünïcödé &lt;\"&amp;&gt; label</Description></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>StopExisting</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>P3D</ExecutionTimeLimit><Priority>7</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Triggers><TimeTrigger><StartBoundary>2026-07-26T10:45:51</StartBoundary><Enabled>true</Enabled></TimeTrigger>\n\t\t\t\t\t<SessionStateChangeTrigger><Enabled>true</Enabled><StateChange>RemoteConnect</StateChange></SessionStateChangeTrigger>\n\t\t\t\t</Triggers><Actions Context=\"Author\"><ShowMessage><Title>Task Created!</Title><Body>Ünïcödé &lt;\"&amp;&gt; label</Body></ShowMessage>\n\t\t\t\t\t<Exec><Command>C:\\windows\\system32\\notepad.exe</Command><Arguments>Ünïcödé &lt;\"&amp;&gt; label</Arguments></Exec>\n\t\t\t\t</Actions></Task>",
+      "trigger_days": "",
+      "trigger_time": "",
+      "trigger_type": "once",
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-26 17:47:46"
+       ],
+       [
+        "uid",
+        "{4310395E-9A2B-4CC1-AE5E-7DF49B2123A2}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     },
+     {
+      "action": "remove",
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "element_variant": "TaskV2",
+      "enabled": true,
+      "id": "b2f8c48d-aa88-4aa9-bf06-f36fd24b7c69",
+      "ilt_filter": null,
+      "name": "Delete Test",
+      "program": "",
+      "run_as": "%LogonDomain%\\%LogonUser%",
+      "run_as_password": "",
+      "start_in": "",
+      "task_xml": "<Task version=\"1.2\"><RegistrationInfo><Author>HRAENET\\sxmerrip</Author><Description /></RegistrationInfo><Principals><Principal id=\"Author\"><UserId>%LogonDomain%\\%LogonUser%</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><IdleSettings><Duration>PT10M</Duration><WaitTimeout>PT1H</WaitTimeout><StopOnIdleEnd>true</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>true</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable><AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden><RunOnlyIfIdle>false</RunOnlyIfIdle><WakeToRun>false</WakeToRun><ExecutionTimeLimit>P3D</ExecutionTimeLimit><Priority>7</Priority></Settings><Triggers /><Actions Context=\"Author\"><SendEmail><From>Delete Test</From><To>pmerritt@ad.hraedon.com</To><Subject>Delete Test</Subject><Body>This is a test of the delete item.</Body><HeaderFields /><Server>mail.hraedon.com</Server></SendEmail>\n\t\t\t\t</Actions></Task>",
+      "trigger_days": "",
+      "trigger_time": "",
+      "trigger_type": "once",
+      "unknown_attrs": [
+       [
+        "image",
+        "3"
+       ],
+       [
+        "changed",
+        "2026-07-26 17:50:27"
+       ],
+       [
+        "uid",
+        "{EC9EFD19-C102-4F73-9B31-98668661E69C}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     }
+    ],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "user",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000012",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-SchedTasksFull-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{3E0249D9-08FF-5659-A1C2-780237E25CA8}",
+ "policy_semantic_sha256": "99939ad109c5df1b2aa6337e335e1939fff3d4e08d1ef3ad2579858606391795",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasksFull-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "4845039ea2b5bb8c9248d3111572868cfa87349e1e8e9ad2d106baa63b8f71e9"
+}

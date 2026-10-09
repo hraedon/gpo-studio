@@ -1,0 +1,370 @@
+{
+ "exports": {
+  "user/Printers/Printers.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Printers clsid=\"{1F577D12-3D1B-471e-A1B7-060317597B9C}\"><SharedPrinter clsid=\"{9A5E9697-9095-436d-A0EE-4D128FDFBCE5}\" name=\"Lab-Color\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"1\" status=\"Lab-Color\" image=\"2\" changed=\"2026-07-27 21:06:36\" uid=\"{E1697093-F255-4F2B-814A-B32680B38132}\"><Properties action=\"U\" path=\"\\\\printsv\\Lab-Color\" setDefault=\"0\" useLocal=\"0\" comment=\"\" /><Filters><FilterOrgUnit name=\"OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com\" not=\"0\" bool=\"AND\" userContext=\"0\" directMember=\"0\" /></Filters></SharedPrinter><SharedPrinter clsid=\"{9A5E9697-9095-436d-A0EE-4D128FDFBCE5}\" name=\"Lab-Mono\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"1\" status=\"Lab-Mono\" image=\"2\" changed=\"2026-07-27 21:10:32\" uid=\"{36D48AA0-D917-412D-B8E7-92CB378CFD93}\"><Properties action=\"U\" path=\"\\\\printsv\\Lab-Mono\" setDefault=\"0\" useLocal=\"0\" comment=\"\" /><Filters><FilterOrgUnit name=\"OU=Lab-WS1,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com\" not=\"0\" bool=\"AND\" userContext=\"0\" directMember=\"0\" /><FilterOrgUnit name=\"OU=Lab-WS3,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com\" not=\"0\" bool=\"AND\" userContext=\"0\" directMember=\"0\" /><FilterOrgUnit name=\"OU=Lab-WS2,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com\" not=\"0\" bool=\"OR\" userContext=\"0\" directMember=\"0\" /></Filters></SharedPrinter><SharedPrinter clsid=\"{9A5E9697-9095-436d-A0EE-4D128FDFBCE5}\" name=\"Old-Printer\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"Old-Printer\" image=\"3\" changed=\"2026-07-27 21:11:01\" uid=\"{9F9B975F-4C35-449E-81E7-D33B6A2486F8}\"><Properties action=\"D\" path=\"\\\\printsv\\Old-Printer\" setDefault=\"0\" useLocal=\"0\" comment=\"\" /></SharedPrinter><SharedPrinter clsid=\"{9A5E9697-9095-436d-A0EE-4D128FDFBCE5}\" name=\"Create-Printer\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"1\" status=\"Create-Printer\" image=\"0\" changed=\"2026-07-27 21:11:20\" uid=\"{C8E69044-9A57-4FB6-98EA-72C504029B73}\"><Properties action=\"C\" path=\"\\\\printsv\\Create-Printer\" setDefault=\"0\" useLocal=\"0\" comment=\"\" /></SharedPrinter><SharedPrinter clsid=\"{9A5E9697-9095-436d-A0EE-4D128FDFBCE5}\" name=\"Replace-Printer\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" status=\"Replace-Printer\" image=\"1\" changed=\"2026-07-27 21:11:33\" uid=\"{378FDCD3-F4C2-47B7-80E5-6B6A7B6380C1}\"><Properties action=\"R\" path=\"\\\\printsv\\Replace-Printer\" setDefault=\"0\" useLocal=\"0\" comment=\"\" /></SharedPrinter></Printers>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [
+     {
+      "action": "update",
+      "action_type": "update",
+      "comment": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": false,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "id": "2a8c2805-1a76-4ade-8966-1849e921bc69",
+      "ilt_filter": {
+       "items": [
+        {
+         "bool_op": "AND",
+         "negate": false,
+         "os_criteria": null,
+         "type": "ou",
+         "unknown_attrs": [
+          [
+           "userContext",
+           "0"
+          ],
+          [
+           "directMember",
+           "0"
+          ]
+         ],
+         "value": "OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com"
+        }
+       ]
+      },
+      "path": "\\\\printsv\\Lab-Color",
+      "set_default": false,
+      "unknown_attrs": [
+       [
+        "status",
+        "Lab-Color"
+       ],
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:06:36"
+       ],
+       [
+        "uid",
+        "{E1697093-F255-4F2B-814A-B32680B38132}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "use_local": false
+     },
+     {
+      "action": "update",
+      "action_type": "update",
+      "comment": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": false,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "id": "488a5906-53e6-4023-b3b6-606df8db3db9",
+      "ilt_filter": {
+       "items": [
+        {
+         "bool_op": "AND",
+         "negate": false,
+         "os_criteria": null,
+         "type": "ou",
+         "unknown_attrs": [
+          [
+           "userContext",
+           "0"
+          ],
+          [
+           "directMember",
+           "0"
+          ]
+         ],
+         "value": "OU=Lab-WS1,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com"
+        },
+        {
+         "bool_op": "AND",
+         "negate": false,
+         "os_criteria": null,
+         "type": "ou",
+         "unknown_attrs": [
+          [
+           "userContext",
+           "0"
+          ],
+          [
+           "directMember",
+           "0"
+          ]
+         ],
+         "value": "OU=Lab-WS3,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com"
+        },
+        {
+         "bool_op": "OR",
+         "negate": false,
+         "os_criteria": null,
+         "type": "ou",
+         "unknown_attrs": [
+          [
+           "userContext",
+           "0"
+          ],
+          [
+           "directMember",
+           "0"
+          ]
+         ],
+         "value": "OU=Lab-WS2,OU=Lab-WS,OU=Workstations,DC=ad,DC=hraedon,DC=com"
+        }
+       ]
+      },
+      "path": "\\\\printsv\\Lab-Mono",
+      "set_default": false,
+      "unknown_attrs": [
+       [
+        "status",
+        "Lab-Mono"
+       ],
+       [
+        "image",
+        "2"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:10:32"
+       ],
+       [
+        "uid",
+        "{36D48AA0-D917-412D-B8E7-92CB378CFD93}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "use_local": false
+     },
+     {
+      "action": "update",
+      "action_type": "delete",
+      "comment": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 2,
+      "id": "c3559700-3e70-40cc-b014-01958f958fdf",
+      "ilt_filter": null,
+      "path": "\\\\printsv\\Old-Printer",
+      "set_default": false,
+      "unknown_attrs": [
+       [
+        "status",
+        "Old-Printer"
+       ],
+       [
+        "image",
+        "3"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:11:01"
+       ],
+       [
+        "uid",
+        "{9F9B975F-4C35-449E-81E7-D33B6A2486F8}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "use_local": false
+     },
+     {
+      "action": "update",
+      "action_type": "create",
+      "comment": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": false,
+       "user_security_context": false
+      },
+      "document_position": 3,
+      "id": "6ed66e72-afd5-4fe2-ae87-512451c5b999",
+      "ilt_filter": null,
+      "path": "\\\\printsv\\Create-Printer",
+      "set_default": false,
+      "unknown_attrs": [
+       [
+        "status",
+        "Create-Printer"
+       ],
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:11:20"
+       ],
+       [
+        "uid",
+        "{C8E69044-9A57-4FB6-98EA-72C504029B73}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "use_local": false
+     },
+     {
+      "action": "update",
+      "action_type": "replace",
+      "comment": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 4,
+      "id": "fbcd2722-9c8b-4ab0-b81b-ba3a30de5712",
+      "ilt_filter": null,
+      "path": "\\\\printsv\\Replace-Printer",
+      "set_default": false,
+      "unknown_attrs": [
+       [
+        "status",
+        "Replace-Printer"
+       ],
+       [
+        "image",
+        "1"
+       ],
+       [
+        "changed",
+        "2026-07-27 21:11:33"
+       ],
+       [
+        "uid",
+        "{378FDCD3-F4C2-47B7-80E5-6B6A7B6380C1}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": [],
+      "use_local": false
+     }
+    ],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "user",
+    "services": [],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000010",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-Printers-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{DB41B620-35B0-5E1B-8312-EFE25DAE760D}",
+ "policy_semantic_sha256": "9258a41e9f48787b6961b916931491605f64b3f64faf724ee79871cf987bc63d",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-gpmc/WI01A-Printers-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "c63be532175936bb7ccd69080dda6b52f636560ad2be73b899f713a9ab866627"
+}

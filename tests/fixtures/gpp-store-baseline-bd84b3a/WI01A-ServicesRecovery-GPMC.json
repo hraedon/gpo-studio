@@ -1,0 +1,198 @@
+{
+ "exports": {
+  "computer/Services/Services.xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<NTServices clsid=\"{2CFB484A-4E96-4b5d-A0B6-093D2F91E6AE}\"><NTService clsid=\"{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}\" name=\"Spooler\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-30 22:31:22\" uid=\"{3DA17861-8910-4232-9F50-7EE67ED8266D}\"><Properties startupType=\"NOCHANGE\" serviceName=\"Spooler\" timeout=\"30\" restartMessage=\"Synthetic GPO Studio recovery evidence\" program=\"C:\\Windows\\System32\\cmd.exe\" args=\"/c exit 0\" append=\"1\" firstFailure=\"RUNCMD\" secondFailure=\"RESTART\" thirdFailure=\"REBOOT\" resetFailCountDelay=\"172800\" restartServiceDelay=\"420000\" restartComputerDelay=\"180000\" /></NTService><NTService clsid=\"{AB6F0B67-341F-4e51-92F9-005FBFBA1A43}\" name=\"W32Time\" removePolicy=\"0\" userContext=\"0\" disabled=\"0\" bypassErrors=\"0\" image=\"0\" changed=\"2026-07-30 22:32:17\" uid=\"{13FC0555-7E0B-496F-9D29-BBD4750665EA}\"><Properties startupType=\"NOCHANGE\" serviceName=\"W32Time\" timeout=\"30\" accountName=\"LocalSystem\" interact=\"1\" /></NTService></NTServices>"
+ },
+ "gpo": {
+  "backup_inventory": null,
+  "computer_enabled": true,
+  "created_at": "",
+  "cse_metadata": [],
+  "description": "",
+  "domain": "studio.local",
+  "fdeploy": null,
+  "gpp_collections": [
+   {
+    "applications": [],
+    "applications_unknown_attrs": [],
+    "applications_unknown_children": [],
+    "data_sources": [],
+    "data_sources_unknown_attrs": [],
+    "data_sources_unknown_children": [],
+    "devices": [],
+    "devices_unknown_attrs": [],
+    "devices_unknown_children": [],
+    "drives": [],
+    "drives_unknown_attrs": [],
+    "drives_unknown_children": [],
+    "environment": [],
+    "environment_unknown_attrs": [],
+    "environment_unknown_children": [],
+    "files": [],
+    "files_unknown_attrs": [],
+    "files_unknown_children": [],
+    "folder_options": [],
+    "folder_options_unknown_attrs": [],
+    "folder_options_unknown_children": [],
+    "folders": [],
+    "folders_unknown_attrs": [],
+    "folders_unknown_children": [],
+    "groups": [],
+    "groups_unknown_attrs": [],
+    "groups_unknown_children": [],
+    "immediate_tasks": [],
+    "immediate_tasks_unknown_attrs": [],
+    "immediate_tasks_unknown_children": [],
+    "ini_files": [],
+    "ini_files_unknown_attrs": [],
+    "ini_files_unknown_children": [],
+    "local_groups": [],
+    "local_groups_unknown_attrs": [],
+    "local_groups_unknown_children": [],
+    "local_users": [],
+    "local_users_unknown_attrs": [],
+    "local_users_unknown_children": [],
+    "network_shares": [],
+    "network_shares_unknown_attrs": [],
+    "network_shares_unknown_children": [],
+    "power_options": [],
+    "power_options_unknown_attrs": [],
+    "power_options_unknown_children": [],
+    "printers": [],
+    "printers_unknown_attrs": [],
+    "printers_unknown_children": [],
+    "regional_options": [],
+    "regional_options_unknown_attrs": [],
+    "regional_options_unknown_children": [],
+    "registry": [],
+    "registry_unknown_attrs": [],
+    "registry_unknown_children": [],
+    "root_unknown_positions": [],
+    "scheduled_tasks": [],
+    "scheduled_tasks_unknown_attrs": [],
+    "scheduled_tasks_unknown_children": [],
+    "scope": "computer",
+    "services": [
+     {
+      "account_name": "",
+      "account_password": "",
+      "action": "update",
+      "append_failure_count": true,
+      "arguments": "/c exit 0",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 0,
+      "first_failure": "run_command",
+      "id": "842368d4-7c18-4b13-bca7-808c33eed2d8",
+      "ilt_filter": null,
+      "interact_with_desktop": false,
+      "program": "C:\\Windows\\System32\\cmd.exe",
+      "reset_fail_count_delay_seconds": 172800,
+      "restart_computer_delay_milliseconds": 180000,
+      "restart_message": "Synthetic GPO Studio recovery evidence",
+      "restart_service_delay_milliseconds": 420000,
+      "second_failure": "restart",
+      "service_action": "no_change",
+      "service_name": "Spooler",
+      "startup_type": "no_change",
+      "third_failure": "reboot",
+      "timeout_seconds": 30,
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-30 22:31:22"
+       ],
+       [
+        "uid",
+        "{3DA17861-8910-4232-9F50-7EE67ED8266D}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     },
+     {
+      "account_name": "LocalSystem",
+      "account_password": "",
+      "action": "update",
+      "append_failure_count": false,
+      "arguments": "",
+      "common": {
+       "apply_once": false,
+       "disabled": false,
+       "remove_when_unapplied": false,
+       "stop_on_error": true,
+       "user_security_context": false
+      },
+      "document_position": 1,
+      "first_failure": null,
+      "id": "62ee5e5d-0110-424a-b3fa-05f4e5570b6e",
+      "ilt_filter": null,
+      "interact_with_desktop": true,
+      "program": "",
+      "reset_fail_count_delay_seconds": null,
+      "restart_computer_delay_milliseconds": null,
+      "restart_message": "",
+      "restart_service_delay_milliseconds": null,
+      "second_failure": null,
+      "service_action": "no_change",
+      "service_name": "W32Time",
+      "startup_type": "no_change",
+      "third_failure": null,
+      "timeout_seconds": 30,
+      "unknown_attrs": [
+       [
+        "image",
+        "0"
+       ],
+       [
+        "changed",
+        "2026-07-30 22:32:17"
+       ],
+       [
+        "uid",
+        "{13FC0555-7E0B-496F-9D29-BBD4750665EA}"
+       ]
+      ],
+      "unknown_children": [],
+      "unknown_props_children": []
+     }
+    ],
+    "services_unknown_attrs": [],
+    "services_unknown_children": [],
+    "shortcuts": [],
+    "shortcuts_unknown_attrs": [],
+    "shortcuts_unknown_children": [],
+    "source_files": []
+   }
+  ],
+  "guid": "0b0d0080-0000-4000-8000-000000000014",
+  "is_starter": false,
+  "links": [],
+  "name": "WI01A-ServicesRecovery-GPMC",
+  "revision": 0,
+  "security_filters": [],
+  "settings": [],
+  "source_guid": "",
+  "status": "archived",
+  "template_version": "",
+  "updated_at": "",
+  "user_enabled": true,
+  "wmi_filter": null
+ },
+ "native_backup_id": "{3780FDED-ADB1-5CCE-BD6F-3BD8C91DCEFC}",
+ "policy_semantic_sha256": "e255e6840dfaa024439cfc29fb5b92166375473754b1c0debb76c94c187fc15c",
+ "provenance": {
+  "capture": "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC",
+  "generated_by": "scripts/generate_gpp_baseline_fixture.py",
+  "source_commit": "bd84b3a"
+ },
+ "review_model_sha256": "0e387e81f62c5f3dad4ac45f6c71c1f9145e8259a81bdeef9426ab3cb792fdca"
+}

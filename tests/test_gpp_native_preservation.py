@@ -28,6 +28,8 @@ Studio keeps all of them.
 from __future__ import annotations
 
 import io
+import json
+import re
 import shutil
 import uuid
 import xml.etree.ElementTree as ET
@@ -35,14 +37,18 @@ import zipfile
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from gpo_studio.api import app
 from gpo_studio.backup import read_backup
-from gpo_studio.canonical import semantic_dict_gpp_collection
+from gpo_studio.canonical import (
+    policy_semantic_sha256,
+    review_model_sha256,
+    semantic_dict_gpp_collection,
+)
+from gpo_studio.export import native_backup_id
 from gpo_studio.gpp import (
     GppCollection,
     GppCommonOptions,
@@ -55,8 +61,9 @@ from gpo_studio.gpp import (
     parse_gpp_collection,
     serialize_gpp,
 )
+from gpo_studio.gpp_adapters import ADAPTER_KEYS
 from gpo_studio.import_export import collect_gpp_collections
-from gpo_studio.store import WorkspaceStore
+from gpo_studio.store import WorkspaceStore, gpo_from_dict
 
 ROOT = Path(__file__).resolve().parents[1]
 CAPTURE_ROOTS = (
@@ -482,51 +489,100 @@ def test_an_item_that_never_had_a_run_once_id_gets_the_deterministic_one() -> No
 
 
 # ---------------------------------------------------------------------------
-# Storage compatibility: data stored before WI-080 is written as before
+# Storage compatibility, against what bd84b3a itself stored and exported
 # ---------------------------------------------------------------------------
+#
+# tests/fixtures/gpp-store-baseline-bd84b3a holds, for every native capture,
+# the GPO record bd84b3a (the last commit before WI-080) stored, the files its
+# serialize_gpp wrote from that record, and its digests and backup id
+# (scripts/generate_gpp_baseline_fixture.py, run on that commit's tree). The
+# current code must load each record with the same digests and backup id, and
+# write the same bytes -- except the six files WI-081 changes, where it must
+# write exactly the differences listed here and no other.
+
+BASELINE = ROOT / "tests/fixtures/gpp-store-baseline-bd84b3a"
+BASELINE_RECORDS = sorted(BASELINE.glob("*.json"))
+
+#: Every byte difference between bd84b3a's export of its own stored record and
+#: the current code's, by file, as `xml_differences` names it (element indices
+#: removed). Each is WI-081: an attribute name or order no capture contains.
+_IMMEDIATE = "/ScheduledTasks/ImmediateTaskV2/Properties: "
+WI081_CHANGES: dict[tuple[str, str], frozenset[str]] = {
+    ("WI01A-Files-GPMC", "user/Files/Files.xml"): frozenset({
+        # Typed attributes in GPMC's order (WI01A-Files-GPMC).
+        "/Files/File/Properties: attribute order ['action', 'fromPath', 'targetPath', "
+        "'readOnly', 'hidden', 'archive', 'suppress'] -> ['action', 'fromPath', "
+        "'targetPath', 'readOnly', 'archive', 'hidden', 'suppress']",
+    }),
+    ("WI01A-Folders-GPMC", "user/Folders/Folders.xml"): frozenset({
+        # No Folders capture has suppress.
+        "/Folders/Folder/Properties: @suppress='0' dropped",
+    }),
+    ("WI01A-Printers-GPMC", "user/Printers/Printers.xml"): frozenset({
+        # GPMC's names. A record stored before WI-080 read every printer as not
+        # the default (the old name was never in GPMC's file), so it writes
+        # default="0" for all five: re-import to recover Lab-Color's default.
+        "/Printers/SharedPrinter/Properties: @setDefault='0' dropped",
+        "/Printers/SharedPrinter/Properties: @useLocal='0' dropped",
+        "/Printers/SharedPrinter/Properties: @default='0' added",
+        "/Printers/SharedPrinter/Properties: @skipLocal='0' added",
+    }),
+    ("WI01A-SchedTasks-GPMC", "computer/ScheduledTasks/ScheduledTasks.xml"): frozenset({
+        # The command is in the <Task> payload, which is unchanged. (`repr`
+        # doubles each backslash, hence the raw strings.)
+        _IMMEDIATE + r"@program='C:\\Windows\\System32\\cmd.exe' dropped",
+        _IMMEDIATE + "@arguments='/c echo init' dropped",
+        _IMMEDIATE + "@startIn='' dropped",
+    }),
+    ("WI01A-SchedTasksFull-GPMC", "computer/ScheduledTasks/ScheduledTasks.xml"): frozenset({
+        _IMMEDIATE + r"@program='C:\\Windows\\System32\\cmd.exe' dropped",
+        _IMMEDIATE + r"@program='\\\\filesrv\\activate.bat' dropped",
+        _IMMEDIATE + "@arguments='/c echo init' dropped",
+        _IMMEDIATE + "@arguments='' dropped",
+        _IMMEDIATE + "@startIn='' dropped",
+    }),
+    ("WI01A-Shortcuts-GPMC", "user/Shortcuts/Shortcuts.xml"): frozenset({
+        # GPMC names a shortcut on its item element, which is unchanged.
+        "/Shortcuts/Shortcut/Properties: @name='' dropped",
+    }),
+}
 
 
-def _as_stored_before_wi080(collection: GppCollection) -> dict[str, Any]:
-    """The dict a pre-WI-080 Studio stored: no native_xml, no run_once_id."""
-    data = gpp_collection_to_dict(collection)
-    for items in data.values():
-        if not isinstance(items, list):
-            continue
-        for entry in items:
-            if isinstance(entry, dict):
-                entry.pop("native_xml", None)
-                if isinstance(entry.get("common"), dict):
-                    entry["common"].pop("run_once_id", None)
-    return data
+def test_the_baseline_covers_every_capture_and_came_from_bd84b3a() -> None:
+    assert {path.stem for path in BASELINE_RECORDS} == {capture.name for capture in CAPTURES}
+    for path in BASELINE_RECORDS:
+        provenance = json.loads(path.read_text("utf-8"))["provenance"]
+        assert provenance["source_commit"] == "bd84b3a"
+        assert provenance["generated_by"] == "scripts/generate_gpp_baseline_fixture.py"
 
 
-def _pre_wi080_model(collection: GppCollection) -> GppCollection:
-    """The same collection as a pre-WI-080 import held it."""
-    from gpo_studio.gpp_adapters import ADAPTER_KEYS
-
-    def strip(items: tuple[Any, ...]) -> tuple[Any, ...]:
-        return tuple(replace(i, common=replace(i.common, run_once_id="")) for i in items)
-
-    alone = model_only(collection)
-    return replace(
-        alone,
-        groups=strip(alone.groups),
-        registry=strip(alone.registry),
-        **{key: strip(getattr(alone, key)) for key in ADAPTER_KEYS},
+@pytest.mark.parametrize("record_path", BASELINE_RECORDS, ids=lambda path: path.stem)
+def test_a_record_bd84b3a_stored_keeps_its_digests_and_export(record_path: Path) -> None:
+    record = json.loads(record_path.read_text("utf-8"))
+    gpo = gpo_from_dict(record["gpo"])
+    assert all(
+        not getattr(item, "native_xml", "")
+        for collection in gpo.gpp_collections
+        for key in ("groups", "registry", *ADAPTER_KEYS)
+        for item in getattr(collection, key)
     )
-
-
-@pytest.mark.parametrize("capture", CAPTURES, ids=lambda path: path.name)
-def test_data_stored_before_the_fix_is_written_and_hashed_as_before(capture: Path) -> None:
-    backup_gpo = read_backup(capture).gpos[0]
-    assert backup_gpo.content_root is not None
-    for collection in collect_gpp_collections(backup_gpo.content_root):
-        old = gpp_collection_from_dict(_as_stored_before_wi080(collection))
-        assert serialize_gpp(old) == serialize_gpp(_pre_wi080_model(collection))
-        assert semantic_dict_gpp_collection(old) == semantic_dict_gpp_collection(
-            _pre_wi080_model(collection)
-        )
-        assert "retained_native" not in str(semantic_dict_gpp_collection(old))
+    assert policy_semantic_sha256(gpo) == record["policy_semantic_sha256"]
+    assert review_model_sha256(gpo) == record["review_model_sha256"]
+    assert native_backup_id(gpo) == record["native_backup_id"]
+    written = {
+        f"{collection.scope}/{name}": data
+        for collection in gpo.gpp_collections
+        for name, data in serialize_gpp(collection).items()
+    }
+    assert sorted(written) == sorted(record["exports"])
+    for name, data in sorted(written.items()):
+        baseline = record["exports"][name].encode("utf-8")
+        expected = WI081_CHANGES.get((record_path.stem, name))
+        if expected is None:
+            assert data == baseline, f"{name} changed from bd84b3a's export"
+            continue
+        found = {re.sub(r"\[\d+\]", "", line) for line in xml_differences(baseline, data)}
+        assert found == expected, name
 
 
 def test_a_retained_element_enters_the_hash_only_when_it_changes_what_is_written() -> None:
