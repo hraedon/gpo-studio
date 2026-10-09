@@ -32,8 +32,10 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**4 open.**
+**6 open.**
 
+- [WI-082](#wi-082--a-workbench-edit-reset-a-preference-items-common-options) - fixed in code; requalify with WI-080.
+- [WI-081](#wi-081--the-gpp-writer-typed-attribute-names-windows-does-not-write) - fixed in code; requalify the lanes binding `gpp_adapters.py` and `canonical.py` with WI-080.
 - [WI-080](#wi-080--exporting-a-stored-gpo-rewrote-its-preference-xml-dropping-what-the-model-does-not-type) - fixed in code; requalify the lanes binding `gpp.py`, `gpp_adapters.py`, `canonical.py` and `report_parity.py`.
 - [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
@@ -3559,13 +3561,11 @@ digests of stored GPOs, of Studio-authored GPOs, and of a re-import of Studio's 
 export are unchanged; a GPO imported from GPMC after WI-080 digests differently from
 the same backup imported before it, because its export differs.
 
-**Not fixed here.** Printers' typed `set_default` and `use_local` read and write
-`setDefault` and `useLocal`, which no capture contains; GPMC writes `default` and
-`skipLocal`, and how `skipLocal` maps to the model is unmeasured. A stored import now
-keeps GPMC's attributes and omits Studio's, but the model still reports a default
-printer as not default. Separately, the workbench's group and registry edits carry no
-common options, so an edit resets apply-once, disabled, remove-when-not-applied and
-run-in-user-context (and with apply-once, the run-once filter); that predates WI-080.
+**Found alongside, filed separately and fixed on the same branch.** Printers'
+typed fields named attributes no capture contains, as did three other writers
+([WI-081](#wi-081--the-gpp-writer-typed-attribute-names-windows-does-not-write)). The
+workbench's group and registry edits reset every common option
+([WI-082](#wi-082--a-workbench-edit-reset-a-preference-items-common-options)).
 
 **Covered by** `tests/test_gpp_native_preservation.py`: every native capture through
 import, store and reload, the dict round trip, and the public `export.zip` and
@@ -3589,3 +3589,92 @@ attributes and `FilterRunOnce@id` against the report), which would bind it.
 
 **Closes when:** the requalification runs of the lanes binding the changed files
 (fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b) bank on them.
+
+## WI-081 — the GPP writer typed attribute names Windows does not write
+
+**Opened:** 2026-10-08 (found while fixing WI-080).
+**Status:** open. Fixed in code on 2026-10-08 (`fix/gpp-attribute-preservation`); pending requalification with WI-080.
+
+**What was wrong.** Printers' typed `set_default` and `use_local` were read and written
+as `setDefault` and `useLocal`. No capture contains either: GPMC writes `default`
+(`1` on WI01A-Printers-GPMC's Lab-Color, authored "set as default") and `skipLocal`.
+So the model, the API, reports and diffs said a GPMC default printer was not the
+default, and an authored or edited printer wrote two attributes Windows has not been
+seen to read. An audit of every writer against the captures found three more names no
+capture contains, all on `Properties`: Folders `suppress` (Files has it, Folders does
+not), Shortcuts `name` (GPMC names a shortcut on the item element), and
+`ImmediateTaskV2` `program`, `arguments` and `startIn` (every captured immediate task
+carries only `name` and `runAs`; the command is in the embedded `<Task>`).
+
+**How it hid.** Every printer test was a Studio round trip, which reads back whatever
+Studio wrote. Before WI-080 an import of GPMC's file lost `default` entirely, so
+nothing compared the two names.
+
+**The fix.** Printers read and write `default` and `skipLocal`, in GPMC's attribute
+order, and the field is renamed `skip_local` (what `skipLocal="1"` does is unmeasured:
+every capture has `0`). Studio's own older output stays readable: `setDefault` and
+`useLocal` are read where GPMC's names are absent, and a stored item's `use_local`
+loads as `skip_local`. The canonical form keeps the key `use_local`, so no digest
+moves. Folders no longer write `suppress` (still read; the field stays so stored
+items keep their digests), Shortcuts no longer write `Properties@name` (still read;
+otherwise the item element's `name` is the name), and an immediate task writes
+`program`, `arguments` and `startIn` only when it has no `<Task>` payload, where they
+are the only copy (unmeasured, as before). Files and Folders also write their typed
+attributes in GPMC's order. A stored import is unaffected: WI-080 writes it as imported.
+
+**What was checked** (`tests/test_gpp_typed_attribute_names.py` pins it): for every
+committed capture, each attribute the writer puts on `Properties` and below (outside
+the filter and the task payload) for the imported model appears on that element in
+some capture. That covers Drive Maps, Environment Variables, Files, Folders, Ini
+Files, Local Groups, Printers (`SharedPrinter`), GPP Registry, Scheduled and
+Immediate Tasks, Services and Shortcuts. Item-element attributes are MS-GPPREF's
+common options and identity, written with default values (WI-080 keeps a source's
+omissions). Not checkable, because nothing captured them: Regional Options,
+Devices, Folder Options, Data Sources, Network Shares, Applications, Power Schemes
+(`PowerScheme`; the Power capture holds only `GlobalPowerOptionsV2`), local users
+(`User`), and Printers' `PortPrinter` and `LocalPrinter`, which the model does not
+type at all (a file holding them keeps them as retained root content, WI-072).
+Printers' `location`, `deleteAll`, `persistent`, `deleteMaps` and `port` are
+measured names the model does not type; WI-080 keeps them.
+
+**Lanes.** `gpp_adapters.py`, `gpp.py` and `canonical.py`, all already changed by
+WI-080. Every lane candidate builds byte for byte as before (none authors a printer,
+folder, shortcut or immediate task).
+
+**Closes when:** the WI-080 requalification banks.
+
+## WI-082 — a workbench edit reset a preference item's common options
+
+**Opened:** 2026-10-08 (found while fixing WI-080).
+**Status:** open. Fixed in code on 2026-10-08 (`fix/gpp-attribute-preservation`); pending requalification with WI-080.
+
+**What was wrong.** The API's group and registry payloads carried no common options,
+and the store replaced the edited item wholesale. So every edit through the
+workbench reset apply-once (and with it the `FilterRunOnce` filter, so clients would
+apply the item again under a new id once re-enabled), disabled, remove-when-not-
+applied, run-in-user-context and stop-on-error to their defaults, whatever field the
+operator changed.
+
+**How it hid.** No API test edited an item that had a common option set, and the
+responses did not show the options, so nothing could see them go.
+
+**The fix.** The payloads take an optional `common` object; each of the five options
+in it is either set or left out (`null`). The store applies only the options an
+edit names and carries every other one, and the run-once id, over from the item it
+replaces; an added item starts from the defaults. The run-once id cannot be set
+through the API. Callers of the store that pass a complete item, rather than an API
+payload, keep today's behaviour. The group and registry responses now include
+`common`. The workbench sends no `common`, so its edits keep every option.
+
+**Covered by** `tests/test_gpp_common_option_edits.py`: through the real API, for each
+option on a group and a registry item, an edit keeps it (stored, served and
+exported), an edit naming another option changes only that one, an explicit `false`
+turns it off (keeping the run-once id), an add takes the defaults, and the run-once
+id cannot be set. `tests/test_gpp_native_preservation.py` saves every group and
+registry item of every native capture back through the API as the workbench sends it
+and requires the export to equal the capture. With the carry-over disabled, all of
+these fail except the add.
+
+**Lanes.** `api.py` and `store.py` are unbound; no lane candidate edits an item.
+
+**Closes when:** the WI-080 requalification banks.

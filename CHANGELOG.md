@@ -46,12 +46,39 @@ Operator-facing:
   Covered by `tests/test_gpp_native_preservation.py`, which compares every
   native capture with Studio's output through import, storage and the public
   `export.zip` and `gpmc-backup` routes, attribute by attribute and in order,
-  and fails on the code before the fix. Not fixed here: Printers' typed
-  `set_default` and `use_local` name attributes no capture contains (GPMC
-  writes `default` and `skipLocal`). The fix changes `gpp.py`,
+  and fails on the code before the fix. The fix changes `gpp.py`,
   `gpp_adapters.py`, `canonical.py` and `report_parity.py`, so the fdeploy,
   firewall, publication, report-parity, scripts-metadata and WP-1B lanes must
   re-run; every lane candidate builds byte for byte as before.
+- **A GPMC default printer reads as the default, and the GPP writer types only
+  attribute names Windows writes, fixed and awaiting requalification
+  (WI-081).** Printers' typed `set_default` and `use_local` were read and
+  written as `setDefault` and `useLocal`, which no capture contains; GPMC
+  writes `default` and `skipLocal`. So the model, the API, reports and diffs
+  showed a GPMC default printer as not the default, and an authored or edited
+  printer wrote attributes Windows has not been seen to read. They now read and
+  write GPMC's names, in GPMC's order, and the field is `skip_local`; Studio's
+  older output and stored items are still read under the old names, and
+  digests do not move. An audit of every writer against the native captures
+  found three more names none contains, now no longer written: Folders
+  `suppress`, Shortcuts `Properties@name` (a shortcut is named on its item, as
+  GPMC names it) and an immediate task's `program`, `arguments` and `startIn`
+  where its `<Task>` payload already holds them. `tests/test_gpp_typed_attribute_names.py`
+  pins the audit: every `Properties` attribute the writer types appears in a
+  capture. Families with no capture are not claimed. Every lane candidate
+  builds byte for byte as before.
+- **A workbench edit keeps a preference item's common options, fixed and
+  awaiting requalification (WI-082).** The group and registry edit payloads
+  carried no common options and the store replaced the item, so every edit
+  reset apply-once (dropping its run-once filter), disabled,
+  remove-when-not-applied, run-in-user-context and stop-on-error. An add or
+  edit now takes an optional `common` object; options it leaves out are carried
+  over from the item it replaces (defaults for a new item), as is the run-once
+  id, which the API cannot set. Group and registry responses now show
+  `common`. Covered through the real API for every option on both families
+  (`tests/test_gpp_common_option_edits.py`), and by saving every group and
+  registry item of every native capture back through the API, after which the
+  export must still equal the capture.
 
 ## [1.1.0-rc.1] - 2026-10-09
 
