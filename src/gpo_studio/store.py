@@ -7,7 +7,7 @@ import json
 import sqlite3
 import threading
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +16,7 @@ from typing import Any, Literal, NoReturn, cast
 from .fdeploy import FdeployDocument, fdeploy_from_dict
 from .gpp import (
     GppCollection,
+    GppCommonOptions,
     GppGroup,
     GppGroupMember,
     GppRegistry,
@@ -172,6 +173,33 @@ def _keep_document_position[T: (GppGroup, GppRegistry)](edited: T, existing: T) 
     if not edited.native_xml and existing.native_xml:
         edited = replace(edited, native_xml=existing.native_xml)
     return edited
+
+
+def _with_common_edits[T: (GppGroup, GppRegistry)](
+    edited: T, existing: T | None, common_edits: Mapping[str, bool] | None
+) -> T:
+    """Apply an API add/edit's common options to the item it writes (WI-082).
+
+    ``None`` (a direct caller): the item's own options stand, as before.
+    A mapping (the API): only the options it names change; every other one,
+    and the run-once id, is carried over from the item being replaced, or is
+    the default for a new item. The API's payloads never carried the options,
+    so before WI-082 an edit reset them all.
+    """
+    if common_edits is None:
+        return edited
+    unknown = set(common_edits) - _EDITABLE_COMMON_OPTIONS
+    if unknown:
+        raise ValueError(f"not editable common options: {sorted(unknown)}")
+    base = existing.common if existing is not None else GppCommonOptions()
+    changes: dict[str, Any] = dict(common_edits)
+    return replace(edited, common=replace(base, **changes))
+
+
+#: What an add or edit may set; the run-once id is identity (WI-080), not an option.
+_EDITABLE_COMMON_OPTIONS = frozenset({
+    "apply_once", "remove_when_unapplied", "user_security_context", "disabled", "stop_on_error",
+})
 
 
 def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
@@ -1459,6 +1487,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
         must_exist: bool = False,
+        common_edits: Mapping[str, bool] | None = None,
     ) -> GPO:
         processed = ensure_editor_ids(GppCollection(scope=scope, groups=(group,)))
         group = processed.groups[0]
@@ -1468,20 +1497,24 @@ class WorkspaceStore:
             if found is None:
                 if must_exist:
                     raise NotFoundError(f"GPP group with id {group.id} not found")
-                new_collection = GppCollection(scope=scope, groups=(group,))
+                added = _with_common_edits(group, None, common_edits)
+                new_collection = GppCollection(scope=scope, groups=(added,))
                 new_collections = gpo.gpp_collections + (new_collection,)
             else:
                 idx, existing = found
                 groups_list = list(existing.groups)
                 try:
                     gi = next(i for i, x in enumerate(groups_list) if x.id == group.id)
-                    groups_list[gi] = _keep_document_position(group, groups_list[gi])
+                    groups_list[gi] = _keep_document_position(
+                        _with_common_edits(group, groups_list[gi], common_edits),
+                        groups_list[gi],
+                    )
                 except StopIteration:
                     if must_exist:
                         raise NotFoundError(
                             f"GPP group with id {group.id} not found"
                         ) from None
-                    groups_list.append(group)
+                    groups_list.append(_with_common_edits(group, None, common_edits))
                 new_collection = replace(existing, groups=tuple(groups_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
             self._validate_gpp(new_collection)
@@ -1552,6 +1585,7 @@ class WorkspaceStore:
         identity: Identity | str,
         reason: str,
         must_exist: bool = False,
+        common_edits: Mapping[str, bool] | None = None,
     ) -> GPO:
         processed = ensure_editor_ids(GppCollection(scope=scope, registry=(registry,)))
         registry = processed.registry[0]
@@ -1563,20 +1597,24 @@ class WorkspaceStore:
                     raise NotFoundError(
                         f"GPP registry with id {registry.id} not found"
                     )
-                new_collection = GppCollection(scope=scope, registry=(registry,))
+                added = _with_common_edits(registry, None, common_edits)
+                new_collection = GppCollection(scope=scope, registry=(added,))
                 new_collections = gpo.gpp_collections + (new_collection,)
             else:
                 idx, existing = found
                 items_list = list(existing.registry)
                 try:
                     ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
-                    items_list[ri] = _keep_document_position(registry, items_list[ri])
+                    items_list[ri] = _keep_document_position(
+                        _with_common_edits(registry, items_list[ri], common_edits),
+                        items_list[ri],
+                    )
                 except StopIteration:
                     if must_exist:
                         raise NotFoundError(
                             f"GPP registry with id {registry.id} not found"
                         ) from None
-                    items_list.append(registry)
+                    items_list.append(_with_common_edits(registry, None, common_edits))
                 new_collection = replace(existing, registry=tuple(items_list))
                 new_collections = self._replace_collection(gpo, idx, new_collection)
             self._validate_gpp(new_collection)

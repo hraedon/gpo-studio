@@ -539,7 +539,7 @@ def test_a_retained_element_enters_the_hash_only_when_it_changes_what_is_written
     # Two imports that differ only in an attribute the model does not type.
     printer = collection.printers[0]
     flipped = replace(collection, printers=(
-        replace(printer, native_xml=printer.native_xml.replace('default="1"', 'default="0"')),
+        replace(printer, native_xml=printer.native_xml.replace('deleteAll="0"', 'deleteAll="1"')),
         *collection.printers[1:],
     ))
     assert semantic_dict_gpp_collection(flipped) != with_native
@@ -629,3 +629,86 @@ def test_reimporting_studios_own_export_leaves_the_hash_unchanged() -> None:
     assert reimported.groups[0].native_xml
     assert semantic_dict_gpp_collection(reimported) == semantic_dict_gpp_collection(authored)
     assert serialize_gpp(reimported) == files
+
+
+# ---------------------------------------------------------------------------
+# Edited through the workbench: every group and registry item saved back
+# ---------------------------------------------------------------------------
+
+_EDITABLE_CAPTURES = [
+    capture
+    for capture in CAPTURES
+    if any(
+        path.parent.name in {"Groups", "Registry"}
+        for path in capture.glob("*/DomainSysvol/GPO/*/Preferences/*/*.xml")
+    )
+]
+_GROUP_PAYLOAD_KEYS = (
+    "name", "sid", "action", "description", "remove_all_users", "remove_all_groups",
+    "members", "id", "ilt_filter", "unknown_attrs", "unknown_props_attrs",
+    "unknown_props_children", "unknown_children",
+)
+_REGISTRY_PAYLOAD_KEYS = (
+    "key", "hive", "action", "value", "id", "uid", "ilt_filter", "unknown_attrs",
+    "unknown_props_children", "unknown_children",
+)
+_VALUE_PAYLOAD_KEYS = ("name", "value", "registry_type", "action", "default", "id", "unknown_attrs")
+
+
+@pytest.mark.parametrize("capture", _EDITABLE_CAPTURES, ids=lambda path: path.name)
+def test_saving_every_item_back_through_the_workbench_changes_nothing(
+    capture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each group and registry item PUT back as the workbench sends it (WI-080, WI-082).
+
+    The payload carries no ``native_xml`` and no common options, as
+    static/js/gpp.mjs sends it; the export must still be the capture exactly.
+    """
+    expected = native_files(capture)
+    inbox = tmp_path / "inbox"
+    shutil.copytree(capture, inbox)
+    monkeypatch.setenv("GPO_STUDIO_INBOX_DIR", str(inbox))
+    with closing(WorkspaceStore(tmp_path / "api.db")) as store:
+        monkeypatch.setattr(app.state, "store", store, raising=False)
+        monkeypatch.setattr(app.state, "owns_store", False, raising=False)
+        with TestClient(app, base_url="http://127.0.0.1") as client:
+            imported = client.post(
+                "/api/backups/import",
+                json={"path": str(inbox), "actor": "native-preservation", "reason": "WI-080"},
+            )
+            assert imported.status_code == 201, imported.text
+            fork = client.post(
+                f"/api/gpos/{imported.json()['gpo']['guid']}/fork",
+                json={"name": "Saved back", "actor": "native-preservation", "reason": "edit"},
+            )
+            assert fork.status_code == 201, fork.text
+            gpo = fork.json()["gpo"]
+            guid, revision, saved = gpo["guid"], gpo["revision"], 0
+            for collection in gpo["gpp_collections"]:
+                for group in collection["groups"]:
+                    payload = {key: group[key] for key in _GROUP_PAYLOAD_KEYS}
+                    response = client.put(
+                        f"/api/gpos/{guid}/preferences/groups/{group['id']}",
+                        json={"scope": collection["scope"], "group": payload,
+                              "actor": "native-preservation", "reason": "save",
+                              "expected_revision": revision},
+                    )
+                    assert response.status_code == 200, response.text
+                    revision, saved = response.json()["gpo"]["revision"], saved + 1
+                for registry in collection["registry"]:
+                    payload = {key: registry[key] for key in _REGISTRY_PAYLOAD_KEYS}
+                    payload["value"] = {
+                        key: registry["value"][key] for key in _VALUE_PAYLOAD_KEYS
+                    }
+                    response = client.put(
+                        f"/api/gpos/{guid}/preferences/registry/{registry['id']}",
+                        json={"scope": collection["scope"], "registry": payload,
+                              "actor": "native-preservation", "reason": "save",
+                              "expected_revision": revision},
+                    )
+                    assert response.status_code == 200, response.text
+                    revision, saved = response.json()["gpo"]["revision"], saved + 1
+            assert saved > 0
+            bundle = client.get(f"/api/gpos/{guid}/export.zip")
+            assert bundle.status_code == 200, bundle.text
+    _assert_same_documents(expected, _zip_preferences(bundle.content), "saved back")

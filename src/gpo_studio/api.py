@@ -457,6 +457,30 @@ class GppGroupMemberData(BaseModel):
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
 
 
+class GppCommonOptionsData(BaseModel):
+    """The common options an add or edit sets explicitly (WI-082).
+
+    A field left out (``null``) is not changed: an edit keeps the item's
+    current value and an add takes the default. Before WI-082 the payloads
+    carried no common options at all, so every edit through the workbench
+    reset apply-once (and its run-once filter), disabled, remove-when-not-
+    applied, run-in-user-context and stop-on-error to their defaults. The
+    run-once id is never set here: it is the item's identity (WI-080).
+    """
+
+    apply_once: bool | None = None
+    remove_when_unapplied: bool | None = None
+    user_security_context: bool | None = None
+    disabled: bool | None = None
+    stop_on_error: bool | None = None
+
+
+def _common_edits(common: GppCommonOptionsData | None) -> dict[str, bool]:
+    if common is None:
+        return {}
+    return {name: value for name, value in common.model_dump().items() if value is not None}
+
+
 class GppGroupData(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     sid: str = Field(default="", max_length=255)
@@ -467,6 +491,7 @@ class GppGroupData(BaseModel):
     members: list[GppGroupMemberData] = Field(default_factory=list)
     id: str = ""
     ilt_filter: IltFilterData | None = None
+    common: GppCommonOptionsData | None = None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_children: list[str] = Field(default_factory=list)
@@ -541,6 +566,7 @@ class GppRegistryData(BaseModel):
     id: str = ""
     uid: str = ""
     ilt_filter: IltFilterData | None = None
+    common: GppCommonOptionsData | None = None
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_children: list[str] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
@@ -1020,6 +1046,16 @@ class GppRegistryValueResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GppCommonOptionsResponse(BaseModel):
+    apply_once: bool = False
+    remove_when_unapplied: bool = False
+    user_security_context: bool = False
+    disabled: bool = False
+    stop_on_error: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class GppGroupResponse(BaseModel):
     id: str
     name: str
@@ -1030,6 +1066,7 @@ class GppGroupResponse(BaseModel):
     remove_all_users: bool
     remove_all_groups: bool
     ilt_filter: IltFilterResponse | None
+    common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_props_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
@@ -1045,6 +1082,7 @@ class GppRegistryResponse(BaseModel):
     action: str
     uid: str = ""
     ilt_filter: IltFilterResponse | None = None
+    common: GppCommonOptionsResponse = Field(default_factory=GppCommonOptionsResponse)
     unknown_attrs: list[tuple[str, str]] = Field(default_factory=list)
     unknown_children: list[str] = Field(default_factory=list)
 
@@ -3211,6 +3249,7 @@ def add_gpp_group(
         group,
         identity=_identity(body.actor),
         reason=body.reason,
+        common_edits=_common_edits(body.group.common),
     )
     return _gpo_payload(gpo, request)
 
@@ -3229,6 +3268,7 @@ def edit_gpp_group(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        common_edits=_common_edits(body.group.common),
     )
     return _gpo_payload(gpo, request)
 
@@ -3265,6 +3305,7 @@ def add_gpp_registry(
         registry,
         identity=_identity(body.actor),
         reason=body.reason,
+        common_edits=_common_edits(body.registry.common),
     )
     return _gpo_payload(gpo, request)
 
@@ -3283,6 +3324,7 @@ def edit_gpp_registry(
         identity=_identity(body.actor),
         reason=body.reason,
         must_exist=True,
+        common_edits=_common_edits(body.registry.common),
     )
     return _gpo_payload(gpo, request)
 
