@@ -1,14 +1,19 @@
 # Release evidence manifest - GPO Studio 1.1.0
 
-> **Date:** not set (draft opened 2026-10-08)
+> **Date:** 2026-10-09 (release candidate 1.1.0rc1; draft opened 2026-10-08)
 > **Source commit:** resolved by the tagged release workflow
-> **Status:** draft; not approved for release and not a release candidate
+> **Status:** release candidate; final approval pending
 
-This is the 1.1.0 manifest. It records what has been requalified, what the
-release workflow now checks, and what 1.1.0 does **not** claim. Every Plan 034
-row has reached its exit, and every lane was requalified at one commit by the
-[release 1.1.0 batch](#requalified-evidence-the-release-110-batch). What is
-still open before the release is approved is listed under
+This is the 1.1.0 manifest, marked for the first release candidate,
+`1.1.0rc1`, tagged `v1.1.0-rc.1`. It records what has been requalified, what
+the release workflow now checks, and what 1.1.0 does **not** claim. Every Plan
+034 row has reached its exit, and every lane was requalified at one commit by
+the [release 1.1.0 batch](#requalified-evidence-the-release-110-batch).
+
+The candidate is published as a GitHub prerelease so that its wheel and
+checksum are fixed for the owner's hands-on NVDA acceptance. It is not
+approved for production use or as the final 1.1.0 release. What is still open
+before that approval is listed under
 [Remaining before approval](#remaining-before-approval).
 
 ## How this release is approved
@@ -27,7 +32,10 @@ made in one commit:
    "release candidate; final approval pending" for a candidate. (It is not
    quoted here because the gate allows that line exactly once in this file.)
 
-Nothing else in this file needs to change.
+This file and the JSON report are now marked for the candidate `1.1.0rc1`.
+Final approval makes the same two edits for `approved` and `1.1.0`, after the
+items under [Remaining before approval](#remaining-before-approval) are
+closed; the package version, changelog and `SECURITY.md` change with it.
 
 ### Writing rules for this file
 
@@ -395,6 +403,7 @@ data. Each is pinned by a test:
 
 - Workspace schema version: 4
 - Application version: 1.1.0
+- Package version of this candidate: 1.1.0rc1 (tag `v1.1.0-rc.1`)
 - Source commit: resolved in the release attachment by the tagged workflow
 - Wheel SHA-256: resolved in the release attachment and `SHA256SUMS`
 - Source distribution SHA-256: resolved in the release attachment and `SHA256SUMS`
@@ -410,14 +419,26 @@ data. Each is pinned by a test:
    post-batch directory check. The verdicts cited here are that batch's. The
    tagged commit's CI must still show that they bind its source
    (`tests/test_committed_evidence.py`).
-2. Bump `__version__` (to `1.1.0rc1` for a candidate, or to `1.1.0`), date
-   the changelog section, and update `SECURITY.md`'s supported-versions table
-   and 1.x compatibility policy for the `1.1.x` line.
-3. Decide whether a release candidate and a hands-on screen-reader session are
-   required. If they are, publish `v1.1.0-rc.N` with the candidate status line,
-   and record the session against that exact wheel.
-4. Fill in the automated-evidence section from the tagged run, then finalize
-   `docs/release-evidence-report-1.1.0.json`.
+2. **Done for the candidate (2026-10-09).** `__version__` is `1.1.0rc1`, the
+   JSON report and line 5 are marked for a candidate, `CHANGELOG.md` has a
+   dated `1.1.0-rc.1` section, and `SECURITY.md` describes the candidate and
+   the planned `1.1.x` line without making it the supported line. Final
+   approval repeats this for `1.1.0`: the version, a dated `1.1.0` changelog
+   section, and `SECURITY.md`'s supported-versions table and compatibility
+   policy for `1.1.x`.
+3. **Pending; does not block the candidate.** Decided: a release candidate
+   first, then the owner's hands-on NVDA acceptance before final approval.
+   The owner runs the [NVDA validation runbook](nvda-validation-runbook.md)
+   against the exact `v1.1.0-rc.N` wheel from the release assets and records
+   the wheel's SHA-256. A blocker fails acceptance; any other significant
+   finding needs the owner's explicit disposition; a behavior change requires
+   a new candidate.
+4. **Pending; does not block the candidate.** Fill in the automated-evidence
+   section from the tagged candidate run (run IDs of every required job, the
+   coverage summary, the artifact hashes), then finalize
+   `docs/release-evidence-report-1.1.0.json`. These come from the tagged run,
+   so they cannot be a prerequisite for creating it.
 5. Approve as described in [How this release is approved](#how-this-release-is-approved)
    (the JSON `status` and `version`, and line 5 here, in one commit), and tag
-   `v1.1.0` on a commit on `main`.
+   `v1.1.0` on a commit on `main`. Final promotion should not change the
+   application behavior the accepted candidate showed.

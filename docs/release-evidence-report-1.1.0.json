@@ -1,14 +1,14 @@
 {
   "report_type": "GPO Studio release evidence report",
   "report_version": 2,
-  "version": "1.1.0",
-  "status": "draft",
+  "version": "1.1.0rc1",
+  "status": "candidate",
   "manifest": "docs/release-evidence-1.1.0.md",
   "workspace_schema_version": 4,
   "artifact_hashes": {
-    "wheel_sha256": "pending candidate build",
-    "sdist_sha256": "pending candidate build",
-    "sbom_sha256": "pending candidate build"
+    "wheel_sha256": "resolved by the tagged release workflow",
+    "sdist_sha256": "resolved by the tagged release workflow",
+    "sbom_sha256": "resolved by the tagged release workflow"
   },
   "evidence": {
     "requalification": {
@@ -187,8 +187,9 @@
     },
     "plan_034_open_exits": [],
     "accessibility": {
-      "automated": "frontend CI job and release verify job (axe, keyboard, focus, dark theme)",
-      "hands_on_screen_reader": "not run; requirement for 1.1.0 not decided"
+      "automated": "frontend CI job and release verify job: workspace axe scan, keyboard, focus, dark theme, and open-dialog axe scans of the Security template, Folder Redirection and RSOP prediction dialogs (RSOP in light and dark themes, populated and with validation errors)",
+      "rsop_axe_finding_fixed": "scrollable-region-focusable (serious): a sideways-scrolling RSOP result table was not keyboard-reachable; each result table is now a focusable, named region",
+      "hands_on_screen_reader": "required before final approval; pending: the owner runs docs/nvda-validation-runbook.md against the exact v1.1.0-rc.N wheel from the release assets"
     },
     "lane_verdicts": "requalified by the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
     "lanes_first_batched": [
@@ -278,6 +279,11 @@
         ],
         "accepted_defects": []
       }
+    ],
+    "remaining_before_approval": [
+      "owner's hands-on NVDA acceptance against the exact candidate wheel (pending)",
+      "automated evidence from the tagged release workflow run: job run ids, coverage, artifact hashes (pending)",
+      "final approval: version 1.1.0, status approved, manifest line 5, tag v1.1.0 on main (pending)"
     ]
   }
 }
