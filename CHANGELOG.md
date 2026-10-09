@@ -14,6 +14,13 @@ Current version: `1.1.0rc1` (release candidate). The latest final release is
 
 Operator-facing:
 
+- **An item-level targeting filter Studio cannot write is refused when it is
+  sent, instead of breaking the GPO.** A raw filter predicate that did not
+  parse (an undeclared prefix, malformed XML) was stored as given and failed
+  only when serialized: the request answered 500 after committing, and every
+  later read or export of that GPO answered 500. The group and registry routes
+  now serialize the filter first and refuse it with `invalid_ilt_filter`
+  (422), so nothing is stored. Pre-existing; found by the WI-080 review.
 - **A stored GPO's preferences are exported as Windows wrote them, fixed and
   awaiting requalification (WI-080).** Studio kept an imported GPO's
   preference XML only in memory, so every export of a stored GPO (the GPMC

@@ -503,3 +503,41 @@ def test_contains_cpassword_sees_a_literal_prefix() -> None:
     assert contains_cpassword(
         b'<Printers xmlns:x="urn:x"><SharedPrinter x:CPASSWORD="s"/></Printers>'
     ) is True
+
+
+# ---------------------------------------------------------------------------
+# A raw filter Studio cannot write is refused before it is stored
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '<x:FilterGroup bool="AND" not="0" name="a" sid="" userContext="1"/>',
+        '<FilterGroup bool="AND"',
+        "not xml at all",
+    ],
+    ids=["undeclared prefix", "unterminated", "text"],
+)
+@pytest.mark.parametrize("shape", ["items", "unknown_predicates"])
+def test_an_unwritable_raw_filter_is_refused_and_the_gpo_stays_readable(
+    client: Any, raw: str, shape: str
+) -> None:
+    """Such a filter used to be stored as given and fail only when serialized:
+    the request answered 500 after committing, and every later read or export
+    of the GPO answered 500 too (DeepSeek WI-080 final review, N1)."""
+    test_client, _store, _inbox = client
+    gpo = test_client.post(
+        "/api/gpos", json={"name": "Unwritable filter", "actor": "ilt", "reason": "add"},
+    ).json()["gpo"]
+    response = test_client.post(
+        f"/api/gpos/{gpo['guid']}/preferences/groups",
+        json={"scope": "computer", "group": _group_payload(ilt_filter={shape: [raw]}),
+              "actor": "ilt", "reason": "add", "expected_revision": gpo["revision"]},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["issues"][0]["code"] in {
+        "invalid_ilt_filter", "xml_namespace_refused",
+    }
+    assert test_client.get(f"/api/gpos/{gpo['guid']}").status_code == 200
+    assert test_client.get(f"/api/gpos/{gpo['guid']}/export.zip").status_code == 200
