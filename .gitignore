@@ -12,6 +12,7 @@ htmlcov/
 *.db.lock
 *.sqlite3
 dist/
+dist-repro/
 build/
 exports/
 node_modules/
