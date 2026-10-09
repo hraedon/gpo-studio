@@ -12,16 +12,166 @@
   },
   "evidence": {
     "requalification": {
-      "note": "docs/plan-033/plan034-batch.md",
-      "batch_manifest": "docs/plan-033/plan034-batch.json",
-      "frozen_commit": "263f19640529d469c2a54c18b43d228db5378279",
-      "runs_passed": 22,
-      "successors": [
+      "note": "docs/plan-033/release110-batch.md",
+      "batch_manifest": "docs/plan-033/release110-batch.json",
+      "executed_utc": "2026-10-09",
+      "frozen_commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
+      "lanes_started": 26,
+      "runs_passed": 26,
+      "not_passed": [],
+      "successors": [],
+      "runs": [
         {
-          "lane": "object-security",
-          "run_id": "object-security-20261008082348-9729",
-          "commit": "1fb3f56ac7431e0044c69c32edc4350b2ab84151"
+          "name": "wp0",
+          "run_id": "live-synthetic-registry-basic-20261009001124-4850",
+          "checks": "pass"
+        },
+        {
+          "name": "wp1b",
+          "run_id": "wp1b-writer-20261009001221-5737",
+          "checks": "pass"
+        },
+        {
+          "name": "wp2",
+          "run_id": "wp2-native-import-20261009001318-2870",
+          "checks": "18/18"
+        },
+        {
+          "name": "wp3-member",
+          "run_id": "wp3-security-template-20261009001358-5650",
+          "checks": "20/20"
+        },
+        {
+          "name": "wp3-dc",
+          "run_id": "wp3-security-template-20261009001426-5385",
+          "checks": "20/20"
+        },
+        {
+          "name": "object-security",
+          "run_id": "object-security-20261009001510-7162",
+          "checks": "20/20"
+        },
+        {
+          "name": "scripts-metadata",
+          "run_id": "scripts-r10-20261009001541-4025",
+          "checks": "20/20"
+        },
+        {
+          "name": "publication",
+          "run_id": "publication-completeness-20261009001615-4372",
+          "checks": "21/21"
+        },
+        {
+          "name": "lifecycle",
+          "run_id": "lifecycle-20261009001644-6217-f2f5047fed814807",
+          "checks": "73/73"
+        },
+        {
+          "name": "report-parity",
+          "run_id": "report-parity-20261009001727-3532",
+          "checks": "26/26"
+        },
+        {
+          "name": "firewall",
+          "run_id": "firewall-20261009001906-2614294",
+          "checks": "36/36"
+        },
+        {
+          "name": "fdeploy",
+          "run_id": "fd-20261009002120-4293",
+          "checks": "29/29"
+        },
+        {
+          "name": "endpoint",
+          "run_id": "endpoint-observe-20261009002229-7198",
+          "checks": "pass"
+        },
+        {
+          "name": "lsdou-precedence",
+          "run_id": "rsop-observe-20261009002514-3293",
+          "checks": "pass"
+        },
+        {
+          "name": "disabled-block-enforced",
+          "run_id": "rsop-observe-20261009002658-3387",
+          "checks": "pass"
+        },
+        {
+          "name": "wmi-filtering",
+          "run_id": "rsop-observe-20261009002841-9327",
+          "checks": "pass"
+        },
+        {
+          "name": "wmi-filtering-error",
+          "run_id": "rsop-observe-20261009003024-5445",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering",
+          "run_id": "rsop-observe-20261009003207-9958",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering-deny-read",
+          "run_id": "rsop-observe-20261009003349-5735",
+          "checks": "pass"
+        },
+        {
+          "name": "loopback-merge",
+          "run_id": "rsop-user-observe-20261009003535-1462",
+          "checks": "pass"
+        },
+        {
+          "name": "loopback-replace",
+          "run_id": "rsop-user-observe-20261009003744-5527",
+          "checks": "pass"
+        },
+        {
+          "name": "user-side-disabled",
+          "run_id": "rsop-user-observe-20261009003952-3546",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering",
+          "run_id": "rsop-user-observe-20261009004238-6019",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering-deny",
+          "run_id": "rsop-user-observe-20261009004533-3353",
+          "checks": "pass"
+        },
+        {
+          "name": "user-security-filtering-read-deny",
+          "run_id": "rsop-user-observe-20261009004749-4067",
+          "checks": "pass"
+        },
+        {
+          "name": "computer-security-filtering-group-deny",
+          "run_id": "rsop-observe-20261009005022-4207",
+          "checks": "pass"
         }
+      ],
+      "superseded_attempts": [
+        {
+          "commit": "2f21e7cd9fcf47bdf216a68b395ce18fd5a1e580",
+          "lanes_started": 26,
+          "passed": 25,
+          "banked": false,
+          "reason": "report-parity's psdirect push of its 1.45 MB archive hung and was killed (exit 143); the WI-078 transport fix changed scripts/windows-oracle/psdirect.ps1, which every lane binds, so no verdict of the attempt could be banked"
+        }
+      ],
+      "transport_fix": "WI-078: chunked, verified and bounded psdirect transport plus a per-lane watchdog",
+      "post_batch_directory_check": {
+        "result": "clean",
+        "captured_utc": "2026-10-09T00:51:59Z",
+        "directory": "docs/plan-033/release110-cleanup/directory.json",
+        "collector": "docs/plan-033/release110-cleanup/collector.ps1"
+      },
+      "retired": [
+        "Plan 034 batch (21 verdicts at 263f19640529d469c2a54c18b43d228db5378279)",
+        "object-security successor at 1fb3f56ac7431e0044c69c32edc4350b2ab84151",
+        "lifecycle at 3513052, report parity at a1c280b, firewall at a6e0002, fdeploy at df713ef"
       ],
       "pending_requalification": []
     },
@@ -40,12 +190,13 @@
       "automated": "frontend CI job and release verify job (axe, keyboard, focus, dark theme)",
       "hands_on_screen_reader": "not run; requirement for 1.1.0 not decided"
     },
-    "lanes_banked_after_batch": [
+    "lane_verdicts": "requalified by the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",
+    "lanes_first_batched": [
       {
         "lane": "fdeploy (read target)",
-        "run_id": "fd-20261008121347-3151",
+        "run_id": "fd-20261009002120-4293",
         "checks": "29/29",
-        "commit": "df713ef",
+        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
         "results": "docs/plan-033/fdeploy-results.md",
         "surfaces": [
           "POST /api/folder-redirection/fdeploy",
@@ -66,9 +217,9 @@
       },
       {
         "lane": "firewall",
-        "run_id": "firewall-20261008094055-2092337",
+        "run_id": "firewall-20261009001906-2614294",
         "checks": "36/36",
-        "commit": "a6e0002dac0d65d6ae2b969a23636bf284061da1",
+        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
         "results": "docs/plan-033/firewall-results.md",
         "surfaces": [
           "POST /api/network-security/firewall/render",
@@ -79,13 +230,14 @@
           "endpoint application (PolicyStore readback only)",
           "GPME display (WI-077)",
           "IPsec, Public Key, wired and wireless (out of scope for 1.x)"
-        ]
+        ],
+        "write_leg_registration": "firewall tool GUID pair (B05566AC), as native authoring registers it"
       },
       {
         "lane": "lifecycle (same-domain)",
-        "run_id": "lifecycle-20261008093248-2000-c76d10eb3f2849fe",
-        "checks": "30/30 SCOPE_SURVIVAL cells",
-        "commit": "3513052",
+        "run_id": "lifecycle-20261009001644-6217-f2f5047fed814807",
+        "checks": "73/73 (all 30 SCOPE_SURVIVAL cells)",
+        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
         "results": "docs/plan-033/lifecycle-results.md",
         "surfaces": [
           "POST /api/lifecycle/restore-plan"
@@ -97,9 +249,9 @@
       },
       {
         "lane": "report-parity",
-        "run_id": "report-parity-20261008104512-7480",
-        "checks": "25/25 (27/27 cases)",
-        "commit": "a1c280b",
+        "run_id": "report-parity-20261009001727-3532",
+        "checks": "26/26 (30 corpus cases plus a guest-authored GPO)",
+        "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
         "results": "docs/plan-033/report-parity-results.md",
         "surfaces": [
           "POST /api/backups/import",
@@ -111,21 +263,21 @@
           "Environment",
           "Files",
           "Folders",
+          "GPP Registry (the three WI-075 captures)",
           "Ini Files",
           "Local Users and Groups",
+          "Power Options",
           "Printers",
-          "Scheduled Tasks",
+          "Scheduled Tasks (including scheduled and immediate task interleaving)",
           "Services",
           "Shortcuts"
         ],
         "not_certified": [
-          "Power Options (passes only on the WI-072 divergence)",
-          "task interleaving on write (WI-073)",
-          "seven uncaptured preference families",
+          "six uncaptured preference families (Regional Options, Devices, Folder Options, Data Sources, Network Shares, Applications)",
           "ADMX policy rendering, Scripts, links, security filtering, WMI filters"
-        ]
+        ],
+        "accepted_defects": []
       }
-    ],
-    "lane_verdicts": "as banked; release requalification pending (after batch 2)"
+    ]
   }
 }
