@@ -2251,7 +2251,16 @@ def parse_gpp_printers(data: bytes) -> tuple[GppPrinter, ...]:
 def _serialize_shortcut(sc: GppShortcut) -> ET.Element:
     return _build_item_element(
         "shortcuts",
-        item_name=_windows_leaf(sc.shortcut_path) if sc.shortcut_path else sc.name,
+        # The item element's ``name`` is the shortcut's name and the only copy on
+        # the wire (GPMC writes no Properties@name, WI-081), so it is the source
+        # of truth: the typed ``name`` is written whenever it is set (review P2:
+        # deriving it from shortcutPath discarded an edit). GPMC sets it to the
+        # leaf of ``shortcutPath`` (every capture), which is what an unnamed item
+        # gets, as GPME names it -- so deleting an imported name cannot be
+        # written, and `gpp._refuse_lost_edits` refuses it rather than export
+        # the old name. The shortcut file is created at ``shortcutPath``: a name
+        # edit renames the item, not the file.
+        item_name=sc.name or _windows_leaf(sc.shortcut_path),
         action=sc.action,
         common=sc.common,
         ilt_filter=sc.ilt_filter,
@@ -2912,6 +2921,130 @@ def _project_enabled_from_task_xml(task_xml: str) -> bool | None:
     if normalized in {"false", "0"}:
         return False
     return None
+
+
+#: The Exec elements a task's typed command fields are read from, in the Task
+#: Scheduler schema's order.
+_EXEC_FIELDS: tuple[tuple[str, str], ...] = (
+    ("Command", "program"),
+    ("Arguments", "arguments"),
+    ("WorkingDirectory", "start_in"),
+)
+
+
+def _typed_task_payload(
+    task_xml: str,
+    context: str,
+    command: dict[str, str],
+    *,
+    enabled: bool | None = None,
+) -> str:
+    """*task_xml* with the given typed values written into it (WI-080 review).
+
+    A TaskV2 or ImmediateTaskV2 keeps its command in the payload's first
+    ``Actions/Exec``, and a TaskV2 its enabled state in ``Settings/Enabled``; the
+    parser reads ``program``, ``arguments``, ``start_in`` and ``enabled`` FROM
+    there. *command* (any of those three) and *enabled* are values an edit
+    changed; each is written into its element. One the payload has no place for
+    (a command on a task whose only action is SendEmail, an enabled state with
+    no ``Settings/Enabled``) is refused rather than lost. An unchanged payload is
+    returned as it was, byte for byte.
+    """
+    try:
+        task_elem = _bounded_parse(task_xml.encode("utf-8"))
+    except GppError as error:
+        raise GppError(f"Corrupted task_xml during serialization: {error}") from error
+    changed = False
+    actions = _find_local(task_elem, "Actions")
+    exec_elem = _find_local(actions, "Exec") if actions is not None else None
+    for index, (tag, field_name) in enumerate(_EXEC_FIELDS):
+        if field_name not in command:
+            continue
+        want = command[field_name]
+        child = _find_local(exec_elem, tag) if exec_elem is not None else None
+        have = (child.text or "") if child is not None else ""
+        if want == have:
+            continue
+        if exec_elem is None:
+            raise GppError(
+                f"{context}: the edit to {field_name} cannot be written: its <Task> "
+                "payload has no Exec action to carry it"
+            )
+        if child is None:
+            # Keep the schema's order: after the Exec fields that precede it.
+            position = sum(
+                1
+                for earlier, _ in _EXEC_FIELDS[:index]
+                if _find_local(exec_elem, earlier) is not None
+            )
+            child = ET.Element(f"{exec_elem.tag[: -len('Exec')]}{tag}")
+            exec_elem.insert(position, child)
+        child.text = want
+        changed = True
+    if enabled is not None:
+        settings = _find_local(task_elem, "Settings")
+        flag = _find_local(settings, "Enabled") if settings is not None else None
+        if flag is None:
+            raise GppError(
+                f"{context}: the edit to enabled cannot be written: its <Task> payload "
+                "has no Settings/Enabled to carry it"
+            )
+        flag.text = "true" if enabled else "false"
+        changed = True
+    if not changed:
+        return task_xml
+    return ET.tostring(task_elem, encoding="unicode")
+
+
+_TRIGGER_FIELDS = ("trigger_type", "trigger_time", "trigger_days")
+
+
+def reconcile_payload_edits(item: Any, imported: Any) -> Any:
+    """Write a task's edited typed values into its <Task> payload (WI-080 review).
+
+    *imported* is the item as its retained native element parses, so a field
+    that differs between the two was EDITED -- which nothing else can tell: a
+    caller who builds a task from a payload leaves the scalars unset, and that
+    payload is authoritative, as it always was. Only an imported item has a
+    record to compare with, so only an imported item's edits are carried into
+    its payload; ``gpp`` calls this before writing one.
+
+    The payload is the only copy on the wire of ``program``, ``arguments``,
+    ``start_in`` and (TaskV2) ``enabled``, so an edit to one used to export the
+    old value (the review's P1; the TaskV2 ``arguments`` case predates WI-080).
+    A changed schedule is refused: the payload's ``Triggers`` are not rebuilt.
+    If the payload itself was edited, it is authoritative and nothing is
+    synchronised (and a scalar edit it contradicts is caught by
+    `gpp._refuse_lost_edits`). ``runAs`` is not synchronised with the payload's
+    ``UserId``: the captures show them differ (WI01A-SchedTasks-GPMC runs as
+    ``NT AUTHORITY\\System`` with ``UserId`` ``%LogonDomain%\\%LogonUser%``).
+    """
+    if not isinstance(item, (GppScheduledTask, GppImmediateTask)):
+        return item
+    if not item.task_xml or item.task_xml != imported.task_xml:
+        return item
+    if isinstance(item, GppScheduledTask) and item.element_variant != "TaskV2":
+        return item  # the v1 element writes its scalars as attributes
+    command = {
+        name: getattr(item, name)
+        for _, name in _EXEC_FIELDS
+        if getattr(item, name) != getattr(imported, name)
+    }
+    enabled: bool | None = None
+    context = f"{type(item).__name__} {item.name!r}"
+    if isinstance(item, GppScheduledTask):
+        if item.enabled != imported.enabled:
+            enabled = item.enabled
+        if any(getattr(item, n) != getattr(imported, n) for n in _TRIGGER_FIELDS):
+            raise GppError(
+                f"{context}: its schedule is read from the <Task> payload's Triggers, "
+                "which Studio does not rewrite; edit task_xml instead of the trigger fields"
+            )
+    if not command and enabled is None:
+        return item
+    return replace(
+        item, task_xml=_typed_task_payload(item.task_xml, context, command, enabled=enabled)
+    )
 
 
 def _append_task_xml_to_props(elem: ET.Element, task_xml: str) -> None:

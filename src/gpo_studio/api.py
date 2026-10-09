@@ -122,7 +122,9 @@ from .gpp import (
     _normalize_hive,
     _validate_unknown_attrs,
     _validate_unknown_children,
+    item_carries_cpassword,
     serialize_gpp,
+    without_native_records,
 )
 from .identity import ClaimedIdentity, claimed_identity
 from .ilt import (
@@ -1704,6 +1706,36 @@ def _validate_gpp_unknown_children(
         ]) from error
 
 
+def _refuse_cpassword(key: str, item: Any, context: str) -> None:
+    """Refuse an item whose unknown attributes, children or raw filters hold a cpassword.
+
+    The export refuses one too (``cpassword_detected``); this stops it at the
+    door, as import does (WI-080 review: an element form passed every check).
+    """
+    if item_carries_cpassword(key, item):
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="cpassword_detected",
+                message=f"{context} would carry a cpassword, which Studio never writes.",
+                path="unknown_attrs",
+            )
+        ])
+
+
+def _refuse_cpassword_attrs(unknown: tuple[tuple[str, str], ...], context: str) -> None:
+    """The member and registry-value routes' part of `_refuse_cpassword`."""
+    if any(name.rsplit("}", 1)[-1].casefold() == "cpassword" for name, _ in unknown):
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="cpassword_detected",
+                message=f"{context} would carry a cpassword, which Studio never writes.",
+                path="unknown_attrs",
+            )
+        ])
+
+
 def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
     member = GppGroupMember(
         sid=data.sid,
@@ -1715,6 +1747,7 @@ def _gpp_member_data_to_model(data: GppGroupMemberData) -> GppGroupMember:
     _validate_gpp_unknown_attrs(
         member.unknown_attrs, _MEMBER_RESERVED_ATTRS, f"member {member.name!r}"
     )
+    _refuse_cpassword_attrs(member.unknown_attrs, f"member {member.name!r}")
     return member
 
 
@@ -1752,6 +1785,7 @@ def _gpp_group_data_to_model(data: GppGroupData) -> GppGroup:
         _GROUP_PROPS_KNOWN_CHILDREN,
         f"group {group.name!r} properties",
     )
+    _refuse_cpassword("groups", group, f"group {group.name!r}")
     return group
 
 
@@ -1770,6 +1804,7 @@ def _gpp_registry_value_data_to_model(data: GppRegistryValueData) -> GppRegistry
         _REGISTRY_VALUE_RESERVED_ATTRS,
         f"registry value {value.name!r}",
     )
+    _refuse_cpassword_attrs(value.unknown_attrs, f"registry value {value.name!r}")
     return value
 
 
@@ -1814,6 +1849,7 @@ def _gpp_registry_data_to_model(data: GppRegistryData) -> GppRegistry:
         _REGISTRY_PROPS_KNOWN_CHILDREN,
         f"registry {registry.key!r} properties",
     )
+    _refuse_cpassword("registry", registry, f"registry {registry.key!r}")
     return registry
 
 
@@ -1843,30 +1879,10 @@ def _stringify_gpp_numeric_values(collections: list[dict[str, Any]]) -> None:
                 val["value"] = str(raw)
 
 
-def _drop_retained_native(collections: list[dict[str, Any]]) -> None:
-    """Leave each preference item's retained native element out of API JSON.
-
-    ``native_xml`` (WI-080) is the item's element exactly as imported, held so
-    an export can write back what the model does not type. It is import
-    provenance the writer reads, not editable content: the API never accepts
-    one (the store carries it over an edit), so serving it would only repeat
-    every imported preference file in every row of a GPO list the workbench
-    refetches after each mutation. Exports, and the bundle's manifest, carry it.
-    """
-    for collection in collections:
-        for items in collection.values():
-            if not isinstance(items, (list, tuple)):  # asdict keeps tuples
-                continue
-            for item in items:
-                if isinstance(item, dict):
-                    item.pop("native_xml", None)
-
-
 def _gpo_to_api_dict(gpo: Any) -> dict[str, Any]:
     gpo_dict: dict[str, Any] = gpo.to_dict()
     _stringify_numeric_settings(gpo_dict["settings"])
     _stringify_gpp_numeric_values(gpo_dict["gpp_collections"])
-    _drop_retained_native(gpo_dict["gpp_collections"])
     return gpo_dict
 
 
@@ -2021,9 +2037,15 @@ class JSONResponse(_FastAPIJSONResponse):
     text cannot reach storage any more, but stored text must still be
     readable: on that failure the body is re-rendered with ASCII escapes,
     which JSON permits and which carry the value unchanged.
+
+    It is also the API's one boundary for retained native elements (WI-080):
+    every JSON body leaves out ``native_xml`` wherever it appears -- a GPO, a
+    revision snapshot, a diff, a list row -- so no route can serve it, however
+    it builds its payload (review P2: revision snapshots and diffs did).
     """
 
     def render(self, content: Any) -> bytes:
+        content = without_native_records(content)
         try:
             return super().render(content)
         except UnicodeEncodeError:
@@ -3647,6 +3669,10 @@ def report(request: Request, guid: str) -> Response:
 
 
 def _resolve_gpo(request: Request, ref: str | dict[str, Any]) -> GPO:
+    # A retained native element comes only from an import (WI-080): one in an
+    # inline GPO reference is ignored, not trusted.
+    if isinstance(ref, dict):
+        ref = without_native_records(ref)
     return resolve_gpo(_store(request), ref)
 
 

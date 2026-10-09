@@ -1019,10 +1019,10 @@ def test_shortcut_roundtrip() -> None:
     data = serialize_gpp_shortcuts((sc,), "user")
     parsed = parse_gpp_shortcuts(data)
     assert len(parsed) == 1
-    # GPMC has no Properties@name (WI-081): the name is the item element's,
-    # the leaf of shortcutPath, as GPME writes it.
+    # GPMC has no Properties@name (WI-081): the item element's name is the name.
     assert b'<Properties action="R" name=' not in data
-    assert parsed[0] == replace(sc, name="Notepad.lnk")
+    assert b'<Shortcut clsid="{4F2F7C55-2790-433e-8127-0739D1CFA327}" name="Notepad"' in data
+    assert parsed[0] == sc
 
 
 def test_shortcut_common_options() -> None:

@@ -24,6 +24,7 @@ from .gpp import (
     GppScope,
     ensure_editor_ids,
     gpp_collection_from_dict,
+    registry_action_edit,
 )
 from .identity import Identity
 from .model import (
@@ -1606,7 +1607,10 @@ class WorkspaceStore:
                 try:
                     ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
                     items_list[ri] = _keep_document_position(
-                        _with_common_edits(registry, items_list[ri], common_edits),
+                        registry_action_edit(
+                            _with_common_edits(registry, items_list[ri], common_edits),
+                            items_list[ri],
+                        ),
                         items_list[ri],
                     )
                 except StopIteration:

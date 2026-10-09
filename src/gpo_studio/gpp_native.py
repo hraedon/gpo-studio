@@ -79,18 +79,45 @@ def native_element_xml(elem: ET.Element) -> str:
     """The element as stored on the item: verbatim, without its trailing text.
 
     The tail belongs to the parent's formatting (GPMC indents root children
-    with a newline and a tab), not to the item.
+    with a newline and a tab), not to the item. An element that uses any XML
+    namespace is not retained (``""``): no captured GPP item does (see
+    `namespaced_name`), and a stored one is refused on load.
     """
+    if namespaced_name(elem) is not None:
+        return ""
     copy = deepcopy(elem)
     copy.tail = None
     return ET.tostring(copy, encoding="unicode")
 
 
-def has_never_retained_attribute(elem: ET.Element) -> bool:
+def namespaced_name(elem: ET.Element) -> str | None:
+    """The first namespace-qualified element or attribute name in *elem*, or ``None``.
+
+    Every GPP item in the native captures, its payload included, uses
+    unqualified names only. The parser matches LOCAL names, so a foreign
+    ``{urn:x}SharedPrinter`` parses like a real one; written back verbatim it
+    would carry a namespace no Windows file was seen to use (review P2). So a
+    retained element may use no namespace at all, the ``xml:`` one included.
+    """
+    for node in elem.iter():
+        if not isinstance(node.tag, str) or node.tag.startswith("{"):
+            return str(node.tag)
+        for name in node.attrib:
+            if name.startswith("{"):
+                return name
+    return None
+
+
+def has_never_retained_name(elem: ET.Element) -> bool:
+    """Whether *elem* holds a ``cpassword``, as an attribute OR an element.
+
+    Any depth, any case, any namespace (review: an element ``<cpassword>``
+    passed a check of attribute names only, was stored, and was exported).
+    """
     return any(
         _local_name(name).casefold() in NEVER_RETAINED
         for node in elem.iter()
-        for name in node.attrib
+        for name in (str(node.tag), *node.attrib)
     )
 
 

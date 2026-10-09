@@ -28,11 +28,13 @@ def _xml(encoded: str) -> tuple[bytes, ET.Element]:
         root = parse_xml_bounded(raw, max_size=_MAX_XML_BYTES)
     except (ValueError, binascii.Error) as error:
         raise StudioError("Invalid native inventory XML") from error
+    # Attributes and elements alike (WI-080 review: an element <cpassword>
+    # passed a check of attribute names only).
     if any(
         name.rsplit("}", 1)[-1].casefold() == "cpassword"
-        for element in root.iter() for name in element.attrib
+        for element in root.iter() for name in (str(element.tag), *element.attrib)
     ):
-        raise StudioError("Native inventory XML contains a cpassword attribute")
+        raise StudioError("Native inventory XML contains a cpassword")
     return raw, root
 
 

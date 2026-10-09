@@ -688,9 +688,18 @@ def test_contains_cpassword_true_for_case_insensitive() -> None:
     assert contains_cpassword(xml) is True
 
 
-def test_contains_cpassword_false_for_element_not_attribute() -> None:
-    xml = b"<cpassword>data</cpassword>"
-    assert contains_cpassword(xml) is False
+def test_contains_cpassword_true_for_an_element_too() -> None:
+    """An element ``<cpassword>`` is refused like the attribute (WI-080 review).
+
+    This test used to pin the opposite, which is how an element form reached
+    every export path.
+    """
+    assert contains_cpassword(b"<cpassword>data</cpassword>") is True
+    assert contains_cpassword(
+        b'<SharedPrinter><Properties action="U"><x:CPassword xmlns:x="urn:y">s'
+        b"</x:CPassword></Properties></SharedPrinter>"
+    ) is True
+    assert contains_cpassword(b'<Properties name="cpassword-free"/>') is False
 
 
 def test_contains_cpassword_true_for_malformed_xml() -> None:

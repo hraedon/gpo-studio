@@ -15,8 +15,9 @@ from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
 
 from .gpp_native import (
-    has_never_retained_attribute,
+    has_never_retained_name,
     merge_native,
+    namespaced_name,
     native_element_xml,
     same_rendering,
 )
@@ -93,6 +94,35 @@ _ACTION_TO_CODE: dict[GppAction, str] = {
     "remove": "D",
 }
 _CODE_TO_ACTION: dict[str, GppAction] = {v: k for k, v in _ACTION_TO_CODE.items()}
+
+#: ``GppRegistry.action`` (the generic vocabulary the workbench shows and edits)
+#: and the value's own action, which is what is written (``Properties@action``).
+#: One <Registry> item has one action; the two are the same thing named twice.
+_REGISTRY_ITEM_TO_VALUE_ACTION: dict[GppAction, GppRegistryAction] = {
+    "add": "create",
+    "replace": "replace",
+    "update": "update",
+    "remove": "delete",
+}
+_REGISTRY_VALUE_TO_ITEM_ACTION: dict[GppRegistryAction, GppAction] = {
+    value: item for item, value in _REGISTRY_ITEM_TO_VALUE_ACTION.items()
+}
+
+
+def registry_action_edit(edited: GppRegistry, existing: GppRegistry) -> GppRegistry:
+    """Reconcile an edit of a registry item's two names for its one action.
+
+    The writer writes ``value.action``; ``GppRegistry.action`` was never
+    written, so an edit to it -- the action column the workbench shows --
+    exported the old action (WI-080 review). An edit that changes the item's
+    action and not the value's is applied to the value; otherwise the value's
+    stands. Either way the item's action is set to match, so the two agree.
+    """
+    value = edited.value
+    if edited.action != existing.action and value.action == existing.value.action:
+        value = replace(value, action=_REGISTRY_ITEM_TO_VALUE_ACTION[edited.action])
+    return replace(edited, value=value, action=_REGISTRY_VALUE_TO_ITEM_ACTION[value.action])
+
 
 _REGISTRY_ACTION_TO_CODE: dict[GppRegistryAction, str] = {
     "create": "C",
@@ -1203,12 +1233,45 @@ def _root_identity(path: str, first_key: str) -> tuple[str, str]:
 
 
 def _family_elements(collection: GppCollection, key: str) -> list[ET.Element]:
-    render = _item_renderer(key, collection.scope)
-    parse = _item_parser(key)
     return [
-        _written_element(item, render(item), render, parse)
+        _written_for(key, item, collection.scope)[1]
         for item in _family_items(collection, key)
     ]
+
+
+def _written_for(key: str, item: Any, scope: GppScope) -> tuple[ET.Element, ET.Element]:
+    """``(the model's rendering, the element written)`` for one item.
+
+    An imported item's edits to values its writer keeps in a payload (a task's
+    command) are first carried into that payload (`_with_payload_edits`); then
+    the item is rendered and reconciled with its retained element.
+    """
+    render = _item_renderer(key, scope)
+    parse = _item_parser(key)
+    item = _with_payload_edits(key, item, parse)
+    rendered = render(item)
+    return rendered, _written_element(item, rendered, render, parse)
+
+
+def _with_payload_edits(key: str, item: Any, parse: Callable[[ET.Element], Any]) -> Any:
+    """Carry an imported task's edited typed values into its <Task> payload.
+
+    Only an item with a retained element has a record of what was imported,
+    so only there can an edited value be told from an unset one
+    (`gpp_adapters.reconcile_payload_edits`).
+    """
+    if key not in ("scheduled_tasks", "immediate_tasks"):
+        return item
+    raw: str = getattr(item, "native_xml", "")
+    if not raw:
+        return item
+    try:
+        imported = parse(_bounded_parse(raw.encode("utf-8")))
+    except GppError:
+        return item
+    from .gpp_adapters import reconcile_payload_edits
+
+    return reconcile_payload_edits(item, imported)
 
 
 # ---------------------------------------------------------------------------
@@ -1231,6 +1294,21 @@ def _family_elements(collection: GppCollection, key: str) -> list[ET.Element]:
 # The API never accepts ``native_xml``: the store carries an item's record
 # over an edit (``store._keep_document_position``), and the writer decides,
 # value by value, what the edit changed.
+
+
+def item_carries_cpassword(key: str, item: Any, scope: GppScope = "computer") -> bool:
+    """Whether *item*, as written, would hold a cpassword (attribute or element).
+
+    For input that reaches the model without an XML import -- an API payload's
+    unknown attributes, raw unknown children and raw filter predicates -- so
+    it is refused where it arrives, not only at export (WI-080 review). An item
+    the writer cannot render at all is refused elsewhere.
+    """
+    try:
+        elem = _item_renderer(key, scope)(item)
+    except ValueError:
+        return False
+    return has_never_retained_name(elem)
 
 
 def retained_rendering(key: str, item: Any, scope: GppScope) -> str:
@@ -1256,10 +1334,8 @@ def retained_rendering(key: str, item: Any, scope: GppScope) -> str:
     cached = _RETAINED_RENDERINGS.get(cache_key)
     if cached is not None:
         return cached
-    render = _item_renderer(key, scope)
     try:
-        rendered = render(item)
-        written = _written_element(item, rendered, render, _item_parser(key))
+        rendered, written = _written_for(key, item, scope)
     except ValueError:  # GppError and the ILT codec's errors
         result = raw
     else:
@@ -1321,6 +1397,15 @@ def _written_element(
     an older Studio wrote on ``Properties``, read from there, and rendered on
     the item, say) costs fidelity, never correctness.
 
+    Rendering equality alone cannot see a typed value the writer does not put
+    on the wire at all (review P1: an immediate task's command lives in its
+    payload, and a writer that ignored the edit rendered the same before and
+    after). So the element chosen is parsed back and held to the model's
+    INTENDED values: every typed field the edit changed must read back as the
+    edit, and if it reads back as the imported value instead, the edit would
+    be lost, and the item is refused (`_refuse_lost_edits`) rather than
+    written.
+
     A retained element that no longer parses or renders (the parser has since
     become stricter, say) is not an export failure: the item is written from
     the model, as it was before WI-080. ``native_xml`` was validated on load,
@@ -1335,7 +1420,10 @@ def _written_element(
         imported = render(imported_item)
     except GppError:
         return rendered
+    edited = _typed_view(item) != _typed_view(imported_item)
     if same_rendering(imported, rendered):
+        if edited:
+            _refuse_lost_edits(item, imported_item, original, parse)
         return original
 
     def is_modeled(path: tuple[int, ...], name: str) -> bool:
@@ -1356,7 +1444,67 @@ def _written_element(
         means_the_model = same_rendering(render(parse(merged)), rendered)
     except GppError:
         means_the_model = False
-    return merged if means_the_model else rendered
+    chosen = merged if means_the_model else rendered
+    if edited:
+        _refuse_lost_edits(item, imported_item, chosen, parse)
+    return chosen
+
+
+#: Bookkeeping, not values an operator edits: editor ids are assigned on
+#: import, the retained element and document slot are provenance.
+_NOT_TYPED_VALUES: frozenset[str] = frozenset({"id", "native_xml", "document_position"})
+
+
+def _typed_view(value: Any) -> Any:
+    """A comparable view of a model value without its bookkeeping fields."""
+    if hasattr(value, "__dataclass_fields__"):
+        return tuple(
+            (f.name, _typed_view(getattr(value, f.name)))
+            for f in fields(value)
+            if f.name not in _NOT_TYPED_VALUES
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_typed_view(entry) for entry in value)
+    return value
+
+
+def _refuse_lost_edits(
+    item: Any, imported_item: Any, written: ET.Element, parse: Callable[[ET.Element], Any]
+) -> None:
+    """Refuse an element in which an edited typed value reads back unedited.
+
+    For each typed field the edit changed (the item differs from what its
+    import parsed to), the written element is parsed back: a value that reads
+    back as the edit, or as something else the writer normalised it to, is
+    written; one that reads back as the IMPORTED value was dropped somewhere
+    between the model and the wire, and exporting the item would silently undo
+    the edit. That is a GppError, which every export path reports as a refusal.
+    """
+    try:
+        written_item = parse(written)
+    except GppError as error:
+        raise GppError(f"an edited preference item cannot be read back: {error}") from error
+    for f in fields(item):
+        if f.name in _NOT_TYPED_VALUES:
+            continue
+        want = _typed_view(getattr(item, f.name))
+        was = _typed_view(getattr(imported_item, f.name))
+        if want == was:
+            continue
+        got = _typed_view(getattr(written_item, f.name))
+        if got != want and got == was:
+            raise GppError(
+                f"{type(item).__name__} {_item_label(item)!r}: the edit to {f.name} "
+                "cannot be written (it would export as the imported value)"
+            )
+
+
+def _item_label(item: Any) -> str:
+    for name in ("name", "key", "path", "group_name", "service_name", "user_name", "dsn"):
+        value = getattr(item, name, "")
+        if value:
+            return str(value)
+    return ""
 
 
 def _serialize_gpp_file(
@@ -1678,6 +1826,9 @@ def _parse_registry(elem: ET.Element) -> list[GppRegistry]:
             if idx == 0:
                 results.append(GppRegistry(
                     key=key, hive=hive, value=value, uid=uid,
+                    # The item's action is the value's (WI-080 review); before,
+                    # every import read "update" whatever the item did.
+                    action=_REGISTRY_VALUE_TO_ITEM_ACTION[value.action],
                     common=common,
                     ilt_filter=ilt_filter,
                     unknown_attrs=unknown_attrs,
@@ -1928,6 +2079,27 @@ def mark_edited(collection: GppCollection) -> GppCollection:
     return replace(collection, source_files=())
 
 
+def without_native_records(value: Any) -> Any:
+    """*value* with every ``native_xml`` key left out, at any depth (WI-080).
+
+    ``native_xml`` is an imported item's element as Windows wrote it: import
+    provenance the writer reads, never editable content. The API neither
+    serves it (its JSON response class applies this to every body) nor takes
+    it (an inline GPO reference passes through this before it is read), so
+    the only way an element is retained is an import. Lists, tuples and dicts
+    are copied; anything else is returned as it is.
+    """
+    if isinstance(value, dict):
+        return {
+            key: without_native_records(entry)
+            for key, entry in value.items()
+            if key != "native_xml"
+        }
+    if isinstance(value, (list, tuple)):
+        return [without_native_records(entry) for entry in value]
+    return value
+
+
 def model_only(collection: GppCollection) -> GppCollection:
     """The collection as the typed model alone would write it.
 
@@ -2125,8 +2297,14 @@ def _native_xml_from_dict(raw: object, key: str, context: str) -> str:
         raise GppError(
             f"native_xml of {context} is a <{_local_name(elem.tag)}>, not an item of {key}"
         )
-    if has_never_retained_attribute(elem):
-        raise GppError(f"native_xml of {context} carries a cpassword attribute")
+    if has_never_retained_name(elem):
+        raise GppError(f"native_xml of {context} carries a cpassword")
+    qualified = namespaced_name(elem)
+    if qualified is not None:
+        raise GppError(
+            f"native_xml of {context} uses an XML namespace ({qualified}); no native GPP "
+            "capture does, and import never retains one"
+        )
     return raw
 
 
@@ -2868,18 +3046,21 @@ def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]
 
 
 def contains_cpassword(xml: bytes) -> bool:
-    """Return True if the XML contains any cpassword attribute."""
+    """Return True if the XML holds a cpassword: an attribute OR an element.
+
+    Any depth, any case, any namespace. Until the WI-080 review only attribute
+    names were checked, so an element ``<cpassword>`` in a preference item --
+    on import, in an unknown child the API accepted, or in a retained native
+    element -- was stored and exported. Every import and export path calls
+    this, and refuses (``cpassword_detected`` on export).
+    """
     if b"cpassword" not in xml.lower():
         return False
     try:
         root = _bounded_parse(xml)
     except GppError:
         return True
-    for elem in root.iter():
-        for attr_name in elem.attrib:
-            if _local_name(attr_name).casefold() == "cpassword":
-                return True
-    return False
+    return has_never_retained_name(root)
 
 
 # ---------------------------------------------------------------------------

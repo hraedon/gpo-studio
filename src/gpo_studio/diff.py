@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from .canonical import (
     gpp_group_identity,
@@ -18,7 +18,13 @@ from .fdeploy import (
     diff_fdeploy,
     redirections_equal,
 )
-from .gpp import GppCollection, GppGroup, GppRegistry, gpp_document_order
+from .gpp import (
+    GppCollection,
+    GppGroup,
+    GppRegistry,
+    gpp_document_order,
+    retained_rendering,
+)
 from .ilt import IltFilter
 from .model import (
     GPO,
@@ -340,7 +346,7 @@ def _gpp_groups_equal(a: GppGroup, b: GppGroup) -> bool:
         and a.unknown_attrs == b.unknown_attrs
         and a.unknown_props_attrs == b.unknown_props_attrs
         and a.unknown_children == b.unknown_children
-        and a.native_xml == b.native_xml
+        and _retained_equal("groups", a, b)
         and _gpp_members_equal(a, b)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
     )
@@ -366,7 +372,7 @@ def _gpp_registry_equal(a: GppRegistry, b: GppRegistry) -> bool:
         and a.uid == b.uid
         and a.unknown_attrs == b.unknown_attrs
         and a.unknown_children == b.unknown_children
-        and a.native_xml == b.native_xml
+        and _retained_equal("registry", a, b)
         and _ilt_equal(a.ilt_filter, b.ilt_filter)
         and _gpp_registry_value_equal(a, b)
     )
@@ -692,17 +698,36 @@ def _gpp_collection_equal(a: GppCollection, b: GppCollection) -> bool:
         # Document order across families and retained root children
         # (WI-072/073): recorded positions are outside ==, the order is not.
         and gpp_document_order(a) == gpp_document_order(b)
-        # Retained native elements (WI-080) are outside == too, and are
-        # written wherever the model has not changed: compare them here.
-        and _adapter_native_records(a) == _adapter_native_records(b)
+        # Retained native elements (WI-080) are outside == too: compare what
+        # they make the export write.
+        and _adapter_retained(a) == _adapter_retained(b)
     )
 
 
-def _adapter_native_records(collection: GppCollection) -> tuple[tuple[str, ...], ...]:
+def _retained_equal(key: str, a: Any, b: Any) -> bool:
+    """Whether two items' retained native elements write the same thing (WI-080).
+
+    Not the raw ``native_xml``: that is provenance. A Studio-authored item and
+    its re-import write identical XML, as do a draft edit and a re-import of
+    the draft's export, though their ``native_xml`` differ (review P2: both
+    were reported as changes, the second as a conflict). What the export
+    writes beyond the model (`gpp.retained_rendering`) is what is compared.
+    Groups and registry items render the same in either scope.
+    """
+    if a.native_xml == b.native_xml:
+        return True
+    return retained_rendering(key, a, "computer") == retained_rendering(key, b, "computer")
+
+
+def _adapter_retained(collection: GppCollection) -> tuple[tuple[str, ...], ...]:
     from .gpp_adapters import ADAPTER_KEYS
 
     return tuple(
-        tuple(item.native_xml for item in getattr(collection, key)) for key in ADAPTER_KEYS
+        tuple(
+            retained_rendering(key, item, collection.scope)
+            for item in getattr(collection, key)
+        )
+        for key in ADAPTER_KEYS
     )
 
 
