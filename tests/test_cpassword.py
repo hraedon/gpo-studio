@@ -42,7 +42,7 @@ _REGISTRY_XML_CLEAN = b"""<?xml version="1.0" encoding="utf-8"?>
 <RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
   <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\\Test">
     <Properties action="C" hive="HKEY_LOCAL_MACHINE" key="Software\\Test"
-                name="Enabled" value="1" type="REG_DWORD"/>
+                name="Enabled" value="00000001" type="REG_DWORD"/>
   </Registry>
 </RegistrySettings>"""
 

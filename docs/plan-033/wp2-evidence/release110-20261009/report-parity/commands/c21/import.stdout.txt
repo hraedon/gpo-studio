@@ -1,0 +1,16 @@
+﻿
+
+DisplayName      : zz-studio-rp-report-parity-20261009001727-3532-21
+DomainName       : AD.LABDOMAIN.DEV
+Owner            : LAB\Domain Admins
+Id               : 0f618b62-08eb-46fe-a7f5-e5de4c84d111
+GpoStatus        : AllSettingsEnabled
+Description      : Plan 034 R10 disposable metadata oracle
+CreationTime     : 10/9/2026 12:18:13 AM
+ModificationTime : 10/9/2026 12:18:14 AM
+UserVersion      : AD Version: 1, SysVol Version: 1
+ComputerVersion  : AD Version: 1, SysVol Version: 1
+WmiFilter        : 
+
+
+

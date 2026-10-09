@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -612,3 +614,30 @@ def test_parse_estate_rejects_non_dict_gpo_entry() -> None:
     with pytest.raises(ValidationError) as exc_info:
         parse_estate(estate)
     assert exc_info.value.issues[0].code == "invalid_gpo_entry"
+
+
+
+def test_estate_import_api_normalises_a_crlf_comment(tmp_path) -> None:
+    """A GPMC comment with Windows line breaks imports, stored with LF.
+
+    Batch-2 delta review: CR is refused in text written into XML, and the
+    endpoint validated (in `parse_estate`) before the store normalised, so
+    this returned 422 text_not_xml_writable.
+    """
+    store = WorkspaceStore(tmp_path / "api.db")
+    app.state.store = store
+    app.state.owns_store = False
+    estate = json.loads(json.dumps(_VALID_ESTATE))
+    estate["gpos"][0]["description"] = "one\r\ntwo\rthree"
+    with TestClient(app) as client:
+        resp = client.post("/api/estate/import", json=estate)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["imported"] == 1
+        fetched = client.get("/api/gpos/11111111-2222-3333-4444-555555555555").json()["gpo"]
+        assert fetched["description"] == "one\ntwo\nthree"
+
+
+def test_parse_estate_normalises_comment_line_breaks() -> None:
+    estate = json.loads(json.dumps(_VALID_ESTATE))
+    estate["gpos"][0]["description"] = "a\r\nb"
+    assert parse_estate(estate)[0].description == "a\nb"

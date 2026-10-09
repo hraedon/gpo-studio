@@ -1,17 +1,19 @@
-"""The fdeploy lane's certifying run, banked: `fd-20261008121347-3151`.
+"""The fdeploy lane's current certifying run, as the batch manifest records it.
 
-One lane on its own commit (`df713ef`), banked the way the firewall lane and
-the Plan 034 object-security successor were: the controller's local run
-directory verbatim, plus `controller-candidate/` (the builder's output) and
-`controller.log`. The generic gates in `test_committed_evidence.py` cover the
-registry, the manifest-form binding at the commit and the live-harness hashes.
+The release 1.1.0 batch's run of the lane (run id, commit and pack read from
+`docs/plan-033/release110-batch.json`). It replaced `fd-20261008121347-3151`
+at `df713ef`, which is retired with its pack and tag unchanged. Banked the way
+every batch pack is: the controller's local run directory verbatim, plus
+`controller-candidate/` (the builder's output) and `controller.log`. The
+generic gates in `test_committed_evidence.py` cover the registry, the
+manifest-form binding at the commit and the live-harness hashes.
 This file pins what is specific to this pack:
 
 * every byte is accounted for;
 * the shipping finalizer, run over the banked bytes alone, writes the banked
   verdict again;
-* the bound builder still produces the banked candidate byte for byte (the
-  archive's container bytes on POSIX only; its members everywhere);
+* the bound builder still produces the banked candidate byte for byte, on
+  every platform;
 * the four claims the results doc makes are re-derived here from the raw
   Windows artifacts, not read back out of the verdict: SYSVOL and the
   re-export hold the candidate's bytes, Studio's `read_backup` over Windows'
@@ -27,7 +29,6 @@ import base64
 import hashlib
 import io
 import json
-import os
 import runpy
 import shutil
 import sys
@@ -48,16 +49,25 @@ from gpo_studio.fdeploy_parity import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "docs/plan-033/wp4-evidence/fdeploy"
+#: The current run is whatever the batch manifest records for this lane, so a
+#: new batch re-points this file by replacing the manifest, not these lines.
+_BATCH_RUN = next(
+    run
+    for run in json.loads(
+        (ROOT / "docs/plan-033/release110-batch.json").read_text(encoding="utf-8")
+    )["runs"]
+    if run["name"] == "fdeploy"
+)
+VERDICT_PATH = _BATCH_RUN["verdict"]
+PACK = ROOT / "docs/plan-033" / Path(VERDICT_PATH).parent
+RUN_ID = _BATCH_RUN["run_id"]
+COMMIT = _BATCH_RUN["commit"]
+CONTROLLER_LOG_SHA256 = _BATCH_RUN["files"]["controller.log"]
 CANDIDATE = PACK / "controller-candidate"
-VERDICT_PATH = "wp4-evidence/fdeploy/verification.json"
-RUN_ID = "fd-20261008121347-3151"
-COMMIT = "df713ef6eb86152e3e1e5ecf1e55f21dd5c64540"
 #: The exploratory pass that preceded the review hardening. History only: it
 #: binds the guest, builder and finalizer as they were before the four review
 #: fixes, and it was never banked or registered.
 SUPERSEDED_EXPLORATORY_COMMIT = "379e59b"
-CONTROLLER_LOG_SHA256 = "c1fca57b0b7c71edac58a546742a1b4b5be8046ca3687e45fa552c5532dd2bb4"
 SETTINGS = "DomainSysvol/GPO/User/Documents & Settings"
 FDEPLOY_FILES = ("fdeploy1.ini", "fdeploy.ini")
 USER_EXTENSION_PAIR = (
@@ -115,22 +125,14 @@ def _guid(value: str) -> str:
     return value.strip("{}").casefold()
 
 
-#: Why the archive's SHA-256 is exact only on POSIX, which the bound builder
-#: does not control (the report-parity and firewall banks met the same thing;
-#: the cross-lane deterministic-zip sweep, with lane re-runs, is scheduled
-#: rather than done here, since the builder is bound). `zipfile.ZipInfo`
-#: defaults `create_system` to 0 on Windows and 3 elsewhere, and that byte sits
-#: in every central-directory entry; forcing it back to 3 is not enough,
-#: because Windows CI on 3.14 also links a different zlib, so the deflated
-#: member streams can differ too. The certified candidate is built on the
-#: POSIX controller, so the banked hash is the POSIX one. Off POSIX the tests
-#: below hold the archive to everything the guest consumes instead: member
-#: names, order, timestamps, compression method, attributes and bytes.
-#: `test_the_host_byte_changes_only_the_container` pins the explanation.
+#: The archive's container bytes are platform-independent since batch 2: every
+#: lane archive is written by `gpo_studio.deterministic_zip` (members sorted,
+#: fixed timestamps, ``create_system=3``, fixed attributes, STORED -- deflate
+#: is not used because Windows' CPython links a different deflate than Linux).
+#: So the exact hash is asserted on EVERY platform, and
+#: `test_a_windows_host_builds_the_same_archive` pins the reason: forcing
+#: Windows' ``create_system`` default changes nothing.
 ARCHIVE = "fdeploy-cases.zip"
-POSIX = os.name == "posix"
-#: The finalizer's one check that compares the archive's container bytes.
-CONTAINER_CHECK = "candidate_rebuilds_from_bound_builder"
 
 
 def _archive_members(data: bytes) -> list[tuple[str, tuple[int, ...], int, int, bytes]]:
@@ -236,11 +238,6 @@ def test_the_shipping_finalizer_writes_the_banked_verdict_again(
     `source_tree_clean` check that follows from it (and `passed`, which
     includes it). Everything else must come out identical.
 
-    Off POSIX, `candidate_rebuilds_from_bound_builder` compares archive
-    container bytes the host decides (see `ARCHIVE`), so it is held only where
-    the controller runs; every other check must still pass, and
-    `test_the_builder_still_produces_the_banked_candidate` holds the archive's
-    members identical on every platform.
     """
     run = tmp_path / "run"
     for relative in VERDICT["artifacts"]:
@@ -274,9 +271,6 @@ def test_the_shipping_finalizer_writes_the_banked_verdict_again(
         verdict.pop("passed")
     assert recorded["checks"].pop("source_tree_clean") is True
     regraded["checks"].pop("source_tree_clean")
-    if not POSIX:
-        assert recorded["checks"].pop(CONTAINER_CHECK) is True
-        regraded["checks"].pop(CONTAINER_CHECK)
     assert all(regraded["checks"].values()), [
         name for name, ok in regraded["checks"].items() if not ok
     ]
@@ -286,13 +280,7 @@ def test_the_shipping_finalizer_writes_the_banked_verdict_again(
 def test_the_builder_still_produces_the_banked_candidate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The certified request is reproducible: same bytes, same stdout.
-
-    Every file is rebuilt byte for byte on POSIX, where the controller builds
-    it. Off POSIX the archive's container bytes are the host's (see
-    `ARCHIVE`), so it is held to identical members instead; every other file
-    is still exact.
-    """
+    """The certified request is reproducible: same bytes, same stdout, everywhere."""
     monkeypatch.setattr(sys, "argv", ["build-fdeploy-candidate.py", str(tmp_path)])
     stdout = io.StringIO()
     with redirect_stdout(stdout):
@@ -300,29 +288,20 @@ def test_the_builder_still_produces_the_banked_candidate(
     for name, digest in VERDICT["candidate"].items():
         if name == "builder.stdout.txt":
             continue
-        if name == ARCHIVE:
-            assert _archive_members((tmp_path / name).read_bytes()) == _archive_members(
-                (CANDIDATE / name).read_bytes()
-            )
-            if not POSIX:
-                continue
         assert _sha((tmp_path / name).read_bytes()) == digest, name
     banked = (CANDIDATE / "builder.stdout.txt").read_text(encoding="utf-8")
-    if not POSIX:
-        # The builder prints the archive's hash; off POSIX that line names the
-        # host's container bytes, and nothing else in the stdout may move.
-        banked_line = f"{ARCHIVE} sha256={VERDICT['candidate'][ARCHIVE]}\n"
-        assert banked.startswith(banked_line)
-        rebuilt = _sha((tmp_path / ARCHIVE).read_bytes())
-        banked = f"{ARCHIVE} sha256={rebuilt}\n" + banked.removeprefix(banked_line)
     assert stdout.getvalue() == banked
 
 
-@pytest.mark.skipif(not POSIX, reason="off POSIX the host is already the one that differs")
-def test_the_host_byte_changes_only_the_container(
+def test_a_windows_host_builds_the_same_archive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Forcing Windows' `create_system` default moves the hash and nothing else."""
+    """Forcing Windows' `create_system` default leaves the archive byte-identical."""
+    native = tmp_path / "native"
+    native.mkdir()
+    monkeypatch.setattr(sys, "argv", ["build-fdeploy-candidate.py", str(native)])
+    with redirect_stdout(io.StringIO()):
+        assert BUILDER["main"]() == 0
     original = zipfile.ZipInfo.__init__
 
     def windows_default(self: zipfile.ZipInfo, *args: Any, **kwargs: Any) -> None:
@@ -330,14 +309,12 @@ def test_the_host_byte_changes_only_the_container(
         self.create_system = 0
 
     monkeypatch.setattr(zipfile.ZipInfo, "__init__", windows_default)
-    monkeypatch.setattr(sys, "argv", ["build-fdeploy-candidate.py", str(tmp_path)])
+    windows = tmp_path / "windows"
+    windows.mkdir()
+    monkeypatch.setattr(sys, "argv", ["build-fdeploy-candidate.py", str(windows)])
     with redirect_stdout(io.StringIO()):
         assert BUILDER["main"]() == 0
-    data = (tmp_path / ARCHIVE).read_bytes()
-    banked = (CANDIDATE / ARCHIVE).read_bytes()
-    assert _sha(data) != _sha(banked)
-    assert _archive_members(data) == _archive_members(banked)
-    assert _sha((tmp_path / "expected.json").read_bytes()) == VERDICT["candidate"]["expected.json"]
+    assert (native / ARCHIVE).read_bytes() == (windows / ARCHIVE).read_bytes()
 
 
 def test_the_cases_are_the_four_the_results_doc_names() -> None:

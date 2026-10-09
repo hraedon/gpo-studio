@@ -37,11 +37,11 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, assert_never
+from typing import Any, Literal, assert_never
 
-from .gpp import GppCollection, GppError, serialize_gpp
+from .gpp import GPP_REGISTRY_REPORT_NAMESPACE, GppCollection, GppError, serialize_gpp
 from .model import GPO, RegistrySetting, StudioError
-from .xml_safety import parse_xml_bounded
+from .xml_safety import BoundedTreeBuilder, parse_xml_bounded
 
 Side = Literal["computer", "user"]
 DivergenceKind = Literal["missing_in_studio", "extra_in_studio", "order", "admx_policy_rendering"]
@@ -52,6 +52,94 @@ _MAX_REPORT_BYTES = 50 * 1024 * 1024
 _REPORT_SIDES: tuple[tuple[str, Side], ...] = (("Computer", "computer"), ("User", "user"))
 
 REGISTRY_FAMILY = "RegistrySettings"
+#: GPP Registry. Windows' report gives it the SAME ``xsi:type`` local name as
+#: Registry.pol policy (``RegistrySettings``) but under its own namespace, with
+#: a clsid-bearing ``<RegistrySettings>`` container of ``<Registry>`` items
+#: (measured, tests/fixtures/native-gpp-registry-gpmc/*/gpreport-verify.xml).
+#: It is inventoried under this distinct, namespace-qualified family name.
+GPP_REGISTRY_FAMILY = "Windows/Registry:RegistrySettings"
+_POLICY_REGISTRY_NS = f"{SETTINGS_NS}/Registry"
+
+#: Every report ``Extension`` type a Windows-produced report in the corpus
+#: declared, by FULL QName (namespace of the ``xsi:type`` prefix, local name),
+#: and the family it is inventoried under. Classifying by local name alone
+#: filed an ``xsi:type`` in any namespace as the measured family (review P2);
+#: a QName not listed here is reported as ``unmeasured:{namespace}local``, so
+#: it can only surface as a divergence. Read off every gpreport in the
+#: repository (tests/test_report_parity.py pins the table to them).
+MEASURED_REPORT_TYPES: dict[tuple[str, str], str] = {
+    (f"{SETTINGS_NS}/{namespace}", local): local
+    for namespace, local in (
+        ("DriveMaps", "DriveMapSettings"),
+        ("Environment", "EnvironmentVariablesSettings"),
+        ("Files", "FilesSettings"),
+        ("FolderRedirection", "FolderRedirectionSettings"),
+        ("Folders", "FoldersSettings"),
+        ("IniFiles", "IniFilesSettings"),
+        ("Lugs", "LugsSettings"),
+        ("PowerOptions", "PowerOptionsSettings"),
+        ("Printers", "PrintersSettings"),
+        ("Registry", "RegistrySettings"),
+        ("ScheduledTasks", "ScheduledTasksSettings"),
+        ("Scripts", "Scripts"),
+        ("Services", "ServiceSettings"),
+        ("Shortcuts", "ShortcutSettings"),
+        ("WindowsFirewall", "WindowsFirewallSettings"),
+    )
+} | {(GPP_REGISTRY_REPORT_NAMESPACE, "RegistrySettings"): GPP_REGISTRY_FAMILY}
+
+
+def _unmeasured(namespace: str, local: str) -> str:
+    return f"unmeasured:{{{namespace}}}{local}"
+
+
+class _TypeTrackingBuilder(BoundedTreeBuilder):
+    """Records each element's ``xsi:type`` as a full QName.
+
+    The prefix in ``xsi:type="q1:RegistrySettings"`` names its namespace only
+    through an ``xmlns:q1`` declaration in scope, which a finished
+    ElementTree no longer carries, so declarations are tracked during the
+    parse.
+    """
+
+    def __init__(self, **limits: Any) -> None:
+        super().__init__(**limits)
+        self._scopes: list[dict[str, str]] = [{}]
+        self._pending: dict[str, str] = {}
+        self.type_qnames: dict[int, tuple[str, str]] = {}
+
+    def start_ns(self, prefix: str, uri: str) -> None:
+        self._pending[prefix] = uri
+
+    def end_ns(self, prefix: str) -> None:
+        return None
+
+    def start(self, tag: str, attrs: dict[str, str]) -> Any:
+        scope = {**self._scopes[-1], **self._pending}
+        self._pending = {}
+        self._scopes.append(scope)
+        elem = super().start(tag, attrs)
+        declared = attrs.get(_XSI_TYPE)
+        if declared is not None:
+            prefix, _, local = declared.rpartition(":")
+            self.type_qnames[id(elem)] = (scope.get(prefix, ""), local)
+        return elem
+
+    def end(self, tag: str) -> Any:
+        elem = super().end(tag)
+        self._scopes.pop()
+        return elem
+
+
+def _is_gpp_registry_item(item: ET.Element) -> bool:
+    """A GPP Registry report item has the measured shape: <Registry> with <Properties>."""
+    return item.tag == f"{{{GPP_REGISTRY_REPORT_NAMESPACE}}}Registry" and any(
+        child.tag == f"{{{GPP_REGISTRY_REPORT_NAMESPACE}}}Properties" for child in item
+    )
+
+
+def _namespace(tag: str) -> str:
+    return tag[1:].split("}", 1)[0] if tag.startswith("{") else ""
 
 #: Preference file -> the ``Extension`` ``xsi:type`` Windows' report uses for
 #: it. Only pairs observed in a Windows-produced ``gpreport.xml`` in the corpus
@@ -67,6 +155,7 @@ OBSERVED_GPP_FAMILIES: dict[str, str] = {
     "IniFiles/IniFiles.xml": "IniFilesSettings",
     "PowerOptions/PowerOptions.xml": "PowerOptionsSettings",
     "Printers/Printers.xml": "PrintersSettings",
+    "Registry/Registry.xml": GPP_REGISTRY_FAMILY,
     "ScheduledTasks/ScheduledTasks.xml": "ScheduledTasksSettings",
     "Services/Services.xml": "ServiceSettings",
     "Shortcuts/Shortcuts.xml": "ShortcutSettings",
@@ -258,10 +347,12 @@ def _value_text(data: ET.Element) -> str:
     return "; ".join(child.text or "" for child in children)
 
 
-def _report_registry_items(extension: ET.Element) -> tuple[list[InventoryItem], int]:
+def _report_registry_items(
+    children: Iterable[ET.Element],
+) -> tuple[list[InventoryItem], int]:
     items: list[InventoryItem] = []
     policies = 0
-    for child in extension:
+    for child in children:
         local = _local(child.tag)
         if local == "Policy":
             policies += 1
@@ -321,8 +412,12 @@ def report_identity(report_xml: bytes) -> ReportIdentity:
 
 def windows_inventory(report_xml: bytes) -> Inventory:
     """Inventory a ``Get-GPOReport -ReportType Xml`` document (any encoding)."""
+    builder = _TypeTrackingBuilder(error_class=ReportParityError)
     root = parse_xml_bounded(
-        report_xml, max_size=_MAX_REPORT_BYTES, error_class=ReportParityError
+        report_xml,
+        max_size=_MAX_REPORT_BYTES,
+        error_class=ReportParityError,
+        builder=builder,
     )
     if root.tag != f"{{{SETTINGS_NS}}}GPO":
         raise ReportParityError("not a GPMC settings report")
@@ -336,16 +431,55 @@ def windows_inventory(report_xml: bytes) -> Inventory:
             extension = data.find(f"{{{SETTINGS_NS}}}Extension")
             if extension is None:
                 continue
-            family = extension.get(_XSI_TYPE, "").rsplit(":", 1)[-1]
-            if not family:
+            qname = builder.type_qnames.get(id(extension))
+            if qname is None or not qname[1]:
                 raise ReportParityError("report extension has no xsi:type")
-            bucket = families.setdefault((side, family), [])
-            if family == REGISTRY_FAMILY:
-                items, policies = _report_registry_items(extension)
-                bucket.extend(items)
+            family = MEASURED_REPORT_TYPES.get(qname, _unmeasured(*qname))
+            if family in (REGISTRY_FAMILY, GPP_REGISTRY_FAMILY):
+                # Route each child by ITS namespace: policy settings and a GPP
+                # Registry container are different families even inside one
+                # Extension (review: an Extension holding both used to be
+                # filed wholly as GPP Registry).
+                policy = [c for c in extension if _namespace(c.tag) == _POLICY_REGISTRY_NS]
+                items, policies = _report_registry_items(policy)
+                if items or family == REGISTRY_FAMILY:
+                    families.setdefault((side, REGISTRY_FAMILY), []).extend(items)
                 if policies:
                     admx[side] = admx.get(side, 0) + policies
+                for child in extension:
+                    namespace = _namespace(child.tag)
+                    if namespace == _POLICY_REGISTRY_NS:
+                        child_family = REGISTRY_FAMILY
+                    elif (namespace, _local(child.tag)) == (
+                        GPP_REGISTRY_REPORT_NAMESPACE,
+                        "RegistrySettings",
+                    ):
+                        child_family = GPP_REGISTRY_FAMILY
+                        families.setdefault((side, GPP_REGISTRY_FAMILY), []).extend(
+                            _gpp_item(item) for item in child if _is_gpp_registry_item(item)
+                        )
+                        for item in child:
+                            if not _is_gpp_registry_item(item):
+                                families.setdefault(
+                                    (side, _unmeasured(_namespace(item.tag), _local(item.tag))),
+                                    [],
+                                ).append(_plain_item(item))
+                    else:
+                        families.setdefault(
+                            (side, _unmeasured(namespace, _local(child.tag))), []
+                        ).append(_plain_item(child))
+                        continue
+                    if child_family != family:
+                        # A measured declaration whose children are the OTHER
+                        # family's measured shape (batch-2 re-review): the
+                        # children are still filed where they belong, and the
+                        # inconsistency is evidence of its own that no Studio
+                        # inventory carries, so the comparison cannot pass.
+                        families.setdefault(
+                            (side, f"unmeasured:declared {family} holds {child_family}"), []
+                        ).append(_plain_item(child))
                 continue
+            bucket = families.setdefault((side, family), [])
             for child in extension:
                 # Preference families wrap their items in a clsid-bearing
                 # container (<DriveMapSettings clsid=...>); other families
@@ -578,27 +712,6 @@ def _legacy_drive_name(divergence: Divergence, siblings: tuple[Divergence, ...])
     )
 
 
-_IMMEDIATE_TASK_ELEMENTS = frozenset({"ImmediateTask", "ImmediateTaskV2"})
-
-
-def _task_partition_order(divergence: Divergence, siblings: tuple[Divergence, ...]) -> bool:
-    """WI-073 exactly: Studio's order is Windows' order, stably partitioned.
-
-    The model holds scheduled and immediate tasks in two lists and writes the
-    scheduled list first, each list in its captured order. Only that
-    permutation is the known defect; any other reordering -- including within
-    one task type -- is a new divergence and stays unexplained.
-    """
-    del siblings
-    if divergence.family != "ScheduledTasksSettings" or divergence.kind != "order":
-        return False
-    theirs = divergence.windows_order
-    partitioned = tuple(i for i in theirs if i.element not in _IMMEDIATE_TASK_ELEMENTS) + tuple(
-        i for i in theirs if i.element in _IMMEDIATE_TASK_ELEMENTS
-    )
-    return bool(theirs) and partitioned != theirs and divergence.studio_order == partitioned
-
-
 KNOWN_DIVERGENCES: tuple[KnownDivergence, ...] = (
     KnownDivergence(
         name="admx-policy-rendering",
@@ -631,29 +744,14 @@ KNOWN_DIVERGENCES: tuple[KnownDivergence, ...] = (
         work_item=None,
         matches=_legacy_drive_name,
     ),
-    KnownDivergence(
-        name="adapter-root-unknowns-dropped",
-        description=(
-            "Power Options' GlobalPowerOptionsV2 (the Windows 7+ power plan) is "
-            "retained in the model as an unknown root child, but serialize_gpp "
-            "rebuilds adapter roots from typed items only, so any edit drops it. "
-            "The fix is in gpp.py, which two lanes bind."
-        ),
-        work_item="WI-072",
-        matches=_is("PowerOptionsSettings", "missing_in_studio", "GlobalPowerOptionsV2"),
-    ),
-    KnownDivergence(
-        name="scheduled-task-order",
-        description=(
-            "ScheduledTasks.xml interleaves TaskV2 and ImmediateTaskV2 items; "
-            "the model holds them in two lists and serialize_gpp writes all "
-            "scheduled tasks before all immediate tasks, so document order "
-            "(processing order) changes. The fix is in the bound model."
-        ),
-        work_item="WI-073",
-        matches=_task_partition_order,
-    ),
 )
+
+# WI-072 (adapter root unknowns dropped on write) and WI-073 (scheduled and
+# immediate tasks written grouped) were accepted here as known divergences
+# until 1.1.0. Both are fixed in gpp.py, so neither is named any more: a
+# missing <GlobalPowerOptionsV2> or a reordered ScheduledTasks.xml is an
+# unexplained divergence, which fails the offline differ, the candidate
+# builder and the lane.
 
 _KNOWN_BY_NAME = {known.name: known for known in KNOWN_DIVERGENCES}
 

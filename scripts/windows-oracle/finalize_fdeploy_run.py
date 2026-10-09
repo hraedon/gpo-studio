@@ -90,6 +90,9 @@ LOCAL_FILES = {
     "safe_io.py": "src/gpo_studio/safe_io.py",
     "xml_safety.py": "src/gpo_studio/xml_safety.py",
     "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+    # Batch 2: the archive writer and product modules this lane's candidate
+    # bytes flow through, so editing them stales the verdict (review P1).
+    "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
     "r3-fdeploy1.ini.txt": "tests/fixtures/native-folder-redirection-gpmc/fdeploy1.ini.txt",
     "r3-fdeploy.ini.txt": "tests/fixtures/native-folder-redirection-gpmc/fdeploy.ini.txt",
     "r3-provenance.json": "tests/fixtures/native-folder-redirection-gpmc/provenance.json",

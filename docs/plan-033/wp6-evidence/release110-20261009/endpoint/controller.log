@@ -1,0 +1,25 @@
+built endpoint candidate (8 tasks) in /tmp/opencode/endpoint-candidate-20261009002148
+TARGET_GPO=Endpoint-20261009-002222-6091
+WORK_DIR=C:\gpo-studio\out\endpoint-observe-20261009002229-7198
+--- authoring cleanup ---
+--- endpoint verification ---
+VERIFY_DIR=C:\gpo-studio\out\endpoint-verify-20261009002428-8070
+LOCAL_RUN_DIR=/tmp/opencode/endpoint-run-20261009002148
+CANDIDATE_DIR=/tmp/opencode/endpoint-candidate-20261009002148
+   present  GPOStudio-EP2-A-nofilter           control: task applies at all
+   present  GPOStudio-EP2-B-os-match           WI-021 fix: matching filter must APPLY
+   present  GPOStudio-EP2-J-native-os-match    vocabulary control for B: does WINTHRESHOLD match a Windows 11 client at all?
+   absent   GPOStudio-EP2-K-os-server-code     the server product code must NOT match a client (negative half of the collision proof)
+   absent   GPOStudio-EP2-C-os-exclude         WI-021 fix: excluding filter must NOT apply
+   present  GPOStudio-EP2-D-os-negated         WI-021 fix: negation path
+   absent   GPOStudio-EP2-E-native-control     control: hand-written native excluding filter
+   present  GPOStudio-EP2-F-scalar-shape       WI-018 fix: scalar-authored TaskV2 must now CREATE a task
+   present  GPOStudio-EP2-G-runas-system       hypothesis: empty runAs leaves the CSE no identity to register under
+   present  GPOStudio-EP2-H-future-boundary    hypothesis: a 1970 StartBoundary is rejected as too old (DISPROVED: absent)
+!! absent   GPOStudio-EP2-I-bare-time          was the StartBoundary fix load-bearing, or only schema hygiene?
+FINDING WI-018: honoured
+FINDING WI-021: evaluated
+FINDING OS-VOCABULARY: confirmed
+
+run endpoint-observe-20261009002229-7198: state=pass (source de9736ed3a4148b91cf2267fbe4640e260cc232f, dirty=False)
+EVIDENCE_TAG=created evidence/endpoint-observe-20261009002229-7198 at de9736ed3a41 — push it: git push origin evidence/endpoint-observe-20261009002229-7198

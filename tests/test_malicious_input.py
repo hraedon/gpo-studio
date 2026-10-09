@@ -160,11 +160,12 @@ def test_export_no_path_traversal_in_entries() -> None:
 def test_export_entries_are_fixed_names() -> None:
     blob = export_bundle(_sample_gpo())
     with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        # Code-point order: every archive goes through deterministic_zip.
         assert archive.namelist() == [
-            "manifest.json",
-            "apply.ps1",
             "Machine/Registry.pol",
             "User/Registry.pol",
+            "apply.ps1",
+            "manifest.json",
         ]
 
 
@@ -176,11 +177,12 @@ def test_export_empty_gpo_produces_valid_zip() -> None:
     gpo = GPO(guid="22222222-3333-4444-5555-666666666666", name="Empty Policy")
     blob = export_bundle(gpo)
     with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        # Code-point order: every archive goes through deterministic_zip.
         assert archive.namelist() == [
-            "manifest.json",
-            "apply.ps1",
             "Machine/Registry.pol",
             "User/Registry.pol",
+            "apply.ps1",
+            "manifest.json",
         ]
         assert parse(archive.read("Machine/Registry.pol")) == []
         assert parse(archive.read("User/Registry.pol")) == []

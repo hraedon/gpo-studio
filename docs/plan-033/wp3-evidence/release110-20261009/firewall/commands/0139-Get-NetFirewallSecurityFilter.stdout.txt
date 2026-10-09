@@ -1,0 +1,12 @@
+﻿
+
+Authentication     : NotRequired
+Encryption         : NotRequired
+OverrideBlockRules : False
+LocalUser          : Any
+RemoteUser         : Any
+RemoteMachine      : Any
+
+
+
+

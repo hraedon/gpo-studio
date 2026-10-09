@@ -52,24 +52,36 @@ from gpo_studio.writer_conformance import (
 _SETTINGS_NS = "http://www.microsoft.com/GroupPolicy/Settings"
 _XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
 
-#: Namespace/local-name pairs GPMC uses in its XML report for each authored
-#: family.  Populated from genuine Windows Server 2025 report captures; a family
-#: absent here yields an ``inconclusive`` candidate rather than a pass.
+#: The extension types GPMC declares in its XML report for each authored
+#: family, as ``<namespace>:<type>`` with the namespace relative to
+#: ``http://www.microsoft.com/GroupPolicy/Settings/``.  Populated from genuine
+#: Windows Server 2025 report captures; a family absent here yields an
+#: ``inconclusive`` candidate rather than a pass.
+#:
+#: Namespace-qualified because the local name alone collides: policy registry
+#: (Registry.pol) and GPP Registry are BOTH ``RegistrySettings``, under
+#: ``.../Settings/Registry`` and ``.../Settings/Windows/Registry`` respectively
+#: (WI01A-Registry-GPMC/gpreport-verify.xml). By local name, the mixed
+#: candidate's Registry.pol would have satisfied the GPP Registry marker.
 _FAMILY_REPORT_MARKERS: dict[str, tuple[str, ...]] = {
-    "registry": ("RegistrySettings",),
-    "drives": ("DriveMapSettings",),
-    "groups": ("LugsSettings",),
-    "local_users": ("LugsSettings",),
-    "scheduled_tasks": ("ScheduledTasksSettings",),
-    "services": ("ServiceSettings",),
+    "registry": ("Registry:RegistrySettings",),
+    "drives": ("DriveMaps:DriveMapSettings",),
+    "gpp_registry": ("Windows/Registry:RegistrySettings",),
+    "groups": ("Lugs:LugsSettings",),
+    "local_users": ("Lugs:LugsSettings",),
+    "scheduled_tasks": ("ScheduledTasks:ScheduledTasksSettings",),
+    "services": ("Services:ServiceSettings",),
     "mixed": (
-        "RegistrySettings",
-        "DriveMapSettings",
-        "LugsSettings",
-        "ScheduledTasksSettings",
-        "ServiceSettings",
+        "Registry:RegistrySettings",
+        "DriveMaps:DriveMapSettings",
+        "Windows/Registry:RegistrySettings",
+        "Lugs:LugsSettings",
+        "ScheduledTasks:ScheduledTasksSettings",
+        "Services:ServiceSettings",
     ),
 }
+
+_SETTINGS_NS_PREFIX = _SETTINGS_NS + "/"
 
 
 #: Harness files deployed to the Windows guest, per transport.  The finalizer
@@ -96,6 +108,13 @@ TRANSPORT_LOCAL_FILES: dict[str, dict[str, str]] = {
     "psdirect": {
         "finalize_wp1b_run.py": "scripts/windows-oracle/finalize_wp1b_run.py",
         "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+        # Batch 2: the archive writer and product modules this lane's candidate
+        # bytes flow through, so editing them stales the verdict (review P1).
+        "export.py": "src/gpo_studio/export.py",
+        "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
+        "gpp.py": "src/gpo_studio/gpp.py",
+        "gpp_adapters.py": "src/gpo_studio/gpp_adapters.py",
+        "writer_conformance.py": "src/gpo_studio/writer_conformance.py",
         "run-wp1b-oracle.sh": "scripts/windows-oracle/run-wp1b-oracle.sh",
         "build-wp1b-candidates.py": "scripts/plan-033/build-wp1b-candidates.py",
         "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
@@ -254,21 +273,53 @@ def _setting_projection(setting: dict[str, Any]) -> tuple[object, ...]:
     )
 
 
+def _qualified_type(namespace: str, local: str) -> str:
+    if namespace.startswith(_SETTINGS_NS_PREFIX):
+        return f"{namespace[len(_SETTINGS_NS_PREFIX):]}:{local}"
+    return f"{{{namespace}}}{local}"
+
+
 def _report_extensions(report_path: Path) -> list[str]:
-    """Return the local names of every extension GPMC declared in its report."""
-    root = ET.fromstring(report_path.read_bytes())
-    observed: list[str] = []
-    for side in ("Computer", "User"):
-        side_element = root.find(f"{{{_SETTINGS_NS}}}{side}")
-        if side_element is None:
-            continue
-        for extension in side_element.iter(f"{{{_SETTINGS_NS}}}ExtensionData"):
-            for child in extension:
-                type_attr = child.get(_XSI_TYPE)
-                if type_attr is None:
-                    continue
-                observed.append(type_attr.split(":", 1)[-1])
-    return sorted(set(observed))
+    """Every extension type GPMC declared in its report, namespace-qualified.
+
+    ``xsi:type="q1:RegistrySettings"`` names its namespace only through the
+    ``xmlns:q1`` declaration in scope, which ElementTree discards from the
+    finished tree, so the prefixes are resolved during the parse itself.
+    """
+    observed: set[str] = set()
+    scopes: list[dict[str, str]] = [{}]
+    pending: dict[str, str] = {}
+    path: list[str] = []
+    side_tags = {f"{{{_SETTINGS_NS}}}Computer", f"{{{_SETTINGS_NS}}}User"}
+    extension_data = f"{{{_SETTINGS_NS}}}ExtensionData"
+    with report_path.open("rb") as stream:
+        for event, item in ET.iterparse(stream, events=("start-ns", "start", "end")):
+            if event == "start-ns":
+                prefix, uri = item
+                pending[prefix] = uri
+                continue
+            if event == "end":
+                scopes.pop()
+                path.pop()
+                continue
+            scope = {**scopes[-1], **pending}
+            pending = {}
+            scopes.append(scope)
+            element = item
+            # Root/<Computer|User>/.../<ExtensionData>/<child xsi:type=...>,
+            # exactly the elements the previous ElementTree walk visited.
+            type_attr = element.get(_XSI_TYPE)
+            if (
+                type_attr is not None
+                and path
+                and path[-1] == extension_data
+                and len(path) >= 2
+                and path[1] in side_tags
+            ):
+                prefix, _, local = type_attr.rpartition(":")
+                observed.add(_qualified_type(scope.get(prefix, ""), local))
+            path.append(element.tag)
+    return sorted(observed)
 
 
 def _finalize_candidate(

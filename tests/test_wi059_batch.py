@@ -106,3 +106,12 @@ def test_batch_replaces_all_live_verdicts_and_binds_wp0_inputs() -> None:
 # this batch was the current qualification. platforms.json now names the Plan
 # 034 batch's runs (2026-10-08), so the check moved to `test_plan034_batch.py`;
 # asserting WI-059 run ids are "current" would pin a falsehood.
+
+
+def test_no_run_was_produced_on_the_test_scope_stand_in() -> None:
+    """The batch-manifest gate on scope provenance (tests/batch_provenance.py):
+    a row the driver marked test_scope_tool: true is never evidence."""
+    from batch_provenance import scope_provenance_problems
+
+    manifest = json.loads((EVIDENCE / "wi059-batch.json").read_text(encoding="utf-8"))
+    assert scope_provenance_problems(manifest) == []

@@ -1,0 +1,30 @@
+{
+  "control_gpo": "Studio-RSOP-Control",
+  "control_value_name": "Control",
+  "endpoint_user": "",
+  "expect_finding": "",
+  "group_member": "",
+  "group_name": "",
+  "loopback_mode": "disabled",
+  "policy_key": "Software\\Policies\\StudioLab",
+  "rows": [
+    {
+      "gpo": "Studio-RSOP-CompFilterDeny",
+      "isolates": "an explicit deny on Apply keeps the GPO off the COMPUTER, and at link order 1 the model must not name Filter=deny as the winner"
+    },
+    {
+      "gpo": "Studio-RSOP-CompFilterAllow",
+      "isolates": "Read + Apply for the computer: applies, and wins once the deny row is out"
+    },
+    {
+      "gpo": "Studio-RSOP-CompFilterReadOnly",
+      "isolates": "Read WITHOUT Apply: ReadOnlyOnly must be ABSENT"
+    },
+    {
+      "gpo": "Studio-RSOP-Control",
+      "isolates": "CONTROL: default filtering, unconflicted. Absent => nothing applied."
+    }
+  ],
+  "scenario_id": "computer-security-filtering",
+  "scope": "computer"
+}

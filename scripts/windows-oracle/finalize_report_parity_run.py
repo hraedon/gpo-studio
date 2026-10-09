@@ -17,6 +17,12 @@ comes from bound source. Every fresh report must name the GPO the run owned,
 and a non-zero guest exit status can never pass or tag. The guest never sees
 the expectation: the guest is the thing being measured.
 
+Cases that once passed only on a pinned work-item divergence -- WI-072 (Power
+Options' power plan dropped on write) and WI-073 (scheduled and immediate
+tasks written grouped) -- are fixed, and the builder pins them
+(``MUST_AGREE_CASE_IDS``): ``fixed_work_item_cases_agree_exactly`` requires each
+to be in the run and equal to Windows' fresh report with no divergence at all.
+
 Named exclusions (see ``docs/plan-033/report-parity-lane-design.md``):
 ADMX-resolved ``<Policy>`` rendering, links / security filtering / WMI (the
 lifecycle lane's scope), Scripts (not typed settings; the Scripts metadata lane
@@ -83,6 +89,9 @@ LOCAL_FILES = {
     "model.py": "src/gpo_studio/model.py",
     "xml_safety.py": "src/gpo_studio/xml_safety.py",
     "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+    # Batch 2: the archive writer and product modules this lane's candidate
+    # bytes flow through, so editing them stales the verdict (review P1).
+    "deterministic_zip.py": "src/gpo_studio/deterministic_zip.py",
 }
 
 _RESULT_KEYS = frozenset({
@@ -111,6 +120,7 @@ _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _GRADED_CHECKS = (
     "candidate_rebuilds_from_bound_builder",
     "every_case_studio_matches_fresh_report",
+    "fixed_work_item_cases_agree_exactly",
     "fresh_reports_delivered_intact",
     "every_fresh_report_identifies_its_owned_gpo",
     "authored_steps_succeeded",
@@ -213,6 +223,29 @@ def grade_case(
         "unexplained": [d.describe() for d in unexplained],
     }
     return checks, summary
+
+
+def agrees_exactly(fresh: Inventory, expected: dict[str, Any]) -> bool:
+    """A fixed work item's case: no divergence of any kind, known or otherwise.
+
+    The builder's ``MUST_AGREE_CASE_IDS`` are the cases that passed before
+    1.1.0 only on a pinned work-item divergence (WI-072 on Power Options, WI-073
+    on both scheduled-task captures). Both are fixed, so for these cases
+    Studio's inventory and Windows' fresh report must be equal outright, and the
+    expectation must name nothing for them. This holds independently of
+    ``KNOWN_DIVERGENCES``: re-adding an allowance cannot let a regression pass.
+
+    Both sides must list settings: two empty inventories compare equal, and
+    each pinned case exists because Windows reports items for it (review P3).
+    """
+    if expected.get("expected_known") != [] or "studio_inventory" not in expected:
+        return False
+    studio = inventory_from_json(expected["studio_inventory"])
+    return (
+        any(family.items for family in fresh.families)
+        and any(family.items for family in studio.families)
+        and compare(fresh, studio).equal
+    )
 
 
 def grade_authored(
@@ -423,6 +456,9 @@ def main() -> int:
     comparison: dict[str, Any] = {"cases": {}, "authored": None}
     error: str | None = None
     per_case_ok = bool(cases)
+    must_agree = frozenset(builder.MUST_AGREE_CASE_IDS)
+    # Every pinned case must be in the run, so dropping one cannot pass.
+    exact_ok = bool(must_agree) and must_agree <= {str(c.get("case_id")) for c in cases}
     delivered_ok = bool(cases)
     identity_ok = bool(cases)
     domain = result.get("domain")
@@ -437,8 +473,11 @@ def main() -> int:
                 _sha(report_path) == case.get("report_sha256")
             )
             identity_ok &= identifies(report_identity(report_bytes), case, domain)
-            case_checks, summary = grade_case(windows_inventory(report_bytes), by_id[case_id])
+            fresh = windows_inventory(report_bytes)
+            case_checks, summary = grade_case(fresh, by_id[case_id])
             per_case_ok &= all(case_checks.values())
+            if case_id in must_agree:
+                exact_ok &= agrees_exactly(fresh, by_id[case_id])
             comparison["cases"][case_id] = {"checks": case_checks, **summary}
 
         authored_report = _run_file(run, authored.get("report_file"))
@@ -474,6 +513,7 @@ def main() -> int:
         checks["candidate_rebuilds_from_bound_builder"] = rebuilds
         checks["authored_steps_succeeded"] = authored_steps
         checks["every_case_studio_matches_fresh_report"] = per_case_ok
+        checks["fixed_work_item_cases_agree_exactly"] = exact_ok
         checks["fresh_reports_delivered_intact"] = delivered_ok
         checks["every_fresh_report_identifies_its_owned_gpo"] = identity_ok
     except (

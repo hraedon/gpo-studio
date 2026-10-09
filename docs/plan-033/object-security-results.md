@@ -1,6 +1,13 @@
 # Object-security serialization lane
 
-**Current qualification (2026-10-08):** `object-security-20261008082348-9729`,
+**Current qualification (2026-10-09):** `object-security-20261009001510-7162`, 20/20, on
+clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
+([evidence](wp3-evidence/release110-20261009/object-security/verification.json),
+[release 1.1.0 batch](release110-batch.md)), tagged
+`evidence/object-security-20261009001510-7162`. The run below
+stopped binding when batch 2 and WI-078 changed files it binds.
+
+**Previous qualification (2026-10-08):** `object-security-20261008082348-9729`,
 20/20, on clean `1fb3f56ac7431e0044c69c32edc4350b2ab84151`
 ([evidence](wp3-evidence/plan034-rerun-20261008/object-security/verification.json)).
 It is the successor to the [Plan 034 batch](plan034-batch.md)'s run, after

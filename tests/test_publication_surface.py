@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient
 from gpo_studio import api
 from gpo_studio.api import app
 from gpo_studio.gpp import GppCollection, GppGroup, GppRegistry, GppRegistryValue
+from gpo_studio.gpp_adapters import GppEnvironment
 from gpo_studio.model import GPO, GPOLink, RegistrySetting, SecurityFilter, WmiFilter
 from gpo_studio.publication import generate_publication_plan, validate_publication_plan
 from gpo_studio.store import WorkspaceStore
@@ -421,9 +422,25 @@ def _refused_checks(gpo: GPO, target: str) -> set[str]:
                         registry=(
                             GppRegistry(
                                 key="Software\\Synthetic",
-                                value=GppRegistryValue(name="V", value="x"),
+                                # GPP Registry's extension pair is measured
+                                # since batch 2; a default-value item's wire
+                                # form is not (WI-075), so it is what refuses.
+                                value=GppRegistryValue(name="", value="x", default=True),
                             ),
                         ),
+                    ),
+                )
+            },
+            "both",
+            "unsupported_gpp_registry_shape",
+            id="unmeasured-gpp-registry-shape",
+        ),
+        pytest.param(
+            {
+                "gpp_collections": (
+                    GppCollection(
+                        scope="user",
+                        environment=(GppEnvironment(name="SYNTHETIC", value="x"),),
                     ),
                 )
             },

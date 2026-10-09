@@ -153,13 +153,18 @@ What these runs do **not** certify:
 - **Power Options** is not certified. Its only case passes on a pinned known
   divergence, WI-072 (the power plan is dropped on write). WI-073 (scheduled
   and immediate task interleaving is lost on write) is also open and accepted
-  only as a pinned divergence. Seven Studio preference families have no
+  only as a pinned divergence. Both are fixed in code (fixed pending
+  requalification) and are certified only when the requalification's
+  report-parity run, which now requires their cases to agree exactly, banks.
+  Seven Studio preference families have no
   capture and are not claimed, and ADMX policy rendering, Scripts, links,
   security filtering and WMI filters are named exclusions of the report-parity
   lane.
 - **Firewall:** PolicyStore readback, not endpoint application; one build;
-  values outside the tranche are refused; GPME display is unmeasured, and
-  Studio registers a different tool GUID from native authoring (WI-077).
+  values outside the tranche are refused; GPME display is unmeasured
+  (WI-077). Batch 2 changed Studio to register the firewall snap-in's tool
+  GUID for firewall-only policy, as native authoring does; the banked run
+  predates that change.
   IPsec, Public Key, wired and wireless policy are out of scope for 1.x.
 - **fdeploy:** decoding `Flags`, other `Flags` values, multi-folder and
   multi-principal documents, and any writer. `Flags` decoding and the writer
@@ -170,6 +175,23 @@ What these runs do **not** certify:
   into an existing GPO, deny ACEs and the WMI filter object are unmeasured.
   The cross-domain half is out of scope until the estate has a second domain
   or a trust.
+
+## Batch 2 changed bound files
+
+Batch 2 (WI-075: GPP Registry native export, deterministic archives,
+report parity for GPP Registry, and the review fixes that followed) edited
+files that live lane verdicts bind: `gpp.py`, `export.py`, `publication.py`,
+`xml_safety.py`, `object_security.py`, `report_parity.py`, the new
+`deterministic_zip.py`, and several lane builders and finalizers. The
+publication, scripts-metadata, WP-1B, WP-2, report-parity, firewall,
+object-security, fdeploy and endpoint verdicts cited in this file were banked
+before batch 2, so they no longer bind the shipping code, and
+`tests/test_committed_evidence.py` reports them as stale until they are re-run.
+The single requalification of every lane at one commit, listed under
+remaining work below, covers them: it runs on the batch-2 commit and replaces
+every banked verdict cited here. The report-parity corpus grows from 27 to 30
+cases in that run (the three GPP Registry captures), and the WP-1B candidate
+set gains a GPP Registry candidate.
 
 ## Plan 034 module exits
 
@@ -270,7 +292,7 @@ Gaps, stated rather than implied:
 - Operator procedure: [Windows quickstart](windows-quickstart.md#upgrade-to-another-release)
   and [workspace recovery](workspace-recovery.md#upgrading-and-rolling-back-across-a-schema-change).
 
-Three outputs differ from what 1.0.0 produced for the same content. None loses
+These outputs differ from what 1.0.0 produced for the same content. None loses
 data. Each is pinned by a test:
 
 1. `Registry.pol` records within a key are ordered delete-all-values, delete,
@@ -280,9 +302,17 @@ data. Each is pinned by a test:
 2. For a GPO with preference items, the policy-semantic and review digests
    change. The canonical form gained empty entries for the preference families
    added since 1.0.0. No value changes.
-3. A GPO with a GPP Registry item no longer offers native GPMC backup export.
-   Native GPP output is an allowlist of families whose extension metadata was
-   captured. The Studio bundle still carries GPP Registry.
+3. A GPO with a GPP Registry item offers native GPMC backup export again, as
+   1.0.0 did. Between WP-1B and batch 2 it was refused, because native GPP
+   output is an allowlist of families whose extension metadata was captured;
+   batch 2 captured GPP Registry's pair and every item shape (WI-075). A
+   default-value item is still refused. GPP Registry values are now written
+   in Windows' form (fixed-width hex for DWORD and QWORD, a `Values` list for
+   multi-strings), so a GPP Registry file's bytes differ from 1.0.0's.
+4. Every archive (GPMC backup and Studio bundle) is written with stored, not
+   deflated, members in code-point order, so the same content yields the same
+   bytes on every platform. The archives are larger and hash differently from
+   1.0.0's; the member contents do not change.
 
 ## Not claimed by 1.1.0
 

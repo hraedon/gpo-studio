@@ -32,7 +32,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .gpp import GppCollection, GppError, parse_gpp_collection, serialize_gpp
+from .gpp import (
+    GPP_REGISTRY_REPORT_NAMESPACE,
+    GppCollection,
+    GppError,
+    parse_gpp_collection,
+    serialize_gpp,
+)
 from .import_export import collect_gpp_collections, extract_side_settings
 from .model import GPO
 from .xml_safety import parse_xml_bounded
@@ -52,6 +58,7 @@ class WriterConformanceError(ValueError):
 #: here is blocked at export rather than guessed at.
 NATIVE_GPP_FAMILIES: tuple[str, ...] = (
     "drives",
+    "gpp_registry",
     "groups",
     "local_users",
     "scheduled_tasks",
@@ -178,6 +185,28 @@ def _scheduled_task(item: Any) -> dict[str, object]:
     }
 
 
+def _gpp_registry(item: Any) -> dict[str, object]:
+    """Summarize one GPP Registry preference item.
+
+    The VALUE's action is the one on the wire (``Properties@action``);
+    ``GppRegistry.action`` is a legacy model field nothing serializes, so it is
+    left out rather than compared as though it meant something.
+    """
+    value = item.value
+    raw = value.value
+    return {
+        "hive": item.hive,
+        "key": item.key,
+        "name": value.name,
+        "registry_type": value.registry_type,
+        "value": list(raw) if isinstance(raw, list) else raw,
+        "default": value.default,
+        "action": value.action,
+        "common": _common(item),
+        "ilt": _ilt(item),
+    }
+
+
 def _service(item: Any) -> dict[str, object]:
     return {
         "service_name": item.service_name,
@@ -205,6 +234,7 @@ def _service(item: Any) -> dict[str, object]:
 
 _FAMILY_SUMMARIZERS: dict[str, tuple[str, Any]] = {
     "drives": ("drives", _drive),
+    "gpp_registry": ("registry", _gpp_registry),
     "groups": ("groups", _group),
     "local_users": ("local_users", _local_user),
     "scheduled_tasks": ("scheduled_tasks", _scheduled_task),
@@ -219,6 +249,11 @@ def _sort_key(family: str, entry: dict[str, object]) -> str:
     order within a GPP file has no policy meaning for these families, so the
     comparison is order-insensitive.
     """
+    if family == "gpp_registry":
+        # A value name repeats across keys, so the policy key is the full path.
+        return "\\".join(
+            str(entry.get(part, "")) for part in ("hive", "key", "name")
+        ).casefold()
     for field_name in ("letter", "name", "user_name", "service_name"):
         value = entry.get(field_name)
         if isinstance(value, str) and value:
@@ -318,9 +353,20 @@ _XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
 #: independent readers of the same policy, not between Studio and itself.
 _REPORT_ROOT_TO_GPP_FILE: dict[str, tuple[str, str]] = {
     "DriveMapSettings": ("Drives", "Drives/Drives.xml"),
+    # GPP Registry, rendered under .../Settings/Windows/Registry (measured,
+    # WI01A-Registry-GPMC/gpreport-verify.xml). Registry.pol policy renders
+    # under .../Settings/Registry with <RegistrySetting> children instead, so
+    # the root is additionally pinned to its namespace below.
+    "RegistrySettings": ("RegistrySettings", "Registry/Registry.xml"),
     "LocalUsersAndGroups": ("Groups", "Groups/Groups.xml"),
     "ScheduledTasks": ("ScheduledTasks", "ScheduledTasks/ScheduledTasks.xml"),
     "NTServices": ("NTServices", "Services/Services.xml"),
+}
+
+#: Report roots whose local name alone is not distinctive enough: the GPMC
+#: namespace each must carry to be read as that GPP family.
+_REPORT_ROOT_NAMESPACE: dict[str, str] = {
+    "RegistrySettings": GPP_REGISTRY_REPORT_NAMESPACE,
 }
 
 #: Report-only bookkeeping GPMC adds that has no on-disk counterpart.
@@ -356,9 +402,14 @@ def _report_side_collection(side_element: ET.Element, scope: str) -> GppCollecti
             if container.get(_XSI_TYPE) is None:
                 continue
             for settings_root in container:
-                local_name = settings_root.tag.split("}", 1)[-1]
+                namespace, _, local_name = settings_root.tag[1:].rpartition("}")
+                if not settings_root.tag.startswith("{"):
+                    namespace, local_name = "", settings_root.tag
                 mapped = _REPORT_ROOT_TO_GPP_FILE.get(local_name)
                 if mapped is None:
+                    continue
+                required = _REPORT_ROOT_NAMESPACE.get(local_name)
+                if required is not None and namespace != required:
                     continue
                 disk_root, file_path = mapped
                 rebuilt = _strip_report_namespace(settings_root, disk_root)
@@ -412,6 +463,110 @@ _TASK_V1_ONLY_ATTRIBUTES: frozenset[str] = frozenset({
 })
 
 
+#: The GPP Registry wire shape, as Windows wrote it in every native capture
+#: (tests/fixtures/native-gpp-registry-gpmc; test_gpp_registry_native.py pins
+#: each constant to those bytes). Stated here, not taken from gpp.py, so the
+#: writer is checked against Windows rather than against itself.
+NATIVE_REGISTRY_ROOT = ("RegistrySettings", "{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}")
+NATIVE_REGISTRY_ITEM = ("Registry", "{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}")
+#: <Registry> attributes in native order (``changed`` and ``uid`` may be absent
+#: from a Studio-authored item; the rest of the order must hold).
+NATIVE_REGISTRY_ITEM_ATTRS = ("clsid", "name", "status", "image", "changed", "uid", "disabled")
+#: Common options Studio writes explicitly where the cmdlet left them out;
+#: they mean what the cmdlet's absence means (test_gpp_registry_native.py).
+STUDIO_REGISTRY_COMMON_ATTRS = ("removePolicy", "userContext", "bypassErrors")
+NATIVE_REGISTRY_PROPS_ATTRS = (
+    "action", "displayDecimal", "default", "hive", "key", "name", "type", "value",
+)
+NATIVE_REGISTRY_IMAGES = {"C": "0", "R": "1", "U": "2", "D": "3"}
+_NATIVE_HEX_WIDTH = {"REG_DWORD": 8, "REG_QWORD": 16}
+_UPPER_HEX = frozenset("0123456789ABCDEF")
+
+
+def _registry_item_findings(item: ET.Element, where: str) -> list[str]:
+    findings: list[str] = []
+    if (item.tag, item.get("clsid")) != NATIVE_REGISTRY_ITEM:
+        return [f"{where} is <{item.tag} clsid={item.get('clsid')!r}>, not a native <Registry>"]
+    name = item.get("name", "")
+    where = f"{where} {name!r}"
+    native_attrs = [a for a in item.attrib if a in NATIVE_REGISTRY_ITEM_ATTRS]
+    order = [a for a in NATIVE_REGISTRY_ITEM_ATTRS if a in native_attrs]
+    if native_attrs != order or not {"clsid", "name", "status", "image"} <= set(native_attrs):
+        findings.append(f"{where} carries <Registry> attributes {native_attrs}, not native order")
+    extra = [
+        a for a in item.attrib
+        if a not in NATIVE_REGISTRY_ITEM_ATTRS and a not in STUDIO_REGISTRY_COMMON_ATTRS
+    ]
+    if extra:
+        findings.append(f"{where} carries <Registry> attributes with no native precedent: {extra}")
+    if item.get("status") != name:
+        findings.append(f"{where} has status {item.get('status')!r}, native status is the name")
+    props = [child for child in item if child.tag == "Properties"]
+    if len(props) != 1:
+        return [*findings, f"{where} has {len(props)} <Properties> elements"]
+    prop = props[0]
+    if list(prop.attrib) != list(NATIVE_REGISTRY_PROPS_ATTRS):
+        findings.append(
+            f"{where} carries <Properties> attributes {list(prop.attrib)}, native is "
+            f"{list(NATIVE_REGISTRY_PROPS_ATTRS)}"
+        )
+    action = prop.get("action", "")
+    if item.get("image") != NATIVE_REGISTRY_IMAGES.get(action):
+        findings.append(f"{where} has image {item.get('image')!r} for action {action!r}")
+    reg_type, value = prop.get("type", ""), prop.get("value", "")
+    children = list(prop)
+    if reg_type == "REG_MULTI_SZ":
+        values = [c for c in children if c.tag == "Values"]
+        strings = [v.text or "" for v in values[0]] if len(values) == 1 else None
+        if (
+            len(children) != 1
+            or strings is None
+            or any(v.tag != "Value" for v in values[0])
+            or " ".join(strings) != value
+        ):
+            findings.append(f"{where} REG_MULTI_SZ is not value + one native <Values> list")
+    elif children:
+        findings.append(f"{where} {reg_type} <Properties> has children; native has none")
+    width = _NATIVE_HEX_WIDTH.get(reg_type)
+    if width is not None and (len(value) != width or not set(value) <= _UPPER_HEX):
+        findings.append(f"{where} {reg_type} value {value!r} is not {width} upper-case hex digits")
+    if reg_type == "REG_BINARY" and (len(value) % 2 or not set(value) <= _UPPER_HEX):
+        findings.append(f"{where} REG_BINARY value {value!r} is not upper-case hex bytes")
+    if not prop.get("name") and (reg_type != "REG_SZ" or value):
+        findings.append(f"{where} key-only item is not typed REG_SZ with an empty value")
+    return findings
+
+
+def registry_shape_findings(collection: GppCollection) -> list[str]:
+    """Emitted GPP Registry XML against the native shape (batch 2, review P2)."""
+    try:
+        emitted = serialize_gpp(collection).get("Registry/Registry.xml")
+    except GppError as error:
+        return [f"registry ({collection.scope}) does not serialize: {error}"]
+    if emitted is None:
+        return [f"registry ({collection.scope}) emits no Registry/Registry.xml"]
+    try:
+        root = parse_xml_bounded(
+            emitted, max_size=MAX_REPORT_XML_BYTES, error_class=WriterConformanceError
+        )
+    except WriterConformanceError as error:
+        return [f"registry ({collection.scope}) emits invalid XML: {error}"]
+    if (root.tag, root.get("clsid")) != NATIVE_REGISTRY_ROOT:
+        return [
+            f"registry ({collection.scope}) root is <{root.tag} clsid={root.get('clsid')!r}>, "
+            "not the native <RegistrySettings>"
+        ]
+    findings: list[str] = []
+    for item in root:
+        findings.extend(_registry_item_findings(item, f"registry ({collection.scope}) item"))
+    if len(root) != len(collection.registry):
+        findings.append(
+            f"registry ({collection.scope}) emits {len(root)} items for "
+            f"{len(collection.registry)} in the model"
+        )
+    return findings
+
+
 def native_shape_findings(gpo: GPO) -> tuple[str, ...]:
     """Report emitted items whose shape has no genuine GPMC precedent.
 
@@ -431,6 +586,8 @@ def native_shape_findings(gpo: GPO) -> tuple[str, ...]:
     """
     findings: list[str] = []
     for collection in gpo.gpp_collections:
+        if collection.registry:
+            findings.extend(registry_shape_findings(collection))
         if not collection.scheduled_tasks and not collection.immediate_tasks:
             continue
         try:

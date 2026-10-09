@@ -50,6 +50,7 @@ from .snapshot_documents import (
     snapshot_digests,
 )
 from .validation import (
+    text_issues,
     validate_gpo,
     validate_gpp_collection,
     validate_ready_transition,
@@ -150,6 +151,19 @@ def _wmi_filter(data: dict[str, Any]) -> WmiFilter:
 
 def _gpp_collection(data: dict[str, Any]) -> GppCollection:
     return gpp_collection_from_dict(data)
+
+
+def _keep_document_position[T: (GppGroup, GppRegistry)](edited: T, existing: T) -> T:
+    """An edit replaces an item's content, not its place in the document.
+
+    The API's item payloads carry no ``document_position`` (WI-073), so an
+    edited item inherits the slot of the item it replaces. A new item has no
+    slot and is written after every positioned item (see ``gpp.py``,
+    "Document order").
+    """
+    if edited.document_position is not None:
+        return edited
+    return replace(edited, document_position=existing.document_position)
 
 
 def _assign_legacy_gpp_ids(gpo: GPO) -> GPO:
@@ -283,6 +297,23 @@ def gpo_from_dict(data: dict[str, Any]) -> GPO:
         updated_at=str(data.get("updated_at", "")),
     )
     return _assign_legacy_gpp_ids(gpo)
+
+
+def lf_line_breaks(text: Any) -> Any:
+    """A GPMC comment's line breaks as LF (CRLF and bare CR alike).
+
+    GPMC stores a GPO's comment, and a WMI filter's description, with Windows
+    line breaks. Studio refuses a carriage return in any text written into XML
+    -- an XML parser reads it back as LF, so the value would not survive a
+    native export -- and these comments are written into XML. Their line breaks
+    are line breaks, not data, so they are normalised here rather than
+    refusing the GPO. `estate.parse_estate` applies it before its own
+    validation, and `WorkspaceStore.import_baseline_gpos` for direct callers. Non-text values are
+    returned unchanged for `gpo_from_dict` and validation to judge.
+    """
+    if not isinstance(text, str):
+        return text
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 class WorkspaceStore:
@@ -560,6 +591,13 @@ class WorkspaceStore:
         :meth:`_store_documents` inside the same transaction that writes the
         snapshot rows, or the payload's digests would reference nothing.
         """
+        # No revision is written holding text XML cannot carry (batch-2
+        # review): every create, import and mutation passes through here, so a
+        # lone surrogate or a control character is refused BEFORE anything is
+        # committed, whichever endpoint or field it arrived through.
+        unwritable = text_issues(gpo)
+        if unwritable:
+            raise ValidationError(unwritable)
         data = gpo.to_dict()
         try:
             documents = extract_snapshot_documents(data)
@@ -851,7 +889,12 @@ class WorkspaceStore:
                 gpo,
                 guid=normalized_guid,
                 name=gpo.name.strip(),
-                description=gpo.description.strip(),
+                # A GPMC comment arrives with Windows line endings; XML (where
+                # the description is written) reads CR back as LF, so line
+                # breaks are normalised to LF rather than refusing the GPO. The
+                # same rule `estate.parse_estate` applies first on
+                # the API path; this covers direct callers.
+                description=lf_line_breaks(gpo.description).strip(),
                 revision=1,
                 created_at=timestamp,
                 updated_at=timestamp,
@@ -1424,7 +1467,7 @@ class WorkspaceStore:
                 groups_list = list(existing.groups)
                 try:
                     gi = next(i for i, x in enumerate(groups_list) if x.id == group.id)
-                    groups_list[gi] = group
+                    groups_list[gi] = _keep_document_position(group, groups_list[gi])
                 except StopIteration:
                     if must_exist:
                         raise NotFoundError(
@@ -1519,7 +1562,7 @@ class WorkspaceStore:
                 items_list = list(existing.registry)
                 try:
                     ri = next(i for i, x in enumerate(items_list) if x.id == registry.id)
-                    items_list[ri] = registry
+                    items_list[ri] = _keep_document_position(registry, items_list[ri])
                 except StopIteration:
                     if must_exist:
                         raise NotFoundError(

@@ -1,0 +1,98 @@
+﻿{
+    "run_id":  "rsop-user-observe-20261009003952-3546",
+    "work_dir":  "C:\\gpo-studio\\out\\rsop-user-observe-20261009003952-3546",
+    "scope":  "user",
+    "computer":  "LABCL01",
+    "principal":  "labauto1",
+    "principal_sid":  "S-1-5-21-343068944-2904821402-3322616572-2103",
+    "session_present":  true,
+    "session_detail":  {
+                           "console_user":  "LAB\\labauto1",
+                           "hive_loaded":  true,
+                           "expected":  "LAB\\labauto1",
+                           "present":  true
+                       },
+    "intended_loopback_mode":  "disabled",
+    "observed_loopback_mode":  "disabled",
+    "loopback_control_ok":  true,
+    "observation_settled":  true,
+    "settle_attempts":  1,
+    "computer_refresh_exit":  0,
+    "user_policy_completed":  true,
+    "user_policy_completed_at":  "2026-10-09T00:40:00.4254576+00:00",
+    "refresh_task_results":  [
+                                 {
+                                     "label":  "initial",
+                                     "final_state":  "Ready",
+                                     "last_task_result":  0,
+                                     "last_run_time":  "10/09/2026 00:39:59",
+                                     "marker_written":  true
+                                 }
+                             ],
+    "token_groups_session":  [
+                                 "Domain Users",
+                                 "Everyone",
+                                 "BUILTIN\\Users",
+                                 "NT AUTHORITY\\INTERACTIVE",
+                                 "CONSOLE LOGON",
+                                 "NT AUTHORITY\\Authenticated Users",
+                                 "This Organization",
+                                 "LOCAL",
+                                 "Authentication authority asserted identity",
+                                 "Medium Mandatory Level"
+                             ],
+    "token_groups_ldap":  [
+                              "BUILTIN\\Users",
+                              "LAB\\Domain Users"
+                          ],
+    "token_groups_ldap_status":  "collected",
+    "token_groups_ldap_error":  null,
+    "token_collection_error":  null,
+    "rsop_captured":  true,
+    "rsop_parse_error":  null,
+    "pre_run_residual":  [
+
+                         ],
+    "preflight_taken_at":  "2026-10-09T00:39:42.2294941+00:00",
+    "applied_gpos":  [
+                         "Local Group Policy",
+                         "Studio-RSOP-UserControl-20261009003945-5962",
+                         "Studio-RSOP-UserOn-20261009003945-5962"
+                     ],
+    "denied_gpos":  [
+                        {
+                            "gpo":  "{13c4c0c1-e44f-46ca-9973-c986a81bdcf4}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        },
+                        {
+                            "gpo":  "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+                            "reasons":  [
+                                            "filter_not_allowed"
+                                        ]
+                        }
+                    ],
+    "observed_values":  [
+                            {
+                                "value_name":  "Control",
+                                "value":  "present"
+                            },
+                            {
+                                "value_name":  "UserWinner",
+                                "value":  "userOn"
+                            }
+                        ],
+    "control_present":  true,
+    "lane_problems":  [
+
+                      ],
+    "environment":  {
+                        "caption":  "Microsoft Windows 11 Enterprise",
+                        "build":  "26200",
+                        "powershell_version":  "5.1.26100.9444",
+                        "powershell_edition":  "Desktop",
+                        "locale":  "en-US"
+                    },
+    "error":  null
+}

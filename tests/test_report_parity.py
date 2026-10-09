@@ -4,9 +4,11 @@ Every Windows-produced backup in the corpus carries the ``gpreport.xml`` that
 ``Backup-GPO`` wrote beside it. Each is imported through the public endpoint,
 and Studio's typed model is inventoried and compared with that report. Every
 divergence is either absent or one of the named ``KNOWN_DIVERGENCES``, and the
-set of known divergences per backup is pinned below, so fixing WI-072 or
-WI-073 (or regressing anything else) fails here until the pin and the
-report-parity lane are updated together (WI-048).
+set of known divergences per backup is pinned below, so any change in what a
+backup shows fails here until the pin and the report-parity lane are updated
+together (WI-048). WI-072 and WI-073 were pinned this way until they were
+fixed; their three backups now pin full equality, and their allowances are
+gone, so a regression of either is an unexplained divergence.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gpo_studio.api import app
-from gpo_studio.gpp import GppCollection, GppLocalGroup
+from gpo_studio.gpp import GPP_REGISTRY_REPORT_NAMESPACE, GppCollection, GppLocalGroup
 from gpo_studio.gpp_adapters import (
     GppDrive,
     GppFile,
@@ -38,13 +40,16 @@ from gpo_studio.gpp_adapters import (
 from gpo_studio.model import GPO, RegistrySetting
 from gpo_studio.report import policy_report
 from gpo_studio.report_parity import (
+    GPP_REGISTRY_FAMILY,
     KNOWN_DIVERGENCES,
+    MEASURED_REPORT_TYPES,
     OBSERVED_GPP_FAMILIES,
     Divergence,
     FamilyInventory,
     Inventory,
     InventoryItem,
     ReportParityError,
+    _TypeTrackingBuilder,
     classify,
     compare,
     inventory_from_json,
@@ -54,6 +59,7 @@ from gpo_studio.report_parity import (
     windows_inventory,
 )
 from gpo_studio.store import WorkspaceStore, gpo_from_dict
+from gpo_studio.xml_safety import parse_xml_bounded
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "tests/fixtures/native-gpp-gpmc"
@@ -71,17 +77,16 @@ EXPECTED_KNOWN: dict[str, frozenset[str]] = {
     "tests/fixtures/native-gpp-gpmc/WI01A-MixedCSE-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-NestedILT-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-OS-ILT": frozenset(),
-    "tests/fixtures/native-gpp-gpmc/WI01A-Power-GPMC": frozenset(
-        {"adapter-root-unknowns-dropped"}
-    ),
+    "tests/fixtures/native-gpp-gpmc/WI01A-Power-GPMC": frozenset(),  # WI-072 fixed
     "tests/fixtures/native-gpp-gpmc/WI01A-Printers-GPMC": frozenset(),
-    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasks-GPMC": frozenset({"scheduled-task-order"}),
-    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasksFull-GPMC": frozenset(
-        {"scheduled-task-order"}
-    ),
+    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasks-GPMC": frozenset(),  # WI-073 fixed
+    "tests/fixtures/native-gpp-gpmc/WI01A-SchedTasksFull-GPMC": frozenset(),  # WI-073 fixed
     "tests/fixtures/native-gpp-gpmc/WI01A-Services-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-ServicesRecovery-GPMC": frozenset(),
     "tests/fixtures/native-gpp-gpmc/WI01A-Shortcuts-GPMC": frozenset(),
+    "tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC": frozenset(),
+    "tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryMatrix-GPMC": frozenset(),
+    "tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC": frozenset(),
     "docs/plan-033/wp0-evidence/wi059-20260908/wp0/backup": frozenset(),
     "docs/plan-033/wp1b-evidence/wi059-20260908/scripts-metadata/rebackup": frozenset(
         {"scripts-not-modeled"}
@@ -108,6 +113,8 @@ EXPECTED_KNOWN: dict[str, frozenset[str]] = {
 
 def _corpus() -> list[Path]:
     return sorted(NATIVE.glob("*/manifest.xml")) + sorted(
+        (ROOT / "tests/fixtures/native-gpp-registry-gpmc").glob("*/manifest.xml")
+    ) + sorted(
         p for p in EVIDENCE.glob("*-evidence/wi059-20260908/**/manifest.xml")
         if "rebackup" in p.parts or "backup" in p.parts
     ) + [EVIDENCE / "wp1b-evidence/backup-report-20260908/scripts-metadata/rebackup/manifest.xml"]
@@ -179,25 +186,34 @@ def test_the_lane_helper_imports_what_the_endpoint_imports(
 
 
 # ---------------------------------------------------------------------------
-# Work items pinned by the corpus (WI-048): fixing one must update the pin
+# Work items the corpus pinned (WI-048), now fixed: the pins are full equality
 # ---------------------------------------------------------------------------
 
 
-def test_wi072_power_plan_is_retained_but_not_written() -> None:
+def test_wi072_the_retained_power_plan_is_written() -> None:
     gpo = studio_gpo_from_backup(NATIVE / "WI01A-Power-GPMC")
     collection = gpo.gpp_collections[0]
     assert collection.power_options == ()
     assert any("GlobalPowerOptionsV2" in c for c in collection.power_options_unknown_children)
-    assert studio_inventory(gpo).families == ()
+    windows = windows_inventory(_gpreport(NATIVE / "WI01A-Power-GPMC"))
+    ours = studio_inventory(gpo).family("user", "PowerOptionsSettings")
+    assert [i.element for i in ours] == ["GlobalPowerOptionsV2"]
+    assert ours == windows.family("user", "PowerOptionsSettings")
 
 
-def test_wi073_scheduled_and_immediate_tasks_lose_their_interleaving() -> None:
-    gpo = studio_gpo_from_backup(NATIVE / "WI01A-SchedTasks-GPMC")
-    windows = windows_inventory(_gpreport(NATIVE / "WI01A-SchedTasks-GPMC"))
-    theirs = [i.element for i in windows.family("computer", "ScheduledTasksSettings")]
-    ours = [i.element for i in studio_inventory(gpo).family("computer", "ScheduledTasksSettings")]
-    assert theirs == ["TaskV2", "ImmediateTaskV2", "TaskV2"]
-    assert ours == ["TaskV2", "TaskV2", "ImmediateTaskV2"]
+@pytest.mark.parametrize("case", ["WI01A-SchedTasks-GPMC", "WI01A-SchedTasksFull-GPMC"])
+def test_wi073_scheduled_and_immediate_tasks_keep_their_interleaving(case: str) -> None:
+    gpo = studio_gpo_from_backup(NATIVE / case)
+    windows = windows_inventory(_gpreport(NATIVE / case))
+    theirs = windows.family("computer", "ScheduledTasksSettings")
+    assert [i.element for i in theirs][:3] == ["TaskV2", "ImmediateTaskV2", "TaskV2"]
+    assert studio_inventory(gpo).family("computer", "ScheduledTasksSettings") == theirs
+
+
+def test_no_known_divergence_names_a_fixed_work_item() -> None:
+    names = {known.name for known in KNOWN_DIVERGENCES}
+    assert not names & {"adapter-root-unknowns-dropped", "scheduled-task-order"}
+    assert not {known.work_item for known in KNOWN_DIVERGENCES} & {"WI-072", "WI-073"}
 
 
 def test_every_known_defect_names_a_registered_work_item() -> None:
@@ -307,11 +323,15 @@ def _registry_ext(body: str) -> str:
 
 
 def test_windows_registry_entries_carry_key_name_and_rendered_value() -> None:
+    # Windows qualifies every child with the policy-registry namespace (q1).
     body = (
-        "<RegistrySetting><KeyPath>Software\\X</KeyPath><AdmSetting>false</AdmSetting>"
-        "<Value><Name>V</Name><Number>7</Number></Value></RegistrySetting>"
-        "<RegistrySetting><KeyPath>Software\\Y</KeyPath></RegistrySetting>"
-        "<Policy><Name>Some ADMX policy</Name></Policy><Blocked>false</Blocked>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:AdmSetting>false</q1:AdmSetting>"
+        "<q1:Value><q1:Name>V</q1:Name><q1:Number>7</q1:Number></q1:Value>"
+        "</q1:RegistrySetting>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\Y</q1:KeyPath></q1:RegistrySetting>"
+        "<q1:Policy><q1:Name>Some ADMX policy</q1:Name></q1:Policy>"
+        "<q1:Blocked>false</q1:Blocked>"
     )
     inventory = windows_inventory(_report(computer=_registry_ext(body)))
     assert inventory.family("computer", "RegistrySettings") == (
@@ -437,40 +457,32 @@ def _order(windows: tuple[InventoryItem, ...], studio: tuple[InventoryItem, ...]
     )
 
 
-def test_the_task_order_matcher_takes_only_the_stable_partition() -> None:
-    task_order = known_divergence("scheduled-task-order")
-    # WI-073 exactly: immediate tasks moved after the scheduled ones.
-    assert task_order.matches(_order((_T1, _I1, _T2), (_T1, _T2, _I1)), ())
-    # The reviewer's mutation: scheduled tasks reversed within their type.
-    assert not task_order.matches(_order((_T1, _I1, _T2), (_T2, _T1, _I1)), ())
-    assert not task_order.matches(_order((_T1, _T2), (_T2, _T1)), ())
-    # Immediate tasks moved first is not the model's order either.
-    assert not task_order.matches(_order((_T1, _I1, _T2), (_I1, _T1, _T2)), ())
-    # No sequences, other families and other kinds never match.
-    assert not task_order.matches(_order((), ()), ())
-    assert not task_order.matches(_order((_T1, _I1, _T2), (_T1, _T2, _I1), "LugsSettings"), ())
-    assert not task_order.matches(
-        Divergence("computer", "ScheduledTasksSettings", "missing_in_studio", _T1), ()
-    )
-
-
-def test_reordering_within_a_task_type_stays_unexplained() -> None:
+@pytest.mark.parametrize(
+    "studio_order",
+    [
+        (_T1, _T2, _I1),  # the WI-073 regression: written grouped
+        (_T2, _T1, _I1),  # reordered within a task type
+        (_I1, _T1, _T2),  # immediate tasks moved first
+    ],
+)
+def test_any_task_reordering_is_unexplained(studio_order: tuple[InventoryItem, ...]) -> None:
+    """WI-073 is fixed: no task order is known any more, the partition included."""
     windows = _inv(_T1, _I1, _T2, family="ScheduledTasksSettings")
-    studio = _inv(_T2, _T1, _I1, family="ScheduledTasksSettings")
+    studio = _inv(*studio_order, family="ScheduledTasksSettings")
     known, unexplained = classify(compare(windows, studio))
     assert known == {} and [d.kind for d in unexplained] == ["order"]
-    partitioned = _inv(_T1, _T2, _I1, family="ScheduledTasksSettings")
-    known, unexplained = classify(compare(windows, partitioned))
-    assert set(known) == {"scheduled-task-order"} and unexplained == ()
+    assert _order((_T1, _I1, _T2), studio_order).windows_order == (_T1, _I1, _T2)
 
 
 def test_registry_data_is_not_stripped() -> None:
     """Review finding 3: padding in REG_SZ data is data."""
     body = (
-        "<RegistrySetting><KeyPath>Software\\X</KeyPath>"
-        "<Value><Name>V</Name><String>  padded  </String></Value></RegistrySetting>"
-        "<RegistrySetting><KeyPath>Software\\X</KeyPath>"
-        "<Value><Name>E</Name><String></String></Value></RegistrySetting>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:Value><q1:Name>V</q1:Name><q1:String>  padded  </q1:String></q1:Value>"
+        "</q1:RegistrySetting>"
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:Value><q1:Name>E</q1:Name><q1:String></q1:String></q1:Value>"
+        "</q1:RegistrySetting>"
     )
     items = windows_inventory(_report(computer=_registry_ext(body))).family(
         "computer", "RegistrySettings"
@@ -494,14 +506,13 @@ def test_report_identity_reads_guid_domain_and_name() -> None:
         report_identity(b"<Other/>")
 
 
-def test_the_power_matcher_names_only_the_global_power_plan() -> None:
-    power = known_divergence("adapter-root-unknowns-dropped")
+def test_a_dropped_power_plan_is_unexplained() -> None:
+    """WI-072 is fixed: a missing GlobalPowerOptionsV2 is no longer known."""
     plan = InventoryItem("GlobalPowerOptionsV2", name="p")
-    scheme = InventoryItem("PowerScheme", name="p")
-    family = "PowerOptionsSettings"
-    assert power.matches(Divergence("user", family, "missing_in_studio", plan), ())
-    assert not power.matches(Divergence("user", family, "missing_in_studio", scheme), ())
-    assert not power.matches(Divergence("user", family, "extra_in_studio", plan), ())
+    windows = _inv(plan, family="PowerOptionsSettings")
+    known, unexplained = classify(compare(windows, Inventory(families=())))
+    assert known == {}
+    assert [(d.kind, d.item) for d in unexplained] == [("missing_in_studio", plan)]
 
 
 def _drive(name: str, **fields: str) -> InventoryItem:
@@ -550,3 +561,157 @@ def test_an_unknown_divergence_stays_unexplained() -> None:
     result = compare(_inv(_A, family="FilesSettings"), Inventory(families=()))
     known, unexplained = classify(result)
     assert known == {} and len(unexplained) == 1
+
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 review: report types are classified by full QName
+# ---------------------------------------------------------------------------
+
+_GPP_NS = "http://www.microsoft.com/GroupPolicy/Settings/Windows/Registry"
+_POLICY_NS = "http://www.microsoft.com/GroupPolicy/Settings/Registry"
+_GPP_ITEM = (
+    '<g:RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+    '<g:Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="V" '
+    'uid="{80BA2F39-55EC-40E1-A554-A6096468D60E}"><g:Properties action="C"/></g:Registry>'
+    "</g:RegistrySettings>"
+)
+
+
+def _extension(type_ns: str, body: str, extra_ns: str = "") -> str:
+    return (
+        f'<ExtensionData><Extension xmlns:t="{type_ns}" xmlns:g="{_GPP_NS}" '
+        f'xmlns:q1="{_POLICY_NS}" {extra_ns}xsi:type="t:RegistrySettings">{body}'
+        "</Extension><Name>Registry</Name></ExtensionData>"
+    )
+
+
+def test_a_gpp_registry_type_is_filed_as_gpp_registry() -> None:
+    inventory = windows_inventory(_report(computer=_extension(_GPP_NS, _GPP_ITEM)))
+    assert [f.family for f in inventory.families] == [GPP_REGISTRY_FAMILY]
+
+
+def test_an_unmeasured_type_namespace_is_not_filed_as_a_measured_family() -> None:
+    """The reviewer's mutation: same local name and child, type QName in urn:unmeasured."""
+    inventory = windows_inventory(_report(computer=_extension("urn:unmeasured", _GPP_ITEM)))
+    families = [f.family for f in inventory.families]
+    assert GPP_REGISTRY_FAMILY not in families
+    assert families == ["unmeasured:{urn:unmeasured}RegistrySettings"]
+
+
+def test_an_undeclared_type_prefix_is_unmeasured() -> None:
+    report = _report(computer=(
+        '<ExtensionData><Extension xsi:type="nope:DriveMapSettings"/>'
+        "<Name>x</Name></ExtensionData>"
+    ))
+    assert [f.family for f in windows_inventory(report).families] == [
+        "unmeasured:{}DriveMapSettings"
+    ]
+
+
+def test_one_extension_holding_both_registry_families_is_split_by_element() -> None:
+    """Policy settings and a GPP Registry container are filed separately."""
+    body = (
+        "<q1:RegistrySetting><q1:KeyPath>Software\\X</q1:KeyPath>"
+        "<q1:Value><q1:Name>V</q1:Name><q1:Number>7</q1:Number></q1:Value>"
+        "</q1:RegistrySetting>" + _GPP_ITEM
+    )
+    for type_ns in (_POLICY_NS, _GPP_NS):
+        inventory = windows_inventory(_report(computer=_extension(type_ns, body)))
+        assert inventory.family("computer", "RegistrySettings") == (
+            InventoryItem("RegistrySetting", key="Software\\X", name="V", value="Number:7"),
+        )
+        assert [i.name for i in inventory.family("computer", GPP_REGISTRY_FAMILY)] == ["V"]
+
+
+def _report_type_qnames() -> set[tuple[str, str]]:
+    found: set[tuple[str, str]] = set()
+    reports = [
+        path for path in ROOT.rglob("*.xml")
+        if path.name in ("gpreport.xml", "gpreport-verify.xml", "gpreport-after-import.xml")
+        or path.parent.name == "reports"
+    ]
+    for path in reports:
+        data = path.read_bytes()
+        try:
+            builder = _TypeTrackingBuilder(error_class=ReportParityError)
+            parse_xml_bounded(
+                data, max_size=64 * 1024 * 1024, error_class=ReportParityError, builder=builder
+            )
+        except ReportParityError:
+            continue
+        found |= {
+            qname for qname in builder.type_qnames.values()
+            if qname[0].startswith("http://www.microsoft.com/GroupPolicy/Settings/")
+        }
+    return found
+
+
+def test_the_measured_type_table_is_exactly_what_windows_reports_declared() -> None:
+    """`MEASURED_REPORT_TYPES` is read off the repository's Windows reports."""
+    assert set(MEASURED_REPORT_TYPES) == _report_type_qnames()
+
+
+def test_the_gpp_registry_namespace_has_one_source() -> None:
+    from gpo_studio import writer_conformance
+
+    assert GPP_REGISTRY_REPORT_NAMESPACE == _GPP_NS
+    assert (GPP_REGISTRY_REPORT_NAMESPACE, "RegistrySettings") in MEASURED_REPORT_TYPES
+    assert writer_conformance._REPORT_ROOT_NAMESPACE["RegistrySettings"] is (
+        GPP_REGISTRY_REPORT_NAMESPACE
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# Batch-2 re-review: a measured declaration must match its children's shape
+# ---------------------------------------------------------------------------
+
+_BANKED_POLICY_REPORT = (
+    EVIDENCE / "wp1b-evidence/plan034-20261008/wp1b/registry-both/gpreport-after-import.xml"
+)
+_NATIVE_GPP_REPORT = (
+    ROOT / "tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC/gpreport-verify.xml"
+)
+
+
+def _retype(report: bytes, old_prefix: str, new_namespace: str) -> bytes:
+    """Change only the Extension's declared xsi:type namespace, as the reviewer did."""
+    text = report.decode("utf-16") if report[:2] == b"\xff\xfe" else report.decode("utf-8-sig")
+    old = f'xsi:type="{old_prefix}:RegistrySettings"'
+    assert old in text
+    text = text.replace(
+        old, f'xmlns:bad="{new_namespace}" xsi:type="bad:RegistrySettings"'
+    )
+    return text.encode("utf-16")
+
+
+@pytest.mark.parametrize(
+    ("report", "new_namespace"),
+    [
+        (_BANKED_POLICY_REPORT, _GPP_NS),
+        (_NATIVE_GPP_REPORT, _POLICY_NS),
+    ],
+    ids=["policy-declared-as-gpp", "gpp-declared-as-policy"],
+)
+def test_a_declaration_for_the_other_measured_family_does_not_pass(
+    report: Path, new_namespace: str
+) -> None:
+    original = report.read_bytes()
+    prefix = "q1"
+    mutated = _retype(original, prefix, new_namespace)
+    result = compare(windows_inventory(original), windows_inventory(mutated))
+    assert not result.equal
+    families = {d.family for d in result.divergences}
+    assert any(f.startswith("unmeasured:declared ") for f in families), families
+
+
+def test_a_gpp_registry_item_without_its_measured_shape_is_unmeasured() -> None:
+    body = (
+        '<g:RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">'
+        '<g:Registry name="V"/>'
+        "</g:RegistrySettings>"
+    )
+    inventory = windows_inventory(_report(computer=_extension(_GPP_NS, body)))
+    assert inventory.family("computer", GPP_REGISTRY_FAMILY) == ()
+    assert f"unmeasured:{{{_GPP_NS}}}Registry" in [f.family for f in inventory.families]

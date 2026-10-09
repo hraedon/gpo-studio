@@ -45,11 +45,12 @@ def sample_gpo() -> GPO:
 
 def test_bundle_contains_manifest_plan_and_native_policy_files() -> None:
     with zipfile.ZipFile(io.BytesIO(export_bundle(sample_gpo()))) as archive:
+        # Code-point order: every archive goes through deterministic_zip.
         assert archive.namelist() == [
-            "manifest.json",
-            "apply.ps1",
             "Machine/Registry.pol",
             "User/Registry.pol",
+            "apply.ps1",
+            "manifest.json",
         ]
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["kind"] == "gpo-studio-publication-bundle"

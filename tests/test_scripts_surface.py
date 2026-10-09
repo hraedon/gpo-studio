@@ -321,7 +321,9 @@ def test_parameter_warnings_ride_with_the_answer(
         ),
         pytest.param(
             _request(startup=[{"command": "a\x00.cmd"}]),
-            "script_control_character",
+            # The app-wide gate refuses text XML cannot carry before the
+            # scripts surface's own check runs (batch-2 review); still a 422.
+            "text_not_xml_writable",
             id="nul-in-command",
         ),
         pytest.param(

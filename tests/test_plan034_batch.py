@@ -3,8 +3,10 @@
 All 22 lanes passed at `263f196`, driven by `scripts/plan-033/run-requal-batch.sh`
 on an estate running at real time. One verdict was stale on arrival: `8b1a5b4`
 changed `object_security.py` after the freeze, so the object-security lane was
-re-run at `1fb3f56` and that successor is the live certification. The batch note
-is `docs/plan-033/plan034-batch.md`.
+re-run at `1fb3f56`. The batch note is `docs/plan-033/plan034-batch.md`.
+
+History since the release 1.1.0 batch (`release110-batch.json`): none of these
+verdicts is live; see `test_the_batch_is_registered_and_now_history`.
 """
 
 from __future__ import annotations
@@ -146,53 +148,41 @@ def test_the_post_batch_directory_check_is_clean_and_follows_the_batch() -> None
     assert "zz-studio" in collector
 
 
-#: Lane verdicts banked AFTER the batch, by lanes the batch did not run, each
-#: with its own certifying run.
-#:
-#: Enumerated with a reason, never pattern-matched: the test below exists to
-#: catch an unretired stale binding or a missing registration, and a lane that
-#: postdates the batch is neither, but only when someone names it here. A
-#: verdict joins the live set beside the batch only by being named here.
+#: Lane verdicts banked AFTER this batch, by lanes it did not run, each with its
+#: own certifying run. History now: the release 1.1.0 batch ran all four lanes
+#: and retired these verdicts with every other one.
 BANKED_AFTER_THE_BATCH: frozenset[str] = frozenset({
-    # The same-domain lifecycle lane did not exist when the batch froze
-    # `263f196`. Its first verdict, `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
-    # at `3513052`, was banked the same day.
+    # lifecycle-20261008093248-2000-c76d10eb3f2849fe at 3513052.
     "wp7-evidence/lifecycle/verification.json",
     # report-parity-20261008104512-7480 at a1c280b (Plan 034 WP-2 items 2-3).
     "wp2-evidence/report-parity/verification.json",
-    # The firewall lane (WI-076) did not exist when the batch froze either. Its
-    # first verdict, `firewall-20261008094055-2092337` at `a6e0002`, was banked
-    # the same day.
+    # firewall-20261008094055-2092337 at a6e0002 (WI-076).
     "wp3-evidence/firewall-20261008/firewall/verification.json",
-    # The fdeploy lane (Plan 034 WP-4) did not exist when the batch froze
-    # `263f196`. Its current verdict, `fd-20261008121347-3151` at `df713ef`,
-    # was banked the same day (replacing `fd-20261008102559-9746` at
-    # `6b76fad`, which stopped binding after two harness fixes).
+    # fd-20261008121347-3151 at df713ef (Plan 034 WP-4), which replaced
+    # fd-20261008102559-9746 at 6b76fad at the same path.
     "wp4-evidence/fdeploy/verification.json",
 })
 
 
-def test_the_batch_is_the_live_set() -> None:
-    """21 batch verdicts plus the successor are live, beside the lanes banked
-    after the batch; nothing else, nothing pending."""
+def test_the_batch_is_registered_and_now_history() -> None:
+    """The batch's verdicts stay registered; all of them are retired.
+
+    Until the release 1.1.0 batch this asserted the live set was exactly this
+    batch (with the object-security successor) plus BANKED_AFTER_THE_BATCH.
+    The 1.1.0 batch (`release110-batch.json`) re-ran every lane at one commit
+    after WI-078 changed `psdirect.ps1`, which all of these bind, so each is
+    retired. Each stays mapped, so the consistency and digest checks keep
+    reading it.
+    """
     registry = runpy.run_path(str(ROOT / "tests/test_committed_evidence.py"))
     batch_verdicts = {r["verdict"] for r in BATCH["runs"] if r["name"] != "wp0"}
     assert len(batch_verdicts) == 21
     successor = {r["verdict"] for r in BATCH["successors"]}
-    assert (batch_verdicts | successor) <= set(registry["LANE_VERDICTS"])
-    assert STALE_OBJECT_SECURITY in registry["RETIRED_VERDICTS"]
+    everything = batch_verdicts | successor | BANKED_AFTER_THE_BATCH
+    assert everything <= set(registry["LANE_VERDICTS"])
+    assert everything <= set(registry["RETIRED_VERDICTS"])
+    assert not (everything & set(registry["LIVE_VERDICTS"]))
     assert set(registry["PENDING_REQUALIFICATION"]) == set()
-    assert BANKED_AFTER_THE_BATCH.issubset(registry["LANE_VERDICTS"])
-    assert not BANKED_AFTER_THE_BATCH & (batch_verdicts | successor)
-    expected_live = (
-        (batch_verdicts - {STALE_OBJECT_SECURITY}) | successor | BANKED_AFTER_THE_BATCH
-    )
-    assert set(registry["LIVE_VERDICTS"]) == expected_live, (
-        "The live set must be exactly this batch's verdicts with the successor in "
-        "place of the stale object-security run, plus BANKED_AFTER_THE_BATCH; "
-        "anything else is either an unretired stale binding or a missing "
-        "registration."
-    )
     for run in BATCH["successors"]:
         assert registry["LANE_VERDICTS"][run["replaces"]] == registry["LANE_VERDICTS"][
             run["verdict"]
@@ -377,27 +367,7 @@ def test_the_banked_wp1b_run_reports_the_whole_candidate_set() -> None:
     assert len(index["candidates"]) == 7
 
 
-def test_platform_lane_records_name_the_current_qualification() -> None:
-    """platforms.json names the run and commit each lane is qualified by today."""
-    runs = {run["name"]: run for run in BATCH["runs"]}
-    runs.update({run["name"]: run for run in BATCH["successors"]})
-    platforms = json.loads(
-        (ROOT / "tests/fixtures/scenarios/platforms.json").read_text(encoding="utf-8")
-    )
-    lanes = {lane["lane_id"]: lane for lane in platforms["lanes"]}
-    for lane_id, names in {
-        "gpp-writer-conformance": ("wp1b",),
-        "security-template-secedit": ("wp3-member", "wp3-dc"),
-        "scripts-metadata-gpmc": ("scripts-metadata",),
-        "object-security-secedit": ("object-security",),
-        "publication-completeness-gpmc": ("publication",),
-        "rsop-endpoint": COMPUTER_RSOP,
-        "rsop-user-loopback": USER_RSOP,
-    }.items():
-        for name in names:
-            assert runs[name]["commit"] in lanes[lane_id]["notes"], (lane_id, name)
-            assert runs[name]["run_id"] in lanes[lane_id]["notes"], (lane_id, name)
-    hosts = {host["host_id"]: host for host in platforms["hosts"]}
-    assert hosts["dc-ws2025"]["qualifying_run"] == _run("wp3-dc")["run_id"]
-    assert hosts["member-ws2025-disposable"]["qualifying_run"] == _run("wp3-member")["run_id"]
-    assert hosts["client-win11"]["qualifying_run"] == _run("endpoint")["run_id"]
+# `test_platform_lane_records_name_the_current_qualification` lived here while
+# this batch was the current qualification. platforms.json now names the
+# release 1.1.0 batch's runs, so the check moved to `test_release110_batch.py`;
+# asserting Plan 034 run ids are "current" would pin a falsehood.

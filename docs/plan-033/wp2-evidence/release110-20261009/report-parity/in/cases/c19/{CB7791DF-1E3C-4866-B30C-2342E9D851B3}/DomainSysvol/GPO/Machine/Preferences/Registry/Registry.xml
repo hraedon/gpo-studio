@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateString" status="CreateString" image="0" changed="2026-10-08 10:40:23" uid="{9259C4EA-DE96-447D-B34C-6ED4FA50E130}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="CreateString" type="REG_SZ" value="alpha" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="UpdateDword" status="UpdateDword" image="2" changed="2026-10-08 10:40:23" uid="{8133FFD1-0AE2-4FC2-905A-C7D73F2E7783}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="UpdateDword" type="REG_DWORD" value="0000002A" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="ReplaceExpand" status="ReplaceExpand" image="1" changed="2026-10-08 10:40:23" uid="{4D548BF7-F2AC-4C41-9C42-B128BE4E2CD3}" disabled="0">
+    <Properties action="R" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="ReplaceExpand" type="REG_EXPAND_SZ" value="%SystemRoot%\x" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="DeleteMe" status="DeleteMe" image="3" changed="2026-10-08 10:40:24" uid="{3BA7D697-21C5-4551-BD12-31C9F5836914}" disabled="0">
+    <Properties action="D" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="DeleteMe" type="REG_SZ" value="gone" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="CreateBinary" status="CreateBinary" image="0" changed="2026-10-08 10:40:24" uid="{08D76D2E-C79D-49EE-BAE9-D68A7653C134}" disabled="0">
+    <Properties action="C" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry" name="CreateBinary" type="REG_BINARY" value="CAFE0001" />
+  </Registry>
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Software\GPOStudio\GppRegistry\KeyOnly" status="Software\GPOStudio\GppRegistry\KeyOnly" image="2" changed="2026-10-08 10:40:24" uid="{305781E0-436F-4848-84E2-682506594785}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="Software\GPOStudio\GppRegistry\KeyOnly" name="" type="REG_SZ" value="" />
+  </Registry>
+</RegistrySettings>

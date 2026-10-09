@@ -14,6 +14,7 @@ from dataclasses import MISSING, dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, assert_never
 
 from .ilt import IltFilter, IltOsCriteria, IltPredicate, parse_ilt, serialize_ilt
+from .numeric import coerce_dword_qword
 from .registry_pol import _MAX_MULTI_SZ_ITEMS
 from .xml_safety import parse_xml_bounded
 
@@ -70,6 +71,12 @@ GppRegistryAction = Literal["create", "replace", "update", "delete"]
 _GROUPS_CLSID = "{3125E937-EB16-4b4c-9934-544FC6D24D26}"
 _GROUP_CLSID = "{6D4A79E4-529C-4481-ABD0-F5BD7EA93BA7}"
 _REGISTRY_SETTINGS_CLSID = "{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}"
+#: The namespace GPMC's XML report puts GPP Registry under. The report gives it
+#: the same local name as Registry.pol policy (``RegistrySettings``, under
+#: ``.../Settings/Registry``), so the namespace is what tells them apart. The
+#: one copy every reader uses (report_parity, writer_conformance); pinned to
+#: the native reports by test_gpp_registry_native.py.
+GPP_REGISTRY_REPORT_NAMESPACE = "http://www.microsoft.com/GroupPolicy/Settings/Windows/Registry"
 _REGISTRY_CLSID = "{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}"
 
 _ACTION_TO_CODE: dict[GppAction, str] = {
@@ -125,8 +132,17 @@ _GROUP_KNOWN_ATTRS = frozenset({
     "action", "removeUsers", "removeGroups", "description",
 }) | _COMMON_ITEM_ATTRS
 _MEMBER_KNOWN_ATTRS = frozenset({"name", "sid", "action"})
+# ``status`` and ``image`` are DERIVED on <Registry>: the writer emits them from
+# the value name and the action code (measured, WI01A-Registry-GPMC), so the
+# parser must not capture them as unknown content -- a stale ``image`` carried
+# in an unknown bag would contradict an edited action. ``changed`` is not
+# derived: Studio has no clock to honour, so an imported timestamp is kept as
+# unknown content and re-emitted in its native position, and none is invented.
+_REGISTRY_DERIVED_ATTRS = frozenset({"status", "image"})
 _REGISTRY_KNOWN_ATTRS = (
-    frozenset({"clsid", "name", "action", "uid"}) | _COMMON_ITEM_ATTRS
+    frozenset({"clsid", "name", "action", "uid"})
+    | _REGISTRY_DERIVED_ATTRS
+    | _COMMON_ITEM_ATTRS
 )
 _REGISTRY_VALUE_KNOWN_ATTRS = frozenset({
     "action", "hive", "key", "name", "type", "value", "default",
@@ -140,7 +156,9 @@ _GROUP_PROPS_KNOWN_ATTRS = frozenset({
     "applyOnce", "removePolicy", "userContext", "disabled", "bypassErrors",
 })
 _GROUP_PROPS_KNOWN_CHILDREN = frozenset({"Members"})
-_REGISTRY_PROPS_KNOWN_CHILDREN: frozenset[str] = frozenset()
+# <Values> is the typed REG_MULTI_SZ payload (one <Value> per string), measured
+# in WI01A-Registry-GPMC; the writer generates it, so it is never unknown.
+_REGISTRY_PROPS_KNOWN_CHILDREN: frozenset[str] = frozenset({"Values"})
 _GROUPS_ROOT_KNOWN_ATTRS = frozenset({"clsid"})
 # MS-GPPREF <Groups> root holds both <Group> and <User> inner elements.
 _GROUPS_ROOT_KNOWN_CHILDREN = frozenset({"Group", "User"})
@@ -154,10 +172,31 @@ _GROUP_RESERVED_ATTRS = frozenset({
     "clsid", "name",
 })
 _MEMBER_RESERVED_ATTRS = frozenset({"name", "sid", "action"})
-_REGISTRY_RESERVED_ATTRS = frozenset({"clsid", "name", "uid"})
+_REGISTRY_RESERVED_ATTRS = frozenset({"clsid", "name", "uid"}) | _REGISTRY_DERIVED_ATTRS
 _REGISTRY_VALUE_RESERVED_ATTRS = frozenset({
     "action", "hive", "key", "name", "type", "value", "default",
 })
+
+# GPP Registry item shapes with a Windows capture behind them, as (action,
+# shape) where shape is the value type or "key-only". Every pair below appears
+# in tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryMatrix-GPMC (the
+# 2026-10-08 action x type matrix: 4 actions x 6 types on the computer side,
+# key-only x 4 actions on the user side), and
+# test_gpp_registry_native.py holds this set equal to the pairs read off those
+# native bytes -- an entry cannot be added here without a capture. Anything
+# outside it (a default-value item: the GroupPolicy module cannot author one)
+# is refused by the native backup export and the publication planner
+# (`gpp_registry_unmeasured_shapes`, WI-075).
+_GPP_REGISTRY_KEY_ONLY = "key-only"
+_MEASURED_GPP_REGISTRY_SHAPES: frozenset[tuple[str, str]] = frozenset(
+    (action, shape)
+    for action in ("create", "replace", "update", "delete")
+    for shape in (
+        "REG_SZ", "REG_EXPAND_SZ", "REG_BINARY", "REG_DWORD", "REG_QWORD", "REG_MULTI_SZ",
+        _GPP_REGISTRY_KEY_ONLY,
+    )
+)
+_GPP_REGISTRY_HEX_WIDTH = {"REG_DWORD": 8, "REG_QWORD": 16}
 
 _REGISTRY_HIVES = frozenset({
     "HKEY_LOCAL_MACHINE", "HKEY_CLASSES_ROOT", "HKEY_CURRENT_USER",
@@ -309,6 +348,41 @@ def _code_to_registry_action(code: str) -> GppRegistryAction:
     return _CODE_TO_REGISTRY_ACTION[code]
 
 
+def _registry_action_image(action: GppRegistryAction) -> str | None:
+    """The ``image`` GPMC writes on <Registry> for *action*, or ``None``.
+
+    ``image`` is the editor's icon index, measured on the Registry family
+    itself: ``C``→0, ``R``→1, ``U``→2 (WI01A-Registry-GPMC) and ``D``→3
+    (WI01A-RegistryShapes-GPMC, the revision-2 capture's DeleteMe item). Every
+    action has one, so ``None`` is never returned today; the optional return
+    stays so an unmeasured action added later cannot borrow a value.
+    """
+    match action:
+        case "create":
+            return "0"
+        case "replace":
+            return "1"
+        case "update":
+            return "2"
+        case "delete":
+            return "3"
+        case _:
+            assert_never(action)
+
+
+def _native_uid(uid: str) -> str:
+    """Render an item uid the way GPMC writes it: braced, upper-case.
+
+    A non-GUID uid (imported from a foreign writer, say) is kept verbatim:
+    rewriting it would change an identity Studio does not own.
+    """
+    try:
+        parsed = uuid.UUID(uid)
+    except ValueError:
+        return uid
+    return "{" + str(parsed).upper() + "}"
+
+
 def _validate_gpp_action(value: str) -> GppAction:
     if value in ("add", "replace", "remove", "update"):
         return value  # type: ignore[return-value]
@@ -372,6 +446,9 @@ class GppGroup:
     unknown_props_attrs: tuple[tuple[str, str], ...] = ()
     unknown_props_children: tuple[str, ...] = ()
     unknown_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-073). See
+    #: :func:`gpp_document_order`. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,6 +477,9 @@ class GppRegistry:
     unknown_attrs: tuple[tuple[str, str], ...] = ()
     unknown_props_children: tuple[str, ...] = ()
     unknown_children: tuple[str, ...] = ()
+    #: Slot in the source document's root, set on import (WI-072). See
+    #: :func:`gpp_document_order`. ``None``: no slot. Outside ==; diff and hash compare the order.
+    document_position: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +499,11 @@ class GppCollection:
     ``source_files`` must call :func:`mark_edited` first; otherwise
     :func:`serialize_gpp` would return stale bytes that do not reflect
     the mutation.
+
+    Document order (WI-072/073) is NOT ephemeral: each typed item's
+    ``document_position`` and ``root_unknown_positions`` are persisted, so a
+    reloaded collection writes its files in the imported order with the
+    retained root content in place. See "Document order" below.
     """
 
     scope: GppScope
@@ -488,6 +573,16 @@ class GppCollection:
     immediate_tasks: tuple[GppImmediateTask, ...] = field(default_factory=tuple)
     immediate_tasks_unknown_attrs: tuple[tuple[str, str], ...] = ()
     immediate_tasks_unknown_children: tuple[str, ...] = ()
+    #: Where each retained root unknown child sat in its source document, as
+    #: ``(family, positions)`` with ``positions`` parallel to
+    #: ``<family>_unknown_children`` (WI-072). Families: ``groups``,
+    #: ``registry`` and every adapter key. A family absent here, or whose
+    #: positions no longer match its unknown children one for one, has its
+    #: unknown children written where Studio always put them (after the typed
+    #: items; in Groups.xml, after the groups). Persisted.
+    root_unknown_positions: tuple[tuple[str, tuple[int, ...]], ...] = field(
+        default=(), compare=False
+    )
     source_files: tuple[tuple[str, bytes], ...] = ()
 
 
@@ -636,14 +731,60 @@ def _serialize_group(group: GppGroup) -> ET.Element:
 
 
 def serialize_gpp_groups(collection: GppCollection) -> bytes:
-    """Serialize Groups from a GppCollection to GPP XML bytes."""
-    root = ET.Element(_ns("Groups"))
-    root.set("clsid", _GROUPS_CLSID)
-    _apply_unknown_attrs(root, collection.groups_unknown_attrs)
-    for group in collection.groups:
-        root.append(_serialize_group(group))
-    _append_unknown_children(root, collection.groups_unknown_children, "Groups root")
-    return _xml_declaration(ET.tostring(root, encoding="utf-8"))
+    """Serialize Groups.xml from a GppCollection to GPP XML bytes.
+
+    The whole file, exactly as :func:`serialize_gpp` writes it: groups, the
+    local users that share the root, and the root's retained content, in
+    document order. There is deliberately no way to write one family of a
+    shared root on its own (review N3): that is how WI-072 dropped content.
+    """
+    return _serialize_gpp_file(collection, _GROUPS_FILE, _gpp_file_families()[_GROUPS_FILE])
+
+
+def _registry_wire_value(value: GppRegistryValue) -> str:
+    """Encode a typed registry value as GPMC writes ``Properties@value``.
+
+    Measured (WI01A-Registry-GPMC): REG_DWORD is eight upper-case hex digits
+    (42 → ``0000002A``), REG_QWORD sixteen (2**32 → ``0000000100000000``), and
+    REG_MULTI_SZ is its strings joined by single spaces -- lossy, which is why
+    the writer also emits the authoritative <Values> list. Before batch 2
+    Studio wrote decimal and ``;``-joined strings, a form no capture backs.
+    REG_BINARY is its bytes as upper-case hex with no separators (bytes
+    CA FE 00 01 → ``CAFE0001``, WI01A-RegistryShapes-GPMC); Studio's model
+    allows spaces between bytes, which are dropped.
+    """
+    raw = value.value
+    width = _GPP_REGISTRY_HEX_WIDTH.get(value.registry_type)
+    if width is not None:
+        if isinstance(raw, list):
+            raise GppError(f"{value.registry_type} value must be an integer, got a list")
+        try:
+            number = coerce_dword_qword(raw, value.registry_type)
+        except (TypeError, ValueError) as error:
+            raise GppError(f"Invalid {value.registry_type} value {raw!r}: {error}") from error
+        return f"{number:0{width}X}"
+    if value.registry_type == "REG_MULTI_SZ":
+        if not isinstance(raw, list):
+            raise GppError("REG_MULTI_SZ value must be a list of strings")
+        return " ".join(raw)
+    if value.registry_type == "REG_BINARY":
+        if not isinstance(raw, str):
+            raise GppError("REG_BINARY value must be a hexadecimal string")
+        try:
+            return bytes.fromhex(raw.replace(" ", "")).hex().upper()
+        except ValueError as error:
+            raise GppError(f"Invalid REG_BINARY value {raw!r}: {error}") from error
+    if raw == [] and not value.name and not value.default:
+        # A key-only item's empty value: the model (and the API and validation)
+        # accepts "" or [] for it; the wire form is value="" (measured), so both
+        # write the same thing (review: [] used to raise here after the item
+        # had been committed, and every later read of the GPO failed).
+        return ""
+    if isinstance(raw, list):
+        # Only REG_MULTI_SZ holds a list. Joining one into a REG_SZ wrote
+        # "a;b", which reads back as the single string "a;b" (review).
+        raise GppError(f"{value.registry_type or 'An untyped'} value cannot be a list")
+    return str(raw)
 
 
 def _serialize_registry(reg: GppRegistry) -> ET.Element:
@@ -651,33 +792,64 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
 
     Invariant: one <Registry> element = one domain object with exactly one
     value, one UID, one ILT filter, and one set of element metadata.
+
+    Attribute set and order follow the native capture
+    (tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC): ``clsid name status
+    image changed uid`` and the common options on <Registry>; ``action
+    displayDecimal default hive key name type value`` on <Properties>. The
+    item ``name`` (and ``status``) is the VALUE name, as GPMC writes it; for a
+    key-only item it is the key (measured, WI01A-RegistryShapes-GPMC), whose
+    <Properties> carry ``name=""``, ``type="REG_SZ"`` and ``value=""``. A
+    default-value item uses the key too, unmeasured -- the module cannot author
+    one -- and is refused for native output (`gpp_registry_unmeasured_shapes`).
     """
     hive = _normalize_hive(reg.hive)
     value = reg.value
     elem = ET.Element(_ns("Registry"))
     elem.set("clsid", _REGISTRY_CLSID)
-    elem.set("name", reg.key)
+    display_name = value.name or reg.key
+    elem.set("name", display_name)
+    elem.set("status", display_name)
+    image = _registry_action_image(value.action)
+    if image is not None:
+        elem.set("image", image)
+    # Derived attributes are regenerated; a stale copy in the unknown bag
+    # (stored before batch 2, when they were not typed) must not override them.
+    unknown_attrs = tuple(
+        (name, text)
+        for name, text in reg.unknown_attrs
+        if _local_name(name) not in _REGISTRY_DERIVED_ATTRS
+    )
+    _apply_unknown_attrs(elem, tuple(p for p in unknown_attrs if p[0] == "changed"))
     if reg.uid:
-        elem.set("uid", reg.uid)
+        elem.set("uid", _native_uid(reg.uid))
     _apply_common_options(elem, reg.common)
-    _apply_unknown_attrs(elem, reg.unknown_attrs)
+    _apply_unknown_attrs(elem, tuple(p for p in unknown_attrs if p[0] != "changed"))
     props = ET.SubElement(elem, _ns("Properties"))
     props.set("action", _registry_action_to_code(value.action))
+    # ``displayDecimal`` is the editor's DWORD display radix, not the encoding:
+    # the value is hex either way. An imported one is preserved in place;
+    # otherwise GPMC's own default ("0") is written.
+    display_decimal = next(
+        (text for name, text in value.unknown_attrs if name == "displayDecimal"), "0"
+    )
+    props.set("displayDecimal", display_decimal)
+    props.set("default", "1" if value.default else "0")
     props.set("hive", hive)
     props.set("key", reg.key)
     props.set("name", value.name)
-    props.set("type", value.registry_type)
-    raw = value.value
-    if isinstance(raw, list):
-        text_value = ";".join(raw)
-    elif isinstance(raw, int):
-        text_value = str(raw)
-    else:
-        text_value = raw
-    props.set("value", text_value)
-    if value.default:
-        props.set("default", "1")
-    _apply_unknown_attrs(props, value.unknown_attrs)
+    # A key-only item is typed REG_SZ on the wire (measured); Studio's model
+    # also allows the empty type for it.
+    is_key_only = not value.name and not value.default
+    props.set("type", value.registry_type or ("REG_SZ" if is_key_only else ""))
+    props.set("value", _registry_wire_value(value))
+    _apply_unknown_attrs(
+        props, tuple(p for p in value.unknown_attrs if p[0] != "displayDecimal")
+    )
+    if value.registry_type == "REG_MULTI_SZ" and isinstance(value.value, list):
+        values_elem = ET.SubElement(props, _ns("Values"))
+        for item in value.value:
+            ET.SubElement(values_elem, _ns("Value")).text = item
     _append_unknown_children(
         props, reg.unknown_props_children, f"registry {reg.key!r} properties"
     )
@@ -692,18 +864,335 @@ def _serialize_registry(reg: GppRegistry) -> ET.Element:
 
 
 def serialize_gpp_registry(collection: GppCollection) -> bytes:
-    """Serialize Registry from a GppCollection to GPP XML bytes."""
-    root = ET.Element(_ns("RegistrySettings"))
-    root.set("clsid", _REGISTRY_SETTINGS_CLSID)
-    _apply_unknown_attrs(root, collection.registry_unknown_attrs)
-    for reg in collection.registry:
-        root.append(_serialize_registry(reg))
-    _append_unknown_children(root, collection.registry_unknown_children, "RegistrySettings root")
+    """Serialize Registry.xml from a GppCollection, as :func:`serialize_gpp` writes it."""
+    return _serialize_gpp_file(collection, _REGISTRY_FILE, _gpp_file_families()[_REGISTRY_FILE])
+
+
+# ---------------------------------------------------------------------------
+# Document order (WI-072, WI-073)
+# ---------------------------------------------------------------------------
+#
+# GPP processes a file's items in document order. Two files hold more than one
+# typed family under one root -- Groups.xml (<Group>, <User>) and
+# ScheduledTasks.xml (<Task>/<TaskV2>, <ImmediateTaskV2>) -- and the model keeps
+# each family in its own list. Any root may also hold children the model does
+# not type, retained verbatim as that family's root unknown children (Power
+# Options' <GlobalPowerOptionsV2>, for one).
+#
+# Order is kept as SLOTS rather than one merged list, so the per-family fields,
+# the API and every existing caller stay as they are:
+#
+# * Import records each typed item's index among its root's children as its
+#   ``document_position``, and each root unknown child's index in
+#   ``GppCollection.root_unknown_positions``.
+# * Within a family the LIST is authoritative, always: no recorded position can
+#   reorder two items of one family against their list order. The family's
+#   recorded positions are the slots it holds in the document, and its
+#   positioned items fill them in list order. Reordering a family therefore
+#   swaps its items between its own slots without moving any past another
+#   family's items, and deleting an item frees its slot. Slots may tie: a
+#   legacy multi-value <Registry> expands into one item per <Properties>, all
+#   holding that element's slot, and list order then decides between them.
+# * An item without a position that sits between positioned items of its
+#   family is written straight after its list predecessor (straight before the
+#   first positioned item when it leads the list).
+# * Items without a position after their family's last positioned item -- an
+#   item added through the API, or anything stored before positions existed --
+#   are written after every positioned entry, in the order Studio always wrote
+#   them: each family in the file's family order, then the root unknown
+#   children. In Groups.xml the root unknowns come straight after the groups,
+#   before the users, as 1.0 wrote them.
+#
+# With no recorded position anywhere this is exactly the order Studio wrote
+# before 1.1, so a collection built by an existing caller, or loaded from an
+# older workspace, is written as it always was -- except that adapter root
+# unknowns, which used to be dropped (WI-072), are now written.
+
+_GROUPS_FILE = "Groups/Groups.xml"
+_REGISTRY_FILE = "Registry/Registry.xml"
+
+#: A token naming one root child: ``(family, index)`` for the index-th item of
+#: a typed family, or ``("unknown", index)`` for the file's index-th retained
+#: root unknown child (after de-duplication, see `_file_unknown_children`).
+DocumentToken = tuple[str, int]
+_UNKNOWN = "unknown"
+#: ``(0, slot, list index, family rank)`` for an entry placed by a slot, and
+#: ``(1, family rank, list index, 0)`` for one written after every slotted entry.
+#: Within a family the list index is strictly increasing along the list and the
+#: slot never decreases, so the list order always wins, ties included.
+_SortKey = tuple[int, int, int, int]
+
+#: Positions are indices among one root's element children, and the bounded XML
+#: parser refuses a document with more elements than this, so no imported
+#: position can reach it. A larger stored value cannot have come from an import
+#: and is refused rather than honoured.
+MAX_DOCUMENT_POSITION = _MAX_GPP_XML_ELEMENTS - 1
+
+
+def _gpp_file_families() -> dict[str, tuple[str, ...]]:
+    """Each GPP file and the typed families its root holds, in writing order."""
+    from .gpp_adapters import ADAPTER_FILE_PATHS, ADAPTER_KEYS
+
+    families: dict[str, list[str]] = {_GROUPS_FILE: ["groups"], _REGISTRY_FILE: ["registry"]}
+    for key in ADAPTER_KEYS:
+        families.setdefault(ADAPTER_FILE_PATHS[key], []).append(key)
+    return {path: tuple(keys) for path, keys in families.items()}
+
+
+def _family_items(collection: GppCollection, key: str) -> tuple[Any, ...]:
+    items: tuple[Any, ...] = getattr(collection, key)
+    return items
+
+
+def _family_has_content(collection: GppCollection, key: str) -> bool:
+    return bool(
+        _family_items(collection, key)
+        or getattr(collection, f"{key}_unknown_attrs")
+        or getattr(collection, f"{key}_unknown_children")
+    )
+
+
+def _checked_position(value: object, context: str) -> int | None:
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= MAX_DOCUMENT_POSITION
+    ):
+        shown = repr(value)
+        shown = shown if len(shown) <= 24 else shown[:21] + "..."
+        raise GppError(
+            f"Invalid document position {shown} in {context} "
+            f"(an integer from 0 to {MAX_DOCUMENT_POSITION})"
+        )
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class _RootUnknowns:
+    """A file root's retained attributes and children, read once."""
+
+    attrs: tuple[tuple[str, str], ...]
+    children: tuple[str, ...]
+    #: Parallel to ``children``, or ``None`` when no usable position is recorded.
+    positions: tuple[int, ...] | None
+
+
+def _root_unknowns(
+    collection: GppCollection, path: str, families: tuple[str, ...]
+) -> _RootUnknowns:
+    """The root's retained content, refusing copies that disagree (review N5).
+
+    Families sharing a root (Groups.xml, ScheduledTasks.xml) each capture the
+    root's unknown attributes and children on import, so the model holds one
+    copy per family. Every copy that is not empty must be identical -- and so
+    must their recorded positions, where both record them -- because the file
+    has one root: two different copies are not two halves of it, and writing
+    their union (or picking one) would invent or drop content silently. An
+    import always writes identical copies; a caller may fill one family's copy
+    and leave the other empty. This is checked when writing and when loading a
+    stored collection, so neither path can reach the file with a conflict.
+    """
+    recorded = dict(collection.root_unknown_positions)
+    attrs: tuple[tuple[str, str], ...] = ()
+    children: tuple[str, ...] = ()
+    positions: tuple[int, ...] | None = None
+    for key in families:
+        family_attrs: tuple[tuple[str, str], ...] = getattr(collection, f"{key}_unknown_attrs")
+        family_children: tuple[str, ...] = getattr(collection, f"{key}_unknown_children")
+        if family_attrs:
+            if attrs and family_attrs != attrs:
+                raise GppError(
+                    f"{path}: the families sharing this root hold different retained "
+                    f"root attributes ({families[0]} and {key} copies disagree)"
+                )
+            attrs = family_attrs
+        if not family_children:
+            continue
+        if children and family_children != children:
+            raise GppError(
+                f"{path}: the families sharing this root hold different retained "
+                f"root children ({families[0]} and {key} copies disagree)"
+            )
+        children = family_children
+        family_positions = recorded.get(key)
+        if family_positions is None or len(family_positions) != len(family_children):
+            continue
+        checked = tuple(
+            _checked_position(slot, f"{key} root unknowns") for slot in family_positions
+        )
+        usable = tuple(slot for slot in checked if slot is not None)
+        if positions is not None and usable != positions:
+            raise GppError(
+                f"{path}: the families sharing this root record its retained root "
+                f"children at different positions ({list(positions)} and {list(usable)})"
+            )
+        positions = usable
+    return _RootUnknowns(attrs=attrs, children=children, positions=positions)
+
+
+def _file_unknown_children(
+    collection: GppCollection, path: str, families: tuple[str, ...]
+) -> list[tuple[str, int | None]]:
+    """The file's root unknown children, once, each with its recorded position."""
+    unknowns = _root_unknowns(collection, path, families)
+    if unknowns.positions is None:
+        return [(raw, None) for raw in unknowns.children]
+    return list(zip(unknowns.children, unknowns.positions, strict=True))
+
+
+def _family_sort_keys(
+    items: tuple[Any, ...], rank: int, key: str
+) -> list[_SortKey]:
+    """Sort keys for one family's items, per the rules above."""
+    positions = [
+        _checked_position(getattr(item, "document_position", None), f"{key} item")
+        for item in items
+    ]
+    positioned = [index for index, position in enumerate(positions) if position is not None]
+    if not positioned:
+        return [(1, rank, index, 0) for index in range(len(items))]
+    slots = sorted(position for position in positions if position is not None)
+    effective = dict(zip(positioned, slots, strict=True))
+    last = positioned[-1]
+    keys: list[_SortKey] = []
+    # A leading unpositioned item takes the first slot; one between positioned
+    # items takes its predecessor's. The list index breaks every tie, so it
+    # lands where the list puts it even when slots repeat (review P2).
+    anchor = slots[0]
+    for index in range(len(items)):
+        if index in effective:
+            anchor = effective[index]
+        elif index > last:
+            keys.append((1, rank, index, 0))
+            continue
+        keys.append((0, anchor, index, rank))
+    return keys
+
+
+def _ordered_tokens(
+    collection: GppCollection,
+    path: str,
+    families: tuple[str, ...],
+    *,
+    recorded: bool = True,
+) -> list[DocumentToken]:
+    """The root children of *path*, in the order they are written.
+
+    ``recorded=False`` ignores every recorded position, giving the order Studio
+    wrote before positions existed.
+    """
+    # Unpositioned entries keep the pre-1.1 order: families in file order, the
+    # root unknowns last -- except in Groups.xml, where 1.0 wrote the groups'
+    # root unknowns between the groups and the users.
+    buckets: list[str] = list(families)
+    buckets.insert(1 if path == _GROUPS_FILE else len(buckets), _UNKNOWN)
+    rank = {bucket: index for index, bucket in enumerate(buckets)}
+    entries: list[tuple[_SortKey, DocumentToken]] = []
+    for key in families:
+        items = _family_items(collection, key)
+        if not recorded:
+            items = tuple(replace(item, document_position=None) for item in items)
+        for index, sort_key in enumerate(_family_sort_keys(items, rank[key], key)):
+            entries.append((sort_key, (key, index)))
+    for index, (_raw, position) in enumerate(_file_unknown_children(collection, path, families)):
+        unknown_key: _SortKey = (
+            (1, rank[_UNKNOWN], index, 0)
+            if position is None or not recorded
+            else (0, position, index, rank[_UNKNOWN])
+        )
+        entries.append((unknown_key, (_UNKNOWN, index)))
+    entries.sort(key=lambda entry: entry[0])
+    return [token for _key, token in entries]
+
+
+def _gpp_files_with_content(collection: GppCollection) -> list[tuple[str, tuple[str, ...]]]:
+    """The files :func:`serialize_gpp` writes, in the order it always wrote them."""
+    from .gpp_adapters import ADAPTER_FILE_PATHS, ADAPTER_KEYS
+
+    families = _gpp_file_families()
+    order: list[str] = []
+    if _family_has_content(collection, "groups"):
+        order.append(_GROUPS_FILE)
+    if _family_has_content(collection, "registry"):
+        order.append(_REGISTRY_FILE)
+    for key in ADAPTER_KEYS:
+        path = ADAPTER_FILE_PATHS[key]
+        if path not in order and _family_has_content(collection, key):
+            order.append(path)
+    return [(path, families[path]) for path in order]
+
+
+def gpp_document_order(
+    collection: GppCollection, *, recorded: bool = True
+) -> dict[str, tuple[DocumentToken, ...]]:
+    """Each file :func:`serialize_gpp` writes, mapped to its root children in order.
+
+    The order the serializer uses, as tokens (see `DocumentToken`).
+    ``recorded=False`` gives the order Studio wrote before document positions
+    existed, which is what an unpositioned collection still gets.
+    """
+    return {
+        path: tuple(_ordered_tokens(collection, path, families, recorded=recorded))
+        for path, families in _gpp_files_with_content(collection)
+    }
+
+
+def _root_identity(path: str, first_key: str) -> tuple[str, str]:
+    if path == _GROUPS_FILE:
+        return "Groups", _GROUPS_CLSID
+    if path == _REGISTRY_FILE:
+        return "RegistrySettings", _REGISTRY_SETTINGS_CLSID
+    from .gpp_adapters import _ADAPTER_META
+
+    root_tag, root_clsid, _, _ = _ADAPTER_META[first_key]
+    return root_tag, root_clsid
+
+
+def _family_elements(collection: GppCollection, key: str) -> list[ET.Element]:
+    if key == "groups":
+        return [_serialize_group(group) for group in collection.groups]
+    if key == "registry":
+        return [_serialize_registry(reg) for reg in collection.registry]
+    from .gpp_adapters import _build_adapter_root
+
+    return list(_build_adapter_root(key, _family_items(collection, key), collection.scope))
+
+
+def _serialize_gpp_file(
+    collection: GppCollection, path: str, families: tuple[str, ...]
+) -> bytes:
+    """Write one GPP file: root attributes, then every root child in document order."""
+    root_tag, root_clsid = _root_identity(path, families[0])
+    root = ET.Element(_ns(root_tag))
+    root.set("clsid", root_clsid)
+    for name, value in _root_unknowns(collection, path, families).attrs:
+        root.set(name, value)
+    elements: dict[str, list[ET.Element]] = {
+        key: _family_elements(collection, key) for key in families
+    }
+    unknowns: list[ET.Element] = []
+    for raw, _position in _file_unknown_children(collection, path, families):
+        try:
+            unknowns.append(_bounded_parse(raw.encode("utf-8")))
+        except GppError as error:
+            raise GppError(f"Corrupted unknown XML in {root_tag} root: {error}") from error
+    elements[_UNKNOWN] = unknowns
+    for family, index in _ordered_tokens(collection, path, families):
+        root.append(elements[family][index])
     return _xml_declaration(ET.tostring(root, encoding="utf-8"))
 
 
 def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
-    """Return a dict mapping filename to XML bytes for all non-empty sections."""
+    """Return a dict mapping filename to XML bytes for all non-empty sections.
+
+    Every file keeps its root's retained unknown attributes and children, and
+    every root child is written in document order (see the section above).
+    A collection whose positions collide is refused here as well as on load,
+    so nothing can be written that would not read back.
+    """
+    _validate_document_positions(collection)
     if collection.source_files:
         return dict(collection.source_files)
     if (
@@ -714,79 +1203,10 @@ def serialize_gpp(collection: GppCollection) -> dict[str, bytes]:
         raise GppError(
             "GppCollection.local_groups is deprecated; use the canonical groups field"
         )
-    files: dict[str, bytes] = {}
-    has_groups = (
-        collection.groups
-        or collection.groups_unknown_attrs
-        or collection.groups_unknown_children
-    )
-    has_registry = (
-        collection.registry
-        or collection.registry_unknown_attrs
-        or collection.registry_unknown_children
-    )
-    if has_groups:
-        files["Groups/Groups.xml"] = serialize_gpp_groups(collection)
-    if has_registry:
-        files["Registry/Registry.xml"] = serialize_gpp_registry(collection)
-    _serialize_adapter_files(collection, files)
-    return files
-
-
-def _serialize_adapter_files(
-    collection: GppCollection, files: dict[str, bytes]
-) -> None:
-    """Serialize low-artifact adapter sections into the files dict.
-
-    Adapters that share a file path (per MS-GPPREF: local_users + local_groups
-    → Groups\\Groups.xml, scheduled_tasks + immediate_tasks →
-    ScheduledTasks\\ScheduledTasks.xml) are merged into a single root element.
-    """
-    from .gpp_adapters import (
-        ADAPTER_FILE_PATHS,
-        ADAPTER_KEYS,
-        _build_adapter_root,
-    )
-
-    # Group non-empty adapters by file path, preserving ADAPTER_KEYS order.
-    file_to_keys: dict[str, list[str]] = {}
-    for key in ADAPTER_KEYS:
-        items = getattr(collection, key)
-        unknown_attrs = getattr(collection, f"{key}_unknown_attrs")
-        unknown_children = getattr(collection, f"{key}_unknown_children")
-        if not items and not unknown_attrs and not unknown_children:
-            continue
-        file_path = ADAPTER_FILE_PATHS[key]
-        file_to_keys.setdefault(file_path, []).append(key)
-
-    for file_path, keys in file_to_keys.items():
-        if file_path in files:
-            # File already exists (e.g. from serialize_gpp_groups); parse the
-            # existing root and append adapter children into it.
-            existing_root = _bounded_parse(files[file_path])
-            for key in keys:
-                items = getattr(collection, key)
-                adapter_root = _build_adapter_root(key, items, collection.scope)
-                for child in adapter_root:
-                    existing_root.append(child)
-            files[file_path] = _xml_declaration(
-                ET.tostring(existing_root, encoding="utf-8")
-            )
-        else:
-            # Build a merged root from all adapters sharing this file path.
-            first_key = keys[0]
-            first_items = getattr(collection, first_key)
-            merged_root = _build_adapter_root(
-                first_key, first_items, collection.scope
-            )
-            for key in keys[1:]:
-                items = getattr(collection, key)
-                adapter_root = _build_adapter_root(key, items, collection.scope)
-                for child in adapter_root:
-                    merged_root.append(child)
-            files[file_path] = _xml_declaration(
-                ET.tostring(merged_root, encoding="utf-8")
-            )
+    return {
+        path: _serialize_gpp_file(collection, path, families)
+        for path, families in _gpp_files_with_content(collection)
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -877,32 +1297,132 @@ def parse_gpp_groups(data: bytes) -> tuple[GppGroup, ...]:
     return tuple(_parse_group(elem) for elem in _findall_local(root, "Group"))
 
 
+def _parse_registry_number(raw: str, reg_type: str) -> int:
+    """Read a REG_DWORD/REG_QWORD ``value`` in the hex form GPMC writes.
+
+    Only the measured width is accepted (8 hex digits for DWORD, 16 for
+    QWORD). The decimal form Studio wrote before batch 2 is refused rather than
+    guessed at: ``42`` is 42 to that Studio and, very probably, 0x42 to the
+    Windows extension, and an 8-digit decimal is indistinguishable from hex.
+    """
+    width = _GPP_REGISTRY_HEX_WIDTH[reg_type]
+    if len(raw) != width or any(ch not in "0123456789abcdefABCDEF" for ch in raw):
+        raise GppError(
+            f"Invalid {reg_type} value {raw!r}: GPMC writes {width} hexadecimal "
+            f"digits (42 is {42:0{width}X}). Decimal values written by Studio "
+            "before batch 2 are not read; re-author the value."
+        )
+    return int(raw, 16)
+
+
+def _registry_values_items(props: ET.Element, context: str) -> list[str] | None:
+    """The strings of <Properties>/<Values>, or ``None`` when there is none.
+
+    The writer regenerates <Values> from the typed list, so anything in it the
+    model does not hold would be dropped on the first edit. It is refused here
+    instead (review P2): a second <Values> container (which one would the
+    extension apply?), attributes or text on <Values>, a child other than
+    <Value>, and attributes or children on a <Value>. Windows' own files and
+    report carry none of these (tests/fixtures/native-gpp-registry-gpmc).
+    """
+    containers = _findall_local(props, "Values")
+    if not containers:
+        return None
+    if len(containers) > 1:
+        raise GppError(f"{context}: more than one <Values> list")
+    values_elem = containers[0]
+    # Strict allowlist (batch-2 re-review): exactly the measured QNames -- no
+    # namespace, as in every native Registry.xml -- no attributes, and only
+    # whitespace (pretty-printing) as text or tail. A namespaced <Values> or
+    # <Value>, or text after </Values>, used to import and vanish on edit.
+    if values_elem.tag != "Values":
+        raise GppError(f"{context}: <Values> in a namespace Studio has not measured")
+    if values_elem.attrib or (values_elem.text or "").strip():
+        raise GppError(f"{context}: <Values> carries content Studio does not model")
+    if (values_elem.tail or "").strip():
+        raise GppError(f"{context}: text after </Values> that Studio does not model")
+    items: list[str] = []
+    for child in values_elem:
+        if child.tag != "Value":
+            raise GppError(f"{context}: <Values> holds a <{child.tag}>")
+        if child.attrib or len(child) or (child.tail or "").strip():
+            raise GppError(f"{context}: a <Value> carries content Studio does not model")
+        items.append(child.text or "")
+    return items
+
+
+def _parse_registry_multi_sz(props: ET.Element, raw: str) -> list[str]:
+    """Read REG_MULTI_SZ from its <Values> list (measured, WI01A-Registry-GPMC).
+
+    ``Properties@value`` is the strings space-joined, so it cannot carry a
+    string that contains a space; <Values> is the authoritative copy. The two
+    must agree -- a file where they do not is ambiguous, and nothing says which
+    one the Windows extension applies.
+    """
+    items = _registry_values_items(props, "REG_MULTI_SZ value") or []
+    if len(items) > _MAX_MULTI_SZ_ITEMS:
+        raise GppError(f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}")
+    if not items:
+        if raw:
+            raise GppError(
+                f"REG_MULTI_SZ value {raw!r} has no <Values> list. GPMC writes one "
+                "<Value> per string; the ';'-joined form Studio wrote before batch 2 "
+                "is not read."
+            )
+        return []
+    if " ".join(items) != raw:
+        raise GppError(
+            f"REG_MULTI_SZ value {raw!r} disagrees with its <Values> list {items!r}"
+        )
+    return items
+
+
 def _parse_registry_value(props: ET.Element) -> GppRegistryValue:
     raw = props.get("value", "")
+    if (props.text or "").strip():
+        # Mixed text in <Properties> is not part of any measured item and would
+        # vanish on re-serialization (batch-2 re-review).
+        raise GppError("registry <Properties> carries text Studio does not model")
     reg_type = props.get("type", "REG_SZ")
     action = _code_to_registry_action(props.get("action", "C"))
     name = props.get("name", "")
     default = props.get("default", "0") == "1"
-    if reg_type in ("REG_DWORD", "REG_QWORD"):
-        try:
-            value: str | int | list[str] = int(raw)
-        except ValueError as error:
-            raise GppError(f"Invalid {reg_type} value: {raw!r}") from error
+    value: str | int | list[str]
+    if reg_type in _GPP_REGISTRY_HEX_WIDTH:
+        value = _parse_registry_number(raw, reg_type)
     elif reg_type == "REG_MULTI_SZ":
-        value = raw.split(";") if raw else []
-        if len(value) > _MAX_MULTI_SZ_ITEMS:
+        value = _parse_registry_multi_sz(props, raw)
+    elif reg_type == "REG_BINARY":
+        # Measured: upper-case hex, no separators (WI01A-RegistryShapes-GPMC).
+        # Case is tolerated; anything that is not whole bytes of hex is not.
+        if len(raw) % 2 or any(ch not in "0123456789abcdefABCDEF" for ch in raw):
             raise GppError(
-                f"REG_MULTI_SZ item count exceeds {_MAX_MULTI_SZ_ITEMS}"
+                f"Invalid REG_BINARY value {raw!r}: GPMC writes whole bytes as "
+                "hexadecimal digits with no separators"
             )
+        value = raw
     else:
         value = raw
+    # GPMC's report renders an EMPTY <Values/> under every type; a populated
+    # one on a non-multi-string value would be dropped on re-export.
+    if reg_type != "REG_MULTI_SZ" and _registry_values_items(props, f"{reg_type} value {name!r}"):
+        raise GppError(f"{reg_type} value {name!r} carries a <Values> list")
+    # ``displayDecimal="0"`` is what the writer emits when nothing says
+    # otherwise, so it is not kept as unknown content: a round trip of an
+    # authored value would otherwise grow an attribute it never had. Any other
+    # value (the editor's decimal radix) is preserved and re-emitted in place.
+    unknown_attrs = tuple(
+        pair
+        for pair in _capture_unknown_attrs(props, _REGISTRY_VALUE_KNOWN_ATTRS)
+        if pair != ("displayDecimal", "0")
+    )
     return GppRegistryValue(
         name=name,
         value=value,
         registry_type=reg_type,
         action=action,
         default=default,
-        unknown_attrs=_capture_unknown_attrs(props, _REGISTRY_VALUE_KNOWN_ATTRS),
+        unknown_attrs=unknown_attrs,
     )
 
 
@@ -1021,7 +1541,7 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
                     root, _REGISTRY_SETTINGS_ROOT_KNOWN_CHILDREN
                 )
     adapter_data: dict[str, Any] = _parse_adapter_files(files)
-    return GppCollection(
+    collection = GppCollection(
         scope=scope, groups=groups, registry=registry,
         groups_unknown_attrs=groups_unknown_attrs,
         groups_unknown_children=groups_unknown_children,
@@ -1029,6 +1549,79 @@ def parse_gpp_collection(scope: GppScope, files: dict[str, bytes]) -> GppCollect
         registry_unknown_children=registry_unknown_children,
         source_files=tuple(sorted(files.items())),
         **adapter_data,
+    )
+    return _record_document_positions(collection, files)
+
+
+def _family_element_names(key: str) -> frozenset[str]:
+    """The root child element names that are one family's typed items."""
+    if key == "groups":
+        return frozenset({"Group"})
+    if key == "registry":
+        return frozenset({"Registry"})
+    from .gpp_adapters import _ADAPTER_META, _ROOT_KNOWN_CHILDREN
+
+    if key == "local_users":
+        return frozenset({"User"})
+    if key == "scheduled_tasks":
+        return frozenset({"Task", "TaskV2"})
+    if key == "immediate_tasks":
+        return frozenset({"ImmediateTaskV2"})
+    return _ROOT_KNOWN_CHILDREN[_ADAPTER_META[key][0]]
+
+
+def _record_document_positions(
+    collection: GppCollection, files: dict[str, bytes]
+) -> GppCollection:
+    """Record where each typed item and root unknown child sat (WI-072/073).
+
+    A position is the child's index among its root's element children. The
+    typed parsers read their elements in document order, one item per element
+    (a legacy multi-value <Registry> yields one item per <Properties>, all of
+    which share the element's position), so the k-th item of a family is the
+    k-th matching child. If a count ever disagrees, nothing is recorded for
+    that family, which writes it in the pre-1.1 order rather than guess.
+    """
+    file_families = _gpp_file_families()
+    changes: dict[str, Any] = {}
+    unknown_positions: dict[str, tuple[int, ...]] = {}
+    for filename, content in files.items():
+        normalized = filename.replace("\\", "/")
+        path = next((p for p in file_families if normalized.endswith(p)), None)
+        if path is None:
+            continue
+        children = list(_bounded_parse(content))
+        typed: set[str] = set()
+        for key in file_families[path]:
+            names = _family_element_names(key)
+            typed |= names
+            items = _family_items(collection, key)
+            slots: list[int] = []
+            for index, child in enumerate(children):
+                if _local_name(child.tag) not in names:
+                    continue
+                count = (
+                    max(1, len(_findall_local(child, "Properties")))
+                    if key == "registry" else 1
+                )
+                slots.extend([index] * count)
+            if len(slots) == len(items):
+                changes[key] = tuple(
+                    replace(item, document_position=slot)
+                    for item, slot in zip(items, slots, strict=True)
+                )
+        unknown_slots = tuple(
+            index for index, child in enumerate(children)
+            if _local_name(child.tag) not in typed
+        )
+        for key in file_families[path]:
+            retained = getattr(collection, f"{key}_unknown_children")
+            if retained and len(retained) == len(unknown_slots):
+                unknown_positions[key] = unknown_slots
+    return replace(
+        collection,
+        root_unknown_positions=tuple(sorted(unknown_positions.items())),
+        **changes,
     )
 
 
@@ -1076,7 +1669,10 @@ def _ensure_registry_editor_ids(registry: GppRegistry) -> GppRegistry:
     if not value.id:
         value = replace(value, id=str(uuid.uuid4()))
     reg_id = registry.id or str(uuid.uuid4())
-    uid = registry.uid or str(uuid.uuid5(uuid.NAMESPACE_URL, f"studio/registry/{reg_id}"))
+    # Braced upper-case, as GPMC writes an item uid (WI01A-Registry-GPMC).
+    uid = registry.uid or _native_uid(
+        str(uuid.uuid5(uuid.NAMESPACE_URL, f"studio/registry/{reg_id}"))
+    )
     return replace(
         registry,
         id=reg_id,
@@ -1268,7 +1864,12 @@ def _common_options_from_dict(data: Any) -> GppCommonOptions:
 
 
 def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
-    """Serialize a GppCollection to a plain dict for JSON storage."""
+    """Serialize a GppCollection to a plain dict for JSON storage.
+
+    Colliding document positions are refused before storage, the same check
+    :func:`gpp_collection_from_dict` makes, so a stored GPO always loads.
+    """
+    _validate_document_positions(collection)
     if (
         collection.local_groups
         or collection.local_groups_unknown_attrs
@@ -1306,6 +1907,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                     list(g.unknown_props_children) if g.unknown_props_children else []
                 ),
                 "unknown_children": list(g.unknown_children) if g.unknown_children else [],
+                "document_position": g.document_position,
             }
             for g in collection.groups
         ],
@@ -1332,6 +1934,7 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
                 ),
                 "unknown_children": list(r.unknown_children) if r.unknown_children else [],
                 "id": r.id,
+                "document_position": r.document_position,
             }
             for r in collection.registry
         ],
@@ -1352,6 +1955,10 @@ def gpp_collection_to_dict(collection: GppCollection) -> dict[str, Any]:
             if collection.registry_unknown_children else []
         ),
         **_adapters_to_dict(collection),
+        "root_unknown_positions": [
+            [family, list(positions)]
+            for family, positions in collection.root_unknown_positions
+        ],
     }
 
 
@@ -1415,6 +2022,55 @@ def _gpp_registry_value_from_dict(v: dict[str, Any]) -> GppRegistryValue:
     )
 
 
+def _upgrade_stored_registry(reg: GppRegistry) -> GppRegistry:
+    """Re-type content a pre-batch-2 import stored as unknown.
+
+    Before batch 2 the parser did not know ``status``/``image`` on <Registry>
+    or <Values> under <Properties>, so a native import kept them as unknown
+    content -- and kept the REG_MULTI_SZ strings only there, the typed value
+    being the space-joined ``value`` attribute read as ONE string. The writer
+    now generates all three, so a stored copy would duplicate or contradict
+    them. The derived attributes are dropped; a stored <Values> list becomes
+    the typed REG_MULTI_SZ value it always was.
+
+    Not recoverable here: a REG_QWORD imported before batch 2 had its 16 hex
+    digits read as decimal, which nothing stored distinguishes from a genuine
+    decimal (WI-075). A REG_DWORD import never succeeded -- ``int()`` refused
+    the hex form outright.
+    """
+    unknown_attrs = tuple(
+        (name, text)
+        for name, text in reg.unknown_attrs
+        if _local_name(name) not in _REGISTRY_DERIVED_ATTRS
+    )
+    value = reg.value
+    props_children: list[str] = []
+    for raw in reg.unknown_props_children:
+        try:
+            child = _bounded_parse(raw.encode("utf-8"))
+        except GppError:
+            props_children.append(raw)
+            continue
+        if _local_name(child.tag) != "Values":
+            props_children.append(raw)
+            continue
+        items = [entry.text or "" for entry in _findall_local(child, "Value")]
+        if value.registry_type == "REG_MULTI_SZ" and items:
+            value = replace(value, value=items)
+    if (
+        unknown_attrs == reg.unknown_attrs
+        and value is reg.value
+        and tuple(props_children) == reg.unknown_props_children
+    ):
+        return reg
+    return replace(
+        reg,
+        unknown_attrs=unknown_attrs,
+        value=value,
+        unknown_props_children=tuple(props_children),
+    )
+
+
 def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
     """Reconstruct a GppCollection from a plain dict."""
     scope_raw = str(data.get("scope", "computer"))
@@ -1472,6 +2128,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             ),
             unknown_props_children=tuple(g.get("unknown_props_children", [])),
             unknown_children=tuple(g.get("unknown_children", [])),
+            document_position=_position_from_dict(
+                g.get("document_position"), f"group {g.get('name', '')!r}"
+            ),
         )
         for g in raw_groups
     )
@@ -1542,6 +2201,9 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                 unknown_attrs=new_elem_attrs,
                 unknown_props_children=elem_unknown_props_children,
                 unknown_children=elem_unknown_children,
+                document_position=_position_from_dict(
+                    r.get("document_position"), f"registry {r.get('key', '')!r}"
+                ),
             ))
         else:
             old_values = r.get("values", [])
@@ -1598,8 +2260,11 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
                     unknown_attrs=v_elem_attrs,
                     unknown_props_children=v_props_children,
                     unknown_children=v_elem_children,
+                    document_position=_position_from_dict(
+                        r.get("document_position"), f"registry {r.get('key', '')!r}"
+                    ),
                 ))
-    registry_tuple = tuple(registry)
+    registry_tuple = tuple(_upgrade_stored_registry(r) for r in registry)
     for r in registry_tuple:
         _validate_unknown_attrs(
             r.unknown_attrs,
@@ -1622,7 +2287,7 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
             f"registry value {r.value.name!r}",
         )
 
-    return GppCollection(
+    collection = GppCollection(
         scope=scope, groups=groups, registry=registry_tuple,
         groups_unknown_attrs=tuple(
             (str(k), str(v))
@@ -1636,6 +2301,105 @@ def gpp_collection_from_dict(data: dict[str, Any]) -> GppCollection:
         registry_unknown_children=tuple(data.get("registry_unknown_children", [])),
         **_adapters_from_dict(data),
     )
+    collection = replace(
+        collection,
+        root_unknown_positions=_root_unknown_positions_from_dict(
+            data.get("root_unknown_positions"), collection
+        ),
+    )
+    _validate_document_positions(collection)
+    return collection
+
+
+def _validate_document_positions(collection: GppCollection) -> None:
+    """Refuse a stored order in which two root children claim one slot.
+
+    An import gives every root child of a file its own index, so a stored
+    collection whose positions collide was not written by an import: two
+    scheduled tasks at one slot, a task and an immediate task at one slot, two
+    retained children at one slot, or a typed item and a retained child at one
+    slot. Honouring it would let the tie-break, not the source, decide
+    processing order (review P2), so it is refused with the slot and both
+    claimants named. Gaps are fine: deleting items leaves them.
+
+    Two cases share a slot legitimately. A legacy multi-value <Registry>
+    expands into one item per <Properties>, all at that element's slot (list
+    order decides between them). And files whose root holds two families
+    (Groups.xml, ScheduledTasks.xml) record each retained root child once per
+    family; those copies must agree (`_root_unknowns`), and then count once.
+    """
+    for path, families in _gpp_file_families().items():
+        holders: dict[int, str] = {}
+        for index, (_raw, slot) in enumerate(_file_unknown_children(collection, path, families)):
+            if slot is not None:
+                _claim_slot(holders, path, slot, f"retained root child #{index + 1}")
+        for key in families:
+            for index, item in enumerate(_family_items(collection, key)):
+                slot = item.document_position
+                if slot is None:
+                    continue
+                _claim_slot(
+                    holders, path, slot,
+                    "registry items" if key == "registry" else f"{key} item {index}",
+                )
+
+
+def _claim_slot(holders: dict[int, str], path: str, slot: int, holder: str) -> None:
+    other = holders.setdefault(slot, holder)
+    if other != holder:
+        raise GppError(
+            f"{path}: document position {slot} is claimed by both {other} and {holder}; "
+            "a stored order with colliding positions is refused"
+        )
+
+
+def _position_from_dict(value: object, context: str) -> int | None:
+    """Load a stored ``document_position``. Absent (stored before 1.1) is ``None``."""
+    return _checked_position(value, context)
+
+
+def _root_unknown_positions_from_dict(
+    data: object, collection: GppCollection
+) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    """Load ``root_unknown_positions``; absent (stored before 1.1) is empty.
+
+    Accepts the ``[[family, [positions]], ...]`` form both
+    :func:`gpp_collection_to_dict` and the workspace snapshot (``asdict``)
+    write. A family Studio does not have, a position that is not a
+    non-negative integer, a family listed twice, or a positions list that does
+    not match its unknown children one for one is refused: each is a stored
+    order Studio could not honour, and guessing would change processing order.
+    """
+    if data is None:
+        return ()
+    if not isinstance(data, (list, tuple)):
+        raise GppError("root_unknown_positions must be a list of [family, positions] pairs")
+    families = {key for keys in _gpp_file_families().values() for key in keys}
+    loaded: dict[str, tuple[int, ...]] = {}
+    for entry in data:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            raise GppError("root_unknown_positions must be a list of [family, positions] pairs")
+        family, positions = entry
+        if not isinstance(family, str) or family not in families:
+            raise GppError(f"root_unknown_positions names an unknown family {family!r}")
+        if family in loaded:
+            raise GppError(f"root_unknown_positions lists {family!r} twice")
+        if not isinstance(positions, (list, tuple)):
+            raise GppError(f"root_unknown_positions for {family!r} must be a list")
+        checked: list[int] = []
+        for position in positions:
+            value = _checked_position(position, f"{family} root unknowns")
+            if value is None:
+                raise GppError(f"root_unknown_positions for {family!r} holds a null position")
+            checked.append(value)
+        retained = getattr(collection, f"{family}_unknown_children")
+        if len(checked) != len(retained):
+            raise GppError(
+                f"root_unknown_positions for {family!r} has {len(checked)} entries "
+                f"for {len(retained)} retained root unknown children"
+            )
+        loaded[family] = tuple(checked)
+    return tuple(sorted(loaded.items()))
 
 
 def _adapter_item_from_dict(
@@ -1691,6 +2455,11 @@ def _adapter_item_from_dict(
             )
         elif f.name == "unknown_children":
             kwargs[f.name] = tuple(item_data.get("unknown_children", []))
+        elif f.name == "document_position":
+            # Absent in anything stored before 1.1: no recorded slot.
+            kwargs[f.name] = _position_from_dict(
+                item_data.get("document_position"), f"{adapter_cls.__name__} item"
+            )
         else:
             if adapter_cls.__name__ == "GppScheduledTask" and f.name == "element_variant":
                 kwargs[f.name] = item_data.get(f.name, "Task")
@@ -1772,6 +2541,41 @@ def _adapters_from_dict(data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def gpp_registry_unmeasured_shapes(collection: GppCollection) -> tuple[str, ...]:
+    """GPP Registry items whose native wire form no Windows capture backs.
+
+    An item is measured only if its exact (action, type) pair -- or (action,
+    key-only) -- is in `_MEASURED_GPP_REGISTRY_SHAPES`, every member of which
+    was captured as a whole item (WI01A-RegistryMatrix-GPMC). Nothing is
+    composed from separately measured parts. A default-value item was never
+    captured (the GroupPolicy module has no ``-Default`` parameter), so it is
+    listed here and both the native export and the publication planner refuse
+    it by this one rule (WI-075).
+    """
+    shapes: list[str] = []
+    for reg in collection.registry:
+        value = reg.value
+        where = f"{collection.scope} {reg.hive}\\{reg.key}"
+        if value.default:
+            shapes.append(f"{where}: a default-value item")
+            continue
+        if not value.name:
+            shape = _GPP_REGISTRY_KEY_ONLY
+            if value.registry_type not in ("", "REG_SZ"):
+                shapes.append(f"{where}: a key-only item typed {value.registry_type}")
+                continue
+            if value.value not in ("", []):
+                # Every captured key-only item has value="" (review).
+                shapes.append(f"{where}: a key-only item carrying a value")
+                continue
+        else:
+            shape = value.registry_type
+            where = f"{where} value {value.name!r}"
+        if (value.action, shape) not in _MEASURED_GPP_REGISTRY_SHAPES:
+            shapes.append(f"{where}: {value.action} of {shape or 'an untyped value'}")
+    return tuple(shapes)
+
+
 def contains_cpassword(xml: bytes) -> bool:
     """Return True if the XML contains any cpassword attribute."""
     if b"cpassword" not in xml.lower():
@@ -1795,7 +2599,7 @@ def contains_cpassword(xml: bytes) -> bool:
 # cannot also import from gpp_adapters.py at gpp.py module load time.
 
 _GPP_ADAPTER_EXPORTS: frozenset[str] = frozenset({
-    "ADAPTER_FILE_PATHS", "ADAPTER_KEYS", "ADAPTER_SERIALIZE_FUNCTIONS",
+    "ADAPTER_FILE_PATHS", "ADAPTER_KEYS",
     "ROOT_PARSE_FUNCTIONS",
     "GppApplication", "GppDataSource", "GppDevice", "GppDrive", "GppEnvironment",
     "GppFile", "GppFolder", "GppFolderOptions", "GppImmediateTask", "GppIniFile",

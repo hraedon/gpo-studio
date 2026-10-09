@@ -1,6 +1,14 @@
 # Same-domain lifecycle — Windows results
 
-**Certification (2026-10-08):** `lifecycle-20261008093248-2000-c76d10eb3f2849fe`,
+**Current qualification (2026-10-09):** `lifecycle-20261009001644-6217-f2f5047fed814807`, 73/73, on
+clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
+([evidence](wp7-evidence/release110-20261009/lifecycle/verification.json),
+[release 1.1.0 batch](release110-batch.md)), tagged
+`evidence/lifecycle-20261009001644-6217-f2f5047fed814807`. All 30 survival
+cells agreed again. The first certification below stopped binding when
+WI-078 changed `psdirect.ps1`; its pack and tag are kept.
+
+**Previous qualification (2026-10-08):** `lifecycle-20261008093248-2000-c76d10eb3f2849fe`,
 passed, on clean commit `35130528d89761ed1e6990001d086241e5655025`
 ([evidence](wp7-evidence/lifecycle/verification.json), tag
 `evidence/lifecycle-20261008093248-2000-c76d10eb3f2849fe`). The harness was

@@ -32,11 +32,9 @@ nor closed, says both, or disagrees with the list.
 Update this list in the same change as any status line;
 `test_the_open_index_matches_the_register` fails if it drifts.
 
-**5 open.**
+**3 open.**
 
-- [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - measure GPME display with Studio's tool GUID, or register the firewall one in a requalifying batch.
-- [WI-073](#wi-073--scheduled-and-immediate-tasks-lose-their-interleaving-when-the-model-is-written) - one ordered task list in the bound model; costs two lanes.
-- [WI-072](#wi-072--serialize_gpp-drops-adapter-root-content-the-model-retained) - pass root unknowns through `gpp.py`; costs two lanes.
+- [WI-077](#wi-077--the-firewall-export-registers-the-administrative-templates-tool-guid) - observe GPME display/editing of a Studio-imported firewall GPO (registration fixed in batch 2, WI-075).
 - [WI-071](#wi-071--the-scripts-metadata-lane-measures-one-side-and-one-trigger) - measure the user-side Scripts pair before the lane asserts it.
 - [WI-066](#wi-066--r3-answered-one-of-the-four-questions-it-was-designed-to-answer) - capture R12; a writer needs the flags encoding.
 
@@ -3058,7 +3056,7 @@ computer-side shutdown script has a banked verdict.
 ## WI-072 — serialize_gpp drops adapter root content the model retained
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
-**Status:** open.
+**Status:** closed 2026-10-09. Every lane binding the changed `gpp.py` and `canonical.py` (fdeploy, firewall, publication, report-parity, scripts-metadata) passed at `de9736e` in the [release 1.1.0 batch](plan-033/release110-batch.md); report parity (`report-parity-20261009001727-3532`) required the `WI01A-Power-GPMC` case to agree exactly, and it did.
 
 **What is wrong.** A GPMC-authored Power Options file holds a `GlobalPowerOptionsV2`
 item (the Windows 7+ power plan). Studio's power adapter models only the XP-era
@@ -3089,10 +3087,28 @@ on Windows and accepted it on that case only, as a known divergence.
 children, the `WI01A-Power-GPMC` pin becomes full equality, and the publication and
 scripts-metadata lanes have re-run on the changed `gpp.py`.
 
+**2026-10-08 — fixed in code; the runs are not banked.** `serialize_gpp` now writes
+every GPP file through one path (`_serialize_gpp_file`) that applies the root's
+retained unknown attributes and places its retained unknown children, for all twenty
+families: Groups and Registry, which already wrote them, and the eighteen adapter
+families, which did not. Families that share a root (Groups.xml, ScheduledTasks.xml)
+each capture its unknowns on import, so the copies are written once. Each retained
+child goes back where it was: import records its index among the root's children in
+`GppCollection.root_unknown_positions` (persisted; see WI-073 for the order rules).
+The `WI01A-Power-GPMC` pin is full equality in `tests/test_report_parity.py`, the
+`adapter-root-unknowns-dropped` allowance is gone from `KNOWN_DIVERGENCES`, and the
+report-parity builder pins the case in `MUST_AGREE_CASE_IDS`, which the finalizer's
+`fixed_work_item_cases_agree_exactly` check enforces. `tests/test_gpp_document_order.py`
+covers the native capture after an edit and every family's root unknowns in place;
+each of its regression tests fails on the code before the fix. This item closes when
+the requalification runs of every lane binding the changed files bank: fdeploy,
+firewall, publication, report-parity and scripts-metadata (`gpp.py` and
+`canonical.py` in `plan-033/bound-source-cost.md`).
+
 ## WI-073 — scheduled and immediate tasks lose their interleaving when the model is written
 
 **Opened:** 2026-10-08 (Plan 034 report-parity offline differ).
-**Status:** open.
+**Status:** closed 2026-10-09. Every lane binding the changed files passed at `de9736e` in the [release 1.1.0 batch](plan-033/release110-batch.md); report parity (`report-parity-20261009001727-3532`) required both scheduled-task cases to agree exactly, and they did.
 
 **What is wrong.** `ScheduledTasks.xml` is one ordered list in which `TaskV2` and
 `ImmediateTaskV2` items interleave. The model splits them into
@@ -3116,6 +3132,38 @@ captures and accepted it on those two cases only, as a known divergence.
 **Closes when:** a written model keeps the captured order for both native scheduled-task
 captures (their pins become full equality), a test covers an interleaved `Groups.xml`, and
 the lanes binding the changed files have re-run.
+
+**2026-10-08 — fixed in code; the runs are not banked.** Design: an explicit position
+on each item, not one merged list. One list would have replaced
+`scheduled_tasks`/`immediate_tasks` and `groups`/`local_users` in the model, the
+workspace snapshot, the canonical form, the diff and the API; a position key changes
+none of them. Every typed preference item gains `document_position` (its index among
+its root's children, recorded on import, persisted, outside `==`), and
+`gpp.gpp_document_order` merges each file's families and retained root children by it.
+Within a family the list stays authoritative: its recorded positions are the slots it
+holds, filled in list order, so reordering a family swaps its items between its own
+slots, deleting one frees its slot, and an item inserted between positioned items
+follows its list predecessor. No position can reorder a family against its list, even
+where slots tie (a legacy multi-value `<Registry>` expands into items sharing one slot;
+the first cut let an inserted item fall after such a tie, found by an independent
+review). A stored order whose positions collide (within a family, across families or
+against a retained child), exceed 99999 (the XML parser's element bound) or disagree
+between a shared root's per-family copies is refused on load. An item without a position after its family's last
+positioned item (a group added through the API, anything stored before this change)
+is written after every positioned entry in the order Studio always used, so a
+collection with no positions writes exactly the bytes it wrote before. An API edit
+keeps the edited item's slot (`store._keep_document_position`). The canonical digest
+and the diff compare the resulting order, and only where it differs from the grouped
+order, so stored GPOs keep their digests. No other GPP file holds more than one typed
+family (`Task` and `TaskV2` already share one list).
+
+Both native scheduled-task pins are full equality, an interleaved `Groups.xml` is
+covered (`tests/test_gpp_document_order.py`, through the store's group edit, add and
+reorder and a workspace reopen), Hypothesis properties cover random interleavings of
+both shared files, and the `scheduled-task-order` allowance is gone: any reordering
+of `ScheduledTasksSettings` is unexplained, and the report-parity builder and finalizer
+require both cases to agree exactly. This item closes when the requalification run of
+the lanes binding the changed files banks.
 
 ## WI-074 — `workspace check` changes the backup it was asked to verify
 
@@ -3222,8 +3270,220 @@ scripts-metadata and firewall lanes all bind, so it waits for a batch that
 re-runs all three. Every firewall surface response carries
 `gpme_display_unmeasured` until then.
 
-**Closes when:** either a GPME observation of a Studio-imported firewall GPO
+**Closes when:** ~~either a GPME observation of a Studio-imported firewall GPO
 shows the rules displayed and editable with `D02B1F72` alone (and the
 limitation is narrowed to say so), or `export.py` registers `B05566AC` for
 firewall keys in a batch that requalifies the publication, scripts-metadata and
-firewall lanes and the GPME observation is made on that output.
+firewall lanes and the GPME observation is made on that output.~~ Reconciled
+with batch 2 (below): the registration half is done, so this closes when a GPME
+observation of a Studio-imported firewall-only GPO carrying
+`[{35378EAC-…}{B05566AC-…}]` shows the rules displayed and editable under the
+Windows Defender Firewall node (and `gpme_display_unmeasured` is narrowed to
+say so), with the firewall lane requalified at the batch-2 commit.
+
+**Partly resolved in batch 2 (WI-075, `batch2/gpp-registry-and-tidy`).**
+`export.py` now registers `[{35378EAC-…}{B05566AC-…}]` for a machine
+Registry.pol holding only `SOFTWARE\Policies\Microsoft\WindowsFirewall` keys,
+matching the native capture (`tests/fixtures/native-firewall-gpmc`). Firewall
+keys mixed with other policy keep `{D02B1F72-…}`: no capture holds that
+combination (the live census shows a production `[{35378EAC}{B05566AC}{D02B1F72}]`
+group, but records no Registry.pol content). What stays open is the GPME
+observation alone -- display and editing under the Windows Defender Firewall
+node of a Studio-imported GPO carrying the new registration -- which is
+unmeasured, so `gpme_display_unmeasured` stays on every firewall response. The
+publication, scripts-metadata and firewall lanes owe their requalification in
+the batch-2 run either way (WI-075).
+
+**2026-10-09: the lane half is done.** The firewall lane passed at `de9736e`
+in the [release 1.1.0 batch](plan-033/release110-batch.md)
+(`firewall-20261009001906-2614294`), and its write leg imported Studio's
+export registered `[{35378EAC-…}{B05566AC-…}]`, the native pair. Only the GPME
+observation remains.
+
+## WI-075 — native GPMC export refused GPP Registry, and the 1.x contract said it did not
+
+**Opened:** 2026-10-08 (batch 2, `batch2/gpp-registry-and-tidy`).
+**Status:** closed 2026-10-09. The single 1.1.0 requalification passed every lane at the batch-2 branch's frozen commit `de9736e` ([release 1.1.0 batch](plan-033/release110-batch.md)): WP-1B (`wp1b-writer-20261009001221-5737`, `gppregistry-both` and the GPP Registry items in `mixed-all`), publication, scripts-metadata, object-security, report parity (`report-parity-20261009001727-3532`, 30 cases, the three GPP Registry captures included), firewall, fdeploy, WP-2 and endpoint, and the capability matrix's GPP Registry and GPMC backup export rows now carry their certified wording. Default-value items stay refused (`unmeasured_gpp_registry_shape`), as the closing condition allows.
+
+**The narrowing.** The 1.0 capability matrix lists GPP Registry with GPMC backup
+export &#10003;. Since the WP-1B era, `export._GPP_EXTENSION_PROFILES` carried only
+the families a capture had measured, and Registry was not one of them, so
+`gpmc_backup_bundle` refused EVERY GPO holding a GPP Registry item with
+`unsupported_native_gpp_extension`, and the publication planner refused it too.
+WI-046 made the refusal visible in `artifact_capabilities`; the matrix row kept
+saying &#10003;.
+
+**What the capture showed.** A native `Set-GPPrefRegistryValue` capture on
+WS2025 (2026-10-08, `tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC`) measured
+the pair `[{B087BE9D-ED37-454F-AF9C-04291E351182}{BEE07A6A-EC9F-4659-B8C9-0B1937907C83}]`
+on both sides, and showed the writer AND the reader were wrong about the wire form:
+
+- REG_DWORD is eight upper-case hex digits (`0000002A`); Studio wrote decimal
+  and its reader called `int()` on the hex, so a native REG_DWORD did not import.
+- REG_QWORD is sixteen hex digits; Studio read `0000000100000000` as the decimal
+  100000000. A workspace that imported a native QWORD before batch 2 holds that
+  wrong number, and nothing stored distinguishes it from a real decimal --
+  re-import such GPOs.
+- REG_MULTI_SZ is the strings space-joined PLUS a `<Values>` list; Studio wrote
+  `;`-joined with no list and read the native value as one string (the list
+  survived only as unknown content; it is re-typed on load).
+- `<Registry>` carries `name`/`status` = the value name, `image` by action
+  (C 0, R 1, U 2) and a braced upper-case `uid`; `<Properties>` carries
+  `displayDecimal` and `default` before `hive`.
+
+**Fixed in batch 2** (bound edits to `gpp.py`, `export.py`, `publication.py`;
+the WP-1B lane gains a `gppregistry-both` candidate and GPP Registry items in
+`mixed-all`, and its GPMC report markers are now namespace-qualified because
+Registry.pol and GPP Registry share the local name `RegistrySettings`).
+
+**Measured by the revision-2 capture** (2026-10-08,
+`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC`, from
+`scripts/plan-033/capture-gpp-registry-native.ps1`): a Delete item (`image="3"`,
+its type and value kept), REG_BINARY (bytes CA FE 00 01 as `CAFE0001`) and a
+key-only item (`name`/`status` = the key; `<Properties name="" type="REG_SZ"
+value="">`). Studio writes and reads all three in that form, they export and
+publish, and the WP-1B `gppregistry-both` candidate carries one of each.
+
+**The whole matrix, measured** (2026-10-08,
+`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryMatrix-GPMC`, 28/28 items):
+Create/Replace/Update/Delete x REG_SZ/EXPAND_SZ/DWORD/QWORD/MULTI_SZ/BINARY on
+the computer side and a key-only item per action on the user side. Studio no
+longer composes a shape from separately measured parts: `gpp._MEASURED_GPP_REGISTRY_SHAPES`
+lists the 28 (action, shape) pairs, a test holds that set equal to the pairs
+read off the native bytes, and Studio's writer reproduces every one of the 28
+items against those bytes. The three GPP Registry captures live in their own
+corpus root, `tests/fixtures/native-gpp-registry-gpmc` (own sanitization
+record); the final sweep added them to the report-parity corpus explicitly.
+
+**Still refused, unmeasured** (`unmeasured_gpp_registry_shape`, export and
+publication alike): default-value items. The revision-2 script tried one and
+the GroupPolicy module refused it ("A parameter cannot be found that matches
+parameter name 'Default'"); measuring one needs another authoring path (the
+GPMC editor). Inferred rather than measured, and recorded so
+it is not mistaken for evidence: the user-side zero-GUID group
+`[{00000000-…}{BEE07A6A-…}]` (the cmdlet wrote none; the live census shows it on
+a machine side only, GPMC-editor-authored); and the BOM, which Studio omits as
+every GPMC-editor GPP file in the corpus does while the cmdlet wrote one.
+
+**Same batch, same rule: firewall policy's tool half.** Native firewall
+authoring (`tests/fixtures/native-firewall-gpmc`) registered
+`[{35378EAC-…}{B05566AC-…}]` for a Registry.pol holding only
+`SOFTWARE\Policies\Microsoft\WindowsFirewall` keys; Studio wrote
+`{D02B1F72-…}`. Firewall-only machine policy now registers `{B05566AC-…}`.
+Firewall keys MIXED with other policy keep `{D02B1F72-…}`: the live census shows a
+production group `[{35378EAC-…}{B05566AC-…}{D02B1F72-…}]`, but holds no
+Registry.pol content, so what produced it is unmeasured
+(`test_mixed_machine_content_is_left_unchanged_because_it_is_unmeasured`).
+
+**Final batch-2 sweep (2026-10-08).** Every archive Studio or a lane builder
+writes now goes through `gpo_studio.deterministic_zip` (members sorted by code
+point, 1980-01-01 timestamps, `create_system=3`, fixed attributes, STORED: CPython's
+Windows build links a different deflate than Linux, so no deflate setting is
+platform-identical). The product exports (`gpmc_backup_bundle`, `export_bundle`)
+are STORED too: the archive is a transport container that `Expand-Archive` and
+`zipfile` unpack and Windows never reads (`Import-GPO` reads the extracted
+folder). The lane evidence tests assert the exact archive hash on every
+platform again. The report-parity corpus gains the three GPP Registry captures
+(30 cases; `report_parity` inventories GPP Registry under
+`Windows/Registry:RegistrySettings`, since the report shares Registry.pol's
+local name), so the family gets report-parity certification in the
+requalification. `run-requal-batch.sh` now drives lifecycle, report-parity,
+firewall and fdeploy as well.
+
+**Closes when:** the single 1.1.0 requalification passes every lane at the
+batch-2 commit -- in particular WP-1B (with the `gppregistry-both` candidate and
+the GPP Registry items in `mixed-all`), publication, scripts-metadata,
+object-security, report-parity (30 cases, GPP Registry included), firewall,
+fdeploy, WP-2 and endpoint, whose bound files or candidates this batch changed
+(review P1 widened eight lanes' tables to bind `deterministic_zip.py`, and WP-1B,
+WP-2 and endpoint to bind `export.py`; WP-1B also binds `gpp.py`,
+`gpp_adapters.py` and `writer_conformance.py`, the writers it certifies) -- and the
+capability matrix GPP Registry and GPMC backup export rows are moved from
+"fixed, awaiting batch-2 requalification" to their certified wording. The
+default-value shape may stay refused at closure.
+
+## WI-078 — the psdirect push hung above 256 KB and no leg had a wall-clock bound
+
+**Opened:** 2026-10-08 (the report-parity lane's 1.45 MB candidate zip hung the
+requalification batch).
+**Status:** closed 2026-10-09. All 26 lanes passed at `de9736e`, which carries the chunked transport, in the [release 1.1.0 batch](plan-033/release110-batch.md); every verdict binds `psdirect.ps1`, and report parity's 1.45 MB candidate was delivered by it intact (`candidate_delivered_intact`, `report-parity-20261009001727-3532`). No lane timed out, was cancelled or lost containment.
+
+**What was measured** (Linux controller, pwsh 7.6.6 -> the Hyper-V host's
+Windows PowerShell 5.1, `MaxEnvelopeSizekb` 2048, random bytes, every probe
+wall-clock bounded): `Copy-Item -ToSession` completed at 200 and 256 KB and
+hung indefinitely at 300 KB and above, leaving the host staging leaf empty. The
+ceiling is per remoting command and is not specific to `Copy-Item`: a single
+`byte[]` argument completed at 276 KB and hung at 280 KB, deterministically;
+base64-string arguments (240 KB ok, 288 KB hung) and streamed pipeline input
+(16 x 16 KB ok, 18 x 16 KB hung) hit it too. The receive direction has no such
+ceiling (single 1 MB and 5 MB results, `Copy-Item -FromSession` to 10 MB), and
+the host <-> guest PowerShell Direct copies were clean to 20 MB both ways. Two
+further measurements shaped the fix: `Stop-Job` on a hung remote job blocks
+indefinitely, so a timed-out call can only be abandoned; and the Linux build
+has no `New-PSSessionOption`, so the open timeout is set on a
+`PSSessionOption` object directly.
+
+**The fix.** Pushes travel controller -> host as 64 KB chunks, one per bounded
+command, into a temp file private to the transfer ATTEMPT; each chunk asserts
+the offset it expects; a retry-safe fault (WI-048's command-ID collision, or a
+chunk that timed out) restarts the whole transfer in a fresh attempt on a fresh
+session, so a write that landed without its ack, or lands late, can only touch
+its abandoned attempt. Length and SHA-256 are verified on the host before the
+file is renamed into an attempt-specific verified path, and again in the guest
+before anything reaches the destination (every file of a directory push, after
+extraction). Pulls verify the same way and travel host -> controller as 1 MB
+reads. One deadline (`-DeadlineSeconds`, default `-TimeoutSeconds` + 300)
+bounds the session open, every command, every retry and teardown; exceeding it
+exits 124, and no success marker is printed until cleanup and a final
+deadline check have passed (review P1). A staging leaf that teardown could not
+remove (after a deadline, say) is only swept by a later push or pull on the
+same host, when it prepares staging and the leaf is over 12 hours old; there is
+no timer. A verified delivery with such a leftover still counts as success. The batch driver gives every lane a
+wall-clock budget (a column in its lane table) and runs it under
+`scripts/plan-033/lane-supervisor.py`, a child subreaper: whenever the lane
+ends -- by itself, with any status, or at its budget -- everything it started,
+detached or not, is killed and reaped before the next lane starts (review P2).
+A budget kill records `exit_status` 124 and `timed_out: true`. A batch run
+on the driver's test stand-in for that layer marks every progress row
+`test_scope_tool: true`, and every batch-manifest gate refuses such a row
+(`tests/batch_provenance.py`); manifests at schema 2 and later must state
+`test_scope_tool: false` on every run and successor. The live probe results are
+in the commit that introduced this; `tests/test_psdirect_transport.py` and
+`tests/test_requal_batch_driver.py` hold the control flow.
+
+**Closes when:** the requalification passes every lane at a commit carrying
+this transport -- `psdirect.ps1` is bound by all of them -- with report-parity's
+full-size candidate delivered by it.
+
+## WI-079 — a user-side scheduled task without a principal was written to run as SYSTEM
+
+**Opened:** 2026-10-08 (independent review of `fix/gpp-order-and-root-retention`).
+**Status:** closed 2026-10-09. The lanes binding `gpp_adapters.py` (report parity, and WP-1B since review P1) passed on the changed file at `de9736e`: `report-parity-20261009001727-3532` and `wp1b-writer-20261009001221-5737` ([release 1.1.0 batch](plan-033/release110-batch.md)).
+
+**What was wrong.** GPMC writes `runAs` on every TaskV2, and its default depends on
+the side. Every user-side TaskV2 in the native captures
+(`tests/fixtures/native-gpp-gpmc/WI01A-SchedTasks-GPMC`, `WI01A-SchedTasksFull-GPMC`)
+runs as `%LogonDomain%\%LogonUser%` in both `runAs` and the payload's `UserId`; every
+machine-side one runs as `NT AUTHORITY\System`. `serialize_gpp_scheduled_tasks`
+honoured the scope, but `serialize_gpp` reached the item serializer through
+`gpp_adapters._build_adapter_root`, which accepted the scope and dropped it. A
+user-side TaskV2 authored with an empty `run_as` was therefore written to run as
+SYSTEM: the logged-on user's task would run with machine privileges.
+
+**How it hid.** Imported tasks carry their own `runAs`, and every lane candidate that
+authors a task does so on the computer side (`build-wp1b-candidates.py`,
+`build-endpoint-candidate.py`), where the dropped scope's default is the right one.
+The report-parity inventory compares item identity, not `runAs`.
+
+**The fix.** `_build_adapter_root` passes the scope to every item serializer that
+takes one (`_SCOPED_ITEM_SERIALIZERS`); only Scheduled Tasks has a scope-dependent
+default, and `tests/test_gpp_task_scope.py` pins that set to the serializers'
+signatures, checks both sides' defaults against the native captures, and holds
+`serialize_gpp` equal to `serialize_gpp_scheduled_tasks`. No lane expectation moves:
+the report-parity candidate rebuilds byte-identical, and no candidate holds a
+user-side task. Immediate tasks have no default principal on either side (an empty
+`run_as` is written empty); the native captures measure only the machine side
+(`NT AUTHORITY\System`), so that is left as it is rather than guessed.
+
+**Closes when:** the requalification runs of the lanes binding `gpp_adapters.py`
+(report parity) bank on the changed file.

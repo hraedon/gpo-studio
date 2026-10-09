@@ -20,9 +20,10 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, assert_never, cast, get_args
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, Response
+from fastapi.responses import JSONResponse as _FastAPIJSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -244,6 +245,7 @@ from .wmi_filter import (
     parse_multi_query,
     validate_loopback_config,
 )
+from .xml_safety import unwritable_text
 
 STATIC = Path(__file__).with_name("static")
 
@@ -499,6 +501,8 @@ class GppRegistryValueData(BaseModel):
                                           "REG_BINARY", "REG_DWORD",
                                           "REG_MULTI_SZ", "REG_QWORD"):
                 raise ValueError("Invalid registry type for default entry")
+            if isinstance(self.value, list) and self.registry_type != "REG_MULTI_SZ":
+                raise ValueError(f"{self.registry_type or 'An untyped'} value cannot be a list")
             if self.registry_type in ("REG_DWORD", "REG_QWORD"):
                 if not isinstance(self.value, str):
                     raise ValueError(
@@ -511,9 +515,15 @@ class GppRegistryValueData(BaseModel):
                 raise ValueError("Key-only registry entry must have empty type")
             if self.value != "" and self.value != []:
                 raise ValueError("Key-only registry entry must have empty value")
+            # One representation for "no value": the wire form is value="".
+            self.value = ""
         else:
             if self.registry_type not in _VALID_REGISTRY_TYPE_STRINGS:
                 raise ValueError(f"Invalid registry type: {self.registry_type}")
+            if isinstance(self.value, list) and self.registry_type != "REG_MULTI_SZ":
+                # Only a multi-string holds a list; any other type would be
+                # written ';'-joined and read back as one string.
+                raise ValueError(f"{self.registry_type} value cannot be a list")
             if self.registry_type in ("REG_DWORD", "REG_QWORD"):
                 if not isinstance(self.value, str):
                     raise ValueError(
@@ -1834,17 +1844,24 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
     # so the same refusal takes the bundle with it.
     plan_blocked = plan_refusal(gpo)
     plan_reason = plan_blocked.message if plan_blocked is not None else ""
+    unknown_cse = _unknown_cse_refusal(gpo)
     # WI-046. Same class as WI-044, one capability along: the GMPC backup path
-    # refuses GPP families outside `_GPP_EXTENSION_PROFILES` -- Registry among
-    # them, authorable since 1.0 -- and neither `blocked` nor `preserved_files`
+    # refuses GPP families outside `_GPP_EXTENSION_PROFILES` (Registry was among
+    # them until batch 2 measured its pair; an unmeasured GPP Registry item
+    # shape still refuses, WI-075), and neither `blocked` nor `preserved_files`
     # sees it.
     backup_blocked = native_backup_refusal(gpo)
     backup_reason = backup_blocked.message if backup_blocked is not None else ""
+    # A stored revision holding text XML cannot carry (legacy: no new one can
+    # be written) has no canonical digest -- hashing encodes UTF-8, which a lone
+    # surrogate refuses. The read still succeeds and `validation` names the
+    # offending fields (batch-2 review).
+    unwritable = any(item.code == "text_not_xml_writable" for item in validation)
     return {
         "gpo": _gpo_to_api_dict(gpo),
         "validation": [asdict(item) for item in validation],
-        "policy_semantic_sha256": policy_semantic_sha256(gpo),
-        "review_model_sha256": review_model_sha256(gpo),
+        "policy_semantic_sha256": None if unwritable else policy_semantic_sha256(gpo),
+        "review_model_sha256": None if unwritable else review_model_sha256(gpo),
         "artifact_capabilities": {
             "studio_export": {
                 "enabled": not blocked and plan_blocked is None,
@@ -1852,16 +1869,15 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
                 "reason": plan_reason,
             },
             "gpmc_export": {
-                "enabled": not blocked and preserved_files == 0 and backup_blocked is None,
+                "enabled": not blocked and unknown_cse is None and backup_blocked is None,
                 "format": "zip",
                 # Preserved content is checked first because it is the more
                 # specific answer: such a GPO is refused for a reason the
-                # backup path never reaches.
-                "reason": (
-                    "Preserved extension content cannot be emitted as a GPMC backup."
-                    if preserved_files
-                    else backup_reason
-                ),
+                # backup path never reaches. Asked of `_unknown_cse_refusal`,
+                # the route's own check, rather than of `preserved_files`: an
+                # extension entry that inventories no file has a file count of
+                # 0 and was advertised as enabled while the route refused it.
+                "reason": unknown_cse.message if unknown_cse is not None else backup_reason,
             },
             "powershell_plan": {
                 "enabled": not blocked and plan_blocked is None,
@@ -1871,7 +1887,7 @@ def _gpo_payload(gpo: Any, request: Request | None = None) -> dict[str, Any]:
             "scripts_export": _scripts_export_capability(
                 gpo,
                 blocked=blocked,
-                preserved_files=preserved_files,
+                unknown_cse=unknown_cse,
                 backup_reason=backup_reason,
             ),
             "policy_report": {"enabled": True, "format": "text"},
@@ -1935,6 +1951,61 @@ def _validate_inbox_path(path: str) -> Path:
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
+
+
+
+class JSONResponse(_FastAPIJSONResponse):
+    """A JSON response that can always be rendered.
+
+    Starlette renders with ``ensure_ascii=False`` and encodes UTF-8, which
+    raises on a lone surrogate. A legacy revision holding one made every read
+    of that GPO -- and the whole workspace list -- a 500 (batch-2 review). New
+    text cannot reach storage any more, but stored text must still be
+    readable: on that failure the body is re-rendered with ASCII escapes,
+    which JSON permits and which carry the value unchanged.
+    """
+
+    def render(self, content: Any) -> bytes:
+        try:
+            return super().render(content)
+        except UnicodeEncodeError:
+            return json.dumps(
+                content, ensure_ascii=True, allow_nan=False, indent=None, separators=(",", ":")
+            ).encode("ascii")
+
+
+async def _reject_unwritable_request_text(request: Request) -> None:
+    """Refuse a JSON body holding text XML cannot carry, before any handler runs.
+
+    The model-level gate is in the store (no revision is written with such
+    text); this one also covers what never becomes model text, such as the
+    actor and reason recorded with a revision, and reports a 422 with the
+    offending JSON path.
+    """
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return
+    if "json" not in request.headers.get("content-type", ""):
+        return
+    body = await request.body()
+    if not body:
+        return
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return  # the body model reports malformed JSON itself
+    # Request paths are not model paths, so CR is judged by the store's model
+    # check (`validation.text_issues`), which knows where CR survives.
+    problems = unwritable_text(data, allow_cr_everywhere=True)
+    if problems:
+        raise ValidationError([
+            ValidationIssue(
+                severity="error",
+                code="text_not_xml_writable",
+                message=f"This text cannot be written into XML: it contains {problem}.",
+                path=path,
+            )
+            for path, problem in problems
+        ])
 
 _logger = logging.getLogger("gpo_studio.api")
 
@@ -2218,6 +2289,8 @@ app = FastAPI(
     version=__version__,
     description="Offline-first Group Policy authoring workspace",
     lifespan=lifespan,
+    default_response_class=JSONResponse,
+    dependencies=[Depends(_reject_unwritable_request_text)],
 )
 app.add_middleware(HostValidationMiddleware)
 app.add_middleware(OriginValidationMiddleware)
@@ -2246,6 +2319,33 @@ async def studio_error(request: Request, error: StudioError) -> JSONResponse:
         detail["expected_revision"] = error.expected_revision
         detail["current_revision"] = error.current_revision
     return JSONResponse(_error_body(request, detail), status_code=status)
+
+
+@app.exception_handler(UnicodeError)
+async def unencodable_text(request: Request, error: UnicodeError) -> JSONResponse:
+    """Stored text an artifact cannot encode is a refusal, not a crash.
+
+    No new revision can hold such text (the store refuses it), but a legacy
+    one can; any artifact rendered from it (a report, a plan, a backup) is
+    refused with a code instead of failing the request (batch-2 review).
+    """
+    detail: dict[str, Any] = {
+        "message": "Stored text cannot be encoded for this artifact; fix the fields "
+        "the GPO's validation names as text_not_xml_writable.",
+        "code": "stored_text_not_encodable",
+    }
+    return JSONResponse(_error_body(request, detail), status_code=422)
+
+
+@app.exception_handler(GppError)
+async def gpp_error(request: Request, error: GppError) -> JSONResponse:
+    """Preference content the GPP writer or reader refuses is a 422, not a 500.
+
+    A refusal that escaped as an unhandled exception left a GPO committed but
+    unreadable (batch-2 review: a key-only item's empty list).
+    """
+    detail: dict[str, Any] = {"message": str(error), "code": "gpp_content_refused"}
+    return JSONResponse(_error_body(request, detail), status_code=422)
 
 
 @app.exception_handler(AmbiguousPolicyError)
@@ -3630,21 +3730,34 @@ def import_backup(request: Request, body: BackupImportRequest) -> dict[str, Any]
     return _gpo_payload(gpo, request)
 
 
+def _unknown_cse_refusal(gpo: GPO) -> ValidationIssue | None:
+    """Why preserved extension content refuses a GPMC backup, or ``None``.
+
+    Shared by the two GPMC-backup routes and by the `gpmc_export` and
+    `scripts_export` capabilities, so the advertisement and the refusal are
+    the same check with the same message. It refuses on ANY preserved
+    extension entry, not on the preserved file count, so an entry that
+    inventories no file is refused too.
+    """
+    if not gpo.cse_metadata:
+        return None
+    return ValidationIssue(
+        severity="error",
+        code="unknown_cse_content",
+        message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
+        path="cse_metadata",
+    )
+
+
 @app.get("/api/gpos/{guid}/gpmc-backup")
 def gpmc_backup(request: Request, guid: str) -> Response:
     gpo = _store(request).get_gpo(guid)
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    if gpo.cse_metadata:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="unknown_cse_content",
-                message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
-                path="cse_metadata",
-            )
-        ])
+    unknown_cse = _unknown_cse_refusal(gpo)
+    if unknown_cse is not None:
+        raise ValidationError([unknown_cse])
     backup_id = native_backup_id(gpo)
     fname = f"{_safe_filename(backup_id.strip('{}'))}-gpmc-backup.zip"
     headers = {
@@ -5492,15 +5605,9 @@ def _scripts_export(
     errors = [item for item in validate_gpo(gpo) if item.severity == "error"]
     if errors:
         raise ValidationError(errors)
-    if gpo.cse_metadata:
-        raise ValidationError([
-            ValidationIssue(
-                severity="error",
-                code="unknown_cse_content",
-                message="GPO has unknown CSE content and cannot be exported as a GPMC backup.",
-                path="cse_metadata",
-            )
-        ])
+    unknown_cse = _unknown_cse_refusal(gpo)
+    if unknown_cse is not None:
+        raise ValidationError([unknown_cse])
     refusals = _scripts_gpo_refusals(gpo) + _scripts_request_refusals(body)
     if refusals:
         raise ValidationError(refusals)
@@ -5587,7 +5694,11 @@ def gpmc_backup_with_scripts_preview(
 
 
 def _scripts_export_capability(
-    gpo: GPO, *, blocked: bool, preserved_files: int, backup_reason: str
+    gpo: GPO,
+    *,
+    blocked: bool,
+    unknown_cse: ValidationIssue | None,
+    backup_reason: str,
 ) -> dict[str, Any]:
     """The `scripts_export` artifact capability, from the endpoint's own checks.
 
@@ -5598,10 +5709,11 @@ def _scripts_export_capability(
     reason = ""
     if blocked:
         reason = "Validation errors block this artifact."
-    elif preserved_files or gpo.cse_metadata:
-        # `gpo.cse_metadata`, not only the file count: the route refuses any
-        # preserved extension entry, including one that inventories no file.
-        reason = "Preserved extension content cannot be emitted as a GPMC backup."
+    elif unknown_cse is not None:
+        # The route's own check (`_unknown_cse_refusal`), so the reason is the
+        # one the route gives, and an extension entry that inventories no file
+        # is refused here as it is there.
+        reason = unknown_cse.message
     elif backup_reason:
         reason = backup_reason
     else:
@@ -5955,7 +6067,8 @@ def publication_plan_preview(
 # Plan 034: the firewall surface (WI-076).
 #
 # `firewall_policy.py` is bound by the firewall lane's verdict
-# (`firewall-20261008094055-2092337`, 36/36 at a6e0002), as are the builder and
+# (`firewall-20261009001906-2614294`, 36/36 at de9736e, the release 1.1.0
+# batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
 # the export chain, so the composition lives here, in a file no lane binds.
 # The render endpoint emits exactly what `to_registry_settings` emits, in the
 # shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
@@ -6142,7 +6255,7 @@ class FirewallPolicyDecodeResponse(BaseModel):
     limitations: list[FirewallLimitation]
 
 
-_FIREWALL_RUN_ID = "firewall-20261008094055-2092337"
+_FIREWALL_RUN_ID = "firewall-20261009001906-2614294"
 _FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
 _FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
 
@@ -6406,9 +6519,10 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 # docstring still calls the table "predictions", because `lifecycle.py` is
 # bound by the lane and cannot be edited without expiring it. The lane has
 # since measured every cell: `lifecycle-20261008093248-2000-c76d10eb3f2849fe`
-# agreed with all 30 (docs/plan-033/lifecycle-results.md), and
-# `tests/test_lifecycle_verdict.py` holds the table equal to what that run
-# observed. That is why each cell this endpoint returns is marked measured and
+# agreed with all 30 (docs/plan-033/lifecycle-results.md), the release 1.1.0
+# batch's `lifecycle-20261009001644-6217-f2f5047fed814807` agreed again, and
+# `tests/test_lifecycle_verdict.py` holds the table equal to what the current
+# run observed. That is why each cell this endpoint returns is marked measured and
 # cites the run.
 #
 # The lane measured operations over a backup Windows wrote with `Backup-GPO`,
@@ -6440,9 +6554,11 @@ _ROUTE_LIMITATIONS["/api/gpos/{guid}/firewall-policy"] = _firewall_limitations
 
 #: The certifying run the survival cells are cited from. Held equal to the
 #: banked verdict by `tests/test_lifecycle_restore_plan_surface.py`.
-LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261008093248-2000-c76d10eb3f2849fe"
-LIFECYCLE_VERDICT_COMMIT = "35130528d89761ed1e6990001d086241e5655025"
-LIFECYCLE_VERDICT_PATH = "docs/plan-033/wp7-evidence/lifecycle/verification.json"
+LIFECYCLE_VERDICT_RUN_ID = "lifecycle-20261009001644-6217-f2f5047fed814807"
+LIFECYCLE_VERDICT_COMMIT = "de9736ed3a4148b91cf2267fbe4640e260cc232f"
+LIFECYCLE_VERDICT_PATH = (
+    "docs/plan-033/wp7-evidence/release110-20261009/lifecycle/verification.json"
+)
 
 #: The provenance line `import_gpmc_backup` writes into an imported GPO's
 #: description. Archived imports are immutable, so it is still the backup's id.

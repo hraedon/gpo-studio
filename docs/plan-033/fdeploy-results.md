@@ -1,6 +1,13 @@
 # fdeploy lane results
 
-**Current qualification (2026-10-08):** `fd-20261008121347-3151`, 29/29, on
+**Current qualification (2026-10-09):** `fd-20261009002120-4293`, 29/29, on
+clean frozen `de9736ed3a4148b91cf2267fbe4640e260cc232f`
+([evidence](wp4-evidence/release110-20261009/fdeploy/verification.json),
+[release 1.1.0 batch](release110-batch.md)), tagged
+`evidence/fd-20261009002120-4293`. The run below
+stopped binding when WI-078 changed `psdirect.ps1`; its pack and tag are kept.
+
+**Previous qualification (2026-10-08):** `fd-20261008121347-3151`, 29/29, on
 clean commit `df713ef6eb86152e3e1e5ecf1e55f21dd5c64540`
 ([evidence](wp4-evidence/fdeploy/verification.json)), tagged
 `evidence/fd-20261008121347-3151`. It replaced, at the same path, the lane's

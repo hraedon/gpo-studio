@@ -1,0 +1,104 @@
+LOCAL_RUN_DIR=/tmp/opencode/object-security-run-20261009001450-2602727
+CANDIDATE_DIR=/tmp/opencode/object-security-candidate-20261009001450-2602727
+{
+  "artifacts": {
+    "candidate.inf": "560816d466aca95abb95be87180ee54c6eee7a61f3ba629e561199a865641a2f",
+    "commands/export.log": "da9ab59c5ba3fb385493eb270a8d61fcc86db1ff564f1732c85a95923830962e",
+    "commands/export.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/export.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.log": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "commands/import.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/import.stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/validate.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "commands/validate.stdout.txt": "9cf493a7613deadeb3ceeb66d9829ce92f00c9379d75e2dcfef3156e062f4ead",
+    "deployed/run-object-security-template.ps1": "3e812dcd28644400a35043a73c9a6f03b8da3c63190109eac97e82a04d093199",
+    "expected.json": "413588287beba34eaecefa0d96ac0270537e2da4cd760601d0ac32ea4a56e089",
+    "exported.inf": "8f84961ac252e692fe85fd78a69527633a40d10f3db2d0c8a02dfb14fa49861f",
+    "result.json": "4053cffa07b318c870d45191afdfa41d29f4ff4226fe6dd5ee3bd6d5367d7b26"
+  },
+  "candidate_delivery": {
+    "candidate.inf": {
+      "controller_sha256": "560816d466aca95abb95be87180ee54c6eee7a61f3ba629e561199a865641a2f",
+      "guest_copy_matches": true
+    },
+    "expected.json": {
+      "controller_sha256": "413588287beba34eaecefa0d96ac0270537e2da4cd760601d0ac32ea4a56e089",
+      "guest_copy_matches": true
+    }
+  },
+  "candidate_differences": [],
+  "checks": {
+    "candidate_delivered_intact": true,
+    "candidate_exact": true,
+    "candidate_group_membership_exact": true,
+    "cleanup_succeeded": true,
+    "database_absent_after_cleanup": true,
+    "database_residual_files_empty": true,
+    "deployed_harness_matches_source": true,
+    "environment_matches_frozen_spec": true,
+    "expected_schema_supported": true,
+    "export_created": true,
+    "export_succeeded": true,
+    "harness_reported_no_error": true,
+    "import_succeeded": true,
+    "member_server_host_role": true,
+    "observed_secedit_operations_match": true,
+    "raw_command_artifacts_complete": true,
+    "source_tree_clean": true,
+    "validate_succeeded": true,
+    "windows_export_exact": true,
+    "windows_export_group_membership_exact": true
+  },
+  "comparison_error": null,
+  "environment": {
+    "computer_system_domain": "ad.labdomain.dev",
+    "computer_system_domain_role": 3,
+    "computer_system_name": "LABMS01",
+    "gpmc_version": "built-in",
+    "group_policy_module_version": "1.0.0.0",
+    "locale": "en-US",
+    "powershell_edition": "Desktop",
+    "powershell_version": "5.1.26100.33438",
+    "server_build": "26100",
+    "server_caption": "Microsoft Windows Server 2025 Standard"
+  },
+  "environment_violations": [],
+  "export_differences": [],
+  "group_membership_candidate_differences": [],
+  "group_membership_export_differences": [],
+  "harness_error": null,
+  "passed": true,
+  "run_id": "object-security-20261009001510-7162",
+  "schema_version": 2,
+  "source": {
+    "banked_copies": [
+      "run-object-security-template.ps1"
+    ],
+    "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
+    "dirty": false,
+    "files": {
+      "build-object-security-candidate.py": "6a6672d43100be10eaed560fc499b70ccb744c27d66ad3f213b612178cb3d1fb",
+      "finalize_object_security_run.py": "33dd26cb2cb4175b86a5e23ad491539e6d3607a75f25ef5d12bda78f3b15a167",
+      "object_security.py": "a9f8b5eb8128d50e5a402e88a7f60976f0c74ad4b161efe1309955f772cb0faa",
+      "oracle_evidence.py": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "psdirect.ps1": "d2fb2ffd09869f1214ca916bdc3ea5c31c149b4d98ebcc322d1af7c29410aeb3",
+      "run-object-security-oracle.sh": "fd7c74d5f506d3e1fbb6e5588f908862cf980d340a378760985f01ca9d9c83ee",
+      "run-object-security-template.ps1": "3e812dcd28644400a35043a73c9a6f03b8da3c63190109eac97e82a04d093199",
+      "sddl.py": "98bc7676fd7044db75937b50f6f36f017a3d7c8aa6f2369f6ec0b60fbeea2d0c",
+      "security_template.py": "499d78689b982bc599c81104611cb3abafccf066fc0cd1bf9ec20de5117d8337"
+    },
+    "paths": {
+      "build-object-security-candidate.py": "scripts/plan-033/build-object-security-candidate.py",
+      "finalize_object_security_run.py": "scripts/windows-oracle/finalize_object_security_run.py",
+      "object_security.py": "src/gpo_studio/object_security.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "run-object-security-oracle.sh": "scripts/windows-oracle/run-object-security-oracle.sh",
+      "run-object-security-template.ps1": "scripts/windows-oracle/run-object-security-template.ps1",
+      "sddl.py": "src/gpo_studio/sddl.py",
+      "security_template.py": "src/gpo_studio/security_template.py"
+    }
+  },
+  "transport": "psdirect"
+}
+EVIDENCE_TAG=created evidence/object-security-20261009001510-7162 at de9736ed3a41 — push it: git push origin evidence/object-security-20261009001510-7162

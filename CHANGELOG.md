@@ -56,9 +56,36 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
   024, so `policy_semantic_sha256` and `review_model_sha256` differ from the
   values 1.0.0 recorded, although no value changed. Digests of GPOs without
   preference items are unchanged.
-- **GPP Registry no longer offers native GPMC backup export.** Native GPP
-  output is an allowlist of captured families (Plan 033 WP-2, WI-046). The
-  Studio bundle still carries GPP Registry.
+- **GPP Registry native GPMC backup export is back** (batch 2, WI-075). From
+  WP-1B until batch 2 it was refused, because native GPP output is an
+  allowlist of captured families (Plan 033 WP-2, WI-046) and Registry's pair
+  had never been captured. Batch 2 captured it and every item shape, so a GPO
+  with GPP Registry items exports again; a default-value item is still refused
+  (`unmeasured_gpp_registry_shape`).
+- **GPP Registry wire values change.** REG_DWORD and REG_QWORD are written as
+  fixed-width upper-case hex and REG_MULTI_SZ as a space-joined value plus a
+  `<Values>` list, as Windows writes them. A Studio 1.0 bundle's decimal or
+  `;`-joined GPP Registry values are refused on re-import (re-author them);
+  workspaces are unaffected, since they store the typed model. A native
+  REG_QWORD imported by 1.0 was read as decimal and should be re-imported.
+- **Archives are stored, not deflated.** Every ZIP (GPMC backup, Studio bundle)
+  is written with STORED members in code-point order so it is byte-identical on
+  every platform. Files are larger and their hashes differ from 1.0's; the
+  members' contents do not change.
+- **Text XML cannot carry is refused.** A lone surrogate, a control character
+  other than TAB and LF, or a carriage return (outside Registry.pol data) is
+  refused with `text_not_xml_writable`. A 1.0 workspace holding such text still
+  opens and lists; that GPO's exports are refused until the named fields are
+  edited.
+- **Preference document order is recorded from 1.1.0 imports onward**
+  (WI-072, WI-073). A GPO imported by 1.0.0 has no recorded order, so it keeps
+  writing what 1.0.0 wrote: scheduled tasks before immediate tasks and groups
+  before local users, whatever order the source file had. Re-import the backup
+  with 1.1.0 to recover the source's processing order. Root content 1.0.0
+  retained but never wrote (Power Options' `GlobalPowerOptionsV2`, an adapter
+  root's attributes) is now written for those GPOs too, so their exported
+  files gain it. Review digests of stored GPOs are unchanged: the canonical
+  form carries document order only where it differs from the grouped order.
 - **Do not run 1.0.0's `workspace check` on a backup** (WI-074). It writes into
   the checked file, and the backup can then no longer be restored. Verify a
   pre-upgrade backup by restoring it to a throwaway path and checking that
@@ -356,6 +383,21 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 ### Changed
 
+- *New in this draft (batch 2):* **Deterministic archives everywhere (batch 2).** `gpo_studio.deterministic_zip`
+  writes every ZIP Studio and the lane builders produce -- `gpmc_backup_bundle`,
+  `export_bundle`, and the report-parity and fdeploy candidates (the WP-1B, WP-2,
+  publication, scripts-metadata and firewall candidates come from
+  `gpmc_backup_bundle`) -- with members sorted by code point, 1980-01-01
+  timestamps, `create_system=3`, fixed attributes and STORED members. Deflate is
+  not used: CPython's Windows build links a different deflate implementation
+  than Linux, so no deflate setting yields identical bytes. The product exports
+  are STORED too; the ZIP is a transport container (`Expand-Archive` and
+  `zipfile` unpack it, `Import-GPO` reads the extracted folder), so only its
+  size changes. Names that are unsafe or differ only by case are refused. The
+  lane evidence tests (firewall, report-parity, fdeploy) assert the exact archive
+  hash on every platform again, and pin that a Windows-default `create_system`
+  changes nothing. The banked candidates were deflated, so those tests fail
+  until the 1.1.0 requalification re-banks them.
 - Within each key, `Registry.pol` records are now ordered delete-all-values,
   delete, then set. Registry settings gain a third action,
   `delete_all_values`, accepted by the settings API. It serializes as a
@@ -536,6 +578,180 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 Operator-facing:
 
+- *New in this draft:* **GPP files keep their document order and retained root
+  content after an edit, fixed and awaiting requalification (WI-072,
+  WI-073).** Found by the report-parity offline differ, which re-renders the
+  typed model as Studio writes it after any edit. Two defects:
+  - WI-072: `serialize_gpp` rebuilt every adapter file from its typed items
+    alone, so content the import retained at the root was dropped on the
+    first edit. The native Power Options capture's `GlobalPowerOptionsV2`
+    (the Windows 7+ power plan) was lost this way, and so was any adapter
+    root's unknown attribute (a root-level `disabled="1"`, say) or child
+    element (a printer kind or folder option Studio does not type). Every
+    family now writes them: Groups and Registry already did; the eighteen
+    adapter families did not.
+  - WI-073: `ScheduledTasks.xml` interleaves `TaskV2` and `ImmediateTaskV2`,
+    and `Groups.xml` can interleave `Group` and `User`. The model holds each
+    family in its own list and wrote them grouped, so an edited GPO changed
+    the order Windows processes its items. Both native scheduled-task
+    captures showed it. No other GPP file holds more than one typed family.
+
+  The model keeps its per-family lists and API. Import now records each typed
+  item's index among its root's children (`document_position`) and each
+  retained root child's (`GppCollection.root_unknown_positions`), and
+  `serialize_gpp` writes every root child in that order. Within a family the
+  list stays authoritative: reordering a family swaps its items between the
+  family's own slots, deleting an item frees its slot, and an item inserted
+  between positioned items follows its list predecessor. No recorded position
+  can reorder two items of one family against their list order, even where
+  slots tie (a legacy multi-value `<Registry>` expands into items sharing one
+  slot). An item with no
+  recorded position, such as a group added through the API or anything stored
+  before 1.1.0, is written after every positioned item in the order Studio
+  always used, so a collection without positions writes the same bytes as
+  before. An API edit keeps the edited item's slot. Positions are persisted in
+  the workspace snapshot; a stored order that cannot be honoured is refused on
+  load, naming the slot: an unknown family, a position that is not an integer
+  from 0 to 99999 (the XML parser's element bound, so no import can exceed it),
+  a count that does not match, or two root children claiming one slot (within
+  a family, across families, or against a retained child). Gaps, a legacy
+  Registry expansion's shared slot, and the per-family copies Groups.xml and
+  ScheduledTasks.xml keep of one retained child (which must agree) are
+  accepted. Those per-family copies must also agree when an in-memory
+  collection is written: differing copies are refused rather than merged.
+  There is no longer a way to write a GPP file without its retained root
+  content: `serialize_gpp_groups` and `serialize_gpp_registry` write the whole
+  file as `serialize_gpp` does (Groups.xml now includes its local users), the
+  unused item-only `ADAPTER_SERIALIZE_FUNCTIONS` map is removed, and the
+  item-only `serialize_gpp_<family>` helpers are documented as test fragments,
+  with a test that fails if production code calls one. Both the canonical digest and the GPO diff compare the resulting order,
+  not the recorded numbers, so digests of stored GPOs do not move.
+  Covered by `tests/test_gpp_document_order.py` (the native Power and
+  scheduled-task captures edited, deleted from, reordered and added to; an
+  interleaved `Groups.xml` through the store's group endpoints; every family's
+  root unknowns in place; a workspace reopen; data in the pre-1.1 shape;
+  Hypothesis properties over random interleavings). The report-parity lane
+  now requires its three formerly divergent cases to agree with Windows
+  exactly (see Evidence). Both items close when the requalification run banks.
+
+- *New in this draft:* **A user-side scheduled task with no principal ran as
+  SYSTEM, fixed and awaiting requalification (WI-079).** `serialize_gpp`
+  built Scheduled Tasks through `_build_adapter_root`, which dropped the
+  collection's scope, so a user-side TaskV2 with an empty `run_as` was
+  written with `runAs` and the payload's `UserId` set to `NT AUTHORITY\System`,
+  the computer default. Every user-side TaskV2 in the native captures runs as
+  `%LogonDomain%\%LogonUser%`, which `serialize_gpp_scheduled_tasks` already
+  wrote. The scope now reaches every item serializer that takes it (only
+  Scheduled Tasks has a scope-dependent default; a test pins that list to the
+  serializers' signatures). Imported tasks carry their own `runAs` and are
+  unaffected, and no lane candidate holds a user-side task, so no lane
+  expectation moves. Covered by `tests/test_gpp_task_scope.py`, grounded in the
+  native captures.
+
+- *New in this draft (batch 2):* **GPP Registry native export, fixed and awaiting batch-2 requalification
+  (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
+  Registry item, narrowing the 1.0 contract the capability matrix still
+  claimed. A native capture (2026-10-08, `tests/fixtures/native-gpp-registry-gpmc/WI01A-Registry-GPMC`)
+  measured the extension pair `[{B087BE9D-…}{BEE07A6A-…}]` on both sides and
+  the wire form, and showed Studio's reader and writer were both wrong:
+  REG_DWORD/REG_QWORD are fixed-width upper-case hex (a native DWORD did not
+  import; a QWORD was read as decimal), REG_MULTI_SZ is space-joined plus a
+  `<Values>` list, and `<Registry>`/`<Properties>` carry `status`, `image`,
+  braced upper-case `uid`, `displayDecimal` and `default` in a fixed order.
+  The writer and reader now follow the capture (pinned against the native
+  bytes in `tests/test_gpp_registry_native.py`), the pair is registered in
+  `export._GPP_EXTENSION_PROFILES` (the one source for the backup, the
+  publication planner and `EMITTED_EXTENSION_GUIDS`), and pre-batch-2 stored
+  imports are re-typed on load. A revision-2 capture
+  (`tests/fixtures/native-gpp-registry-gpmc/WI01A-RegistryShapes-GPMC`, from
+  `scripts/plan-033/capture-gpp-registry-native.ps1`) measured Delete
+  (`image="3"`), REG_BINARY (upper-case hex, no separators) and key-only items
+  (named by the key, typed `REG_SZ`), so they export and publish. A full
+  action x type matrix capture (`WI01A-RegistryMatrix-GPMC`, 28 items) then
+  pinned every action x type pair and key-only x action as a whole item: the
+  measured set is now an explicit list of those 28 pairs, held equal to the
+  native bytes, rather than composed from parts. The GPP Registry captures live
+  in `tests/fixtures/native-gpp-registry-gpmc` and are part of the report-parity
+  corpus (see below). Default-value
+  items stay refused (`unmeasured_gpp_registry_shape`) by the export and the
+  planner: the GroupPolicy module has no `-Default` parameter, so nothing
+  measured them. The decimal and `;`-joined forms Studio wrote before batch 2,
+  and REG_BINARY that is not whole hex bytes, are refused on read.
+- *New in this draft (batch 2):* **Firewall policy registers the firewall snap-in tool half.** A machine
+  Registry.pol holding only `SOFTWARE\Policies\Microsoft\WindowsFirewall`
+  keys now registers `[{35378EAC-…}{B05566AC-…}]`, as native authoring did
+  (`tests/fixtures/native-firewall-gpmc`), instead of the
+  Administrative Templates `{D02B1F72-…}`. Mixed firewall-and-other content is
+  unchanged: no capture records it (WI-075).
+- *New in this draft (batch 2):* **Text XML cannot carry never reaches storage (batch-2 review of `343fecf`).**
+  A REG_MULTI_SZ element holding an escaped lone surrogate committed a revision
+  and then made the GPO, its backup and the whole workspace list return 500;
+  NUL, VT, FF and U+FFFF were accepted and exported as XML no parser accepts.
+  Fixed generally: one predicate (`xml_safety.xml_text_problem`, the XML 1.0
+  `Char` production; CR also refused in every string written into XML --
+  names, descriptions, GPP text and attributes -- since XML reads it back as
+  LF, and kept only in Registry.pol data and the fdeploy INI) and one walk over every string in the model (`unwritable_text`). The
+  store refuses to write any revision that fails it, whatever endpoint or field
+  the text came through; the API refuses such a JSON body up front (422 with
+  the JSON path); `validate_gpo` reports it (`text_not_xml_writable`). A legacy
+  stored revision still reads and lists (JSON escapes; digests `null`), every
+  exporter refuses it with that code, and an artifact that cannot encode stored
+  text is a 422 (`stored_text_not_encodable`), never a 500. A Hypothesis
+  property test throws arbitrary Unicode, surrogates and controls included, at
+  GPP and GPO text and holds no-500 and byte-exact round trips of accepted text.
+
+- *New in this draft (batch 2):* **Batch-2 review fixes (two independent reviews of `303ae6c`).**
+  - Every lane whose candidate bytes flow through `deterministic_zip.py` now
+    binds it (WP-1B, WP-2, publication, scripts-metadata, firewall,
+    report-parity, fdeploy, endpoint); WP-1B, WP-2 and endpoint also bind
+    `export.py`, and WP-1B the writers it certifies (`gpp.py`,
+    `gpp_adapters.py`, `writer_conformance.py`). A test derives the rule from
+    each builder's imports, and verdicts finalized before the change keep their
+    narrower table in `HISTORICAL_BOUND_FILES`.
+  - `deterministic_zip` refuses NUL and control characters (zipfile truncated
+    `"a\0x"` to `"a"`, shadowing a real member), Windows-forbidden characters
+    and drive/stream colons, reserved device names (`NUL.txt`, `COM1`), trailing
+    dots/spaces, and a file that is also another member's directory.
+  - GPP Registry `<Values>` content Studio does not model (attributes, extra
+    children, a second `<Values>`) is refused on read instead of dropped on
+    the next edit. A list value for a non-multi-string type is refused by the
+    writer, validation and the API (it was written `;`-joined and read back as
+    one string), and a key-only item carrying a value is an unmeasured shape.
+  - `report_parity` classifies report extensions by full QName (the
+    `xsi:type` prefix's namespace plus local name) against a table read off the
+    repository's Windows reports; an unknown namespace is `unmeasured:`. A
+    registry Extension's children are routed by their own namespace, so policy
+    settings and a GPP Registry container in one Extension are split. The GPP
+    Registry report namespace has one definition (`gpp.GPP_REGISTRY_REPORT_NAMESPACE`).
+  - The WP-1B `native_shape_matches_corpus` check now inspects emitted GPP
+    Registry XML against the captured shape (root/item clsids, attribute order,
+    image per action, hex encodings, `<Values>`), with the shape constants
+    pinned to the native captures; a non-native writer fails it.
+  - The native-bytes tests assert Studio's explicit common options carry
+    exactly `removePolicy="0" userContext="0" bypassErrors="0"` for a model with
+    the native items' meaning, instead of setting them aside.
+
+- *New in this draft (batch 2):* **Batch-2 re-review fixes (Sol, `2ecc025`).** `deterministic_zip.py` and
+  `writer_conformance.py` are pinned `text eol=lf` (a CRLF checkout refused
+  every archive lane), and a test holds every file any finalizer binds to
+  `text eol=lf` or `-text`. A key-only item's empty list is written as the
+  measured `value=""` and stored as `""` (it used to commit and then make every
+  read of the GPO a 500); preference content the writer refuses now reaches
+  the client as a refusal, and a sweep of every registry item shape the API
+  accepts holds that later reads and exports never 500. `<Values>` is held to an
+  exact allowlist (no namespace, no attributes, whitespace-only text and
+  tails). A registry report Extension whose declared type is the other
+  measured family's is surfaced as `unmeasured:declared ...`, and GPP Registry
+  report items must have the measured `<Registry>`/`<Properties>` shape. The
+  superscript device names (`COM¹`, `LPT²`, `LPT³`) are refused in archives.
+
+- *New in this draft (batch 2):* **Review tidy (N5–N8).** The object-security finalizer's comment no longer
+  claims a v1 pack can be re-graded to anything but failure (N5). A refused
+  native export reports every reason, cpassword first and the fdeploy refusal
+  last (N6). SID patterns in `object_security.py` and the object-security
+  finalizer are ASCII-only, so a Unicode-digit look-alike is not a SID (N7).
+  `run-requal-batch.sh` resolves `<batch-dir>` without creating it, so its
+  in-repo refusal leaves nothing behind (N8).
 - *New in this draft:* `gpo-studio workspace check` no longer changes the
   database it checks (WI-074). It recorded its result in `workspace_meta`, so
   checking a backup changed the file after its sidecar recorded the SHA-256,
@@ -781,6 +997,49 @@ Lab and development tooling:
 Windows evidence and the lab tooling that produces it. None of these entries
 is a capability by itself; see Added for what an operator can reach.
 
+- *New in this draft:* **Banked the release 1.1.0 requalification batch**
+  ([batch note](docs/plan-033/release110-batch.md)). All 26 lanes passed on
+  one frozen commit, `de9736e` (batch 2, the chunked psdirect transport and
+  the WI-072/WI-073/WI-079 GPP fixes), driven by
+  `scripts/plan-033/run-requal-batch.sh` under its per-lane watchdog: WP-0
+  plus 25 lane verdicts, the lifecycle, report-parity, firewall and fdeploy
+  lanes included for the first time in a batch. No lane timed out, was
+  cancelled or lost containment. Every previously live verdict is retired;
+  `PENDING_REQUALIFICATION` is empty. Report parity covers 30 backups (the
+  three GPP Registry captures included) and accepts no Studio defect; the
+  firewall write leg carries the native `B05566AC` registration; the post-batch
+  directory check is clean. An attempt at `2f21e7c` (25 of 26; report parity
+  hung on the transport defect) was superseded unbanked and is recorded in the
+  manifest. The packs were banked with the new
+  `scripts/plan-033/bank-requal-batch.py`, and `tests/test_release110_batch.py`
+  reads run ids from the schema 2 manifest. `environment-spec.md`,
+  `platforms.json`, the capability matrix (GPP Registry and GPMC backup export
+  rows now certified), the results headers, the bound-source cost table and the
+  lifecycle and firewall surfaces' citations name the new runs. WI-072,
+  WI-073, WI-075, WI-078 and WI-079 close.
+- *New in this draft (batch 2):* **Batch 2 changed files that live lane
+  verdicts bind** (`gpp.py`, `export.py`, `publication.py`, `xml_safety.py`,
+  `object_security.py`, `report_parity.py`, the new `deterministic_zip.py`
+  and several builders and finalizers), so the publication, scripts-metadata,
+  WP-1B, WP-2, report-parity, firewall, object-security, fdeploy and endpoint
+  verdicts banked before it no longer bind the shipping code. The single
+  1.1.0 requalification of every lane at one commit covers them; until it
+  runs, those lanes cite pre-batch-2 evidence (WI-075). *Later:* it ran and
+  passed every lane at `de9736e` (see the entry above).
+- *New in this draft (batch 2):* **WP-1B lane:** new `gppregistry-both` candidate and GPP Registry items in
+  `mixed-all`; GPMC report markers are namespace-qualified, since Registry.pol
+  and GPP Registry both render as `RegistrySettings`. Live verdicts for the
+  wp1b, publication, scripts-metadata and object-security lanes no longer bind
+  the shipping files and need the batch-2 run.
+- *New in this draft (batch 2):* **Report parity covers GPP Registry.** The report-parity corpus gains the
+  three GPP Registry captures (30 cases); `report_parity` inventories Windows'
+  GPP Registry extension under `Windows/Registry:RegistrySettings`, since the
+  report gives it Registry.pol's local name. Studio's import matches Windows'
+  report for all 39 captured items.
+- *New in this draft (batch 2):* **`run-requal-batch.sh`** drives the lifecycle, report-parity, firewall and
+  fdeploy lanes too (member server; the client-rebooting group-deny lane stays
+  last), and a test holds the lane table equal to the repository's runners.
+
 - Re-banked the fdeploy lane: `fd-20261008121347-3151`, 29/29 on clean commit
   `df713ef`, now holds `docs/plan-033/wp4-evidence/fdeploy/` in place of
   `fd-20261008102559-9746` (below), with byte-identical candidate bytes. Two
@@ -847,7 +1106,14 @@ is a capability by itself; see Added for what an operator can reach.
   - WI-072 (the power plan is dropped on write) and WI-073 (scheduled and
     immediate task interleaving is lost on write) stay open. The verdict
     accepts them only as pinned known divergences, on the three cases that
-    show them.
+    show them. *Later:* both are fixed in `gpp.py` (see Fixed) and wait on
+    the requalification run. Their allowances are removed from
+    `report_parity.KNOWN_DIVERGENCES`, the candidate builder pins the three
+    cases in `MUST_AGREE_CASE_IDS`, and the finalizer's new
+    `fixed_work_item_cases_agree_exactly` check requires each to be in the run
+    and equal to Windows' fresh report with no divergence of any kind. A
+    regression now fails the lane. The banked pack no longer rebuilds under
+    the changed builder until the requalification replaces it.
   - The pack replaces the first banked pass, which was at `1a31feb`. PR #94's
     Windows CI showed the candidate builder sorted `Path` objects, whose
     order is case-insensitive on Windows, so the archive's bytes depended on

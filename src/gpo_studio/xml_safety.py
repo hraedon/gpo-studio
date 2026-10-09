@@ -15,6 +15,100 @@ _ENTITY_MARKERS = (
 )
 
 
+def xml_char_forbidden(cp: int) -> bool:
+    """Whether code point *cp* is outside the XML 1.0 ``Char`` production.
+
+    ``Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] |
+    [#x10000-#x10FFFF]``: the C0 controls other than TAB, LF and CR, the
+    surrogate block (a lone surrogate is not a character at all, and no UTF
+    encoder will write one), and U+FFFE/U+FFFF are forbidden. The other
+    plane-final noncharacters (U+nFFFE/U+nFFFF above the BMP) are legal XML
+    but are refused too, as before batch 2: nothing Windows writes uses them.
+    """
+    if cp < 0x20:
+        return cp not in (0x09, 0x0A, 0x0D)
+    if 0xD800 <= cp <= 0xDFFF:
+        return True
+    if cp in (0xFFFE, 0xFFFF):
+        return True
+    return cp > 0xFFFF and (cp & 0xFFFE) == 0xFFFE
+
+
+def xml_text_problem(text: str, *, allow_cr: bool = False) -> str | None:
+    """Why *text* cannot be written into XML and read back exactly, or ``None``.
+
+    The ONE predicate every check uses (batch-2 review). TAB and LF are always
+    allowed: ElementTree writes them as character references in attributes and
+    literally in element text, and both read back exactly. CR is refused by
+    default: an XML parser normalizes CR and CRLF in element text to LF, so a
+    GPO name, a description or a GPP value holding one would come back changed
+    after a native export and re-import. *allow_cr* is for text that never
+    becomes XML (Registry.pol data, the fdeploy INI document); see
+    `CR_ALLOWED_PATHS`.
+    """
+    for ch in text:
+        cp = ord(ch)
+        if xml_char_forbidden(cp):
+            if 0xD800 <= cp <= 0xDFFF:
+                return f"a lone surrogate U+{cp:04X}"
+            return f"U+{cp:04X}, which XML 1.0 forbids"
+        if cp == 0x0D and not allow_cr:
+            return "a carriage return, which XML reads back as a line feed"
+    return None
+
+
+#: Model paths whose strings never become XML, so a carriage return in them
+#: survives: Registry.pol value data (binary PReg, UTF-16) and the parsed
+#: fdeploy INI document. Every other string -- GPO name and description, GPP
+#: items and attributes, ILT, filters -- reaches XML element text or attribute
+#: values somewhere (Backup.xml, bkupInfo.xml, manifest.xml, GPP XML), where a
+#: CR would come back as LF (batch-2 review).
+CR_ALLOWED_PATHS = (
+    re.compile(r"settings/\d+/value(/\d+)?"),
+    re.compile(r"fdeploy(/.*)?"),
+)
+
+
+def unwritable_text(
+    data: Any, path: str = "", *, allow_cr_everywhere: bool = False
+) -> list[tuple[str, str]]:
+    """Every string in a plain-data tree (dicts, lists, str) XML cannot carry.
+
+    Returns ``(path, problem)`` pairs. Dict keys are checked as well as values.
+    Generic on purpose: a field added to any model is covered the day it
+    lands, instead of the day someone remembers to validate it. Paths are model
+    paths (``gpo.to_dict()``); a caller walking some other shape, such as a raw
+    request body, passes *allow_cr_everywhere* and leaves the CR decision to
+    the model check.
+    """
+    allow_cr = allow_cr_everywhere or any(
+        pattern.fullmatch(path) for pattern in CR_ALLOWED_PATHS
+    )
+    found: list[tuple[str, str]] = []
+    if isinstance(data, str):
+        problem = xml_text_problem(data, allow_cr=allow_cr)
+        if problem is not None:
+            found.append((path, problem))
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            child = f"{path}/{key}" if path else str(key)
+            if isinstance(key, str):
+                problem = xml_text_problem(key, allow_cr=allow_cr)
+                if problem is not None:
+                    found.append((child, f"its key holds {problem}"))
+            found.extend(
+                unwritable_text(value, child, allow_cr_everywhere=allow_cr_everywhere)
+            )
+    elif isinstance(data, (list, tuple)):
+        for index, value in enumerate(data):
+            found.extend(
+                unwritable_text(
+                    value, f"{path}/{index}", allow_cr_everywhere=allow_cr_everywhere
+                )
+            )
+    return found
+
+
 def _has_entity_decl(data: bytes) -> bool:
     return any(marker in data for marker in _ENTITY_MARKERS)
 
@@ -119,11 +213,16 @@ def parse_xml_bounded(
     max_text_length: int = 1_048_576,
     max_attr_length: int = 4096,
     error_class: type[Exception] = ValueError,
+    builder: BoundedTreeBuilder | None = None,
 ) -> ET.Element:
     """Parse XML with structural limits enforced during construction.
 
     Checks byte size and entity declarations before parsing, then
     uses a BoundedTreeBuilder to enforce structural limits incrementally.
+    A caller that needs more from the parse (namespace declarations, say)
+    passes its own *builder*, a `BoundedTreeBuilder` subclass constructed with
+    the limits it wants; the ``max_*`` arguments other than *max_size* are then
+    the builder's business.
     """
     if isinstance(data, str):
         data = data.encode("utf-8")
@@ -132,13 +231,14 @@ def parse_xml_bounded(
         raise error_class(f"XML exceeds {max_size} bytes")
     if _has_entity_decl(data):
         raise error_class("XML entity declarations are not allowed")
-    builder = BoundedTreeBuilder(
-        max_elements=max_elements,
-        max_depth=max_depth,
-        max_text_length=max_text_length,
-        max_attr_length=max_attr_length,
-        error_class=error_class,
-    )
+    if builder is None:
+        builder = BoundedTreeBuilder(
+            max_elements=max_elements,
+            max_depth=max_depth,
+            max_text_length=max_text_length,
+            max_attr_length=max_attr_length,
+            error_class=error_class,
+        )
     parser = ET.XMLParser(target=builder)
     try:
         return ET.fromstring(data, parser=parser)

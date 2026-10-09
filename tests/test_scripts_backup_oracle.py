@@ -92,6 +92,7 @@ def test_lane_binds_executed_and_semantic_sources() -> None:
         "validation.py",
         "oracle_evidence.py",
         "xml_safety.py",
+        "deterministic_zip.py",
     }
 
 

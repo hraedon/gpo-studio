@@ -11,7 +11,7 @@ export async function loadList(selectGuid){
 }
 export function renderList(){
   const query=$("#search").value.toLowerCase();
-  $("#gpo-list").innerHTML=state.gpos.filter(g=>g.name.toLowerCase().includes(query)).map(g=>`<button class="gpo-item ${state.current?.guid===g.guid?"active":""}" data-guid="${escapeHtml(g.guid)}"><strong>${escapeHtml(g.name)}</strong><small>${g.status} · r${g.revision}</small></button>`).join("");
+  $("#gpo-list").innerHTML=state.gpos.filter(g=>g.name.toLowerCase().includes(query)).map(g=>`<button class="gpo-item ${state.current?.guid===g.guid?"active":""}" data-guid="${escapeHtml(g.guid)}"><strong title="${escapeHtml(g.name)}">${escapeHtml(g.name)}</strong><small>${g.status} · r${g.revision}</small></button>`).join("");
   $$(".gpo-item").forEach(el=>el.onclick=()=>selectGpo(el.dataset.guid));
 }
 export function showEmpty(){$("#empty").hidden=false;$("#workspace").hidden=true;$("#top-actions").hidden=true;$("#title").textContent="Choose a policy"}

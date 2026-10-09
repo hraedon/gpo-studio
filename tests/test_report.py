@@ -58,7 +58,7 @@ def test_report_mapping_covers_every_typed_gpp_item_family() -> None:
     item_fields = [
         field.name
         for field in fields(GppCollection)
-        if field.name not in {"scope", "source_files"}
+        if field.name not in {"scope", "source_files", "root_unknown_positions"}
         and not field.name.endswith(("_unknown_attrs", "_unknown_children"))
     ]
     distinctive = {

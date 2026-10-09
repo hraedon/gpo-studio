@@ -28,22 +28,23 @@ they name and are not re-earned by an edit today.
 | File | Lanes | Which |
 |---|---:|---|
 | `src/gpo_studio/oracle_evidence.py` | 26 | computer-security-filtering, computer-security-filtering-deny-read, computer-security-filtering-group-deny, disabled-block-enforced, endpoint, fdeploy, firewall, lifecycle, loopback-merge, loopback-replace, lsdou-precedence, object-security, publication, report-parity, scripts-metadata, user-security-filtering, user-security-filtering-deny, user-security-filtering-read-deny, user-side-disabled, wmi-filtering, wmi-filtering-error, wp0, wp1b, wp2, wp3-dc, wp3-member |
-| `src/gpo_studio/gpp.py` | 5 | fdeploy, firewall, publication, report-parity, scripts-metadata |
+| `src/gpo_studio/deterministic_zip.py` | 8 | endpoint, fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b, wp2 |
+| `src/gpo_studio/export.py` | 6 | endpoint, firewall, publication, scripts-metadata, wp1b, wp2 |
+| `src/gpo_studio/gpp.py` | 6 | fdeploy, firewall, publication, report-parity, scripts-metadata, wp1b |
 | `src/gpo_studio/model.py` | 5 | fdeploy, firewall, publication, report-parity, scripts-metadata |
 | `src/gpo_studio/xml_safety.py` | 5 | fdeploy, firewall, publication, report-parity, scripts-metadata |
 | `src/gpo_studio/registry_pol.py` | 4 | firewall, publication, report-parity, scripts-metadata |
 | `src/gpo_studio/backup.py` | 3 | fdeploy, lifecycle, report-parity |
 | `src/gpo_studio/canonical.py` | 3 | firewall, publication, scripts-metadata |
-| `src/gpo_studio/export.py` | 3 | firewall, publication, scripts-metadata |
 | `src/gpo_studio/security_template.py` | 3 | object-security, wp3-dc, wp3-member |
 | `src/gpo_studio/validation.py` | 3 | firewall, publication, scripts-metadata |
 | `src/gpo_studio/backup_inventory.py` | 2 | fdeploy, report-parity |
+| `src/gpo_studio/gpp_adapters.py` | 2 | report-parity, wp1b |
 | `src/gpo_studio/policy_families.py` | 2 | wp3-dc, wp3-member |
 | `src/gpo_studio/publication.py` | 2 | firewall, publication |
 | `src/gpo_studio/fdeploy.py` | 1 | fdeploy |
 | `src/gpo_studio/fdeploy_parity.py` | 1 | fdeploy |
 | `src/gpo_studio/firewall_policy.py` | 1 | firewall |
-| `src/gpo_studio/gpp_adapters.py` | 1 | report-parity |
 | `src/gpo_studio/import_export.py` | 1 | report-parity |
 | `src/gpo_studio/lifecycle.py` | 1 | lifecycle |
 | `src/gpo_studio/object_security.py` | 1 | object-security |
@@ -51,6 +52,7 @@ they name and are not re-earned by an edit today.
 | `src/gpo_studio/safe_io.py` | 1 | fdeploy |
 | `src/gpo_studio/script_policy.py` | 1 | scripts-metadata |
 | `src/gpo_studio/sddl.py` | 1 | object-security |
+| `src/gpo_studio/writer_conformance.py` | 1 | wp1b |
 
 ## Harness
 
@@ -159,4 +161,3 @@ measured against Windows by the oracle either.
 - `src/gpo_studio/wmi_catalogue.py`
 - `src/gpo_studio/wmi_filter.py`
 - `src/gpo_studio/workspace_ops.py`
-- `src/gpo_studio/writer_conformance.py`

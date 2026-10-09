@@ -1,0 +1,134 @@
+{
+  "author_run_id": "rsop-author-20261009004951-1960",
+  "boot_applied_values": [
+    {
+      "value": "1",
+      "value_name": "AllowOnly"
+    },
+    {
+      "value": "present",
+      "value_name": "Control"
+    },
+    {
+      "value": "allow",
+      "value_name": "Filter"
+    }
+  ],
+  "candidate": {
+    "expected.json": "b96392e48fc09fe56c4ac40b6ba6f4be9316d2725ccd207da3fa349a85c2388f",
+    "prediction.json": "3a14c761dd046d16788bb4c77cbd8cdaf691135b841a5f50c4d43c704756e7bd",
+    "topology.json": "2ed088239c1b6693400fd849779bd4e09acd5e7d17715516dac27e55a3b5f04a"
+  },
+  "comparison": {
+    "agrees": true,
+    "applied_only_observed": [],
+    "applied_only_predicted": [],
+    "conclusive": true,
+    "observed_applied": [
+      "Studio-RSOP-CompFilterAllow",
+      "Studio-RSOP-Control"
+    ],
+    "observed_foreign_gpos": [
+      "Default Domain Policy",
+      "Local Group Policy"
+    ],
+    "observed_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "Filter": "allow"
+    },
+    "predicted_applied": [
+      "Studio-RSOP-CompFilterAllow",
+      "Studio-RSOP-Control"
+    ],
+    "predicted_winners": {
+      "AllowOnly": "1",
+      "Control": "present",
+      "Filter": "allow"
+    },
+    "unevaluable_gpos": [],
+    "value_findings": []
+  },
+  "control_problems": [],
+  "cse_completed": true,
+  "environment": {
+    "client": {
+      "build": "26200",
+      "caption": "Microsoft Windows 11 Enterprise",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.9444"
+    },
+    "server": {
+      "build": "26100",
+      "caption": "Microsoft Windows Server 2025 Standard",
+      "domain": "AD.LABDOMAIN.DEV",
+      "gp_module_version": "1.0.0.0",
+      "locale": "en-US",
+      "powershell_edition": "Desktop",
+      "powershell_version": "5.1.26100.33438"
+    }
+  },
+  "expected_finding": "",
+  "harness_matches_source": true,
+  "lane_problems": [],
+  "passed": true,
+  "run_id": "rsop-observe-20261009005022-4207",
+  "scenario_id": "computer-security-filtering-group-deny",
+  "schema_version": 2,
+  "scope": "computer",
+  "settle_attempts": 1,
+  "source": {
+    "banked_copies": [
+      "run-rsop-author.ps1",
+      "run-rsop-observe.ps1"
+    ],
+    "commit": "de9736ed3a4148b91cf2267fbe4640e260cc232f",
+    "dirty": false,
+    "files": {
+      "build-rsop-candidate.py": "c46fc12670bc41fc4fcd84100a8b159c668a48f068504447601372a94da352eb",
+      "finalize_rsop_run.py": "9ee3de9c48b7ddec879540782e28de26e321433867241467aa3274f4bacd3353",
+      "oracle_evidence.py": "87d413de0d4017b230eea2767f9d62fe7ffb26fca155d90a00d38b5697bad40c",
+      "psdirect.ps1": "d2fb2ffd09869f1214ca916bdc3ea5c31c149b4d98ebcc322d1af7c29410aeb3",
+      "run-rsop-author.ps1": "ace45b03f48dc27eaadadd6ba0abaa647aaf32c1487a3970e5b08dad0eeeec0a",
+      "run-rsop-observe.ps1": "bdd9d8a308804ae8fff94d1aa7d5a24cc43a23c9487b8352c8caa7cf0e865293",
+      "run-rsop-oracle.sh": "5ad80d15708ffa738156b03363a6c2ce30e08076f96b2289bfec0bbd1bb6480c"
+    },
+    "paths": {
+      "build-rsop-candidate.py": "scripts/plan-033/build-rsop-candidate.py",
+      "finalize_rsop_run.py": "scripts/windows-oracle/finalize_rsop_run.py",
+      "oracle_evidence.py": "src/gpo_studio/oracle_evidence.py",
+      "psdirect.ps1": "scripts/windows-oracle/psdirect.ps1",
+      "run-rsop-author.ps1": "scripts/windows-oracle/run-rsop-author.ps1",
+      "run-rsop-observe.ps1": "scripts/windows-oracle/run-rsop-observe.ps1",
+      "run-rsop-oracle.sh": "scripts/windows-oracle/run-rsop-oracle.sh"
+    }
+  },
+  "state": "pass",
+  "token_groups": {
+    "directory": [
+      "LAB\\Domain Computers",
+      "LAB\\StudioRsopGroup-20261009004951-9746"
+    ],
+    "directory_error": null,
+    "directory_status": "collected",
+    "group": "StudioRsopGroup",
+    "machine_token": [
+      "BUILTIN\\Administrators",
+      "Everyone",
+      "BUILTIN\\Users",
+      "NT AUTHORITY\\NETWORK",
+      "NT AUTHORITY\\Authenticated Users",
+      "This Organization",
+      "LABCL01$",
+      "StudioRsopGroup-20261009004951-9746",
+      "Domain Computers",
+      "Authentication authority asserted identity",
+      "System Mandatory Level"
+    ],
+    "member": "computer"
+  },
+  "topology_delivered_intact": true,
+  "transport": "psdirect",
+  "work_package": "WP-6B"
+}

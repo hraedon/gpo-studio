@@ -13,6 +13,9 @@ tests/fixtures/migration-tables/*.migtable -text
 docs/plan-033/**/*.json -text
 docs/plan-033/**/*.md   -text
 tests/fixtures/native-gpp-gpmc/** -text
+# Batch-2 GPP Registry native captures (WI-075): exact Windows bytes, hashes in
+# their sanitization-record.json.
+tests/fixtures/native-gpp-registry-gpmc/** -text
 # Older Scripts captures are UTF-8 transcripts, stored as LF in Git.
 tests/fixtures/native-scripts-gpmc/*.txt text eol=lf
 # WI-063: `-text` pinned whatever bytes were committed, so a Windows-side CRLF
@@ -20,6 +23,8 @@ tests/fixtures/native-scripts-gpmc/*.txt text eol=lf
 # such an edit visible to `assert_bound_source_bytes` as worktree/HEAD drift.
 scripts/plan-033/build-*.py text eol=lf
 scripts/plan-033/*.sh       text eol=lf
+scripts/plan-033/lane-supervisor.py text eol=lf
+scripts/plan-033/lane-scope.py text eol=lf
 scripts/windows-oracle/**   text eol=lf
 src/gpo_studio/policy_families.py text eol=lf
 src/gpo_studio/security_template.py text eol=lf
@@ -35,6 +40,9 @@ src/gpo_studio/gpp.py text eol=lf
 src/gpo_studio/model.py text eol=lf
 src/gpo_studio/registry_pol.py text eol=lf
 src/gpo_studio/validation.py text eol=lf
+# Batch 2 (review): newly bound by the archive lanes and WP-1B.
+src/gpo_studio/deterministic_zip.py text eol=lf
+src/gpo_studio/writer_conformance.py text eol=lf
 # Bound by the lifecycle lane (wp7-evidence/lifecycle, 2026-10-08).
 src/gpo_studio/lifecycle.py text eol=lf
 src/gpo_studio/backup.py text eol=lf
@@ -69,6 +77,9 @@ scripts/plan-033/collect-searched-som.ps1 -text
 # was committed" -- WI-063 is what `-text` costs on a file someone edits from
 # Windows, and a new file has no committed bytes worth preserving over the rule.
 scripts/plan-033/collect-dc-clock-dns.ps1 text eol=lf
+# Same reasoning for the GPP Registry capture script (bound by nothing; the
+# operator runs it on the estate and returns the result).
+scripts/plan-033/capture-gpp-registry-native.ps1 text eol=lf
 docs/plan-033/wi028-evidence/** -text -whitespace
 # WI-059 retains complete native packs, including CRLF logs and source snapshots.
 docs/plan-033/*-evidence/wi059-20260908/** -text -whitespace
@@ -122,3 +133,9 @@ tests/fixtures/native-folder-redirection-gpmc/** text eol=lf
 # (rule ascii), so a Windows checkout must not smudge them to CRLF.
 docs/release-evidence-*.md text eol=lf
 docs/release-evidence-report-*.json text eol=lf
+
+# Release 1.1.0 requalification batch (de9736e): manifest-form packs with exact
+# native artifacts (CRLF logs and XML, UTF-16LE reports); the batch manifest's
+# SHA-256s cover those bytes.
+docs/plan-033/*-evidence/release110-20261009/** -text -whitespace
+docs/plan-033/release110-cleanup/** -text -whitespace

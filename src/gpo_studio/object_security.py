@@ -204,7 +204,7 @@ def _format_object_value(code: int, sddl: str) -> str:
 # ``unknown_lines`` rather than ``entries``, because they carry no ``=``.
 # Paths and SDDL strings cannot contain double quotes, so this simple pattern
 # is total over the real shape.
-_OBJECT_ROW_RE = re.compile(r'^"([^"]*)"\s*,\s*(\d+)\s*,\s*"([^"]*)"$')
+_OBJECT_ROW_RE = re.compile(r'^"([^"]*)"\s*,\s*(\d+)\s*,\s*"([^"]*)"$', re.ASCII)
 
 
 def _object_section_rows(section: InfSection) -> tuple[tuple[str, str], ...]:
@@ -250,7 +250,9 @@ def _parse_member_list(value: str) -> tuple[RestrictedGroupMember, ...]:
     return tuple(result)
 
 
-_SID_PRINCIPAL = re.compile(r"S-1-\d+(?:-\d+)+", re.IGNORECASE)
+# re.ASCII: `\d` alone matches any Unicode digit, so a look-alike such as
+# "S-1-5-32-٥٤٤" would be starred as a SID on the wire (review N7).
+_SID_PRINCIPAL = re.compile(r"S-1-\d+(?:-\d+)+", re.IGNORECASE | re.ASCII)
 
 
 def _principal_wire(principal: str) -> str:
