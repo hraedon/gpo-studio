@@ -6182,8 +6182,8 @@ def publication_plan_preview(
 # Plan 034: the firewall surface (WI-076).
 #
 # `firewall_policy.py` is bound by the firewall lane's verdict
-# (`firewall-20261009001906-2614294`, 36/36 at de9736e, the release 1.1.0
-# batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
+# (`firewall-20261009080610-2829523`, 36/36 at 9940561, the release 1.1.0
+# successor batch; first certified by `firewall-20261008094055-2092337`), as are the builder and
 # the export chain, so the composition lives here, in a file no lane binds.
 # The render endpoint emits exactly what `to_registry_settings` emits, in the
 # shape `POST /api/gpos/{guid}/settings` accepts; it never writes a GPO.
@@ -6370,7 +6370,7 @@ class FirewallPolicyDecodeResponse(BaseModel):
     limitations: list[FirewallLimitation]
 
 
-_FIREWALL_RUN_ID = "firewall-20261009001906-2614294"
+_FIREWALL_RUN_ID = "firewall-20261009080610-2829523"
 _FIREWALL_RENDER_GPO_GUID = "00000000-0000-4000-8000-000000000f1e"
 _FIREWALL_RULES_KEY = (FIREWALL_KEY + "\\FirewallRules").casefold()
 
