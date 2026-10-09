@@ -35,14 +35,33 @@ Operator-facing:
   exactly as imported. In an edited one, what the edit changed is written from
   the model, in its imported position, and everything else stays as imported;
   each merge is parsed back, and the model's own rendering is written instead
-  wherever the merge would not mean what the model means. The run-once id
-  survives turning apply-once off and on again. The API never accepts a
-  retained element, and a stored one is validated on load and never writes a
-  `cpassword`. Workspaces need no migration: data stored before this fix is
-  written, and digested, exactly as before. Review digests change only for a
-  GPO imported from GPMC after the fix, because its export does (re-importing
-  Studio's own backup leaves them unchanged). The report-parity inventory now
-  reads the typed model alone (`gpp.model_only`), as it always meant to.
+  wherever the merge would not mean what the model means. Every element written
+  for an edited item is also held to the model's intended values: a typed value
+  the edit changed that would read back as the imported one is refused, never
+  exported. An imported task's command is now written into its `<Task>`
+  payload (a TaskV2's `arguments` edit was lost even before this fix), and an
+  edit to a typed field with no wire form, such as a printer's generic
+  `action`, is refused. A registry item's action as the workbench shows and
+  edits it, which was never written, is now read from the value's action on
+  import and applied to it by an API edit. The run-once id survives turning
+  apply-once off and on again. A cpassword is refused as an element as well as an attribute, at any
+  depth and in any case or namespace, on import, at the API, on load and on
+  every export (before, the element form passed every check and reached
+  `export.zip`). The API neither serves nor accepts a retained element, in any JSON
+  body (revision snapshots and diffs included) or inline diff reference; a
+  stored one is validated on load (no `cpassword`, no XML namespace) and an
+  item in a namespace is not retained. The review diff compares what a
+  retained element makes the export write, not the element itself, so a
+  re-import of Studio's own export is not a change. Workspaces need no
+  migration: a GPO stored before this fix keeps its digests and backup id, and
+  its export is byte for byte what 1.1.0rc1 wrote except where WI-081 below
+  corrected an attribute name or order (Files, Folders, Printers, Shortcuts,
+  immediate tasks), measured against the records that commit stored
+  (`tests/fixtures/gpp-store-baseline-bd84b3a`). Review digests change only
+  for a GPO imported from GPMC after the fix, because its export does
+  (re-importing Studio's own backup leaves them unchanged). The
+  report-parity inventory now reads the typed model alone (`gpp.model_only`),
+  as it always meant to.
   Covered by `tests/test_gpp_native_preservation.py`, which compares every
   native capture with Studio's output through import, storage and the public
   `export.zip` and `gpmc-backup` routes, attribute by attribute and in order,
@@ -62,8 +81,9 @@ Operator-facing:
   digests do not move. An audit of every writer against the native captures
   found three more names none contains, now no longer written: Folders
   `suppress`, Shortcuts `Properties@name` (a shortcut is named on its item, as
-  GPMC names it) and an immediate task's `program`, `arguments` and `startIn`
-  where its `<Task>` payload already holds them. `tests/test_gpp_typed_attribute_names.py`
+  GPMC names it; the typed name is written there whenever set, so a rename
+  persists) and an immediate task's `program`, `arguments` and `startIn` where
+  its `<Task>` payload already holds them. `tests/test_gpp_typed_attribute_names.py`
   pins the audit: every `Properties` attribute the writer types appears in a
   capture. Families with no capture are not claimed. Every lane candidate
   builds byte for byte as before.
