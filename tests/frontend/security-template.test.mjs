@@ -113,6 +113,27 @@ describe("renderTemplate", () => {
     expect(renderTemplate(body)).toMatch(/UTF-16LE/);
   });
 
+  test("the output and the issue table can be scrolled from the keyboard", () => {
+    // Both scroll sideways in a narrow window; axe scrollable-region-focusable.
+    const html = renderTemplate({
+      ...body,
+      issues: [
+        {
+          severity: "warning",
+          code: "c",
+          message: "m",
+          path: "p",
+        },
+      ],
+    });
+    expect(html).toContain(
+      '<pre class="mono inf-output" tabindex="0" role="region" aria-label="GptTmpl.inf contents">',
+    );
+    expect(html).toContain(
+      '<div class="table-card" tabindex="0" role="region" aria-label="Validation issues">',
+    );
+  });
+
   test("escapes the template text", () => {
     const html = renderTemplate({ ...body, inf_text: "<b>not markup</b>" });
     expect(html).not.toContain("<b>not markup</b>");

@@ -288,8 +288,10 @@ Automated, run by the `frontend` CI job and the release `verify` job:
   order and dialog focus semantics;
 - the dark theme, held to the same axe bar as the light theme;
 - the Security template dialog's own axe scan, needed because the
-  workspace-wide scan runs with every dialog closed;
-- the Folder Redirection dialog, populated, with an axe scan;
+  workspace-wide scan runs with every dialog closed, and a scan of a rendered
+  template in a 360-pixel-wide window;
+- the Folder Redirection dialog, populated, with an axe scan, at desktop width
+  and in a 360-pixel-wide window;
 - the RSOP prediction dialog, scanned in the light and the dark theme in each
   state that renders its own markup: the empty prompt, a conclusive result, a
   result with warnings and a blocked GPO, an inconclusive result (the server's
@@ -301,7 +303,12 @@ The RSOP scan found one serious finding, now fixed: a result table wide
 enough to scroll sideways was not reachable from the keyboard (axe rule
 `scrollable-region-focusable`; it showed once a blocked GPO's reasons widened
 the GPO table). Each RSOP result table now sits in a focusable region named
-after its heading, as the Scripts preview's file contents already did.
+after its heading, as the Scripts preview's file contents already did. The
+same defect was then looked for in the other new result panels: the Security
+template's validation-issue table had it in a narrow window (the new scan
+failed before the fix), and it and the rendered `GptTmpl.inf` block are now
+focusable named regions too. The Folder Redirection table wraps rather than
+scrolls and passed unchanged.
 
 Gaps, stated rather than implied:
 

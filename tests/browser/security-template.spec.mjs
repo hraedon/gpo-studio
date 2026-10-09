@@ -146,3 +146,30 @@ test("the open dialog meets the same accessibility bar as the rest", async ({
   );
   expect(serious).toEqual([]);
 });
+
+test("the rendered template meets the same bar in a narrow window", async ({
+  page,
+}) => {
+  // At phone width the template's longer lines scroll sideways inside the
+  // output block; the scan proves a keyboard user can reach that scroll.
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/");
+  await page.locator("#open-security-template").click();
+  const form = page.locator("#security-template-form");
+  await form
+    .locator("[name=families]")
+    .fill('{"audit": {"logon_events": "success"}}');
+  await form.getByRole("button", { name: "Render" }).click();
+  await expect(page.locator("#security-template-results")).toContainText(
+    "AuditLogonEvents = 1",
+  );
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(
+    results.violations
+      .filter((violation) => ["serious", "critical"].includes(violation.impact))
+      .map(({ id, nodes }) => ({
+        id,
+        targets: nodes.map((node) => node.target.join(" ")),
+      })),
+  ).toEqual([]);
+});

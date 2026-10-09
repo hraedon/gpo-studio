@@ -587,14 +587,17 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 Operator-facing:
 
-- *New in this candidate:* **RSOP result tables that scroll sideways are
-  reachable from the keyboard.** A result table wider than the dialog (a
-  blocked GPO's reasons are enough) scrolled horizontally inside a container
-  that could not take focus, so a keyboard user could not scroll it. Each
-  RSOP result table now sits in a focusable region named after its heading.
-  Found by a new axe scan of the open RSOP dialog in the light and the dark
-  theme, populated and with validation errors (`tests/browser/rsop.spec.mjs`),
-  which closes the gap the workspace-wide scan leaves for closed dialogs.
+- *New in this candidate:* **RSOP and Security template output that scrolls
+  sideways is reachable from the keyboard.** A result table wider than the
+  dialog (a blocked GPO's reasons are enough) scrolled horizontally inside a
+  container that could not take focus, so a keyboard user could not scroll
+  it. Each RSOP result table, the Security template's validation-issue table
+  and its rendered `GptTmpl.inf` block now sit in focusable regions named
+  after their content. Found by a new axe scan of the open RSOP dialog in the
+  light and the dark theme, populated and with validation errors
+  (`tests/browser/rsop.spec.mjs`), which closes the gap the workspace-wide
+  scan leaves for closed dialogs, and by a narrow-window scan of a rendered
+  security template.
 - *New in this draft:* **GPP files keep their document order and retained root
   content after an edit, fixed and awaiting requalification (WI-072,
   WI-073).** Found by the report-parity offline differ, which re-renders the

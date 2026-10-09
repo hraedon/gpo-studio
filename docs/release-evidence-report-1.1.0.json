@@ -187,8 +187,9 @@
     },
     "plan_034_open_exits": [],
     "accessibility": {
-      "automated": "frontend CI job and release verify job: workspace axe scan, keyboard, focus, dark theme, and open-dialog axe scans of the Security template, Folder Redirection and RSOP prediction dialogs (RSOP in light and dark themes, populated and with validation errors)",
+      "automated": "frontend CI job and release verify job: workspace axe scan, keyboard, focus, dark theme, and open-dialog axe scans of the Security template, Folder Redirection and RSOP prediction dialogs (RSOP in light and dark themes, populated and with validation errors; Security template and Folder Redirection populated in a 360-pixel-wide window)",
       "rsop_axe_finding_fixed": "scrollable-region-focusable (serious): a sideways-scrolling RSOP result table was not keyboard-reachable; each result table is now a focusable, named region",
+      "security_template_axe_finding_fixed": "scrollable-region-focusable (serious), in a 360-pixel-wide window: the validation-issue table; it and the rendered GptTmpl.inf block are now focusable, named regions",
       "hands_on_screen_reader": "required before final approval; pending: the owner runs docs/nvda-validation-runbook.md against the exact v1.1.0-rc.N wheel from the release assets"
     },
     "lane_verdicts": "requalified by the release 1.1.0 batch at de9736ed3a4148b91cf2267fbe4640e260cc232f; CI on the tagged commit must show they still bind its source (tests/test_committed_evidence.py)",

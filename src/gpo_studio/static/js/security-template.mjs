@@ -1,7 +1,7 @@
 import { $, escapeHtml } from "./state.mjs";
 import { api } from "./api.mjs";
 import { clearFormErrors, showFormErrors } from "./errors.mjs";
-import { renderLimitations } from "./rsop.mjs";
+import { renderLimitations, scrollRegion } from "./rsop.mjs";
 
 // The security-template panel (Plan 034 WP-3).
 //
@@ -76,7 +76,7 @@ export function renderIssues(issues) {
         `<tr><td><span class="pill ${issue.severity === "error" ? "" : "warn"}">${escapeHtml(issue.severity)}</span></td><td class="mono">${escapeHtml(issue.code)}</td><td>${escapeHtml(issue.message)}</td><td class="mono truncate" title="${escapeHtml(issue.path)}">${escapeHtml(issue.path)}</td></tr>`,
     )
     .join("");
-  return `<div class="table-card"><table><thead><tr><th>Severity</th><th>Code</th><th>Message</th><th>Path</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `${scrollRegion("Validation issues")}<table><thead><tr><th>Severity</th><th>Code</th><th>Message</th><th>Path</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 export function renderTemplate(body) {
@@ -86,7 +86,8 @@ export function renderTemplate(body) {
     renderIssues(body.issues),
     "<h3>GptTmpl.inf</h3>",
     '<p class="rsop-note">Shown as text for reading. Windows reads the file as UTF-16LE with a byte-order mark and CRLF line endings; the API returns those bytes as <code>inf_base64</code>.</p>',
-    `<pre class="mono inf-output">${escapeHtml(body.inf_text)}</pre>`,
+    // Long lines scroll sideways; focusable and named, as the Scripts preview.
+    `<pre class="mono inf-output" tabindex="0" role="region" aria-label="GptTmpl.inf contents">${escapeHtml(body.inf_text)}</pre>`,
   ]
     .filter(Boolean)
     .join("");
