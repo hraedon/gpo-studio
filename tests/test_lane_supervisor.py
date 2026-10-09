@@ -180,3 +180,49 @@ def test_an_unstartable_lane_command_is_127_or_126_not_1(
     reason = "not found" if kind == "missing" else "not executable"
     assert f"=== watchdog: cannot start the lane command {command}: {reason}" in log
     assert "Traceback" not in log
+
+
+def _patched_supervisor(tmp_path: Path, old: str, new: str) -> Path:
+    """A copy of the supervisor with one fragment of its source replaced --
+    how these tests stand in a regression the real code must survive."""
+    source = SUPERVISOR.read_text(encoding="utf-8")
+    assert source.count(old) == 1, f"the supervisor no longer contains {old!r}"
+    patched = tmp_path / "lane-supervisor.py"
+    patched.write_text(source.replace(old, new), encoding="utf-8")
+    return patched
+
+
+def test_a_gate_wrapper_that_will_not_exit_on_cancel_is_lost_containment_not_a_hang(
+    tmp_path: Path,
+) -> None:
+    """Review Low 4: the cancelled-before-start path waited on the gate
+    wrapper without a bound, so a wrapper that did not exit on EOF turned a
+    clean cancel into a supervisor that never returned. The wait is bounded;
+    past it the wrapper is killed and NO report is written, which the driver
+    treats as lost containment (it then clears the scope and stops the batch)."""
+    wrapper_pid = tmp_path / "wrapper.pid"
+    supervisor = _patched_supervisor(
+        tmp_path,
+        "if not opened:\n    os._exit(125)\n",
+        "if not opened:\n"
+        f"    open({str(wrapper_pid)!r}, 'w').write(str(os.getpid()))\n"
+        "    __import__('time').sleep(3600)\n",
+    )
+    cancel = tmp_path / "cancel"
+    cancel.touch()
+    marker = tmp_path / "lane-ran"
+    proc = _start(tmp_path, ["touch", str(marker)], "--cancel-file", str(cancel), source=supervisor)
+    try:
+        proc.wait(timeout=45)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        if wrapper_pid.exists():
+            stuck = int(wrapper_pid.read_text())
+            if _alive(stuck):
+                os.kill(stuck, signal.SIGKILL)
+    assert proc.returncode == 125
+    assert not (tmp_path / "report.json").exists(), "a report vouches for a lost containment"
+    assert "CONTAINMENT LOST: the launch gate did not exit" in _log(tmp_path)
+    assert not _alive(int(wrapper_pid.read_text())), "the stuck wrapper outlived the supervisor"
+    assert not marker.exists()

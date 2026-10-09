@@ -22,7 +22,9 @@ executable), 124 when the deadline killed it, or 128 + N
 when the supervisor itself was stopped by signal N -- TERM, INT or HUP; the
 driver's SIGUSR1 and cancel file count as TERM -- (a cancellation, whatever
 the leader then exited with, and whether or not the lane had started); the
-report file says which, because a lane can exit 124 or 143 by itself.
+report file says which, because a lane can exit 124 or 143 by itself. When
+it can no longer vouch for the lane's containment it exits 125 and writes NO
+report, which the driver records as lost containment.
 
 run-requal-batch.sh also runs the supervisor inside a systemd user scope, so
 that if the supervisor itself dies (SIGKILL), the driver can still find and
@@ -46,6 +48,15 @@ from pathlib import Path
 
 PR_SET_CHILD_SUBREAPER = 36
 TIMED_OUT_STATUS = 124
+#: Exit status when the supervisor can no longer vouch for the lane's
+#: containment; it then writes NO report, which the driver records as lost
+#: containment (the driver's own CONTAINMENT_LOST_STATUS is the same 125).
+CONTAINMENT_LOST_STATUS = 125
+#: How long a closed launch gate's wrapper may take to exit (it exits at once
+#: on EOF; this only covers its interpreter starting up). Past it, the
+#: wrapper is killed and containment is reported lost. With the kill grace,
+#: it stays inside the driver's stop grace (kill grace + 15 s).
+GATE_CLOSE_TIMEOUT = 10.0
 
 
 def become_subreaper() -> None:
@@ -285,7 +296,22 @@ def main() -> int:
     pending = signal.sigpending() & cancel_signals
     if stopping or cancel_requested() or pending:
         os.close(gate_write)  # EOF: the child exits 125 without exec
-        proc.wait()
+        try:
+            proc.wait(timeout=GATE_CLOSE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            # A wrapper that ignores a closed gate is a regression no report
+            # should paper over: kill it, and leave the report unwritten so
+            # the driver takes its lost-containment path (scope cleared and
+            # verified, batch stopped).
+            log_line(
+                args.log,
+                f"CONTAINMENT LOST: the launch gate did not exit within "
+                f"{GATE_CLOSE_TIMEOUT:g}s of a cancel; killing it, and writing no report",
+            )
+            gate_reaper = Reaper(proc.pid)
+            contain(gate_reaper, proc.pid, args.grace)
+            proc.returncode = -1 if gate_reaper.leader_status is None else gate_reaper.leader_status
+            return CONTAINMENT_LOST_STATUS
         cancelled_by = stopping or (cancellation_signal(pending) if pending else signal.SIGTERM)
         log_line(
             args.log, f"lane cancelled before it started (signal {cancelled_by}); not a verdict"
