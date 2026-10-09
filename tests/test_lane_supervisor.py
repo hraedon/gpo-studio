@@ -272,3 +272,36 @@ def test_a_launch_that_fails_closes_the_gate_pipe_and_still_reports(tmp_path: Pa
         "killed": 0,
     }
     assert "could not start the lane's launch gate" in _log(tmp_path)
+
+
+#: Starts the supervisor the way a careless parent might: SIGUSR2 and SIGALRM
+#: blocked, SIGQUIT and SIGTSTP ignored (bash ignores SIGQUIT -- and SIGINT --
+#: for every background job it starts, as the driver starts the supervisor).
+_CARELESS_PARENT = """\
+import os, signal, sys
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR2, signal.SIGALRM})
+signal.signal(signal.SIGQUIT, signal.SIG_IGN)
+signal.signal(signal.SIGTSTP, signal.SIG_IGN)
+os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+"""
+
+
+def test_a_lane_starts_with_no_signal_blocked_or_ignored(tmp_path: Path) -> None:
+    """Review Low 6: the gate unblocked only the supervisor's own signals, so
+    one the parent had blocked (SIGUSR2) or ignored (SIGQUIT) stayed so in
+    the lane. The lane's own /proc/self/status must show nothing blocked and
+    nothing ignored."""
+    status_copy = tmp_path / "lane-status"
+    command = _command_line(tmp_path, ["cp", "/proc/self/status", str(status_copy)])
+    completed = subprocess.run(
+        [command[0], "-c", _CARELESS_PARENT, *command[1:]],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert completed.returncode == 0, completed.stderr
+    fields = dict(
+        line.split(":", 1) for line in status_copy.read_text(encoding="ascii").splitlines()
+    )
+    masks = {name: int(fields[name], 16) for name in ("SigBlk", "SigIgn")}
+    assert masks == {"SigBlk": 0, "SigIgn": 0}, {k: f"{v:#x}" for k, v in masks.items()}

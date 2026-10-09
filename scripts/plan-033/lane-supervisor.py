@@ -165,10 +165,13 @@ def contain(reaper: Reaper, leader: int, grace: float) -> int:
 
 #: The launch gate's exec wrapper. It inherits the supervisor's blocked
 #: cancellation signals; it waits for the gate byte (EOF -- the supervisor
-#: cancelled -- means exit 125 having run nothing), then restores what the lane
-#: should start with -- those signals unblocked, SIGPIPE and SIGXFSZ at their
-#: defaults (Python ignores them, and an ignored disposition survives exec) --
-#: and execs the lane's command in its own place. A command that cannot be
+#: cancelled -- means exit 125 having run nothing), then gives the lane a clean
+#: signal state -- every catchable signal at its default disposition and an
+#: empty signal mask -- and execs the lane's command in its own place. Not
+#: just the supervisor's own signals: a blocked mask and an ignored
+#: disposition both survive exec, so whatever the supervisor's parent blocked
+#: or ignored (bash ignores SIGINT and SIGQUIT for a background job; Python
+#: ignores SIGPIPE and SIGXFSZ) would otherwise reach the lane. A command that cannot be
 #: exec'd at all exits as a shell would -- 127 when it is not found, 126 when
 #: it is found but cannot be executed -- with a watchdog line in the log, so
 #: an unstartable lane is never mistaken for one that ran and failed with 1.
@@ -179,11 +182,13 @@ opened = os.read(fd, 1) == b"1"
 os.close(fd)
 if not opened:
     os._exit(125)
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
-signal.pthread_sigmask(
-    signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGUSR1}
-)
+for sig in signal.valid_signals():
+    if sig not in (signal.SIGKILL, signal.SIGSTOP):
+        try:
+            signal.signal(sig, signal.SIG_DFL)
+        except (OSError, ValueError):
+            pass
+signal.pthread_sigmask(signal.SIG_SETMASK, ())
 try:
     os.execvp(sys.argv[2], sys.argv[2:])
 except OSError as exc:
