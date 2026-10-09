@@ -291,7 +291,52 @@ def test_a_failed_lane_fails_the_batch(tmp_path: Path) -> None:
     rows = [
         json.loads(line) for line in (tmp_path / "batch/progress.jsonl").read_text().splitlines()
     ]
-    assert [(r["name"], r["exit_status"]) for r in rows] == [("wp1b", 42)]
+    assert [(r["name"], r["exit_status"], r["exec_failed"]) for r in rows] == [
+        ("wp1b", 42, False)
+    ]
+
+
+@pytest.mark.parametrize("status", [127, 126])
+def test_a_lane_that_exits_127_or_126_itself_is_not_recorded_as_unstartable(
+    tmp_path: Path, status: int
+) -> None:
+    """Sol review, Low: only the log told an unstartable lane from one that
+    ran and exited 127 or 126. The progress row says it: exec_failed."""
+    clone = _clone(tmp_path)
+    result = _run(clone, _fake_acb(tmp_path, status), tmp_path, "wp1b")
+    assert result.returncode == 1, result.stderr
+    assert [(r["exit_status"], r["exec_failed"]) for r in _rows(tmp_path)] == [(status, False)]
+
+
+def test_a_lane_whose_command_cannot_start_is_recorded_as_unstartable(tmp_path: Path) -> None:
+    """The lane's command (acb) is on no PATH entry: the row says 127 AND
+    exec_failed, and the batch goes on to the next lane like any failure."""
+    clone = _clone(tmp_path)
+    empty_bin = tmp_path / "bin"
+    empty_bin.mkdir()
+    path = [d for d in os.environ["PATH"].split(os.pathsep) if d and not (Path(d) / "acb").exists()]
+    env = {
+        **os.environ,
+        **_scope_env(tmp_path),
+        "PATH": os.pathsep.join([str(empty_bin), *path]),
+        "GPO_STUDIO_LAB_HOST": "lab-host.example.invalid",
+    }
+    result = subprocess.run(
+        _driver(clone, env, str(tmp_path / "batch"), "wp1b", "wp2"),
+        cwd=clone,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 1, result.stderr
+    rows = _rows(tmp_path)
+    outcomes = [
+        (r["name"], r["exit_status"], r["exec_failed"], r["containment_lost"]) for r in rows
+    ]
+    assert outcomes == [("wp1b", 127, True, False), ("wp2", 127, True, False)]
+    log = (tmp_path / "batch/logs/wp1b.log").read_text()
+    assert "cannot start the lane command acb: not found" in log
 
 
 def test_an_unknown_lane_is_refused_before_anything_runs(tmp_path: Path) -> None:
@@ -816,8 +861,19 @@ with open(report, "w", encoding="utf-8") as fh:
         "garbage\n",
         '{"status": 0, "timed_out": false, "cancelled": false}',  # a field missing
         '{"status": "0", "timed_out": false, "cancelled": false, "killed": 0}',  # wrong type
+        # Every field the supervisor writes but exec_failed (its report before
+        # exec_failed existed), and then exec_failed of the wrong type.
+        '{"status": 0, "timed_out": false, "cancelled": false, "killed": 0}',
+        '{"status": 0, "timed_out": false, "cancelled": false, "killed": 0, "exec_failed": 0}',
     ],
-    ids=["truncated", "garbage", "missing-field", "wrong-type"],
+    ids=[
+        "truncated",
+        "garbage",
+        "missing-field",
+        "wrong-type",
+        "no-exec-failed",
+        "exec-failed-not-bool",
+    ],
 )
 def test_an_invalid_supervisor_report_is_lost_containment(tmp_path: Path, report: str) -> None:
     """Only a non-empty report was required, so a truncated one parsed to an
@@ -879,7 +935,9 @@ def test_a_valid_report_with_processes_left_in_the_scope_is_lost_containment(
 ) -> None:
     """A supervisor that reports success but leaves the lane running: the scope
     check catches it, kills it, and verifies the cgroup empty."""
-    report = '{"status": 0, "timed_out": false, "cancelled": false, "killed": 0}'
+    report = (
+        '{"status": 0, "timed_out": false, "cancelled": false, "killed": 0, "exec_failed": false}'
+    )
     proc, pids_file = _start_batch(
         tmp_path, _DETACH_AND_WAIT, _BAD_REPORT_SUPERVISOR.replace("REPORT", repr(report))
     )

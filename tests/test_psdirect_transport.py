@@ -232,27 +232,31 @@ $bad = foreach ($node in $ast.FindAll({ param($n) $true }, $true)) {
 """
 
 
-def _native_findings(script: Path) -> list[str]:
+def _native_findings(script: Path, work: Path) -> list[str]:
+    """Run the native-launch guard over `script`. Its harness is written under
+    `work` -- the calling test's tmp_path, so it honours pytest's --basetemp
+    rather than the default temp root."""
     if shutil.which("pwsh") is None:
         pytest.skip("pwsh is not installed")
-    with tempfile.TemporaryDirectory() as tmp:
-        harness = Path(tmp) / "native.ps1"
-        harness.write_text(_NATIVE_HARNESS, encoding="utf-8")
-        completed = subprocess.run(
-            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(harness)]
-            + ["-Script", str(script)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+    harness_dir = work / "native-harness"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    harness = harness_dir / "native.ps1"
+    harness.write_text(_NATIVE_HARNESS, encoding="utf-8")
+    completed = subprocess.run(
+        ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(harness)]
+        + ["-Script", str(script)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     assert completed.returncode == 0, completed.stderr
     found = json.loads(completed.stdout.strip() or "[]")
     return [str(f) for f in (found if isinstance(found, list) else [found])]
 
 
-def test_the_controller_starts_no_native_process() -> None:
+def test_the_controller_starts_no_native_process(tmp_path: Path) -> None:
     """[Console]::SetOut cannot redirect a native child's fd 1 (review N3)."""
-    assert _native_findings(PSDIRECT) == []
+    assert _native_findings(PSDIRECT, tmp_path) == []
 
 
 #: Negative controls (review round 4): every launch form the guard must
@@ -296,9 +300,23 @@ _EXPECTED_CONTROL_LINES = {
 def test_the_native_guard_catches_every_launch_form(tmp_path: Path) -> None:
     script = tmp_path / "controls.ps1"
     script.write_text(_NATIVE_CONTROLS, encoding="utf-8")
-    findings = _native_findings(script)
+    findings = _native_findings(script, tmp_path)
     lines = {int(f.split(":", 1)[0]) for f in findings}
     assert lines == _EXPECTED_CONTROL_LINES, findings
+
+
+def test_the_pwsh_harness_lives_under_pytests_tmp_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review Low 7: the harness was written to a tempfile.TemporaryDirectory()
+    under the default temp root (/tmp, RAM-backed here), ignoring pytest's
+    tmp_path and --basetemp. With the default temp root made unusable, it
+    must still run, and leave its harness under tmp_path."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "no-such-temp-root"))
+    script = tmp_path / "clean.ps1"
+    script.write_text("Get-Item -LiteralPath .\n", encoding="utf-8")
+    assert _native_findings(script, tmp_path) == []
+    assert (tmp_path / "native-harness" / "native.ps1").is_file()
 
 
 def test_the_body_exemption_holds_only_for_the_audited_typed_helper(tmp_path: Path) -> None:
@@ -307,7 +325,7 @@ def test_the_body_exemption_holds_only_for_the_audited_typed_helper(tmp_path: Pa
         "function Invoke-RestartableTransfer { param([scriptblock] $Body) & $Body 1 }\n",
         encoding="utf-8",
     )
-    assert _native_findings(script) == []
+    assert _native_findings(script, tmp_path) == []
 
 
 def test_the_guest_work_is_never_inside_a_restartable_transfer() -> None:

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from batch_provenance import scope_provenance_problems
+from batch_provenance import exec_failed_problems, scope_provenance_problems
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = runpy.run_path(str(ROOT / "scripts/plan-033/bank-requal-batch.py"))
@@ -99,6 +99,50 @@ def test_a_lane_that_did_not_pass_is_recorded_with_every_driver_field(tmp_path: 
     for field in TOOL["PROGRESS_FIELDS"]:
         assert row[field] == timed_out[field], field
     assert scope_provenance_problems(manifest) == []
+
+
+def test_progress_with_exec_failed_banks_as_schema_3_and_keeps_it(tmp_path: Path) -> None:
+    """Sol review, Low: the driver now records exec_failed. Its progress banks
+    at schema 3 with the field on every row."""
+    unstartable = _row("wp1b", exit_status=127, exec_failed=True)
+    ran = _row("wp2", exit_status=127, exec_failed=False)
+    args = _progress(tmp_path, [unstartable, ran])
+    assert TOOL["manifest"](args) == 0
+    manifest = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 3
+    assert [(r["name"], r["exec_failed"]) for r in manifest["not_passed"]] == [
+        ("wp1b", True), ("wp2", False)
+    ]
+    assert scope_provenance_problems(manifest) == []
+    assert exec_failed_problems(manifest) == []
+
+
+def test_progress_from_before_exec_failed_still_banks_as_schema_2(tmp_path: Path) -> None:
+    """Rows written before the driver recorded exec_failed (the release110
+    batch's) carry no such field: they bank as schema 2, without inventing one."""
+    args = _progress(tmp_path, [_row("wp1b")])
+    assert TOOL["manifest"](args) == 0
+    manifest = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 2
+    assert "exec_failed" not in manifest["not_passed"][0]
+    assert exec_failed_problems(manifest) == []
+
+
+@pytest.mark.parametrize(
+    "rows,refusal",
+    [
+        ([_row("wp1b", exec_failed=False), _row("wp2")], "some progress rows only"),
+        ([_row("wp1b", exec_failed=1)], "not a boolean"),
+        ([_row("wp1b", exit_status=0, exec_failed=True)], "never started"),
+    ],
+    ids=["mixed", "not-bool", "passed-but-unstartable"],
+)
+def test_inconsistent_exec_failed_progress_is_refused(
+    tmp_path: Path, rows: list[dict[str, Any]], refusal: str
+) -> None:
+    args = _progress(tmp_path, rows)
+    with pytest.raises(SystemExit, match=refusal):
+        TOOL["manifest"](args)
 
 
 # ---------------------------------------------------------------------------
