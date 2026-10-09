@@ -8,8 +8,9 @@ repeats it rather than re-deriving it:
               driver log from the controller, assemble the packs under
               docs/plan-033/<family>-evidence/<label>/<lane>/, and check every
               banked file against the controller's copy by SHA-256;
-    manifest  write docs/plan-033/<batch>-batch.json (schema 2) from the
-              driver's progress.jsonl and the staged packs;
+    manifest  write docs/plan-033/<batch>-batch.json (schema 3; schema 2 for
+              progress written before the driver recorded exec_failed) from
+              the driver's progress.jsonl and the staged packs;
     retarget  in the named files, replace each currently live verdict's run id
               and commit with the new batch's run for the same lane. Only
               RETARGETABLE files (records of the current qualification) are
@@ -62,14 +63,21 @@ EVIDENCE = REPO_ROOT / "docs" / "plan-033"
 REGISTRY = REPO_ROOT / "tests" / "test_committed_evidence.py"
 
 #: Manifest schema: 2 carries the driver's containment fields and
-#: `test_scope_tool` on every run (tests/batch_provenance.py).
-SCHEMA_VERSION = 2
-#: Progress fields copied verbatim onto every run row.
+#: `test_scope_tool` on every run (tests/batch_provenance.py); 3 adds
+#: `exec_failed` -- the lane's command never started -- which a 127 or 126
+#: exit status alone cannot say. Progress written before the driver recorded
+#: exec_failed (the release110 batch's, for one) has the field on no row and
+#: still banks as schema 2; a progress log with it on some rows only is refused.
+SCHEMA_VERSION = 3
+LEGACY_SCHEMA_VERSION = 2
+#: Progress fields copied verbatim onto every run row (schema 2).
 PROGRESS_FIELDS = (
     "runner", "started_utc", "completed_utc", "exit_status", "budget_seconds",
     "timed_out", "processes_killed", "cancelled", "containment_lost", "scope_failed",
     "test_scope_tool",
 )
+#: Fields schema 3 adds to PROGRESS_FIELDS.
+SCHEMA_3_FIELDS = ("exec_failed",)
 RENAMED_VERDICTS = {
     "rsop-verdict.json": "verification.json",
     "rsop-user-verdict.json": "verification.json",
@@ -292,12 +300,22 @@ def manifest(args: argparse.Namespace) -> int:
     if len(commits) != 1:
         raise SystemExit(f"a batch runs on one frozen commit; progress names {commits}")
     (commit,) = commits
+    marked = [row["name"] for row in rows if "exec_failed" in row]
+    if marked and len(marked) != len(rows):
+        raise SystemExit(f"exec_failed is on some progress rows only ({marked}); a batch's "
+                         "progress comes from one driver")
+    schema = SCHEMA_VERSION if marked else LEGACY_SCHEMA_VERSION
+    copied = PROGRESS_FIELDS + (SCHEMA_3_FIELDS if marked else ())
     runs: list[dict[str, Any]] = []
     not_passed: list[dict[str, Any]] = []
     for row in rows:
         if row.get("test_scope_tool") is not False:
             raise SystemExit(f"{row['name']}: test_scope_tool is not false; never evidence")
-        fields = {key: row[key] for key in PROGRESS_FIELDS}
+        if marked and type(row["exec_failed"]) is not bool:
+            raise SystemExit(f"{row['name']}: exec_failed is {row['exec_failed']!r}, not a boolean")
+        if marked and row["exec_failed"] and row["exit_status"] == 0:
+            raise SystemExit(f"{row['name']}: exit status 0 from a command that never started")
+        fields = {key: row[key] for key in copied}
         if row["exit_status"] != 0:
             not_passed.append({"name": row["name"], "commit": commit, **fields,
                                "local_run_dir": row["local_run_dir"]})
@@ -318,7 +336,7 @@ def manifest(args: argparse.Namespace) -> int:
             "files": _tree(pack),
         })
     document: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": schema,
         "source_commit": commit,
         "driver": "scripts/plan-033/run-requal-batch.sh",
         "lanes_started": len(rows),

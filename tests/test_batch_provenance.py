@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from batch_provenance import manifest_paths, scope_provenance_problems
+from batch_provenance import exec_failed_problems, manifest_paths, scope_provenance_problems
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFESTS = manifest_paths(REPO_ROOT)
@@ -79,3 +79,41 @@ def test_a_schema_1_manifest_may_predate_the_field() -> None:
 def test_a_manifest_without_an_integer_schema_is_refused() -> None:
     assert scope_provenance_problems({"runs": []})
     assert scope_provenance_problems({"schema_version": "2", "runs": []})
+    assert exec_failed_problems({"runs": []})
+
+
+@pytest.mark.parametrize("path", MANIFESTS, ids=lambda p: p.name)
+def test_every_banked_manifest_passes_the_exec_failed_rule(path: Path) -> None:
+    """Every banked manifest so far predates exec_failed (schema <= 2) and
+    passes; a schema 3 one banked later is held to it here."""
+    assert exec_failed_problems(_load(path)) == []
+
+
+def test_a_schema_3_manifest_must_state_exec_failed_on_every_row() -> None:
+    manifest: dict[str, Any] = {
+        "schema_version": 3,
+        "runs": [{"name": "a", "exec_failed": False}, {"name": "b"}],
+        "not_passed": [{"name": "c"}],
+        "successors": [{"name": "d"}],
+    }
+    problems = exec_failed_problems(manifest)
+    assert [p.split(":")[0] for p in problems] == ["b", "c", "d"]
+    manifest["runs"][1]["exec_failed"] = False
+    manifest["not_passed"][0]["exec_failed"] = True
+    manifest["successors"][0]["exec_failed"] = False
+    assert exec_failed_problems(manifest) == []
+
+
+def test_a_schema_2_manifest_may_predate_exec_failed() -> None:
+    assert exec_failed_problems({"schema_version": 2, "runs": [{"name": "a"}]}) == []
+
+
+@pytest.mark.parametrize("value", [1, 0, "false", None])
+def test_exec_failed_must_be_a_boolean(value: object) -> None:
+    manifest = {"schema_version": 3, "not_passed": [{"name": "x", "exec_failed": value}]}
+    assert exec_failed_problems(manifest) == [f"x: exec_failed is {value!r}, not a boolean"]
+
+
+def test_a_passing_run_cannot_be_unstartable() -> None:
+    manifest = {"schema_version": 3, "runs": [{"name": "x", "exec_failed": True}]}
+    assert exec_failed_problems(manifest) == ["x: a passing run whose command never started"]

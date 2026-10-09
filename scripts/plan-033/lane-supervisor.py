@@ -18,7 +18,7 @@ The leader runs as the leader of a new session, with stdin from /dev/null and
 stdout/stderr appended to the lane log. The supervisor exits with the leader's
 own status (128 + N for a signal; 127 or 126, with a watchdog line in the log,
 when its command could not be started at all -- not found, or not
-executable), 124 when the deadline killed it, or 128 + N
+executable -- which the report marks `exec_failed`), 124 when the deadline killed it, or 128 + N
 when the supervisor itself was stopped by signal N -- TERM, INT or HUP; the
 driver's SIGUSR1 and cancel file count as TERM -- (a cancellation, whatever
 the leader then exited with, and whether or not the lane had started); the
@@ -97,6 +97,21 @@ def cancellation_signal(pending: set[signal.Signals]) -> int:
     return min(signal.SIGTERM if sig == signal.SIGUSR1 else sig for sig in pending)
 
 
+def read_exec_status(fd: int) -> bool:
+    """Whether the gate wrapper reported a failed exec on its exec-status pipe,
+    and close it. Called once everything under the supervisor is gone, so
+    every write end is closed: a byte means the exec failed, EOF that it
+    succeeded (or never came). A writer still open would mean something
+    outlived containment; it is read as no failure, never as one."""
+    try:
+        os.set_blocking(fd, False)
+        return os.read(fd, 1) == b"1"
+    except BlockingIOError:
+        return False
+    finally:
+        os.close(fd)
+
+
 def log_line(log: Path, message: str) -> None:
     with log.open("a", encoding="utf-8") as fh:
         fh.write(f"=== watchdog: {message}\n")
@@ -171,13 +186,18 @@ def contain(reaper: Reaper, leader: int, grace: float) -> int:
 #: just the supervisor's own signals: a blocked mask and an ignored
 #: disposition both survive exec, so whatever the supervisor's parent blocked
 #: or ignored (bash ignores SIGINT and SIGQUIT for a background job; Python
-#: ignores SIGPIPE and SIGXFSZ) would otherwise reach the lane. A command that cannot be
-#: exec'd at all exits as a shell would -- 127 when it is not found, 126 when
-#: it is found but cannot be executed -- with a watchdog line in the log, so
-#: an unstartable lane is never mistaken for one that ran and failed with 1.
+#: ignores SIGPIPE and SIGXFSZ) would otherwise reach the lane.
+#:
+#: A command that cannot be exec'd at all exits as a shell would -- 127 when
+#: it is not found, 126 when it is found but cannot be executed -- with a
+#: watchdog line in the log. Since a lane may exit 127 or 126 by itself, the
+#: wrapper also says so on its EXEC-STATUS pipe: the write end is close-on-exec,
+#: so a successful exec closes it unwritten and a failed one writes a byte
+#: first. The report's `exec_failed` is that byte.
 GATE = """\
 import os, signal, sys
-fd = int(sys.argv[1])
+fd, status_fd = int(sys.argv[1]), int(sys.argv[2])
+os.set_inheritable(status_fd, False)
 opened = os.read(fd, 1) == b"1"
 os.close(fd)
 if not opened:
@@ -190,12 +210,13 @@ for sig in signal.valid_signals():
             pass
 signal.pthread_sigmask(signal.SIG_SETMASK, ())
 try:
-    os.execvp(sys.argv[2], sys.argv[2:])
+    os.execvp(sys.argv[3], sys.argv[3:])
 except OSError as exc:
     missing = isinstance(exc, FileNotFoundError)
     why = "not found" if missing else "not executable"
-    line = f"=== watchdog: cannot start the lane command {sys.argv[2]}: {why} ({exc.strerror})"
+    line = f"=== watchdog: cannot start the lane command {sys.argv[3]}: {why} ({exc.strerror})"
     os.write(2, (line + "; it never ran\\n").encode())
+    os.write(status_fd, b"1")
     os._exit(127 if missing else 126)
 """
 
@@ -223,9 +244,22 @@ def main() -> int:
     if not command:
         parser.error("no command")
 
-    def report(status: int, timed_out: bool, strays: int, cancelled: bool = False) -> int:
+    def report(
+        status: int,
+        timed_out: bool,
+        strays: int,
+        cancelled: bool = False,
+        exec_failed: bool = False,
+    ) -> int:
+        # exec_failed: the lane's command never started (not found, not
+        # executable, or the launch itself failed) -- which a status of 127 or
+        # 126 alone cannot say, since a lane may exit with either by itself.
         record = {
-            "status": status, "timed_out": timed_out, "cancelled": cancelled, "killed": strays
+            "status": status,
+            "timed_out": timed_out,
+            "cancelled": cancelled,
+            "killed": strays,
+            "exec_failed": exec_failed,
         }
         # Atomically: a supervisor killed mid-write leaves no report at all,
         # never a partial one.
@@ -286,20 +320,21 @@ def main() -> int:
         args.ready_file.touch()
 
     gate_read, gate_write = os.pipe()
+    status_read, status_write = os.pipe()
     try:
         with args.log.open("ab") as out:
             proc = subprocess.Popen(
-                [sys.executable, "-I", "-c", GATE, str(gate_read), *command],
+                [sys.executable, "-I", "-c", GATE, str(gate_read), str(status_write), *command],
                 stdin=subprocess.DEVNULL,
                 stdout=out,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
-                pass_fds=(gate_read,),
+                pass_fds=(gate_read, status_write),
             )
     except BaseException as exc:
-        # Neither end of the gate pipe may outlive a launch that failed.
-        os.close(gate_read)
-        os.close(gate_write)
+        # No end of either pipe may outlive a launch that failed.
+        for fd in (gate_read, gate_write, status_read, status_write):
+            os.close(fd)
         if not isinstance(exc, OSError):
             raise
         # Nothing of the lane ran (Popen reaps a child whose exec failed), so
@@ -309,13 +344,16 @@ def main() -> int:
         print(f"lane-supervisor: {message}", file=sys.stderr)
         with contextlib.suppress(OSError):
             log_line(args.log, message)
-        return report(127 if isinstance(exc, FileNotFoundError) else 126, False, 0)
+        status = 127 if isinstance(exc, FileNotFoundError) else 126
+        return report(status, False, 0, exec_failed=True)
     os.close(gate_read)
+    os.close(status_write)
     if args.test_pause_before_check:
         time.sleep(args.test_pause_before_check)
     pending = signal.sigpending() & cancel_signals
     if stopping or cancel_requested() or pending:
         os.close(gate_write)  # EOF: the child exits 125 without exec
+        os.close(status_read)  # nothing is exec'd, so nothing to hear
         try:
             proc.wait(timeout=GATE_CLOSE_TIMEOUT)
         except subprocess.TimeoutExpired:
@@ -361,17 +399,20 @@ def main() -> int:
         reaper.reap()
         time.sleep(0.2)
     strays = contain(reaper, leader, args.grace)
+    exec_failed = read_exec_status(status_read)
+    if exec_failed:
+        log_line(args.log, "the lane's command could not be started; it never ran")
     # The reaper collected the leader's status; tell Popen so it never waits.
     proc.returncode = reaper.leader_status if reaper.leader_status is not None else -1
     if not timed_out and not stopping and strays:
         log_line(args.log, f"{strays} process(es) outlived the lane's leader; killed")
     if stopping:
         log_line(args.log, f"lane cancelled by signal {stopping}; not a verdict")
-        return report(128 + stopping, False, strays, cancelled=True)
+        return report(128 + stopping, False, strays, cancelled=True, exec_failed=exec_failed)
     if timed_out:
-        return report(TIMED_OUT_STATUS, True, strays)
+        return report(TIMED_OUT_STATUS, True, strays, exec_failed=exec_failed)
     assert reaper.leader_status is not None
-    return report(reaper.leader_status, False, strays)
+    return report(reaper.leader_status, False, strays, exec_failed=exec_failed)
 
 
 if __name__ == "__main__":

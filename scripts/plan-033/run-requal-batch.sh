@@ -51,7 +51,10 @@
 # starts, nothing is cleaned up by name, scope_failed is recorded with 125,
 # and the batch stops (exit 4). A lane
 # whose supervisor is stopped by a signal is recorded cancelled, with 128 + the
-# signal, and also stops the batch (exit 5).
+# signal, and also stops the batch (exit 5). A lane whose command could not
+# be started at all (not found: 127; not executable: 126) is recorded with
+# exec_failed true -- a lane that ran and exited 127 or 126 by itself has
+# exec_failed false -- and counts as a failed lane like any other.
 set -euo pipefail
 # Everything this driver writes -- progress, logs, reports, ownership proofs,
 # and whatever its lanes write under TMPDIR -- is private to this user,
@@ -447,7 +450,7 @@ drop_work() {
 # command's own status (124 when the deadline killed it). Sets WATCHDOG_FIRED
 # when the deadline did the killing (a lane may exit 124 by itself; psdirect
 # does on its own deadline), CANCELLED when the supervisor was stopped by a
-# signal, SCOPE_FAILED when no scope could be created (nothing ran),
+# signal, EXEC_FAILED when the lane's command could not be started, SCOPE_FAILED when no scope could be created (nothing ran),
 # CONTAINMENT_LOST when the supervisor's report is missing or invalid or its
 # scope is not verifiably empty afterwards (the scope is then killed and
 # verified), and adds to PROCESSES_KILLED every process cleanup signalled.
@@ -516,7 +519,7 @@ run_bounded() {
     fi
     state="$(scope_state "$unit" "$cgroup_file")"
     # The report is believed only if it is exactly what the supervisor writes:
-    # a JSON object with these four fields and these types. Anything else -- a
+    # a JSON object with these five fields and these types. Anything else -- a
     # missing, truncated or garbled report -- means containment is unknown.
     parsed="$(python3 -c '
 import json, sys
@@ -525,14 +528,17 @@ try:
 except (OSError, ValueError):
     sys.exit(1)
 ok = (
-    isinstance(r, dict) and set(r) == {"status", "timed_out", "cancelled", "killed"}
+    isinstance(r, dict)
+    and set(r) == {"status", "timed_out", "cancelled", "killed", "exec_failed"}
     and type(r["status"]) is int and 0 <= r["status"] <= 255
     and type(r["timed_out"]) is bool and type(r["cancelled"]) is bool
     and type(r["killed"]) is int and r["killed"] >= 0
+    and type(r["exec_failed"]) is bool
 )
 if not ok:
     sys.exit(1)
-print(r["status"], int(r["timed_out"]), int(r["cancelled"]), r["killed"])' "$report" 2>/dev/null)"
+print(r["status"], int(r["timed_out"]), int(r["cancelled"]), r["killed"], int(r["exec_failed"]))
+' "$report" 2>/dev/null)"
     valid=$?
     if [[ $valid -ne 0 || "$state" != empty ]]; then
         # The supervisor died, wrote nonsense, or left something running, or
@@ -551,10 +557,11 @@ print(r["status"], int(r["timed_out"]), int(r["cancelled"]), r["killed"])' "$rep
         drop_work "$work"
         return "$CONTAINMENT_LOST_STATUS"
     fi
-    read -r status sup_timed_out sup_cancelled sup_killed <<<"$parsed"
+    read -r status sup_timed_out sup_cancelled sup_killed sup_exec_failed <<<"$parsed"
     drop_work "$work"
     [[ $sup_timed_out -eq 1 ]] && WATCHDOG_FIRED=1
     [[ $sup_cancelled -eq 1 ]] && CANCELLED=1
+    [[ $sup_exec_failed -eq 1 ]] && EXEC_FAILED=1
     PROCESSES_KILLED=$((PROCESSES_KILLED + sup_killed))
     return "$status"
 }
@@ -583,6 +590,7 @@ for row in "${LANES[@]}"; do
     : >"$log"
     WATCHDOG_FIRED=0
     CANCELLED=0
+    EXEC_FAILED=0
     CONTAINMENT_LOST=0
     SCOPE_FAILED=0
     PROCESSES_KILLED=0
@@ -621,10 +629,10 @@ for row in "${LANES[@]}"; do
     run_dir="$(sed -n 's/^LOCAL_RUN_DIR=//p' "$log" | tail -1)"
     python3 - "$PROGRESS" "$name" "$runner" "$COMMIT" "$started" "$completed" "$status" "$run_dir" \
         "$budget" "$timed_out" "$PROCESSES_KILLED" "$CANCELLED" "$CONTAINMENT_LOST" \
-        "$SCOPE_FAILED" "$TEST_SCOPE" <<'PY'
+        "$SCOPE_FAILED" "$TEST_SCOPE" "$EXEC_FAILED" <<'PY'
 import json, sys
 (path, name, runner, commit, started, completed, status, run_dir, budget, timed_out, strays,
- cancelled, lost, scope_failed, test_scope) = sys.argv[1:]
+ cancelled, lost, scope_failed, test_scope, exec_failed) = sys.argv[1:]
 import os, stat
 # The record was reserved private before the first lane; append only to the
 # file that is still exactly that (checked on the descriptor actually written).
@@ -643,6 +651,7 @@ with os.fdopen(fd, "a", encoding="utf-8") as fh:
         "processes_killed": int(strays),
         "cancelled": cancelled == "1", "containment_lost": lost == "1",
         "scope_failed": scope_failed == "1", "test_scope_tool": test_scope == "1",
+        "exec_failed": exec_failed == "1",
     }) + "\n")
 PY
     if [[ $timed_out -eq 1 ]]; then

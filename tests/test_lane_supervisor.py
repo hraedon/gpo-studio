@@ -119,6 +119,7 @@ def test_a_signal_before_the_gate_opens_is_reported_as_that_signal(
         "timed_out": False,
         "cancelled": True,
         "killed": 0,
+        "exec_failed": False,
     }
     assert "lane cancelled before it started" in _log(tmp_path)
     assert not marker.exists(), "the lane ran after the cancellation"
@@ -175,11 +176,32 @@ def test_an_unstartable_lane_command_is_127_or_126_not_1(
         "timed_out": False,
         "cancelled": False,
         "killed": 0,
+        "exec_failed": True,
     }
     log = _log(tmp_path)
     reason = "not found" if kind == "missing" else "not executable"
     assert f"=== watchdog: cannot start the lane command {command}: {reason}" in log
     assert "Traceback" not in log
+
+
+@pytest.mark.parametrize("status", [127, 126])
+def test_a_lane_that_exits_127_or_126_itself_is_not_an_exec_failure(
+    tmp_path: Path, status: int
+) -> None:
+    """Sol review, Low: an unstartable command and a lane that ran and exited
+    127 or 126 by itself reported identical fields. The report's exec_failed
+    tells them apart."""
+    proc = _start(tmp_path, ["sh", "-c", f"exit {status}"])
+    proc.wait(timeout=60)
+    assert proc.returncode == status
+    assert _report(tmp_path) == {
+        "status": status,
+        "timed_out": False,
+        "cancelled": False,
+        "killed": 0,
+        "exec_failed": False,
+    }
+    assert "cannot start" not in _log(tmp_path)
 
 
 def _patched_supervisor(tmp_path: Path, old: str, new: str) -> Path:
@@ -229,16 +251,35 @@ def test_a_gate_wrapper_that_will_not_exit_on_cancel_is_lost_containment_not_a_h
 
 
 #: Runs the supervisor in-process with subprocess.Popen made to fail (as a
-#: fork can, with EAGAIN), then prints how it ended and which descriptors it
-#: left open that were not open before.
+#: fork can, with EAGAIN), then prints how it ended and, for every pipe the
+#: supervisor created, whether either end is still open. Each pipe end is
+#: identified by its live target (readlink of /proc/self/fd/N: "pipe:[inode]"),
+#: not by its number: a descriptor number can be reused, and the interpreter
+#: opens descriptors of its own on import (ctypes does on Python 3.14) -- which
+#: is also why the supervisor's imports are primed before anything is counted.
 _POPEN_FAILS = """\
 import errno, json, os, runpy, subprocess, sys
+import argparse, contextlib, ctypes, signal, time, pathlib  # the supervisor's imports
 
 def refuse(*args, **kwargs):
     raise OSError(errno.EAGAIN, "Resource temporarily unavailable")
 
+def target(fd):
+    try:
+        return os.readlink(f"/proc/self/fd/{fd}")
+    except OSError:
+        return None
+
+real_pipe = os.pipe
+created = []
+
+def pipe():
+    read, write = real_pipe()
+    created.extend([(read, target(read)), (write, target(write))])
+    return read, write
+
 subprocess.Popen = refuse
-before = set(os.listdir("/proc/self/fd"))
+os.pipe = pipe
 sys.argv = sys.argv[1:]
 try:
     runpy.run_path(sys.argv[0], run_name="__main__")
@@ -247,8 +288,8 @@ except SystemExit as exc:
     outcome = exc.code
 except BaseException as exc:
     outcome = repr(exc)
-after = set(os.listdir("/proc/self/fd"))
-print(json.dumps({"outcome": outcome, "leaked": sorted(after - before)}))
+still_open = [name for fd, name in created if target(fd) == name]
+print(json.dumps({"outcome": outcome, "pipe_ends": len(created), "still_open": still_open}))
 """
 
 
@@ -264,12 +305,14 @@ def test_a_launch_that_fails_closes_the_gate_pipe_and_still_reports(tmp_path: Pa
         [command[0], str(harness), *command[1:]], capture_output=True, text=True, timeout=60
     )
     result = json.loads(completed.stdout.strip().splitlines()[-1])
-    assert result == {"outcome": 126, "leaked": []}, completed.stderr
+    # Two pipes: the launch gate and the exec-status pipe; no end of either open.
+    assert result == {"outcome": 126, "pipe_ends": 4, "still_open": []}, completed.stderr
     assert _report(tmp_path) == {
         "status": 126,
         "timed_out": False,
         "cancelled": False,
         "killed": 0,
+        "exec_failed": True,
     }
     assert "could not start the lane's launch gate" in _log(tmp_path)
 
