@@ -58,6 +58,7 @@ exclude = [
   "githooks/",
   "reflections/",
   "dist/",
+  "dist-repro/",
   "build/",
 ]
 

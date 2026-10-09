@@ -326,6 +326,29 @@ test("native content is displayed as text and the populated dialog is accessible
   ).toBeFocused();
 });
 
+test("the populated dialog meets the same bar in a narrow window", async ({
+  page,
+}) => {
+  // At phone width the redirection table's full path scrolls sideways; the
+  // scan proves a keyboard user can reach that scroll.
+  await page.setViewportSize({ width: 360, height: 800 });
+  const form = await openReview(page);
+  await form
+    .getByLabel("Current file", { exact: true })
+    .setInputFiles(upload(NATIVE));
+  await form.getByRole("button", { name: "Review files" }).click();
+  await expect(page.locator(".fdeploy-document")).toContainText("Documents");
+  const audit = await new AxeBuilder({ page }).analyze();
+  expect(
+    audit.violations
+      .filter((violation) => ["serious", "critical"].includes(violation.impact))
+      .map(({ id, nodes }) => ({
+        id,
+        targets: nodes.map((node) => node.target.join(" ")),
+      })),
+  ).toEqual([]);
+});
+
 test("closing an empty form is not blocked by its required file field", async ({
   page,
 }) => {

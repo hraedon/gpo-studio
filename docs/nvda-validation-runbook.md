@@ -1,9 +1,9 @@
 # NVDA validation runbook
 
-The manual screen-reader acceptance gate for GPO Studio 1.0. The automated axe,
-keyboard, and accessibility-tree tests must pass first, but they do not replace
-a person listening to the interface through NVDA and using NVDA's navigation
-model.
+The manual screen-reader acceptance gate for GPO Studio releases. It was
+written for 1.0 and extended for 1.1. The automated axe, keyboard, and
+accessibility-tree tests must pass first, but they do not replace a person
+listening to the interface through NVDA and using NVDA's navigation model.
 
 Run this procedure against the exact release candidate. Do not mark the manual
 items in [`browser-accessibility-checklist.md`](browser-accessibility-checklist.md)
@@ -12,6 +12,13 @@ complete until a person has performed and recorded this session.
 The candidate is published as a GitHub prerelease before this gate runs. That
 publication does not approve the final release. It fixes the wheel and checksum
 that this gate evaluates.
+
+**What a 1.1 session covers.** The 1.0 journeys (sections 1 to 6 below) and
+what 1.1 added to the interface (sections 7 to 12): sidebar navigation, dark
+theme switching, the RSOP prediction, Security template and Folder
+Redirection panels, and the sticky row actions of wide tables. The 1.0.0
+session covered none of the 1.1 additions. For 1.1.0 this session is required
+before final approval, against a `v1.1.0-rc.N` candidate.
 
 ## Scope and pass rule
 
@@ -31,15 +38,31 @@ Classify findings as:
 - **Minor:** pronunciation, verbosity, or polish issue that does not obscure
   meaning or state.
 
-Any blocker fails the release gate. Record and triage significant findings
-before approval; the release owner must explicitly accept any that remain.
+How findings decide the gate:
+
+- **Any blocker fails acceptance.** The candidate is not promoted. The fix
+  ships in a new candidate, and the session is repeated on that candidate.
+- **Every other significant finding needs the release owner's explicit,
+  recorded disposition** before approval: fixed (in a new candidate), accepted
+  for this release with a reason, or deferred to a named work item. A
+  significant finding with no recorded disposition blocks approval.
+- **Minor findings are recorded.** They need no disposition to approve.
+- **Any change to application behavior requires a new candidate**
+  (`vX.Y.Z-rc.N+1`), including a fix for a finding from this session. Rerun
+  the journeys the change touches, plus the page-structure and dialog smoke
+  checks, on the new candidate's wheel and record its SHA-256 afresh. The
+  final release is promoted from the accepted candidate's code with no
+  application-behavior change; only version, changelog and evidence files may
+  differ.
 
 ## Prepare the exact candidate
 
 Record all of the following before testing:
 
 - GPO Studio version and source commit.
-- Wheel filename and SHA-256 from the release `SHA256SUMS`.
+- Wheel filename and the **exact** SHA-256 of that wheel, copied from the
+  `SHA256SUMS` in the candidate's release assets. For 1.1.0rc1 the wheel is
+  `gpo_studio-1.1.0rc1-py3-none-any.whl`.
 - Windows edition, version, and build.
 - NVDA version.
 - Edge and Firefox ESR versions.
@@ -47,7 +70,21 @@ Record all of the following before testing:
 
 Install the candidate using the [Windows quickstart](windows-quickstart.md).
 Download the wheel and `SHA256SUMS` from the candidate's GitHub Release
-**Assets**, not from the source-code ZIP or a CI Actions artifact.
+**Assets**, not from the source-code ZIP, a CI Actions artifact or a local
+build. The session is evidence only for the wheel whose hash it records.
+Before installing, confirm the downloaded file is that wheel, for example:
+
+```powershell
+$Wheel = Get-Item (Join-Path $HOME "Downloads\gpo_studio-1.1.0rc1-py3-none-any.whl")
+$Expected = (Select-String -Path (Join-Path $HOME "Downloads\SHA256SUMS") -SimpleMatch $Wheel.Name).Line.Split(" ")[0]
+$Actual = (Get-FileHash -Algorithm SHA256 $Wheel.FullName).Hash.ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "Wheel hash $Actual does not match SHA256SUMS ($Expected)" }
+"Wheel SHA-256: $Actual"
+```
+
+Record the printed SHA-256 in the evidence record. If it does not match, stop:
+the session cannot be recorded against that candidate.
+
 Use a new disposable workspace, for example:
 
 ```powershell
@@ -179,6 +216,171 @@ state when applicable, and whether focus landed where expected.
 4. Reopen the dialog and activate **Download export**. Confirm the action is
    operable and the browser reports the download without trapping focus.
 
+## Edge: journeys added in 1.1
+
+Run these after the 1.0 journeys, in the same Edge window and workspace. The
+synthetic inputs below use the reserved `example.test` domain; do not replace
+them with real names, paths or SIDs.
+
+### 7. Sidebar navigation
+
+1. Press **D** to the sidebar. Confirm its controls are discoverable in order:
+   **New GPO**, **Import estate**, **Import GPMC backup**, **Starter GPOs**,
+   **RSOP prediction**, **Security template**, **Folder Redirection**,
+   **Scripts**, the **Filter policies** search, the **Group Policy objects**
+   navigation list, and the colour-theme button in the sidebar footer.
+2. Tab through the sidebar. Confirm each button's name is announced once, in
+   that order, and that focus never jumps into the main workspace and back.
+3. For each of **RSOP prediction**, **Security template**, **Folder
+   Redirection** and **Scripts**: activate it, confirm NVDA announces the
+   dialog's name and focus lands inside the dialog, press Escape, and confirm
+   focus returns to the sidebar button that opened it.
+4. Type part of `NVDA Synthetic Policy` into **Filter policies**. Confirm the
+   list is reachable afterwards and that NVDA conveys which policies remain
+   (an empty or stale list with no announcement is a finding).
+
+### 8. Dark theme switching
+
+1. Tab to the colour-theme button in the sidebar footer. Confirm NVDA
+   announces its name and current mode, for example "Colour theme: automatic.
+   Activate to change."
+2. Activate it three times. Confirm each press announces the new mode (dark,
+   light, automatic, in that order), focus stays on the button, and nothing
+   else on the page is read out or moved.
+3. Leave it on **Dark**. Reload the page and confirm the button still
+   announces dark.
+4. In the dark theme, repeat section 3 steps 1 to 5 (the **Add setting**
+   dialog, its validation error and its focus return). Confirm the error
+   summary and field messages are announced exactly as in the light theme.
+   If you also check visually, a control or message that cannot be seen in
+   the dark theme is a finding, even if NVDA reads it.
+5. Return the button to **Automatic** before the remaining journeys, or note
+   which theme they ran in.
+
+### 9. RSOP prediction
+
+1. Activate **RSOP prediction** in the sidebar. Confirm NVDA announces
+   `Predict effective policy`, and that the explanatory note (what the
+   prediction does and does not model) can be read in browse mode.
+2. Tab through the form. Confirm every field is named: Computer name,
+   Computer DN, User name, User DN, Domain (required), Loopback, Computer
+   group memberships, User group memberships, Query id and Topology, and that
+   the help text under the membership and topology fields is announced or
+   reachable.
+3. Enter Computer name `CL01`, Computer DN
+   `CN=CL01,OU=Servers,DC=example,DC=test`, and Domain `example.test`.
+   Replace the Topology text with:
+
+   ```json
+   {"nodes": [
+     {"dn": "OU=Servers,DC=example,DC=test", "name": "Servers", "scope": "ou",
+      "parent_dn": "DC=example,DC=test",
+      "links": [{"gpo_guid": "22222222-3333-4444-5555-666666666666", "scope": "ou",
+                 "scope_dn": "OU=Servers,DC=example,DC=test", "order": 1}]},
+     {"dn": "DC=example,DC=test", "name": "example", "scope": "domain",
+      "links": [{"gpo_guid": "11111111-2222-3333-4444-555555555555", "scope": "domain",
+                 "scope_dn": "DC=example,DC=test", "order": 1}]}],
+    "gpos": [
+     {"guid": "11111111-2222-3333-4444-555555555555", "name": "Domain Baseline",
+      "settings": [{"id": "s-a", "side": "computer", "hive": "HKLM",
+                    "key": "Software\\Policies\\NvdaSynthetic", "value_name": "Val",
+                    "registry_type": "REG_SZ", "value": "domain"}]},
+     {"guid": "22222222-3333-4444-5555-666666666666", "name": "Servers Override",
+      "settings": [{"id": "s-b", "side": "computer", "hive": "HKLM",
+                    "key": "Software\\Policies\\NvdaSynthetic", "value_name": "Val",
+                    "registry_type": "REG_SZ", "value": "ou"}]}]}
+   ```
+
+4. Activate **Compute**. Confirm the result is discoverable without visual
+   inspection: the **Warnings from this computation** note (this topology
+   links a GPO at the domain root), headings **Computer settings**, **User
+   settings** and **GPOs** (H), and the two tables (T). With Ctrl+Alt+Arrow
+   keys, confirm the winning value `ou` is read with its winning GPO
+   `Servers Override` and, under Overrode, the domain GPO's GUID
+   (`11111111-...`). Confirm the User side says no value is predicted to
+   apply rather than staying silent.
+5. Tab through the results. Each result table sits in a scrollable region
+   named after its heading (for example "GPOs"). Confirm the region's name is
+   announced when it takes focus, and that the arrow keys scroll it when it is
+   wider than the dialog.
+6. Replace the Topology text with `{ not json` and activate **Compute**.
+   Confirm the error summary is announced, takes focus, and says the topology
+   is not valid JSON.
+7. Restore the topology from step 3 but change the first setting's
+   `registry_type` to `REG_DWORD` (its value `domain` is not a number), and
+   activate **Compute**. Confirm the server's refusal is announced the same
+   way and identifies the problem.
+8. Press Escape and confirm focus returns to **RSOP prediction**.
+
+### 10. Security template
+
+1. Activate **Security template**. Confirm NVDA announces
+   `Render a security template`, and that the note saying the template was
+   validated by `secedit` but never applied can be read.
+2. Confirm the **Families** select announces both options, and **Scope**
+   announces Member server and Domain controller.
+3. Replace the Families text with `{"audit": {"logon_events": "success"}}` and
+   activate **Render**. Confirm the limitations ("What this answer does not
+   say") are reached **before** the template, that **Validation** and
+   **GptTmpl.inf** are headings, and that the rendered template is a named
+   region ("GptTmpl.inf contents") whose lines can be read line by line.
+4. Change **Families** to Object security. Confirm **Scope** disappears and is
+   not announced or reachable afterwards, rather than lingering as a hidden
+   control.
+5. With Object security selected, enter `{ not json` and activate **Render**.
+   Confirm the error summary is announced and focused. Then enter
+   `{"audit": {}}` and confirm the refusal names the unrecognised key and the
+   keys this mode accepts.
+6. Press Escape and confirm focus returns to **Security template**.
+
+### 11. Folder Redirection
+
+This panel reads a native `fdeploy1.ini`. Create a synthetic one first, in
+UTF-16LE with a byte-order mark as Windows writes it:
+
+```powershell
+$Guid = "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}"
+$Lines = @("", "[version]", "version=100", "[Folder_Redirection]",
+  "$Guid=s-1-1-0;", "[${Guid}_s-1-1-0]", "Flags=1021",
+  "FullPath=\\fileserver.example.test\redirected\%USERNAME%\Documents", "")
+$Ini = Join-Path $NvdaData "fdeploy1.ini"
+[IO.File]::WriteAllText($Ini, ($Lines -join "`r`n"), [Text.Encoding]::Unicode)
+```
+
+1. Activate **Folder Redirection**. Confirm NVDA announces
+   `Review native policy files`, and that **Current file** announces it is
+   required and has the file help text.
+2. Choose the synthetic `fdeploy1.ini` as **Current file** and activate
+   **Review files**. Confirm the status message is announced when the review
+   completes, without moving focus unexpectedly.
+3. Confirm the result is navigable: the document heading, the limitations
+   (the Flags number is shown as stored, not decoded), and the
+   **Redirection sections** table, where Ctrl+Alt+Arrow keys associate
+   Documents, the principal, the full path and `1021`.
+4. Expand **Full file report** and confirm it can be read.
+5. Choose an empty text file, or any non-UTF-16 file, as **Current file** and
+   review it. Confirm the error is announced and names the file.
+6. Press Escape and confirm focus returns to **Folder Redirection**.
+
+### 12. Sticky row actions on a wide table
+
+1. Select `NVDA Synthetic Policy` and open **Policy settings**. Add a setting
+   whose path and value are long enough to make the table scroll sideways,
+   for example key
+   `Software\Policies\NvdaSynthetic\AVeryLongSubkeyNameForWidthTesting\AndAnotherOne`,
+   value name `LongValue`, type `REG_SZ`, and a value of about 120
+   characters. (Zooming the page to 200 percent has the same effect.)
+2. Tab to the new row's actions. Confirm **Edit**, **Comment** and the remove
+   button are reached in order, that the remove button is named ("Remove
+   setting") rather than read as a bare symbol, that it is possible to tell
+   which row each action acts on (as in section 4 step 3), and that the
+   focused action stays visible at the right edge instead of scrolling out of
+   view.
+3. Use Ctrl+Alt+Arrow keys along the row. Confirm the actions cell is read as
+   part of the same row as the path and value.
+4. Activate **Edit**, then press Escape. Confirm focus returns to that row's
+   **Edit** button.
+
 ## Firefox ESR: smoke journey
 
 Repeat these checks in Firefox ESR:
@@ -189,6 +391,16 @@ Repeat these checks in Firefox ESR:
    and focus return.
 4. Preferences-table headers, cell navigation, and row/action context.
 5. Export-review dialog name, digest labels, actions, and focus return.
+6. Sidebar order and focus return from the four panel buttons (section 7
+   steps 1 and 3).
+7. Colour-theme button announcements across all three modes (section 8
+   steps 1 and 2).
+8. RSOP prediction: compute the section 9 topology, reach the result headings
+   and tables, and hear the invalid-JSON error (section 9 steps 3, 4 and 6).
+9. Security template: render, reach the limitations before the template, and
+   confirm Scope disappears for Object security (section 10 steps 3 and 4).
+10. Folder Redirection: review the synthetic file and navigate the
+    redirection table (section 11 steps 2 and 3).
 
 Repeat the conflict journey in Firefox only if the Edge run found a
 browser-independent issue or Firefox behavior suggests a related regression.
@@ -200,9 +412,11 @@ section of `browser-accessibility-checklist.md`:
 
 ```text
 Candidate version:
+Release tag:
 Source commit:
 Wheel filename:
-Wheel SHA-256:
+Wheel SHA-256 (exact, from the release assets' SHA256SUMS):
+Downloaded wheel hash checked against SHA256SUMS: YES / NO
 Windows edition/version/build:
 NVDA version:
 Edge version:
@@ -217,14 +431,23 @@ Edge dialog/focus/validation: PASS / FAIL — notes
 Edge table/action context: PASS / FAIL — notes
 Edge conflict recovery: PASS / FAIL — notes
 Edge export review: PASS / FAIL — notes
+Edge sidebar navigation (1.1): PASS / FAIL — notes
+Edge dark theme switching (1.1): PASS / FAIL — notes
+Edge RSOP prediction (1.1): PASS / FAIL — notes
+Edge Security template (1.1): PASS / FAIL — notes
+Edge Folder Redirection (1.1): PASS / FAIL — notes
+Edge sticky row actions (1.1): PASS / FAIL — notes
 Firefox smoke journey: PASS / FAIL — notes
 Repeated/noisy announcements: PASS / FAIL — notes
 
 Findings:
 - ID / severity / browser / steps / expected / actual speech / workaround
 
+Blockers: none / list (any blocker fails acceptance)
 Gate decision: PASS / FAIL
-Release owner disposition for significant findings:
+Release owner disposition for each significant finding
+(fixed in candidate rc.N / accepted for this release, with reason / deferred to WI-NNN):
+Behavior changed since this candidate? NO / YES (a change requires a new candidate and a repeat on its wheel)
 ```
 
 Attach Speech Viewer excerpts and screenshots where useful. Do not record

@@ -23,7 +23,29 @@ The stable line is `1.0.x`. Security fixes land on `main` and ship in the next
 |---------|-----------|
 | 1.0.x (latest patch)   | Yes |
 | Older 1.0.x patches    | No — upgrade to the latest patch |
+| 1.1.0 release candidates (`1.1.0rc1` and later) | No — test builds; report findings against them, but run `1.0.x` in production |
 | < 1.0 (dev builds, release candidates) | No |
+
+### The planned 1.1.x line
+
+`1.1.0rc1` is a release candidate, published as a GitHub prerelease for
+hands-on acceptance. It is not approved for production use, receives no
+backported fixes, and is superseded by any later candidate or by the final
+`1.1.0`. A vulnerability found in a candidate is still worth reporting: the
+fix lands on `main` and ships in the next candidate or in `1.1.0`.
+
+When `1.1.0` is approved, `1.1.x` becomes the stable line and this table and
+the policy below are updated for it. Until then `1.0.x` remains the supported
+line. Two compatibility facts for the planned line are already fixed by the
+candidate (see the [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md)):
+
+- `1.1.0` migrates a `1.0.x` workspace in place from schema 1 to schema 4,
+  without making a backup, and `1.0.x` then refuses the file. Back up with
+  `1.0.x` first; rolling back means restoring that backup, not downgrading.
+- Some exported bytes and review digests differ from what `1.0.0` produced for
+  the same content (the `Registry.pol` record order, archive layout, GPP
+  Registry wire values, and digests of GPOs with preference items). None of
+  these loses data; the changelog lists each one.
 
 ### Compatibility and deprecation in 1.0.x
 

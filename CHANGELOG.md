@@ -5,20 +5,29 @@ All notable changes to GPO Studio are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current version: `1.0.0`.
+Current version: `1.1.0rc1` (release candidate). The latest final release is
+`1.0.0`.
 
-## [Unreleased] (1.1.0 draft)
+## [Unreleased]
 
-> **Draft, not a release record.** This section becomes the 1.1.0 entry when
-> the release is cut (target 2026-10-31; see
-> [the direction](docs/direction-2026-10-07-plan-034-completion.md)). The
-> package version is still `1.0.0`, Plan 034 has open exits, and the
-> [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md) is a draft.
+## [1.1.0-rc.1] - 2026-10-09
+
+> **Release candidate, not the final 1.1.0 record.** `1.1.0rc1` is published
+> as a GitHub prerelease so that its wheel and checksum are fixed for the
+> owner's hands-on NVDA acceptance; it is not approved for production use.
+> Every Plan 034 exit has landed, and the
+> [release 1.1.0 batch](docs/plan-033/release110-batch.md) requalified all 26
+> lanes at one commit. The
+> [1.1.0 evidence manifest](docs/release-evidence-1.1.0.md) is marked for this
+> candidate and lists what remains before final approval (target 2026-10-31;
+> see [the direction](docs/direction-2026-10-07-plan-034-completion.md)). When
+> 1.1.0 is approved it gets its own entry, as 1.0.0 did after its candidates.
 > On 2026-10-08 the entries were regrouped from a single chronological list
 > into the sections below. Their text is unchanged except for three kinds of
 > edit: notes marked *Later:*, which record where a newer entry superseded a
 > statement; parenthetical cross-references where one entry was split across
-> two sections; and entries marked *New in this draft*.
+> two sections; and entries marked *New in this draft* (or, added while
+> preparing this candidate, *New in this candidate*).
 
 > Post-1.0 development has added much more to `src/` than to the
 > operator-facing product. The entries below mark **surfaced** capabilities
@@ -578,6 +587,17 @@ release itself (`tests/fixtures/release-1.0.0-workspace/`,
 
 Operator-facing:
 
+- *New in this candidate:* **RSOP and Security template output that scrolls
+  sideways is reachable from the keyboard.** A result table wider than the
+  dialog (a blocked GPO's reasons are enough) scrolled horizontally inside a
+  container that could not take focus, so a keyboard user could not scroll
+  it. Each RSOP result table, the Security template's validation-issue table
+  and its rendered `GptTmpl.inf` block now sit in focusable regions named
+  after their content. Found by a new axe scan of the open RSOP dialog in the
+  light and the dark theme, populated and with validation errors
+  (`tests/browser/rsop.spec.mjs`), which closes the gap the workspace-wide
+  scan leaves for closed dialogs, and by a narrow-window scan of a rendered
+  security template.
 - *New in this draft:* **GPP files keep their document order and retained root
   content after an edit, fixed and awaiting requalification (WI-072,
   WI-073).** Found by the report-parity offline differ, which re-renders the
@@ -633,6 +653,9 @@ Operator-facing:
   Hypothesis properties over random interleavings). The report-parity lane
   now requires its three formerly divergent cases to agree with Windows
   exactly (see Evidence). Both items close when the requalification run banks.
+  *Later:* the release 1.1.0 batch banked at `de9736e`; the three cases agreed
+  exactly (`report-parity-20261009001727-3532`) and WI-072 and WI-073 are
+  closed.
 
 - *New in this draft:* **A user-side scheduled task with no principal ran as
   SYSTEM, fixed and awaiting requalification (WI-079).** `serialize_gpp`
@@ -646,7 +669,8 @@ Operator-facing:
   serializers' signatures). Imported tasks carry their own `runAs` and are
   unaffected, and no lane candidate holds a user-side task, so no lane
   expectation moves. Covered by `tests/test_gpp_task_scope.py`, grounded in the
-  native captures.
+  native captures. *Later:* requalified by the release 1.1.0 batch at
+  `de9736e`; WI-079 is closed.
 
 - *New in this draft (batch 2):* **GPP Registry native export, fixed and awaiting batch-2 requalification
   (WI-075).** Since WP-1B the GPMC backup export refused every GPO with a GPP
@@ -677,6 +701,8 @@ Operator-facing:
   planner: the GroupPolicy module has no `-Default` parameter, so nothing
   measured them. The decimal and `;`-joined forms Studio wrote before batch 2,
   and REG_BINARY that is not whole hex bytes, are refused on read.
+  *Later:* requalified by the release 1.1.0 batch at `de9736e`
+  (`wp1b-writer-20261009001221-5737`); WI-075 is closed.
 - *New in this draft (batch 2):* **Firewall policy registers the firewall snap-in tool half.** A machine
   Registry.pol holding only `SOFTWARE\Policies\Microsoft\WindowsFirewall`
   keys now registers `[{35378EAC-…}{B05566AC-…}]`, as native authoring did

@@ -10,6 +10,7 @@ import {
   renderRsopResult,
   renderSideSettings,
   renderWarnings,
+  scrollRegion,
   splitPrincipals,
 } from "../../src/gpo_studio/static/js/rsop.mjs";
 
@@ -234,6 +235,42 @@ describe("renderGpoResults", () => {
       },
     ]);
     expect(html).toContain("security_filter_read_denied");
+  });
+});
+
+describe("scrollRegion", () => {
+  // A table wider than the dialog scrolls sideways; a keyboard user can only
+  // scroll a container that takes focus, and a focusable one needs a name.
+  test("both result tables sit in focusable, named regions", () => {
+    const settings = renderSideSettings("computer", [
+      {
+        hive: "HKLM",
+        key: "Software\\Policies\\StudioLab",
+        value_name: "Val",
+        effective_value: "ou",
+        winning_gpo_name: "Servers Override",
+        overridden_by: [],
+      },
+    ]);
+    const gpos = renderGpoResults([
+      {
+        precedence: 1,
+        gpo_name: "Servers Override",
+        status: "applied",
+        filtering_reasons: [],
+        link_scope: "OU=Servers,DC=ad,DC=hraedon,DC=com",
+      },
+    ]);
+    expect(settings).toContain(
+      '<div class="table-card" tabindex="0" role="region" aria-label="Computer settings">',
+    );
+    expect(gpos).toContain(
+      '<div class="table-card" tabindex="0" role="region" aria-label="GPOs">',
+    );
+  });
+
+  test("escapes the region name", () => {
+    expect(scrollRegion('a"b')).toContain('aria-label="a&quot;b"');
   });
 });
 
