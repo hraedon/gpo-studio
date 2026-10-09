@@ -276,9 +276,17 @@ required job, the coverage summary, and the artifact hashes below. Local
 success is not release evidence.
 
 Local pre-release observation, **not release evidence**: on 2026-10-08, on the
-`release/1.1.0-prep` working tree, the frontend checks (Prettier, ESLint, 97
-Vitest tests) and 50 Playwright browser tests passed on this host. The Python
-suite result for that tree is in the commit that adds this file.
+candidate branch at `a4a3686` (Python 3.14 on a Linux development host; the
+workflow uses Python 3.13), the full Python suite passed (6361 passed, 15
+skipped) with total branch coverage of 89.94 percent against the 84 percent
+floor, as did ruff, mypy, `check_safety.py`, `rehearse_upgrade_rollback.py`,
+the frontend checks (Prettier, ESLint, 148 Vitest tests) and 67 Playwright
+browser tests (Chromium, plus the Firefox smoke subset). From a clean export
+of that commit, two builds with `SOURCE_DATE_EPOCH=315532800` produced
+byte-identical wheels and source distributions, the gate accepted both for
+`v1.1.0-rc.1`, and the installed-package smoke and the upgrade rehearsal
+passed against that wheel. The tagged run rebuilds and rechecks everything;
+its artifacts, not these, are the release.
 
 ## Accessibility evidence
 
